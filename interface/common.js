@@ -2,7 +2,7 @@ window.katex = katex;
 
 // Keep this aligned with `CACHE_VERSION` in `interface/service-worker.js` when you want
 // deterministic invalidation of cached UI assets and rendered-state snapshots.
-window.UI_CACHE_VERSION = "v6";
+window.UI_CACHE_VERSION = "v12";
 var currentDomain = {
     domain: 'assistant', // finchat, search
     page_loaded: false,
@@ -349,6 +349,15 @@ function updateMessageTocForElement(elem_to_render_in, rawMarkdown, continuous =
     // Use the entire card content (excluding ToC UI) for BOTH streaming and non-streaming.
     // This prevents “chunk-sized” word counts from keeping ToC hidden during streaming and
     // avoids ToC disappearing when later chunks are small.
+    var $tabsContainer = $cardBody.find('.model-tabs-container').first();
+    if ($tabsContainer.length > 0) {
+        // ToC should not render when the tabs container is present.
+        // In a tabbed response we render per-tab ToC via updateMessageTocForTabs.
+        ensureMessageTocContainer($cardBody).hide().empty();
+        updateMessageTocForTabs($tabsContainer, rawMarkdown, continuous);
+        return;
+    }
+
     var contentText = '';
     try {
         contentText = $cardBody.children().not('.message-toc-container').text();
@@ -375,6 +384,72 @@ function updateMessageTocForElement(elem_to_render_in, rawMarkdown, continuous =
         return;
     }
     renderMessageToc($tocContainer, items, tocPrefix);
+}
+
+function updateMessageTocForTabs($tabsContainer, rawMarkdown, continuous = false) {
+    /**
+     * Render per-tab ToC inside a tabbed response container.
+     *
+     * @param {jQuery} $tabsContainer
+     * @param {string} rawMarkdown
+     * @param {boolean} continuous
+     */
+    if (!$tabsContainer || $tabsContainer.length === 0) return;
+    var $card = $tabsContainer.closest('.card');
+    var $cardBody = $tabsContainer.closest('.card-body');
+    if ($card.length === 0 || $cardBody.length === 0) return;
+
+    var now = Date.now();
+    if (continuous) {
+        var last = parseInt($card.attr('data-toc-last-update') || '0', 10);
+        if (now - last < TOC_UPDATE_THROTTLE_MS) return;
+        $card.attr('data-toc-last-update', String(now));
+    }
+
+    var tocPrefix = getOrCreateTocPrefix($card);
+    var $panes = $tabsContainer.find('> .tab-content > .tab-pane');
+    var anyRendered = false;
+
+    $panes.each(function(idx, pane) {
+        var $pane = $(pane);
+        var $body = $pane.find('> .model-tab-body');
+        if ($body.length === 0) return;
+
+        var contentText = '';
+        try {
+            contentText = $body.text();
+        } catch (e) {
+            contentText = $pane.text();
+        }
+        var wordCount = estimateWordCountFromMarkdown(contentText || rawMarkdown || '');
+
+        $pane.find('.message-toc-container').remove();
+        var $tocContainer = $('<div class="message-toc-container" style="display:none;"></div>');
+        $pane.prepend($tocContainer);
+
+        if (wordCount < TOC_WORD_THRESHOLD) {
+            $tocContainer.hide().empty();
+            return;
+        }
+
+        var panePrefix = tocPrefix + '-tab-' + idx;
+        var items = buildTocItemsFromCard($body, panePrefix);
+        if (!items || items.length === 0) {
+            items = buildFallbackTocItemsFromCard($body, panePrefix);
+        }
+        if (!items || items.length === 0) {
+            $tocContainer.hide().empty();
+            return;
+        }
+        renderMessageToc($tocContainer, items, panePrefix);
+        anyRendered = true;
+    });
+
+    if (anyRendered) {
+        try {
+            ensureMessageTocContainer($cardBody).hide().empty();
+        } catch (e) { /* ignore */ }
+    }
 }
 
 // ToC interactions: toggle and scroll (expanding showMore and <details> if needed)
@@ -626,6 +701,14 @@ function showMore(parentElem, text = null, textElem = null, as_html = false, sho
         requestAnimationFrame(function() {
             $chatView.scrollTop(originalScrollTop);
         });
+
+        // If the rendered message includes model tabs (Main/TLDR), showMore() rebuilds the DOM.
+        // Re-apply model tabs on the new `.more-text` wrapper so source nodes get hidden.
+        try {
+            if (typeof applyModelResponseTabs === 'function') {
+                applyModelResponseTabs(moreText);
+            }
+        } catch (e) { /* ignore */ }
     }
     else {
         var moreText = text.slice(20);
@@ -662,6 +745,13 @@ function showMore(parentElem, text = null, textElem = null, as_html = false, sho
             }
             textElem.find('.show-more').each(function () { $(this).text('[hide]'); })
             $(this).text('[hide]');
+
+            // Ensure model tabs (if any) are applied after expanding.
+            try {
+                if (typeof applyModelResponseTabs === 'function') {
+                    applyModelResponseTabs(moreText);
+                }
+            } catch (e) { /* ignore */ }
         }
 
         // if server_side is an object then call the server side flask api and save the state of whether we should show or hide the text
@@ -1610,6 +1700,468 @@ function normalizeTextForClipboard(textElem, textToCopy, mode) {
     return looksLikeMermaidOrCode ? normalizeMermaidText(text) : text;
 }
 
+function applyModelResponseTabs(elem_to_render_in) {
+    var $root = elem_to_render_in ? $(elem_to_render_in) : $(document);
+    // Chat UI responses can involve multiple sibling render containers under a single
+    // `.chat-card-body` (e.g., `#message-render-space` and `#message-render-space-md-render`,
+    // plus showMore() wrappers). For tabbed responses we need to:
+    // - insert a single tabs UI in a stable place
+    // - hide *all* source render containers so the answer doesn't duplicate above/below tabs
+    //
+    // Multi-model responses already hide their `<details>` sources; single-model+TLDR relies
+    // primarily on sibling hiding. Using the `.chat-card-body` as the scope makes both modes
+    // behave consistently.
+    try {
+        var $chatBody = $root.closest('.chat-card-body');
+        if ($chatBody.length > 0) {
+            $root = $chatBody;
+        }
+    } catch (e) { /* ignore */ }
+    var $legacySource = $root.find('.model-tabs-source').first();
+    if ($legacySource.length > 0) {
+        $legacySource.find('details').not('.section-details').each(function() {
+            $root.append($(this));
+        });
+        $legacySource.find('[data-answer-tldr]').each(function() {
+            $root.append($(this));
+        });
+        $legacySource.remove();
+    }
+
+    var rootId = $root.attr('id');
+    if (!rootId) {
+        rootId = $root.attr('data-model-tabs-id');
+        if (!rootId) {
+            rootId = 'model-tabs-root-' + Date.now().toString(36) + Math.random().toString(36).substr(2, 6);
+            $root.attr('data-model-tabs-id', rootId);
+        }
+    }
+
+    // Prefer a container that is a direct child of the message body.
+    // If an older render left it nested inside the answer DOM, move it to the top-level.
+    var $existingContainer = $root.children('.model-tabs-container').first();
+    if ($existingContainer.length === 0) {
+        $existingContainer = $root.find('.model-tabs-container').first();
+        if ($existingContainer.length > 0) {
+            try { $root.prepend($existingContainer); } catch (e) { /* ignore */ }
+        }
+    }
+    var activeTabKey = '';
+    var scrollTop = 0;
+    if ($existingContainer.length > 0) {
+        activeTabKey = $existingContainer.find('.nav-link.active').attr('data-tab-key') || '';
+        scrollTop = $existingContainer.find('.tab-content').scrollTop();
+    }
+
+    // If we're re-applying tabs (e.g., showMore() rebuild or reload snapshot), the
+    // original TLDR sources may already be removed from the DOM. Preserve TLDR content
+    // from the existing tab container early so we don't mistakenly remove tabs.
+    var preservedTldrContent = null;
+    try {
+        if ($existingContainer.length > 0) {
+            var $existingTldrPane = $existingContainer.find('[id$="-pane-tldr"]').first();
+            if ($existingTldrPane.length > 0) {
+                var $existingTldrBody = $existingTldrPane.find('.model-tab-body').first();
+                if ($existingTldrBody.length > 0 && hasMeaningfulContent($existingTldrBody)) {
+                    preservedTldrContent = $existingTldrBody.clone(true, true);
+                }
+            }
+        }
+    } catch (e) { preservedTldrContent = null; }
+
+    var $detailsBlocks = $root.find('details').not('.section-details').not('.model-tabs-container details');
+    var $tldrWrapper = $root.find('[data-answer-tldr]').first();
+    // Check for meaningful content in TLDR wrapper, not just any content (fixes empty TLDR tab issue)
+    var hasTldrWrapper = $tldrWrapper.length > 0 && hasMeaningfulContent($tldrWrapper);
+    var $tldrFallbackDetails = $root.find('details').filter(function() {
+        var summaryText = ($(this).find('> summary').first().text() || '').trim().toLowerCase();
+        return summaryText.indexOf('tldr') !== -1;
+    }).not('.section-details').not('.model-tabs-container details');
+
+    if ($detailsBlocks.length === 0 && !hasTldrWrapper && preservedTldrContent === null) {
+        if ($existingContainer.length > 0) {
+            $existingContainer.remove();
+        }
+        $root.find('[data-model-tabs-hidden="true"]').show().removeAttr('data-model-tabs-hidden');
+        return;
+    }
+
+    var modelDetails = [];
+    var tldrDetails = [];
+
+    function restoreHiddenForClone($elem) {
+        if (!$elem || $elem.length === 0) return;
+        $elem.removeAttr('data-model-tabs-hidden');
+        $elem.find('[data-model-tabs-hidden]').each(function() {
+            $(this).removeAttr('data-model-tabs-hidden');
+        });
+        $elem.find('[style]').each(function() {
+            var style = $(this).attr('style') || '';
+            if (style.indexOf('display') !== -1) {
+                var cleaned = style.replace(/display\s*:\s*none\s*;?/gi, '').trim();
+                if (cleaned) {
+                    $(this).attr('style', cleaned);
+                } else {
+                    $(this).removeAttr('style');
+                }
+            }
+        });
+        $elem.show();
+    }
+
+    $detailsBlocks.each(function(index, el) {
+        var $details = $(el);
+        var summaryText = ($details.find('> summary').first().text() || '').trim();
+        var isModel = summaryText.toLowerCase().indexOf('response from') === 0;
+        var isTldr = summaryText.toLowerCase().indexOf('tldr summary') !== -1 || summaryText.toLowerCase().indexOf('tldr') !== -1 || summaryText.indexOf('📝 TLDR Summary') !== -1;
+        if (!isTldr) {
+            var hasTldrAncestor = $details.closest('[data-answer-tldr]').length > 0;
+            if (hasTldrAncestor) {
+                isTldr = true;
+            }
+        }
+        if (isModel) {
+            modelDetails.push({
+                summary: summaryText,
+                element: $details,
+                index: index
+            });
+        }
+        if (isTldr) {
+            tldrDetails.push({
+                summary: summaryText,
+                element: $details,
+                index: index
+            });
+        }
+    });
+
+    var groupKey = rootId + '-model-tabs-group';
+    var navId = groupKey + '-nav';
+    var contentId = groupKey + '-content';
+
+    var $container = $existingContainer.length > 0 ? $existingContainer : $('<div class="model-tabs-container" />');
+    
+    // Helper function to check if an element has meaningful text content
+    // Returns true if there's actual text beyond just whitespace and empty tags
+    function hasMeaningfulContent($elem) {
+        if (!$elem || $elem.length === 0) return false;
+        // Get text content, trim whitespace
+        var textContent = ($elem.text() || '').trim();
+        // Check if there's at least some meaningful text (more than just punctuation/whitespace)
+        return textContent.length > 10; // Require at least 10 chars of actual content
+    }
+    
+    // Note: preservedTldrContent is computed above (before early-return) so it also works
+    // when sources are already removed.
+    
+    // ========================================================================
+    // STEP 1: Validate and clone TLDR content FIRST (before deciding on tabs)
+    // This ensures we only show TLDR tab if there's meaningful content
+    // ========================================================================
+    var tldrContentClone = null;
+    if (hasTldrWrapper) {
+        // Fresh TLDR from server response - look for details inside wrapper
+        var $tldrInnerDetails = $tldrWrapper.find('details').first();
+        if ($tldrInnerDetails.length > 0 && hasMeaningfulContent($tldrInnerDetails)) {
+            tldrContentClone = $tldrInnerDetails.clone(true, true);
+        } else if (hasMeaningfulContent($tldrWrapper)) {
+            // Wrapper has content but no details - clone wrapper itself
+            tldrContentClone = $tldrWrapper.clone(true, true);
+        }
+        // If no meaningful content found, tldrContentClone stays null
+    } else if (tldrDetails.length > 0) {
+        // TLDR from details block - verify it has meaningful content
+        var $tldrDetailsElem = tldrDetails[0].element;
+        if (hasMeaningfulContent($tldrDetailsElem)) {
+            tldrContentClone = $tldrDetailsElem.clone(true, true);
+        }
+    } else if (preservedTldrContent !== null) {
+        // Use preserved content from existing tab container (reload scenario)
+        // Already verified to have meaningful content when preserved
+        tldrContentClone = preservedTldrContent;
+    } else if ($tldrFallbackDetails.length > 0) {
+        var $fallbackElem = $tldrFallbackDetails.first();
+        if (hasMeaningfulContent($fallbackElem)) {
+            tldrContentClone = $fallbackElem.clone(true, true);
+        }
+    }
+    
+    // Final check: do we actually have meaningful TLDR content?
+    var actuallyHasTldrContent = tldrContentClone !== null && hasMeaningfulContent(tldrContentClone);
+    
+    // ========================================================================
+    // STEP 2: Decide whether to build tabs based on validated content
+    // ========================================================================
+    var shouldBuildTabs = false;
+    if (modelDetails.length > 1) {
+        // Multiple models = always show tabs (one tab per model)
+        shouldBuildTabs = true;
+    } else if (modelDetails.length === 1 && actuallyHasTldrContent) {
+        // Single model WITH meaningful TLDR = show tabs (Main + TLDR)
+        shouldBuildTabs = true;
+    } else if (modelDetails.length === 0 && actuallyHasTldrContent) {
+        // No model details but has meaningful TLDR = show tabs (Main + TLDR)
+        shouldBuildTabs = true;
+    }
+
+    if (!shouldBuildTabs) {
+        if ($existingContainer.length > 0) {
+            $existingContainer.remove();
+        }
+        $root.find('[data-model-tabs-hidden="true"]').show().removeAttr('data-model-tabs-hidden');
+        return;
+    }
+    
+    // ========================================================================
+    // STEP 3: Create/update tab container
+    // ========================================================================
+    if (!$existingContainer.length) {
+        $container.attr('data-model-tab-group', groupKey);
+        $container.append('<ul class="nav nav-tabs" id="' + navId + '" role="tablist"></ul>');
+        $container.append('<div class="tab-content" id="' + contentId + '"></div>');
+    } else {
+        $container.find('.nav').empty();
+        $container.find('.tab-content').empty();
+    }
+
+    var $nav = $container.find('.nav');
+    var $content = $container.find('.tab-content');
+
+    // In chat UI, we treat `.chat-card-body` as the stable host for tabs.
+    // The ToC UI is also hosted there (outside showMore()), and sibling hiding can
+    // reliably remove duplicate render containers.
+    var $tabsHostPreferred = $root;
+    
+    // ========================================================================
+    // STEP 4: Build tab items using validated TLDR status
+    // ========================================================================
+    var tabItems = [];
+    if (modelDetails.length > 0) {
+        // Only consider it a "single model with TLDR" if TLDR actually has meaningful content
+        var singleModel = modelDetails.length === 1 && actuallyHasTldrContent;
+        modelDetails.forEach(function(item, idx) {
+            var label = item.summary.replace(/^Response from\s*/i, '').trim();
+            if (singleModel) {
+                label = 'Main';
+            } else if (!label) {
+                label = 'Response';
+            }
+            tabItems.push({
+                key: 'model-' + idx + '-' + label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
+                label: label,
+                element: item.element,
+                type: 'model'
+            });
+        });
+    } else if (actuallyHasTldrContent) {
+        // No model details but we have TLDR - add a "Main" tab for the content
+        tabItems.push({
+            key: 'main',
+            label: 'Main',
+            element: null,
+            type: 'main'
+        });
+    }
+
+    // Add TLDR tab only if we have validated meaningful content
+    if (actuallyHasTldrContent) {
+        tabItems.push({
+            key: 'tldr',
+            label: 'TLDR',
+            element: tldrDetails.length > 0 ? tldrDetails[0].element : null,
+            type: 'tldr'
+        });
+    }
+
+    tabItems.forEach(function(item, itemIndex) {
+        var tabKey = item.key;
+        var tabId = groupKey + '-tab-' + tabKey;
+        var paneId = groupKey + '-pane-' + tabKey;
+        var isActive = false;
+        if (activeTabKey && activeTabKey === tabKey) {
+            isActive = true;
+        } else if (!activeTabKey && itemIndex === 0) {
+            isActive = true;
+        }
+
+        var $navItem = $('<li class="nav-item" role="presentation"></li>');
+        var $navLink = $('<a class="nav-link" data-toggle="tab" role="tab" aria-controls="' + paneId + '" aria-selected="false"></a>');
+        $navLink.attr('href', '#' + paneId);
+        $navLink.attr('data-tab-key', tabKey);
+        $navLink.text(item.label);
+        if (isActive) {
+            $navLink.addClass('active');
+            $navLink.attr('aria-selected', 'true');
+        }
+        $navItem.append($navLink);
+        $nav.append($navItem);
+
+        var $pane = $('<div class="tab-pane fade" role="tabpanel"></div>');
+        $pane.attr('id', paneId);
+        if (isActive) {
+            $pane.addClass('show active');
+        }
+
+        var $body = $('<div class="model-tab-body"></div>');
+        if (item.type === 'tldr') {
+            if (tldrContentClone) {
+                if (tldrContentClone.is('details')) {
+                    tldrContentClone.removeAttr('open');
+                    tldrContentClone.find('> summary').first().remove();
+                    restoreHiddenForClone(tldrContentClone);
+                    $body.append(tldrContentClone.contents());
+                } else {
+                    restoreHiddenForClone(tldrContentClone);
+                    $body.append(tldrContentClone.contents());
+                }
+            }
+        } else if (item.type === 'main') {
+            // For the single-model case we want the full rendered message content.
+            // After showMore() runs, the real content usually lives inside `.more-text`.
+            // Prefer that as the source so we don't accidentally clone the collapsed wrapper.
+            var $contentRoot = $root.find('.more-text').first();
+            if ($contentRoot.length === 0) {
+                $contentRoot = $root.find('.actual-card-text').last();
+            }
+            var $mainClone = ($contentRoot.length > 0 ? $contentRoot : $root).clone(true, true);
+
+            // Prevent recursive/duplicated content: never include tab UIs inside panes.
+            $mainClone.find('.model-tabs-container').remove();
+            // Don't show the showMore toggle inside the tab pane.
+            $mainClone.find('a.show-more').remove();
+            $mainClone.find('[data-answer-tldr]').remove();
+            $mainClone.find('details').each(function() {
+                var $details = $(this);
+                var summaryText = ($details.find('> summary').first().text() || '').trim().toLowerCase();
+                if (summaryText.indexOf('tldr') !== -1 || summaryText.indexOf('tldr summary') !== -1) {
+                    $details.remove();
+                }
+            });
+            restoreHiddenForClone($mainClone);
+            $body.append($mainClone.contents());
+        } else if (item.element) {
+            var $detailsClone = item.element.clone(true, true);
+            $detailsClone.removeAttr('open');
+            $detailsClone.find('> summary').first().remove();
+            // Same as above: cloned model details can contain an existing tabs container.
+            $detailsClone.find('.model-tabs-container').remove();
+            $detailsClone.find('[data-answer-tldr]').remove();
+            $detailsClone.find('details').each(function() {
+                var $details = $(this);
+                var summaryText = ($details.find('> summary').first().text() || '').trim().toLowerCase();
+                if (summaryText.indexOf('tldr') !== -1 || summaryText.indexOf('tldr summary') !== -1) {
+                    $details.remove();
+                }
+            });
+            restoreHiddenForClone($detailsClone);
+            $body.append($detailsClone.contents());
+        }
+
+        $pane.append($body);
+        $content.append($pane);
+    });
+
+    if ($existingContainer.length === 0) {
+        // Insert tabs at the top-level of the preferred host so they are not trapped
+        // inside section <details> wrappers (common when answers are split by `---`).
+        // If tabs are inserted inside a section-details block, collapsing that section
+        // will hide the tabs and make it look like TLDR vanished on reload.
+        var $insertHost = $tabsHostPreferred;
+        if ($insertHost && $insertHost.length && $insertHost[0] !== document) {
+            $insertHost.prepend($container);
+        } else if ($detailsBlocks.length > 0) {
+            $detailsBlocks.first().before($container);
+        } else {
+            $root.prepend($container);
+        }
+    } else {
+        // Re-apply scenario: ensure the container lives under the preferred host so we can
+        // consistently hide the original source nodes (single-model + TLDR otherwise shows
+        // the main answer outside the tabs).
+        try {
+            if ($tabsHostPreferred && $tabsHostPreferred.length && $container.parent().length && $container.parent()[0] !== $tabsHostPreferred[0]) {
+                $tabsHostPreferred.prepend($container);
+            }
+        } catch (e) { /* ignore */ }
+    }
+
+    // When tabs are active, the underlying rendered message content (sections, PKB details,
+    // debug stats) can remain in the DOM and appear outside/under the tabs.
+    // Hide those source nodes so only the tab container is visible.
+    //
+    // Important: In single-model + TLDR there are no `Response from ...` details blocks,
+    // so sibling hiding is the ONLY thing that prevents duplicate main content.
+    // Always hide within the preferred host (chat-card-body).
+    try {
+        var $hideHost = $tabsHostPreferred;
+        if (!($hideHost && $hideHost.length)) {
+            $hideHost = $container.parent();
+        }
+        if ($hideHost && $hideHost.length > 0) {
+            // Ensure the container is within the hide host so `children()` covers the sources.
+            if ($container.parent().length && $container.parent()[0] !== $hideHost[0]) {
+                $hideHost.prepend($container);
+            }
+            $hideHost.children()
+                .not('.model-tabs-container')
+                .not('.message-toc-container')
+                .each(function() {
+                    $(this).attr('data-model-tabs-hidden', 'true').hide();
+                });
+        }
+    } catch (e) {
+        // Never break rendering due to tab hiding logic
+    }
+
+    // If the tab UI isn't actually attached, don't hide sources.
+    // This prevents the "ToC shows but content is blank" state on reload.
+    try {
+        if (!$container || $container.length === 0 || !$container[0] || !document.body.contains($container[0])) {
+            $root.find('[data-model-tabs-hidden="true"]').show().removeAttr('data-model-tabs-hidden');
+            return;
+        }
+    } catch (e) { /* ignore */ }
+
+    modelDetails.forEach(function(item) {
+        item.element.attr('data-model-tabs-hidden', 'true').hide();
+    });
+    
+    // Only remove/hide TLDR sources if we successfully captured meaningful content
+    // This prevents losing content during streaming when it's incomplete
+    if (actuallyHasTldrContent) {
+        if (hasTldrWrapper && $tldrWrapper.length > 0) {
+            $tldrWrapper.remove();
+        }
+        tldrDetails.forEach(function(item) {
+            item.element.remove();
+        });
+
+        // Defensive: if we accidentally inserted tabs inside the TLDR wrapper,
+        // removing the wrapper would also remove the tabs container.
+        // Ensure the container remains attached so we don't leave the message blank.
+        try {
+            if ($container && $container.length > 0 && $container[0] && !document.body.contains($container[0])) {
+                $root.prepend($container);
+            }
+        } catch (e) { /* ignore */ }
+    }
+
+    if (scrollTop) {
+        $content.scrollTop(scrollTop);
+    }
+
+    // Final sanity check: never leave a message blank.
+    // If we hid source nodes but for any reason the tabs container isn't present,
+    // restore hidden nodes so content remains visible.
+    try {
+        var hasTabsInRoot = $root.find('.model-tabs-container').length > 0;
+        if (!hasTabsInRoot) {
+            $root.find('[data-model-tabs-hidden="true"]').show().removeAttr('data-model-tabs-hidden');
+        }
+    } catch (e) { /* ignore */ }
+}
+
 // Function to attach listeners directly to section elements
 function attachSectionListeners(elem_to_render_in) {
     $(elem_to_render_in).off('click', 'details summary');
@@ -1792,6 +2344,7 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
     elem_id = jqelem.attr('id');
     elem_to_render_in = jqelem
     brother_elem_id = elem_id + "-md-render"
+    elem_to_render_in.attr('data-model-tabs-root', 'true');
     if (continuous) {
         brother_elem = parent.find('#' + brother_elem_id);
         if (!brother_elem.length) {
@@ -1821,6 +2374,8 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
     // check html has </answer> tag
     has_end_answer_tag = html.includes('</answer>')
     html = html.replace(/<answer>/g, '').replace(/<\/answer>/g, '');
+    html = html.replace(/<\s*answer_tldr\s*>/gi, '<div data-answer-tldr="true">')
+        .replace(/<\s*\/\s*answer_tldr\s*>/gi, '</div>');
 
     // Check if we should wrap sections (you might want to make this configurable)
     var wrapSectionsInDetails = true; // You can make this configurable via options
@@ -2335,6 +2890,12 @@ ${innerSectionWithCode}
     } catch (error) {
         console.warn('DOM write failed, using fallback:', error);
         try { $(elem_to_render_in).html(htmlChunk); } catch (e) { /* ignore */ }
+    }
+
+    try {
+        applyModelResponseTabs(elem_to_render_in);
+    } catch (e) {
+        console.warn('Model tabs render failed:', e);
     }
 
     // Update Table of Contents (ToC) for long answers.

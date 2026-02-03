@@ -5,11 +5,13 @@ import string
 import uuid
 from datetime import datetime
 from uuid import uuid4
+
 # NOTE: `dill` was imported historically but is not used in this module.
 # Keeping it as a hard dependency breaks environments that don't have dill installed.
 import re
 import traceback
 import numpy as np
+
 try:
     # `tiktoken` is only used for token counting / logging.
     # Keep it optional so the module can run in minimal environments.
@@ -18,11 +20,15 @@ except Exception:  # pragma: no cover
     tiktoken = None
 from copy import deepcopy, copy
 from functools import partial
-from concurrent.futures import ThreadPoolExecutor, as_completed, Future, ProcessPoolExecutor
+from concurrent.futures import (
+    ThreadPoolExecutor,
+    as_completed,
+    Future,
+    ProcessPoolExecutor,
+)
 import json
 
 from typing import Generator
-
 
 
 import openai
@@ -30,15 +36,20 @@ from typing import Callable, Any, List, Dict, Tuple, Optional, Union
 
 
 from loggers import getLoggers
-logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.INFO, logging.INFO, logging.ERROR, logging.INFO)
+
+logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(
+    __name__, logging.INFO, logging.INFO, logging.ERROR, logging.INFO
+)
 
 try:
     # `tenacity` is optional. This module only needs `RetryError` for defensive
     # handling in `call_with_stream`; the retry decorators are not used here.
     from tenacity import RetryError  # type: ignore
 except Exception:  # pragma: no cover
+
     class RetryError(Exception):
         """Fallback RetryError when `tenacity` isn't installed."""
+
 
 import asyncio
 import threading
@@ -54,8 +65,6 @@ import more_itertools
 import types
 from more_itertools import peekable
 import inspect
-
-
 
 
 import time
@@ -88,6 +97,7 @@ def get_gpt4_word_count(my_string):
     s = my_string or ""
     return max(0, (len(s) + 3) // 4)
 
+
 def check_if_stream_and_raise_exception(iterable_or_str):
     if isinstance(iterable_or_str, str):
         # If it's a string, just return it as it is.
@@ -97,8 +107,19 @@ def check_if_stream_and_raise_exception(iterable_or_str):
     elif isinstance(iterable_or_str, types.GeneratorType):
         # If it's a generator, we need to peek at it.
         try:
+            peek_start = time.perf_counter()
+            logger.warning(
+                "[code_common] check_if_stream_and_raise_exception peek start | t=%.3fs",
+                peek_start,
+            )
             peeked = peekable(iterable_or_str)
-            peek_val = peeked.peek()  # This will raise StopIteration if the generator is empty.
+            peek_val = (
+                peeked.peek()
+            )  # This will raise StopIteration if the generator is empty.
+            logger.warning(
+                "[code_common] check_if_stream_and_raise_exception peek done | dt=%.3fs",
+                time.perf_counter() - peek_start,
+            )
             return peeked
         except StopIteration:
             # Here you could handle the empty generator case.
@@ -113,20 +134,40 @@ def check_if_stream_and_raise_exception(iterable_or_str):
         raise ValueError("Unexpected input type.")
 
 
-def make_stream(res, do_stream:bool):
+def make_stream(res, do_stream: bool):
     is_generator = inspect.isgenerator(res)
     if is_generator and do_stream:
         res = check_if_stream_and_raise_exception(res)
         return res
     if do_stream and not is_generator:
-        assert isinstance(res, (str, list, tuple)) or isinstance(res, more_itertools.more.peekable) or isinstance(res, peekable) or hasattr(res, '__iter__') or hasattr(res, '__next__')
+        assert (
+            isinstance(res, (str, list, tuple))
+            or isinstance(res, more_itertools.more.peekable)
+            or isinstance(res, peekable)
+            or hasattr(res, "__iter__")
+            or hasattr(res, "__next__")
+        )
         return convert_iterable_to_stream(res)
     elif not do_stream and is_generator:
         return convert_stream_to_iterable(res)
     return res
 
+
 def call_with_stream(fn, do_stream, *args, **kwargs):
-    backup = kwargs.pop('backup_function', None)
+    _cws_start = time.perf_counter()
+    # Get function/model name for logging
+    _fn_name = getattr(fn, "__name__", str(fn))
+    # Try to get model name from args if available
+    _model_hint = args[0] if args else "unknown"
+    logger.warning(
+        "[code_common] call_with_stream start | fn=%s | model=%s | do_stream=%s | t=%.3fs",
+        _fn_name,
+        _model_hint,
+        do_stream,
+        _cws_start,
+    )
+
+    backup = kwargs.pop("backup_function", None)
     try:
         res = fn(*args, **kwargs)
     except RetryError as e:
@@ -143,24 +184,54 @@ def call_with_stream(fn, do_stream, *args, **kwargs):
         else:
             raise e
     is_generator = inspect.isgenerator(res)
+    logger.warning(
+        "[code_common] call_with_stream fn returned | is_generator=%s | dt=%.3fs",
+        is_generator,
+        time.perf_counter() - _cws_start,
+    )
     if is_generator:
         res = check_if_stream_and_raise_exception(res)
+    logger.warning(
+        "[code_common] call_with_stream returning | dt=%.3fs",
+        time.perf_counter() - _cws_start,
+    )
     if do_stream and not is_generator:
         assert isinstance(res, (str, list, tuple))
         return convert_iterable_to_stream(res)
     elif not do_stream and is_generator:
         return convert_stream_to_iterable(res)
     return res
-        
+
+
 def convert_iterable_to_stream(iterable):
     for t in iterable:
         yield t
 
+
 def convert_stream_to_iterable(stream, join_strings=True):
+    """Convert a stream/generator to a list or concatenated string.
+
+    This function periodically yields control (via time.sleep(0)) to allow
+    other threads to run, preventing GIL starvation during long-running
+    stream consumption.
+
+    Args:
+        stream: An iterable/generator to consume
+        join_strings: If True and all items are strings, join them into one string
+
+    Returns:
+        Either a joined string or list of items from the stream
+    """
     ans = []
+    chunk_count = 0
     for t in stream:
         ans.append(t)
-    if isinstance(ans[0], str) and join_strings:
+        chunk_count += 1
+        # Every 5 chunks, yield control to other threads to prevent GIL starvation
+        # Using 0.001s (1ms) instead of 0 to force actual thread scheduling
+        if chunk_count % 5 == 0:
+            time.sleep(0.001)
+    if ans and isinstance(ans[0], str) and join_strings:
         ans = "".join(ans)
     return ans
 
@@ -169,22 +240,26 @@ def _extract_text_from_openai_response(response: Any) -> Generator[str, None, No
     """
     Extract text from an OpenAI-style chunk.
     """
-    
 
     for chk in response:
         # 'chk' is the streamed chunk response from the LLM
         chunk = chk.model_dump()
-        
-        if "choices" not in chunk or len(chunk["choices"]) == 0 or "delta" not in chunk["choices"][0]:
+
+        if (
+            "choices" not in chunk
+            or len(chunk["choices"]) == 0
+            or "delta" not in chunk["choices"][0]
+        ):
             continue
         # Some completions might not have 'content' in the delta:
         if "content" not in chunk["choices"][0]["delta"]:
             continue
-        
+
         text_content = chunk["choices"][0]["delta"]["content"]
         if not isinstance(text_content, str):
             continue
         yield text_content
+
 
 def call_chat_model(model, text, images, temperature, system, keys, messages=None):
     """
@@ -214,12 +289,19 @@ def call_chat_model(model, text, images, temperature, system, keys, messages=Non
         Text chunks from the streaming response.
     """
     api_key = keys["OPENROUTER_API_KEY"]
-    extras = dict(base_url="https://openrouter.ai/api/v1",)
-    openrouter_used = True 
-    
-    extras_2 = dict(stop=["</s>", "Human:", "User:", "<|eot_id|>", "<|/assistant_response|>"]) if "claude" in model or openrouter_used else dict()
-    
+    extras = dict(
+        base_url="https://openrouter.ai/api/v1",
+    )
+    openrouter_used = True
+
+    extras_2 = (
+        dict(stop=["</s>", "Human:", "User:", "<|eot_id|>", "<|/assistant_response|>"])
+        if "claude" in model or openrouter_used
+        else dict()
+    )
+
     from openai import OpenAI
+
     client = OpenAI(api_key=api_key, **extras)
 
     # If messages is provided directly, use it; otherwise construct from text/images/system
@@ -229,34 +311,29 @@ def call_chat_model(model, text, images, temperature, system, keys, messages=Non
     elif len(images) > 0:
         messages = []
         if system is not None and isinstance(system, str):
-            messages.append({
-                "role": "system",
-                "content": system
-            })
-        messages.append({
-            "role": "user",
-            "content": [
-                {"type": "text", "text": text},
-                *[
-                    {
-                        "type": "image_url",
-                        "image_url": {"url": base64_image}
-                    } 
-                    for base64_image in images
-                ]
-            ],
-        })
+            messages.append({"role": "system", "content": system})
+        messages.append(
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": text},
+                    *[
+                        {"type": "image_url", "image_url": {"url": base64_image}}
+                        for base64_image in images
+                    ],
+                ],
+            }
+        )
     else:
         messages = []
         if system is not None and isinstance(system, str):
-            messages.append({
-                "role": "system",
-                "content": system
-            })
-        messages.append({
-            "role": "user",
-            "content": text,
-        })
+            messages.append({"role": "system", "content": system})
+        messages.append(
+            {
+                "role": "user",
+                "content": text,
+            }
+        )
 
     try:
         response = client.chat.completions.create(
@@ -269,14 +346,13 @@ def call_chat_model(model, text, images, temperature, system, keys, messages=Non
             **extras_2,
         )
 
-        
         for formatted_chunk in _extract_text_from_openai_response(response):
             yield formatted_chunk
 
-            
-            
     except Exception as e:
-        logger.error(f"[call_chat_model_original]: Error in calling chat model {model} with error {str(e)}, more info: openrouter_used = {openrouter_used}, len messages = {len(messages)}, extras = {extras}, extras_2 = {extras_2}")
+        logger.error(
+            f"[call_chat_model_original]: Error in calling chat model {model} with error {str(e)}, more info: openrouter_used = {openrouter_used}, len messages = {len(messages)}, extras = {extras}, extras_2 = {extras_2}"
+        )
         # Save function parameters to JSON for debugging/replay
         error_data = {
             "model": model,
@@ -286,7 +362,7 @@ def call_chat_model(model, text, images, temperature, system, keys, messages=Non
             "system": system,
             "keys": keys,
             "error": str(e),
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
         with open("error.json", "w") as f:
             json.dump(error_data, f, indent=2)
@@ -294,10 +370,9 @@ def call_chat_model(model, text, images, temperature, system, keys, messages=Non
         raise e
 
 
-
 def encode_image(image_path):
     with open(image_path, "rb") as image_file:
-        return base64.b64encode(image_file.read()).decode('utf-8')
+        return base64.b64encode(image_file.read()).decode("utf-8")
 
 
 def _encode_image_reference(img: str) -> str:
@@ -385,10 +460,7 @@ def _process_images_in_messages(messages: List[Dict[str, Any]]) -> List[Dict[str
                     image_url_obj = part.get("image_url", {})
                     url = image_url_obj.get("url", "")
                     encoded_url = _encode_image_reference(url)
-                    new_part = {
-                        "type": "image_url",
-                        "image_url": {"url": encoded_url}
-                    }
+                    new_part = {"type": "image_url", "image_url": {"url": encoded_url}}
                     # Preserve any extra fields like 'detail'
                     for k, v in image_url_obj.items():
                         if k != "url":
@@ -405,7 +477,7 @@ def _process_images_in_messages(messages: List[Dict[str, Any]]) -> List[Dict[str
 
 def extract_code_blocks(text):
     # Pattern to find code blocks
-    code_block_pattern = re.compile(r'(?s)(```.*?```|`.*?`|<code>.*?</code>)')
+    code_block_pattern = re.compile(r"(?s)(```.*?```|`.*?`|<code>.*?</code>)")
     # Find all code blocks
     code_blocks = code_block_pattern.findall(text)
 
@@ -424,31 +496,31 @@ def extract_code_blocks(text):
     return modified_text, code_blocks
 
 
-
 def restore_code_blocks(modified_text, code_blocks):
     restored_text = modified_text
     for i, code_block in enumerate(code_blocks):
-        restored_text = restored_text.replace(f'CODE_BLOCK_{i}', code_block)
+        restored_text = restored_text.replace(f"CODE_BLOCK_{i}", code_block)
     return restored_text
+
 
 def enhanced_robust_url_extractor(text):
     modified_text, code_blocks = extract_code_blocks(text)
     # Regex pattern to capture URLs, allowing for punctuation and parentheses
-    pattern = r'(?:\b(?:https?://|www\.)\S+\b|\((?:https?://|www\.)\S+\))'
+    pattern = r"(?:\b(?:https?://|www\.)\S+\b|\((?:https?://|www\.)\S+\))"
     raw_urls = re.findall(pattern, modified_text, re.IGNORECASE)
     # Post-processing to clean up URLs
     cleaned_urls = []
     for url in raw_urls:
         # Remove surrounding parentheses and trailing punctuation
-        cleaned_url = re.sub(r'^[\(\'"]*|[\.,;:!?\)\'"]+$', '', url)
+        cleaned_url = re.sub(r'^[\(\'"]*|[\.,;:!?\)\'"]+$', "", url)
 
         # Check if the cleaned_url is a valid URL
-        if re.match(r'^(https?://|www\.)\S+$', cleaned_url):
+        if re.match(r"^(https?://|www\.)\S+$", cleaned_url):
             if cleaned_url not in cleaned_urls:
                 cleaned_urls.append(cleaned_url)
         else:
             # Split URLs separated by pipe (|) or semicolon (;), but not comma (,)
-            split_urls = re.split(r'[|;]', cleaned_url)
+            split_urls = re.split(r"[|;]", cleaned_url)
             for split_url in split_urls:
                 if split_url and split_url not in cleaned_urls:
                     cleaned_urls.append(split_url)
@@ -456,21 +528,20 @@ def enhanced_robust_url_extractor(text):
     return cleaned_urls
 
 
-
 def get_openai_embedding(
     input_text: Union[str, List[str]],
     model_name: str,
     api_key: str,
     ctx_length: int = 10_000,
-    ctx_chunk_size: int = 4_000
+    ctx_chunk_size: int = 4_000,
 ) -> Union[List[float], List[List[float]]]:
     """
     Fetches the embedding(s) for the given input text using the specified model,
     similarly to the logic in `get_jina_embedding`. It accepts two parameters:
-    `ctx_length` and `ctx_chunk_size`. 
-    - We first reduce the text length to `ctx_length` 
+    `ctx_length` and `ctx_chunk_size`.
+    - We first reduce the text length to `ctx_length`
     - Then limit the number of tokens/words to `ctx_chunk_size`.
-    If the request fails and `ctx_length` is still above 2000, we retry with half 
+    If the request fails and `ctx_length` is still above 2000, we retry with half
     of both parameters, providing a fallback for extremely large inputs or partial failures.
 
     Parameters:
@@ -495,23 +566,22 @@ def get_openai_embedding(
     Raises:
     -------
     Exception
-        If the API request to OpenAI fails or returns a non-200 response, and 
+        If the API request to OpenAI fails or returns a non-200 response, and
         the fallback recursion fails once ctx_length <= 2000.
     """
 
     # Define the OpenAI embeddings endpoint
-    url="https://openrouter.ai/api/v1/embeddings"
+    url = "https://openrouter.ai/api/v1/embeddings"
 
     # Prepare request headers
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
 
     # Preprocess input text with ctx_length & ctx_chunk_size
     if isinstance(input_text, list):
         processed_texts = [
-            " ".join(text[:ctx_length].strip().split()[:ctx_chunk_size]) if text else "<EMPTY STRING>"
+            " ".join(text[:ctx_length].strip().split()[:ctx_chunk_size])
+            if text
+            else "<EMPTY STRING>"
             for text in input_text
         ]
         # Make sure we replace empty strings with a placeholder
@@ -525,10 +595,7 @@ def get_openai_embedding(
         ]
 
     # Construct the JSON payload
-    data = {
-        "input": processed_texts,
-        "model": model_name
-    }
+    data = {"input": processed_texts, "model": model_name}
 
     try:
         # Send request
@@ -553,7 +620,7 @@ def get_openai_embedding(
                 model_name=model_name,
                 api_key=api_key,
                 ctx_length=ctx_length // 2,
-                ctx_chunk_size=ctx_chunk_size // 2
+                ctx_chunk_size=ctx_chunk_size // 2,
             )
         # Otherwise, raise after final fallback
         raise Exception(f"Failed to fetch embedding(s) from OpenAI: {str(e)}")
@@ -564,16 +631,20 @@ embed_fn = get_openai_embedding
 
 executor = ThreadPoolExecutor(max_workers=256)
 
+
 def make_async(fn, execution_trace=""):
     def async_fn(*args, **kwargs):
         func_part = partial(fn, *args, **kwargs)
         future = executor.submit(func_part)
         setattr(future, "execution_trace", execution_trace)
         return future
+
     return async_fn
+
 
 def get_async_future(fn, *args, **kwargs):
     import traceback
+
     execution_trace = traceback.format_exc()
     # Make your function async
     afn = make_async(fn, execution_trace)
@@ -587,6 +658,7 @@ def wrap_in_future(s):
     future.set_result(s)
     return future
 
+
 def sleep_and_get_future_result(future, sleep_time=0.2, timeout=1000):
     start_time = time.time()
     while not future.done():
@@ -594,6 +666,7 @@ def sleep_and_get_future_result(future, sleep_time=0.2, timeout=1000):
         if time.time() - start_time > timeout:
             raise TimeoutError(f"Timeout waiting for future for {timeout} sec")
     return future.result()
+
 
 def sleep_and_get_future_exception(future, sleep_time=0.2, timeout=1000):
     start_time = time.time()
@@ -616,7 +689,6 @@ class OpenAIEmbeddingsParallel:
     def _embed_documents(self, texts: List[str]) -> List[List[float]]:
         return self.embed_documents(texts, chunk_size=self.chunk_size)
 
-
     def _embed_query(self, text: str) -> List[float]:
         return self.embed_query(text)
 
@@ -627,30 +699,43 @@ class OpenAIEmbeddingsParallel:
         return self.embed_documents([text])[0]
 
     def embed_documents(
-            self, texts: List[str], chunk_size: Optional[int] = 0
+        self, texts: List[str], chunk_size: Optional[int] = 0
     ) -> List[List[float]]:
         if len(texts) >= 8:
             futures = []
             for i in range(0, len(texts), 8):
-                futures.append(embed_executor.submit(embed_fn, texts[i:i+8], model_name=self.model, api_key=self.openai_api_key))
+                futures.append(
+                    embed_executor.submit(
+                        embed_fn,
+                        texts[i : i + 8],
+                        model_name=self.model,
+                        api_key=self.openai_api_key,
+                    )
+                )
             results = [sleep_and_get_future_result(future) for future in futures]
             return [item for sublist in results for item in sublist]
         else:
             return embed_fn(texts, model_name=self.model, api_key=self.openai_api_key)
+
     def _get_len_safe_embeddings(
         self, texts: List[str], *, engine: str, chunk_size: Optional[int] = None
     ) -> List[List[float]]:
         return self._embed_documents(texts)
 
+
 def get_embedding_model(keys):
-    
     openai_key = keys["OPENROUTER_API_KEY"]
     assert openai_key
-    openai_embed = OpenAIEmbeddingsParallel(openai_api_key=openai_key, model="openai/text-embedding-3-small", chunk_size=2000)
+    openai_embed = OpenAIEmbeddingsParallel(
+        openai_api_key=openai_key,
+        model="openai/text-embedding-3-small",
+        chunk_size=2000,
+    )
     return openai_embed
 
 
 # The below functions are the main functions to get the embedding of a text or a list of texts.
+
 
 def get_query_embedding(text, keys):
     openai_embed = get_embedding_model(keys)
@@ -658,17 +743,20 @@ def get_query_embedding(text, keys):
     embedding = np.array(embedding)
     return embedding
 
+
 def get_document_embedding(text, keys):
     openai_embed = get_embedding_model(keys)
     embedding = openai_embed.embed_documents([text])
     embedding = np.array(embedding[0])
     return embedding
 
+
 def get_document_embeddings(texts, keys):
     openai_embed = get_embedding_model(keys)
     embedding = openai_embed.embed_documents(texts)
     embedding = np.array(embedding)
     return embedding
+
 
 # The below function is the main function to call the LLM.
 
@@ -783,9 +871,19 @@ def call_llm(
                 f"Model {model_name} is selected. Please reduce the context window. "
                 f"Current context window is {tok_count} tokens."
             )
-        logger.debug(f"CallLLM (messages mode) with temperature = {temperature}, stream = {stream}, est tokens = {tok_count}")
+        logger.debug(
+            f"CallLLM (messages mode) with temperature = {temperature}, stream = {stream}, est tokens = {tok_count}"
+        )
         streaming_solution = call_with_stream(
-            call_chat_model, stream, model_name, "", [], temperature, None, keys, processed_messages
+            call_chat_model,
+            stream,
+            model_name,
+            "",
+            [],
+            temperature,
+            None,
+            keys,
+            processed_messages,
         )
         return streaming_solution
 
@@ -798,17 +896,24 @@ def call_llm(
         text_len = len(gpt4_enc.encode(text))
     else:  # pragma: no cover
         text_len = len(text)
-    logger.debug(f"CallLLM with temperature = {temperature}, stream = {stream}, token len = {text_len}")
-    tok_count = get_gpt4_word_count((system if system is not None else "") + text) + (len(images) * 1000)
+    logger.debug(
+        f"CallLLM with temperature = {temperature}, stream = {stream}, token len = {text_len}"
+    )
+    tok_count = get_gpt4_word_count((system if system is not None else "") + text) + (
+        len(images) * 1000
+    )
     if tok_count > 100000:
         assertion_error_message = f"Model {model_name} is selected. Please reduce the context window. Current context window is {tok_count} tokens."
         raise AssertionError(assertion_error_message)
-    streaming_solution = call_with_stream(call_chat_model, stream, model_name, text, images, temperature,
-                                          system, keys)
+    streaming_solution = call_with_stream(
+        call_chat_model, stream, model_name, text, images, temperature, system, keys
+    )
     return streaming_solution
 
 
-def _normalize_images(images: Union[None, str, List[str], Tuple[str, ...]]) -> List[str]:
+def _normalize_images(
+    images: Union[None, str, List[str], Tuple[str, ...]],
+) -> List[str]:
     """
     Normalize image input into a list of strings.
 
@@ -829,7 +934,6 @@ def _normalize_images(images: Union[None, str, List[str], Tuple[str, ...]]) -> L
     if isinstance(images, (list, tuple)):
         return [img for img in images if img is not None]
     return [images]
-
 
 
 def _strip_code_fences(s: str) -> str:
@@ -927,15 +1031,15 @@ def getKeywordsFromText(
         f"TEXT:\n{text}"
     )
     out = call_llm(
-            keys=keys,
-            model_name=llm_model,
-            text=prompt,
-            images=[],
-            temperature=temperature,
-            stream=False,
-            system=None,
-        )
-    
+        keys=keys,
+        model_name=llm_model,
+        text=prompt,
+        images=[],
+        temperature=temperature,
+        stream=False,
+        system=None,
+    )
+
     obj = _extract_first_json_object(out)
     if obj and isinstance(obj.get("keywords"), list):
         return _dedupe_and_clip_keywords(obj["keywords"], max_keywords=max_keywords)
@@ -980,15 +1084,15 @@ def getKeywordsFromImage(
         '{ "keywords": ["keyword 1", "keyword 2", "..."] }\n'
     )
     out = call_llm(
-            keys=keys,
-            model_name=vlm_model,
-            text=prompt,
-            images=_normalize_images(images),
-            temperature=temperature,
-            stream=False,
-            system="Return JSON only. No extra commentary.",
-        )
-    
+        keys=keys,
+        model_name=vlm_model,
+        text=prompt,
+        images=_normalize_images(images),
+        temperature=temperature,
+        stream=False,
+        system="Return JSON only. No extra commentary.",
+    )
+
     obj = _extract_first_json_object(out)
     if obj and isinstance(obj.get("keywords"), list):
         return _dedupe_and_clip_keywords(obj["keywords"], max_keywords=max_keywords)
@@ -1032,15 +1136,15 @@ def getKeywordsFromImageText(
         f"TEXT CONTEXT:\n{text}"
     )
     out = call_llm(
-            keys=keys,
-            model_name=vlm_model,
-            text=prompt,
-            images=_normalize_images(images),
-            temperature=temperature,
-            stream=False,
-            system="Return JSON only. No extra commentary.",
-        )
-    
+        keys=keys,
+        model_name=vlm_model,
+        text=prompt,
+        images=_normalize_images(images),
+        temperature=temperature,
+        stream=False,
+        system="Return JSON only. No extra commentary.",
+    )
+
     obj = _extract_first_json_object(out)
     if obj and isinstance(obj.get("keywords"), list):
         return _dedupe_and_clip_keywords(obj["keywords"], max_keywords=max_keywords)
@@ -1083,17 +1187,19 @@ def getImageQueryEmbedding(
         "Return plain text (not JSON).\n"
     )
     details = call_llm(
-            keys=keys,
-            model_name=vlm_model,
-            text=base_prompt,
-            images=_normalize_images(image),
-            temperature=temperature,
-            stream=False,
-            system="Be concise and retrieval-focused.",
-        )
-    
+        keys=keys,
+        model_name=vlm_model,
+        text=base_prompt,
+        images=_normalize_images(image),
+        temperature=temperature,
+        stream=False,
+        system="Be concise and retrieval-focused.",
+    )
+
     if use_keywords:
-        kws = getKeywordsFromImage(image, keys, vlm_model=vlm_model, max_keywords=max_keywords, temperature=0.0)
+        kws = getKeywordsFromImage(
+            image, keys, vlm_model=vlm_model, max_keywords=max_keywords, temperature=0.0
+        )
         details = details + "\n\nKeywords: " + ", ".join(kws)
     return get_query_embedding(details, keys)
 
@@ -1144,17 +1250,19 @@ def getImageDocumentEmbedding(
         "Return plain text (not JSON).\n"
     )
     details = call_llm(
-            keys=keys,
-            model_name=vlm_model,
-            text=base_prompt,
-            images=_normalize_images(image),
-            temperature=temperature,
-            stream=False,
-            system="Be detailed and descriptive.",
-        )
-    
+        keys=keys,
+        model_name=vlm_model,
+        text=base_prompt,
+        images=_normalize_images(image),
+        temperature=temperature,
+        stream=False,
+        system="Be detailed and descriptive.",
+    )
+
     if use_keywords:
-        kws = getKeywordsFromImage(image, keys, vlm_model=vlm_model, max_keywords=max_keywords, temperature=0.0)
+        kws = getKeywordsFromImage(
+            image, keys, vlm_model=vlm_model, max_keywords=max_keywords, temperature=0.0
+        )
         details = details + "\n\nKeywords: " + ", ".join(kws)
     return get_document_embedding(details, keys)
 
@@ -1232,17 +1340,24 @@ def getJointQueryEmbedding(
             f"TEXT CONTEXT:\n{text or ''}"
         )
         details = call_llm(
-                keys=keys,
-                model_name=vlm_model,
-                text=prompt,
-                images=_normalize_images(image),
-                temperature=temperature,
-                stream=False,
-                system="Be retrieval-focused. Connect image content to text intent.",
-            )
-        
+            keys=keys,
+            model_name=vlm_model,
+            text=prompt,
+            images=_normalize_images(image),
+            temperature=temperature,
+            stream=False,
+            system="Be retrieval-focused. Connect image content to text intent.",
+        )
+
         if use_keywords and (has_text or has_image):
-            kws = getKeywordsFromImageText(text or "", image, keys, vlm_model=vlm_model, max_keywords=max_keywords, temperature=0.0)
+            kws = getKeywordsFromImageText(
+                text or "",
+                image,
+                keys,
+                vlm_model=vlm_model,
+                max_keywords=max_keywords,
+                temperature=0.0,
+            )
             details = details + "\n\nKeywords: " + ", ".join(kws)
         return get_query_embedding(details, keys)
 
@@ -1251,17 +1366,26 @@ def getJointQueryEmbedding(
     if has_text:
         t = str(text).strip()
         if use_keywords:
-            kws_t = getKeywordsFromText(t, keys, llm_model=vlm_model, max_keywords=max_keywords, temperature=0.0)
+            kws_t = getKeywordsFromText(
+                t, keys, llm_model=vlm_model, max_keywords=max_keywords, temperature=0.0
+            )
             t = t + "\n\nKeywords: " + ", ".join(kws_t)
         text_emb = get_query_embedding(t, keys)
 
     image_emb: Optional[np.ndarray] = None
     if has_image:
         image_emb = getImageQueryEmbedding(
-            image, keys, vlm_model=vlm_model, use_keywords=use_keywords, max_keywords=max_keywords, temperature=temperature
+            image,
+            keys,
+            vlm_model=vlm_model,
+            use_keywords=use_keywords,
+            max_keywords=max_keywords,
+            temperature=temperature,
         )
 
-    return _combine_embeddings_weighted_mean(text_emb, image_emb, weight_a=text_weight, weight_b=image_weight)
+    return _combine_embeddings_weighted_mean(
+        text_emb, image_emb, weight_a=text_weight, weight_b=image_weight
+    )
 
 
 def getJointDocumentEmbedding(
@@ -1328,17 +1452,24 @@ def getJointDocumentEmbedding(
             f"TEXT CONTEXT:\n{text or ''}"
         )
         details = call_llm(
-                keys=keys,
-                model_name=vlm_model,
-                text=prompt,
-                images=_normalize_images(image),
-                temperature=temperature,
-                stream=False,
-                system="Be detailed and exhaustive. Connect text context with image content.",
-            )
-        
+            keys=keys,
+            model_name=vlm_model,
+            text=prompt,
+            images=_normalize_images(image),
+            temperature=temperature,
+            stream=False,
+            system="Be detailed and exhaustive. Connect text context with image content.",
+        )
+
         if use_keywords and (has_text or has_image):
-            kws = getKeywordsFromImageText(text or "", image, keys, vlm_model=vlm_model, max_keywords=max_keywords, temperature=0.0)
+            kws = getKeywordsFromImageText(
+                text or "",
+                image,
+                keys,
+                vlm_model=vlm_model,
+                max_keywords=max_keywords,
+                temperature=0.0,
+            )
             details = details + "\n\nKeywords: " + ", ".join(kws)
         return get_document_embedding(details, keys)
 
@@ -1347,14 +1478,23 @@ def getJointDocumentEmbedding(
     if has_text:
         t = str(text).strip()
         if use_keywords:
-            kws_t = getKeywordsFromText(t, keys, llm_model=vlm_model, max_keywords=max_keywords, temperature=0.0)
+            kws_t = getKeywordsFromText(
+                t, keys, llm_model=vlm_model, max_keywords=max_keywords, temperature=0.0
+            )
             t = t + "\n\nKeywords: " + ", ".join(kws_t)
         text_emb = get_document_embedding(t, keys)
 
     image_emb: Optional[np.ndarray] = None
     if has_image:
         image_emb = getImageDocumentEmbedding(
-            image, keys, vlm_model=vlm_model, use_keywords=use_keywords, max_keywords=max_keywords, temperature=temperature
+            image,
+            keys,
+            vlm_model=vlm_model,
+            use_keywords=use_keywords,
+            max_keywords=max_keywords,
+            temperature=temperature,
         )
 
-    return _combine_embeddings_weighted_mean(text_emb, image_emb, weight_a=text_weight, weight_b=image_weight)
+    return _combine_embeddings_weighted_mean(
+        text_emb, image_emb, weight_a=text_weight, weight_b=image_weight
+    )

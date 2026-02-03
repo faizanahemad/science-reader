@@ -41,6 +41,7 @@ Base path: `/artefacts/<conversation_id>`
 - `POST /artefacts/<conversation_id>/<artefact_id>/propose_edits`
   - Proposes file edits without persisting.
   - Uses the conversation-level `artefact_propose_edits_model` override when set.
+  - See `documentation/api/internal/conversation_settings.md` and `documentation/api/internal/model_catalog.md` for how overrides are configured.
   - Body:
 
 ```json

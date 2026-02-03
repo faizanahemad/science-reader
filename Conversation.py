@@ -1820,12 +1820,24 @@ Compact list of bullet points:
         """
         CallLLm can return either a string or an iterator of chunks depending on `stream`.
         Normalize to a single string.
+
+        This function periodically yields control (via time.sleep(0)) when iterating
+        generators to prevent GIL starvation in multi-threaded contexts.
         """
         try:
             if isinstance(resp, str):
                 return resp
-            # Generator / iterator case
-            return "".join(list(resp))
+            # Generator / iterator case - collect chunks with periodic GIL release
+            chunks = []
+            chunk_count = 0
+            for chunk in resp:
+                chunks.append(chunk)
+                chunk_count += 1
+                # Every 5 chunks, yield control to other threads to prevent GIL starvation
+                # Using 0.001s (1ms) instead of 0 to force actual thread scheduling
+                if chunk_count % 5 == 0:
+                    time.sleep(0.001)
+            return "".join(chunks)
         except Exception:
             return str(resp)
 
@@ -2891,6 +2903,56 @@ Give 4 suggestions.
         answer_tldr = extract_user_answer(
             response, tag="answer_tldr", return_empty_string_if_not_found=True
         )
+
+        # Optionally persist TLDR inside the saved assistant message text so it survives reloads.
+        # We keep `answer_tldr` as a separate field either way.
+        response_to_store = response
+        try:
+            persist_tldr_in_text = PERSIST_TLDR_IN_SAVED_ANSWER_TEXT
+            if isinstance(response_to_store, str):
+                has_tldr_tag = "<answer_tldr" in response_to_store.lower()
+
+                if persist_tldr_in_text:
+                    if answer_tldr and not has_tldr_tag:
+                        # Store a display-friendly TLDR block.
+                        try:
+                            tldr_wrapped_for_storage = convert_stream_to_iterable(
+                                collapsible_wrapper(
+                                    answer_tldr,
+                                    header="📝 TLDR Summary (Quick Read)",
+                                    show_initially=False,
+                                    add_close_button=True,
+                                )
+                            )
+                        except Exception:
+                            tldr_wrapped_for_storage = answer_tldr
+
+                        tldr_block = (
+                            "\n\n---\n\n"
+                            + "<answer_tldr>\n"
+                            + str(tldr_wrapped_for_storage)
+                            + "\n</answer_tldr>\n\n"
+                        )
+                        if "</answer>" in response_to_store:
+                            prefix, suffix = response_to_store.rsplit("</answer>", 1)
+                            response_to_store = (
+                                prefix + tldr_block + "</answer>" + suffix
+                            )
+                        else:
+                            response_to_store = response_to_store + tldr_block
+                else:
+                    if has_tldr_tag:
+                        # Avoid importing `re` here; it's already used elsewhere in this module.
+                        _pattern = r"<\s*answer_tldr\s*>.*?<\s*/\s*answer_tldr\s*>"
+                        response_to_store = re.sub(
+                            _pattern,
+                            "",
+                            response_to_store,
+                            flags=re.IGNORECASE | re.DOTALL,
+                        )
+        except Exception:
+            # Fail-open: never break persistence due to TLDR storage logic
+            response_to_store = response
         prompt = get_first_last_parts(prompt, 28000, 16_000)
         system = f"""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
 You will write a new summary for this conversation which takes the last 2 recent messages into account. 
@@ -2933,7 +2995,7 @@ Your response will be in below xml style format:
                 },
                 {
                     "message_id": message_ids["response_message_id"],
-                    "text": response,
+                    "text": response_to_store,
                     "show_hide": "show",
                     "sender": "model",
                     "user_id": self.user_id,
@@ -3824,9 +3886,29 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         self.save_local()
 
     def __call__(self, query, userData=None):
+        logger.warning(
+            "[STREAM] Conversation.__call__ start | conv=%s | t=%.2fs",
+            self.conversation_id,
+            time.time(),
+        )
+        time_logger.warning(
+            "[STREAM] Conversation.__call__ start | conv=%s | t=%.2fs",
+            self.conversation_id,
+            time.time(),
+        )
         logger.info(f"Called conversation reply for chat Assistant with Query: {query}")
         for txt in self.reply(query, userData):
             yield json.dumps(txt) + "\n"
+        logger.warning(
+            "[STREAM] Conversation.__call__ done | conv=%s | t=%.2fs",
+            self.conversation_id,
+            time.time(),
+        )
+        time_logger.warning(
+            "[STREAM] Conversation.__call__ done | conv=%s | t=%.2fs",
+            self.conversation_id,
+            time.time(),
+        )
 
     # Add this method to the Conversation class
     def is_cancelled(self):
@@ -4515,6 +4597,16 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
     def reply(self, query, userData=None):
         time_logger.info(f"[Conversation] reply called for chat Assistant.")
+        logger.warning(
+            "[STREAM] reply start | conv=%s | t=%.2fs",
+            self.conversation_id,
+            time.time(),
+        )
+        time_logger.warning(
+            "[STREAM] reply start | conv=%s | t=%.2fs",
+            self.conversation_id,
+            time.time(),
+        )
         self.next_question_suggestions = list()
         self.clear_cancellation()
         lock_status = self.check_all_lockfiles()
@@ -4626,8 +4718,20 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             checkboxes.get("enable_previous_messages", "infinite")
         ).strip()
 
+        log = success_logger if "success_logger" in globals() else time_logger
+
         # Extract reward level from checkboxes (0 = disabled, -3 to +3 = enabled with sensitivity)
         reward_level = int(checkboxes.get("reward_level", 0))
+        time_logger.info(
+            "[Reward System] reward_level=%s (checkboxes reward_level=%s)",
+            reward_level,
+            checkboxes.get("reward_level", None),
+        )
+        log.info(
+            "[Reward System] reward_level=%s (checkboxes reward_level=%s)",
+            reward_level,
+            checkboxes.get("reward_level", None),
+        )
         if enablePreviousMessages == "infinite":
             message_lookback = (
                 10 * 2
@@ -4675,6 +4779,19 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
         prior_context = prior_context_future.result()
 
+        logger.warning(
+            "[STREAM] prior_context ready | t=%.2fs",
+            time.time() - st,
+        )
+        time_logger.warning(
+            "[STREAM] prior_context ready | t=%.2fs",
+            time.time() - st,
+        )
+        log.warning(
+            "[STREAM] prior_context ready | t=%.2fs",
+            time.time() - st,
+        )
+
         time_dict["prior_context_time"] = time.time() - st
         previous_messages = prior_context["previous_messages"]
         previous_messages_very_short = prior_context["previous_messages_very_short"]
@@ -4690,6 +4807,66 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             previous_messages_long,
             summary,
         )
+        time_logger.info(
+            "[Reward System] reward_future=%s",
+            "started" if reward_future is not None else "none",
+        )
+        log.info(
+            "[Reward System] reward_future=%s",
+            "started" if reward_future is not None else "none",
+        )
+        reward_eval_start = time.perf_counter() if reward_future is not None else None
+        time_logger.info(
+            "[Reward System] eval_start=%s",
+            "started" if reward_eval_start is not None else "none",
+        )
+        log.info(
+            "[Reward System] eval_start=%s",
+            "started" if reward_eval_start is not None else "none",
+        )
+        reward_output = []
+        reward_output_ready = False
+        reward_output_emitted = False
+
+        def _collect_reward_output(block=False):
+            nonlocal reward_output, reward_output_ready, reward_output_emitted
+            if reward_future is None or reward_output_ready or reward_output_emitted:
+                return
+            if not block and not reward_future.done():
+                return
+            wait_start = time.perf_counter()
+            if block and not reward_future.done():
+                time_logger.info(
+                    "[Reward System] waiting for reward evaluation to finish (post-stream)"
+                )
+            reward_output = list(self._process_reward_evaluation(reward_future))
+            reward_output_ready = True
+            if reward_eval_start is not None:
+                time_logger.info(
+                    "[Reward System] reward evaluation ready | elapsed=%.2fs",
+                    time.perf_counter() - reward_eval_start,
+                )
+            if block:
+                time_logger.info(
+                    "[Reward System] reward evaluation ready post-stream | wait=%.2fs",
+                    time.perf_counter() - wait_start,
+                )
+
+        def _emit_reward_output():
+            nonlocal reward_output_emitted, answer
+            if reward_output_emitted or not reward_output_ready:
+                return
+            yield {"text": "\n", "status": "reward evaluation complete"}
+            for reward_chunk in reward_output:
+                if isinstance(reward_chunk, dict):
+                    answer += str(reward_chunk.get("text", ""))
+                    yield reward_chunk
+                else:
+                    answer += str(reward_chunk)
+                    yield reward_chunk
+            yield {"text": "\n", "status": "reward evaluation complete"}
+            reward_output_emitted = True
+
         permanent_instructions = (
             (
                 "Follow the below instructions given by the user.\n"
@@ -4909,11 +5086,10 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 persist_or_not,
                 past_message_ids,
             )
-            # Process reward evaluation before saving message
-            if reward_future is not None:
-                yield {"text": "\n", "status": "reward evaluation complete"}
-                yield from self._process_reward_evaluation(reward_future)
-                yield {"text": "\n", "status": "reward evaluation complete"}
+            # Process reward evaluation after summary streaming completes
+            _collect_reward_output(block=True)
+            if reward_output_ready:
+                yield from _emit_reward_output()
             message_ids = self.get_message_ids(query["messageText"], answer)
             yield {
                 "text": "\n\n",
@@ -5367,11 +5543,17 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 use_gpt4=True,
                 use_16k=True,
             )
+            time_logger.info(
+                f"[PKB-REPLY] Creating user_info futures | model1={llm.model_name}, model2={llm2.model_name} | t={time.time() - st:.2f}s"
+            )
             user_info_text1 = get_async_future(
                 llm, user_info_text, temperature=0.2, stream=False
             )
             user_info_text2 = get_async_future(
                 llm2, user_info_text, temperature=0.2, stream=False
+            )
+            time_logger.info(
+                f"[PKB-REPLY] User_info futures created (submitted to executor) | t={time.time() - st:.2f}s"
             )
 
         # raw_documents_index = self.get_field("raw_documents_index")
@@ -5574,6 +5756,19 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
         yield {"text": "", "status": "Prior context extraction started ..."}
         prior_context = prior_context_future.result()
+
+        logger.warning(
+            "[STREAM] prior_context ready | t=%.2fs",
+            time.time() - st,
+        )
+        time_logger.warning(
+            "[STREAM] prior_context ready | t=%.2fs",
+            time.time() - st,
+        )
+        log.warning(
+            "[STREAM] prior_context ready | t=%.2fs",
+            time.time() - st,
+        )
         yield {"text": "", "status": "Prior context extraction done ..."}
         previous_messages = prior_context["previous_messages"]
         previous_messages_short = previous_messages
@@ -6171,19 +6366,71 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 "text": "",
                 "status": "Processing user preferences and PKB context ...",
             }
+            # Wait for user_info futures with timeout and diagnostic logging
+            user_info_wait_start = time.time()
+            user_info_wait_timeout = 120  # seconds
+            user_info_wait_logged = False
             while user_info_text1.done() is False and user_info_text2.done() is False:
+                elapsed = time.time() - user_info_wait_start
+                # Log progress every 10 seconds
+                if elapsed > 10 and not user_info_wait_logged:
+                    time_logger.warning(
+                        f"[PKB-REPLY] Still waiting for user_info futures after {elapsed:.1f}s | "
+                        f"future1.done={user_info_text1.done()}, future2.done={user_info_text2.done()}"
+                    )
+                    user_info_wait_logged = True
+                # Timeout after 120 seconds
+                if elapsed > user_info_wait_timeout:
+                    time_logger.error(
+                        f"[PKB-REPLY] Timeout waiting for user_info futures after {elapsed:.1f}s | "
+                        f"future1.done={user_info_text1.done()}, future2.done={user_info_text2.done()}"
+                    )
+                    # Check for exceptions in the futures
+                    try:
+                        exc1 = user_info_text1.exception(timeout=0)
+                        if exc1:
+                            time_logger.error(f"[PKB-REPLY] future1 exception: {exc1}")
+                    except Exception as e:
+                        time_logger.error(
+                            f"[PKB-REPLY] Could not get future1 exception: {e}"
+                        )
+                    try:
+                        exc2 = user_info_text2.exception(timeout=0)
+                        if exc2:
+                            time_logger.error(f"[PKB-REPLY] future2 exception: {exc2}")
+                    except Exception as e:
+                        time_logger.error(
+                            f"[PKB-REPLY] Could not get future2 exception: {e}"
+                        )
+                    break
                 time.sleep(0.5)
-            user_info_text = (
-                user_info_text1.result()
-                if user_info_text1.done()
-                else user_info_text2.result()
+
+            # Get the result from whichever future completed first
+            time_logger.info(
+                f"[PKB-REPLY] User info wait completed | elapsed={time.time() - user_info_wait_start:.2f}s | "
+                f"future1.done={user_info_text1.done()}, future2.done={user_info_text2.done()}"
             )
+            try:
+                if user_info_text1.done():
+                    user_info_text = user_info_text1.result()
+                elif user_info_text2.done():
+                    user_info_text = user_info_text2.result()
+                else:
+                    # Both futures timed out
+                    user_info_text = ""
+                    time_logger.warning(
+                        "[PKB-REPLY] Both user_info futures timed out, using empty string"
+                    )
+            except Exception as e:
+                time_logger.error(f"[PKB-REPLY] Error getting user_info result: {e}")
+                user_info_text = ""
+
             time_logger.info(
                 f"[PKB-REPLY] user_info_text from LLM: {len(user_info_text) if user_info_text else 0} chars"
             )
             time_logger.info(
                 f"[PKB-REPLY] user_info_text preview: {user_info_text[:500]}..."
-                if len(user_info_text) > 500
+                if user_info_text and len(user_info_text) > 500
                 else f"[PKB-REPLY] user_info_text: {user_info_text}"
             )
             user_info_text = f"\nUser Preferences and What we know about the user:\n{user_info_text}\n\n"
@@ -6414,9 +6661,42 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 agent.timeout = self.max_time_to_wait_for_web_results * max(
                     provide_detailed_answers, 1
                 )
-
+            stream_setup_start = time.perf_counter()
+            logger.warning(
+                "[STREAM] calling agent for stream | agent=%s | t=%.2fs",
+                agent_type,
+                time.time() - st,
+            )
+            time_logger.warning(
+                "[STREAM] calling agent for stream | agent=%s | t=%.2fs",
+                agent_type,
+                time.time() - st,
+            )
+            log.warning(
+                "[STREAM] calling agent for stream | agent=%s | t=%.2fs",
+                agent_type,
+                time.time() - st,
+            )
             main_ans_gen = agent(
                 prompt, images=images, system=preamble, temperature=0.3, stream=True
+            )
+            logger.warning(
+                "[STREAM] agent returned stream | agent=%s | dt=%.2fs | t=%.2fs",
+                agent_type,
+                time.perf_counter() - stream_setup_start,
+                time.time() - st,
+            )
+            time_logger.warning(
+                "[STREAM] agent returned stream | agent=%s | dt=%.2fs | t=%.2fs",
+                agent_type,
+                time.perf_counter() - stream_setup_start,
+                time.time() - st,
+            )
+            log.warning(
+                "[STREAM] agent returned stream | agent=%s | dt=%.2fs | t=%.2fs",
+                agent_type,
+                time.perf_counter() - stream_setup_start,
+                time.time() - st,
             )
             if isinstance(main_ans_gen, dict):
                 main_ans_gen = make_stream([main_ans_gen["answer"]], do_stream=True)
@@ -6426,7 +6706,76 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 pass
             elif not isinstance(main_ans_gen, str):
                 main_ans_gen = make_stream([str(main_ans_gen)], do_stream=True)
+            logger.warning(
+                "[STREAM] before make_stream for agent | agent=%s | t=%.2fs",
+                agent_type,
+                time.time() - st,
+            )
+            time_logger.warning(
+                "[STREAM] before make_stream for agent | agent=%s | t=%.2fs",
+                agent_type,
+                time.time() - st,
+            )
+            log.warning(
+                "[STREAM] before make_stream for agent | agent=%s | t=%.2fs",
+                agent_type,
+                time.time() - st,
+            )
+            make_stream_start = time.perf_counter()
+            main_ans_gen = make_stream(main_ans_gen, do_stream=True)
+            logger.warning(
+                "[STREAM] after make_stream for agent | agent=%s | dt=%.2fs | t=%.2fs",
+                agent_type,
+                time.perf_counter() - make_stream_start,
+                time.time() - st,
+            )
+            time_logger.warning(
+                "[STREAM] after make_stream for agent | agent=%s | dt=%.2fs | t=%.2fs",
+                agent_type,
+                time.perf_counter() - make_stream_start,
+                time.time() - st,
+            )
+            log.warning(
+                "[STREAM] after make_stream for agent | agent=%s | dt=%.2fs | t=%.2fs",
+                agent_type,
+                time.perf_counter() - make_stream_start,
+                time.time() - st,
+            )
+            logger.warning(
+                "[STREAM] before early buffer_generator_async | agent=%s | t=%.2fs",
+                agent_type,
+                time.time() - st,
+            )
+            time_logger.warning(
+                "[STREAM] before early buffer_generator_async | agent=%s | t=%.2fs",
+                agent_type,
+                time.time() - st,
+            )
+            log.warning(
+                "[STREAM] before early buffer_generator_async | agent=%s | t=%.2fs",
+                agent_type,
+                time.time() - st,
+            )
+            early_buffer_start = time.perf_counter()
             main_ans_gen = buffer_generator_async(main_ans_gen)
+            logger.warning(
+                "[STREAM] after early buffer_generator_async | agent=%s | dt=%.2fs | t=%.2fs",
+                agent_type,
+                time.perf_counter() - early_buffer_start,
+                time.time() - st,
+            )
+            time_logger.warning(
+                "[STREAM] after early buffer_generator_async | agent=%s | dt=%.2fs | t=%.2fs",
+                agent_type,
+                time.perf_counter() - early_buffer_start,
+                time.time() - st,
+            )
+            log.warning(
+                "[STREAM] after early buffer_generator_async | agent=%s | dt=%.2fs | t=%.2fs",
+                agent_type,
+                time.perf_counter() - early_buffer_start,
+                time.time() - st,
+            )
 
         else:
             if is_slide_agent and storyboard_context is not None:
@@ -6466,12 +6815,40 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                         self.get_api_keys(), writer_model=model_names, n_responses=2
                     )
                     # llm = CallMultipleLLM(self.get_api_keys(), model_names=model_names, merge=True, merge_model=model_name)
+                    stream_setup_start = time.perf_counter()
+                    logger.warning(
+                        "[STREAM] calling NResponseAgent for stream | t=%.2fs",
+                        time.time() - st,
+                    )
+                    time_logger.warning(
+                        "[STREAM] calling NResponseAgent for stream | t=%.2fs",
+                        time.time() - st,
+                    )
+                    log.warning(
+                        "[STREAM] calling NResponseAgent for stream | t=%.2fs",
+                        time.time() - st,
+                    )
                     main_ans_gen = llm(
                         prompt,
                         images=images,
                         system=preamble,
                         temperature=0.9,
                         stream=True,
+                    )
+                    logger.warning(
+                        "[STREAM] NResponseAgent returned stream | dt=%.2fs | t=%.2fs",
+                        time.perf_counter() - stream_setup_start,
+                        time.time() - st,
+                    )
+                    time_logger.warning(
+                        "[STREAM] NResponseAgent returned stream | dt=%.2fs | t=%.2fs",
+                        time.perf_counter() - stream_setup_start,
+                        time.time() - st,
+                    )
+                    log.warning(
+                        "[STREAM] NResponseAgent returned stream | dt=%.2fs | t=%.2fs",
+                        time.perf_counter() - stream_setup_start,
+                        time.time() - st,
                     )
                     main_ans_gen = make_stream(
                         [main_ans_gen]
@@ -6512,12 +6889,46 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                         + f" done, time from start = {(time.time() - st):.2f} ...",
                     }
                     try:
+                        stream_setup_start = time.perf_counter()
+                        logger.warning(
+                            "[STREAM] calling CallLLm for stream | model=%s | t=%.2fs",
+                            str(model_name),
+                            time.time() - st,
+                        )
+                        time_logger.warning(
+                            "[STREAM] calling CallLLm for stream | model=%s | t=%.2fs",
+                            str(model_name),
+                            time.time() - st,
+                        )
+                        log.warning(
+                            "[STREAM] calling CallLLm for stream | model=%s | t=%.2fs",
+                            str(model_name),
+                            time.time() - st,
+                        )
                         main_ans_gen = llm(
                             prompt,
                             images=images,
                             system=preamble,
                             temperature=0.3,
                             stream=True,
+                        )
+                        logger.warning(
+                            "[STREAM] CallLLm returned stream | model=%s | dt=%.2fs | t=%.2fs",
+                            str(model_name),
+                            time.perf_counter() - stream_setup_start,
+                            time.time() - st,
+                        )
+                        time_logger.warning(
+                            "[STREAM] CallLLm returned stream | model=%s | dt=%.2fs | t=%.2fs",
+                            str(model_name),
+                            time.perf_counter() - stream_setup_start,
+                            time.time() - st,
+                        )
+                        log.warning(
+                            "[STREAM] CallLLm returned stream | model=%s | dt=%.2fs | t=%.2fs",
+                            str(model_name),
+                            time.perf_counter() - stream_setup_start,
+                            time.time() - st,
                         )
                     except Exception as e:
                         traceback.print_exc()
@@ -6532,15 +6943,39 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 main_ans_gen = iter([])  # empty generator of string
 
         yield {"text": "", "status": "Buffering answer generator ..."}
+        logger.warning(
+            "[STREAM] before buffer_generator_async | t=%.2fs",
+            time.time() - st,
+        )
+        time_logger.warning(
+            "[STREAM] before buffer_generator_async | t=%.2fs",
+            time.time() - st,
+        )
+        log.warning(
+            "[STREAM] before buffer_generator_async | t=%.2fs",
+            time.time() - st,
+        )
+        buffer_start = time.perf_counter()
         main_ans_gen = buffer_generator_async(main_ans_gen)
 
         yield {"text": "", "status": "Buffering answer generator done ..."}
+        time_logger.info(
+            "[STREAM] buffer_generator_async ready | t=%.2fs",
+            time.perf_counter() - buffer_start,
+        )
+        log.info(
+            "[STREAM] buffer_generator_async ready | t=%.2fs",
+            time.perf_counter() - buffer_start,
+        )
+        logger.warning(
+            "[STREAM] buffer_generator_async ready | t=%.2fs",
+            time.perf_counter() - buffer_start,
+        )
 
-        # Process reward evaluation before saving message
-        if reward_future is not None:
-            yield {"text": "\n", "status": "reward evaluation complete"}
-            yield from self._process_reward_evaluation(reward_future)
-            yield {"text": "\n", "status": "reward evaluation complete"}
+        # Allow reward evaluation to complete while streaming (non-blocking)
+        _collect_reward_output(block=False)
+        if reward_output_ready:
+            yield from _emit_reward_output()
         time_dict["first_word_generated"] = time.time() - st
         logger.info(
             f"""Starting to reply for chatbot, prompt length: {len(enc.encode(prompt))}, summary text length: {len(enc.encode(summary_text))}, 
@@ -6735,7 +7170,24 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             "status": "Starting to stream answer ..., prompt length: "
             + str(prompt_length),
         }
+        time_logger.info("[STREAM] starting to iterate main_ans_gen")
+        log.info("[STREAM] starting to iterate main_ans_gen")
+        stream_iter_start = time.perf_counter()
+        first_stream_chunk_logged = False
         for dcit in main_ans_gen:
+            if not first_stream_chunk_logged:
+                time_logger.info(
+                    "[STREAM] first item from main_ans_gen | t=%.2fs",
+                    time.perf_counter() - stream_iter_start,
+                )
+                log.info(
+                    "[STREAM] first item from main_ans_gen | t=%.2fs",
+                    time.perf_counter() - stream_iter_start,
+                )
+                first_stream_chunk_logged = True
+            _collect_reward_output(block=False)
+            if reward_output_ready:
+                yield from _emit_reward_output()
             if self.is_cancelled():
                 logger.info(
                     f"Response cancelled for conversation {self.conversation_id}"
@@ -6767,6 +7219,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 )
             yield {"text": txt, "status": status}
             answer += str(txt)
+            _collect_reward_output(block=False)
+            if reward_output_ready:
+                yield from _emit_reward_output()
             chars_since_last_check += len(str(txt))
             if chars_since_last_check >= stream_check_interval_chars:
                 chars_since_last_check = 0
@@ -6774,6 +7229,11 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
         if chars_since_last_check > 0:
             yield from _process_stream_artifacts("", force_flush=True)
+
+        if not reward_output_emitted:
+            _collect_reward_output(block=False)
+            if reward_output_ready:
+                yield from _emit_reward_output()
 
         answer_temp = answer
         while True:
@@ -6817,6 +7277,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             and not self.is_cancelled()
             and agent is None
         ):
+            _collect_reward_output(block=False)
+            if reward_output_ready:
+                yield from _emit_reward_output()
             yield {
                 "text": "\n\n",
                 "status": "Generating TLDR summary for long answer...",
@@ -6877,6 +7340,10 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
         answer += "</answer>\n"
         yield {"text": "</answer>\n", "status": "answering ended ..."}
+        if not reward_output_emitted:
+            _collect_reward_output(block=False)
+            if reward_output_ready:
+                yield from _emit_reward_output()
         time_logger.info(
             f"Time taken to reply for chatbot: {(time.time() - et):.2f}, total time: {(time.time() - st):.2f}"
         )
@@ -6992,6 +7459,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         Returns future object or None if reward evaluation is not needed.
         """
         if reward_level == 0:
+            time_logger.info("[Reward System] reward evaluation disabled (level=0)")
             return None
 
         def sync_reward_evaluation_with_update():
@@ -7044,6 +7512,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 }
 
         # Start async reward evaluation using the inner sync function
+        time_logger.info(
+            "[Reward System] starting reward evaluation (level=%s)", reward_level
+        )
         reward_future = get_async_future(sync_reward_evaluation_with_update)
 
         return reward_future
@@ -8118,8 +8589,12 @@ def model_name_to_canonical_name(model_name):
         or model_name == "Sonnet 4"
     ):
         model_name = "anthropic/claude-sonnet-4"
+    elif model_name == "google/gemini-3-flash-preview" or model_name == "Gemini 3 Flash Preview":
+        model_name = "google/gemini-3-flash-preview"
     elif model_name == "anthropic/claude-sonnet-4.5" or model_name == "Sonnet 4.5":
         model_name = "anthropic/claude-sonnet-4.5"
+    elif model_name == "anthropic/claude-haiku-4.5" or model_name == "Haiku 4.5":
+        model_name = "anthropic/claude-haiku-4.5"
     elif model_name == "mistralai/mistral-large-2512":
         model_name = "mistralai/mistral-large-2512"
     elif model_name == "anthropic/claude-4-opus-20250522":

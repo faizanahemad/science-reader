@@ -87,6 +87,27 @@ Server-side injection:
   - parse each JSON object,
   - append `text` to the assistant message,
   - optionally show `status` as progress UI.
+- Some chunks include `message_ids` once the server has generated and/or persisted message IDs.
+  - Shape: `{ "message_ids": { "user_message_id": "...", "response_message_id": "..." } }`.
+  - The UI uses this to update DOM attributes so delete/move/doubts actions target the correct IDs.
+
+**Client rendering behavior (web UI)**
+- The UI renders the user message immediately, before the server responds.
+- A placeholder assistant card is created when the first stream chunk arrives.
+- Streaming chunks are rendered incrementally into the same card to minimize reflow.
+- Breakpoints (headers/rules/paragraphs) split the streaming output into sections for stable rendering.
+- Slide content (`<slide-presentation>` tags) is buffered until closing tags arrive to avoid partial HTML.
+- On completion, the UI does a final render pass, initializes voting UI, and requests next-question suggestions.
+
+**TLDR auto-summary for long answers**
+- For very long answers, the server appends a TLDR block after the main response.
+- Trigger conditions:
+  - Answer length > 1000 words
+  - No specialized agent is active
+  - Not cancelled; model is not `FILLER_MODEL`
+- The TLDR is generated with `tldr_summary_prompt`, using the user query + running summary + full answer.
+- Model selection uses `conversation_settings.model_overrides.tldr_model` if set, otherwise `CHEAP_LONG_CONTEXT_LLM[0]`.
+- The TLDR is wrapped in a collapsible `<details>` section with header “📝 TLDR Summary (Quick Read)”.
 
 **Persistence**
 - Conversation content is persisted to the filesystem under a per-conversation folder (see “Local conversation storage” below).
@@ -111,6 +132,11 @@ Server-side injection:
 
 **Persistence**
 - `running_summary` lives in conversation-local memory (`memory.running_summary`) persisted in the conversation folder.
+
+**Client rendering for history**
+- History is fetched with `GET /list_messages_by_conversation/<conversation_id>`.
+- The UI renders each message card with markdown conversion, optional show-more for long messages, and per-message action menus.
+- Cards are assigned a stable `message-id` attribute to support edit/delete/move/doubts workflows.
 
 ---
 
@@ -179,6 +205,30 @@ Server-side injection:
 
 **Persistence**
 - Search results may be stored into message metadata/config (primarily UI display), and the final answer content embeds results in collapsible wrappers.
+
+---
+
+### 6) Multi-model responses and formatting
+
+**What it does**
+- The UI can select multiple models for a single request via the “Main Model” multi-select.
+- If multiple models are selected and no specialized agent is chosen, the conversation runs a multi-model “ensemble” response.
+- Responses are streamed in a **collapsible per-model format**, so users can expand each model’s output.
+
+**How models are invoked**
+- Multiple model names are passed in `checkboxes.main_model` (array).
+- The server normalizes them and, when appropriate, uses an `NResponseAgent` to orchestrate streaming.
+- The underlying multi-model streamer executes models in parallel but displays their outputs sequentially (order of first response).
+
+**Formatting of multi-model output**
+- Each model’s response is wrapped in a `<details>` block with a header like “Response from <model>”.
+- A `---` separator is appended after all model responses.
+- The UI renders these sections as collapsible blocks with standard markdown support.
+
+**Key implementations**
+- `Conversation.py` (model selection + ensemble trigger + agent wiring).
+- `agents/search_and_information_agents.py` (`NResponseAgent`).
+- `call_llm.py` (`CallMultipleLLM`) + `common.py` (`stream_multiple_models`).
 
 ---
 
@@ -328,6 +378,26 @@ Server-side injection:
 
 ---
 
+## UI shell caching (Service Worker)
+
+The web UI registers a Service Worker to cache the app shell (JS/CSS/icons) so that reopening the interface does not re-download the same assets.
+
+**Scope + behavior**
+- Service Worker: `interface/service-worker.js` (served at `/interface/service-worker.js`).
+- Cache scope: same-origin `/interface/*` and `/static/*` assets (GET only).
+- Navigation: `/interface` and `/interface/<conversation_id>` are **NetworkFirst** with offline fallback.
+- APIs, streaming, uploads, and downloads are **NetworkOnly** by design.
+
+**PWA icon precache**
+- Icons are precached to prevent repeated icon fetches:
+  - `/interface/icons/app-icon.svg`
+  - `/interface/icons/maskable-icon.svg`
+
+**Server cache headers (PWA assets)**
+- The manifest + icons are served with long-lived cache headers to avoid repeated fetches.
+
+---
+
 ## Local conversation storage (important for parity + ops)
 
 Conversations are persisted to the filesystem (not only SQLite):
@@ -457,5 +527,3 @@ and avoids loading everything for every request.
   - main response streaming
   - doubt clearing streaming
 - Conversation locking uses filesystem lock files; clients may see “waiting for lock” warnings in stream.
-
-

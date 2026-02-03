@@ -21,6 +21,9 @@ This repo’s web UI can be used “app-like” on Android by installing it as a
   - `/interface/*` (local JS/CSS/icons, and cached HTML shell as fallback)
   - `/static/*` (if/when you ship assets there)
   - **pdf.js fixed assets** under `/interface/pdf.js/*` (viewer JS/CSS + images + CMaps/fonts/locales)
+  - **PWA icons** (precached):
+    - `/interface/icons/app-icon.svg`
+    - `/interface/icons/maskable-icon.svg`
 
 ### Cache-eligible (selected CDN assets, GET only)
 Some third-party libraries referenced in `interface/interface.html` are fetched from CDNs. The Service Worker now caches **asset-like** requests (script/style/font/image) for an allowlisted set of hosts, with a **6-hour TTL** refresh policy.
@@ -129,6 +132,19 @@ If streaming/upload breaks, the SW cache boundary is too broad (should not happe
 - It does **not** call `skipWaiting()` or `clients.claim()` (conservative).
 - A new SW will take control on a subsequent navigation/reload as per standard SW lifecycle.
 
+### PWA asset versioning (manifest + icons)
+- `interface/interface.html` links the manifest with a version query param (e.g. `/interface/manifest.json?v=10`).
+- `interface/manifest.json` references icons with the same version query param (e.g. `/interface/icons/app-icon.svg?v=10`).
+- The Service Worker precaches those versioned URLs and maps bare `/interface/manifest.json` to the versioned cache key.
+- The server serves manifest + icons with **30-day immutable cache headers**.
+
+When you change the manifest or icons:
+1) Bump the query param value in **all three places**:
+   - `interface/interface.html`
+   - `interface/manifest.json`
+   - `interface/service-worker.js`
+2) Bump `CACHE_VERSION` in `interface/service-worker.js` to force a new cache namespace.
+
 ### Cache invalidation options
 You have two complementary ways to avoid stale UI assets after you deploy changes:
 
@@ -156,6 +172,9 @@ To force-update during development (manual):
   - **Navigation** (`/interface`, `/interface/<conversation_id>`): **NetworkFirst**, with offline fallback to cached shell.
   - **APIs / streaming / uploads**: **not cached** (NetworkOnly by design).
   - **Selected CDN assets**: cached conservatively for allowlisted hosts with **6-hour TTL** refresh.
+- **PWA icons**: precached to avoid repeated icon fetches in server logs.
+- **SW takeover**: SW now uses `skipWaiting()` + `clients.claim()` to start caching immediately after install.
+- **Server-side cache headers**: PWA icons and manifest served with long-lived cache headers.
 - **Multi-window / stable per-chat URL**: use the explicit **Open in New Window** action; we avoid sidebar native navigation links on mobile.
 - **Rendered-state persistence**: restores a cached rendered DOM snapshot (IndexedDB) for instant resume when available.
 
@@ -170,6 +189,8 @@ To force-update during development (manual):
 - **Updated**: `interface/workspace-manager.js` (sidebar items use `href="#"` to avoid reloads; SPA switching; “Open in New Window”)
 - **Updated**: `interface/common-chat.js` (same-conversation guard; snapshot restore/compare; robust message extraction for `$.when`)
 - **Updated**: `interface/service-worker.js` (CDN allowlist caching + TTL, snapshot asset, pdf.js resource extensions)
+- **Updated**: `interface/service-worker.js` (precache PWA icons, bump cache version)
+- **Updated**: `endpoints/static_routes.py` (longer cache max-age for PWA assets)
 - **Updated**: `PWA_ANDROID.md` (this doc)
 
 ---
@@ -225,5 +246,3 @@ This repo now implements **Option A** (DOM snapshot per conversation) with **ver
   - `window.UI_CACHE_VERSION` in `interface/common.js`
   - (Recommended: keep it aligned with `CACHE_VERSION` in `interface/service-worker.js`)
 - When the version changes, old snapshots are ignored (and best-effort deleted).
-
-

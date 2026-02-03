@@ -37,6 +37,7 @@ from extensions import cache, limiter
 static_bp = Blueprint("static_routes", __name__)
 logger = logging.getLogger(__name__)
 
+
 def cached_get_file(file_url: str):
     """
     Retrieve a file from cache, disk, or remote URL and stream it as chunks.
@@ -63,7 +64,9 @@ def cached_get_file(file_url: str):
     if os.path.exists(file_url):
         try:
             pdf_file_url = convert_any_to_pdf(file_url)
-            logger.info(f"cached_get_file: serving PDF file {pdf_file_url} (original: {file_url})")
+            logger.info(
+                f"cached_get_file: serving PDF file {pdf_file_url} (original: {file_url})"
+            )
         except Exception as e:
             logger.error(f"cached_get_file: failed to convert {file_url} to PDF: {e}")
             pdf_file_url = file_url
@@ -250,7 +253,7 @@ PWA_PUBLIC_PATHS = {
     "icons/app-icon.svg",
     "icons/maskable-icon.svg",
 }
-PWA_CACHE_MAX_AGE_SECONDS = 60 * 60 * 24  # 24h to reduce repeated browser fetches.
+PWA_CACHE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30  # 30d to reduce repeated browser fetches.
 
 
 @static_bp.route("/interface/<path:path>", strict_slashes=False)
@@ -261,7 +264,7 @@ def interface_combined_route(path: str):
 
     This preserves the bespoke logic previously implemented in
     `server.py:interface_combined`.
-    
+
     Note: PWA manifest and icons are served without authentication because:
     1. Browsers fetch manifests without credentials for installability checks
     2. Service workers need these during initial install before session exists
@@ -271,7 +274,13 @@ def interface_combined_route(path: str):
     # Required for browser PWA installability checks which don't include cookies.
     if path in PWA_PUBLIC_PATHS:
         try:
-            return send_from_directory("interface", path, max_age=PWA_CACHE_MAX_AGE_SECONDS)
+            response = send_from_directory(
+                "interface", path, max_age=PWA_CACHE_MAX_AGE_SECONDS
+            )
+            response.headers["Cache-Control"] = (
+                f"public, max-age={PWA_CACHE_MAX_AGE_SECONDS}, immutable"
+            )
+            return response
         except FileNotFoundError:
             pass  # Fall through to normal handling
 
@@ -310,15 +319,23 @@ def interface_combined_route(path: str):
 @login_required
 def proxy_route():
     file_url = request.args.get("file")
-    logger.debug(f"Proxying file {file_url}, exists on disk = {os.path.exists(file_url or '')}")
-    return Response(stream_with_context(cached_get_file(file_url)), mimetype="application/pdf")
+    logger.debug(
+        f"Proxying file {file_url}, exists on disk = {os.path.exists(file_url or '')}"
+    )
+    return Response(
+        stream_with_context(cached_get_file(file_url)), mimetype="application/pdf"
+    )
 
 
 @static_bp.route("/proxy_shared", methods=["GET"])
 def proxy_shared_route():
     file_url = request.args.get("file")
-    logger.debug(f"Proxying file {file_url}, exists on disk = {os.path.exists(file_url or '')}")
-    return Response(stream_with_context(cached_get_file(file_url)), mimetype="application/pdf")
+    logger.debug(
+        f"Proxying file {file_url}, exists on disk = {os.path.exists(file_url or '')}"
+    )
+    return Response(
+        stream_with_context(cached_get_file(file_url)), mimetype="application/pdf"
+    )
 
 
 @static_bp.route("/shared/<conversation_id>")
@@ -330,9 +347,7 @@ def shared(conversation_id: str):
     with open(html_file_path, "r", encoding="utf-8") as file:
         html_content = file.read()
 
-    div_element = (
-        f'<div id="conversation_id" data-conversation_id="{conversation_id}" style="display: none;"></div>'
-    )
+    div_element = f'<div id="conversation_id" data-conversation_id="{conversation_id}" style="display: none;"></div>'
     modified_html = html_content.replace("</body>", f"{div_element}</body>")
     return Response(modified_html, mimetype="text/html")
 
@@ -342,5 +357,3 @@ def shared(conversation_id: str):
 @login_required
 def index():
     return redirect("/interface")
-
-

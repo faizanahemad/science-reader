@@ -26,10 +26,13 @@ If you are new to the codebase, start with:
 - `features/web_search/`: web search implementation notes
 - `features/audio_slide_agent/`: audio/slide agent docs
 - `features/stocks/`: stocks module notes
+- `features/multi_model_response_tabs/`: tabbed UI for multi-model responses and TLDR summaries (start: `features/multi_model_response_tabs/TAB_BASED_RENDERING_IMPLEMENTATION.md`)
 
 ## APIs
 - `api/internal/`: internal API docs and route summaries
 - `api/internal/artefacts.md`: artefacts CRUD + LLM edit endpoints
+- `api/internal/conversation_settings.md`: conversation settings (model overrides)
+- `api/internal/model_catalog.md`: model catalog for dropdowns
 - `api/external/`: external API docs
 
 ## Data

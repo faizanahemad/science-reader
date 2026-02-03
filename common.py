@@ -6,7 +6,12 @@ import uuid
 
 import more_itertools
 from playwright.async_api import async_playwright
-from concurrent.futures import ThreadPoolExecutor, as_completed, Future, ProcessPoolExecutor
+from concurrent.futures import (
+    ThreadPoolExecutor,
+    as_completed,
+    Future,
+    ProcessPoolExecutor,
+)
 from urllib.parse import urlparse, urlunparse
 import time
 import logging
@@ -23,7 +28,20 @@ from typing import Union, List
 from multiprocessing import Process, Queue
 from functools import partial
 
-from very_common import is_picklable, is_dillable, is_int, get_async_future, wrap_in_future, executor, make_async, FINISHED_TASK, TERMINATION_SIGNAL, string_indicates_true, round_robin, checkNoneOrEmpty
+from very_common import (
+    is_picklable,
+    is_dillable,
+    is_int,
+    get_async_future,
+    wrap_in_future,
+    executor,
+    make_async,
+    FINISHED_TASK,
+    TERMINATION_SIGNAL,
+    string_indicates_true,
+    round_robin,
+    checkNoneOrEmpty,
+)
 from very_common import sleep_and_get_future_result, sleep_and_get_future_exception
 
 from tenacity import RetryError
@@ -38,34 +56,84 @@ TOKEN_LIMIT_FOR_SHORT = int(os.getenv("TOKEN_LIMIT_FOR_SHORT", 3000))
 TOKEN_LIMIT_FOR_NORMAL = int(os.getenv("TOKEN_LIMIT_FOR_SHORT", 5500))
 DDOS_PROTECTION_STR = "Blocked by ddos protection"
 PDF_CONVERT_URL = os.getenv("PDF_CONVERT_URL", "http://localhost:7777")
-MAX_TIME_TO_WAIT_FOR_WEB_RESULTS = int(os.getenv("MAX_TIME_TO_WAIT_FOR_WEB_RESULTS", 45))
+MAX_TIME_TO_WAIT_FOR_WEB_RESULTS = int(
+    os.getenv("MAX_TIME_TO_WAIT_FOR_WEB_RESULTS", 45)
+)
 THRESHOLD_SIM_FOR_SEARCH_RESULT = 0.5
 FILLER_MODEL = "Filler"
+
+# If enabled, persist `<answer_tldr>` content inside the saved assistant message text.
+# This ensures TLDR survives page reloads without requiring UI to stitch it back together
+# from separate metadata fields.
+PERSIST_TLDR_IN_SAVED_ANSWER_TEXT = string_indicates_true(
+    os.getenv("PERSIST_TLDR_IN_SAVED_ANSWER_TEXT", "true")
+)
 LEN_CUTOFF_WEB_TEXT = 50
 SCIENCE_KEYS = [
-                        "methodology",
-                        "previous_literature_and_differentiation",
-                        "experiments_and_evaluation",
-                        "results_and_comparison",
-                        "limitations_and_future_work"
-                    ]
+    "methodology",
+    "previous_literature_and_differentiation",
+    "experiments_and_evaluation",
+    "results_and_comparison",
+    "limitations_and_future_work",
+]
 # stick to VL models
 # stick to 128K or above context window
 
 OPENROUTER_LLM = ["google/gemini-2.5-flash"]
-            
-VERY_CHEAP_LLM = ["google/gemini-2.5-flash-lite", "google/gemini-2.5-flash","openai/gpt-5-mini"]
-CHEAP_LLM = ["anthropic/claude-haiku-4.5", "gpt-4o", "openai/gpt-5-mini",]
-EXPENSIVE_LLM = ["anthropic/claude-sonnet-4.5","openai/gpt-5.1", "openai/gpt-5.2", "openai/gpt-5.2-codex", "mistralai/mistral-large-2512",   "qwen/qwen3-coder-plus", "gpt-5.2-codex", "google/gemini-3-pro-preview", "anthropic/claude-opus-4.5", "openai/gpt-5.2-pro", "x-ai/grok-3", "moonshotai/kimi-k2.5"]
-UNUSED_EXPENSIVE_LLM =  ["anthropic/claude-3.7-sonnet:beta", "openai/chatgpt-4o-latest", "anthropic/claude-3.5-sonnet:beta", 
-                 "anthropic/claude-3.7-sonnet",  "o3-mini", "anthropic/claude-3-opus:beta", "mistralai/pixtral-large-2411", 
-                 "cohere/command-r-plus-08-2024", "openai/o1-preview", "o1-preview", "o1", 
-                 "cohere/command-a", "ai21/jamba-1.6-large", "qwen/qwen3-coder-plus", "qwen/qwen3-coder", "openai/gpt-5", ]
+
+VERY_CHEAP_LLM = [
+    "google/gemini-2.5-flash-lite",
+    "google/gemini-2.5-flash",
+    "openai/gpt-5-mini",
+]
+CHEAP_LLM = [
+    "anthropic/claude-haiku-4.5",
+    "gpt-4o",
+    "openai/gpt-5-mini",
+]
+EXPENSIVE_LLM = [
+    "anthropic/claude-sonnet-4.5",
+    "openai/gpt-5.1",
+    "openai/gpt-5.2",
+    "openai/gpt-5.2-codex",
+    "mistralai/mistral-large-2512",
+    "qwen/qwen3-coder-plus",
+    "gpt-5.2-codex",
+    "google/gemini-3-pro-preview",
+    "anthropic/claude-opus-4.5",
+    "openai/gpt-5.2-pro",
+    "x-ai/grok-3",
+    "moonshotai/kimi-k2.5",
+]
+UNUSED_EXPENSIVE_LLM = [
+    "anthropic/claude-3.7-sonnet:beta",
+    "openai/chatgpt-4o-latest",
+    "anthropic/claude-3.5-sonnet:beta",
+    "anthropic/claude-3.7-sonnet",
+    "o3-mini",
+    "anthropic/claude-3-opus:beta",
+    "mistralai/pixtral-large-2411",
+    "cohere/command-r-plus-08-2024",
+    "openai/o1-preview",
+    "o1-preview",
+    "o1",
+    "cohere/command-a",
+    "ai21/jamba-1.6-large",
+    "qwen/qwen3-coder-plus",
+    "qwen/qwen3-coder",
+    "openai/gpt-5",
+]
 
 OPENAI_CHEAP_LLM = "openai/gpt-5-mini"
 
 
-CHEAP_LONG_CONTEXT_LLM = ["google/gemini-2.5-flash", "openai/gpt-5-mini", "gpt-4.1-mini", "x-ai/grok-4-fast"]
+CHEAP_LONG_CONTEXT_LLM = [
+    "google/gemini-2.5-flash",
+    "google/gemini-3-flash-preview",
+    "openai/gpt-5-mini",
+    "gpt-4.1-mini",
+    "x-ai/grok-4-fast",
+]
 LONG_CONTEXT_LLM = ["google/gemini-2.5-pro", "minimax/minimax-m1"]
 
 COMMON_SALT_STRING = "31256greagy89"
@@ -82,30 +150,38 @@ def collapsible_wrapper_old(response, header="Solution", show_initially=True):
     """
     is_generator = inspect.isgenerator(response)
     random_identifier = str(uuid.uuid4())
-    response_class = 'collapse show' if show_initially else 'collapse'
-    aria_expanded = 'true' if show_initially else 'false'
+    response_class = "collapse show" if show_initially else "collapse"
+    aria_expanded = "true" if show_initially else "false"
     if isinstance(response, str):
         yield f"**{header}**: <div data-toggle='collapse' href='#response-solution-{random_identifier}' role='button' aria-expanded='{aria_expanded}'></div><div class='{response_class}' id='response-solution-{random_identifier}'>\n{response}\n</div>"
         return
-    
+
     if not is_generator:
-        if isinstance(response, (str, list, tuple)) or isinstance(response, more_itertools.more.peekable) or isinstance(response, peekable) or hasattr(response, '__iter__') or hasattr(res, '__next__'):
+        if (
+            isinstance(response, (str, list, tuple))
+            or isinstance(response, more_itertools.more.peekable)
+            or isinstance(response, peekable)
+            or hasattr(response, "__iter__")
+            or hasattr(res, "__next__")
+        ):
             response = convert_iterable_to_stream(response)
-    
+
         else:
             raise ValueError(f"Invalid response type: {type(response)}")
-    
+
     yield f"**{header}**: <div data-toggle='collapse' href='#response-solution-{random_identifier}' role='button' aria-expanded='{aria_expanded}'></div><div class='{response_class}' id='response-solution-{random_identifier}'>\n"
     for chunk in response:
         yield chunk
     yield "\n</div>"
 
 
-def collapsible_wrapper(response, header="Solution", show_initially=True, add_close_button=True):
+def collapsible_wrapper(
+    response, header="Solution", show_initially=True, add_close_button=True
+):
     """
     Wraps the response in a collapsible section using HTML <details> tag with a header.
     If the response is a generator, it will yield the chunks.
-    
+
     Parameters:
     -----------
     response : str or generator
@@ -116,17 +192,17 @@ def collapsible_wrapper(response, header="Solution", show_initially=True, add_cl
         Whether the collapsible section should be shown initially (default: True)
     add_close_button : bool, optional
         Whether to add a close button at the end of the collapsible section (default: True)
-    
+
     Returns:
     --------
     generator
         A generator yielding the wrapped response chunks
-    
+
     Examples:
     ---------
     # Using with a string
     result = collapsible_wrapper("This is my content", header="My Header")
-    
+
     # Using with a generator
     def my_generator():
         yield "Chunk 1"
@@ -137,12 +213,12 @@ def collapsible_wrapper(response, header="Solution", show_initially=True, add_cl
     import uuid
     import more_itertools
     from more_itertools import peekable
-    
+
     is_generator = inspect.isgenerator(response)
-    
+
     # Add the open attribute if the section should be shown initially
     open_attr = " open" if show_initially else ""
-    
+
     # Add CSS for the close button if requested
     if add_close_button:
         style_string = """<style>
@@ -178,45 +254,63 @@ document.addEventListener('click', function(event) {
 </script>
 """
         # yield style_string
-    
+
     # Handle string responses directly
     import hashlib
-    hashString = hashlib.md5((str(response) + str(uuid.uuid4())).encode()).hexdigest()[:8]
+
+    hashString = hashlib.md5((str(response) + str(uuid.uuid4())).encode()).hexdigest()[
+        :8
+    ]
     if isinstance(response, str):
         yield f"\n<details {open_attr} id='details-{hashString}'>\n<summary><strong>{header}</strong></summary>\n\n{response}\n"
         if add_close_button:
-            yield "\n<button class='details-close-btn' data-details-id='details-{hashString}'>Close</button>\n"
+            yield f"\n<button class='details-close-btn' data-details-id='details-{hashString}'>Close</button>\n"
         yield "</details>\n\n"
         return
-    
+
     # Handle other types of iterables
     if not is_generator:
-        if isinstance(response, (list, tuple)) or isinstance(response, more_itertools.more.peekable) or isinstance(response, peekable) or hasattr(response, '__iter__') or hasattr(response, '__next__'):
+        if (
+            isinstance(response, (list, tuple))
+            or isinstance(response, more_itertools.more.peekable)
+            or isinstance(response, peekable)
+            or hasattr(response, "__iter__")
+            or hasattr(response, "__next__")
+        ):
             response = convert_iterable_to_stream(response)
         else:
             raise ValueError(f"Invalid response type: {type(response)}")
-    
+
     # Start the details section
     yield f"\n<details {open_attr} id='details-{hashString}'>\n<summary><strong>{header}</strong></summary>\n\n"
-    
+
     # Stream the content
     for chunk in response:
         yield chunk
-    
+
     # Add the close button if requested
     if add_close_button:
         yield f"\n<button class='details-close-btn' data-details-id='details-{hashString}'>Close</button>\n"
-    
+
     # Close the details section
     yield "</details>\n\n"
 
 
-def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.7, max_tokens=None, system=None, 
-                           collapsible_headers=True, header_template: Union[str, List[str]]="Response from {model}"):
+def stream_multiple_models(
+    keys,
+    model_names,
+    prompts,
+    images=[],
+    temperature=0.7,
+    max_tokens=None,
+    system=None,
+    collapsible_headers=True,
+    header_template: Union[str, List[str]] = "Response from {model}",
+):
     """
     Streams responses from multiple LLM models sequentially in a coordinated fashion, ensuring one complete
     model response is shown at a time while running all models in parallel for efficiency.
-    
+
     Core Functionality:
     -------------------
     1. Runs multiple language models in parallel using async execution
@@ -225,7 +319,7 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
     4. Prioritizes models in order of which started responding first
     5. Handles errors gracefully without affecting other models
     6. Returns a dictionary of complete responses for further processing
-    
+
     How It Works:
     ------------
     - Parallel Execution: Creates a separate thread for each model to execute requests concurrently
@@ -233,7 +327,7 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
     - Buffering System: Maintains a buffer for each model to store chunks when not actively streaming
     - Streaming Order: Tracks models in order of first response for sequential presentation
     - Error Handling: Captures and presents errors without disrupting other models
-    
+
     Execution Process:
     -----------------
     1. Initialization:
@@ -241,13 +335,13 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
        - Creates a message queue for thread communication
        - Sets up empty buffers for each model
        - Initializes tracking variables (streaming_order, currently_streaming, completed_models)
-    
+
     2. Thread Creation:
        - For each model+prompt pair, creates a thread that:
          a. Calls the model with the given prompt
          b. Sends chunks to the queue as they arrive
          c. Signals completion or errors through the queue
-    
+
     3. Main Loop:
        - Runs until all models have completed
        - Processes queue messages in order received
@@ -255,27 +349,27 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
          a. "model": A chunk from a model
          b. "complete": Signal that a model has finished
          c. "error": Signal that a model encountered an error
-    
+
     4. Chunk Processing Rules:
        - If no model is currently streaming, start streaming the first model that responds
        - If a chunk belongs to the currently streaming model, yield it immediately
        - If a chunk belongs to another model, buffer it for later
-    
+
     5. Model Completion Rules:
        - When a model completes, if it was the currently streaming model:
          a. Close its collapsible section (if enabled)
          b. Find the next model in streaming_order that hasn't completed yet
          c. Begin streaming that model, including any buffered chunks
-    
+
     6. Error Handling:
        - If a model errors, treat it as completed but with an error message
        - Display the error message in its own collapsible section (if headers enabled)
        - Continue with the next model
-    
+
     7. Cleanup:
        - Ensure any open collapsible section is properly closed
        - Return the dictionary of complete model responses
-    
+
     Arguments:
     ----------
     keys : dict
@@ -296,18 +390,18 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
         Whether to wrap responses in collapsible sections (default: True)
     header_template : Union[str, List[str]], optional
         Template string for headers, must contain {model} placeholder. If a list, must be of the same length as prompts.
-    
+
     Yields:
     -------
     str
         Chunks of text from models in sequential order
-    
+
     Returns:
     --------
     dict
-        Dictionary mapping model instance IDs to their complete responses, 
+        Dictionary mapping model instance IDs to their complete responses,
         where model instance IDs follow the format "model_name_index"
-    
+
     Notes:
     ------
     - If len(prompts) > len(model_names), model_names will be extended by repeating elements
@@ -320,94 +414,251 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
 
     from call_llm import CallLLm
     import traceback
-    
+    import time
+
+    log = success_logger if "success_logger" in globals() else logger
+
+    # Timing instrumentation
+    stream_start = time.perf_counter()
+    log.info(
+        "[stream_multiple_models] start | models=%s | prompts=%s",
+        len(model_names),
+        len(prompts),
+    )
+
     # Handle mismatch between prompts and model_names
     if len(prompts) > len(model_names):
-        model_names = model_names * (len(prompts) // len(model_names)) + model_names[:len(prompts) % len(model_names)]
+        model_names = (
+            model_names * (len(prompts) // len(model_names))
+            + model_names[: len(prompts) % len(model_names)]
+        )
     elif len(prompts) < len(model_names):
-        model_names = model_names[:len(prompts)]  
+        model_names = model_names[: len(prompts)]
 
     if isinstance(header_template, str):
         header_template = [header_template] * len(prompts)
     elif isinstance(header_template, list):
         if len(header_template) != len(prompts):
             raise ValueError("Number of headers must match number of prompts")
-    
+
     if len(model_names) != len(prompts):
         raise ValueError("Number of models must match number of prompts")
-    
+
     # Create model instance data with unique identifiers
     model_instances = []
     model_id_to_name = {}  # Mapping from unique ID to display name
-    
-    for i, (model, prompt, header) in enumerate(zip(model_names, prompts, header_template)):
+
+    for i, (model, prompt, header) in enumerate(
+        zip(model_names, prompts, header_template)
+    ):
         model_id = f"{model}_{i}"  # Create unique identifier
         model_instances.append((model_id, model, prompt, header))
         model_id_to_name[model_id] = model  # Store mapping for display purposes
-    
+
     # Create a queue for communication between threads
     from queue import Queue
+
     response_queue = Queue()
-    
+
     # Keep track of model responses for potential further processing
     model_responses = {}
-    
+
     # Function to run a single LLM and collect its response
+    model_first_chunk_enqueued = {}
+    model_thread_start = {}
+    first_chunk_streamed_to_client = False
+
     def run_llm(model_id, model_name, prompt, header):
         try:
+            model_thread_start[model_id] = time.perf_counter()
+            log.info(
+                "[stream_multiple_models] thread start | model_id=%s | model=%s | t=%.3fs",
+                model_id,
+                model_name,
+                model_thread_start[model_id] - stream_start,
+            )
             llm = CallLLm(keys, model_name)  # Use original model name for API call
-            response = llm(prompt, images, temperature, stream=True, max_tokens=max_tokens, system=system)
-            
+            log.warning(
+                "[stream_multiple_models] calling LLM | model_id=%s | t=%.3fs",
+                model_id,
+                time.perf_counter() - stream_start,
+            )
+            response = llm(
+                prompt,
+                images,
+                temperature,
+                stream=True,
+                max_tokens=max_tokens,
+                system=system,
+            )
+            log.warning(
+                "[stream_multiple_models] LLM returned generator | model_id=%s | t=%.3fs",
+                model_id,
+                time.perf_counter() - stream_start,
+            )
+
             # Collect the response chunks without additional wrapping
-            model_response = ""
-            for chunk in collapsible_wrapper(response, header=header.format(model=model_name), show_initially=collapsible_headers):
-                model_response += chunk
+            # Use list to collect chunks instead of string concatenation to reduce GIL pressure
+            model_response_chunks = []
+            chunk_count = 0
+            last_progress_log = time.perf_counter()
+            log.warning(
+                "[stream_multiple_models] starting to iterate response | model_id=%s | t=%.3fs",
+                model_id,
+                time.perf_counter() - stream_start,
+            )
+            # Sleep before starting iteration to give main loop a head start
+            # This helps ensure the main loop can begin processing before model threads
+            # start producing chunks at high speed
+            time.sleep(0.01)  # 10ms head start for main loop
+            for chunk in collapsible_wrapper(
+                response,
+                header=header.format(model=model_name),
+                show_initially=collapsible_headers,
+            ):
+                model_response_chunks.append(chunk)
+                chunk_count += 1
+                current_time = time.perf_counter()
+                # Log progress every 5 seconds
+                if current_time - last_progress_log > 5.0:
+                    log.warning(
+                        "[stream_multiple_models] thread progress | model_id=%s | chunks=%d | t=%.3fs",
+                        model_id,
+                        chunk_count,
+                        current_time - stream_start,
+                    )
+                    last_progress_log = current_time
+                if model_id not in model_first_chunk_enqueued:
+                    model_first_chunk_enqueued[model_id] = time.perf_counter()
+                    log.info(
+                        "[stream_multiple_models] first chunk enqueued | model_id=%s | model=%s | t=%.3fs",
+                        model_id,
+                        model_name,
+                        model_first_chunk_enqueued[model_id] - stream_start,
+                    )
                 response_queue.put(("model", model_id, chunk))
+                # Yield control on EVERY chunk to prevent GIL starvation
+                # Using 0.005s (5ms) to give the main loop adequate time to dequeue
+                # This is critical for multi-model streaming - without this, model threads
+                # can monopolize the GIL and starve the main loop for minutes
+                time.sleep(0.005)
+            log.warning(
+                "[stream_multiple_models] thread finished iterating | model_id=%s | chunks=%d | t=%.3fs",
+                model_id,
+                chunk_count,
+                time.perf_counter() - stream_start,
+            )
             response_queue.put(("model", model_id, "\n\n"))
-            
+
             # Store complete response and signal completion
-            model_responses[model_id] = model_response
+            model_responses[model_id] = "".join(model_response_chunks)
             response_queue.put(("complete", model_id))
         except Exception as e:
-            error_msg = f"Error with model {model_name}: {str(e)}\n{traceback.format_exc()}"
+            error_msg = (
+                f"Error with model {model_name}: {str(e)}\n{traceback.format_exc()}"
+            )
             logger.error(error_msg)
-            error_msg = collapsible_wrapper(error_msg, header=f"Error with {model_name}", show_initially=False)
+            error_msg = collapsible_wrapper(
+                error_msg, header=f"Error with {model_name}", show_initially=False
+            )
             response_queue.put(("error", model_id, error_msg))
             response_queue.put(("complete", model_id))
-    
+
     # Start a thread for each model instance
+    executor = ThreadPoolExecutor(max_workers=4)
     futures = []
+
+    def _run_llm_wrapper(model_id, model_name, prompt, header):
+        """Wrapper function to call run_llm with specific parameters."""
+        return run_llm(model_id, model_name, prompt, header)
+
     for model_id, model_name, prompt, header in model_instances:
-        future = get_async_future(lambda id=model_id, name=model_name, p=prompt, h=header: run_llm(id, name, p, h))
+        future = get_async_future(
+            _run_llm_wrapper, model_id, model_name, prompt, header, executor=executor
+        )
         futures.append(future)
-    
+
     # Track which models have completed using model_id
     completed_models = set()
-    
+
     # Create buffers to store chunks from each model using model_id
     model_buffers = {model_id: [] for model_id, _, _, _ in model_instances}
     streaming_order = []  # List to track the order in which models started streaming
     currently_streaming = None  # Which model is currently being streamed
     started_models = set()
-    
+
     # Process the queue until all models complete
+    loop_start = time.perf_counter()
+    first_loop_logged = False
+    first_item_dequeued = False
+    loop_iteration_count = 0
+    last_loop_log_time = time.perf_counter()
     while len(completed_models) < len(model_instances) or not response_queue.empty():
+        loop_iteration_count += 1
+        if not first_loop_logged:
+            first_loop_logged = True
+            log.warning(
+                "[stream_multiple_models] main loop started | t=%.3fs",
+                time.perf_counter() - stream_start,
+            )
+        # Log every 50 iterations or every 5 seconds to track loop progress
+        current_time = time.perf_counter()
+        if loop_iteration_count <= 3 or (current_time - last_loop_log_time) > 5.0:
+            log.warning(
+                "[stream_multiple_models] loop iteration %d | queue_size=%d | completed=%d/%d | t=%.3fs",
+                loop_iteration_count,
+                response_queue.qsize(),
+                len(completed_models),
+                len(model_instances),
+                current_time - stream_start,
+            )
+            last_loop_log_time = current_time
         try:
             # Get next item from queue with timeout
+            queue_get_start = time.perf_counter()
             item = response_queue.get(timeout=0.1)
-            
+            queue_get_duration = time.perf_counter() - queue_get_start
+            # Log if queue.get took unexpectedly long (> 0.2s means something is wrong)
+            if queue_get_duration > 0.2:
+                log.warning(
+                    "[stream_multiple_models] queue.get took %.3fs (expected <0.1s) | queue_size=%d | t=%.3fs",
+                    queue_get_duration,
+                    response_queue.qsize(),
+                    time.perf_counter() - stream_start,
+                )
+            if not first_item_dequeued:
+                first_item_dequeued = True
+                log.warning(
+                    "[stream_multiple_models] first item dequeued from queue | t=%.3fs",
+                    time.perf_counter() - stream_start,
+                )
+
             if item[0] == "model":
                 model_id, chunk = item[1], item[2]
-                
+
+                if model_id not in model_first_chunk_enqueued:
+                    log.info(
+                        "[stream_multiple_models] dequeue before enqueue? | model_id=%s | t=%.3fs",
+                        model_id,
+                        time.perf_counter() - stream_start,
+                    )
+
                 # Add model to streaming order if it's not there yet
                 if model_id not in streaming_order:
                     streaming_order.append(model_id)
-                
+
                 # If no model is currently streaming, start streaming this one
                 if currently_streaming is None:
                     currently_streaming = model_id
                     # Set up the collapsible section if needed
-                    
+                    if not first_chunk_streamed_to_client:
+                        first_chunk_streamed_to_client = True
+                        log.warning(
+                            "[stream_multiple_models] YIELDING first chunk | model_id=%s | model=%s | t=%.3fs",
+                            model_id,
+                            model_id_to_name.get(model_id),
+                            time.perf_counter() - stream_start,
+                        )
                     yield chunk
                     started_models.add(model_id)
                 # If this is the currently streaming model, stream it directly
@@ -417,23 +668,35 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
                 # Otherwise, buffer the chunks
                 else:
                     model_buffers[model_id].append(chunk)
-            
+                    if (
+                        model_id not in started_models
+                        and len(model_buffers[model_id]) == 1
+                    ):
+                        log.info(
+                            "[stream_multiple_models] first chunk buffered | model_id=%s | t=%.3fs",
+                            model_id,
+                            time.perf_counter() - stream_start,
+                        )
+
             elif item[0] == "complete" or item[0] == "error":
                 model_id = item[1]
                 completed_models.add(model_id)
                 if item[0] == "error":
-                    yield f'\nError with {model_id_to_name[model_id]}: \n\n```\n{item[2]}\n```\n\n'
-                
+                    yield f"\nError with {model_id_to_name[model_id]}: \n\n```\n{item[2]}\n```\n\n"
+
                 # If this was the currently streaming model, close it and start the next one
                 if currently_streaming == model_id:
                     # Close the current model's collapsible section if needed
-                    
+
                     currently_streaming = None
-                    
+
                     # Find the next model to stream
                     next_model_found = False
                     for next_model_id in streaming_order:
-                        if next_model_id not in completed_models and next_model_id != model_id:
+                        if (
+                            next_model_id not in completed_models
+                            and next_model_id != model_id
+                        ):
                             currently_streaming = next_model_id
                             # Stream all buffered chunks for this model
                             for buffered_chunk in model_buffers[next_model_id]:
@@ -445,7 +708,10 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
                     # If no model in streaming_order is available, check if any other model has content
                     if not next_model_found:
                         for next_model_id, buffer in model_buffers.items():
-                            if next_model_id not in completed_models and len(buffer) > 0:
+                            if (
+                                next_model_id not in completed_models
+                                and len(buffer) > 0
+                            ):
                                 currently_streaming = next_model_id
                                 for buffered_chunk in buffer:
                                     yield buffered_chunk
@@ -454,15 +720,26 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
                                 if next_model_id not in streaming_order:
                                     streaming_order.append(next_model_id)
                                 break
-            
-            
+
             else:
                 raise Exception(f"Unknown item type: {item[0]}")
-        
-        except Exception:
-            # Check if all futures are done to prevent infinite loops
-            if all(future.done() or future.exception() is not None for future in futures):
-                break
+
+        except Exception as e:
+            # Queue timeout (or transient issues) should not block streaming.
+            # IMPORTANT: Do NOT call future.exception() here unless future.done() is True.
+            # future.exception() with timeout=None will block until completion,
+            # which can freeze streaming until all models finish.
+            from queue import Empty
+
+            if isinstance(e, Empty):
+                # If all model threads have finished and the queue is empty, we're done.
+                if all(future.done() for future in futures) and response_queue.empty():
+                    break
+                continue
+
+            # Unexpected error in the main loop; surface it and stop.
+            logger.exception("[stream_multiple_models] main loop error")
+            break
 
     # Final pass: check for any models that have buffered content but never got to stream
     # This ensures all model outputs are presented, even if they completed out of order
@@ -473,9 +750,7 @@ def stream_multiple_models(keys, model_names, prompts, images=[], temperature=0.
             for buffered_chunk in model_buffers[model_id]:
                 yield buffered_chunk
             model_buffers[model_id] = []
-    
-    
-    
+
     # Return the complete model responses dictionary for potential further processing
     return model_responses
 
@@ -485,11 +760,13 @@ import os
 
 import tempfile
 from flask_caching import Cache
+
 # temp_dir = tempfile.gettempdir()
 temp_dir = os.path.join(os.getcwd(), "storage", "cache")
 # Create temp dir if not present
 os.makedirs(temp_dir, exist_ok=True)
 import diskcache as dc
+
 cache = dc.Cache(temp_dir)
 # cache = Cache(None, config={'CACHE_TYPE': 'filesystem', 'CACHE_DIR': temp_dir, 'CACHE_DEFAULT_TIMEOUT': cache_days * 24 * 60 * 60})
 
@@ -497,6 +774,7 @@ import requests
 
 import requests
 from requests.exceptions import RequestException, Timeout, ConnectionError
+
 
 def check_page_status(url):
     """
@@ -508,18 +786,18 @@ def check_page_status(url):
     """
 
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-                      '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
-        'Accept-Encoding': 'gzip, deflate, br',
-        'DNT': '1',
-        'Connection': 'keep-alive',
-        'Upgrade-Insecure-Requests': '1',
-        'Sec-Fetch-Dest': 'document',
-        'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
-        'Sec-Fetch-User': '?1'
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Accept-Encoding": "gzip, deflate, br",
+        "DNT": "1",
+        "Connection": "keep-alive",
+        "Upgrade-Insecure-Requests": "1",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
     }
 
     timeout_seconds = 8
@@ -545,12 +823,16 @@ def check_page_status(url):
     except (Timeout, ConnectionError, RequestException):
         # If GET fails, we return False
         return False
-    
+
 
 from loggers import getLoggers
-logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.ERROR, logging.ERROR, logging.ERROR, logging.INFO)
+
+logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(
+    __name__, logging.WARNING, logging.ERROR, logging.ERROR, logging.INFO
+)
 
 from converters import convert_html_to_pdf
+
 
 class RunThread(threading.Thread):
     def __init__(self, func, args, kwargs):
@@ -566,6 +848,7 @@ class RunThread(threading.Thread):
     def run(self):
         self.result = asyncio.run(self.func(*self.args, **self.kwargs))
 
+
 def run_async(func, *args, **kwargs):
     try:
         loop = asyncio.get_running_loop()
@@ -578,7 +861,6 @@ def run_async(func, *args, **kwargs):
         return thread.result
     else:
         return asyncio.run(func(*args, **kwargs))
-    
 
 
 class RunProcess(Process):
@@ -592,6 +874,7 @@ class RunProcess(Process):
     def run(self):
         result = asyncio.run(self.func(*self.args, **self.kwargs))
         self.queue.put(result)
+
 
 def run_async_process(func, *args, **kwargs):
     try:
@@ -607,8 +890,9 @@ def run_async_process(func, *args, **kwargs):
         return asyncio.run(func(*args, **kwargs))
 
 
-
-def join_two_futures(future1, future2, join_method=lambda x, y: str(x) + "\n\n" + str(y), dtype=str):
+def join_two_futures(
+    future1, future2, join_method=lambda x, y: str(x) + "\n\n" + str(y), dtype=str
+):
     def fn(future1, future2, join_method):
         while not future1.done() or not future2.done():
             time.sleep(0.1)
@@ -631,36 +915,44 @@ def join_two_futures(future1, future2, join_method=lambda x, y: str(x) + "\n\n" 
             f2 = dtype()
 
         if f1_fail is not None and f2_fail is not None:
-            raise Exception(f"Both futures failed, future1: {f1_fail}, future2: {f2_fail}")
+            raise Exception(
+                f"Both futures failed, future1: {f1_fail}, future2: {f2_fail}"
+            )
 
         return join_method(f1, f2)
+
     return get_async_future(fn, future1, future2, join_method)
 
 
-
-
 def execute_in_new_process(function, *args, **kwargs):
-    logger.debug(f"type args = {type(args)}, type kwargs = {type(kwargs)}, Pickle able:: function = {is_picklable(function)}, {is_picklable(args)}, {is_picklable(kwargs)}, Is Dill able:: function = {is_dillable(function)}, {is_dillable(args)}, {is_dillable(kwargs)}")
+    logger.debug(
+        f"type args = {type(args)}, type kwargs = {type(kwargs)}, Pickle able:: function = {is_picklable(function)}, {is_picklable(args)}, {is_picklable(kwargs)}, Is Dill able:: function = {is_dillable(function)}, {is_dillable(args)}, {is_dillable(kwargs)}"
+    )
     submit_st = time.time()
     with ProcessPoolExecutor(max_workers=1) as executor:
         future = executor.submit(function, *args, **kwargs)
-    
+
     submit_et = time.time()
-    logger.info(f"Stuck on ProcessPoolExecutor for {(submit_et - submit_st):.2f} sec , done future state = {future.done()}")
+    logger.info(
+        f"Stuck on ProcessPoolExecutor for {(submit_et - submit_st):.2f} sec , done future state = {future.done()}"
+    )
     return future
 
 
 def execute_in_new_thread(function, *args, **kwargs):
     logger.debug(
-        f"type args = {type(args)}, type kwargs = {type(kwargs)}, Pickle able:: function = {is_picklable(function)}, {is_picklable(args)}, {is_picklable(kwargs)}, Is Dill able:: function = {is_dillable(function)}, {is_dillable(args)}, {is_dillable(kwargs)}")
+        f"type args = {type(args)}, type kwargs = {type(kwargs)}, Pickle able:: function = {is_picklable(function)}, {is_picklable(args)}, {is_picklable(kwargs)}, Is Dill able:: function = {is_dillable(function)}, {is_dillable(args)}, {is_dillable(kwargs)}"
+    )
     submit_st = time.time()
     with ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(function, *args, **kwargs)
 
     submit_et = time.time()
     logger.info(
-        f"Stuck on ProcessPoolExecutor for {(submit_et - submit_st):.2f} sec , done future state = {future.done()}")
+        f"Stuck on ProcessPoolExecutor for {(submit_et - submit_st):.2f} sec , done future state = {future.done()}"
+    )
     return future
+
 
 def call_api_parallel(api_calls, fn, max_workers=4):
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -671,55 +963,68 @@ def call_api_parallel(api_calls, fn, max_workers=4):
         results = [future.result() for future in futures]
     return results
 
+
 def call_api_parallel_multi_fn(api_calls, fns):
     assert len(api_calls) == len(fns)
     with ThreadPoolExecutor(max_workers=4) as executor:
         # Submit tasks and collect Future objects
-        futures = [executor.submit(fn, **api_call) for fn, api_call in zip(fns, api_calls)]
+        futures = [
+            executor.submit(fn, **api_call) for fn, api_call in zip(fns, api_calls)
+        ]
 
         # Collect results in order of input tasks
         results = [future.result() for future in futures]
     return results
 
 
-            
-
 def timer(func):
     def wrapper(*args, **kwargs):
         start_time = time.time()
         result = func(*args, **kwargs)
         end_time = time.time()
-        time_logger.info(f"Execution time of {func.__name__}: {end_time - start_time} seconds, result type: {type(result)}, {('result length:' + str(len(result.split()))) if hasattr(result, '__len__') and isinstance(result, str) else ''}")
+        time_logger.info(
+            f"Execution time of {func.__name__}: {end_time - start_time} seconds, result type: {type(result)}, {('result length:' + str(len(result.split()))) if hasattr(result, '__len__') and isinstance(result, str) else ''}"
+        )
         return result
+
     return wrapper
+
 
 def streaming_timer(func):
     def wrapper(*args, **kwargs):
         start_time = time.time()
-        accum = ''
+        accum = ""
         for r in func(*args, **kwargs):
             yield r
             accum = accum + r
         end_time = time.time()
-        time_logger.info(f"Execution time of {func.__name__}: {end_time - start_time} seconds")
+        time_logger.info(
+            f"Execution time of {func.__name__}: {end_time - start_time} seconds"
+        )
+
     return wrapper
 
-def print_nested(val, nesting = -5): 
-    if isinstance(val, dict): 
-        print('') 
-        nesting += 5 
-        print(nesting * ' ', end='') 
-        print(type(val)) 
-        for k in val: 
-            print(nesting * ' ', end='') 
-            print(k, end=':') 
-            print_nested(val[k],nesting) 
-    elif isinstance(val, (tuple, list)) and len(val) > 0 and isinstance(val[0], (dict, tuple, list)):
+
+def print_nested(val, nesting=-5):
+    if isinstance(val, dict):
+        print("")
         nesting += 5
-        print('') 
-        print(nesting * ' ', end='') 
+        print(nesting * " ", end="")
+        print(type(val))
+        for k in val:
+            print(nesting * " ", end="")
+            print(k, end=":")
+            print_nested(val[k], nesting)
+    elif (
+        isinstance(val, (tuple, list))
+        and len(val) > 0
+        and isinstance(val[0], (dict, tuple, list))
+    ):
+        nesting += 5
+        print("")
+        print(nesting * " ", end="")
         print(type(val), end=":")
-        print_nested(val[0], nesting) 
+        print_nested(val[0], nesting)
     else:
         print(type(val))
 
@@ -736,19 +1041,23 @@ class AddAttribute:
 
 class SetDescription(AddAttribute):
     def __init__(self, description):
-        super().__init__('description', description)
+        super().__init__("description", description)
+
 
 from collections import deque
 from datetime import datetime, timedelta
 import calendar
+
 cache_days = 1
 cache_timeout = cache_days * 24 * 60 * 60
+
 
 class CacheKeyFn:
     @staticmethod
     def get_key_fn_args():
         def key_fn_args(args, kwargs):
             return str(mmh3.hash(str(args) + str(kwargs), signed=False))
+
         return key_fn_args
 
     @staticmethod
@@ -756,21 +1065,35 @@ class CacheKeyFn:
         def key_fn_typed(args, kwargs):
             filtered_args = [arg for arg in args if isinstance(arg, types)]
             filtered_kwargs = {k: v for k, v in kwargs.items() if isinstance(v, types)}
-            return str(mmh3.hash(str(filtered_args) + str(filtered_kwargs), signed=False))
+            return str(
+                mmh3.hash(str(filtered_args) + str(filtered_kwargs), signed=False)
+            )
+
         return key_fn_typed
 
     @staticmethod
     def get_combined_key_fn(*key_fns):
         def combined_key_fn(args, kwargs):
             return "-".join(key_fn(args, kwargs) for key_fn in key_fns)
+
         return combined_key_fn
 
+
 class CacheResults:
-    def __init__(self, cache, key_function=CacheKeyFn.get_key_fn_args(),
-                                                  dtype_filters=None,
-                                                  should_cache_predicate=lambda x: x is not None and (not isinstance(x, Exception)) and (not isinstance(x, (list, tuple, set)) or len(x) > 0) and (not isinstance(x, str) or len(x.strip()) > 0),
-                                                  should_cache_key_condition=lambda x: x is not None and (not isinstance(x, Exception)),
-                                                  enabled=True, expire=cache_timeout):
+    def __init__(
+        self,
+        cache,
+        key_function=CacheKeyFn.get_key_fn_args(),
+        dtype_filters=None,
+        should_cache_predicate=lambda x: x is not None
+        and (not isinstance(x, Exception))
+        and (not isinstance(x, (list, tuple, set)) or len(x) > 0)
+        and (not isinstance(x, str) or len(x.strip()) > 0),
+        should_cache_key_condition=lambda x: x is not None
+        and (not isinstance(x, Exception)),
+        enabled=True,
+        expire=cache_timeout,
+    ):
         """
         A caching decorator class that caches the results of function calls using the `diskcache` library or any other cache object that supports similar interface.
 
@@ -912,17 +1235,25 @@ class CacheResults:
         self.enabled = enabled
         self.expire = expire
         self.part_key = None
-        self.cache_metrics = deque([], maxlen=100) # each element is a dict with keys as module, get, set where get and set are seconds to get and set the cache
+        self.cache_metrics = deque(
+            [], maxlen=100
+        )  # each element is a dict with keys as module, get, set where get and set are seconds to get and set the cache
 
     def get_agg_cache_metrics(self):
         get_time = 0
         set_time = 0
         total_items = len(self.cache_metrics)
         for cache_time_dict in self.cache_metrics:
-            get_time += cache_time_dict.get('get', 0)
-            set_time += cache_time_dict.get('set', 0)
-        time_logger.info(f"[CacheResults] [get_agg_cache_metrics] [Metrics] Total items: {total_items}, get_time: {get_time/total_items}, set_time: {set_time/total_items}, module: {self.part_key}")
-        return {'get': get_time/total_items , 'set': set_time/total_items, 'module': self.part_key}
+            get_time += cache_time_dict.get("get", 0)
+            set_time += cache_time_dict.get("set", 0)
+        time_logger.info(
+            f"[CacheResults] [get_agg_cache_metrics] [Metrics] Total items: {total_items}, get_time: {get_time / total_items}, set_time: {set_time / total_items}, module: {self.part_key}"
+        )
+        return {
+            "get": get_time / total_items,
+            "set": set_time / total_items,
+            "module": self.part_key,
+        }
 
     def calculate_expiry(self, expire):
         now = datetime.now()
@@ -937,22 +1268,34 @@ class CacheResults:
         elif expire == "daily":
             return 86400 - (now.hour * 3600 + now.minute * 60 + now.second)
         elif expire == "weekly":
-            return (7 - now.weekday()) * 86400 - (now.hour * 3600 + now.minute * 60 + now.second)
+            return (7 - now.weekday()) * 86400 - (
+                now.hour * 3600 + now.minute * 60 + now.second
+            )
         elif expire == "fortnightly":
             days_until_next_fortnight = (14 - (now.day % 14)) % 14
-            return days_until_next_fortnight * 86400 - (now.hour * 3600 + now.minute * 60 + now.second)
+            return days_until_next_fortnight * 86400 - (
+                now.hour * 3600 + now.minute * 60 + now.second
+            )
         elif expire == "monthly":
             days_in_month = calendar.monthrange(now.year, now.month)[1]
-            return (days_in_month - now.day) * 86400 - (now.hour * 3600 + now.minute * 60 + now.second)
+            return (days_in_month - now.day) * 86400 - (
+                now.hour * 3600 + now.minute * 60 + now.second
+            )
         elif expire == "quarterly":
             current_month = now.month
             months_until_next_quarter = (3 - (current_month % 3)) % 3
             days_in_next_months = sum(
-                calendar.monthrange(now.year, now.month + i)[1] for i in range(1, months_until_next_quarter + 1))
-            return days_in_next_months * 86400 - (now.hour * 3600 + now.minute * 60 + now.second)
+                calendar.monthrange(now.year, now.month + i)[1]
+                for i in range(1, months_until_next_quarter + 1)
+            )
+            return days_in_next_months * 86400 - (
+                now.hour * 3600 + now.minute * 60 + now.second
+            )
         elif expire == "yearly":
             days_in_year = 366 if calendar.isleap(now.year) else 365
-            return (days_in_year - now.timetuple().tm_yday) * 86400 - (now.hour * 3600 + now.minute * 60 + now.second)
+            return (days_in_year - now.timetuple().tm_yday) * 86400 - (
+                now.hour * 3600 + now.minute * 60 + now.second
+            )
         elif ":" in expire:
             target_time = datetime.strptime(expire, "%H:%M").time()
             target_datetime = datetime.combine(now.date(), target_time)
@@ -962,18 +1305,26 @@ class CacheResults:
         elif expire.lower() in calendar.day_name:
             target_day = list(calendar.day_name).index(expire.capitalize())
             days_until_target = (target_day - now.weekday()) % 7
-            return days_until_target * 86400 - (now.hour * 3600 + now.minute * 60 + now.second)
+            return days_until_target * 86400 - (
+                now.hour * 3600 + now.minute * 60 + now.second
+            )
         elif expire.lower() in calendar.month_name:
             target_month = list(calendar.month_name).index(expire.capitalize())
             months_until_target = (target_month - now.month) % 12
-            target_date = datetime(now.year + (1 if months_until_target == 0 and now.month > target_month else 0),
-                                   target_month, 1)
+            target_date = datetime(
+                now.year
+                + (1 if months_until_target == 0 and now.month > target_month else 0),
+                target_month,
+                1,
+            )
             return (target_date - now).total_seconds()
         elif expire[:-2].isdigit() and expire[-2:].lower() in ["st", "nd", "rd", "th"]:
             target_day = int(expire[:-2])
             target_date = datetime(now.year, now.month, target_day)
             if target_date < now:
-                target_date += timedelta(days=calendar.monthrange(now.year, now.month + 1)[1])
+                target_date += timedelta(
+                    days=calendar.monthrange(now.year, now.month + 1)[1]
+                )
             return (target_date - now).total_seconds()
         else:
             raise ValueError(f"Unsupported expire format: {expire}")
@@ -993,7 +1344,11 @@ class CacheResults:
                     bound_args.apply_defaults()
 
                     # Filter the arguments based on their type
-                    filtered_args = {k: v for k, v in bound_args.arguments.items() if isinstance(v, self.dtype_filters)}
+                    filtered_args = {
+                        k: v
+                        for k, v in bound_args.arguments.items()
+                        if isinstance(v, self.dtype_filters)
+                    }
                     key = f"{self.part_key}:{str(mmh3.hash(str(filtered_args), signed=False))}"
                 else:
                     key = f"{self.part_key}:{self.key_function(args, kwargs)}"
@@ -1002,19 +1357,34 @@ class CacheResults:
                 result = cache.get(key)
                 et_get = time.time() - st
                 cache_time_dict["module"] = self.part_key
-                cache_time_dict['get'] = et_get
+                cache_time_dict["get"] = et_get
                 self.cache_metrics.append(cache_time_dict)
-                if result is None or isinstance(result, (Exception, AssertionError, ValueError, RetryError)) or (
-                        isinstance(result, (list, tuple, set)) and len(result) == 0):
+                if (
+                    result is None
+                    or isinstance(
+                        result, (Exception, AssertionError, ValueError, RetryError)
+                    )
+                    or (isinstance(result, (list, tuple, set)) and len(result) == 0)
+                ):
                     result = func(*args, **kwargs)
                     result_computed = True
-                if result is not None and not isinstance(result, (Exception, AssertionError, ValueError, RetryError)) and not (
-                        isinstance(result, (list, tuple, set)) and len(result) == 0) and self.should_cache_predicate(result) and result_computed and self.should_cache_key_condition(key):
+                if (
+                    result is not None
+                    and not isinstance(
+                        result, (Exception, AssertionError, ValueError, RetryError)
+                    )
+                    and not (
+                        isinstance(result, (list, tuple, set)) and len(result) == 0
+                    )
+                    and self.should_cache_predicate(result)
+                    and result_computed
+                    and self.should_cache_key_condition(key)
+                ):
                     st_set = time.time()
                     expire_seconds = self.calculate_expiry(self.expire)
                     cache.set(key, result, expire=expire_seconds)
                     et_set = time.time() - st_set
-                    cache_time_dict['set'] = et_set
+                    cache_time_dict["set"] = et_set
                 self.get_agg_cache_metrics()
                 return result
             else:
@@ -1023,44 +1393,52 @@ class CacheResults:
 
         return wrapper
 
+
 def NoneToDefault(x, default=[]):
     if x is None:
         return default
     else:
         return x
-    
 
-    
-def combine_array_two_at_a_time(array, sep=' '):
+
+def combine_array_two_at_a_time(array, sep=" "):
     result = []
     if len(array) % 2 == 1:
-        array.append('')
+        array.append("")
     for i in range(0, len(array), 2):
-        result.append(array[i] + f'{sep}' + array[i+1])
+        result.append(array[i] + f"{sep}" + array[i + 1])
     return result
+
 
 def concat_array_two_at_a_time(array):
     result = []
     if len(array) % 2 == 1:
-        array.append('')
+        array.append("")
     for i in range(0, len(array), 2):
-        result.append([array[i],array[i+1]])
+        result.append([array[i], array[i + 1]])
     return result
 
-def make_stream(res, do_stream:bool):
+
+def make_stream(res, do_stream: bool):
     is_generator = inspect.isgenerator(res)
     if is_generator and do_stream:
-        res = check_if_stream_and_raise_exception(res)
         return res
     if do_stream and not is_generator:
-        assert isinstance(res, (str, list, tuple)) or isinstance(res, more_itertools.more.peekable) or isinstance(res, peekable) or hasattr(res, '__iter__') or hasattr(res, '__next__')
+        assert (
+            isinstance(res, (str, list, tuple))
+            or isinstance(res, more_itertools.more.peekable)
+            or isinstance(res, peekable)
+            or hasattr(res, "__iter__")
+            or hasattr(res, "__next__")
+        )
         return convert_iterable_to_stream(res)
     elif not do_stream and is_generator:
         return convert_stream_to_iterable(res)
     return res
 
+
 def call_with_stream(fn, do_stream, *args, **kwargs):
-    backup = kwargs.pop('backup_function', None)
+    backup = kwargs.pop("backup_function", None)
     try:
         res = fn(*args, **kwargs)
     except RetryError as e:
@@ -1084,32 +1462,55 @@ def call_with_stream(fn, do_stream, *args, **kwargs):
             # check if exception is not StopIteration
             try:
                 from botocore.exceptions import EventStreamError
+
                 if not isinstance(e, StopIteration) and backup is not None:
                     res = backup(*args, **kwargs)
                 else:
                     raise e
             except Exception as j:
                 raise e
-    if is_generator:
-        res = check_if_stream_and_raise_exception(res)
+    # NOTE: Removed duplicate check_if_stream_and_raise_exception call here
+    # The second call was causing unnecessary blocking peek operations
     if do_stream and not is_generator:
         assert isinstance(res, (str, list, tuple))
         return convert_iterable_to_stream(res)
     elif not do_stream and is_generator:
         return convert_stream_to_iterable(res)
     return res
-        
+
+
 def convert_iterable_to_stream(iterable):
     for t in iterable:
         yield t
 
+
 def convert_stream_to_iterable(stream, join_strings=True):
+    """Convert a stream/generator to a list or concatenated string.
+
+    This function periodically yields control (via time.sleep(0)) to allow
+    other threads to run, preventing GIL starvation during long-running
+    stream consumption.
+
+    Args:
+        stream: An iterable/generator to consume
+        join_strings: If True and all items are strings, join them into one string
+
+    Returns:
+        Either a joined string or list of items from the stream
+    """
     ans = []
+    chunk_count = 0
     for t in stream:
         ans.append(t)
-    if isinstance(ans[0], str) and join_strings:
+        chunk_count += 1
+        # Every 5 chunks, yield control to other threads to prevent GIL starvation
+        # Using 0.001s (1ms) instead of 0 to force actual thread scheduling
+        if chunk_count % 5 == 0:
+            time.sleep(0.001)
+    if ans and isinstance(ans[0], str) and join_strings:
         ans = "".join(ans)
     return ans
+
 
 def check_if_stream_and_raise_exception(iterable_or_str):
     if isinstance(iterable_or_str, str):
@@ -1120,8 +1521,19 @@ def check_if_stream_and_raise_exception(iterable_or_str):
     elif isinstance(iterable_or_str, types.GeneratorType):
         # If it's a generator, we need to peek at it.
         try:
+            peek_start = time.perf_counter()
+            logger.warning(
+                "[STREAM] check_if_stream_and_raise_exception peek start | t=%.3fs",
+                peek_start,
+            )
             peeked = peekable(iterable_or_str)
-            peek_val = peeked.peek()  # This will raise StopIteration if the generator is empty.
+            peek_val = (
+                peeked.peek()
+            )  # This will raise StopIteration if the generator is empty.
+            logger.warning(
+                "[STREAM] check_if_stream_and_raise_exception peek done | dt=%.3fs",
+                time.perf_counter() - peek_start,
+            )
             return peeked
         except StopIteration:
             # Here you could handle the empty generator case.
@@ -1137,33 +1549,44 @@ def check_if_stream_and_raise_exception(iterable_or_str):
 
 
 import tiktoken
-gpt4_enc = tiktoken.encoding_for_model('gpt-4')
-gpt3_enc = tiktoken.encoding_for_model('gpt-3.5-turbo')
+
+gpt4_enc = tiktoken.encoding_for_model("gpt-4")
+gpt3_enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
+
+
 def get_first_n_words(my_string, n=700):
     return get_first_last_parts(my_string, first_n=n, last_n=0)
 
+
 def get_gpt4_word_count(my_string):
     import tiktoken
-    enc = tiktoken.encoding_for_model('gpt-4')
+
+    enc = tiktoken.encoding_for_model("gpt-4")
     str_encoded = enc.encode(my_string)
     return len(str_encoded)
 
+
 def get_gpt3_word_count(my_string):
     import tiktoken
-    enc = tiktoken.encoding_for_model('gpt-3.5-turbo')
+
+    enc = tiktoken.encoding_for_model("gpt-3.5-turbo")
     str_encoded = enc.encode(my_string)
     return len(str_encoded)
+
+
 def get_first_last_parts(my_string, first_n=250, last_n=750, enc=None):
     import tiktoken
+
     if enc is None:
-        enc = tiktoken.encoding_for_model('gpt-4')
+        enc = tiktoken.encoding_for_model("gpt-4")
     str_encoded = enc.encode(my_string)
     if len(str_encoded) < first_n + last_n:
         return my_string
     str_len = len(str_encoded)
     first_part = enc.decode(str_encoded[:first_n])
-    last_part = enc.decode(str_encoded[str_len-last_n:])
+    last_part = enc.decode(str_encoded[str_len - last_n :])
     return first_part + "\n" + last_part
+
 
 def convert_to_pdf_link_if_needed(link):
     if "arxiv.org" in link and "pdf" not in link and "html" not in link:
@@ -1180,14 +1603,15 @@ def convert_to_pdf_link_if_needed(link):
         # convert aclweb link to pdf
     return link
 
+
 def extract_array_string(s):
     # Try to find content inside markdown code blocks
-    code_block_match = re.search(r'```(?:\w+)?\s*([\s\S]*?)\s*```', s)
+    code_block_match = re.search(r"```(?:\w+)?\s*([\s\S]*?)\s*```", s)
     if code_block_match:
         # Extract content from the code block and recursively process it
         code_content = code_block_match.group(1).strip()
         # If the code block content looks like an array, process it
-        if code_content.startswith('[') and code_content.endswith(']'):
+        if code_content.startswith("[") and code_content.endswith("]"):
             return code_content
         # Otherwise, try other patterns on the code content
         inner_result = extract_array_string(code_content)
@@ -1195,33 +1619,38 @@ def extract_array_string(s):
             return inner_result
 
     # Try to find text inside square brackets
-    match = re.search(r'\[.*?\]', s)
+    match = re.search(r"\[.*?\]", s)
     if match:
         return match.group(0)
 
     # Check for queries separated by one or two newlines
     # ... existing code ...
-    newline_separated = re.split(r'\n\n|\n', s.strip())
-    if newline_separated and all(len(query.strip().split()) >= 3 for query in newline_separated) and len(newline_separated) >= 3:
+    newline_separated = re.split(r"\n\n|\n", s.strip())
+    if (
+        newline_separated
+        and all(len(query.strip().split()) >= 3 for query in newline_separated)
+        and len(newline_separated) >= 3
+    ):
         return newline_separated
-    
+
     # Try to find markdown list
     # ... existing code ...
-    markdown_list = re.findall(r'^[-*] (.+)$', s, flags=re.M)
+    markdown_list = re.findall(r"^[-*] (.+)$", s, flags=re.M)
     if markdown_list:
         return markdown_list
 
     # If a single string, return it in an array
     # ... existing code ...
-    if s.strip() and ' ' in s.strip() and len(s.strip().split()) <=10:
+    if s.strip() and " " in s.strip() and len(s.strip().split()) <= 10:
         return [s.strip()]
 
     # If all else fails, return an empty list
-    return [s.strip().split('\n')[0]]
+    return [s.strip().split("\n")[0]]
+
 
 def parse_array_string(s):
     result = extract_array_string(s)
-    if result and isinstance(result, str) and result.startswith('['):
+    if result and isinstance(result, str) and result.startswith("["):
         result = re.sub(r"(?<=[a-zA-Z0-9])'(?!(, ?|]))", "@@", result)
         parsed_list = eval(result)
         return [i.replace("@@", "'") for i in parsed_list]
@@ -1235,13 +1664,13 @@ def normalize_whitespace(s):
     if s is None:
         return ""
     # Replace multiple spaces with a single space
-    s = re.sub(r' {2,}', ' ', s)
+    s = re.sub(r" {2,}", " ", s)
 
     # Replace multiple tabs with a single tab
-    s = re.sub(r'\t{2,}', '\t', s)
+    s = re.sub(r"\t{2,}", "\t", s)
 
     # Replace multiple blank lines with a single blank line
-    s = re.sub(r'\n\s*\n', '\n\n', s)
+    s = re.sub(r"\n\s*\n", "\n\n", s)
 
     return s.strip()
 
@@ -1262,36 +1691,38 @@ def verify_openai_key_and_fetch_models(api_key):
         print(f"Error fetching OpenAI models: {response.status_code} {response.reason}")
         return []
 
+
 def two_column_list(items):
-    half = (len(items) + 1) // 2   # adjust for odd lengths
+    half = (len(items) + 1) // 2  # adjust for odd lengths
     column1 = items[:half]
     column2 = items[half:]
 
-    output = '<table><tr><td><ul>'
+    output = "<table><tr><td><ul>"
     for item in column1:
-        output += f'<li>{item}</li>'
-    output += '</ul></td><td><ul>'
+        output += f"<li>{item}</li>"
+    output += "</ul></td><td><ul>"
     for item in column2:
-        output += f'<li>{item}</li>'
-    output += '</ul></td></tr></table>'
+        output += f"<li>{item}</li>"
+    output += "</ul></td></tr></table>"
 
     return output
 
+
 def two_column_list_md(items):
-    half = (len(items) + 1) // 2   # adjust for odd lengths
+    half = (len(items) + 1) // 2  # adjust for odd lengths
     column1 = items[:half]
     column2 = items[half:]
 
     # Create a Markdown table with two columns
-    output = '| Column 1 | Column 2 |\n| --- | --- |\n'
+    output = "| Column 1 | Column 2 |\n| --- | --- |\n"
     for item1, item2 in zip(column1, column2 + [None]):
         # Check if item2 is None (in case of odd number of items)
         second_column_item = item2 if item2 is not None else ""
-        output += f'| {item1} | {second_column_item} |\n'
+        output += f"| {item1} | {second_column_item} |\n"
 
     # If there are an odd number of items, we'll add the last item
     if len(items) % 2 != 0:
-        output += f'| {items[-1]} | |\n'
+        output += f"| {items[-1]} | |\n"
 
     return output
 
@@ -1308,7 +1739,7 @@ class SetQueue:
             if item in self.set:
                 self.set.remove(item)
                 self.queue.remove(item)
-    
+
     def add(self, item):
         with self.lock:
             self.remove_any(item)
@@ -1336,7 +1767,9 @@ import threading
 
 
 class DefaultDictQueue:
-    def __init__(self, maxsize, default_factory=None):  # Added default_factory parameter
+    def __init__(
+        self, maxsize, default_factory=None
+    ):  # Added default_factory parameter
         self.maxsize = maxsize
         self.queue = collections.deque(maxlen=maxsize)
         self.set_of_items = set()
@@ -1358,7 +1791,9 @@ class DefaultDictQueue:
                 self.queue.remove(item)
                 del self.data[item]
 
-    def add(self, item, item_data=None):  # Modified to allow adding an item without data
+    def add(
+        self, item, item_data=None
+    ):  # Modified to allow adding an item without data
         with self.lock:
             self.remove_any(item)
             if len(self.queue) >= self.maxsize - 1:
@@ -1367,7 +1802,13 @@ class DefaultDictQueue:
                 del self.data[removed]
             self.queue.append(item)
             self.set_of_items.add(item)
-            self.data[item] = item_data if item_data is not None else self.default_factory(item) if self.default_factory else None
+            self.data[item] = (
+                item_data
+                if item_data is not None
+                else self.default_factory(item)
+                if self.default_factory
+                else None
+            )
 
     def __contains__(self, item):
         with self.lock:
@@ -1396,17 +1837,17 @@ class DefaultDictQueue:
     def set(self, item, data, *args, **kwargs):
         self.__setitem__(item, data, *args, **kwargs)
 
-
     def __setitem__(self, item, data, *args, **kwargs):
         with self.lock:
             if item in self.set_of_items:
                 self.data[item] = data
             else:
                 self.add(item, data)
-                
-                
+
+
 from collections import OrderedDict
 import threading
+
 
 class SetQueueWithCount:
     def __init__(self, maxsize):
@@ -1449,13 +1890,16 @@ class SetQueueWithCount:
         with self.lock:
             return list(self._data.keys())
 
+
 def convert_http_to_https(url):
     parsed_url = urlparse(url)
-    https_url = parsed_url._replace(scheme='https')
+    https_url = parsed_url._replace(scheme="https")
     return urlunparse(https_url)
+
 
 def get_peekable_iterator(iterable):
     from more_itertools import peekable
+
     p = peekable(iterable)
     try:
         _ = p.peek(10)
@@ -1464,38 +1908,75 @@ def get_peekable_iterator(iterable):
         return p
     return p
 
+
 def truncate_string(input_str, n):
     # This list will store the original separators for each word
     separators = []
 
     # Replace all separators with a space and remember the original separator
-    for sep in [',', '\n', '\t', '\r', ';', '"', "'", '(', ')', '{', '}', '[', ']', '<', '>', '?', '/', '\\', '|', '`', '~', '!', '@', '#', '$', '%', '^', '&', '*', '-', '_', '+', '=', ':', '.']:
-        input_str = input_str.replace(sep, ' ')
+    for sep in [
+        ",",
+        "\n",
+        "\t",
+        "\r",
+        ";",
+        '"',
+        "'",
+        "(",
+        ")",
+        "{",
+        "}",
+        "[",
+        "]",
+        "<",
+        ">",
+        "?",
+        "/",
+        "\\",
+        "|",
+        "`",
+        "~",
+        "!",
+        "@",
+        "#",
+        "$",
+        "%",
+        "^",
+        "&",
+        "*",
+        "-",
+        "_",
+        "+",
+        "=",
+        ":",
+        ".",
+    ]:
+        input_str = input_str.replace(sep, " ")
         separators.append(sep)
 
     # Split the string into words
-    words = input_str.split(' ')
+    words = input_str.split(" ")
 
     # Remove the last n words
     truncated_words = words[:-n]
 
     # Join the words back together using the original separators
-    truncated_str = ''
+    truncated_str = ""
     for word in truncated_words:
         # Check if the word ends with a separator and add it back if it does
         for sep in separators:
             if word.endswith(sep):
                 word = word.rstrip(sep) + sep
-        truncated_str += word + ' '
+        truncated_str += word + " "
     # Remove the trailing space
-    truncated_str = truncated_str.rstrip(' ')
+    truncated_str = truncated_str.rstrip(" ")
     return truncated_str
 
 
 from collections import defaultdict, deque
 
 
-def round_robin_by_group(dict_list, group_key='group'):
+def round_robin_by_group(dict_list, group_key="group"):
     # Group dictionaries by 'group' key
     groups = defaultdict(list)
     for d in dict_list:
@@ -1510,6 +1991,7 @@ def round_robin_by_group(dict_list, group_key='group'):
 
         if group:  # If the group still has dictionaries, put it back at the end
             groups.append(group)
+
 
 from collections import OrderedDict
 from threading import Lock, RLock
@@ -1562,8 +2044,11 @@ class FixedSizeFIFODict(OrderedDict):
         # Remove items that have expired
         with self.lock:
             current_time = time.time()
-            keys_to_delete = [key for key, (_, expiry_time) in self.items() if
-                              expiry_time is not None and expiry_time < current_time]
+            keys_to_delete = [
+                key
+                for key, (_, expiry_time) in self.items()
+                if expiry_time is not None and expiry_time < current_time
+            ]
             for key in keys_to_delete:
                 del self[key]
 
@@ -1571,6 +2056,8 @@ class FixedSizeFIFODict(OrderedDict):
 from inspect import signature
 from functools import wraps
 import mmh3
+
+
 def typed_memoize(cache, *types):
     def decorator(f):
         @wraps(f)
@@ -1583,7 +2070,9 @@ def typed_memoize(cache, *types):
             bound_args.apply_defaults()
 
             # Filter the arguments based on their type
-            filtered_args = {k: v for k, v in bound_args.arguments.items() if isinstance(v, types)}
+            filtered_args = {
+                k: v for k, v in bound_args.arguments.items() if isinstance(v, types)
+            }
 
             # Define a key function that generates a cache key based on the filtered arguments
             key = f"{f.__module__}:{f.__name__}:{str(filtered_args)}"
@@ -1592,24 +2081,37 @@ def typed_memoize(cache, *types):
             key = str(mmh3.hash(key, signed=False))
             result = cache.get(key)
             # If the result is not in the cache, call the function and store the result in the cache
-            if result is None or isinstance(result, Exception) or (isinstance(result, (list, tuple, set)) and len(result) == 0):
+            if (
+                result is None
+                or isinstance(result, Exception)
+                or (isinstance(result, (list, tuple, set)) and len(result) == 0)
+            ):
                 result = f(*args, **kwargs)
-            if result is not None and not isinstance(result, Exception) and not (isinstance(result, (list, tuple, set)) and len(result) == 0):
+            if (
+                result is not None
+                and not isinstance(result, Exception)
+                and not (isinstance(result, (list, tuple, set)) and len(result) == 0)
+            ):
                 cache.set_of_items(key, result, expire=cache_timeout)
 
             return result
 
         return wrapper
+
     return decorator
 
+
 import requests
+
 os_temp_dir = tempfile.gettempdir()
+
 
 def create_tmp_marker_file(file_path):
     marker_file_path = os.path.join(os_temp_dir, file_path + ".tmp")
-    with open(marker_file_path, 'w') as f:
+    with open(marker_file_path, "w") as f:
         f.write(f"{file_path}")
     return marker_file_path
+
 
 def remove_tmp_marker_file(file_path):
     if file_path is None:
@@ -1620,8 +2122,11 @@ def remove_tmp_marker_file(file_path):
             os.remove(marker_file_path)
         return marker_file_path
     except Exception as e:
-        logger.error(f"Exception removing tmp marker file: {e}\n{traceback.format_exc()}")
+        logger.error(
+            f"Exception removing tmp marker file: {e}\n{traceback.format_exc()}"
+        )
         return None
+
 
 def exists_tmp_marker_file(file_path):
     if file_path is None:
@@ -1629,59 +2134,89 @@ def exists_tmp_marker_file(file_path):
     marker_file_path = os.path.join(os_temp_dir, file_path + ".tmp")
     return os.path.exists(marker_file_path)
 
+
 @CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True)
 def is_pdf_link(link):
     st = time.time()
     result = False
-    science_doc = ("arxiv.org" in link and ("pdf" in link or "html" in link or "abs" in link)) or ("openreview.net" in link and "pdf" in link) or ("aclanthology.org" in link and "pdf" in link) or ("aclweb.org" in link and "anthology" in link and "pdf" in link)
+    science_doc = (
+        ("arxiv.org" in link and ("pdf" in link or "html" in link or "abs" in link))
+        or ("openreview.net" in link and "pdf" in link)
+        or ("aclanthology.org" in link and "pdf" in link)
+        or ("aclweb.org" in link and "anthology" in link and "pdf" in link)
+    )
     ends_with_pdf = link.endswith(".pdf")
     if science_doc or ends_with_pdf:
         result = True
     else:
         response = ProcessFnWithTimeout(Queue())(requests.head, 8, link)
-        content_type = response.headers.get('Content-Type') if response is not None else None
-        result = (content_type is not None and (content_type == 'application/pdf' or 'pdf' in content_type))
+        content_type = (
+            response.headers.get("Content-Type") if response is not None else None
+        )
+        result = content_type is not None and (
+            content_type == "application/pdf" or "pdf" in content_type
+        )
     et = time.time() - st
-    logger.debug(f"Time taken to check if link is pdf: {et:.2f} sec, is science doc: {science_doc}, ends with .pdf: {ends_with_pdf,} result: {result}")
+    logger.debug(
+        f"Time taken to check if link is pdf: {et:.2f} sec, is science doc: {science_doc}, ends with .pdf: {(ends_with_pdf,)} result: {result}"
+    )
     return result
+
 
 @CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True)
 def is_image_link(link):
     st = time.time()
     result = False
-    image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp', '.svg', '.ico']
+    image_extensions = [
+        ".jpg",
+        ".jpeg",
+        ".png",
+        ".gif",
+        ".bmp",
+        ".tiff",
+        ".webp",
+        ".svg",
+        ".ico",
+    ]
     # Check if the link is an image based on the file extension
     # remove query params from link
-    link = link.split('?')[0]
+    link = link.split("?")[0]
     is_image = any([link.endswith(ext) for ext in image_extensions])
     if is_image:
         result = True
     else:
         response = ProcessFnWithTimeout(Queue())(requests.head, 8, link)
-        content_type = response.headers.get('Content-Type') if response is not None else None
-        result = (content_type is not None and ('image' in content_type))
+        content_type = (
+            response.headers.get("Content-Type") if response is not None else None
+        )
+        result = content_type is not None and ("image" in content_type)
     et = time.time() - st
-    logger.debug(f"Time taken to check if link is image: {et:.2f} sec, is image link: {link}, result: {result}")
+    logger.debug(
+        f"Time taken to check if link is image: {et:.2f} sec, is image link: {link}, result: {result}"
+    )
     return result
 
 
 import threading
 from queue import Queue
 
+
 class ProcessFnWithTimeout:
     def __init__(self, result_queue: Queue):
         self.result_queue = result_queue
 
     def __call__(self, fn, timeout, *args, **kwargs):
-        timeout = kwargs.get('timeout', timeout)
-        keep_going_marker = kwargs.get('keep_going_marker', None)
+        timeout = kwargs.get("timeout", timeout)
+        keep_going_marker = kwargs.get("keep_going_marker", None)
         result = None
         exception_event = threading.Event()
 
         def worker():
             nonlocal result
             try:
-                result = fn(*args, **kwargs)  # Call the original function with its args and kwargs
+                result = fn(
+                    *args, **kwargs
+                )  # Call the original function with its args and kwargs
             except Exception as e:
                 exc = traceback.format_exc()
                 # Handle exceptions if needed
@@ -1708,7 +2243,6 @@ from queue import Queue
 
 
 def orchestrator(fn, args_list, callback=None, max_workers=32, timeout=60):
-
     if timeout < 0:
         raise ValueError("Timeout must be non-negative")
 
@@ -1716,14 +2250,16 @@ def orchestrator(fn, args_list, callback=None, max_workers=32, timeout=60):
 
     def task_worker(args, kwargs):
         try:
-            wait_time = kwargs.get('timeout', timeout)
+            wait_time = kwargs.get("timeout", timeout)
             result = ProcessFnWithTimeout(Queue())(fn, wait_time, *args, **kwargs)
             if callback and result is not None:
                 result = callback(result, args, kwargs)
             task_queue.put(result)
         except Exception as e:
             exc = traceback.format_exc()
-            logger.error(f"[orchestrator] Exception in task_worker with timeout = {timeout} : {e}\n{exc}")
+            logger.error(
+                f"[orchestrator] Exception in task_worker with timeout = {timeout} : {e}\n{exc}"
+            )
             task_queue.put(None)  # Put None to indicate an error
 
     def run_tasks():
@@ -1737,11 +2273,15 @@ def orchestrator(fn, args_list, callback=None, max_workers=32, timeout=60):
                     futures.append(pool.submit(task_worker, args, kwargs))
         except Exception as e:
             exc = traceback.format_exc()
-            logger.error(f"[orchestrator] Exception in run_tasks with timeout = {timeout} : {e}\n{exc}")
+            logger.error(
+                f"[orchestrator] Exception in run_tasks with timeout = {timeout} : {e}\n{exc}"
+            )
         finally:
             # Signal the end of the task results
             task_queue.put(FINISHED_TASK)
-            task_queue.put(FINISHED_TASK) # this line has to be repeated so that we can handle the second queue poll after staggered LLM response.
+            task_queue.put(
+                FINISHED_TASK
+            )  # this line has to be repeated so that we can handle the second queue poll after staggered LLM response.
 
     # Start a separate thread to run the tasks
     orchestrator_thread = threading.Thread(target=run_tasks)
@@ -1754,21 +2294,24 @@ def orchestrator(fn, args_list, callback=None, max_workers=32, timeout=60):
 from concurrent.futures import Future
 
 
-
 def orchestrator_with_queue(input_queue, fn, callback=None, max_workers=32, timeout=60):
     task_queue = Queue()
 
     def task_worker(result, args, kwargs):
         try:
-            wait_time = kwargs.get('timeout', timeout)
+            wait_time = kwargs.get("timeout", timeout)
             if result is not TERMINATION_SIGNAL:
-                new_result = ProcessFnWithTimeout(Queue())(fn, wait_time, *args, **kwargs)
+                new_result = ProcessFnWithTimeout(Queue())(
+                    fn, wait_time, *args, **kwargs
+                )
                 if callback and new_result is not None:
                     new_result = callback(new_result, args, kwargs)
                 task_queue.put(new_result)
         except Exception as e:
             exc = traceback.format_exc()
-            logger.error(f"[orchestrator_with_queue] Exception in task_worker with timeout = {timeout} : {e}\n{exc}")
+            logger.error(
+                f"[orchestrator_with_queue] Exception in task_worker with timeout = {timeout} : {e}\n{exc}"
+            )
             task_queue.put(None)  # Put None to indicate an error
 
     def run_tasks():
@@ -1778,7 +2321,9 @@ def orchestrator_with_queue(input_queue, fn, callback=None, max_workers=32, time
             with ThreadPoolExecutor(max_workers=max_workers) as pool:
                 while True:
                     # handle if input_queue is a generator or a zip object
-                    if isinstance(input_queue, types.GeneratorType) or isinstance(input_queue, zip):
+                    if isinstance(input_queue, types.GeneratorType) or isinstance(
+                        input_queue, zip
+                    ):
                         try:
                             result = next(input_queue)
                         except StopIteration:
@@ -1789,7 +2334,11 @@ def orchestrator_with_queue(input_queue, fn, callback=None, max_workers=32, time
                         result = input_queue.pop(0) if len(input_queue) > 0 else None
                     else:
                         raise ValueError("Invalid input_queue type")
-                    if result is TERMINATION_SIGNAL or result is FINISHED_TASK or result == FINISHED_TASK:  # End of results
+                    if (
+                        result is TERMINATION_SIGNAL
+                        or result is FINISHED_TASK
+                        or result == FINISHED_TASK
+                    ):  # End of results
                         break
                     if result is None:
                         continue
@@ -1798,7 +2347,9 @@ def orchestrator_with_queue(input_queue, fn, callback=None, max_workers=32, time
                     futures.append(future)
         except Exception as e:
             exc = traceback.format_exc()
-            logger.error(f"[orchestrator_with_queue] Exception in run_tasks with timeout = {timeout} : {e}\n{exc}")
+            logger.error(
+                f"[orchestrator_with_queue] Exception in run_tasks with timeout = {timeout} : {e}\n{exc}"
+            )
         finally:
             # Signal the end of the task results
             task_queue.put(TERMINATION_SIGNAL)
@@ -1812,12 +2363,18 @@ def orchestrator_with_queue(input_queue, fn, callback=None, max_workers=32, time
     return task_queue
 
 
-def dual_orchestrator(fn1, fn2, args_list, callback=None, max_workers=32, timeout1=60, timeout2=60):
-
-    task_queue1 = orchestrator(fn1, args_list, max_workers=max_workers, timeout=timeout1)
-    task_queue2 = orchestrator_with_queue(task_queue1, fn2, callback, max_workers=max_workers, timeout=timeout2)
+def dual_orchestrator(
+    fn1, fn2, args_list, callback=None, max_workers=32, timeout1=60, timeout2=60
+):
+    task_queue1 = orchestrator(
+        fn1, args_list, max_workers=max_workers, timeout=timeout1
+    )
+    task_queue2 = orchestrator_with_queue(
+        task_queue1, fn2, callback, max_workers=max_workers, timeout=timeout2
+    )
 
     return task_queue2
+
 
 def yield_with_condition(yield_value, condition_function, failure_call_back):
     if condition_function():
@@ -1825,34 +2382,39 @@ def yield_with_condition(yield_value, condition_function, failure_call_back):
     else:
         return failure_call_back()
 
+
 def remove_leading_spaces(text):
     lines = text.splitlines()
     in_code_block = False
     for i, line in enumerate(lines):
-        if re.match(r'^<code>|^```|^`', line):
+        if re.match(r"^<code>|^```|^`", line):
             in_code_block = not in_code_block
         if not in_code_block:
             lines[i] = line.lstrip()
-    return '\n'.join(lines)
+    return "\n".join(lines)
+
+
 def remove_bad_whitespaces(s):
-    s = re.sub(' +', ' ', s)  # Remove extra whitespaces
+    s = re.sub(" +", " ", s)  # Remove extra whitespaces
     s = re.sub("\n{2,}", "\n", s)
     s = re.sub("\r+", "\n", s)
     lines = s.splitlines(keepends=False)
-    lines = [line.rstrip().lstrip() for line in lines if line.strip()!='']
-    s = '\n'.join(lines)
+    lines = [line.rstrip().lstrip() for line in lines if line.strip() != ""]
+    s = "\n".join(lines)
     s = remove_leading_spaces(s)
     # s = normalize_whitespace(s)
     return s.strip()
+
 
 def remove_bad_whitespaces_easy(s):
     s = re.sub("\n{2,}", "\n", s)
     s = re.sub("\r+", "\n", s)
     lines = s.splitlines(keepends=False)
     lines = [line.rstrip() for line in lines]
-    s = '\n'.join(lines)
+    s = "\n".join(lines)
     # s = normalize_whitespace(s)
     return s.strip()
+
 
 def reformat_string(input_str):
     words = input_str.split("\n")
@@ -1867,10 +2429,10 @@ def reformat_string(input_str):
             prev_word_ended_sentence = False
 
         # Check if this word ends with a sentence-ending punctuation.
-        if word.endswith(('.', '!', '?')):
+        if word.endswith((".", "!", "?")):
             prev_word_ended_sentence = True
 
-        if word in {',', '.', '!', '?', ';'}:
+        if word in {",", ".", "!", "?", ";"}:
             corrected_words[-1] += word
         else:
             corrected_words.append(word)
@@ -1887,11 +2449,14 @@ def find_nearest_divisible_by_three(arr):
     # Return a message if no such element is found
     return "No element found with index divisible by 3"
 
+
 import queue
 import threading
 
+
 def thread_safe_tee(iterable, n=2):
     queues = [queue.Queue() for _ in range(n)]
+
     def generator(queues):
         for item in iterable:
             for ix, q in enumerate(queues):
@@ -1899,6 +2464,7 @@ def thread_safe_tee(iterable, n=2):
                 # logger.info(f"thread_safe_tee putting item for {ix}-th queue: {item}")
         for q in queues:
             q.put(StopIteration)
+
     threading.Thread(target=generator, args=(queues,)).start()
 
     def gen(ix, q):
@@ -1920,16 +2486,21 @@ import requests
 from typing import List, Union
 
 
-def get_jina_embedding(input_text: Union[str, List[str]], model_name: str, api_key: str, ctx_length: int = 10_000, ctx_chunk_size: int = 4000) -> Union[
-    List[float], List[List[float]]]:
+def get_jina_embedding(
+    input_text: Union[str, List[str]],
+    model_name: str,
+    api_key: str,
+    ctx_length: int = 10_000,
+    ctx_chunk_size: int = 4000,
+) -> Union[List[float], List[List[float]]]:
     """
     Fetches the embedding(s) for the given input text using Jina's embedding service.
-    
+
     Parameters:
     - input_text: The text (or texts) for which to generate the embedding(s)
     - model_name: The Jina model to use (e.g., 'jina-embeddings-v3')
     - api_key: The Jina API key for authorization
-    
+
     Returns:
     - A list of floats representing the embedding, or a list of lists of floats if the input was a list of strings
     """
@@ -1937,64 +2508,73 @@ def get_jina_embedding(input_text: Union[str, List[str]], model_name: str, api_k
     url = "https://api.jina.ai/v1/embeddings"
 
     # Prepare the headers
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
 
     # Preprocess input text
     if isinstance(input_text, list):
         # Handle list of strings
         processed_texts = [
-            " ".join(text[:ctx_length].strip().split()[:ctx_chunk_size]) if text else "<EMPTY STRING>"
+            " ".join(text[:ctx_length].strip().split()[:ctx_chunk_size])
+            if text
+            else "<EMPTY STRING>"
             for text in input_text
         ]
         # Remove empty strings and replace with placeholder
         processed_texts = [
-            text if len(text.strip()) > 0 else "<EMPTY STRING>" 
+            text if len(text.strip()) > 0 else "<EMPTY STRING>"
             for text in processed_texts
         ]
     else:
         # Handle single string
-        processed_texts = [" ".join(input_text[:ctx_length].strip().split()[:ctx_chunk_size])]
+        processed_texts = [
+            " ".join(input_text[:ctx_length].strip().split()[:ctx_chunk_size])
+        ]
 
     # Prepare the data payload
     data = {
-        "model":  "jina-embeddings-v3",
+        "model": "jina-embeddings-v3",
         "input": processed_texts,
         "task": "text-matching",
         "dimensions": "512",
-        "embedding_type": "float"
+        "embedding_type": "float",
     }
 
     try:
         # Send POST request to the API
         response = requests.post(url, headers=headers, json=data)
-        
+
         # Check if request was successful
         if response.status_code == 200:
             response_json = response.json()
-            
+
             # Extract embeddings from response
             embeddings = [item["embedding"] for item in response_json["data"]]
-            
+
             # Return single embedding list if input was a string
             if not isinstance(input_text, list):
                 return embeddings[0]
             return embeddings
-            
+
         else:
             # Handle API errors
-            logger.error(f"Failed to fetch embedding(s) with model = {model_name} for input text with len: "
-                        f"{(len(processed_texts), len(processed_texts[0].split()))}")
+            logger.error(
+                f"Failed to fetch embedding(s) with model = {model_name} for input text with len: "
+                f"{(len(processed_texts), len(processed_texts[0].split()))}"
+            )
             raise Exception(f"Failed to fetch embedding(s): {response.text}")
-            
+
     except Exception as e:
         # Handle request errors
         logger.error(f"Exception in get_jina_embedding: {str(e)}")
         if ctx_length > 2000:
-            return get_jina_embedding(input_text, model_name, api_key, ctx_length=ctx_length//2, ctx_chunk_size=ctx_chunk_size//2)
-        
+            return get_jina_embedding(
+                input_text,
+                model_name,
+                api_key,
+                ctx_length=ctx_length // 2,
+                ctx_chunk_size=ctx_chunk_size // 2,
+            )
+
         raise Exception(f"Failed to fetch embedding(s): {str(e)}")
 
 
@@ -2003,15 +2583,15 @@ def get_openai_embedding(
     model_name: str,
     api_key: str,
     ctx_length: int = 10_000,
-    ctx_chunk_size: int = 4_000
+    ctx_chunk_size: int = 4_000,
 ) -> Union[List[float], List[List[float]]]:
     """
     Fetches the embedding(s) for the given input text using the specified model,
     similarly to the logic in `get_jina_embedding`. It accepts two parameters:
-    `ctx_length` and `ctx_chunk_size`. 
-    - We first reduce the text length to `ctx_length` 
+    `ctx_length` and `ctx_chunk_size`.
+    - We first reduce the text length to `ctx_length`
     - Then limit the number of tokens/words to `ctx_chunk_size`.
-    If the request fails and `ctx_length` is still above 2000, we retry with half 
+    If the request fails and `ctx_length` is still above 2000, we retry with half
     of both parameters, providing a fallback for extremely large inputs or partial failures.
 
     Parameters:
@@ -2036,7 +2616,7 @@ def get_openai_embedding(
     Raises:
     -------
     Exception
-        If the API request to OpenAI fails or returns a non-200 response, and 
+        If the API request to OpenAI fails or returns a non-200 response, and
         the fallback recursion fails once ctx_length <= 2000.
     """
 
@@ -2044,15 +2624,14 @@ def get_openai_embedding(
     url = "https://api.openai.com/v1/embeddings"
 
     # Prepare request headers
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}"
-    }
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"}
 
     # Preprocess input text with ctx_length & ctx_chunk_size
     if isinstance(input_text, list):
         processed_texts = [
-            " ".join(text[:ctx_length].strip().split()[:ctx_chunk_size]) if text else "<EMPTY STRING>"
+            " ".join(text[:ctx_length].strip().split()[:ctx_chunk_size])
+            if text
+            else "<EMPTY STRING>"
             for text in input_text
         ]
         # Make sure we replace empty strings with a placeholder
@@ -2066,10 +2645,7 @@ def get_openai_embedding(
         ]
 
     # Construct the JSON payload
-    data = {
-        "input": processed_texts,
-        "model": model_name
-    }
+    data = {"input": processed_texts, "model": model_name}
 
     try:
         # Send request
@@ -2094,7 +2670,7 @@ def get_openai_embedding(
                 model_name=model_name,
                 api_key=api_key,
                 ctx_length=ctx_length // 2,
-                ctx_chunk_size=ctx_chunk_size // 2
+                ctx_chunk_size=ctx_chunk_size // 2,
             )
         # Otherwise, raise after final fallback
         raise Exception(f"Failed to fetch embedding(s) from OpenAI: {str(e)}")
@@ -2105,6 +2681,7 @@ if USE_OPENAI_API:
     embed_fn = get_openai_embedding
 else:
     embed_fn = get_jina_embedding
+
 
 class OpenAIEmbeddingsParallel:
     def __init__(self, openai_api_key, model, chunk_size=8000):
@@ -2118,7 +2695,6 @@ class OpenAIEmbeddingsParallel:
     def _embed_documents(self, texts: List[str]) -> List[List[float]]:
         return self.embed_documents(texts, chunk_size=self.chunk_size)
 
-
     def _embed_query(self, text: str) -> List[float]:
         return self.embed_query(text)
 
@@ -2129,32 +2705,41 @@ class OpenAIEmbeddingsParallel:
         return self.embed_documents([text])[0]
 
     def embed_documents(
-            self, texts: List[str], chunk_size: Optional[int] = 0
+        self, texts: List[str], chunk_size: Optional[int] = 0
     ) -> List[List[float]]:
         if len(texts) >= 8:
             futures = []
             for i in range(0, len(texts), 8):
-                futures.append(embed_executor.submit(embed_fn, texts[i:i+8], model_name=self.model, api_key=self.openai_api_key))
+                futures.append(
+                    embed_executor.submit(
+                        embed_fn,
+                        texts[i : i + 8],
+                        model_name=self.model,
+                        api_key=self.openai_api_key,
+                    )
+                )
             results = [sleep_and_get_future_result(future) for future in futures]
             return [item for sublist in results for item in sublist]
         else:
             return embed_fn(texts, model_name=self.model, api_key=self.openai_api_key)
+
     def _get_len_safe_embeddings(
         self, texts: List[str], *, engine: str, chunk_size: Optional[int] = None
     ) -> List[List[float]]:
         return self._embed_documents(texts)
 
+
 def get_embedding_model(keys):
     if "embeddingsUrl" in keys and not checkNoneOrEmpty(keys["embeddingsUrl"]):
         from embedding_client_server import EmbeddingClient
+
         return EmbeddingClient(keys["embeddingsUrl"])
     openai_key = keys["openAIKey"] if USE_OPENAI_API else keys["jinaAIKey"]
     assert openai_key
-    openai_embed = OpenAIEmbeddingsParallel(openai_api_key=openai_key, model='text-embedding-3-small', chunk_size=2000)
+    openai_embed = OpenAIEmbeddingsParallel(
+        openai_api_key=openai_key, model="text-embedding-3-small", chunk_size=2000
+    )
     return openai_embed
-
-
-
 
 
 import re
@@ -2163,29 +2748,30 @@ import re
 def remove_year_month_substring(s):
     # Define the regex pattern
     # This pattern now includes explicit month names
-    pattern = r'\bin \d{4}(?:\s+(?:January|February|March|April|May|June|July|August|September|October|November|December))?'
-    s = re.sub(pattern, '', s)
-    pattern = r'\bin \d{4}(?:\s+(?:january|february|march|april|may|june|july|august|september|october|november|december))?'
-    s = re.sub(pattern, '', s)
+    pattern = r"\bin \d{4}(?:\s+(?:January|February|March|April|May|June|July|August|September|October|November|December))?"
+    s = re.sub(pattern, "", s)
+    pattern = r"\bin \d{4}(?:\s+(?:january|february|march|april|may|june|july|august|september|october|november|december))?"
+    s = re.sub(pattern, "", s)
     # Substitute the pattern with an empty string
     return normalize_whitespace(s)
+
 
 import re
 
 
 def enhanced_robust_url_extractor_v0(text):
     # Regex pattern to capture URLs, allowing for punctuation and parentheses
-    pattern = r'(?:\b(?:https?://|www\.)\S+\b|\((?:https?://|www\.)\S+\))'
+    pattern = r"(?:\b(?:https?://|www\.)\S+\b|\((?:https?://|www\.)\S+\))"
     raw_urls = re.findall(pattern, text, re.IGNORECASE)
 
     # Post-processing to clean up URLs
     cleaned_urls = []
     for url in raw_urls:
         # Remove surrounding parentheses and trailing punctuation
-        cleaned_url = re.sub(r'^[\(\'"]*|[\.,;:!?\)\'"]+$', '', url)
+        cleaned_url = re.sub(r'^[\(\'"]*|[\.,;:!?\)\'"]+$', "", url)
 
         # Split URLs separated by pipe (|), semicolon (;), or comma (,)
-        split_urls = re.split(r'[|;,]', cleaned_url)
+        split_urls = re.split(r"[|;,]", cleaned_url)
 
         for split_url in split_urls:
             # Avoid appending empty or duplicate URLs
@@ -2200,7 +2786,7 @@ import re
 
 def extract_code_blocks(text):
     # Pattern to find code blocks
-    code_block_pattern = re.compile(r'(?s)(```.*?```|`.*?`|<code>.*?</code>)')
+    code_block_pattern = re.compile(r"(?s)(```.*?```|`.*?`|<code>.*?</code>)")
     # Find all code blocks
     code_blocks = code_block_pattern.findall(text)
 
@@ -2225,7 +2811,7 @@ import re
 
 def extract_code_blocks_with_lang(text):
     # Pattern to find code blocks with optional language specifier
-    code_block_pattern = re.compile(r'(?s)(```(\w+)?\s.*?```|`.*?`|<code>.*?</code>)')
+    code_block_pattern = re.compile(r"(?s)(```(\w+)?\s.*?```|`.*?`|<code>.*?</code>)")
 
     # Find all code blocks
     code_blocks = code_block_pattern.findall(text)
@@ -2234,7 +2820,7 @@ def extract_code_blocks_with_lang(text):
     def replace_with_counter(match):
         replace_with_counter.counter += 1
         # Extract language if present, default to 'no_lang'
-        language = match.group(2) if match.group(2) else 'no_lang'
+        language = match.group(2) if match.group(2) else "no_lang"
         return f"CODE_BLOCK_{language}_{replace_with_counter.counter}"
 
         # Initialize the counter attribute
@@ -2245,6 +2831,7 @@ def extract_code_blocks_with_lang(text):
     modified_text = code_block_pattern.sub(replace_with_counter, text)
     return modified_text, [block[0] for block in code_blocks]
 
+
 def remove_code_blocks(text):
     modified_text, code_blocks = extract_code_blocks_with_lang(text)
     return modified_text
@@ -2253,27 +2840,28 @@ def remove_code_blocks(text):
 def restore_code_blocks(modified_text, code_blocks):
     restored_text = modified_text
     for i, code_block in enumerate(code_blocks):
-        restored_text = restored_text.replace(f'CODE_BLOCK_{i}', code_block)
+        restored_text = restored_text.replace(f"CODE_BLOCK_{i}", code_block)
     return restored_text
+
 
 def enhanced_robust_url_extractor(text):
     modified_text, code_blocks = extract_code_blocks(text)
     # Regex pattern to capture URLs, allowing for punctuation and parentheses
-    pattern = r'(?:\b(?:https?://|www\.)\S+\b|\((?:https?://|www\.)\S+\))'
+    pattern = r"(?:\b(?:https?://|www\.)\S+\b|\((?:https?://|www\.)\S+\))"
     raw_urls = re.findall(pattern, modified_text, re.IGNORECASE)
     # Post-processing to clean up URLs
     cleaned_urls = []
     for url in raw_urls:
         # Remove surrounding parentheses and trailing punctuation
-        cleaned_url = re.sub(r'^[\(\'"]*|[\.,;:!?\)\'"]+$', '', url)
+        cleaned_url = re.sub(r'^[\(\'"]*|[\.,;:!?\)\'"]+$', "", url)
 
         # Check if the cleaned_url is a valid URL
-        if re.match(r'^(https?://|www\.)\S+$', cleaned_url):
+        if re.match(r"^(https?://|www\.)\S+$", cleaned_url):
             if cleaned_url not in cleaned_urls:
                 cleaned_urls.append(cleaned_url)
         else:
             # Split URLs separated by pipe (|) or semicolon (;), but not comma (,)
-            split_urls = re.split(r'[|;]', cleaned_url)
+            split_urls = re.split(r"[|;]", cleaned_url)
             for split_url in split_urls:
                 if split_url and split_url not in cleaned_urls:
                     cleaned_urls.append(split_url)
@@ -2281,53 +2869,93 @@ def enhanced_robust_url_extractor(text):
     return cleaned_urls
 
 
-
 def test_enhanced_robust_url_extraction():
     import pandas as pd
+
     # Execute the updated tests with the enhanced robust URL extractor
     # Define the test cases with expected URLs
     test_cases_with_expected_urls = [
         ("the url is (www.example.com)", ["www.example.com"]),
         ("the url is www.example.com/path", ["www.example.com/path"]),
         ("the url is www.example.au/path", ["www.example.au/path"]),
-        ("the urls are http://example.com/path|http://example.com/alternate",
-         ["http://example.com/path", "http://example.com/alternate"]),
         (
-        "Check out this website: https://www.example.com, and this one: http://another-example.com. Sometimes you might encounter www.without-https.com.",
-        ["https://www.example.com", "http://another-example.com", "www.without-https.com"]),
+            "the urls are http://example.com/path|http://example.com/alternate",
+            ["http://example.com/path", "http://example.com/alternate"],
+        ),
+        (
+            "Check out this website: https://www.example.com, and this one: http://another-example.com. Sometimes you might encounter www.without-https.com.",
+            [
+                "https://www.example.com",
+                "http://another-example.com",
+                "www.without-https.com",
+            ],
+        ),
         ("Visit https://site.io for more info.", ["https://site.io"]),
-        ("Here's a tricky one: https://example.com/path,https://another-example.com/path.",
-         ["https://example.com/path", "https://another-example.com/path"]),
-        ("A URL with a query: https://example.com/search?q=url.", ["https://example.com/search?q=url"]),
-        ("A URL with a port number: http://example.com:8080/path.", ["http://example.com:8080/path"]),
+        (
+            "Here's a tricky one: https://example.com/path,https://another-example.com/path.",
+            ["https://example.com/path", "https://another-example.com/path"],
+        ),
+        (
+            "A URL with a query: https://example.com/search?q=url.",
+            ["https://example.com/search?q=url"],
+        ),
+        (
+            "A URL with a port number: http://example.com:8080/path.",
+            ["http://example.com:8080/path"],
+        ),
         ("A URL in quotes: 'https://example.com'.", ["https://example.com"]),
         ("Text before URL:https://example.com.", ["https://example.com"]),
         ("Parenthesis URL (https://example.com).", ["https://example.com"]),
-        ("Embedded URL in text, visit https://example.com today!", ["https://example.com"]),
-        ("Multiple URLs: https://example.com;https://site.io.", ["https://example.com", "https://site.io"]),
-        ("Special characters in URL: https://example.com/path?query=value&another=2.",
-         ["https://example.com/path?query=value&another=2"]),
+        (
+            "Embedded URL in text, visit https://example.com today!",
+            ["https://example.com"],
+        ),
+        (
+            "Multiple URLs: https://example.com;https://site.io.",
+            ["https://example.com", "https://site.io"],
+        ),
+        (
+            "Special characters in URL: https://example.com/path?query=value&another=2.",
+            ["https://example.com/path?query=value&another=2"],
+        ),
         ### Code blocks
         ("Code block with URL: ```https://example.com```", []),
-        ("Code block with URL and text: ```This is a code block with https://example.com inside.```", []),
-        ("Multiple code blocks: ```https://example.com``` and `https://another-example.com`", []),
         (
-        "Code block with URL and other code: ```python\nprint('Hello, World!')\nvisit https://example.com for more info```",
-        []),
-        ("Code block with URL and text: <code>This is a code block with https://example.com inside.</code>", []),
-        ("Multiple code blocks: <code>https://example.com</code> and <code>https://another-example.com</code>", []),
+            "Code block with URL and text: ```This is a code block with https://example.com inside.```",
+            [],
+        ),
         (
-        "Text with URL and code block: Visit https://example.com for more info. ```Code block with https://another-example.com```",
-        ["https://example.com"]),
+            "Multiple code blocks: ```https://example.com``` and `https://another-example.com`",
+            [],
+        ),
         (
-        "Text with URL, code block, and URL: Check out https://example.com ```Code block with https://another-example.com``` and visit https://third-example.com",
-        ["https://example.com", "https://third-example.com"]),
+            "Code block with URL and other code: ```python\nprint('Hello, World!')\nvisit https://example.com for more info```",
+            [],
+        ),
+        (
+            "Code block with URL and text: <code>This is a code block with https://example.com inside.</code>",
+            [],
+        ),
+        (
+            "Multiple code blocks: <code>https://example.com</code> and <code>https://another-example.com</code>",
+            [],
+        ),
+        (
+            "Text with URL and code block: Visit https://example.com for more info. ```Code block with https://another-example.com```",
+            ["https://example.com"],
+        ),
+        (
+            "Text with URL, code block, and URL: Check out https://example.com ```Code block with https://another-example.com``` and visit https://third-example.com",
+            ["https://example.com", "https://third-example.com"],
+        ),
     ]
 
     results = []
     extractor = enhanced_robust_url_extractor
     pattern_results = {"Pattern Name": "Enhanced Robust URL Extractor"}
-    for i, (test_case, expected_urls) in enumerate(test_cases_with_expected_urls, start=1):
+    for i, (test_case, expected_urls) in enumerate(
+        test_cases_with_expected_urls, start=1
+    ):
         matches = extractor(test_case)
         print(matches)
         result = "Passed" if set(matches) == set(expected_urls) else "Failed"
@@ -2348,7 +2976,9 @@ def test_enhanced_robust_url_extraction():
     df_enhanced_robust.set_index("Pattern Name", inplace=True)
     print(df_enhanced_robust)
 
+
 import re
+
 
 def extract_url_from_mardown(text):
     """
@@ -2363,7 +2993,7 @@ def extract_url_from_mardown(text):
 
     if not text.startswith("(") or not text.endswith(")"):
         text = f"({text})"
-    pattern = r'\((https?://\S+)\)'  # Regular expression pattern
+    pattern = r"\((https?://\S+)\)"  # Regular expression pattern
     urls = re.findall(pattern, text)
 
     if len(urls) == 0:
@@ -2374,13 +3004,15 @@ def extract_url_from_mardown(text):
 
     if len(urls) == 0:
         print(f"No URLs found in the text = ```{text}```")
-        return '<NO_URL_FOUND_IN_TEXT>'
+        return "<NO_URL_FOUND_IN_TEXT>"
     return urls[0]
+
 
 import re
 
+
 def parse_mardown_link_text(text):
-    pattern = r'\[(.*?)\]\((.*?)\)(.*?)(?=\[|$)'
+    pattern = r"\[(.*?)\]\((.*?)\)(.*?)(?=\[|$)"
     matches = re.findall(pattern, text, re.DOTALL)
 
     results = []
@@ -2393,10 +3025,13 @@ def parse_mardown_link_text(text):
     return results
 
 
-
-
-
-@CacheResults(cache=cache, dtype_filters=tuple([str, int, tuple, bool]), enabled=True, expire=3600, should_cache_key_condition=lambda x: x is not None and len(x.split()) < 100)
+@CacheResults(
+    cache=cache,
+    dtype_filters=tuple([str, int, tuple, bool]),
+    enabled=True,
+    expire=3600,
+    should_cache_key_condition=lambda x: x is not None and len(x.split()) < 100,
+)
 def get_text_embedding(text, keys):
     openai_embed = get_embedding_model(keys)
     try:
@@ -2411,6 +3046,7 @@ def get_text_embedding(text, keys):
 
 def semantic_validation_web_page_scrape(context, result, apikeys, threshold=0.3):
     import sys
+
     text = result["text"].strip()
     title = result["title"]
     link = result["link"]
@@ -2418,25 +3054,43 @@ def semantic_validation_web_page_scrape(context, result, apikeys, threshold=0.3)
         return True
     context_emb_future = get_async_future(get_text_embedding, context, apikeys)
     chunk_size = len(text.split()) // 4
-    chunks = chunk_text_words(text, chunk_size=chunk_size, chunk_overlap=min(64, chunk_size // 2))
-    chunks = [" ".join(chunk.strip().split()[:2048]) for chunk in chunks if len(chunk.strip().split()) > 2][:2]
-    chunk_embeddings_future = [get_async_future(get_text_embedding, chunk, apikeys) for chunk in chunks]
+    chunks = chunk_text_words(
+        text, chunk_size=chunk_size, chunk_overlap=min(64, chunk_size // 2)
+    )
+    chunks = [
+        " ".join(chunk.strip().split()[:2048])
+        for chunk in chunks
+        if len(chunk.strip().split()) > 2
+    ][:2]
+    chunk_embeddings_future = [
+        get_async_future(get_text_embedding, chunk, apikeys) for chunk in chunks
+    ]
     try:
-        chunk_embeddings = [sleep_and_get_future_result(future) for future in chunk_embeddings_future]
+        chunk_embeddings = [
+            sleep_and_get_future_result(future) for future in chunk_embeddings_future
+        ]
         context_emb = sleep_and_get_future_result(context_emb_future)
         # dot product of context and chunk embeddings using numpy
-        dot_products = [np.dot(context_emb, chunk_emb) / (np.linalg.norm(context_emb) * np.linalg.norm(chunk_emb)) for chunk_emb in chunk_embeddings]
+        dot_products = [
+            np.dot(context_emb, chunk_emb)
+            / (np.linalg.norm(context_emb) * np.linalg.norm(chunk_emb))
+            for chunk_emb in chunk_embeddings
+        ]
         max_dot_product = max(dot_products)
 
         if max_dot_product < threshold:
-            print(f"[semantic_validation_web_page_scrape] [FAILED] \ntitle = {title}, text = {text[:100]} link = {link}, Max dot = {max_dot_product}, Dot products = {dot_products}")
+            print(
+                f"[semantic_validation_web_page_scrape] [FAILED] \ntitle = {title}, text = {text[:100]} link = {link}, Max dot = {max_dot_product}, Dot products = {dot_products}"
+            )
             # Flush the print
             sys.stdout.flush()
             return False
         return True
     except Exception as e:
         exc = traceback.format_exc()
-        logger.error(f"[semantic_validation_web_page_scrape] Error in getting embeddings with exception = {str(e)}")
+        logger.error(
+            f"[semantic_validation_web_page_scrape] Error in getting embeddings with exception = {str(e)}"
+        )
         return False
 
 
@@ -2450,6 +3104,7 @@ class GenericShortException(Exception):
         # Print the last one or two lines of the stack trace
         trace = self.args[0] + "\n" + "\n".join(stack_trace[-3:-1])
         return trace
+
 
 class ForceStoppedException(GenericShortException):
     pass
@@ -2483,16 +3138,16 @@ def chunk_text(text, chunk_size, separators=None):
 
     # Define default separators if none are provided
     if separators is None:
-        separators = [' ', '\t', '\n', ',', ';', '. ', '!']
+        separators = [" ", "\t", "\n", ",", ";", ". ", "!"]
 
         # Adjust the regex pattern to capture and retain separators in the results
-    pattern = '(%s)' % '|'.join(map(re.escape, separators))
+    pattern = "(%s)" % "|".join(map(re.escape, separators))
 
     # Split the text while retaining separators, using the adjusted regex pattern
     parts = re.split(pattern, text)
 
     # Initialize variables for the current chunk and the list of chunks
-    current_chunk = ''
+    current_chunk = ""
     chunks = []
 
     for part in parts:
@@ -2541,10 +3196,38 @@ def chunk_text_words(text, chunk_size, chunk_overlap=0, separators=None):
     ['This is a longer', 'longer example text to', 'text to demonstrate the', 'demonstrate the overlapping functionality.']
     """
     if separators is None:
-        separators = ['                ', '            ', '           ', '          ', '        ','       ','      ', '    ', '   ','  ', ' ', '  ',  '\t\t\t', '\t\t\n', '\n\n\n', '\n\n\t', '\n\t\t', '\n\n','\t\t', '\n\t','\t\n',  '\t', '\n', ',', ';', '. ', '!']
+        separators = [
+            "                ",
+            "            ",
+            "           ",
+            "          ",
+            "        ",
+            "       ",
+            "      ",
+            "    ",
+            "   ",
+            "  ",
+            " ",
+            "  ",
+            "\t\t\t",
+            "\t\t\n",
+            "\n\n\n",
+            "\n\n\t",
+            "\n\t\t",
+            "\n\n",
+            "\t\t",
+            "\n\t",
+            "\t\n",
+            "\t",
+            "\n",
+            ",",
+            ";",
+            ". ",
+            "!",
+        ]
     if chunk_overlap >= chunk_size:
         raise ValueError("chunk_overlap must be less than chunk_size")
-    pattern = '(%s)' % '|'.join(map(re.escape, separators))
+    pattern = "(%s)" % "|".join(map(re.escape, separators))
     parts = re.split(pattern, text)
 
     chunks = []
@@ -2557,7 +3240,7 @@ def chunk_text_words(text, chunk_size, chunk_overlap=0, separators=None):
             element_count += 1
             overlap_buffer.append(part)
         else:
-            words = re.split(r'\s+', part.strip())
+            words = re.split(r"\s+", part.strip())
             element_count += len(words)
             overlap_buffer.extend(words)
 
@@ -2565,14 +3248,14 @@ def chunk_text_words(text, chunk_size, chunk_overlap=0, separators=None):
             chunk_end = chunk_size - len(current_chunk) if current_chunk else chunk_size
             current_chunk.extend(overlap_buffer[:chunk_end])
             if len(current_chunk) == chunk_size:
-                chunks.append(''.join(current_chunk))
-                overlap_buffer = overlap_buffer[chunk_size - chunk_overlap:]
+                chunks.append("".join(current_chunk))
+                overlap_buffer = overlap_buffer[chunk_size - chunk_overlap :]
                 current_chunk = overlap_buffer[:chunk_overlap]
-                element_count = len(re.split(r'\s+', ''.join(current_chunk).strip()))
+                element_count = len(re.split(r"\s+", "".join(current_chunk).strip()))
                 overlap_buffer = overlap_buffer[chunk_overlap:]
 
     if overlap_buffer or current_chunk:
-        chunks.append(''.join(overlap_buffer if overlap_buffer else current_chunk))
+        chunks.append("".join(overlap_buffer if overlap_buffer else current_chunk))
 
     return chunks
 
@@ -2596,7 +3279,9 @@ def sort_two_lists(list1, list2, key=None, reverse=False):
     if key is None:
         key = lambda x: x
 
-    assert len(list1) == len(list2), "[sort_two_lists] The two lists must have the same length."
+    assert len(list1) == len(list2), (
+        "[sort_two_lists] The two lists must have the same length."
+    )
     if len(list1) == 0:
         return [], []
 
@@ -2609,6 +3294,7 @@ def sort_two_lists(list1, list2, key=None, reverse=False):
 
     # Convert the tuples back to lists
     return list(list1_sorted), list(list2_sorted)
+
 
 def sort_three_lists(list1, list2, list3, key=None, reverse=False):
     """
@@ -2631,7 +3317,9 @@ def sort_three_lists(list1, list2, list3, key=None, reverse=False):
     if key is None:
         key = lambda x: x
 
-    assert len(list1) == len(list2) == len(list3), "[sort_three_lists] The three lists must have the same length."
+    assert len(list1) == len(list2) == len(list3), (
+        "[sort_three_lists] The three lists must have the same length."
+    )
     if len(list1) == 0:
         return [], [], []
 
@@ -2646,7 +3334,13 @@ def sort_three_lists(list1, list2, list3, key=None, reverse=False):
     return list(list1_sorted), list(list2_sorted), list(list3_sorted)
 
 
-def filter_two_lists(list1, list2, combined_filter_criterion = lambda x,y: True, filter_criterion_list1 = lambda x: True, filter_criterion_list2 = lambda x: True):
+def filter_two_lists(
+    list1,
+    list2,
+    combined_filter_criterion=lambda x, y: True,
+    filter_criterion_list1=lambda x: True,
+    filter_criterion_list2=lambda x: True,
+):
     """
     Filters two lists based on a filtering criterion applied to the first list.
 
@@ -2661,18 +3355,35 @@ def filter_two_lists(list1, list2, combined_filter_criterion = lambda x,y: True,
     """
     # Use list comprehension to filter both lists simultaneously based on the filter_criterion applied to list1 elements
 
-    assert len(list1) == len(list2), "[sort_two_lists] The two lists must have the same length."
+    assert len(list1) == len(list2), (
+        "[sort_two_lists] The two lists must have the same length."
+    )
     if len(list1) == 0:
         return [], []
 
     list1_filtered, list2_filtered = zip(
-        *[(item1, item2) for item1, item2 in zip(list1, list2) if filter_criterion_list1(item1) and filter_criterion_list2(item2) and combined_filter_criterion(item1, item2)])
+        *[
+            (item1, item2)
+            for item1, item2 in zip(list1, list2)
+            if filter_criterion_list1(item1)
+            and filter_criterion_list2(item2)
+            and combined_filter_criterion(item1, item2)
+        ]
+    )
 
     # Convert the tuples back to lists
     return list(list1_filtered), list(list2_filtered)
 
 
-def filter_three_lists(list1, list2, list3, combined_filter_criterion = lambda x,y,z: True, filter_criterion_list1 = lambda x: True, filter_criterion_list2 = lambda x: True, filter_criterion_list3 = lambda x: True):
+def filter_three_lists(
+    list1,
+    list2,
+    list3,
+    combined_filter_criterion=lambda x, y, z: True,
+    filter_criterion_list1=lambda x: True,
+    filter_criterion_list2=lambda x: True,
+    filter_criterion_list3=lambda x: True,
+):
     """
     Filters three lists based on a filtering criterion applied to the first list.
 
@@ -2689,28 +3400,39 @@ def filter_three_lists(list1, list2, list3, combined_filter_criterion = lambda x
     """
     # Use list comprehension to filter both lists simultaneously based on the filter_criterion applied to list1 elements
 
-    assert len(list1) == len(list2) == len(list3), "[sort_three_lists] The three lists must have the same length."
+    assert len(list1) == len(list2) == len(list3), (
+        "[sort_three_lists] The three lists must have the same length."
+    )
     if len(list1) == 0:
         return [], [], []
 
     list1_filtered, list2_filtered, list3_filtered = zip(
-        *[(item1, item2, item3) for item1, item2, item3 in zip(list1, list2, list3) if filter_criterion_list1(item1) and filter_criterion_list2(item2) and filter_criterion_list3(item3) and combined_filter_criterion(item1, item2, item3)])
+        *[
+            (item1, item2, item3)
+            for item1, item2, item3 in zip(list1, list2, list3)
+            if filter_criterion_list1(item1)
+            and filter_criterion_list2(item2)
+            and filter_criterion_list3(item3)
+            and combined_filter_criterion(item1, item2, item3)
+        ]
+    )
 
     # Convert the tuples back to lists
     return list(list1_filtered), list(list2_filtered), list(list3_filtered)
 
 
-
 import requests
+
+
 def google_search(query, cx, api_key, num=10, filter=0, start=0):
-    url = 'https://www.googleapis.com/customsearch/v1'
+    url = "https://www.googleapis.com/customsearch/v1"
     params = {
-        'key': api_key,
-        'cx': cx,
-        'q': query,
-        'num': num,
-        'filter': filter,
-        'start': start
+        "key": api_key,
+        "cx": cx,
+        "q": query,
+        "num": num,
+        "filter": filter,
+        "start": start,
     }
 
     try:
@@ -2719,21 +3441,21 @@ def google_search(query, cx, api_key, num=10, filter=0, start=0):
         data = response.json()
 
         search_results = []
-        for result in data.get('items', []):
+        for result in data.get("items", []):
             search_result = {
-                'title': result['title'],
-                'url': result['link'],
-                'snippet': result['snippet'],
-                'query': query,
-                'link': result['link'],
-                'source': 'google',
+                "title": result["title"],
+                "url": result["link"],
+                "snippet": result["snippet"],
+                "query": query,
+                "link": result["link"],
+                "source": "google",
             }
             search_results.append(search_result)
 
         return search_results
 
     except requests.exceptions.RequestException as e:
-        print(f'An error occurred: {e}')
+        print(f"An error occurred: {e}")
         return None
 
 
@@ -2760,6 +3482,7 @@ def get_from_env(key: str, env_key: str, default: Optional[str] = None) -> str:
             f"  `{key}` as a named parameter."
         )
 
+
 import base64
 import zlib
 from urllib.parse import quote
@@ -2767,7 +3490,7 @@ from urllib.parse import quote
 
 def compress_and_encode_drawio_xml(input_string):
     # Step 1: Base64 Encode
-    base64_encoded = base64.b64encode(input_string.encode('utf-8'))
+    base64_encoded = base64.b64encode(input_string.encode("utf-8"))
 
     # Step 2: Deflate
     deflated = zlib.compress(base64_encoded)
@@ -2780,9 +3503,12 @@ def compress_and_encode_drawio_xml(input_string):
 
 def encode_image(image_path):
     with open(image_path, "rb") as image_file:
-        return base64.b64encode(image_file.read()).decode('utf-8')
+        return base64.b64encode(image_file.read()).decode("utf-8")
+
 
 from getpass import getpass
+
+
 def _getpass(env_var: str):
     if not os.environ.get(env_var):
         os.environ[env_var] = getpass(f"{env_var}=")
@@ -2793,41 +3519,47 @@ import json
 import re
 from typing import Union, Dict, Any
 
+
 def fix_broken_json(broken_json: str) -> str:
     """
     Fix common JSON parsing errors and return a valid JSON string.
-    
+
     Args:
         broken_json (str): The malformed JSON string
-        
+
     Returns:
         str: A valid JSON string that can be parsed
-        
+
     Raises:
         ValueError: If the JSON cannot be fixed or is fundamentally invalid
     """
-    
+
     def fix_multiline_strings_in_arrays(text: str) -> str:
         """Fix strings that are broken across multiple lines in arrays."""
+
         # Pattern to match array elements that are split across lines
         # This handles cases where a string starts with a quote but doesn't end on the same line
         def fix_array_strings(match):
             array_content = match.group(1)
-            
+
             # Split by commas, but be careful about commas within strings
-            lines = array_content.split('\n')
+            lines = array_content.split("\n")
             fixed_lines = []
             current_string = ""
             in_string = False
-            
+
             for line in lines:
                 line = line.strip()
                 if not line:
                     continue
-                    
+
                 # Check if we're starting or continuing a string
                 if not in_string:
-                    if line.startswith('"') and not line.endswith('",') and not line.endswith('"'):
+                    if (
+                        line.startswith('"')
+                        and not line.endswith('",')
+                        and not line.endswith('"')
+                    ):
                         # Starting a multi-line string
                         current_string = line
                         in_string = True
@@ -2842,93 +3574,95 @@ def fix_broken_json(broken_json: str) -> str:
                         fixed_lines.append(current_string)
                         current_string = ""
                         in_string = False
-            
+
             # Handle case where string didn't properly close
             if current_string:
                 if not current_string.endswith('"'):
                     current_string += '"'
                 fixed_lines.append(current_string)
-            
-            return '[\n        ' + ',\n        '.join(fixed_lines) + '\n    ]'
-        
+
+            return "[\n        " + ",\n        ".join(fixed_lines) + "\n    ]"
+
         # Apply to arrays (looking for [ ... ] blocks)
-        pattern = r'\[\s*((?:[^[\]]*(?:\[[^\]]*\])?)*)\s*\]'
+        pattern = r"\[\s*((?:[^[\]]*(?:\[[^\]]*\])?)*)\s*\]"
         return re.sub(pattern, fix_array_strings, text, flags=re.DOTALL)
-    
+
     def fix_quote_escaping(text: str) -> str:
         """Fix incorrect quote escaping patterns."""
         # Replace \' with \" in JSON strings (since JSON uses double quotes)
         text = text.replace("\\'", '\\"')
-        
+
         # Fix cases where single quotes are used instead of double quotes for strings
         # This is more complex and needs careful handling to avoid breaking valid content
-        
+
         return text
-    
+
     def fix_over_escaping(text: str) -> str:
         """Simplify over-escaped characters, particularly in mathematical notation."""
         # Fix over-escaped parentheses in mathematical notation
-        text = re.sub(r'\\{3,}\\?\(', r'\\(', text)  # \\\\\\( -> \\(
-        text = re.sub(r'\\{3,}\\?\)', r'\\)', text)  # \\\\\\) -> \\)
-        
+        text = re.sub(r"\\{3,}\\?\(", r"\\(", text)  # \\\\\\( -> \\(
+        text = re.sub(r"\\{3,}\\?\)", r"\\)", text)  # \\\\\\) -> \\)
+
         # Fix over-escaped mathematical operators
-        text = re.sub(r'\\{3,}\\?cdot', r'\\cdot', text)  # \\\\\\cdot -> \\cdot
-        text = re.sub(r'\\{3,}\\?times', r'\\times', text)
-        
+        text = re.sub(r"\\{3,}\\?cdot", r"\\cdot", text)  # \\\\\\cdot -> \\cdot
+        text = re.sub(r"\\{3,}\\?times", r"\\times", text)
+
         # Fix over-escaped backslashes in general
-        text = re.sub(r'\\{4,}', r'\\\\', text)  # Reduce multiple backslashes
-        
+        text = re.sub(r"\\{4,}", r"\\\\", text)  # Reduce multiple backslashes
+
         return text
-    
+
     def clean_formatting(text: str) -> str:
         """Clean up general formatting issues."""
         # Remove extra whitespace around JSON structural elements
-        text = re.sub(r'\s*{\s*', '{\n    ', text)  # Opening braces
-        text = re.sub(r'\s*}\s*', '\n}', text)      # Closing braces
-        text = re.sub(r'\s*,\s*', ',\n    ', text)  # Commas
-        
+        text = re.sub(r"\s*{\s*", "{\n    ", text)  # Opening braces
+        text = re.sub(r"\s*}\s*", "\n}", text)  # Closing braces
+        text = re.sub(r"\s*,\s*", ",\n    ", text)  # Commas
+
         # Fix spacing around colons
-        text = re.sub(r'\s*:\s*', ': ', text)
-        
+        text = re.sub(r"\s*:\s*", ": ", text)
+
         return text
-    
+
     def merge_broken_strings(text: str) -> str:
         """Merge strings that are incorrectly split across lines."""
-        lines = text.split('\n')
+        lines = text.split("\n")
         merged_lines = []
         i = 0
-        
+
         while i < len(lines):
             line = lines[i].strip()
-            
+
             # Check if this line starts a string but doesn't end it properly
-            if (line.startswith('"') and 
-                line.count('"') == 1 and 
-                not line.endswith('",') and 
-                not line.endswith('"')):
-                
+            if (
+                line.startswith('"')
+                and line.count('"') == 1
+                and not line.endswith('",')
+                and not line.endswith('"')
+            ):
                 # This is likely a broken string, merge with next lines
                 merged_line = line
                 i += 1
-                
+
                 while i < len(lines):
                     next_line = lines[i].strip()
                     merged_line += " " + next_line
-                    
+
                     # Stop when we find the end of the string
-                    if (next_line.endswith('",') or 
-                        (next_line.endswith('"') and not next_line.endswith('\\\"'))):
+                    if next_line.endswith('",') or (
+                        next_line.endswith('"') and not next_line.endswith('\\"')
+                    ):
                         break
                     i += 1
-                
+
                 merged_lines.append(merged_line)
             else:
                 merged_lines.append(line)
-            
+
             i += 1
-        
-        return '\n'.join(merged_lines)
-    
+
+        return "\n".join(merged_lines)
+
     def validate_and_format_json(text: str) -> str:
         """Validate the JSON and format it properly."""
         try:
@@ -2938,10 +3672,10 @@ def fix_broken_json(broken_json: str) -> str:
             return json.dumps(parsed, indent=4, ensure_ascii=False)
         except json.JSONDecodeError as e:
             # If it still fails, try some additional fixes
-            
+
             # Fix common trailing comma issues
-            text = re.sub(r',(\s*[}\]])', r'\1', text)
-            
+            text = re.sub(r",(\s*[}\]])", r"\1", text)
+
             # Try parsing again
             try:
                 parsed = json.loads(text)
@@ -2949,31 +3683,32 @@ def fix_broken_json(broken_json: str) -> str:
             except json.JSONDecodeError:
                 # If it still fails, raise an informative error
                 import traceback
+
                 traceback.print_exc()
                 raise ValueError(f"Unable to fix JSON. Last error: {str(e)}")
-    
+
     try:
         # Apply all fixes in sequence
         fixed_json = broken_json
-        
+
         # Step 1: Clean up basic formatting
         fixed_json = fixed_json.strip()
-        
+
         # Step 2: Fix over-escaping issues
         fixed_json = fix_over_escaping(fixed_json)
-        
+
         # Step 3: Fix quote escaping
         fixed_json = fix_quote_escaping(fixed_json)
-        
+
         # Step 4: Merge broken strings
         fixed_json = merge_broken_strings(fixed_json)
-        
+
         # Step 5: Fix multi-line strings in arrays
         fixed_json = fix_multiline_strings_in_arrays(fixed_json)
-        
+
         # Step 6: Validate and format
         return validate_and_format_json(fixed_json)
-        
+
     except Exception as e:
         raise ValueError(f"Failed to fix JSON: {str(e)}")
 
@@ -3014,13 +3749,9 @@ def dump_stack(skip: int = 0, detailed: bool = False) -> str:
             lineno = frame_info.lineno
             function = frame_info.function
             code_line = (
-                frame_info.code_context[0].strip()
-                if frame_info.code_context
-                else ""
+                frame_info.code_context[0].strip() if frame_info.code_context else ""
             )
-            lines.append(
-                f"#{i} {filename}:{lineno} in {function} -> {code_line}"
-            )
+            lines.append(f"#{i} {filename}:{lineno} in {function} -> {code_line}")
         return "\n".join(lines)
 
     # Detailed mode (original verbose behavior)
@@ -3029,7 +3760,9 @@ def dump_stack(skip: int = 0, detailed: bool = False) -> str:
         filename = frame_info.filename
         lineno = frame_info.lineno
         function = frame_info.function
-        code_context = frame_info.code_context[0].rstrip("\n") if frame_info.code_context else ""
+        code_context = (
+            frame_info.code_context[0].rstrip("\n") if frame_info.code_context else ""
+        )
         locals_snapshot = frame.f_locals
 
         lines.append(f"Frame #{i}:")

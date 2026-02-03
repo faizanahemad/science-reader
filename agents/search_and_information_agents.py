@@ -15,16 +15,26 @@ from openai import OpenAI
 from pydub import AudioSegment  # For merging audio files
 
 
-# Local imports  
+# Local imports
 try:
     import sys
     from pathlib import Path
+
     sys.path.append(str(Path(__file__).parent.parent))
     from prompts import tts_friendly_format_instructions, diagram_instructions
     from base import CallLLm, CallMultipleLLM, simple_web_search_with_llm
     from common import (
-        VERY_CHEAP_LLM, CHEAP_LLM, USE_OPENAI_API, convert_markdown_to_pdf, convert_to_pdf_link_if_needed, CHEAP_LONG_CONTEXT_LLM,
-        get_async_future, sleep_and_get_future_result, convert_stream_to_iterable, EXPENSIVE_LLM, two_column_list_md
+        VERY_CHEAP_LLM,
+        CHEAP_LLM,
+        USE_OPENAI_API,
+        convert_markdown_to_pdf,
+        convert_to_pdf_link_if_needed,
+        CHEAP_LONG_CONTEXT_LLM,
+        get_async_future,
+        sleep_and_get_future_result,
+        convert_stream_to_iterable,
+        EXPENSIVE_LLM,
+        two_column_list_md,
     )
     from loggers import getLoggers
 except ImportError as e:
@@ -33,7 +43,10 @@ except ImportError as e:
 
 import logging
 import re
-logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.INFO, logging.INFO, logging.ERROR, logging.INFO)
+
+logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(
+    __name__, logging.INFO, logging.INFO, logging.ERROR, logging.INFO
+)
 import time
 from .base_agent import Agent
 
@@ -83,9 +96,18 @@ def _count_words(text: str) -> int:
     return len(re.findall(r"\S+", text))
 
 
-
 class WebSearchWithAgent(Agent):
-    def __init__(self, keys, model_name, detail_level=1, timeout=60, gscholar=False, no_intermediate_llm=False, show_intermediate_results=False, headless=False):
+    def __init__(
+        self,
+        keys,
+        model_name,
+        detail_level=1,
+        timeout=60,
+        gscholar=False,
+        no_intermediate_llm=False,
+        show_intermediate_results=False,
+        headless=False,
+    ):
         super().__init__(keys)
         self.gscholar = gscholar
         self.model_name = model_name
@@ -125,7 +147,9 @@ User's query and conversation history:
 Please compose your response, ensuring it thoroughly addresses the user's query while synthesizing information from all provided search results.
 """
 
-        num_queries = 3 if self.detail_level <= 2 else 5 if self.detail_level == 3 else 8
+        num_queries = (
+            3 if self.detail_level <= 2 else 5 if self.detail_level == 3 else 8
+        )
         self.llm_prompt = f"""
 Given the following user's query and conversation history, generate a list of relevant and targeted search queries and their corresponding brief contexts. 
 Each query should be focused and specific, while the context should provide background information and tell what is the user asking about and what specific information we need to include in our literature review.
@@ -148,39 +172,51 @@ Format your response as a Python list of tuples as given below:
 
 Generate up to {num_queries} highly relevant query-context pairs. Write your answer as a code block with each query and context pair as a tuple inside a list.
 """
+
     def extract_queries_contexts(self, code_string):
         regex = r"```(?:\w+)?\s*(.*?)```"
-        matches = re.findall(regex, code_string, re.DOTALL | re.MULTILINE | re.IGNORECASE)
-        
+        matches = re.findall(
+            regex, code_string, re.DOTALL | re.MULTILINE | re.IGNORECASE
+        )
+
         if not matches:
             return None  # or you could return an empty list [], depending on your preference
-        
+
         matches = [m.split("=")[-1].strip() for m in matches]
-        
-        code_to_execute = [c.strip() for c in matches if c.strip()!="" and c.strip()!="[]" and c.strip().startswith("[") and c.strip().endswith("]")][-1:]
+
+        code_to_execute = [
+            c.strip()
+            for c in matches
+            if c.strip() != ""
+            and c.strip() != "[]"
+            and c.strip().startswith("[")
+            and c.strip().endswith("]")
+        ][-1:]
         return "\n".join(code_to_execute)
-    
+
     def remove_code_blocks(self, text):
         regex = r"```(?:\w+)?\s*(.*?)```"
         return re.sub(regex, r"\1", text, re.DOTALL | re.MULTILINE | re.IGNORECASE)
-    
-    def get_results_from_web_search(self, text, text_queries_contexts):
 
+    def get_results_from_web_search(self, text, text_queries_contexts):
         array_string = text_queries_contexts
         web_search_results = []
         try:
             # Use ast.literal_eval to safely evaluate the string as a Python expression
             import ast
+
             text_queries_contexts = ast.literal_eval(array_string)
-            
+
             # Ensure the result is a list of tuples
-            if not isinstance(text_queries_contexts, list) or not all(isinstance(item, tuple) for item in text_queries_contexts):
+            if not isinstance(text_queries_contexts, list) or not all(
+                isinstance(item, tuple) for item in text_queries_contexts
+            ):
                 raise ValueError("Invalid format: expected list of tuples")
-            
+
             # Now we have text_queries_contexts as a list of tuples of the form [('query', 'context'), ...]
             # We need to call simple_web_search_with_llm for each query and context
             # simple_web_search_with_llm(keys, user_context, queries, gscholar)
-            
+
             if self.concurrent_searches:
                 # Fix: correctly associate each future with its corresponding query/context by storing tuples
                 future_tuples = []
@@ -192,26 +228,51 @@ Generate up to {num_queries} highly relevant query-context pairs. Write your ans
                         [query],
                         gscholar=self.gscholar,
                         provide_detailed_answers=self.detail_level,
-                        no_llm=len(text_queries_contexts) <= 5 or self.no_intermediate_llm,
-                        timeout=self.timeout
+                        no_llm=len(text_queries_contexts) <= 5
+                        or self.no_intermediate_llm,
+                        timeout=self.timeout,
                     )
                     future_tuples.append((future, query, context))
 
                 web_search_results = []
                 for future, query, context in future_tuples:
                     result = sleep_and_get_future_result(future)
-                    web_search_results.append(f"<b>{query}</b></br>" + "\n\n" + context + "\n\n" + result)
+                    web_search_results.append(
+                        f"<b>{query}</b></br>" + "\n\n" + context + "\n\n" + result
+                    )
             else:
                 web_search_results = []
                 for query, context in text_queries_contexts:
-                    result = simple_web_search_with_llm(self.keys, text + "\n\n" + context, [query], gscholar=self.gscholar, provide_detailed_answers=self.detail_level, no_llm=len(text_queries_contexts) <= 5 or self.no_intermediate_llm, timeout=self.timeout)
-                    web_search_results.append(f"<b>{query}</b></br>" + "\n\n" + context + "\n\n" + result)
+                    result = simple_web_search_with_llm(
+                        self.keys,
+                        text + "\n\n" + context,
+                        [query],
+                        gscholar=self.gscholar,
+                        provide_detailed_answers=self.detail_level,
+                        no_llm=len(text_queries_contexts) <= 5
+                        or self.no_intermediate_llm,
+                        timeout=self.timeout,
+                    )
+                    web_search_results.append(
+                        f"<b>{query}</b></br>" + "\n\n" + context + "\n\n" + result
+                    )
         except (SyntaxError, ValueError) as e:
-            logger.error(f"Error parsing text_queries_contexts: {e}, \n\n{traceback.format_exc()}")
+            logger.error(
+                f"Error parsing text_queries_contexts: {e}, \n\n{traceback.format_exc()}"
+            )
             text_queries_contexts = None
         return "\n".join(web_search_results)
-    
-    def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=True):
+
+    def __call__(
+        self,
+        text,
+        images=[],
+        temperature=0.7,
+        stream=False,
+        max_tokens=None,
+        system=None,
+        web_search=True,
+    ):
         # Extract queries and contexts from the text if present, otherwise set to None
         # We will get "[('query', 'context')...,]" style large array which is string, need to eval or ast.literal_eval this to make it python array, then error handle side cases.
         # Ensure the result is a list of tuples
@@ -224,16 +285,22 @@ Generate up to {num_queries} highly relevant query-context pairs. Write your ans
 {text}
 </|context|>\n\n"""
 
-        
-        
         if text_queries_contexts is not None and len(text_queries_contexts) > 0:
             answer += f"Generated Queries and Contexts: {text_queries_contexts}\n\n"
-            yield {"text": '\n```\n'+text_queries_contexts+'\n```\n', "status": "Created/Obtained search queries and contexts"}
+            yield {
+                "text": "\n```\n" + text_queries_contexts + "\n```\n",
+                "status": "Created/Obtained search queries and contexts",
+            }
             text = self.remove_code_blocks(text)
             # Extract the array-like string from the text
-            web_search_results = self.get_results_from_web_search(text, text_queries_contexts)
+            web_search_results = self.get_results_from_web_search(
+                text, text_queries_contexts
+            )
             if self.show_intermediate_results:
-                yield {"text": web_search_results + "\n", "status": "Obtained web search results"}
+                yield {
+                    "text": web_search_results + "\n",
+                    "status": "Obtained web search results",
+                }
             answer += f"{web_search_results}\n\n"
         else:
             llm = CallLLm(self.keys, model_name=CHEAP_LLM[0])
@@ -241,51 +308,90 @@ Generate up to {num_queries} highly relevant query-context pairs. Write your ans
             llm_prompt = self.llm_prompt.format(text=text)
 
             # Call the LLM to generate queries and contexts
-            response = llm(llm_prompt, images=[], temperature=0.7, stream=False, max_tokens=None, system=None)
+            response = llm(
+                llm_prompt,
+                images=[],
+                temperature=0.7,
+                stream=False,
+                max_tokens=None,
+                system=None,
+            )
 
             # Parse the response to extract queries and contexts
             import ast
+
             try:
                 # Use ast.literal_eval to safely evaluate the string as a Python expression
                 try:
                     response = self.extract_queries_contexts(response)
                     text_queries_contexts = ast.literal_eval(response)
                 except Exception as e:
-                    logger.error(f"Error parsing LLM-generated queries and contexts: {e}, \n\n{traceback.format_exc()}")
-                    response = llm(llm_prompt, images=[], temperature=0.7, stream=False, max_tokens=None, system=None)
+                    logger.error(
+                        f"Error parsing LLM-generated queries and contexts: {e}, \n\n{traceback.format_exc()}"
+                    )
+                    response = llm(
+                        llm_prompt,
+                        images=[],
+                        temperature=0.7,
+                        stream=False,
+                        max_tokens=None,
+                        system=None,
+                    )
                     response = self.extract_queries_contexts(response)
                     text_queries_contexts = ast.literal_eval(response)
                 text = self.remove_code_blocks(text)
-                yield {"text": '\n```\n'+response+'\n```\n', "status": "Created/Obtained search queries and contexts"}
+                yield {
+                    "text": "\n```\n" + response + "\n```\n",
+                    "status": "Created/Obtained search queries and contexts",
+                }
                 answer += f"Generated Queries and Contexts: ```\n{response}\n```\n\n"
-                
+
                 # Validate the parsed result
-                if not isinstance(text_queries_contexts, list) or not all(isinstance(item, tuple) and len(item) == 2 for item in text_queries_contexts):
+                if not isinstance(text_queries_contexts, list) or not all(
+                    isinstance(item, tuple) and len(item) == 2
+                    for item in text_queries_contexts
+                ):
                     raise ValueError("Invalid format: expected list of tuples")
-                
+
                 # If valid, proceed with web search using the generated queries and contexts
-                web_search_results = self.get_results_from_web_search(text, str(text_queries_contexts))
+                web_search_results = self.get_results_from_web_search(
+                    text, str(text_queries_contexts)
+                )
                 if self.show_intermediate_results:
-                    yield {"text": web_search_results + "\n", "status": "Obtained web search results"}
+                    yield {
+                        "text": web_search_results + "\n",
+                        "status": "Obtained web search results",
+                    }
                 answer += f"{web_search_results}\n\n"
             except (SyntaxError, ValueError) as e:
-                logger.error(f"Error parsing LLM-generated queries and contexts: {e}, \n\n{traceback.format_exc()}")
+                logger.error(
+                    f"Error parsing LLM-generated queries and contexts: {e}, \n\n{traceback.format_exc()}"
+                )
                 web_search_results = []
-                
+
         if len(web_search_results) == 0:
             raise ValueError("No relevant information found in the web search results.")
-        
+
         # if len(web_search_results) == 1 and not self.no_intermediate_llm:
         #     yield {"text": '' + "\n", "status": "Completed literature review for a single query"}
-        
+
         # Now we have web_search_results as a list of strings, each string is a web search result.
         # After response is generated for all queries (within a timeout) then use a combiner LLM to combine all responses into a single response.
         llm = CallLLm(self.keys, model_name=self.model_name)
-        
+
         if not self.headless:
-            yield {"text": '\n\n', "status": "Completed web search with agent"}
-            combined_response = llm(self.combiner_prompt.format(web_search_results=web_search_results, text=text), images=images, temperature=temperature, stream=True, max_tokens=max_tokens, system=system)
-            yield {"text": '<web_answer>', "status": "Completed web search with agent"}
+            yield {"text": "\n\n", "status": "Completed web search with agent"}
+            combined_response = llm(
+                self.combiner_prompt.format(
+                    web_search_results=web_search_results, text=text
+                ),
+                images=images,
+                temperature=temperature,
+                stream=True,
+                max_tokens=max_tokens,
+                system=system,
+            )
+            yield {"text": "<web_answer>", "status": "Completed web search with agent"}
             combined_answer = ""
             for text in combined_response:
                 yield {"text": text, "status": "Completed web search with agent"}
@@ -298,11 +404,12 @@ Generate up to {num_queries} highly relevant query-context pairs. Write your ans
             if urls:
                 urls_md = "\n\n" + two_column_list_md(url_items)
                 if len(urls) > max_urls_to_show:
-                    urls_md += f"\n\n_(Showing first {max_urls_to_show} of {len(urls)} URLs.)_"
+                    urls_md += (
+                        f"\n\n_(Showing first {max_urls_to_show} of {len(urls)} URLs.)_"
+                    )
             else:
                 urls_md = "\n\n_No URLs detected in `web_search_results`._"
 
-        
             stats_md_content = (
                 "\n---\n### Web search stats\n"
                 f"- **Visited links**: {len(urls)}\n"
@@ -314,35 +421,66 @@ Generate up to {num_queries} highly relevant query-context pairs. Write your ans
                 stats_md_content,
                 header="Web Search Stats",
                 show_initially=False,
-                add_close_button=True
+                add_close_button=True,
             )
             yield {"text": stats_md, "status": "Completed web search with agent"}
-            yield {"text": '</web_answer>', "status": "Completed web search with agent"}
+            yield {"text": "</web_answer>", "status": "Completed web search with agent"}
         else:
-            yield {"text": '<web_answer>', "status": "Completed web search with agent"}
-            yield {"text": str(web_search_results), "status": "Completed web search with agent"}
-            yield {"text": '</web_answer>', "status": "Completed web search with agent"}
+            yield {"text": "<web_answer>", "status": "Completed web search with agent"}
+            yield {
+                "text": str(web_search_results),
+                "status": "Completed web search with agent",
+            }
+            yield {"text": "</web_answer>", "status": "Completed web search with agent"}
 
-        yield {"text": self.post_process_answer(answer, temperature, max_tokens, system), "status": "Completed web search with agent"}
+        yield {
+            "text": self.post_process_answer(answer, temperature, max_tokens, system),
+            "status": "Completed web search with agent",
+        }
 
-    def post_process_answer(self, answer, temperature=0.7, max_tokens=None, system=None):
+    def post_process_answer(
+        self, answer, temperature=0.7, max_tokens=None, system=None
+    ):
         return ""
-    
-    def get_answer(self, text, images=[], temperature=0.7, stream=True, max_tokens=None, system=None, web_search=True):
+
+    def get_answer(
+        self,
+        text,
+        images=[],
+        temperature=0.7,
+        stream=True,
+        max_tokens=None,
+        system=None,
+        web_search=True,
+    ):
         answer = ""
-        for chunk in self.__call__(text, images, temperature, stream, max_tokens, system, web_search):
+        for chunk in self.__call__(
+            text, images, temperature, stream, max_tokens, system, web_search
+        ):
             answer += chunk["text"]
         # Extract content between web_answer tags
         import re
-        web_answer_pattern = r'<web_answer>(.*?)</web_answer>'
+
+        web_answer_pattern = r"<web_answer>(.*?)</web_answer>"
         match = re.search(web_answer_pattern, answer, re.DOTALL)
         if match:
             answer = match.group(1)
         return answer
 
+
 class LiteratureReviewAgent(WebSearchWithAgent):
-    def __init__(self, keys, model_name, detail_level=1, timeout=90, gscholar=False, no_intermediate_llm=False):
-        super().__init__(keys, model_name, detail_level, timeout, gscholar, no_intermediate_llm)
+    def __init__(
+        self,
+        keys,
+        model_name,
+        detail_level=1,
+        timeout=90,
+        gscholar=False,
+        no_intermediate_llm=False,
+    ):
+        super().__init__(
+            keys, model_name, detail_level, timeout, gscholar, no_intermediate_llm
+        )
         self.concurrent_searches = False
         self.post_process_answer_needed = True
         self.combiner_prompt = f"""
@@ -407,18 +545,35 @@ Include the only two items below in your response.
 
 Write your response with two items (Literature review in LaTeX enclosed in code block and bibliography in BibTeX format enclosed in a separate code block) below.
 """
-    def post_process_answer(self, answer, temperature=0.7, max_tokens=None, system=None):
+
+    def post_process_answer(
+        self, answer, temperature=0.7, max_tokens=None, system=None
+    ):
         llm = CallLLm(self.keys, model_name=self.model_name)
 
-        combined_response = llm(self.write_in_latex_prompt.format(answer=answer),
-                                temperature=temperature, stream=False, max_tokens=max_tokens,
-                                system=system)
+        combined_response = llm(
+            self.write_in_latex_prompt.format(answer=answer),
+            temperature=temperature,
+            stream=False,
+            max_tokens=max_tokens,
+            system=system,
+        )
         return "\n\n<hr></br>" + combined_response + "\n\n<hr></br>"
 
 
 class BroadSearchAgent(WebSearchWithAgent):
-    def __init__(self, keys, model_name, detail_level=1, timeout=60, gscholar=False, no_intermediate_llm=True):
-        super().__init__(keys, model_name, detail_level, timeout, gscholar, no_intermediate_llm)
+    def __init__(
+        self,
+        keys,
+        model_name,
+        detail_level=1,
+        timeout=60,
+        gscholar=False,
+        no_intermediate_llm=True,
+    ):
+        super().__init__(
+            keys, model_name, detail_level, timeout, gscholar, no_intermediate_llm
+        )
         self.llm_prompt = f"""
 Given the following text, generate a list of relevant queries and their corresponding contexts. 
 Each query should be focused and specific, while the context should provide background information and tell what is the user asking about and what specific information we need to include in our literature review.
@@ -437,20 +592,29 @@ Text: {{text}}
 Generate as many as needed relevant query-context pairs. Write your answer as a code block with each query and context pair as a tuple inside a list.
 """
 
+
 class InstructionFollowingAgent(Agent):
-    def __init__(self, keys, model_name, detail_level=1, timeout=60, gscholar=False, no_intermediate_llm=False):
+    def __init__(
+        self,
+        keys,
+        model_name,
+        detail_level=1,
+        timeout=60,
+        gscholar=False,
+        no_intermediate_llm=False,
+    ):
         super().__init__(keys)
-        
+
         # System prompt for the backbone model - generates initial answer
         self.backbone_system_prompt = """You are a helpful, accurate, and intelligent AI assistant. 
 Your task is to provide comprehensive and detailed answers to user queries.
 Follow all instructions carefully and provide complete, well-structured responses."""
-        
+
         # System prompt for the verifier model - checks instruction adherence
         self.verifier_system_prompt = """You are a meticulous instruction verification specialist.
 Your role is to carefully analyze whether an AI response fully adheres to all instructions and requirements given in the original query.
 You must identify any missing elements, overlooked instructions, or areas where the response doesn't fully meet the requirements."""
-        
+
         # Prompt template for the verifier model
         self.verifier_prompt = """Carefully analyze the following user query and the AI's response.
 Your task is to verify whether the response fully adheres to ALL instructions and requirements specified in the original query.
@@ -497,7 +661,7 @@ Be thorough and specific in your analysis. Focus on instruction adherence, not o
         self.rewriter_system_prompt = """You are an expert at improving AI responses to better follow instructions.
 Your task is to rewrite responses to fully address all requirements and instructions identified by the verifier.
 You must maintain all good aspects of the original response while fixing any issues or adding missing elements."""
-        
+
         # Prompt template for the rewriter model
         self.rewriter_prompt = """Based on the verification feedback, rewrite the AI response to fully address ALL instructions and requirements.
 
@@ -531,13 +695,22 @@ Rewrite the response to:
 - Maintain a clear, well-structured format
 
 Provide the improved response directly without any preamble or explanation."""
-        
+
         # Initialize the models
         self.backbone_model = CallLLm(keys, model_name)
         self.verifier_model = CallLLm(keys, model_name)
         self.rewriter_model = CallLLm(keys, model_name)
-        
-    def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=False):
+
+    def __call__(
+        self,
+        text,
+        images=[],
+        temperature=0.7,
+        stream=False,
+        max_tokens=None,
+        system=None,
+        web_search=False,
+    ):
         """
         Execute the instruction-following agent workflow:
         1. Generate base answer with backbone model
@@ -545,114 +718,147 @@ Provide the improved response directly without any preamble or explanation."""
         3. Rewrite answer based on verifier feedback with rewriter model
         """
         import time
-        
-        
+
         st = time.time()
-        
+
         # Step 1: Generate base answer from backbone model
         backbone_system = system if system else self.backbone_system_prompt
         backbone_response_stream = self.backbone_model(
-            text, 
-            images, 
-            temperature, 
+            text,
+            images,
+            temperature,
             stream=True,  # Always stream internally for better UX
-            max_tokens=max_tokens, 
-            system=backbone_system
+            max_tokens=max_tokens,
+            system=backbone_system,
         )
-        
+
         # Wrap backbone response in collapsible section and collect it
         backbone_response = ""
         wrapped_backbone = collapsible_wrapper(
-            backbone_response_stream, 
-            header="Initial Response", 
+            backbone_response_stream,
+            header="Initial Response",
             show_initially=True,
-            add_close_button=True
+            add_close_button=True,
         )
-        
+
         for chunk in wrapped_backbone:
-            if chunk and not chunk.startswith("<details") and not chunk.startswith("</details") and not chunk.startswith("<summary") and not chunk.startswith("</summary") and not chunk.startswith("<button"):
+            if (
+                chunk
+                and not chunk.startswith("<details")
+                and not chunk.startswith("</details")
+                and not chunk.startswith("<summary")
+                and not chunk.startswith("</summary")
+                and not chunk.startswith("<button")
+            ):
                 backbone_response += chunk
             yield chunk
-        
-        time_logger.info(f"Time taken for backbone response: {time.time() - st} seconds, response length: {len(backbone_response.split())} words")
-        
+
+        time_logger.info(
+            f"Time taken for backbone response: {time.time() - st} seconds, response length: {len(backbone_response.split())} words"
+        )
+
         # Step 2: Verify instruction adherence
         verifier_prompt_formatted = self.verifier_prompt.format(
-            user_query=text,
-            ai_response=backbone_response
+            user_query=text, ai_response=backbone_response
         )
-        
+
         verifier_response_stream = self.verifier_model(
             verifier_prompt_formatted,
             images=[],  # Verifier doesn't need images
             temperature=0.3,  # Lower temperature for more consistent verification
             stream=True,
             max_tokens=max_tokens,
-            system=self.verifier_system_prompt
+            system=self.verifier_system_prompt,
         )
-        
+
         # Wrap verifier response in collapsible section and collect it
         verifier_response = ""
         wrapped_verifier = collapsible_wrapper(
             verifier_response_stream,
             header="Instruction Verification",
             show_initially=False,
-            add_close_button=True
+            add_close_button=True,
         )
-        
+
         for chunk in wrapped_verifier:
-            if chunk and not chunk.startswith("<details") and not chunk.startswith("</details") and not chunk.startswith("<summary") and not chunk.startswith("</summary") and not chunk.startswith("<button"):
+            if (
+                chunk
+                and not chunk.startswith("<details")
+                and not chunk.startswith("</details")
+                and not chunk.startswith("<summary")
+                and not chunk.startswith("</summary")
+                and not chunk.startswith("<button")
+            ):
                 verifier_response += chunk
             yield chunk
-        
+
         time_logger.info(f"Time taken for verification: {time.time() - st} seconds")
-        
+
         # Step 3: Rewrite based on verifier feedback
         rewriter_prompt_formatted = self.rewriter_prompt.format(
             user_query=text,
             original_response=backbone_response,
-            verifier_feedback=verifier_response
+            verifier_feedback=verifier_response,
         )
-        
+
         # Add a separator before the final improved response
         yield "\n---\n\n## 📝 **Final Improved Response**\n\n"
-        
+
         rewriter_response_stream = self.rewriter_model(
             rewriter_prompt_formatted,
             images=images,  # Include original images for rewriter
             temperature=temperature,
             stream=True,
             max_tokens=max_tokens,
-            system=self.rewriter_system_prompt
+            system=self.rewriter_system_prompt,
         )
-        
+
         # Stream the final improved response
         wrapped_rewriter = collapsible_wrapper(
             rewriter_response_stream,
             header="Improved Response",
             show_initially=True,
-            add_close_button=True
+            add_close_button=True,
         )
         rewriter_response = ""
         for chunk in wrapped_rewriter:
-            if chunk and not chunk.startswith("<details") and not chunk.startswith("</details") and not chunk.startswith("<summary") and not chunk.startswith("</summary") and not chunk.startswith("<button"):
+            if (
+                chunk
+                and not chunk.startswith("<details")
+                and not chunk.startswith("</details")
+                and not chunk.startswith("<summary")
+                and not chunk.startswith("</summary")
+                and not chunk.startswith("<button")
+            ):
                 rewriter_response += chunk
             yield chunk
-        
+
         yield "\n\n"
-        time_logger.info(f"Total time for instruction-following agent: {time.time() - st} seconds")
-        
+        time_logger.info(
+            f"Total time for instruction-following agent: {time.time() - st} seconds"
+        )
+
         # Log the improvement metrics if needed
         if verifier_response and "❌" in verifier_response:
-            time_logger.info("Response required significant improvements to meet instructions")
+            time_logger.info(
+                "Response required significant improvements to meet instructions"
+            )
         elif verifier_response and "⚠️" in verifier_response:
-            time_logger.info("Response required minor improvements to fully meet instructions")
+            time_logger.info(
+                "Response required minor improvements to fully meet instructions"
+            )
         else:
             time_logger.info("Initial response met all instructions adequately")
 
 
 class ReflectionAgent(Agent):
-    def __init__(self, keys, writer_model: Union[List[str], str], improve_model: str, outline_model: str):
+    def __init__(
+        self,
+        keys,
+        writer_model: Union[List[str], str],
+        improve_model: str,
+        outline_model: str,
+    ):
         self.keys = keys
         self.writer_model = writer_model
         self.improve_model = improve_model
@@ -773,34 +979,61 @@ User Query with context:
 
 Write down the characteristics of a good answer in detail following the above guidelines and adding any additional information you think is relevant.
 """.strip()
-        self.first_model = CallLLm(keys, self.writer_model) if isinstance(self.writer_model, str) else CallMultipleLLM(keys, self.writer_model)
+        self.first_model = (
+            CallLLm(keys, self.writer_model)
+            if isinstance(self.writer_model, str)
+            else CallMultipleLLM(keys, self.writer_model)
+        )
         self.improve_model = CallLLm(keys, self.improve_model)
-        self.outline_model = CallLLm(keys, self.outline_model) if isinstance(self.outline_model, str) else CallLLm(keys, self.improve_model)
+        self.outline_model = (
+            CallLLm(keys, self.outline_model)
+            if isinstance(self.outline_model, str)
+            else CallLLm(keys, self.improve_model)
+        )
 
     @property
     def model_name(self):
         return self.writer_model
-    
+
     @model_name.setter
     def model_name(self, model_name):
         self.writer_model = model_name
-        self.improve_model = model_name if isinstance(model_name, str) else model_name[0]
-        self.outline_model = model_name if isinstance(model_name, str) else model_name[0]
-        
-    def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=False):
+        self.improve_model = (
+            model_name if isinstance(model_name, str) else model_name[0]
+        )
+        self.outline_model = (
+            model_name if isinstance(model_name, str) else model_name[0]
+        )
+
+    def __call__(
+        self,
+        text,
+        images=[],
+        temperature=0.7,
+        stream=False,
+        max_tokens=None,
+        system=None,
+        web_search=False,
+    ):
         st = time.time()
         # outline_future = get_async_future(self.outline_model, self.good_answer_characteristics_prompt.format(query=text), images, temperature, False, max_tokens, system)
-        first_response_stream = self.first_model(text, images, temperature, True, max_tokens, system)
+        first_response_stream = self.first_model(
+            text, images, temperature, True, max_tokens, system
+        )
         first_response = ""
         for chunk in first_response_stream:
             first_response += chunk
             yield chunk
         yield "\n\n"
-        time_logger.info(f"Time taken to get multi model response: {time.time() - st} with response length: {len(first_response.split())}")
+        time_logger.info(
+            f"Time taken to get multi model response: {time.time() - st} with response length: {len(first_response.split())}"
+        )
         # outline = sleep_and_get_future_result(outline_future)
         # time_logger.info(f"Time taken to get till outline: {time.time() - st} with outline length: {len(outline.split())}")
         outline = ""
-        improve_prompt = self.prompt.format(query=text, simple_answer=first_response, guidance=outline)
+        improve_prompt = self.prompt.format(
+            query=text, simple_answer=first_response, guidance=outline
+        )
         if system is None:
             system = self.system
         else:
@@ -808,36 +1041,30 @@ Write down the characteristics of a good answer in detail following the above gu
 
             # Start first details section for thinking
         yield "\n<details>\n<summary><strong>Analysis & Thinking</strong></summary>\n\n"
-        
-        improved_response_stream = self.improve_model(improve_prompt, images, temperature, True, max_tokens, system)
+
+        improved_response_stream = self.improve_model(
+            improve_prompt, images, temperature, True, max_tokens, system
+        )
         improved_response = ""
         answer_section_started = False
-        
-        
-        
+
         for chunk in improved_response_stream:
             if "<answer>" in improved_response:
                 answer_section_started = True
-                yield improved_response.split('<answer>')[0]
+                yield improved_response.split("<answer>")[0]
                 yield "</details>\n\n"
                 yield "<answer>\n"
-                improved_response = improved_response.split('<answer>')[1]
+                improved_response = improved_response.split("<answer>")[1]
                 yield "\n<details open>\n<summary><strong>Improved Answer</strong></summary>\n\n"
                 yield improved_response
             if answer_section_started:
                 yield chunk
             improved_response += chunk
-            
-            
-            
-            
 
         # Close the details section
         yield "</details>\n\n"
         yield "\n\n"
         time_logger.info(f"Time taken to get improved response: {time.time() - st}")
-
-
 
 
 class NResponseAgent(Agent):
@@ -852,40 +1079,90 @@ Select the best response from the given multiple responses.
     @property
     def model_name(self):
         return self.writer_model
-    
+
     @model_name.setter
     def model_name(self, model_name):
         self.writer_model = model_name
-        self.evaluator_model = model_name if isinstance(model_name, str) else model_name[0]
-        
-    def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=False):
+        self.evaluator_model = (
+            model_name if isinstance(model_name, str) else model_name[0]
+        )
+
+    def __call__(
+        self,
+        text,
+        images=[],
+        temperature=0.7,
+        stream=False,
+        max_tokens=None,
+        system=None,
+        web_search=False,
+    ):
+        import time as _time
+
+        _nra_start = _time.perf_counter()
+        time_logger.warning(
+            "[NResponseAgent] __call__ generator STARTED | models=%s | t=%.3fs",
+            self.writer_model,
+            _nra_start,
+        )
 
         # repeat self.writer_model n_responses times if it is a string, otherwise use the list directly
-        self.writer_models = [self.writer_model] * self.n_responses if isinstance(self.writer_model, str) else self.writer_model
+        self.writer_models = (
+            [self.writer_model] * self.n_responses
+            if isinstance(self.writer_model, str)
+            else self.writer_model
+        )
         llm = CallMultipleLLM(self.keys, self.writer_models)
 
+        time_logger.warning(
+            "[NResponseAgent] calling CallMultipleLLM | dt=%.3fs",
+            _time.perf_counter() - _nra_start,
+        )
         first_response_stream = llm(text, images, temperature, True, max_tokens, system)
+        time_logger.warning(
+            "[NResponseAgent] CallMultipleLLM returned generator | dt=%.3fs",
+            _time.perf_counter() - _nra_start,
+        )
+
         first_response = ""
+        _first_chunk_yielded = False
+        time_logger.warning(
+            "[NResponseAgent] about to iterate first_response_stream | dt=%.3fs",
+            _time.perf_counter() - _nra_start,
+        )
         for chunk in first_response_stream:
+            if not _first_chunk_yielded:
+                _first_chunk_yielded = True
+                time_logger.warning(
+                    "[NResponseAgent] FIRST CHUNK from CallMultipleLLM, about to yield | dt=%.3fs",
+                    _time.perf_counter() - _nra_start,
+                )
             first_response += chunk
             yield chunk
+        time_logger.warning(
+            "[NResponseAgent] finished iterating, yielding separator | dt=%.3fs",
+            _time.perf_counter() - _nra_start,
+        )
         yield "\n\n---\n\n"
-        
-        
-        
+
+
 def is_future_ready(future):
     """Check if a future is ready without blocking"""
-    return future.done() if hasattr(future, 'done') else True
+    return future.done() if hasattr(future, "done") else True
 
 
 class WhatIfAgent(Agent):
-    def __init__(self, keys, writer_models: Union[List[str], str], n_scenarios: int = 5):
+    def __init__(
+        self, keys, writer_models: Union[List[str], str], n_scenarios: int = 5
+    ):
         super().__init__(keys)
         self.keys = keys
         # Convert single model to list for consistent handling
-        self.writer_models = [writer_models] if isinstance(writer_models, str) else writer_models
+        self.writer_models = (
+            [writer_models] if isinstance(writer_models, str) else writer_models
+        )
         self.n_scenarios = n_scenarios
-        
+
         self.what_if_prompt = """
 You are tasked with generating creative "what-if" scenarios that would change the answer to the user's query in interesting ways.
 
@@ -921,35 +1198,34 @@ Generate exactly {n_scenarios} creative and diverse what-if scenarios that would
 Write your response as a code block containing only the Python list of tuples.
 """
 
-
-        
     def extract_what_ifs(self, response):
         """Extract and validate the what-if scenarios from LLM response"""
         import re
         import ast
-        
+
         # Extract code block
         code_pattern = r"```(?:python)?\s*(.*?)```"
         matches = re.findall(code_pattern, response, re.DOTALL)
-        
+
         if not matches:
             return []
-            
+
         try:
             # Get the last code block and evaluate it
             scenarios = ast.literal_eval(matches[-1].strip())
-            
+
             # Validate format
             if not isinstance(scenarios, list) or not all(
-                isinstance(s, tuple) and len(s) == 3 
-                for s in scenarios
+                isinstance(s, tuple) and len(s) == 3 for s in scenarios
             ):
                 return []
-                
+
             return scenarios
-            
+
         except Exception as e:
-            logger.error(f"Error parsing what-if scenarios: {e}, \n\n{traceback.format_exc()}")
+            logger.error(
+                f"Error parsing what-if scenarios: {e}, \n\n{traceback.format_exc()}"
+            )
             return []
 
     def format_what_if_query(self, original_text: str, what_if: tuple) -> str:
@@ -964,29 +1240,37 @@ Impact: {explanation}
 
 Please provide an answer for this modified scenario."""
 
-        
     def get_next_model(self, index: int) -> str:
         """Get next model in round-robin fashion"""
         return self.writer_models[index % len(self.writer_models)]
 
-    def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=False):
+    def __call__(
+        self,
+        text,
+        images=[],
+        temperature=0.7,
+        stream=False,
+        max_tokens=None,
+        system=None,
+        web_search=False,
+    ):
         # Start what-if generation immediately in parallel
         what_if_future = get_async_future(
             what_if_llm := CallLLm(self.keys, self.writer_models[0]),
             self.what_if_prompt.format(text=text, n_scenarios=self.n_scenarios),
             temperature=temperature,
-            stream=False
+            stream=False,
         )
 
         # Start initial response streaming immediately
         writer_llm = CallLLm(self.keys, self.writer_models[0])
         initial_response_stream = writer_llm(
-            text, 
+            text,
             images=images,
             temperature=temperature,
             stream=True,
             max_tokens=max_tokens,
-            system=system
+            system=system,
         )
 
         # Variables to track state
@@ -994,18 +1278,18 @@ Please provide an answer for this modified scenario."""
         what_if_scenarios = None
         what_if_futures = []
         random_identifier = str(uuid.uuid4())
-        
+
         # Stream initial response while checking if what-if scenarios are ready
         for chunk in initial_response_stream:
             initial_response += chunk
             yield {"text": chunk, "status": "Generating initial response"}
-            
+
             # Check if what-if scenarios are ready (non-blocking)
             if what_if_scenarios is None and is_future_ready(what_if_future):
                 # Get scenarios and start their responses immediately
                 what_if_response = sleep_and_get_future_result(what_if_future)
                 what_if_scenarios = self.extract_what_ifs(what_if_response)
-                
+
                 # Start generating what-if responses in parallel
                 for i, scenario in enumerate(what_if_scenarios, 1):
                     model = self.get_next_model(i)
@@ -1018,7 +1302,7 @@ Please provide an answer for this modified scenario."""
                         temperature=temperature,
                         stream=False,
                         max_tokens=max_tokens,
-                        system=system
+                        system=system,
                     )
                     what_if_futures.append((scenario, future, model))
 
@@ -1026,7 +1310,7 @@ Please provide an answer for this modified scenario."""
         if what_if_scenarios is None:
             what_if_response = sleep_and_get_future_result(what_if_future)
             what_if_scenarios = self.extract_what_ifs(what_if_response)
-            
+
             # Start generating what-if responses
             for i, scenario in enumerate(what_if_scenarios, 1):
                 model = self.get_next_model(i)
@@ -1039,7 +1323,7 @@ Please provide an answer for this modified scenario."""
                     temperature=temperature,
                     stream=False,
                     max_tokens=max_tokens,
-                    system=system
+                    system=system,
                 )
                 what_if_futures.append((scenario, future, model))
 
@@ -1050,7 +1334,7 @@ Please provide an answer for this modified scenario."""
             scenarios_text += f"**Scenario {i}: {title}** (Using model: {model_used})\n"
             scenarios_text += f"- Modified Situation: {query}\n"
             scenarios_text += f"- Impact: {explanation}\n\n"
-        
+
         yield {"text": "\n\n" + scenarios_text, "status": "Generated what-if scenarios"}
 
         # Format initial response with collapsible section
@@ -1065,19 +1349,24 @@ Please provide an answer for this modified scenario."""
             try:
                 response = sleep_and_get_future_result(future)
                 title = scenario[0]
-                
+
                 response_html = (
                     f"**What-If Scenario {i}: {title}** (Using model: {model})\n"
                     f"<div data-toggle='collapse' href='#response-{random_identifier}-{i}' "
                     f"role='button' aria-expanded='false'></div> "
                     f"<div class='collapse' id='response-{random_identifier}-{i}'>\n{response}\n</div>"
                 )
-                
+
                 all_responses.append(response_html)
-                yield {"text": "\n\n" + response_html, "status": f"Generated response for scenario {i} using {model}"}
-                
+                yield {
+                    "text": "\n\n" + response_html,
+                    "status": f"Generated response for scenario {i} using {model}",
+                }
+
             except Exception as e:
-                logger.error(f"Error getting response for scenario {i} with model {model}: {e}, \n\n{traceback.format_exc()}")
+                logger.error(
+                    f"Error getting response for scenario {i} with model {model}: {e}, \n\n{traceback.format_exc()}"
+                )
 
         # Final yield with metadata
         yield {
@@ -1088,36 +1377,45 @@ Please provide an answer for this modified scenario."""
             "models_used": {
                 "initial": self.writer_models[0],
                 "what_if_generator": self.writer_models[0],
-                "scenario_responses": [self.get_next_model(i) for i in range(1, len(what_if_scenarios) + 1)]
-            }
+                "scenario_responses": [
+                    self.get_next_model(i) for i in range(1, len(what_if_scenarios) + 1)
+                ],
+            },
         }
 
 
 class PerplexitySearchAgent(WebSearchWithAgent):
-    def __init__(self, keys, model_name, detail_level=1, timeout=60, num_queries=5, headless=False, no_intermediate_llm=False):
+    def __init__(
+        self,
+        keys,
+        model_name,
+        detail_level=1,
+        timeout=60,
+        num_queries=5,
+        headless=False,
+        no_intermediate_llm=False,
+    ):
         super().__init__(keys, model_name, detail_level, timeout, headless=headless)
         self.num_queries = num_queries
         self.no_intermediate_llm = no_intermediate_llm
         self.perplexity_models = [
-            
             "perplexity/sonar-pro",
             "perplexity/sonar",
             # "perplexity/llama-3.1-sonar-large-128k-online"
         ]
-        
+
         if detail_level >= 3:
-            
             # self.perplexity_models.append("perplexity/sonar-pro")
             self.perplexity_models.append("perplexity/sonar-reasoning")
             self.perplexity_models.append("perplexity/sonar-reasoning-pro")
         if detail_level >= 4:
             self.perplexity_models.append("perplexity/sonar-deep-research")
-        
+
         year = time.localtime().tm_year
         self.get_references = f"""
 [Important: Provide links and references inline closest to where applicable and provide all references you used finally at the end for my question as well. Search and look at references and information exhaustively and dive deep before answering. Think carefully before answering and provide an comprehensive, extensive answer using the references deeply. Provide all references with web url links (http or https links) at the end in markdown as bullet points as well as inline in markdown format closest to where applicable.]
 """.strip()
-        
+
         # Override the llm_prompt to generate more diverse queries while maintaining the same format
         self.llm_prompt = f"""
 Given the following user query and context, generate a list of relevant queries and their corresponding contexts. 
@@ -1187,12 +1485,15 @@ Please use the given search results to answer the user's query while combining i
         try:
             # Use ast.literal_eval to safely evaluate the string as a Python expression
             import ast
+
             text_queries_contexts = ast.literal_eval(array_string)
-            
+
             # Ensure the result is a list of tuples
-            if not isinstance(text_queries_contexts, list) or not all(isinstance(item, tuple) for item in text_queries_contexts):
+            if not isinstance(text_queries_contexts, list) or not all(
+                isinstance(item, tuple) for item in text_queries_contexts
+            ):
                 raise ValueError("Invalid format: expected list of tuples")
-            
+
             futures = []
             year = time.localtime().tm_year
             # For each query, create futures for both perplexity models
@@ -1202,8 +1503,13 @@ Please use the given search results to answer the user's query while combining i
                     future = get_async_future(
                         llm,
                         # text + "\n\n" + context + "\n\nQuery: " + query,
-                        "Context: " + context + "\n\nQuery: " + query + "\n" + self.get_references,
-                        timeout=self.timeout
+                        "Context: "
+                        + context
+                        + "\n\nQuery: "
+                        + query
+                        + "\n"
+                        + self.get_references,
+                        timeout=self.timeout,
                     )
                     futures.append((query, context, model, future))
 
@@ -1211,7 +1517,7 @@ Please use the given search results to answer the user's query while combining i
             for query, context, model, future in futures:
                 try:
                     result = sleep_and_get_future_result(future)
-                    model_name = model.split('/')[-1]  # Extract shorter model name
+                    model_name = model.split("/")[-1]  # Extract shorter model name
                     random_identifier = str(uuid.uuid4())
                     web_search_results.append(
                         f"**Single Query Web Search with query '{query}' :** <div data-toggle='collapse' href='#singleQueryWebSearch-{random_identifier}' role='button'></div> <div class='collapse' id='singleQueryWebSearch-{random_identifier}'>"
@@ -1221,87 +1527,114 @@ Please use the given search results to answer the user's query while combining i
                         f"</div>"
                     )
                 except Exception as e:
-                    logger.error(f"Error getting response for query '{query}' from model {model}: {e}, \n\n{traceback.format_exc()}")
-                    
+                    logger.error(
+                        f"Error getting response for query '{query}' from model {model}: {e}, \n\n{traceback.format_exc()}"
+                    )
+
         except (SyntaxError, ValueError) as e:
             logger.error(f"Error parsing text_queries_contexts: {e}")
             text_queries_contexts = None
-            
+
         return "\n".join(web_search_results)
-    
+
 
 class JinaSearchAgent(PerplexitySearchAgent):
-    def __init__(self, keys, model_name, detail_level=1, timeout=60, num_queries=5, headless=False, no_intermediate_llm=False):
-        super().__init__(keys, model_name, detail_level, timeout, num_queries, headless=headless, no_intermediate_llm=no_intermediate_llm)
+    def __init__(
+        self,
+        keys,
+        model_name,
+        detail_level=1,
+        timeout=60,
+        num_queries=5,
+        headless=False,
+        no_intermediate_llm=False,
+    ):
+        super().__init__(
+            keys,
+            model_name,
+            detail_level,
+            timeout,
+            num_queries,
+            headless=headless,
+            no_intermediate_llm=no_intermediate_llm,
+        )
         self.jina_api_key = os.environ.get("jinaAIKey", "") or keys.get("jinaAIKey", "")
-        assert self.jina_api_key, "No Jina API key found. Please set JINA_API_KEY environment variable."
+        assert self.jina_api_key, (
+            "No Jina API key found. Please set JINA_API_KEY environment variable."
+        )
         # Default was quite aggressive and causes large latency at detail_level=1.
         # Keep fewer results for low detail, more for deeper research.
         self.num_results = 5 if detail_level <= 1 else 8 if detail_level == 2 else 20
         # Tighten HTTP timeouts to avoid long hangs.
         self.http_timeout = (10, 45)  # (connect, read) seconds
 
-
     def fetch_jina_search_results(self, query: str):
         """Fetch search results from Jina API"""
         import requests
         import urllib.parse
+
         num_results: int = self.num_results
-        
+
         encoded_query = urllib.parse.quote(query)
         url = f"https://s.jina.ai/?q={encoded_query}&num={num_results}"
-        
+
         headers = {
             "Accept": "application/json",
             "Authorization": f"Bearer {self.jina_api_key}",
-            "X-Engine": "cf-browser-rendering"
+            "X-Engine": "cf-browser-rendering",
         }
-        
+
         try:
             response = requests.get(url, headers=headers, timeout=self.http_timeout)
             response.raise_for_status()
             return response.json()
         except Exception as e:
-            logger.error(f"Error fetching search results from Jina: {e}, \n\n{traceback.format_exc()}")
+            logger.error(
+                f"Error fetching search results from Jina: {e}, \n\n{traceback.format_exc()}"
+            )
             return {"data": []}
 
     def fetch_jina_content(self, url: str):
         """Fetch content from a URL using Jina reader API"""
         import requests
-        
+
         # Reader endpoint can occasionally fail DNS/regionally; keep default, but add timeout.
         reader_url = f"https://r.jina.ai/{url}"
-        
+
         headers = {
             "Accept": "application/json",
-            "Authorization": f"Bearer {self.jina_api_key}"
+            "Authorization": f"Bearer {self.jina_api_key}",
         }
-        
+
         try:
-            response = requests.get(reader_url, headers=headers, timeout=self.http_timeout)
+            response = requests.get(
+                reader_url, headers=headers, timeout=self.http_timeout
+            )
             response.raise_for_status()
             return response.json()
         except Exception as e:
-            logger.error(f"Error fetching content from Jina reader: {e}, \n\n{traceback.format_exc()}")
+            logger.error(
+                f"Error fetching content from Jina reader: {e}, \n\n{traceback.format_exc()}"
+            )
             return {"data": {"content": f"Error fetching content: {e}"}}
 
     def process_search_result(self, result, query, context, user_text):
         """Process a single search result from Jina API"""
         if not result.get("url"):
             return None
-            
+
         # Skip YouTube links
         if "youtube.com" in result["url"] or "youtu.be" in result["url"]:
             return None
-            
+
         # Check if we need to convert to PDF link
         original_url = result["url"]
         pdf_url = convert_to_pdf_link_if_needed(original_url)
-        
+
         title = result.get("title", "")
         description = result.get("description", "")
         date = result.get("date", "")
-        
+
         # If link was converted to PDF, fetch the content
         content = ""
         if pdf_url != original_url:
@@ -1314,45 +1647,52 @@ class JinaSearchAgent(PerplexitySearchAgent):
         if len(content) > 10_000:
             content = content[:100_000] + "..."
             llm = CallLLm(self.keys, model_name=VERY_CHEAP_LLM[0])
-            content = llm(f"You are an information extraction expert. Given a user query and conversation context you will extract relevant information from the page content. \n\nUser's query: {query}\n\nUser's context: {context}\n\nUser's and assistant's text: {user_text}\n\nPlease extract and summarize the following page content to less than 200 words to extract only the most relevant information as per the user's query. \n\nPage content: \n{content}\n", temperature=0.7, stream=False)
-        
+            content = llm(
+                f"You are an information extraction expert. Given a user query and conversation context you will extract relevant information from the page content. \n\nUser's query: {query}\n\nUser's context: {context}\n\nUser's and assistant's text: {user_text}\n\nPlease extract and summarize the following page content to less than 200 words to extract only the most relevant information as per the user's query. \n\nPage content: \n{content}\n",
+                temperature=0.7,
+                stream=False,
+            )
+
         processed_result = {
             "title": title,
             "url": original_url,
             "pdf_url": pdf_url if pdf_url != original_url else None,
             "description": description,
             "date": date,
-            "content": content
+            "content": content,
         }
-        
+
         return processed_result
 
     def get_results_from_web_search(self, text, text_queries_contexts):
         array_string = text_queries_contexts
         web_search_results = []
-        
+
         try:
             # Parse the query contexts
             import ast
+
             text_queries_contexts = ast.literal_eval(array_string)
-            
+
             # Validate format
-            if not isinstance(text_queries_contexts, list) or not all(isinstance(item, tuple) for item in text_queries_contexts):
+            if not isinstance(text_queries_contexts, list) or not all(
+                isinstance(item, tuple) for item in text_queries_contexts
+            ):
                 raise ValueError("Invalid format: expected list of tuples")
-            
+
             futures = []
-            
+
             # For each query, create a future to search and process results
             for query, context in text_queries_contexts:
                 # Create a future for the search and processing
                 future = get_async_future(
                     self.process_query,
-                    query, 
+                    query,
                     context,
                     text,
                 )
                 futures.append((query, context, future))
-            
+
             # Collect and format results (as they complete)
             for query, context, future in futures:
                 try:
@@ -1367,21 +1707,23 @@ class JinaSearchAgent(PerplexitySearchAgent):
                         f"</div>"
                     )
                 except Exception as e:
-                    logger.error(f"Error getting response for query '{query}': {e}, \n\n{traceback.format_exc()}")
-                    
+                    logger.error(
+                        f"Error getting response for query '{query}': {e}, \n\n{traceback.format_exc()}"
+                    )
+
         except (SyntaxError, ValueError) as e:
             logger.error(f"Error parsing text_queries_contexts: {e}")
             text_queries_contexts = None
-            
+
         return "\n".join(web_search_results)
-    
+
     def process_query(self, query, context, user_text):
         """Process a single query and return formatted results with LLM summary"""
         # Search using Jina API
         search_response = self.fetch_jina_search_results(query)
         results = search_response.get("data", [])
         num_results = self.num_results
-        
+
         # Process each result
         processed_results = []
         # Process results in parallel
@@ -1391,11 +1733,11 @@ class JinaSearchAgent(PerplexitySearchAgent):
                 self.process_search_result,
                 result,
                 query,
-                context, 
+                context,
                 user_text,
             )
             futures.append(future)
-        
+
         # Collect results
         for future in futures:
             try:
@@ -1403,12 +1745,16 @@ class JinaSearchAgent(PerplexitySearchAgent):
                 if processed:
                     processed_results.append(processed)
             except Exception as e:
-                logger.error(f"Error processing search result: {e}, \n\n{traceback.format_exc()}")
-        
+                logger.error(
+                    f"Error processing search result: {e}, \n\n{traceback.format_exc()}"
+                )
+
         # Format results for display and LLM summarization
         formatted_results = []
         # Keep prompt sizes smaller at low detail for faster combiner calls.
-        preview_chars = 5000 if self.detail_level <= 1 else 7500 if self.detail_level == 2 else 9000
+        preview_chars = (
+            5000 if self.detail_level <= 1 else 7500 if self.detail_level == 2 else 9000
+        )
 
         for idx, result in enumerate(processed_results[:num_results], 1):
             formatted_result = (
@@ -1416,67 +1762,99 @@ class JinaSearchAgent(PerplexitySearchAgent):
                 f"**Date**: {result.get('date', 'N/A')}\n"
                 f"**Description**: {result.get('description', 'N/A')}\n"
             )
-            
+
             # Add content if available
-            if result.get('content'):
-                content_preview = result['content'][:preview_chars] + "..." if len(result['content']) > preview_chars else result['content']
+            if result.get("content"):
+                content_preview = (
+                    result["content"][:preview_chars] + "..."
+                    if len(result["content"]) > preview_chars
+                    else result["content"]
+                )
                 formatted_result += f"**Content Preview**: {content_preview}\n"
-            
+
             formatted_results.append(formatted_result)
-        
+
         # Join the formatted results
         all_results = "\n\n".join(formatted_results)
-        
+
         # If we have results, summarize them with LLM
         if formatted_results:
             try:
                 llm = CallLLm(self.keys, model_name=self.model_name)
-                
+
                 # Create a mini version of the combiner prompt specific to this query result
                 mini_combiner_prompt = f"""User Query: {user_text}\n\nSearch Query: {query}\n\nSearch Context: {context}\n\n"""
-                
+
                 # Generate summary
-                summary = llm(self.combiner_prompt.format(web_search_results=all_results, text=mini_combiner_prompt), temperature=0.7, stream=False)
-                
+                summary = llm(
+                    self.combiner_prompt.format(
+                        web_search_results=all_results, text=mini_combiner_prompt
+                    ),
+                    temperature=0.7,
+                    stream=False,
+                )
+
                 # Return the full package
                 return f"<b>Search Results:</b>\n\n{all_results}\n\n<b>Summary:</b>\n\n{summary}"
             except Exception as e:
-                logger.error(f"Error summarizing results with LLM: {e}, \n\n{traceback.format_exc()}")
+                logger.error(
+                    f"Error summarizing results with LLM: {e}, \n\n{traceback.format_exc()}"
+                )
                 return f"<b>Search Results:</b>\n\n{all_results}\n\n<b>Error summarizing results:</b> {str(e)}"
         else:
             return f"<b>No relevant search results found for query:</b> {query}"
-        
+
 
 class OpenaiDeepResearchAgent(WebSearchWithAgent):
     def __init__(self, keys, model_name, detail_level=1, timeout=60, num_queries=5):
         super().__init__(keys, model_name, detail_level, timeout, num_queries)
         self.openai_deep_research_model = model_name
-        
-        
-    def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=True):
-        response = self.openai_deep_research_model(text, images, temperature, stream, max_tokens, system, web_search)
-        return response
-        
-        
-        
-        
 
-def extract_answer(agent, text, images, temperature, stream, max_tokens, system, web_search):
-        response = agent(text, images, temperature, stream, max_tokens, system, web_search)
-        full_answer = ""
-        for chunk in response:
-            full_answer += chunk["text"]
-        # Extract content between web_answer tags
-        import re
-        web_answer_pattern = r'<web_answer>(.*?)</web_answer>'
-        match = re.search(web_answer_pattern, full_answer, re.DOTALL)
-        answer = ""
-        if match:
-            answer = match.group(1)
-        return answer, full_answer
+    def __call__(
+        self,
+        text,
+        images=[],
+        temperature=0.7,
+        stream=False,
+        max_tokens=None,
+        system=None,
+        web_search=True,
+    ):
+        response = self.openai_deep_research_model(
+            text, images, temperature, stream, max_tokens, system, web_search
+        )
+        return response
+
+
+def extract_answer(
+    agent, text, images, temperature, stream, max_tokens, system, web_search
+):
+    response = agent(text, images, temperature, stream, max_tokens, system, web_search)
+    full_answer = ""
+    for chunk in response:
+        full_answer += chunk["text"]
+    # Extract content between web_answer tags
+    import re
+
+    web_answer_pattern = r"<web_answer>(.*?)</web_answer>"
+    match = re.search(web_answer_pattern, full_answer, re.DOTALL)
+    answer = ""
+    if match:
+        answer = match.group(1)
+    return answer, full_answer
+
 
 class MultiSourceSearchAgent(WebSearchWithAgent):
-    def __init__(self, keys, model_name, detail_level=1, timeout=90, num_queries=3, show_intermediate_results=False, headless=False):
+    def __init__(
+        self,
+        keys,
+        model_name,
+        detail_level=1,
+        timeout=90,
+        num_queries=3,
+        show_intermediate_results=False,
+        headless=False,
+    ):
         self.keys = keys
         self.model_name = model_name
         self.detail_level = detail_level
@@ -1525,17 +1903,78 @@ Include the full list of useful references at the end in markdown as bullet poin
 Write your comprehensive and in-depth answer below. Provide full extensive details and cover all references and sources obtained from search.
 """
 
-    
-    def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=False):
-        web_search_agent = WebSearchWithAgent(self.keys, OPENAI_CHEAP_LLM, max(self.detail_level - 1, 1), self.timeout, headless=True, no_intermediate_llm=True)
-        perplexity_search_agent = PerplexitySearchAgent(self.keys, OPENAI_CHEAP_LLM, max(self.detail_level - 1, 1), self.timeout, self.num_queries, headless=True, no_intermediate_llm=True)
-        jina_search_agent = JinaSearchAgent(self.keys, OPENAI_CHEAP_LLM, max(self.detail_level - 1, 1), self.timeout, self.num_queries, headless=True, no_intermediate_llm=True)
-        
-        web_search_results = get_async_future(extract_answer, web_search_agent, text, images, temperature, stream, max_tokens, system, web_search)
-        perplexity_results = get_async_future(extract_answer, perplexity_search_agent, text, images, temperature, stream, max_tokens, system, web_search)
-        jina_results = get_async_future(extract_answer, jina_search_agent, text, images, temperature, stream, max_tokens, system, web_search)
+    def __call__(
+        self,
+        text,
+        images=[],
+        temperature=0.7,
+        stream=False,
+        max_tokens=None,
+        system=None,
+        web_search=False,
+    ):
+        web_search_agent = WebSearchWithAgent(
+            self.keys,
+            OPENAI_CHEAP_LLM,
+            max(self.detail_level - 1, 1),
+            self.timeout,
+            headless=True,
+            no_intermediate_llm=True,
+        )
+        perplexity_search_agent = PerplexitySearchAgent(
+            self.keys,
+            OPENAI_CHEAP_LLM,
+            max(self.detail_level - 1, 1),
+            self.timeout,
+            self.num_queries,
+            headless=True,
+            no_intermediate_llm=True,
+        )
+        jina_search_agent = JinaSearchAgent(
+            self.keys,
+            OPENAI_CHEAP_LLM,
+            max(self.detail_level - 1, 1),
+            self.timeout,
+            self.num_queries,
+            headless=True,
+            no_intermediate_llm=True,
+        )
+
+        web_search_results = get_async_future(
+            extract_answer,
+            web_search_agent,
+            text,
+            images,
+            temperature,
+            stream,
+            max_tokens,
+            system,
+            web_search,
+        )
+        perplexity_results = get_async_future(
+            extract_answer,
+            perplexity_search_agent,
+            text,
+            images,
+            temperature,
+            stream,
+            max_tokens,
+            system,
+            web_search,
+        )
+        jina_results = get_async_future(
+            extract_answer,
+            jina_search_agent,
+            text,
+            images,
+            temperature,
+            stream,
+            max_tokens,
+            system,
+            web_search,
+        )
         llm = CallLLm(self.keys, model_name=self.model_name)
-        
+
         web_search_results_short = ""
         perplexity_results_short = ""
         jina_results_short = ""
@@ -1566,17 +2005,27 @@ Write your comprehensive and in-depth answer below. Provide full extensive detai
                 try:
                     result_short, result_full = future.result(timeout=1)
                 except Exception as e:
-                    logger.error(f"MultiSourceSearchAgent: {source} failed with error: {e}")
+                    logger.error(
+                        f"MultiSourceSearchAgent: {source} failed with error: {e}"
+                    )
                     continue
 
                 if source == "web_search":
-                    web_search_results_short, web_search_full_answer = result_short, result_full
+                    web_search_results_short, web_search_full_answer = (
+                        result_short,
+                        result_full,
+                    )
                 elif source == "perplexity":
-                    perplexity_results_short, perplexity_full_answer = result_short, result_full
+                    perplexity_results_short, perplexity_full_answer = (
+                        result_short,
+                        result_full,
+                    )
                 elif source == "jina":
                     jina_results_short, jina_full_answer = result_short, result_full
 
-                logger.info(f"MultiSourceSearchAgent: {source} completed in {time.time() - start_wait:.2f}s")
+                logger.info(
+                    f"MultiSourceSearchAgent: {source} completed in {time.time() - start_wait:.2f}s"
+                )
 
                 # Stream the completed section immediately (skip empty).
                 if source not in yielded_sections:
@@ -1596,7 +2045,12 @@ Write your comprehensive and in-depth answer below. Provide full extensive detai
                     ) or ""
                     if str(section_text).strip() and self.show_intermediate_results:
                         section_text = convert_stream_to_iterable(
-                            collapsible_wrapper(section_text, header=header, show_initially=False, add_close_button=True)
+                            collapsible_wrapper(
+                                section_text,
+                                header=header,
+                                show_initially=False,
+                                add_close_button=True,
+                            )
                         )
                         yield {"text": section_text, "status": "MultiSourceSearchAgent"}
                         yield {"text": "\n\n", "status": "MultiSourceSearchAgent"}
@@ -1605,41 +2059,78 @@ Write your comprehensive and in-depth answer below. Provide full extensive detai
         # Anything that didn't finish: record as timed out, but still proceed with available results.
         for future in list(pending):
             source = futures_map.get(future, "unknown")
-            logger.error(f"MultiSourceSearchAgent: {source} timed out after {total_timeout}s")
+            logger.error(
+                f"MultiSourceSearchAgent: {source} timed out after {total_timeout}s"
+            )
 
         # If no source returned anything usable, avoid calling the combiner with empty input.
-        if not (str(web_search_results_short).strip() or str(perplexity_results_short).strip() or str(jina_results_short).strip()):
+        if not (
+            str(web_search_results_short).strip()
+            or str(perplexity_results_short).strip()
+            or str(jina_results_short).strip()
+        ):
             yield {"text": "<web_answer>", "status": "MultiSourceSearchAgent"}
-            yield {"text": f"MultiSourceSearchAgent: No search sources returned results within {total_timeout}s.", "status": "MultiSourceSearchAgent"}
+            yield {
+                "text": f"MultiSourceSearchAgent: No search sources returned results within {total_timeout}s.",
+                "status": "MultiSourceSearchAgent",
+            }
             yield {"text": "\n\n", "status": "MultiSourceSearchAgent"}
             yield {"text": "</web_answer>", "status": "MultiSourceSearchAgent"}
             return
-        
+
         # If some sections weren't yielded during the loop (e.g., returned instantly before first wait tick),
         # yield them here in a deterministic order.
-        if "web_search" not in yielded_sections and web_search_results_short and self.show_intermediate_results:
+        if (
+            "web_search" not in yielded_sections
+            and web_search_results_short
+            and self.show_intermediate_results
+        ):
             web_search_results_short = convert_stream_to_iterable(
-                collapsible_wrapper(web_search_results_short, header="Web Search Results", show_initially=False, add_close_button=True)
+                collapsible_wrapper(
+                    web_search_results_short,
+                    header="Web Search Results",
+                    show_initially=False,
+                    add_close_button=True,
+                )
             )
             yield {"text": web_search_results_short, "status": "MultiSourceSearchAgent"}
             yield {"text": "\n\n", "status": "MultiSourceSearchAgent"}
-        if "perplexity" not in yielded_sections and perplexity_results_short and self.show_intermediate_results:
+        if (
+            "perplexity" not in yielded_sections
+            and perplexity_results_short
+            and self.show_intermediate_results
+        ):
             perplexity_results_short = convert_stream_to_iterable(
-                collapsible_wrapper(perplexity_results_short, header="Perplexity Search Results", show_initially=False, add_close_button=True)
+                collapsible_wrapper(
+                    perplexity_results_short,
+                    header="Perplexity Search Results",
+                    show_initially=False,
+                    add_close_button=True,
+                )
             )
             yield {"text": perplexity_results_short, "status": "MultiSourceSearchAgent"}
             yield {"text": "\n\n", "status": "MultiSourceSearchAgent"}
-        if "jina" not in yielded_sections and jina_results_short and self.show_intermediate_results:
+        if (
+            "jina" not in yielded_sections
+            and jina_results_short
+            and self.show_intermediate_results
+        ):
             jina_results_short = convert_stream_to_iterable(
-                collapsible_wrapper(jina_results_short, header="Jina Search Results", show_initially=False, add_close_button=True)
+                collapsible_wrapper(
+                    jina_results_short,
+                    header="Jina Search Results",
+                    show_initially=False,
+                    add_close_button=True,
+                )
             )
             yield {"text": jina_results_short, "status": "MultiSourceSearchAgent"}
             yield {"text": "\n\n", "status": "MultiSourceSearchAgent"}
 
-        logger.info(f"MultiSourceSearchAgent: Now calling combiner LLM... Headless mode: {self.headless}, show_intermediate_results: {self.show_intermediate_results}")
+        logger.info(
+            f"MultiSourceSearchAgent: Now calling combiner LLM... Headless mode: {self.headless}, show_intermediate_results: {self.show_intermediate_results}"
+        )
 
         if not self.headless:
-
             response = llm(
                 self.combiner_prompt.format(
                     user_query=text,
@@ -1673,7 +2164,9 @@ Write your comprehensive and in-depth answer below. Provide full extensive detai
             if urls:
                 urls_md = "\n\n" + two_column_list_md(url_items)
                 if len(urls) > max_urls_to_show:
-                    urls_md += f"\n\n_(Showing first {max_urls_to_show} of {len(urls)} URLs.)_"
+                    urls_md += (
+                        f"\n\n_(Showing first {max_urls_to_show} of {len(urls)} URLs.)_"
+                    )
             else:
                 urls_md = "\n\n_No URLs detected in the source results._"
 
@@ -1695,7 +2188,14 @@ Write your comprehensive and in-depth answer below. Provide full extensive detai
             yield {"text": stats_md, "status": "MultiSourceSearchAgent"}
         else:
             # If the futures timed out or returned nothing, yield what we got so far
-            yield {"text": str(web_search_results_short or "") + "\n\n" + str(perplexity_results_short or "") + "\n\n" + str(jina_results_short or ""), "status": "MultiSourceSearchAgent"}
+            yield {
+                "text": str(web_search_results_short or "")
+                + "\n\n"
+                + str(perplexity_results_short or "")
+                + "\n\n"
+                + str(jina_results_short or ""),
+                "status": "MultiSourceSearchAgent",
+            }
 
 
 class InterleavedWebSearchAgent(Agent):
@@ -1785,7 +2285,9 @@ class InterleavedWebSearchAgent(Agent):
         self.interleave_steps = max(1, int(interleave_steps))
         self.min_interleave_steps = max(1, int(min_interleave_steps))
         # Ensure min_interleave_steps does not exceed total configured steps.
-        self.min_interleave_steps = min(self.min_interleave_steps, self.interleave_steps)
+        self.min_interleave_steps = min(
+            self.min_interleave_steps, self.interleave_steps
+        )
         self.num_queries_per_step = max(1, int(num_queries_per_step))
         self.sources = sources or ["web", "perplexity", "jina"]
         self.min_successful_sources = max(1, int(min_successful_sources))
@@ -1885,7 +2387,9 @@ User request / conversation context:
         if not code_string:
             return ""
         regex = r"```(?:\w+)?\s*(.*?)```"
-        matches = re.findall(regex, code_string, re.DOTALL | re.MULTILINE | re.IGNORECASE)
+        matches = re.findall(
+            regex, code_string, re.DOTALL | re.MULTILINE | re.IGNORECASE
+        )
         if not matches:
             return ""
         # Prefer the last bracketed list block.
@@ -1905,9 +2409,12 @@ User request / conversation context:
             return []
         try:
             import ast
+
             parsed = ast.literal_eval(list_literal)
         except Exception:
-            logger.error(f"InterleavedWebSearchAgent: failed parsing planner output. Raw: {planner_response[:500]}")
+            logger.error(
+                f"InterleavedWebSearchAgent: failed parsing planner output. Raw: {planner_response[:500]}"
+            )
             return []
         if not isinstance(parsed, list):
             return []
@@ -1943,7 +2450,9 @@ User request / conversation context:
         body = "\n".join(lines)
         return f"\n\n```python\n{body}\n```\n\n"
 
-    def _planner_indicates_done(self, query_contexts: List[tuple], planner_response: str = "") -> bool:
+    def _planner_indicates_done(
+        self, query_contexts: List[tuple], planner_response: str = ""
+    ) -> bool:
         """
         Decide whether the planner signaled completion.
 
@@ -1966,14 +2475,48 @@ User request / conversation context:
         """
         sub_detail = 1
         if source == "web":
-            return WebSearchWithAgent(self.keys, OPENAI_CHEAP_LLM, sub_detail, self.timeout, headless=True, no_intermediate_llm=True)
+            return WebSearchWithAgent(
+                self.keys,
+                OPENAI_CHEAP_LLM,
+                sub_detail,
+                self.timeout,
+                headless=True,
+                no_intermediate_llm=True,
+            )
         if source == "perplexity":
-            return PerplexitySearchAgent(self.keys, OPENAI_CHEAP_LLM, sub_detail, self.timeout, self.num_queries_per_step, headless=True, no_intermediate_llm=True)
+            return PerplexitySearchAgent(
+                self.keys,
+                OPENAI_CHEAP_LLM,
+                sub_detail,
+                self.timeout,
+                self.num_queries_per_step,
+                headless=True,
+                no_intermediate_llm=True,
+            )
         if source == "jina":
-            return JinaSearchAgent(self.keys, OPENAI_CHEAP_LLM, sub_detail, self.timeout, self.num_queries_per_step, headless=True, no_intermediate_llm=True)
-        raise ValueError(f"Unknown source '{source}'. Expected one of: web, perplexity, jina.")
+            return JinaSearchAgent(
+                self.keys,
+                OPENAI_CHEAP_LLM,
+                sub_detail,
+                self.timeout,
+                self.num_queries_per_step,
+                headless=True,
+                no_intermediate_llm=True,
+            )
+        raise ValueError(
+            f"Unknown source '{source}'. Expected one of: web, perplexity, jina."
+        )
 
-    def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=True):
+    def __call__(
+        self,
+        text,
+        images=[],
+        temperature=0.7,
+        stream=False,
+        max_tokens=None,
+        system=None,
+        web_search=True,
+    ):
         """
         Stream an answer that is refined over multiple search/answer interleaves.
 
@@ -1995,8 +2538,17 @@ User request / conversation context:
         for step_idx in range(self.interleave_steps):
             step_num = step_idx + 1
             # 1) Plan follow-up queries
-            planner_prompt = self.query_planner_prompt.format(text=text, answer_so_far=answer_so_far)
-            planner_response = planner_llm(planner_prompt, images=[], temperature=0.2, stream=False, max_tokens=None, system=system)
+            planner_prompt = self.query_planner_prompt.format(
+                text=text, answer_so_far=answer_so_far
+            )
+            planner_response = planner_llm(
+                planner_prompt,
+                images=[],
+                temperature=0.2,
+                stream=False,
+                max_tokens=None,
+                system=system,
+            )
             query_contexts = self._parse_query_contexts(planner_response)
 
             # Early stop via planner sentinel:
@@ -2008,12 +2560,16 @@ User request / conversation context:
                 and self._planner_indicates_done(query_contexts, planner_response)
                 and answer_so_far.strip()
             ):
-                logger.info("InterleavedWebSearchAgent: planner indicated DONE; stopping interleaving early.")
+                logger.info(
+                    "InterleavedWebSearchAgent: planner indicated DONE; stopping interleaving early."
+                )
                 break
 
             # Fallback: if planner fails, do not hard-fail the whole answer; proceed without evidence.
             if not query_contexts:
-                logger.error("InterleavedWebSearchAgent: planner returned no valid queries; proceeding without new evidence.")
+                logger.error(
+                    "InterleavedWebSearchAgent: planner returned no valid queries; proceeding without new evidence."
+                )
 
             query_block = ""
             if query_contexts:
@@ -2023,9 +2579,15 @@ User request / conversation context:
             # Always yield planned queries as a plain triple-tick python code block for observability.
             # (This stays stable across the step and is useful for debugging/quality evaluation.)
             if query_contexts:
-                yield {"text": self._format_query_contexts_codeblock(query_contexts), "status": "InterleavedWebSearchAgent"}
+                yield {
+                    "text": self._format_query_contexts_codeblock(query_contexts),
+                    "status": "InterleavedWebSearchAgent",
+                }
             elif self.show_intermediate_results:
-                yield {"text": self._format_query_contexts_codeblock([]), "status": "InterleavedWebSearchAgent"}
+                yield {
+                    "text": self._format_query_contexts_codeblock([]),
+                    "status": "InterleavedWebSearchAgent",
+                }
 
             # 2) Run configured sources concurrently, headless, using the planned query-context tuples
             evidence_chunks = []
@@ -2038,10 +2600,25 @@ User request / conversation context:
                     try:
                         agent = self._make_headless_source_agent(source)
                     except Exception as e:
-                        logger.error(f"InterleavedWebSearchAgent: failed creating source agent '{source}': {e}")
+                        logger.error(
+                            f"InterleavedWebSearchAgent: failed creating source agent '{source}': {e}"
+                        )
                         continue
                     futures.append(
-                        (source, get_async_future(extract_answer, agent, search_text, images, temperature, stream, max_tokens, system, web_search))
+                        (
+                            source,
+                            get_async_future(
+                                extract_answer,
+                                agent,
+                                search_text,
+                                images,
+                                temperature,
+                                stream,
+                                max_tokens,
+                                system,
+                                web_search,
+                            ),
+                        )
                     )
 
                 # Collect results and short-circuit once enough sources succeeded.
@@ -2049,31 +2626,47 @@ User request / conversation context:
                 pending = set(futures_map.keys())
                 successes = 0
                 # Don't require more successes than sources we actually launched.
-                target_successes = min(self.min_successful_sources, len(pending)) if pending else 0
+                target_successes = (
+                    min(self.min_successful_sources, len(pending)) if pending else 0
+                )
 
                 start_wait = time.time()
                 total_timeout = self.timeout + 30
-                while pending and (time.time() - start_wait) < total_timeout and successes < target_successes:
-                    done, pending = wait(pending, timeout=2, return_when=FIRST_COMPLETED)
+                while (
+                    pending
+                    and (time.time() - start_wait) < total_timeout
+                    and successes < target_successes
+                ):
+                    done, pending = wait(
+                        pending, timeout=2, return_when=FIRST_COMPLETED
+                    )
                     for fut in done:
                         source = futures_map.get(fut, "unknown")
                         try:
                             short_answer, _full = fut.result(timeout=1)
                             if str(short_answer).strip():
-                                evidence_chunks.append(f"### Source: {source}\n{short_answer}")
+                                evidence_chunks.append(
+                                    f"### Source: {source}\n{short_answer}"
+                                )
                                 successes += 1
                         except Exception as e:
-                            logger.error(f"InterleavedWebSearchAgent: source '{source}' failed: {e}")
+                            logger.error(
+                                f"InterleavedWebSearchAgent: source '{source}' failed: {e}"
+                            )
 
                 # Optionally pick up any done futures left (without waiting further), so we don't waste already-computed work.
                 if pending:
-                    done_now, pending = wait(pending, timeout=0, return_when=FIRST_COMPLETED)
+                    done_now, pending = wait(
+                        pending, timeout=0, return_when=FIRST_COMPLETED
+                    )
                     for fut in done_now:
                         source = futures_map.get(fut, "unknown")
                         try:
                             short_answer, _full = fut.result(timeout=0)
                             if str(short_answer).strip():
-                                evidence_chunks.append(f"### Source: {source}\n{short_answer}")
+                                evidence_chunks.append(
+                                    f"### Source: {source}\n{short_answer}"
+                                )
                         except Exception:
                             pass
 
@@ -2095,8 +2688,14 @@ User request / conversation context:
 
             # 3) Append-only prompt assembly (cache-friendly)
             # We append a single block per step; previous blocks stay unchanged.
-            evidence_for_prompt = evidence.strip() if evidence.strip() else "_No new evidence for this step._"
-            step_block_prefix = self.answer_step_block_template.format(step_idx=step_num, evidence=evidence_for_prompt)
+            evidence_for_prompt = (
+                evidence.strip()
+                if evidence.strip()
+                else "_No new evidence for this step._"
+            )
+            step_block_prefix = self.answer_step_block_template.format(
+                step_idx=step_num, evidence=evidence_for_prompt
+            )
 
             # Truncate rolling history if needed (keep the tail). We keep the stable_prefix intact.
             if self.max_sources_chars and len(rolling_history) > self.max_sources_chars:
@@ -2110,7 +2709,14 @@ User request / conversation context:
             # sentinel across boundaries, we keep a small lookbehind buffer and delay output slightly.
             done_detected = False
             carry = ""
-            response_stream = answer_llm(step_prompt, images=images, temperature=temperature, stream=True, max_tokens=max_tokens, system=system)
+            response_stream = answer_llm(
+                step_prompt,
+                images=images,
+                temperature=temperature,
+                stream=True,
+                max_tokens=max_tokens,
+                system=system,
+            )
             for chunk in response_stream:
                 # `CallLLm` may yield strings or dict-like; convert defensively.
                 s = str(chunk)
@@ -2159,7 +2765,9 @@ User request / conversation context:
 
             # Early stop via answer sentinel.
             if done_detected and step_num >= self.min_interleave_steps:
-                logger.info("InterleavedWebSearchAgent: answer model emitted DONE sentinel; stopping interleaving early.")
+                logger.info(
+                    "InterleavedWebSearchAgent: answer model emitted DONE sentinel; stopping interleaving early."
+                )
                 break
 
         if not self.headless:
@@ -2284,7 +2892,9 @@ class PromptWorkflowAgent(Agent):
                     resolved_user_query = str(text[0]).strip()
                     prompts = [str(p).strip() for p in text[1:] if str(p).strip()]
                 else:
-                    resolved_user_query = " ".join([str(t).strip() for t in text if str(t).strip()])
+                    resolved_user_query = " ".join(
+                        [str(t).strip() for t in text if str(t).strip()]
+                    )
             elif isinstance(text, str):
                 # If prompts not provided and text contains double newlines, split:
                 # first chunk is user query, remaining are prompts.
@@ -2348,7 +2958,11 @@ class PromptWorkflowAgent(Agent):
         def build_block(idx, output_limit):
             prompt_text = prompts[idx] if idx < len(prompts) else ""
             prompt_trimmed = self._trim_text(prompt_text, self.max_step_output_chars)
-            output_trimmed = self._trim_text(step_outputs[idx], output_limit) if output_limit > 0 else ""
+            output_trimmed = (
+                self._trim_text(step_outputs[idx], output_limit)
+                if output_limit > 0
+                else ""
+            )
             if self.include_prompt_history:
                 return f"Step {idx + 1} prompt:\n{prompt_trimmed}\n\nStep {idx + 1} output:\n{output_trimmed}"
             return f"Step {idx + 1} output:\n{output_trimmed}"
@@ -2358,18 +2972,41 @@ class PromptWorkflowAgent(Agent):
 
         # Reserve space to always include the user query + most recent output.
         min_output_chars = min(200, self.max_step_output_chars)
-        prompt_label = f"Step {last_idx + 1} prompt:\n" if self.include_prompt_history else ""
-        output_label = f"\n\nStep {last_idx + 1} output:\n" if self.include_prompt_history else f"Step {last_idx + 1} output:\n"
+        prompt_label = (
+            f"Step {last_idx + 1} prompt:\n" if self.include_prompt_history else ""
+        )
+        output_label = (
+            f"\n\nStep {last_idx + 1} output:\n"
+            if self.include_prompt_history
+            else f"Step {last_idx + 1} output:\n"
+        )
 
-        fixed_len = len("User query:\n") + len(header) + len(prompt_label) + len(output_label) + min_output_chars
+        fixed_len = (
+            len("User query:\n")
+            + len(header)
+            + len(prompt_label)
+            + len(output_label)
+            + min_output_chars
+        )
         max_query_chars = max(0, self.max_context_chars - fixed_len)
         user_query_trimmed = self._trim_text(user_query, max_query_chars)
         base = f"User query:\n{user_query_trimmed}"
 
-        available = max(0, self.max_context_chars - len(base) - len(header) - len(prompt_label) - len(output_label))
+        available = max(
+            0,
+            self.max_context_chars
+            - len(base)
+            - len(header)
+            - len(prompt_label)
+            - len(output_label),
+        )
         if self.include_prompt_history:
-            prompt_budget = min(self.max_step_output_chars, max(0, available - min_output_chars))
-            output_budget = min(self.max_step_output_chars, max(0, available - prompt_budget))
+            prompt_budget = min(
+                self.max_step_output_chars, max(0, available - min_output_chars)
+            )
+            output_budget = min(
+                self.max_step_output_chars, max(0, available - prompt_budget)
+            )
         else:
             prompt_budget = 0
             output_budget = min(self.max_step_output_chars, available)
@@ -2379,7 +3016,11 @@ class PromptWorkflowAgent(Agent):
             prompt_text = prompts[last_idx] if last_idx < len(prompts) else ""
             prompt_trimmed = self._trim_text(prompt_text, prompt_budget)
             last_block_prefix = f"Step {last_idx + 1} prompt:\n{prompt_trimmed}\n\nStep {last_idx + 1} output:\n"
-            last_output = self._trim_text(step_outputs[last_idx], output_budget) if output_budget > 0 else ""
+            last_output = (
+                self._trim_text(step_outputs[last_idx], output_budget)
+                if output_budget > 0
+                else ""
+            )
             last_block = last_block_prefix + last_output
         else:
             last_block = build_block(last_idx, output_budget)
@@ -2427,7 +3068,13 @@ class PromptWorkflowAgent(Agent):
         """
         if not text:
             return False
-        return bool(re.search(r"<clarifications_needed>.*?</clarifications_needed>", text, re.DOTALL | re.IGNORECASE))
+        return bool(
+            re.search(
+                r"<clarifications_needed>.*?</clarifications_needed>",
+                text,
+                re.DOTALL | re.IGNORECASE,
+            )
+        )
 
     def __call__(
         self,
@@ -2476,7 +3123,9 @@ class PromptWorkflowAgent(Agent):
                 - "status": "PromptWorkflowAgent"
         """
         llm = CallLLm(self.keys, model_name=self.model_name)
-        resolved_query, prompts = self._normalize_inputs(text, workflow_prompts, user_query)
+        resolved_query, prompts = self._normalize_inputs(
+            text, workflow_prompts, user_query
+        )
         system_prompt = self._compose_system_prompt(system)
 
         step_outputs = []
@@ -2490,18 +3139,35 @@ class PromptWorkflowAgent(Agent):
                 "Write the next step output based on the prompt and context."
             )
 
-            yield {"text": f"\n\n---\n### Workflow step {step_num}/{len(prompts)}\n\n", "status": "PromptWorkflowAgent"}
+            yield {
+                "text": f"\n\n---\n### Workflow step {step_num}/{len(prompts)}\n\n",
+                "status": "PromptWorkflowAgent",
+            }
             yield {"text": f"Prompt:\n{prompt}\n\n", "status": "PromptWorkflowAgent"}
 
             step_output = ""
             if stream:
-                response_stream = llm(step_prompt, images=images, temperature=temperature, stream=True, max_tokens=max_tokens, system=system_prompt)
+                response_stream = llm(
+                    step_prompt,
+                    images=images,
+                    temperature=temperature,
+                    stream=True,
+                    max_tokens=max_tokens,
+                    system=system_prompt,
+                )
                 for chunk in response_stream:
                     chunk_text = str(chunk)
                     step_output += chunk_text
                     yield {"text": chunk_text, "status": "PromptWorkflowAgent"}
             else:
-                step_output = llm(step_prompt, images=images, temperature=temperature, stream=False, max_tokens=max_tokens, system=system_prompt)
+                step_output = llm(
+                    step_prompt,
+                    images=images,
+                    temperature=temperature,
+                    stream=False,
+                    max_tokens=max_tokens,
+                    system=system_prompt,
+                )
                 yield {"text": str(step_output), "status": "PromptWorkflowAgent"}
 
             step_outputs.append(str(step_output))
@@ -2526,7 +3192,9 @@ class ManagerAssistAgent(PromptWorkflowAgent):
         Replace the placeholder prompts in `default_prompts` with your desired
         step instructions. Keep exactly four prompts for consistent behavior.
     """
+
     from textwrap import dedent
+
     default_prompts = [
         dedent("""
         You are my management copilot at Amazon. Your job: protect delivery, reduce my manager's workload, and keep HR/legal risk low.  
@@ -2597,7 +3265,6 @@ class ManagerAssistAgent(PromptWorkflowAgent):
             - A “language sanitization” list: Replace X → With Y  
             - If pre-wire needed: a 5-bullet message I can send Manager that he can forward unedited  
         """),
-        
         dedent("""
         You are my final reviewer. Your job is to stop me from doing something stupid in writing, creating HR risk, or increasing my manager's work.  
   
@@ -2725,7 +3392,9 @@ class ManagerAssistAgent(PromptWorkflowAgent):
             workflow_prompts: Optional override prompts. If provided, must be a
                 list of exactly 4 strings; otherwise, this agent's prompts are used.
         """
-        effective_prompts = workflow_prompts if workflow_prompts is not None else self.prompts
+        effective_prompts = (
+            workflow_prompts if workflow_prompts is not None else self.prompts
+        )
         if not isinstance(effective_prompts, list) or len(effective_prompts) != 4:
             raise ValueError("ManagerAssistAgent requires exactly 4 prompts.")
 
@@ -2744,22 +3413,26 @@ class ManagerAssistAgent(PromptWorkflowAgent):
 
 class JinaDeepResearchAgent(Agent):
     """Agent that uses Jina's Deep Research API for comprehensive search and analysis"""
-    
+
     def __init__(self, keys, model_name, detail_level=1, timeout=180, num_queries=1):
         super().__init__(keys)
         self.model_name = model_name
         self.detail_level = detail_level
         self.timeout = timeout
         self.num_queries = num_queries
-        
+
         # Use the same API key as JinaSearchAgent
         self.jina_api_key = os.environ.get("jinaAIKey", "") or keys.get("jinaAIKey", "")
-        assert self.jina_api_key, "No Jina API key found. Please set jinaAIKey environment variable."
-        
+        assert self.jina_api_key, (
+            "No Jina API key found. Please set jinaAIKey environment variable."
+        )
+
         # Reasoning effort based on detail level
-        self.reasoning_effort = "low" if detail_level <= 2 else "medium" if detail_level == 3 else "high"
-        num_queries_actual = num_queries + 1 
-        
+        self.reasoning_effort = (
+            "low" if detail_level <= 2 else "medium" if detail_level == 3 else "high"
+        )
+        num_queries_actual = num_queries + 1
+
         # LLM for generating search queries
         self.query_generation_prompt = f"""Given the following text, generate {num_queries_actual} focused and specific search queries that would help answer the user's question comprehensively.
 
@@ -2784,130 +3457,157 @@ Format your response as a Python list:
     def extract_queries(self, code_string):
         """Extract queries from LLM response"""
         regex = r"```(?:\w+)?\s*(.*?)```"
-        matches = re.findall(regex, code_string, re.DOTALL | re.MULTILINE | re.IGNORECASE)
-        
+        matches = re.findall(
+            regex, code_string, re.DOTALL | re.MULTILINE | re.IGNORECASE
+        )
+
         if not matches:
             return None
-        
+
         code_to_execute = matches[0].strip()
-        
+
         try:
             import ast
+
             queries = ast.literal_eval(code_to_execute)
-            queries = [queries[0]] + queries[2:] # "\n\n" + queries[1]
+            queries = [queries[0]] + queries[2:]  # "\n\n" + queries[1]
             if isinstance(queries, list) and all(isinstance(q, str) for q in queries):
-                return queries[:self.num_queries]  # Limit to num_queries
+                return queries[: self.num_queries]  # Limit to num_queries
         except (SyntaxError, ValueError) as e:
             logger.error(f"Error parsing queries: {e}")
-        
+
         return None
-    
+
     def call_jina_deep_research(self, messages, stream=True):
         """Call Jina Deep Research API with the given messages"""
         import requests
         import json
-        
+
         url = "https://deepsearch.jina.ai/v1/chat/completions"
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.jina_api_key}"
+            "Authorization": f"Bearer {self.jina_api_key}",
         }
-        
+
         data = {
             "model": "jina-deepsearch-v1",
             "messages": messages,
             "stream": stream,
-            "reasoning_effort": self.reasoning_effort
+            "reasoning_effort": self.reasoning_effort,
         }
-        
+
         try:
             response = requests.post(url, headers=headers, json=data, stream=stream)
             response.raise_for_status()
-            
+
             if stream:
                 for line in response.iter_lines():
                     if line:
-                        line_str = line.decode('utf-8')
+                        line_str = line.decode("utf-8")
                         if line_str.startswith("data: "):
                             line_str = line_str[6:]  # Remove "data: " prefix
-                        
+
                         if line_str == "[DONE]":
                             break
-                        
+
                         try:
                             chunk = json.loads(line_str)
                             if "choices" in chunk and len(chunk["choices"]) > 0:
                                 delta = chunk["choices"][0].get("delta", {})
                                 content = delta.get("content", "")
                                 content_type = delta.get("type", "")
-                                
+
                                 yield {
                                     "content": content,
                                     "type": content_type,
-                                    "role": delta.get("role", "")
+                                    "role": delta.get("role", ""),
                                 }
                         except json.JSONDecodeError:
                             continue
             else:
                 return response.json()
-                
+
         except Exception as e:
-            logger.error(f"Error calling Jina Deep Research API: {e}, \n\n{traceback.format_exc()}")
+            logger.error(
+                f"Error calling Jina Deep Research API: {e}, \n\n{traceback.format_exc()}"
+            )
             yield {"content": f"Error: {str(e)}", "type": "error", "role": "assistant"}
-    
-    def __call__(self, text, images=[], temperature=0.7, stream=False, max_tokens=None, system=None, web_search=True):
+
+    def __call__(
+        self,
+        text,
+        images=[],
+        temperature=0.7,
+        stream=False,
+        max_tokens=None,
+        system=None,
+        web_search=True,
+    ):
         """Execute deep research for the given query"""
-        
+
         # Generate search queries if num_queries > 1
         queries = []
-        
+
         # Use LLM to generate multiple queries
         llm = CallLLm(self.keys, model_name=CHEAP_LLM[0])
-        query_prompt = self.query_generation_prompt.format(text=text, num_queries=self.num_queries)
-        
+        query_prompt = self.query_generation_prompt.format(
+            text=text, num_queries=self.num_queries
+        )
+
         yield {"text": "Generating search queries...\n", "status": "Generating queries"}
-        
+
         query_response = llm(query_prompt, temperature=0.7, stream=False)
         queries = self.extract_queries(query_response)
-        yield {"text": "<details open>\n<summary><strong>Queries</strong></summary>\n\n", "status": "Researching query"}
-        
+        yield {
+            "text": "<details open>\n<summary><strong>Queries</strong></summary>\n\n",
+            "status": "Researching query",
+        }
+
         if queries:
-            yield {"text": f"Generated {len(queries)} search queries:\n", "status": "Generated queries"}
+            yield {
+                "text": f"Generated {len(queries)} search queries:\n",
+                "status": "Generated queries",
+            }
             for i, q in enumerate(queries, 1):
                 yield {"text": f"{i}. {q}\n", "status": "Generated queries"}
             yield {"text": "\n", "status": "Generated queries"}
         else:
             # Fallback to single query
             queries = [text]
-        yield {"text": "</details>\n\n", "status": "Researching query"}        
+        yield {"text": "</details>\n\n", "status": "Researching query"}
         # Perform deep research for each query
         all_results = []
-        
+
         for idx, query in enumerate(queries, 1):
-            yield {"text": f"\n <b>Deep Research Query {idx}/{len(queries)}: {query}</b> \n\n", "status": f"Researching query {idx}"}
-            
+            yield {
+                "text": f"\n <b>Deep Research Query {idx}/{len(queries)}: {query}</b> \n\n",
+                "status": f"Researching query {idx}",
+            }
+
             # Prepare messages for Jina Deep Research API
             messages = [
                 {
                     "role": "user",
-                    "content": system if system else "You are a helpful research and web search assistant that provides comprehensive, well-researched answers and knowledge base compilations with citations. Focus on writing detailed and comprehensive answers with mutliple citations and research and references. Expend your energy in writing the actual answer itself with due research."
+                    "content": system
+                    if system
+                    else "You are a helpful research and web search assistant that provides comprehensive, well-researched answers and knowledge base compilations with citations. Focus on writing detailed and comprehensive answers with mutliple citations and research and references. Expend your energy in writing the actual answer itself with due research.",
                 },
                 {
-                    "role": "assistant", 
-                    "content": "Let me perform an extensive search and provide you that information. I will perform a broad and deep search. This user has requested a web search query and I will not overthink. I will perform search and retrieval of information and then compile and present it. I will not think. Put all the references with web url links (http or https links) at the end in markdown links format as bullet points."
+                    "role": "assistant",
+                    "content": "Let me perform an extensive search and provide you that information. I will perform a broad and deep search. This user has requested a web search query and I will not overthink. I will perform search and retrieval of information and then compile and present it. I will not think. Put all the references with web url links (http or https links) at the end in markdown links format as bullet points.",
                 },
-                {
-                    "role": "user",
-                    "content": query
-                }
+                {"role": "user", "content": query},
             ]
-            
+
             # Stream response from Jina Deep Research
             thinking_mode = False
             current_result = ""
-            
-            yield {"text": "<details open>\n<summary><strong>Research Process</strong></summary>\n\n", "status": f"Researching query {idx}"}
-            
+
+            yield {
+                "text": "<details open>\n<summary><strong>Research Process</strong></summary>\n\n",
+                "status": f"Researching query {idx}",
+            }
+
             try:
                 for chunk in self.call_jina_deep_research(messages, stream=True):
                     content = chunk.get("content", "")
@@ -2915,17 +3615,36 @@ Format your response as a Python list:
 
                     if content_type != "think":
                         print(len(content))
-                    
+
                     # Handle thinking vs regular content
-                    if content_type == "think" and "<think>" in content and not thinking_mode:
+                    if (
+                        content_type == "think"
+                        and "<think>" in content
+                        and not thinking_mode
+                    ):
                         thinking_mode = True
-                        yield {"text": "<details open>\n<summary><strong>Thinking Process</strong></summary>\n\n", "status": f"Researching query {idx}"}
-                        yield {"text": "**Analyzing sources and reasoning...**\n\n", "status": f"Researching query {idx}"}
+                        yield {
+                            "text": "<details open>\n<summary><strong>Thinking Process</strong></summary>\n\n",
+                            "status": f"Researching query {idx}",
+                        }
+                        yield {
+                            "text": "**Analyzing sources and reasoning...**\n\n",
+                            "status": f"Researching query {idx}",
+                        }
                     elif content == "</think>" or "</think>" in content:
                         thinking_mode = False
-                        yield {"text": "\n</think>\n\n", "status": f"Researching query {idx}"}
-                        yield {"text": "\n</details>\n\n", "status": f"Researching query {idx}"}
-                        yield {"text": "\n---\n\n", "status": f"Researching query {idx}"}
+                        yield {
+                            "text": "\n</think>\n\n",
+                            "status": f"Researching query {idx}",
+                        }
+                        yield {
+                            "text": "\n</details>\n\n",
+                            "status": f"Researching query {idx}",
+                        }
+                        yield {
+                            "text": "\n---\n\n",
+                            "status": f"Researching query {idx}",
+                        }
                     elif thinking_mode:
                         # Show thinking process in code block
                         yield {"text": content, "status": f"Researching query {idx}"}
@@ -2937,31 +3656,32 @@ Format your response as a Python list:
                         current_result += content
                         yield {"text": content, "status": f"Getting Results {idx}"}
             except Exception as e:
-                logger.error(f"Error calling Jina Deep Research API: {e}, \n\n{traceback.format_exc()}")
+                logger.error(
+                    f"Error calling Jina Deep Research API: {e}, \n\n{traceback.format_exc()}"
+                )
                 yield {"text": f"Error: {str(e)}", "status": f"Researching query {idx}"}
-            
+
             yield {"text": "\n</details>\n\n", "status": f"Researching query {idx}"}
-            
-            all_results.append({
-                "query": query,
-                "result": current_result
-            })
-            
+
+            all_results.append({"query": query, "result": current_result})
+
             if idx < len(queries):
                 yield {"text": "\n---\n", "status": f"Completed query {idx}"}
-        
+
         # If multiple queries, combine results
         if len(queries) > 1:
             yield {"text": "\n\n**Synthesizing Results**\n\n", "status": "Synthesizing"}
-            
+
             # Combine all results using LLM
             llm = CallLLm(self.keys, model_name=self.model_name)
-            
+
             # Prepare results for combination
             results_text = ""
             for res in all_results:
-                results_text += f"Query: {res['query']}\n\nResult:\n{res['result']}\n\n---\n\n"
-            
+                results_text += (
+                    f"Query: {res['query']}\n\nResult:\n{res['result']}\n\n---\n\n"
+                )
+
             combine_prompt = f"""You are tasked with synthesizing multiple deep research results into a comprehensive response.
 
 User's original question:
@@ -2978,18 +3698,20 @@ Please provide a comprehensive, well-structured response that:
 5. Clearly addresses the user's original question
 
 Your synthesized response:"""
-            
+
             yield {"text": "<web_answer>", "status": "Synthesizing"}
-            
-            combined_response = llm(combine_prompt, temperature=temperature, stream=True, max_tokens=max_tokens)
-            
+
+            combined_response = llm(
+                combine_prompt,
+                temperature=temperature,
+                stream=True,
+                max_tokens=max_tokens,
+            )
+
             for chunk in combined_response:
                 yield {"text": chunk, "status": "Synthesizing"}
-            
+
             yield {"text": "</web_answer>", "status": "Complete"}
         else:
             # Single query result already streamed
             yield {"text": "\n\n**Research completed.**", "status": "Complete"}
-
-    
-    

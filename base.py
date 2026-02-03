@@ -6,6 +6,7 @@ from uuid import uuid4
 
 import pandas as pd
 from copy import deepcopy, copy
+
 try:
     import ujson as json
 except ImportError:
@@ -19,15 +20,17 @@ from langchain_community.document_loaders import MathpixPDFLoader
 from langchain_text_splitters import TokenTextSplitter
 
 
-
-pd.options.display.float_format = '{:,.2f}'.format
-pd.set_option('max_colwidth', 800)
-pd.set_option('display.max_columns', 100)
+pd.options.display.float_format = "{:,.2f}".format
+pd.set_option("max_colwidth", 800)
+pd.set_option("display.max_columns", 100)
 
 from common import *
 
 from loggers import getLoggers
-logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(__name__, logging.ERROR, logging.WARNING, logging.ERROR, logging.ERROR)
+
+logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(
+    __name__, logging.WARNING, logging.WARNING, logging.ERROR, logging.ERROR
+)
 from tenacity import (
     retry,
     RetryError,
@@ -47,36 +50,34 @@ import json
 import random
 
 
-
-
 import time
 from collections import deque
 from threading import Lock
 from call_llm import CallLLm, CallMultipleLLM
 
+
 def split_text(text):
     # Split the text by spaces, newlines, and HTML tags
-    chunks = re.split(r'( |\n|<[^>]+>)', text)
-    
+    chunks = re.split(r"( |\n|<[^>]+>)", text)
+
     # Find the middle index
     middle = len(chunks) // 2
 
     # Split the chunks into two halves
-    first_half = ''.join(chunks[:min(middle+100, len(chunks)-1)])
-    second_half = ''.join(chunks[max(0, middle-100):])
-    
+    first_half = "".join(chunks[: min(middle + 100, len(chunks) - 1)])
+    second_half = "".join(chunks[max(0, middle - 100) :])
+
     yield first_half
     yield second_half
-
-
-
 
 
 enc = tiktoken.encoding_for_model("gpt-4")
 
 
-@AddAttribute('name', "ChunkText")
-@AddAttribute('description', """
+@AddAttribute("name", "ChunkText")
+@AddAttribute(
+    "description",
+    """
 ChunkText:
     This tool takes a text document and chunks it into given chunk size lengths, then returns a list of strings as chunked sub-documents.
 
@@ -93,14 +94,20 @@ ChunkText:
     Alternative Usage:
         `text_chunks = ChunkText(text_document="document to chunk", chunk_size=1800) # Smaller chunk size, more chunks, but avoid token limit exceeded or length errors.
 
-    """)
-def ChunkText(text_document: str, chunk_size: int=3400, chunk_overlap:int=100):
-    text_splitter = TokenTextSplitter(chunk_size=max(chunk_overlap, max(128, chunk_size)), chunk_overlap=chunk_overlap)
+    """,
+)
+def ChunkText(text_document: str, chunk_size: int = 3400, chunk_overlap: int = 100):
+    text_splitter = TokenTextSplitter(
+        chunk_size=max(chunk_overlap, max(128, chunk_size)), chunk_overlap=chunk_overlap
+    )
     return text_splitter.split_text(text_document)
 
+
 @log_memory_usage
-@AddAttribute('name', "ChunkTextSentences")
-@AddAttribute('description', """
+@AddAttribute("name", "ChunkTextSentences")
+@AddAttribute(
+    "description",
+    """
 ChunkTextSentences:
     This tool takes a text document and chunks it into given chunk size lengths, then returns a list of strings as chunked sub-documents.
 
@@ -117,10 +124,32 @@ ChunkTextSentences:
     Alternative Usage:
         `text_chunks = ChunkText(text_document="document to chunk", chunk_size=1800) # Smaller chunk size, more chunks, but avoid token limit exceeded or length errors.
 
-    """)
-def ChunkTextSentences(text_document: str, chunk_size: int = 3400, chunk_overlap: int = 100):
-    text_splitter = SentenceSplitter(chunk_size=max(chunk_overlap, max(128, chunk_size)), chunk_overlap=chunk_overlap, backup_separators=["\n\n", "\n", ". ", "? ", "! ", "; ", ", ", "</br>", "<br>", "<br/>", "<br />", "<p>", "</p>", ])
+    """,
+)
+def ChunkTextSentences(
+    text_document: str, chunk_size: int = 3400, chunk_overlap: int = 100
+):
+    text_splitter = SentenceSplitter(
+        chunk_size=max(chunk_overlap, max(128, chunk_size)),
+        chunk_overlap=chunk_overlap,
+        backup_separators=[
+            "\n\n",
+            "\n",
+            ". ",
+            "? ",
+            "! ",
+            "; ",
+            ", ",
+            "</br>",
+            "<br>",
+            "<br/>",
+            "<br />",
+            "<p>",
+            "</p>",
+        ],
+    )
     return text_splitter.split_text(text_document)
+
 
 # Import RecursiveChunkTextSplitter from separate module
 # This class uses tiktoken for token-based chunking with divide-and-conquer approach
@@ -135,8 +164,16 @@ class ContextualReader:
         self.provide_short_responses = provide_short_responses
         self.scan = scan
         # Use markdown formatting to typeset or format your answer better.
-        long_or_short = "Provide a short, brief, concise and informative response in 3-4 sentences. \n" if provide_short_responses else "Provide concise, comprehensive and informative response. Output any relevant equations if found in latex format.\n"
-        response_prompt = "Write short, compact, concise and informative" if provide_short_responses else "Write concise, comprehensive and informative"
+        long_or_short = (
+            "Provide a short, brief, concise and informative response in 3-4 sentences. \n"
+            if provide_short_responses
+            else "Provide concise, comprehensive and informative response. Output any relevant equations if found in latex format.\n"
+        )
+        response_prompt = (
+            "Write short, compact, concise and informative"
+            if provide_short_responses
+            else "Write concise, comprehensive and informative"
+        )
         self.prompt = f"""You are an information retrieval agent. {long_or_short}
 Provide relevant and helpful information from the given document for the given user question and conversation context given below.
 <|context_or_query|>
@@ -154,7 +191,7 @@ Only provide answer from the document given above.
 {response_prompt} response below.
 """
         # If no relevant information is found in given context, then output "No relevant information found." only.
-        
+
     def get_one(self, context, document, model_name=LONG_CONTEXT_LLM[0], limit=64_000):
         splitter = RecursiveChunkTextSplitter(limit, 256)
         chunks = splitter(document)
@@ -164,16 +201,23 @@ Only provide answer from the document given above.
         for chunk in chunks:
             prompt = self.prompt.format(context=context, document=chunk)
             try:
-                llm = CallLLm(self.keys, model_name=model_name, use_gpt4=False, use_16k=False)
+                llm = CallLLm(
+                    self.keys, model_name=model_name, use_gpt4=False, use_16k=False
+                )
                 future = get_async_future(llm, prompt, temperature=0.4, stream=False)
                 futures.append(future)
             except Exception as e:
-                llm = CallLLm(self.keys, model_name=CHEAP_LONG_CONTEXT_LLM[0], use_gpt4=False, use_16k=False)
+                llm = CallLLm(
+                    self.keys,
+                    model_name=CHEAP_LONG_CONTEXT_LLM[0],
+                    use_gpt4=False,
+                    use_16k=False,
+                )
                 future = get_async_future(llm, prompt, temperature=0.4, stream=False)
                 futures.append(future)
                 traceback.print_exc()
                 continue
-        
+
         # Wait for all results and collect them in order
         result = ""
         for future in futures:
@@ -183,18 +227,46 @@ Only provide answer from the document given above.
             except Exception as e:
                 traceback.print_exc()
                 continue
-        
+
         assert isinstance(result, str) and len(result) > 0
         return "\n---\n".join(results)
 
-    def get_one_chunked(self, context, document, model_name=CHEAP_LONG_CONTEXT_LLM[0], limit=256_000, chunk_size=16_000, chunk_overlap=2_000):
+    def get_one_chunked(
+        self,
+        context,
+        document,
+        model_name=CHEAP_LONG_CONTEXT_LLM[0],
+        limit=256_000,
+        chunk_size=16_000,
+        chunk_overlap=2_000,
+    ):
         try:
-            short_reading = get_async_future(self.get_one, "Provide a short summary", document,
-                                             CHEAP_LONG_CONTEXT_LLM[0], 16_000)
+            short_reading = get_async_future(
+                self.get_one,
+                "Provide a short summary",
+                document,
+                CHEAP_LONG_CONTEXT_LLM[0],
+                16_000,
+            )
             document = " ".join(document.split()[:limit])
-            context = context + "\n\nShort summary of the document to help your reading is below." + sleep_and_get_future_result(short_reading)
-            chunks = chunk_text_words(document, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
-            results = [get_async_future(self.get_one, context, c, model_name=model_name, limit=chunk_size*2) for c in chunks]
+            context = (
+                context
+                + "\n\nShort summary of the document to help your reading is below."
+                + sleep_and_get_future_result(short_reading)
+            )
+            chunks = chunk_text_words(
+                document, chunk_size=chunk_size, chunk_overlap=chunk_overlap
+            )
+            results = [
+                get_async_future(
+                    self.get_one,
+                    context,
+                    c,
+                    model_name=model_name,
+                    limit=chunk_size * 2,
+                )
+                for c in chunks
+            ]
             results = [sleep_and_get_future_result(r) for r in results]
             results = "\n".join(results)
             # concat all strings
@@ -203,15 +275,25 @@ Only provide answer from the document given above.
             traceback.print_exc()
             return f"Unable to read due to exception: {str(e)}."
 
-    def get_one_with_rag(self, context, document, retriever:Optional[Callable[[str, Optional[int]], str]]=None):
+    def get_one_with_rag(
+        self,
+        context,
+        document,
+        retriever: Optional[Callable[[str, Optional[int]], str]] = None,
+    ):
         fragments_text = self.get_relevant_text(context, document, retriever)
         context_len = get_gpt4_word_count(context)
         fragments_text_len = get_gpt4_word_count(fragments_text)
-        
-        prompt = self.prompt.format(context=context + "\nTry to answer and extract some facts and numbers even if the document may not be directly related. Please try to answer the question with some details and information from the document.\n", 
-        document=fragments_text)
+
+        prompt = self.prompt.format(
+            context=context
+            + "\nTry to answer and extract some facts and numbers even if the document may not be directly related. Please try to answer the question with some details and information from the document.\n",
+            document=fragments_text,
+        )
         prompt_len = get_gpt4_word_count(prompt)
-        logger.info(f"[ContextualReader] RAG module: context_len = {context_len}, fragments_text_len = {fragments_text_len}, prompt_len = {prompt_len}")
+        logger.info(
+            f"[ContextualReader] RAG module: context_len = {context_len}, fragments_text_len = {fragments_text_len}, prompt_len = {prompt_len}"
+        )
         # join_method = lambda x, y: "Details from one LLM that read the document:\n<|LLM_1|>\n" + str(
         #     x) + "\n<|/LLM_1|>\n\nDetails from second LLM which read the document:\n<|LLM_2|>\n" + str(
         #     y) + "\n<|/LLM_2|>"
@@ -221,44 +303,67 @@ Only provide answer from the document given above.
 
         cheap_llm = CallLLm(self.keys, model_name=CHEAP_LONG_CONTEXT_LLM[1])
         result = cheap_llm(prompt, temperature=0.4, stream=False)
-        
-        
+
         assert isinstance(result, str)
         return result
 
-    def get_relevant_text(self, context, document, retriever: Optional[Callable[[str, Optional[int]], str]]=None):
+    def get_relevant_text(
+        self,
+        context,
+        document,
+        retriever: Optional[Callable[[str, Optional[int]], str]] = None,
+    ):
         if retriever is None:
             document = document.strip()
             len_doc = len(document.split())
             if len_doc < 1536:
                 return document
             openai_embed = get_embedding_model(self.keys)
+
             def get_doc_embeds(document, len_doc):
-                chunk_size = 768 if len_doc < 8000 else 1280 if len_doc < 16000 else 1536 if len_doc < 32000 else 2048
+                chunk_size = (
+                    768
+                    if len_doc < 8000
+                    else 1280
+                    if len_doc < 16000
+                    else 1536
+                    if len_doc < 32000
+                    else 2048
+                )
                 ds = document.split()
                 document = " ".join(ds[:156_000])
                 st_chnk = time.time()
-                chunks = chunk_text_words(document, chunk_size=chunk_size, chunk_overlap=64) # ChunkTextSentences
+                chunks = chunk_text_words(
+                    document, chunk_size=chunk_size, chunk_overlap=64
+                )  # ChunkTextSentences
                 if len(chunks) > 128:
                     chunks = chunks[:128]
                 et_chnk = time.time()
                 # time_logger.info(f"[ContextualReader] Chunking time = {(et_chnk - st_chnk):.2f} seconds and doc len = {len_doc} and num chunks = {len(chunks)}")
                 doc_embeds = openai_embed.embed_documents(chunks)
                 et_emb = time.time()
-                time_logger.info(f"[ContextualReader] Actual Embedding time = {(et_emb - et_chnk):.2f} seconds, Chunking time = {(et_chnk - st_chnk):.2f} seconds, and doc len = {len_doc} and num chunks = {len(chunks)}")
+                time_logger.info(
+                    f"[ContextualReader] Actual Embedding time = {(et_emb - et_chnk):.2f} seconds, Chunking time = {(et_chnk - st_chnk):.2f} seconds, and doc len = {len_doc} and num chunks = {len(chunks)}"
+                )
                 return chunks, chunk_size, np.array(doc_embeds)
 
             st = time.time()
             doc_em_future = get_async_future(get_doc_embeds, document, len_doc)
             # query_em_future = get_async_future(openai_embed.embed_query, context)
             query_em_future = get_async_future(get_text_embedding, context, self.keys)
-            chunks, chunk_size, doc_embedding = sleep_and_get_future_result(doc_em_future)
-            doc_em_time = time.time()-st
+            chunks, chunk_size, doc_embedding = sleep_and_get_future_result(
+                doc_em_future
+            )
+            doc_em_time = time.time() - st
             # query_embedding = np.array(query_em_future.result())
             query_embedding = sleep_and_get_future_result(query_em_future)
-            time_logger.info(f"[ContextualReader] Embedding time = {time.time()-st:.2f}, doc em time = {doc_em_time:.2f} .")
+            time_logger.info(
+                f"[ContextualReader] Embedding time = {time.time() - st:.2f}, doc em time = {doc_em_time:.2f} ."
+            )
             scores = np.dot(doc_embedding, query_embedding)
-            sorted_chunks = sorted(list(zip(chunks, scores)), key=lambda x: x[1], reverse=True)
+            sorted_chunks = sorted(
+                list(zip(chunks, scores)), key=lambda x: x[1], reverse=True
+            )
             top_chunks = sorted_chunks[:6]
         else:
             try:
@@ -269,23 +374,42 @@ Only provide answer from the document given above.
                 raise e
         # stacktrace = dump_stack()
         # logger.info(f"[ContextualReader], Retriever = {retriever.__name__ if retriever is not None else 'None'}, Stack trace: \n{stacktrace}")
-        top_chunks_count = len(top_chunks.split()) if isinstance(top_chunks, str) else len(top_chunks)
+        top_chunks_count = (
+            len(top_chunks.split()) if isinstance(top_chunks, str) else len(top_chunks)
+        )
         top_chunks = set(top_chunks) if isinstance(top_chunks, list) else top_chunks
-        top_chunks_count_new = len(top_chunks) if isinstance(top_chunks, set) else len(top_chunks.split())
+        top_chunks_count_new = (
+            len(top_chunks) if isinstance(top_chunks, set) else len(top_chunks.split())
+        )
         top_chunks_text = ""
         if isinstance(top_chunks, list):
             for idx, tc in enumerate(top_chunks):
-                top_chunks_text += f"Retrieved relevant text chunk {idx + 1}:\n{tc[0]}\n\n" if isinstance(tc, tuple) else f"Retrieved relevant text chunk {idx + 1}:\n{tc}\n\n"
+                top_chunks_text += (
+                    f"Retrieved relevant text chunk {idx + 1}:\n{tc[0]}\n\n"
+                    if isinstance(tc, tuple)
+                    else f"Retrieved relevant text chunk {idx + 1}:\n{tc}\n\n"
+                )
         else:
             top_chunks_text += f"Retrieved relevant text chunk:\n{top_chunks}\n\n"
         top_chunks = top_chunks_text
         top_chunks_text_len = get_gpt4_word_count(top_chunks_text)
         return top_chunks
 
-    def scan(self, context, document, retriever: Optional[Callable[[str, Optional[int]], str]]=None):
+    def scan(
+        self,
+        context,
+        document,
+        retriever: Optional[Callable[[str, Optional[int]], str]] = None,
+    ):
         pass
 
-    def __call__(self, context_user_query, text_document, retriever:Optional[Callable[[str, Optional[int]], str]]=None, preferred_model=None):
+    def __call__(
+        self,
+        context_user_query,
+        text_document,
+        retriever: Optional[Callable[[str, Optional[int]], str]] = None,
+        preferred_model=None,
+    ):
         assert isinstance(text_document, str)
         st = time.time()
         doc_word_count = len(text_document.split())
@@ -294,68 +418,116 @@ Only provide answer from the document given above.
             preferred_model = CHEAP_LONG_CONTEXT_LLM[0]
         elif preferred_model is None and doc_word_count > 200_000:
             preferred_model = LONG_CONTEXT_LLM[0]
-        join_method = lambda x, y: "Details from one expert who read the document:\n<|expert1|>\n" + str(x) + "\n<|/expert1|>\n\nDetails from second expert who read the document:\n<|expert2|>\n" + str(y) + "\n<|/expert2|>"
-        initial_reading = join_two_futures(get_async_future(self.get_one, context_user_query, text_document, CHEAP_LONG_CONTEXT_LLM[1], 400_000),
-                                                   get_async_future(self.get_one, context_user_query + "\n\nProvide answer in concise and brief bullet points and think how to get some details which are caveats and surprises.\nTry to answer and extract some facts and numbers even if the document may not be directly related.\n", text_document, preferred_model, 200_000), join_method)
+        join_method = (
+            lambda x, y: "Details from one expert who read the document:\n<|expert1|>\n"
+            + str(x)
+            + "\n<|/expert1|>\n\nDetails from second expert who read the document:\n<|expert2|>\n"
+            + str(y)
+            + "\n<|/expert2|>"
+        )
+        initial_reading = join_two_futures(
+            get_async_future(
+                self.get_one,
+                context_user_query,
+                text_document,
+                CHEAP_LONG_CONTEXT_LLM[1],
+                400_000,
+            ),
+            get_async_future(
+                self.get_one,
+                context_user_query
+                + "\n\nProvide answer in concise and brief bullet points and think how to get some details which are caveats and surprises.\nTry to answer and extract some facts and numbers even if the document may not be directly related.\n",
+                text_document,
+                preferred_model,
+                200_000,
+            ),
+            join_method,
+        )
         global_reading = None
         try:
             if self.provide_short_responses:
                 result = sleep_and_get_future_result(initial_reading)
                 return result, initial_reading
-            
+
             if doc_word_count < 2048:
-                return sleep_and_get_future_result(initial_reading) + "\n\nFull Text:\n" + text_document, global_reading
+                return sleep_and_get_future_result(
+                    initial_reading
+                ) + "\n\nFull Text:\n" + text_document, global_reading
             elif doc_word_count < 6144:
                 return sleep_and_get_future_result(initial_reading), initial_reading
         except Exception as e:
             traceback.print_exc()
-        
-        join_method = lambda x, y: "Details from both experts:\n<|experts|>\n" + str(
-            x) + "\n<|/experts|>\n\n\nDetails from using an LLM to summarise and get information:\n<|LLM based summary|>\n" + str(
-            y) + "\n<|/LLM based summary|>"
+
+        join_method = (
+            lambda x, y: "Details from both experts:\n<|experts|>\n"
+            + str(x)
+            + "\n<|/experts|>\n\n\nDetails from using an LLM to summarise and get information:\n<|LLM based summary|>\n"
+            + str(y)
+            + "\n<|/LLM based summary|>"
+        )
 
         if doc_word_count > 32_000:
-            chunked_reading = get_async_future(self.get_one_chunked, context_user_query, text_document,CHEAP_LLM[0], 100_000, 32_000, 2_000)
-            global_reading = join_two_futures(initial_reading, chunked_reading, join_method)
-        main_future = get_async_future(self.get_one_with_rag, context_user_query, text_document, retriever)
+            chunked_reading = get_async_future(
+                self.get_one_chunked,
+                context_user_query,
+                text_document,
+                CHEAP_LLM[0],
+                100_000,
+                32_000,
+                2_000,
+            )
+            global_reading = join_two_futures(
+                initial_reading, chunked_reading, join_method
+            )
+        main_future = get_async_future(
+            self.get_one_with_rag, context_user_query, text_document, retriever
+        )
         if global_reading is None:
             global_reading = initial_reading
-        join_method = lambda x, y: "Details from both experts and LLMs:\n<|experts_and_LLM|>\n" + str(
-            x) + "\n<|/experts_and_LLM|>\n\n\nDetails from using an Retrieval Augmented Generation with LLM:\n<|RAG LLM|>\n" + str(
-            y) + "\n<|/RAG LLM|>"
+        join_method = (
+            lambda x, y: "Details from both experts and LLMs:\n<|experts_and_LLM|>\n"
+            + str(x)
+            + "\n<|/experts_and_LLM|>\n\n\nDetails from using an Retrieval Augmented Generation with LLM:\n<|RAG LLM|>\n"
+            + str(y)
+            + "\n<|/RAG LLM|>"
+        )
         final_future = join_two_futures(main_future, global_reading, join_method)
         final_result = sleep_and_get_future_result(final_future)
-        logger.info(f"[ContextualReader] Total time taken = {time.time()-st:.2f} seconds for document word count = {doc_word_count}")
-        logger.info(f"[ContextualReader] final_result len = {len(final_result.split())} words, RAG based answer len = {len(main_future.result().split())}, global reading len = {len(global_reading.result().split())} words.")
+        logger.info(
+            f"[ContextualReader] Total time taken = {time.time() - st:.2f} seconds for document word count = {doc_word_count}"
+        )
+        logger.info(
+            f"[ContextualReader] final_result len = {len(final_result.split())} words, RAG based answer len = {len(main_future.result().split())}, global reading len = {len(global_reading.result().split())} words."
+        )
         return final_result, final_future
-
-
 
 
 import json
 import re
 
+
 def get_citation_count(dres):
     # Convert the dictionary to a JSON string and lowercase it
     json_string = json.dumps(dres).lower()
-    
+
     # Use regex to search for the citation count
-    match = re.search(r'cited by (\d+)', json_string)
-    
+    match = re.search(r"cited by (\d+)", json_string)
+
     # If a match is found, return the citation count as an integer
     if match:
         return int(match.group(1))
-    
+
     # If no match is found, return zero
     return ""
 
+
 def get_year(dres):
     # Check if 'rich_snippet' and 'top' exist in the dictionary
-    if 'rich_snippet' in dres and 'top' in dres['rich_snippet']:
+    if "rich_snippet" in dres and "top" in dres["rich_snippet"]:
         # Iterate through the extensions
-        for extension in dres['rich_snippet']['top'].get('extensions', []):
+        for extension in dres["rich_snippet"]["top"].get("extensions", []):
             # Use regex to search for the year
-            match = re.search(r'(\d{4})', extension)
+            match = re.search(r"(\d{4})", extension)
 
             # If a match is found, return the year as an integer
             if match:
@@ -367,11 +539,11 @@ def get_year(dres):
 
 def list_to_gscholar_query(conferences_and_journals):
     # Prefix to be added before each conference or journal name
-    prefix = 'source:'
+    prefix = "source:"
     # Using a list comprehension to format each item with the prefix and enclosing quotes
     formatted_items = [f'{prefix}"{item}"' for item in conferences_and_journals]
     # Joining all formatted items with ' OR ' to match the query format
-    query_string = ' OR '.join(formatted_items)
+    query_string = " OR ".join(formatted_items)
     return query_string
 
 
@@ -452,8 +624,7 @@ science_sites = [
     "chemrxiv.org",
     "psyarxiv.com",
     "socarxiv.org",
-    "osf.io/preprints/socarxiv"
-    "engrxiv.org",
+    "osf.io/preprints/socarxivengrxiv.org",
     "ssrn.com",
     "philpapers.org"
     "nature.com"
@@ -473,10 +644,7 @@ science_sites = [
     "journals.elsevier.com",
     "journals.cambridge.org",
     "journals.uchicago.edu",
-
-
 ]
-
 
 
 def is_science_site(url):
@@ -488,7 +656,7 @@ import re
 
 def count_science_urls(text):
     # Regular expression to find URLs
-    url_pattern = r'(https?://(?:www\.)?[^\s]+)'
+    url_pattern = r"(https?://(?:www\.)?[^\s]+)"
 
     # Find all URLs in the text
     urls = re.findall(url_pattern, text)
@@ -502,25 +670,47 @@ def count_science_urls(text):
 
     return count
 
+
 def generate_science_site_query(search_terms):
     site_query = " OR ".join([f"site:{site}" for site in science_sites])
     return f"{site_query} {search_terms}"
 
 
-def search_post_processing(query, results, source, only_science_sites=False, only_pdf=False):
+def search_post_processing(
+    query, results, source, only_science_sites=False, only_pdf=False
+):
     seen_titles = set()
     seen_links = set()
     dedup_results = []
     for r in results:
         title = r.get("title", "").lower()
-        link = r.get("link", "").lower().replace(".pdf", '').replace("v1", '').replace("v2", '').replace("v3",
-                                                                                                         '').replace(
-            "v4", '').replace("v5", '').replace("v6", '').replace("v7", '').replace("v8", '').replace("v9", '')
+        link = (
+            r.get("link", "")
+            .lower()
+            .replace(".pdf", "")
+            .replace("v1", "")
+            .replace("v2", "")
+            .replace("v3", "")
+            .replace("v4", "")
+            .replace("v5", "")
+            .replace("v6", "")
+            .replace("v7", "")
+            .replace("v8", "")
+            .replace("v9", "")
+        )
         if title in seen_titles or len(title) == 0 or link in seen_links:
             continue
-        if only_science_sites is not None and only_science_sites and not is_science_site(link):
+        if (
+            only_science_sites is not None
+            and only_science_sites
+            and not is_science_site(link)
+        ):
             continue
-        if only_science_sites is not None and not only_science_sites and is_science_site(link):
+        if (
+            only_science_sites is not None
+            and not only_science_sites
+            and is_science_site(link)
+        ):
             continue
         if only_pdf is not None and not only_pdf and "pdf" in link:
             continue
@@ -529,41 +719,64 @@ def search_post_processing(query, results, source, only_science_sites=False, onl
             r["citations"] = get_citation_count(r)
         except:
             try:
-                r["citations"] = int(r.get("inline_links", {}).get("cited_by", {}).get("total", "-1"))
+                r["citations"] = int(
+                    r.get("inline_links", {}).get("cited_by", {}).get("total", "-1")
+                )
             except:
                 r["citations"] = None
         try:
             r["year"] = get_year(r)
         except:
             try:
-                r["year"] = re.search(r'(\d{4})', r.get("publication_info", {}).get("summary", ""))
+                r["year"] = re.search(
+                    r"(\d{4})", r.get("publication_info", {}).get("summary", "")
+                )
             except:
                 r["year"] = None
-        r['query'] = query
+        r["query"] = query
         _ = r.pop("rich_snippet", None)
-        r['source'] = source
+        r["source"] = source
         description = r.get("description", r.get("snippet", ""))
         r["description"] = description
         dedup_results.append(r)
         seen_titles.add(title)
         seen_links.add(link)
     return dedup_results
+
+
 @CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True)
-def bingapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True, use_original_query=False):
+def bingapi(
+    query,
+    key,
+    num,
+    our_datetime=None,
+    only_pdf=True,
+    only_science_sites=True,
+    use_original_query=False,
+):
     from datetime import datetime, timedelta
+
     if our_datetime:
         now = datetime.strptime(our_datetime, "%Y-%m-%d")
-        two_years_ago = now - timedelta(days=365*3)
+        two_years_ago = now - timedelta(days=365 * 3)
         date_string = two_years_ago.strftime("%Y-%m-%d")
     else:
         now = None
-        date_string = ''
+        date_string = ""
 
     from langchain_community.utilities.bing_search import BingSearchAPIWrapper
-    search = BingSearchAPIWrapper(bing_subscription_key=key, bing_search_url="https://api.bing.microsoft.com/v7.0/search")
-    
+
+    search = BingSearchAPIWrapper(
+        bing_subscription_key=key,
+        bing_search_url="https://api.bing.microsoft.com/v7.0/search",
+    )
+
     pre_query = query
-    after_string = f"after:{date_string}" if now and not only_pdf and not only_science_sites else ""
+    after_string = (
+        f"after:{date_string}"
+        if now and not only_pdf and not only_science_sites
+        else ""
+    )
     search_pdf = " filetype:pdf" if only_pdf else ""
     if only_science_sites is None:
         site_string = " "
@@ -584,22 +797,45 @@ def bingapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
     results = search.results(query, num)
     expected_res_length = max(num, 10)
     if num > 10:
-        results.extend(more_res.result() if more_res is not None and more_res.exception() is None else [])
+        results.extend(
+            more_res.result()
+            if more_res is not None and more_res.exception() is None
+            else []
+        )
     if len(results) < expected_res_length:
         results.extend(search.results(no_after_query, num))
     if len(results) < expected_res_length:
         results.extend(search.results(og_query, num))
     if len(results) < expected_res_length:
         results.extend(search.results(og_query, num * 2))
-    dedup_results = search_post_processing(pre_query, results, "bing", only_science_sites=only_science_sites, only_pdf=only_pdf)
-    logger.debug(f"Called BING API with args = {query}, {key}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
-    
+    dedup_results = search_post_processing(
+        pre_query,
+        results,
+        "bing",
+        only_science_sites=only_science_sites,
+        only_pdf=only_pdf,
+    )
+    logger.debug(
+        f"Called BING API with args = {query}, {key}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}"
+    )
+
     return dedup_results
+
+
 @CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True)
-def brightdata_google_serp(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True, use_original_query=False):
+def brightdata_google_serp(
+    query,
+    key,
+    num,
+    our_datetime=None,
+    only_pdf=True,
+    only_science_sites=True,
+    use_original_query=False,
+):
     import requests
 
     from datetime import datetime, timedelta
+
     if our_datetime:
         now = datetime.strptime(our_datetime, "%Y-%m-%d")
         two_years_ago = now - timedelta(days=365 * 3)
@@ -623,47 +859,75 @@ def brightdata_google_serp(query, key, num, our_datetime=None, only_pdf=True, on
     if use_original_query:
         query = str(og_query)
     expected_res_length = max(num, 10)
+
     def search_google(query, num=expected_res_length, start=0, gl="us"):
         # URL encode the query
         encoded_query = requests.utils.quote(query)
         # Set up the URL
         url = f"https://www.google.com/search?q={encoded_query}&gl={gl}&num={num}&start={start}&brd_json=1"
         # Set up the proxy
-        proxy = {
-            'https': os.getenv("BRIGHTDATA_SERP_API_PROXY", key)
-        }
+        proxy = {"https": os.getenv("BRIGHTDATA_SERP_API_PROXY", key)}
         # Make the request
         response = requests.get(url, proxies=proxy, verify=False)
         try:
             return json.loads(response.text)["organic"]
         except Exception as e:
-            logger.error(f"Error in brightdata_google_serp with query = {query} and response = {response.text} and error = {str(e)}\n{traceback.format_exc()}")
+            logger.error(
+                f"Error in brightdata_google_serp with query = {query} and response = {response.text} and error = {str(e)}\n{traceback.format_exc()}"
+            )
             return []
 
     more_results_future = None
     if expected_res_length > 10:
-        more_results_future = get_async_future(search_google, query, 20, start=20, gl="uk")
+        more_results_future = get_async_future(
+            search_google, query, 20, start=20, gl="uk"
+        )
         # more_results_future = get_async_future(search_google, og_query, 20, start=20, gl="fr")
     results = search_google(query)
     # title , description
     if len(results) < expected_res_length:
-        results.extend(more_results_future.result() if more_results_future is not None and more_results_future.exception() is None else [])
+        results.extend(
+            more_results_future.result()
+            if more_results_future is not None
+            and more_results_future.exception() is None
+            else []
+        )
     if len(results) < expected_res_length:
         results.extend(search_google(og_query, 20, start=20, gl="fr"))
     if len(results) < expected_res_length:
-        results.extend(search_google(f"{query}{site_string}{after_string}{search_pdf}", 20, start=20, gl="fr"))
+        results.extend(
+            search_google(
+                f"{query}{site_string}{after_string}{search_pdf}", 20, start=20, gl="fr"
+            )
+        )
     for r in results:
         _ = r.pop("image", None)
         _ = r.pop("image_alt", None)
         _ = r.pop("image_url", None)
         _ = r.pop("global_rank", None)
         _ = r.pop("image_base64", None)
-    dedup_results = search_post_processing(pre_query, results, "brightdata_google", only_science_sites=only_science_sites, only_pdf=only_pdf)
+    dedup_results = search_post_processing(
+        pre_query,
+        results,
+        "brightdata_google",
+        only_science_sites=only_science_sites,
+        only_pdf=only_pdf,
+    )
     return dedup_results
 
+
 @CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=False)
-def googleapi_v2(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True, use_original_query=False):
+def googleapi_v2(
+    query,
+    key,
+    num,
+    our_datetime=None,
+    only_pdf=True,
+    only_science_sites=True,
+    use_original_query=False,
+):
     from datetime import datetime, timedelta
+
     num = max(num, 10)
 
     if our_datetime:
@@ -698,73 +962,212 @@ def googleapi_v2(query, key, num, our_datetime=None, only_pdf=True, only_science
 
     more_results_future = None
     if expected_res_length > 10:
-        more_results_future = get_async_future(google_search, query, cse_id, google_api_key, num=20, filter=1, start=20)
+        more_results_future = get_async_future(
+            google_search, query, cse_id, google_api_key, num=20, filter=1, start=20
+        )
     # Perform initial search
-    initial_results = google_search(query, cse_id, google_api_key, num=min(num, 10), filter=1, start=0)
+    initial_results = google_search(
+        query, cse_id, google_api_key, num=min(num, 10), filter=1, start=0
+    )
     # title snippet
     if initial_results:
         results.extend(initial_results)
 
         # Perform additional searches if needed
     if len(results) < expected_res_length and more_results_future is not None:
-        additional_results = more_results_future.result() if more_results_future is not None and more_results_future.exception() is None else []
+        additional_results = (
+            more_results_future.result()
+            if more_results_future is not None
+            and more_results_future.exception() is None
+            else []
+        )
         if additional_results:
             results.extend(additional_results)
 
     if len(results) < expected_res_length:
-        additional_results = google_search(query, cse_id, google_api_key, num=min(num, 10), filter=1,
-                                           start=len(results))
+        additional_results = google_search(
+            query,
+            cse_id,
+            google_api_key,
+            num=min(num, 10),
+            filter=1,
+            start=len(results),
+        )
         if additional_results:
             results.extend(additional_results)
 
     if len(results) < expected_res_length:
-        no_after_results = google_search(no_after_query, cse_id, google_api_key, num=min(num, 10), filter=1, start=0)
+        no_after_results = google_search(
+            no_after_query, cse_id, google_api_key, num=min(num, 10), filter=1, start=0
+        )
         if no_after_results:
             results.extend(no_after_results)
 
     if len(results) < expected_res_length:
-        no_after_additional_results = google_search(no_after_query, cse_id, google_api_key, num=min(num, 10), filter=1,
-                                                    start=len(results))
+        no_after_additional_results = google_search(
+            no_after_query,
+            cse_id,
+            google_api_key,
+            num=min(num, 10),
+            filter=1,
+            start=len(results),
+        )
         if no_after_additional_results:
             results.extend(no_after_additional_results)
 
     if len(results) < expected_res_length:
-        og_query_results = google_search(og_query, cse_id, google_api_key, num=min(num, 10), filter=1,
-                                         start=len(results))
+        og_query_results = google_search(
+            og_query,
+            cse_id,
+            google_api_key,
+            num=min(num, 10),
+            filter=1,
+            start=len(results),
+        )
         if og_query_results:
             results.extend(og_query_results)
 
-    dedup_results = search_post_processing(pre_query, results, "google", only_science_sites=only_science_sites,
-                                           only_pdf=only_pdf)
+    dedup_results = search_post_processing(
+        pre_query,
+        results,
+        "google",
+        only_science_sites=only_science_sites,
+        only_pdf=only_pdf,
+    )
     logger.debug(
-        f"Called GOOGLE API with args = {query}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
+        f"Called GOOGLE API with args = {query}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}"
+    )
 
     return dedup_results
 
 
 @CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True)
-def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True, use_original_query=False):
+def serpapi(
+    query,
+    key,
+    num,
+    our_datetime=None,
+    only_pdf=True,
+    only_science_sites=True,
+    use_original_query=False,
+):
     from datetime import datetime, timedelta
     import requests
-    
+
     if our_datetime:
         now = datetime.strptime(our_datetime, "%Y-%m-%d")
-        two_years_ago = now - timedelta(days=365*3)
+        two_years_ago = now - timedelta(days=365 * 3)
         date_string = two_years_ago.strftime("%Y-%m-%d")
     else:
         now = None
 
-    
-    location = random.sample(["New Delhi", "New York", "London", "Berlin", "Sydney", "Tokyo", "Seattle", "Amsterdam", "Paris"], 1)[0]
-    gl = random.sample(["us", "uk", "fr", "ar", "ci", "dk", "ec", "gf", "hk", "is", "in", "id", "pe", "ph", "pt", "pl"], 1)[0]
-    location_2 = random.sample(["New Delhi", "New York", "London", "Berlin", "Sydney", "Tokyo", "Seattle", "Amsterdam", "Paris"], 1)[0]
-    gl_2 = random.sample(["us", "uk", "fr", "ar", "ci", "dk", "ec", "gf", "hk", "is", "in", "id", "pe", "ph", "pt", "pl"], 1)[0]
-    location_3 = random.sample(["New Delhi", "New York", "London", "Berlin", "Sydney", "Tokyo", "Seattle", "Amsterdam", "Paris"], 1)[
-        0]
-    gl_3 = random.sample(["us", "uk", "fr", "ar", "ci", "dk", "ec", "gf", "hk", "is", "in", "id", "pe", "ph", "pt", "pl"], 1)[
-        0]
+    location = random.sample(
+        [
+            "New Delhi",
+            "New York",
+            "London",
+            "Berlin",
+            "Sydney",
+            "Tokyo",
+            "Seattle",
+            "Amsterdam",
+            "Paris",
+        ],
+        1,
+    )[0]
+    gl = random.sample(
+        [
+            "us",
+            "uk",
+            "fr",
+            "ar",
+            "ci",
+            "dk",
+            "ec",
+            "gf",
+            "hk",
+            "is",
+            "in",
+            "id",
+            "pe",
+            "ph",
+            "pt",
+            "pl",
+        ],
+        1,
+    )[0]
+    location_2 = random.sample(
+        [
+            "New Delhi",
+            "New York",
+            "London",
+            "Berlin",
+            "Sydney",
+            "Tokyo",
+            "Seattle",
+            "Amsterdam",
+            "Paris",
+        ],
+        1,
+    )[0]
+    gl_2 = random.sample(
+        [
+            "us",
+            "uk",
+            "fr",
+            "ar",
+            "ci",
+            "dk",
+            "ec",
+            "gf",
+            "hk",
+            "is",
+            "in",
+            "id",
+            "pe",
+            "ph",
+            "pt",
+            "pl",
+        ],
+        1,
+    )[0]
+    location_3 = random.sample(
+        [
+            "New Delhi",
+            "New York",
+            "London",
+            "Berlin",
+            "Sydney",
+            "Tokyo",
+            "Seattle",
+            "Amsterdam",
+            "Paris",
+        ],
+        1,
+    )[0]
+    gl_3 = random.sample(
+        [
+            "us",
+            "uk",
+            "fr",
+            "ar",
+            "ci",
+            "dk",
+            "ec",
+            "gf",
+            "hk",
+            "is",
+            "in",
+            "id",
+            "pe",
+            "ph",
+            "pt",
+            "pl",
+        ],
+        1,
+    )[0]
     # format the date as YYYY-MM-DD
-    
+
     url = "https://serpapi.com/search"
     pre_query = query
     after_string = f"after:{date_string}" if now else ""
@@ -781,17 +1184,21 @@ def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
     if use_original_query:
         query = str(og_query)
     params = {
-       "q": query,
-       "api_key": key,
-       "num": num,
-       "no_cache": False,
+        "q": query,
+        "api_key": key,
+        "num": num,
+        "no_cache": False,
         "location": location,
         "gl": gl,
-       }
+    }
     response = requests.get(url, params=params)
     if response.status_code != 200:
-        logger.error(f"Error in SERP API with query = {query} and response = {response.text}")
-        raise Exception(f"Error in SERP API with query = {query} and response = {response.text}")
+        logger.error(
+            f"Error in SERP API with query = {query} and response = {response.text}"
+        )
+        raise Exception(
+            f"Error in SERP API with query = {query} and response = {response.text}"
+        )
     assert response.status_code == 200
     rjs = response.json()
     if "organic_results" in rjs:
@@ -800,27 +1207,73 @@ def serpapi(query, key, num, our_datetime=None, only_pdf=True, only_science_site
         return []
     expected_res_length = max(num, 10)
     if len(results) < expected_res_length:
-        rjs = requests.get(url, params={"q": no_after_query, "api_key": key, "num": min(num, 10), "no_cache": False, "location": location, "gl": gl}).json()
+        rjs = requests.get(
+            url,
+            params={
+                "q": no_after_query,
+                "api_key": key,
+                "num": min(num, 10),
+                "no_cache": False,
+                "location": location,
+                "gl": gl,
+            },
+        ).json()
         if "organic_results" in rjs:
             results.extend(["organic_results"])
     if len(results) < expected_res_length:
-        rjs = requests.get(url, params={"q": og_query, "api_key": key, "num": max(num, 10), "no_cache": False, "location": location_2, "gl": gl_2}).json()
+        rjs = requests.get(
+            url,
+            params={
+                "q": og_query,
+                "api_key": key,
+                "num": max(num, 10),
+                "no_cache": False,
+                "location": location_2,
+                "gl": gl_2,
+            },
+        ).json()
         if "organic_results" in rjs:
             results.extend(["organic_results"])
     if len(results) < expected_res_length:
-        rjs = requests.get(url, params={"q": og_query, "api_key": key, "num": max(num, 10), "no_cache": False, "location": location_3, "gl": gl_3}).json()
+        rjs = requests.get(
+            url,
+            params={
+                "q": og_query,
+                "api_key": key,
+                "num": max(num, 10),
+                "no_cache": False,
+                "location": location_3,
+                "gl": gl_3,
+            },
+        ).json()
         if "organic_results" in rjs:
             results.extend(["organic_results"])
-    keys = ['title', 'link', 'snippet', 'rich_snippet', 'source']
+    keys = ["title", "link", "snippet", "rich_snippet", "source"]
     results = [{k: r[k] for k in keys if k in r} for r in results]
-    dedup_results = search_post_processing(pre_query, results, "serpapi", only_science_sites=only_science_sites, only_pdf=only_pdf)
-    logger.debug(f"Called SERP API with args = {query}, {key}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
-    
+    dedup_results = search_post_processing(
+        pre_query,
+        results,
+        "serpapi",
+        only_science_sites=only_science_sites,
+        only_pdf=only_pdf,
+    )
+    logger.debug(
+        f"Called SERP API with args = {query}, {key}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}"
+    )
+
     return dedup_results
 
 
 @CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True)
-def gscholarapi(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True, use_original_query=False):
+def gscholarapi(
+    query,
+    key,
+    num,
+    our_datetime=None,
+    only_pdf=True,
+    only_science_sites=True,
+    use_original_query=False,
+):
     from datetime import datetime, timedelta
     import requests
 
@@ -855,23 +1308,56 @@ def gscholarapi(query, key, num, our_datetime=None, only_pdf=True, only_science_
         return []
     expected_res_length = max(num, 10)
     if len(results) < expected_res_length:
-        rjs = requests.get(url, params={"q": og_query, "api_key": key, "num": max(num - 10, 10), "no_cache": False, "engine": "google_scholar"}).json()
+        rjs = requests.get(
+            url,
+            params={
+                "q": og_query,
+                "api_key": key,
+                "num": max(num - 10, 10),
+                "no_cache": False,
+                "engine": "google_scholar",
+            },
+        ).json()
         if "organic_results" in rjs:
             results.extend(["organic_results"])
     if len(results) < expected_res_length:
-        rjs = requests.get(url, params={"q": og_query, "api_key": key, "num": max(num, 10), "no_cache": True, "engine": "google_scholar"}).json()
+        rjs = requests.get(
+            url,
+            params={
+                "q": og_query,
+                "api_key": key,
+                "num": max(num, 10),
+                "no_cache": True,
+                "engine": "google_scholar",
+            },
+        ).json()
         if "organic_results" in rjs:
             results.extend(["organic_results"])
-    keys = ['title', 'link', 'snippet', 'rich_snippet', 'source']
+    keys = ["title", "link", "snippet", "rich_snippet", "source"]
     results = [{k: r[k] for k in keys if k in r} for r in results]
-    dedup_results = search_post_processing(pre_query, results, "gscholar", only_science_sites=only_science_sites, only_pdf=only_pdf)
+    dedup_results = search_post_processing(
+        pre_query,
+        results,
+        "gscholar",
+        only_science_sites=only_science_sites,
+        only_pdf=only_pdf,
+    )
     logger.debug(
-        f"Called SERP Google Scholar API with args = {query}, {key}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
+        f"Called SERP Google Scholar API with args = {query}, {key}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}"
+    )
     return dedup_results
 
 
 @CacheResults(cache=cache, dtype_filters=[str, int, tuple, bool], enabled=True)
-def gscholarapi_published(query, key, num, our_datetime=None, only_pdf=True, only_science_sites=True, use_original_query=False):
+def gscholarapi_published(
+    query,
+    key,
+    num,
+    our_datetime=None,
+    only_pdf=True,
+    only_science_sites=True,
+    use_original_query=False,
+):
     from datetime import datetime, timedelta
     import requests
 
@@ -904,80 +1390,146 @@ def gscholarapi_published(query, key, num, our_datetime=None, only_pdf=True, onl
         return []
     expected_res_length = max(num, 10)
     if len(results) < expected_res_length:
-        rjs = requests.get(url, params={"q": og_query, "api_key": key, "num": max(num - 10, 10), "no_cache": False, "engine": "google_scholar"}).json()
+        rjs = requests.get(
+            url,
+            params={
+                "q": og_query,
+                "api_key": key,
+                "num": max(num - 10, 10),
+                "no_cache": False,
+                "engine": "google_scholar",
+            },
+        ).json()
         if "organic_results" in rjs:
             results.extend(["organic_results"])
 
     if len(results) < expected_res_length:
-        rjs = requests.get(url, params={"q": og_query, "api_key": key, "num": max(num , 10), "no_cache": True, "engine": "google_scholar"}).json()
+        rjs = requests.get(
+            url,
+            params={
+                "q": og_query,
+                "api_key": key,
+                "num": max(num, 10),
+                "no_cache": True,
+                "engine": "google_scholar",
+            },
+        ).json()
         if "organic_results" in rjs:
             results.extend(["organic_results"])
-    keys = ['title', 'link', 'snippet', 'rich_snippet', 'source']
+    keys = ["title", "link", "snippet", "rich_snippet", "source"]
     results = [{k: r[k] for k in keys if k in r} for r in results]
-    dedup_results = search_post_processing(pre_query, results, "gscholar_published", only_science_sites=None, only_pdf=only_pdf)
+    dedup_results = search_post_processing(
+        pre_query,
+        results,
+        "gscholar_published",
+        only_science_sites=None,
+        only_pdf=only_pdf,
+    )
     logger.debug(
-        f"Called SERP Google Scholar API with args = {query}, {key}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}")
+        f"Called SERP Google Scholar API with args = {query}, {key}, {num}, {our_datetime}, {only_pdf}, {only_science_sites} and responses len = {len(dedup_results)}"
+    )
     return dedup_results
 
+
 # TODO: Add caching
-from web_scraping import web_scrape_page, soup_html_parser, soup_html_parser_fast_v3, fetch_content_brightdata_html, \
-    send_request_zenrows_html, send_request_ant_html
+from web_scraping import (
+    web_scrape_page,
+    soup_html_parser,
+    soup_html_parser_fast_v3,
+    fetch_content_brightdata_html,
+    send_request_zenrows_html,
+    send_request_ant_html,
+)
 
 
 def get_page_content(link, playwright_cdp_link=None, timeout=10):
-    text = ''
-    title = ''
+    text = ""
+    title = ""
     try:
         from playwright.sync_api import sync_playwright
+
         playwright_enabled = True
         with sync_playwright() as p:
             if playwright_cdp_link is not None and isinstance(playwright_cdp_link, str):
                 try:
                     browser = p.chromium.connect_over_cdp(playwright_cdp_link)
                 except Exception as e:
-                    logger.error(f"Error connecting to cdp link {playwright_cdp_link} with error {e}")
-                    browser = p.chromium.launch(headless=True, args=['--disable-web-security', "--disable-site-isolation-trials"])
+                    logger.error(
+                        f"Error connecting to cdp link {playwright_cdp_link} with error {e}"
+                    )
+                    browser = p.chromium.launch(
+                        headless=True,
+                        args=[
+                            "--disable-web-security",
+                            "--disable-site-isolation-trials",
+                        ],
+                    )
             else:
-                browser = p.chromium.launch(headless=True, args=['--disable-web-security', "--disable-site-isolation-trials"])
-            page = browser.new_page(ignore_https_errors=True, java_script_enabled=True, bypass_csp=True)
+                browser = p.chromium.launch(
+                    headless=True,
+                    args=["--disable-web-security", "--disable-site-isolation-trials"],
+                )
+            page = browser.new_page(
+                ignore_https_errors=True, java_script_enabled=True, bypass_csp=True
+            )
             url = link
             page.goto(url)
             # example_page = browser.new_page(ignore_https_errors=True, java_script_enabled=True, bypass_csp=True)
             # example_page.goto("https://www.example.com/")
-            
+
             try:
-                page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js")
+                page.add_script_tag(
+                    url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js"
+                )
                 # page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability-readerable.js")
-                page.wait_for_selector('body', timeout=timeout * 1000)
-                page.wait_for_function("() => typeof(Readability) !== 'undefined' && document.readyState === 'complete'", timeout=10000)
-                while page.evaluate('document.readyState') != 'complete':
+                page.wait_for_selector("body", timeout=timeout * 1000)
+                page.wait_for_function(
+                    "() => typeof(Readability) !== 'undefined' && document.readyState === 'complete'",
+                    timeout=10000,
+                )
+                while page.evaluate("document.readyState") != "complete":
                     time.sleep(0.5)
-                result = page.evaluate("""(function execute(){var article = new Readability(document).parse();return article})()""")
+                result = page.evaluate(
+                    """(function execute(){var article = new Readability(document).parse();return article})()"""
+                )
             except Exception as e:
                 # TODO: use playwright response modify https://playwright.dev/python/docs/network#modify-responses instead of example.com
-                logger.warning(f"Trying playwright for link {link} after playwright failed with exception = {str(e)}")
+                logger.warning(
+                    f"Trying playwright for link {link} after playwright failed with exception = {str(e)}"
+                )
                 # traceback.print_exc()
                 # Instead of this we can also load the readability script directly onto the page by using its content rather than adding script tag
-                page.wait_for_selector('body', timeout=timeout * 1000)
-                while page.evaluate('document.readyState') != 'complete':
+                page.wait_for_selector("body", timeout=timeout * 1000)
+                while page.evaluate("document.readyState") != "complete":
                     time.sleep(0.5)
-                init_html = page.evaluate("""(function e(){return document.body.innerHTML})()""")
-                init_title = page.evaluate("""(function e(){return document.title})()""")
+                init_html = page.evaluate(
+                    """(function e(){return document.body.innerHTML})()"""
+                )
+                init_title = page.evaluate(
+                    """(function e(){return document.title})()"""
+                )
                 # page = example_page
                 page.goto("https://www.example.com/")
                 page.evaluate(f"""text=>document.body.innerHTML=text""", init_html)
                 page.evaluate(f"""text=>document.title=text""", init_title)
                 logger.debug(f"Loaded html and title into page with example.com as url")
-                page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js")
-                page.wait_for_function("() => typeof(Readability) !== 'undefined' && document.readyState === 'complete'", timeout=10000)
+                page.add_script_tag(
+                    url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability.js"
+                )
+                page.wait_for_function(
+                    "() => typeof(Readability) !== 'undefined' && document.readyState === 'complete'",
+                    timeout=10000,
+                )
                 # page.add_script_tag(url="https://cdnjs.cloudflare.com/ajax/libs/readability/0.4.4/Readability-readerable.js")
-                page.wait_for_selector('body', timeout=timeout*1000)
-                while page.evaluate('document.readyState') != 'complete':
+                page.wait_for_selector("body", timeout=timeout * 1000)
+                while page.evaluate("document.readyState") != "complete":
                     time.sleep(0.5)
-                result = page.evaluate("""(function execute(){var article = new Readability(document).parse();return article})()""")
-            title = normalize_whitespace(result['title'])
-            text = normalize_whitespace(result['textContent'])
-                
+                result = page.evaluate(
+                    """(function execute(){var article = new Readability(document).parse();return article})()"""
+                )
+            title = normalize_whitespace(result["title"])
+            text = normalize_whitespace(result["textContent"])
+
             try:
                 browser.close()
             except:
@@ -985,18 +1537,21 @@ def get_page_content(link, playwright_cdp_link=None, timeout=10):
     except Exception as e:
         # traceback.print_exc()
         try:
-            logger.debug(f"Trying selenium for link {link} after playwright failed with exception = {str(e)})")
+            logger.debug(
+                f"Trying selenium for link {link} after playwright failed with exception = {str(e)})"
+            )
             from selenium import webdriver
             from selenium.webdriver.common.by import By
             from selenium.webdriver.support.wait import WebDriverWait
             from selenium.webdriver.common.action_chains import ActionChains
             from selenium.webdriver.support import expected_conditions as EC
+
             options = webdriver.ChromeOptions()
-            options.add_argument('--disable-dev-shm-usage')
-            options.add_argument('--headless')
+            options.add_argument("--disable-dev-shm-usage")
+            options.add_argument("--headless")
             driver = webdriver.Chrome(options=options)
             driver.get(link)
-            add_readability_to_selenium = '''
+            add_readability_to_selenium = """
                     function myFunction() {
                         if (document.readyState === 'complete') {
                             var script = document.createElement('script');
@@ -1012,15 +1567,23 @@ def get_page_content(link, playwright_cdp_link=None, timeout=10):
                     }
 
                     myFunction();
-                '''
+                """
             try:
                 driver.execute_script(add_readability_to_selenium)
-                while driver.execute_script('return document.readyState;') != 'complete':
+                while (
+                    driver.execute_script("return document.readyState;") != "complete"
+                ):
                     time.sleep(0.5)
+
                 def document_initialised(driver):
-                    return driver.execute_script("""return typeof(Readability) !== 'undefined' && document.readyState === 'complete';""")
+                    return driver.execute_script(
+                        """return typeof(Readability) !== 'undefined' && document.readyState === 'complete';"""
+                    )
+
                 WebDriverWait(driver, timeout=timeout).until(document_initialised)
-                result = driver.execute_script("""var article = new Readability(document).parse();return article""")
+                result = driver.execute_script(
+                    """var article = new Readability(document).parse();return article"""
+                )
             except Exception as e:
                 traceback.print_exc()
                 # Instead of this we can also load the readability script directly onto the page by using its content rather than adding script tag
@@ -1028,30 +1591,40 @@ def get_page_content(link, playwright_cdp_link=None, timeout=10):
                 init_html = driver.execute_script("""return document.body.innerHTML;""")
                 driver.get("https://www.example.com/")
                 logger.debug(f"Loaded html and title into page with example.com as url")
-                driver.execute_script("""document.body.innerHTML=arguments[0]""", init_html)
+                driver.execute_script(
+                    """document.body.innerHTML=arguments[0]""", init_html
+                )
                 driver.execute_script("""document.title=arguments[0]""", init_title)
                 driver.execute_script(add_readability_to_selenium)
-                while driver.execute_script('return document.readyState;') != 'complete':
+                while (
+                    driver.execute_script("return document.readyState;") != "complete"
+                ):
                     time.sleep(0.5)
+
                 def document_initialised(driver):
-                    return driver.execute_script("""return typeof(Readability) !== 'undefined' && document.readyState === 'complete';""")
+                    return driver.execute_script(
+                        """return typeof(Readability) !== 'undefined' && document.readyState === 'complete';"""
+                    )
+
                 WebDriverWait(driver, timeout=timeout).until(document_initialised)
-                result = driver.execute_script("""var article = new Readability(document).parse();return article""")
-                
-            title = normalize_whitespace(result['title'])
-            text = normalize_whitespace(result['textContent'])
+                result = driver.execute_script(
+                    """var article = new Readability(document).parse();return article"""
+                )
+
+            title = normalize_whitespace(result["title"])
+            text = normalize_whitespace(result["textContent"])
             try:
                 driver.close()
             except:
                 pass
         except Exception as e:
-            if 'driver' in locals():
+            if "driver" in locals():
                 try:
                     driver.close()
                 except:
                     pass
         finally:
-            if 'driver' in locals():
+            if "driver" in locals():
                 try:
                     driver.close()
                 except:
@@ -1063,19 +1636,22 @@ def get_page_content(link, playwright_cdp_link=None, timeout=10):
             except:
                 pass
     return {"text": text, "title": title}
+
+
 # @typed_memoize(cache, str, int, tuple, bool)
 def freePDFReader(url, page_ranges=None):
     from langchain_community.document_loaders import PyPDFLoader, PyMuPDFLoader
     from pathlib import Path
+
     if not os.path.isfile(url):
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'}
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36"
+        }
         r = requests.get(url, verify=False, headers=headers)
 
         if r.status_code != 200:
             raise ValueError(
-                "Check the url of your file; returned status code %s"
-                % r.status_code
+                "Check the url of your file; returned status code %s" % r.status_code
             )
 
         temp_dir = tempfile.TemporaryDirectory()
@@ -1089,7 +1665,7 @@ def freePDFReader(url, page_ranges=None):
         start, end = page_ranges.split("-")
         start = int(start) - 1
         end = int(end) - 1
-        " ".join([pages[i].page_content for i in range(start, end+1)])
+        " ".join([pages[i].page_content for i in range(start, end + 1)])
     return " ".join([p.page_content for p in pages])
 
 
@@ -1097,6 +1673,7 @@ class PDFtoMarkdown:
     def __init__(self, keys, file_path, **kwargs):
         self.file_path = file_path
         from pathlib import Path
+
         self.file_path = file_path
         self.keys = keys
 
@@ -1106,7 +1683,8 @@ class PDFtoMarkdown:
         # If the file is a web path, download it to a temporary file, and use that
         if not os.path.isfile(self.file_path) and self._is_valid_url(self.file_path):
             headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'}
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36"
+            }
             r = requests.get(self.file_path, verify=False, headers=headers)
 
             if r.status_code != 200:
@@ -1120,8 +1698,6 @@ class PDFtoMarkdown:
             with open(temp_pdf, mode="wb") as f:
                 f.write(r.content)
             self.file_path = str(temp_pdf)
-
-
 
         self.page_ranges = None
         if "page_ranges" in kwargs and kwargs["page_ranges"] is not None:
@@ -1139,18 +1715,18 @@ class PDFtoMarkdown:
                 else:
                     self.page_ranges.append(int(pr[0]))
 
-
-
     def _is_valid_url(self, url):
         import re
+
         regex = re.compile(
-            r'^(?:http|ftp)s?://'  # http:// or https://
+            r"^(?:http|ftp)s?://"  # http:// or https://
             # domain...
-            r'(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}|'
-            r'localhost|'  # localhost...
-            r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})'
-            r'(?::\d+)?'  # optional port
-            r'(?:/?|[/?]\S+)$', re.IGNORECASE
+            r"(?:(?:[A-Z0-9](?:[A-Z0-9-]{0,61}[A-Z0-9])?\.)+[A-Z]{2,6}|"
+            r"localhost|"  # localhost...
+            r"\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3})"
+            r"(?::\d+)?"  # optional port
+            r"(?:/?|[/?]\S+)$",
+            re.IGNORECASE,
         )
         return re.match(regex, url)
 
@@ -1159,10 +1735,10 @@ class PDFtoMarkdown:
 
     def _is_valid_web_pdf(self, url):
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'}
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36"
+        }
         r = requests.get(url, verify=False, headers=headers)
         return r.headers.get("content-type") == "application/pdf"
-
 
     def ocr_efficient_prompt(self, text):
         system = f"""
@@ -1200,8 +1776,9 @@ Write your markdown content and page summary below in the above xml like format:
 """
         return system, prompt
 
-
-    def ocr_checker_corrector_prompt(self, page_text, past_content_1, past_summary_1, past_content_2, past_summary_2):
+    def ocr_checker_corrector_prompt(
+        self, page_text, past_content_1, past_summary_1, past_content_2, past_summary_2
+    ):
         system = f"""
 You were given a pdf file text and the corresponding image of the pdf page. You were asked to convert the text in the image to markdown. 
 We performed two iterations and got two set of results. You need to check the results and correct them if needed. And then give a final corrected markdown output result.
@@ -1289,6 +1866,7 @@ Write your corrected markdown content (using the image and pdf file text) and pa
         temp_dir = tempfile.TemporaryDirectory()
         from pathlib import Path
         from PIL import Image
+
         uuid = str(uuid4())
         temp_path = Path(temp_dir.name) / f"tmp-{uuid}.png"
         image_file_path = str(temp_path)
@@ -1296,10 +1874,11 @@ Write your corrected markdown content (using the image and pdf file text) and pa
         page_image.save(image_file_path)
         # Get file size of image_file_path
         import os
+
         mb_size_1 = os.path.getsize(image_file_path) / 1_000
 
         im = Image.open(image_file_path)
-        im = im.convert('RGB')
+        im = im.convert("RGB")
         image_file_path = str(Path(temp_dir.name) / f"tmp-{uuid}.jpg")
         im.save(image_file_path, quality=90)
         mb_size_2 = os.path.getsize(image_file_path) / 1_000
@@ -1307,27 +1886,45 @@ Write your corrected markdown content (using the image and pdf file text) and pa
         llm1 = CallLLm(self.keys, model_name=LONG_CONTEXT_LLM[0])
         llm2 = CallLLm(self.keys, model_name=CHEAP_LLM[0])
         system, prompt = self.ocr_efficient_prompt(page_text)
-        llm1_res = get_async_future(llm1, prompt, images=[image_file_path], system=system)
-        llm2_res = get_async_future(llm2, prompt, images=[image_file_path], system=system)
+        llm1_res = get_async_future(
+            llm1, prompt, images=[image_file_path], system=system
+        )
+        llm2_res = get_async_future(
+            llm2, prompt, images=[image_file_path], system=system
+        )
         llm1_res = sleep_and_get_future_result(llm1_res)
         llm2_res = sleep_and_get_future_result(llm2_res)
 
-        page_content_1 = llm1_res.split("</pdf_page_content_in_markdown>")[0].split("<pdf_page_content_in_markdown>")[-1]
-        page_summary_1 = llm1_res.split("</pdf_page_summary>")[0].split("<pdf_page_summary>")[-1]
-        page_content_2 = llm2_res.split("</pdf_page_content_in_markdown>")[0].split("<pdf_page_content_in_markdown>")[-1]
-        page_summary_2 = llm2_res.split("</pdf_page_summary>")[0].split("<pdf_page_summary>")[-1]
+        page_content_1 = llm1_res.split("</pdf_page_content_in_markdown>")[0].split(
+            "<pdf_page_content_in_markdown>"
+        )[-1]
+        page_summary_1 = llm1_res.split("</pdf_page_summary>")[0].split(
+            "<pdf_page_summary>"
+        )[-1]
+        page_content_2 = llm2_res.split("</pdf_page_content_in_markdown>")[0].split(
+            "<pdf_page_content_in_markdown>"
+        )[-1]
+        page_summary_2 = llm2_res.split("</pdf_page_summary>")[0].split(
+            "<pdf_page_summary>"
+        )[-1]
 
-        system, prompt = self.ocr_checker_corrector_prompt(page_text, page_content_1, page_summary_1, page_content_2, page_summary_2)
+        system, prompt = self.ocr_checker_corrector_prompt(
+            page_text, page_content_1, page_summary_1, page_content_2, page_summary_2
+        )
         final_res = llm2(prompt, images=[image_file_path], system=system)
-        final_content = final_res.split("</pdf_page_content_in_markdown>")[0].split("<pdf_page_content_in_markdown>")[-1]
-        final_summary = final_res.split("</pdf_page_summary>")[0].split("<pdf_page_summary>")[-1]
+        final_content = final_res.split("</pdf_page_content_in_markdown>")[0].split(
+            "<pdf_page_content_in_markdown>"
+        )[-1]
+        final_summary = final_res.split("</pdf_page_summary>")[0].split(
+            "<pdf_page_summary>"
+        )[-1]
 
         return final_summary, final_content
-
 
     def convert_to_md(self) -> Tuple[List[str], List[str], str, str]:
         import fitz
         from fitz.fitz import Document
+
         doc: Document = fitz.open(self.file_path)
         num_pages = len(doc)
         full_md_text = ""
@@ -1343,7 +1940,10 @@ Write your corrected markdown content (using the image and pdf file text) and pa
         with ThreadPoolExecutor(max_workers=4) as executor:
             # results = list(executor.map(self.process_one_page, [doc]*len(pages), pages))
             # use executor.submit instead of executor.map to get exceptions
-            futures = [executor.submit(self.process_one_page, doc, page_number) for page_number in pages]
+            futures = [
+                executor.submit(self.process_one_page, doc, page_number)
+                for page_number in pages
+            ]
             # Check for exception and retry
             results = []
             for page_number, future in zip(pages, futures):
@@ -1360,17 +1960,21 @@ Write your corrected markdown content (using the image and pdf file text) and pa
         full_md_summary = "\n<page_break>\n".join(summaries)
         return summaries, texts, full_md_text, full_md_summary
 
-
     def __call__(self, *args, **kwargs):
         return self.convert_to_md()
 
 
 class CustomPDFLoader(MathpixPDFLoader):
-    def __init__(self, file_path, processed_file_format: str = "mmd",
+    def __init__(
+        self,
+        file_path,
+        processed_file_format: str = "mmd",
         max_wait_time_seconds: int = 500,
         should_clean_pdf: bool = False,
-        **kwargs):
+        **kwargs,
+    ):
         from pathlib import Path
+
         self.file_path = file_path
         self.web_path = None
         if "~" in self.file_path:
@@ -1379,7 +1983,8 @@ class CustomPDFLoader(MathpixPDFLoader):
         # If the file is a web path, download it to a temporary file, and use that
         if not os.path.isfile(self.file_path) and self._is_valid_url(self.file_path):
             headers = {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36'}
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.36"
+            }
             r = requests.get(self.file_path, verify=False, headers=headers)
 
             if r.status_code != 200:
@@ -1403,14 +2008,13 @@ class CustomPDFLoader(MathpixPDFLoader):
         self.processed_file_format = processed_file_format
         self.max_wait_time_seconds = max_wait_time_seconds
         self.should_clean_pdf = should_clean_pdf
-        
-        self.options = {"rm_fonts": True, 
-                   "enable_tables_fallback":True}
+
+        self.options = {"rm_fonts": True, "enable_tables_fallback": True}
         if self.processed_file_format != "mmd":
-            self.options["conversion_formats"] = {self.processed_file_format: True},
+            self.options["conversion_formats"] = ({self.processed_file_format: True},)
         if "page_ranges" in kwargs and kwargs["page_ranges"] is not None:
             self.options["page_ranges"] = kwargs["page_ranges"]
-        
+
     @property
     def data(self) -> dict:
         if os.path.exists(self.file_path):
@@ -1418,6 +2022,7 @@ class CustomPDFLoader(MathpixPDFLoader):
         else:
             options = dict(url=self.file_path, **self.options)
         return {"options_json": json.dumps(options)}
+
     def clean_pdf(self, contents: str) -> str:
         contents = "\n".join(
             [line for line in contents.split("\n") if not line.startswith("![]")]
@@ -1430,28 +2035,44 @@ class CustomPDFLoader(MathpixPDFLoader):
             .replace(r"\)", ")")
         )
         return contents
-    
+
 
 class PDFReaderTool:
     def __init__(self, keys):
-        self.mathpix_api_id=keys['mathpixId']
-        self.mathpix_api_key=keys['mathpixKey']
+        self.mathpix_api_id = keys["mathpixId"]
+        self.mathpix_api_key = keys["mathpixKey"]
+
     # @typed_memoize(cache, str, int, tuple, bool)
     def __call__(self, url, page_ranges=None):
         if self.mathpix_api_id is not None and self.mathpix_api_key is not None:
-            
-            loader = CustomPDFLoader(url, should_clean_pdf=True,
-                              mathpix_api_id=self.mathpix_api_id, 
-                              mathpix_api_key=self.mathpix_api_key, 
-                              processed_file_format="mmd", page_ranges=page_ranges)
+            loader = CustomPDFLoader(
+                url,
+                should_clean_pdf=True,
+                mathpix_api_id=self.mathpix_api_id,
+                mathpix_api_key=self.mathpix_api_key,
+                processed_file_format="mmd",
+                page_ranges=page_ranges,
+            )
             data = loader.load()
             return data[0].page_content
         else:
             return freePDFReader(url, page_ranges)
 
-def web_search_part1_mock(context, doc_source, doc_context, api_keys, year_month=None,
-                     previous_answer=None, previous_search_results=None, extra_queries=None,
-                     gscholar=False, provide_detailed_answers=False, start_time=None, web_search_tmp_marker_name=None,):
+
+def web_search_part1_mock(
+    context,
+    doc_source,
+    doc_context,
+    api_keys,
+    year_month=None,
+    previous_answer=None,
+    previous_search_results=None,
+    extra_queries=None,
+    gscholar=False,
+    provide_detailed_answers=False,
+    start_time=None,
+    web_search_tmp_marker_name=None,
+):
     query_strings = ["Tell me about this."]
     result_context = context
     links = [
@@ -1484,48 +2105,97 @@ def web_search_part1_mock(context, doc_source, doc_context, api_keys, year_month
         "https://iamitcohen.medium.com/a-comparative-analysis-of-tensorflow-pytorch-mxnet-and-scikit-learn-2072fe566df7",
         "https://towardsdatascience.com/not-just-pytorch-and-tensorflow-4-other-deep-learning-libraries-you-should-lnow-a72cf8be0814",
         "https://analyticsindiamag.com/can-mxnet-stand-up-to-tensorflow-pytorch/",
-
-
     ]
     query = query_strings[0]
     title = "Deep Learning Frameworks"
 
-    yield {"type": "query", "query": query_strings, "query_type": "web_search_part1", "year_month": year_month,
-           "gscholar": gscholar, "provide_detailed_answers": provide_detailed_answers}
+    yield {
+        "type": "query",
+        "query": query_strings,
+        "query_type": "web_search_part1",
+        "year_month": year_month,
+        "gscholar": gscholar,
+        "provide_detailed_answers": provide_detailed_answers,
+    }
     full_queue = []
     for iqx, link in enumerate(links):
         full_queue.append(
-            {"query": query, "title": title, "link": link, "context": result_context, "type": "result", "rank": iqx})
-        yield {"query": query, "title": title, "link": link, "context": result_context, "type": "result",
-               "rank": iqx, "start_time": start_time}
-    yield {"type": "end", "query": query_strings, "query_type": "web_search_part1", "year_month": year_month,
-           "gscholar": gscholar, "provide_detailed_answers": provide_detailed_answers, "full_results": full_queue}
+            {
+                "query": query,
+                "title": title,
+                "link": link,
+                "context": result_context,
+                "type": "result",
+                "rank": iqx,
+            }
+        )
+        yield {
+            "query": query,
+            "title": title,
+            "link": link,
+            "context": result_context,
+            "type": "result",
+            "rank": iqx,
+            "start_time": start_time,
+        }
+    yield {
+        "type": "end",
+        "query": query_strings,
+        "query_type": "web_search_part1",
+        "year_month": year_month,
+        "gscholar": gscholar,
+        "provide_detailed_answers": provide_detailed_answers,
+        "full_results": full_queue,
+    }
 
-forbidden_links = ["youtube.com", "twitter.com", "facebook.com", "instagram.com",
-                   "pinterest.com", "tiktok.com", "snapchat.com",
-                   "whatsapp.com", "telegram.com", "discord.com",
-                   # paid science sites
-                "https://ieeexplore.ieee.org", "https://www.sciencedirect.com", "https://www.springer.com", "https://www.jstor.org",
-                   # "t.me", "wa.me", "m.me", "fb.com",
-                   # "bit.ly", "tinyurl.com", "goo.gl",
-                   # "ow.ly", "buff.ly", "dlvr.it", "ift.tt", "t.co", "lnkd.in", "rebrand.ly",
-                   # "trib.al", "mtr.cool", "mcaf.ee", "bit.do", "qr.ae", "adf.ly", "goo.gl", "bit.do",
-                   # "bitly.com", "tinyurl.com", "bit.ly", "ow.ly", "t.co", "lnkd.in", "rebrand.ly", "trib.al",
-                   # "mtr.cool", "mcaf.ee", "bit.do", "qr.ae", "adf.ly", "goo.gl", "bit.do", "bitly.com",
-                   # "tinyurl.com", "bit.ly", "ow.ly", "t.co", "lnkd.in", "rebrand.ly", "trib.al", "mtr.cool",
-                   # "mcaf.ee", "bit.do", "qr.ae", "adf.ly", "goo.gl", "bit.do", "bitly.com", "tinyurl.com",
-                   # "bit.ly", "ow.ly", "t.co", "lnkd.in", "rebrand.ly", "trib.al", "mtr.cool", "mcaf.ee", "bit.do",
-                   # "qr.ae", "adf.ly", "goo.gl", "bit.do", "bitly.com", "tinyurl.com", "bit.ly", "ow.ly", "t.co",
-                   # "lnkd.in", "rebrand.ly", "trib.al", "mtr.cool", "mcaf.ee", "bit.do", "qr.ae", "adf.ly", "goo.gl",
-                   # "bit.do", "bitly.com", "tinyurl.com", "bit.ly", "ow.ly", "t.co", "lnkd.in", "rebrand.ly", "trib.al",
-                   # "mtr.cool", "mcaf.ee", "bit.do", "qr.ae", "adf.ly", "goo.gl", "bit.do",
-                   ]
+
+forbidden_links = [
+    "youtube.com",
+    "twitter.com",
+    "facebook.com",
+    "instagram.com",
+    "pinterest.com",
+    "tiktok.com",
+    "snapchat.com",
+    "whatsapp.com",
+    "telegram.com",
+    "discord.com",
+    # paid science sites
+    "https://ieeexplore.ieee.org",
+    "https://www.sciencedirect.com",
+    "https://www.springer.com",
+    "https://www.jstor.org",
+    # "t.me", "wa.me", "m.me", "fb.com",
+    # "bit.ly", "tinyurl.com", "goo.gl",
+    # "ow.ly", "buff.ly", "dlvr.it", "ift.tt", "t.co", "lnkd.in", "rebrand.ly",
+    # "trib.al", "mtr.cool", "mcaf.ee", "bit.do", "qr.ae", "adf.ly", "goo.gl", "bit.do",
+    # "bitly.com", "tinyurl.com", "bit.ly", "ow.ly", "t.co", "lnkd.in", "rebrand.ly", "trib.al",
+    # "mtr.cool", "mcaf.ee", "bit.do", "qr.ae", "adf.ly", "goo.gl", "bit.do", "bitly.com",
+    # "tinyurl.com", "bit.ly", "ow.ly", "t.co", "lnkd.in", "rebrand.ly", "trib.al", "mtr.cool",
+    # "mcaf.ee", "bit.do", "qr.ae", "adf.ly", "goo.gl", "bit.do", "bitly.com", "tinyurl.com",
+    # "bit.ly", "ow.ly", "t.co", "lnkd.in", "rebrand.ly", "trib.al", "mtr.cool", "mcaf.ee", "bit.do",
+    # "qr.ae", "adf.ly", "goo.gl", "bit.do", "bitly.com", "tinyurl.com", "bit.ly", "ow.ly", "t.co",
+    # "lnkd.in", "rebrand.ly", "trib.al", "mtr.cool", "mcaf.ee", "bit.do", "qr.ae", "adf.ly", "goo.gl",
+    # "bit.do", "bitly.com", "tinyurl.com", "bit.ly", "ow.ly", "t.co", "lnkd.in", "rebrand.ly", "trib.al",
+    # "mtr.cool", "mcaf.ee", "bit.do", "qr.ae", "adf.ly", "goo.gl", "bit.do",
+]
+
 
 # TODO: Add caching
-def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month=None,
-                     previous_answer=None, previous_search_results=None, extra_queries=None,
-                     gscholar=False, provide_detailed_answers=False, start_time=None, web_search_tmp_marker_name=None,):
-
+def web_search_part1_real(
+    context,
+    doc_source,
+    doc_context,
+    api_keys,
+    year_month=None,
+    previous_answer=None,
+    previous_search_results=None,
+    extra_queries=None,
+    gscholar=False,
+    provide_detailed_answers=False,
+    start_time=None,
+    web_search_tmp_marker_name=None,
+):
     # TODO: if it is scientific or knowledge based question, then use google scholar api, use filetype:pdf and site:arxiv.org OR site:openreview.net OR site:arxiv-vanity.com OR site:arxiv-sanity.com OR site:bioRxiv.org OR site:medrxiv.org OR site:aclweb.org
     st = time.time()
     start_time = start_time if start_time is not None else st
@@ -1538,38 +2208,87 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
     if previous_search_results:
         for r in previous_search_results:
             pqs.append(r["query"])
-    doc_context = f"You are also given the research document: '''{doc_context}'''" if len(doc_context) > 0 else ""
+    doc_context = (
+        f"You are also given the research document: '''{doc_context}'''"
+        if len(doc_context) > 0
+        else ""
+    )
     if provide_detailed_answers >= 2 and len(extra_queries) > 0:
         pqs.extend(extra_queries)
-    pqs = f"We had previously generated the following web search queries in our previous search: '''{pqs}''', don't generate these queries or similar queries - '''{pqs}'''" if len(pqs)>0 else ''
-    prompt = prompts.web_search_prompt.format(context=context, doc_context=doc_context, pqs=pqs, n_query=n_query)
+    pqs = (
+        f"We had previously generated the following web search queries in our previous search: '''{pqs}''', don't generate these queries or similar queries - '''{pqs}'''"
+        if len(pqs) > 0
+        else ""
+    )
+    prompt = prompts.web_search_prompt.format(
+        context=context, doc_context=doc_context, pqs=pqs, n_query=n_query
+    )
     year = int(datetime.now().strftime("%Y"))
     month = datetime.now().strftime("%B")
     num_res = 10
     use_original_query = False
-    if (len(extra_queries) == 0) or (len(extra_queries) <= 1 and provide_detailed_answers >= 2):
+    if (len(extra_queries) == 0) or (
+        len(extra_queries) <= 1 and provide_detailed_answers >= 2
+    ):
         # TODO: explore generating just one query for local LLM and doing that multiple times with high temperature.
-        query_strings = CallLLm(api_keys, use_gpt4=False, model_name=CHEAP_LLM[0])(prompt, temperature=0.5, max_tokens=100)
+        query_strings = CallLLm(api_keys, use_gpt4=False, model_name=CHEAP_LLM[0])(
+            prompt, temperature=0.5, max_tokens=100
+        )
         query_strings.split("###END###")[0].strip()
-        logger.debug(f"Query string for {context} = {query_strings}") # prompt = \n```\n{prompt}\n```\n
-        query_strings = sorted(parse_array_string(query_strings.strip()), key=lambda x: len(x), reverse=True)
+        logger.debug(
+            f"Query string for {context} = {query_strings}"
+        )  # prompt = \n```\n{prompt}\n```\n
+        query_strings = sorted(
+            parse_array_string(query_strings.strip()),
+            key=lambda x: len(x),
+            reverse=True,
+        )
         query_strings = [q.strip().lower() for q in query_strings[:n_query_num]]
 
         if len(query_strings) == 0:
-            query_strings = CallLLm(api_keys, use_gpt4=False, model_name=CHEAP_LLM[0])(prompt, temperature=0.2, max_tokens=100)
+            query_strings = CallLLm(api_keys, use_gpt4=False, model_name=CHEAP_LLM[0])(
+                prompt, temperature=0.2, max_tokens=100
+            )
             query_strings.split("###END###")[0].strip()
-            query_strings = sorted(parse_array_string(query_strings.strip()), key=lambda x: len(x), reverse=True)
+            query_strings = sorted(
+                parse_array_string(query_strings.strip()),
+                key=lambda x: len(x),
+                reverse=True,
+            )
             query_strings = [q.strip().lower() for q in query_strings[:n_query_num]]
         if len(query_strings) <= 1:
             query_strings = query_strings + [context]
-        query_strings = (query_strings if len(extra_queries) == 0 else query_strings[:1]) + extra_queries
-        if (len(extra_queries) == 0):
+        query_strings = (
+            query_strings if len(extra_queries) == 0 else query_strings[:1]
+        ) + extra_queries
+        if len(extra_queries) == 0:
             for i, q in enumerate(query_strings):
-                if f"in {year}" in q or f"in {month} {year}" in q or f"in {year} {month}" in q:
+                if (
+                    f"in {year}" in q
+                    or f"in {month} {year}" in q
+                    or f"in {year} {month}" in q
+                ):
                     continue
-                if "trend" in q or "trending" in q or "upcoming" in q or "pioneering" in q or "advancements" in q or "advances" in q or "emerging" in q:
+                if (
+                    "trend" in q
+                    or "trending" in q
+                    or "upcoming" in q
+                    or "pioneering" in q
+                    or "advancements" in q
+                    or "advances" in q
+                    or "emerging" in q
+                ):
                     q = q + f" in {year}"
-                elif "latest" in q or "recent" in q or "new" in q or "newest" in q or "current" in q or "state-of-the-art" in q or "sota" in q or "state of the art" in q:
+                elif (
+                    "latest" in q
+                    or "recent" in q
+                    or "new" in q
+                    or "newest" in q
+                    or "current" in q
+                    or "state-of-the-art" in q
+                    or "sota" in q
+                    or "state of the art" in q
+                ):
                     if i % 2 == 0:
                         q = q + f" in {year} {month}"
                     else:
@@ -1583,15 +2302,39 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
     if len(query_strings) == 1 and provide_detailed_answers >= 2:
         num_res = 40
 
-    yield {"type": "query", "query": query_strings, "query_type": "web_search_part1", "year_month": year_month, "gscholar": gscholar, "provide_detailed_answers": provide_detailed_answers}
-    serp_available = "serpApiKey" in api_keys and api_keys["serpApiKey"] is not None and len(api_keys["serpApiKey"].strip()) > 0
-    bing_available = "bingKey" in api_keys and api_keys["bingKey"] is not None and len(api_keys["bingKey"].strip()) > 0
-    google_available = ("googleSearchApiKey" in api_keys and api_keys["googleSearchApiKey"] is not None and len(api_keys["googleSearchApiKey"].strip()) > 0) and ("googleSearchCxId" in api_keys and api_keys["googleSearchCxId"] is not None and len(api_keys["googleSearchCxId"].strip()) > 0)
-
+    yield {
+        "type": "query",
+        "query": query_strings,
+        "query_type": "web_search_part1",
+        "year_month": year_month,
+        "gscholar": gscholar,
+        "provide_detailed_answers": provide_detailed_answers,
+    }
+    serp_available = (
+        "serpApiKey" in api_keys
+        and api_keys["serpApiKey"] is not None
+        and len(api_keys["serpApiKey"].strip()) > 0
+    )
+    bing_available = (
+        "bingKey" in api_keys
+        and api_keys["bingKey"] is not None
+        and len(api_keys["bingKey"].strip()) > 0
+    )
+    google_available = (
+        "googleSearchApiKey" in api_keys
+        and api_keys["googleSearchApiKey"] is not None
+        and len(api_keys["googleSearchApiKey"].strip()) > 0
+    ) and (
+        "googleSearchCxId" in api_keys
+        and api_keys["googleSearchCxId"] is not None
+        and len(api_keys["googleSearchCxId"].strip()) > 0
+    )
 
     if year_month:
         year_month = datetime.strptime(year_month, "%Y-%m").strftime("%Y-%m-%d")
-    time_logger.info(f"[web_search_part1_real] Time taken for web search part 1 query preparation = {(time.time() - st):.2f} with query strings as {query_strings}")
+    time_logger.info(
+        f"[web_search_part1_real] Time taken for web search part 1 query preparation = {(time.time() - st):.2f} with query strings as {query_strings}"
+    )
     search_st = time.time()
     serps = []
     month = int(datetime.now().strftime("%m"))
@@ -1599,129 +2342,391 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
     brightdata_available = brightdata_serp_api_proxy is not None
     if brightdata_available:
         if not gscholar:
-
-            serps.extend([get_async_future(brightdata_google_serp, query, brightdata_serp_api_proxy, num_res,
-                                           our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in
-                          query_strings])
+            serps.extend(
+                [
+                    get_async_future(
+                        brightdata_google_serp,
+                        query,
+                        brightdata_serp_api_proxy,
+                        num_res,
+                        our_datetime=year_month,
+                        only_pdf=None,
+                        only_science_sites=None,
+                    )
+                    for query in query_strings
+                ]
+            )
         if gscholar and use_original_query:
-            serps.extend([get_async_future(brightdata_google_serp, f" research paper for {query}",
-                                           brightdata_serp_api_proxy, num_res,
-                                           our_datetime=year_month, only_pdf=None,
-                                           only_science_sites=None) for ix, query in
-                          enumerate(query_strings)])
+            serps.extend(
+                [
+                    get_async_future(
+                        brightdata_google_serp,
+                        f" research paper for {query}",
+                        brightdata_serp_api_proxy,
+                        num_res,
+                        our_datetime=year_month,
+                        only_pdf=None,
+                        only_science_sites=None,
+                    )
+                    for ix, query in enumerate(query_strings)
+                ]
+            )
         if gscholar and not use_original_query:
-            serps.extend([get_async_future(brightdata_google_serp, query + f" research paper in {str(year)}",
-                                           brightdata_serp_api_proxy, num_res,
-                                           our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
-                                           only_science_sites=True if ix % 2 == 0 else None) for ix, query in
-                          enumerate(query_strings)])
-            serps.extend([get_async_future(brightdata_google_serp, query + f" research paper",
-                                           brightdata_serp_api_proxy, num_res,
-                                           our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in
-                          query_strings])
+            serps.extend(
+                [
+                    get_async_future(
+                        brightdata_google_serp,
+                        query + f" research paper in {str(year)}",
+                        brightdata_serp_api_proxy,
+                        num_res,
+                        our_datetime=year_month,
+                        only_pdf=True if ix % 2 == 1 else None,
+                        only_science_sites=True if ix % 2 == 0 else None,
+                    )
+                    for ix, query in enumerate(query_strings)
+                ]
+            )
+            serps.extend(
+                [
+                    get_async_future(
+                        brightdata_google_serp,
+                        query + f" research paper",
+                        brightdata_serp_api_proxy,
+                        num_res,
+                        our_datetime=year_month,
+                        only_pdf=None,
+                        only_science_sites=None,
+                    )
+                    for query in query_strings
+                ]
+            )
             if month <= 3:
-                serps.extend([get_async_future(brightdata_google_serp, generate_science_site_query(query + f" research paper in {str(year - 1)}"),
-                                               brightdata_serp_api_proxy, num_res,
-                                               our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in
-                              query_strings])
-            serps.extend([get_async_future(brightdata_google_serp,
-                                           generate_science_site_query(query + f" research paper"),
-                                           brightdata_serp_api_proxy, num_res,
-                                           our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in
-                          query_strings])
+                serps.extend(
+                    [
+                        get_async_future(
+                            brightdata_google_serp,
+                            generate_science_site_query(
+                                query + f" research paper in {str(year - 1)}"
+                            ),
+                            brightdata_serp_api_proxy,
+                            num_res,
+                            our_datetime=year_month,
+                            only_pdf=None,
+                            only_science_sites=None,
+                        )
+                        for query in query_strings
+                    ]
+                )
+            serps.extend(
+                [
+                    get_async_future(
+                        brightdata_google_serp,
+                        generate_science_site_query(query + f" research paper"),
+                        brightdata_serp_api_proxy,
+                        num_res,
+                        our_datetime=year_month,
+                        only_pdf=None,
+                        only_science_sites=None,
+                    )
+                    for query in query_strings
+                ]
+            )
     if serp_available:
         if not gscholar:
-            serps.extend([get_async_future(serpapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month,
-                                           only_pdf=None, only_science_sites=None) for query in query_strings])
+            serps.extend(
+                [
+                    get_async_future(
+                        serpapi,
+                        query,
+                        api_keys["serpApiKey"],
+                        num_res,
+                        our_datetime=year_month,
+                        only_pdf=None,
+                        only_science_sites=None,
+                    )
+                    for query in query_strings
+                ]
+            )
         if gscholar and use_original_query:
-            serps.extend([get_async_future(serpapi, f" research paper for {query}",
-                                           api_keys["serpApiKey"], num_res,
-                                           our_datetime=year_month, only_pdf=None,
-                                           only_science_sites=None) for ix, query in
-                          enumerate(query_strings)])
+            serps.extend(
+                [
+                    get_async_future(
+                        serpapi,
+                        f" research paper for {query}",
+                        api_keys["serpApiKey"],
+                        num_res,
+                        our_datetime=year_month,
+                        only_pdf=None,
+                        only_science_sites=None,
+                    )
+                    for ix, query in enumerate(query_strings)
+                ]
+            )
         if gscholar and not use_original_query:
-            serps.extend([get_async_future(serpapi, query + f" research paper in {year}",
-                                           api_keys["serpApiKey"], num_res,
-                                           our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
-                                           only_science_sites=True if ix % 2 == 0 else None) for ix, query in
-                          enumerate(query_strings)])
+            serps.extend(
+                [
+                    get_async_future(
+                        serpapi,
+                        query + f" research paper in {year}",
+                        api_keys["serpApiKey"],
+                        num_res,
+                        our_datetime=year_month,
+                        only_pdf=True if ix % 2 == 1 else None,
+                        only_science_sites=True if ix % 2 == 0 else None,
+                    )
+                    for ix, query in enumerate(query_strings)
+                ]
+            )
             if month <= 3:
-                serps.extend([get_async_future(serpapi, query + f" research paper in {str(year - 1)}",
-                                               api_keys["serpApiKey"], num_res,
-                                               our_datetime=year_month, only_pdf=None, only_science_sites=None) for query in
-                              query_strings])
-            serps.extend([get_async_future(gscholarapi, query, api_keys["serpApiKey"], num_res, our_datetime=year_month,
-                                           only_pdf=None, only_science_sites=None) for query in
-                          query_strings])
-            serps.extend([get_async_future(gscholarapi, generate_science_site_query(query), api_keys["serpApiKey"], num_res, our_datetime=year_month,
-                                           only_pdf=None, only_science_sites=None) for query in
-                          query_strings])
-            serps.extend([get_async_future(gscholarapi_published, query, api_keys["serpApiKey"], num_res, our_datetime=year_month,
-                                           only_pdf=None, only_science_sites=None) for query in
-                          query_strings])
-            serps.extend([get_async_future(gscholarapi, query + f" in {year}", api_keys["serpApiKey"],
-                                           num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for
-                          query in
-                          query_strings])
+                serps.extend(
+                    [
+                        get_async_future(
+                            serpapi,
+                            query + f" research paper in {str(year - 1)}",
+                            api_keys["serpApiKey"],
+                            num_res,
+                            our_datetime=year_month,
+                            only_pdf=None,
+                            only_science_sites=None,
+                        )
+                        for query in query_strings
+                    ]
+                )
+            serps.extend(
+                [
+                    get_async_future(
+                        gscholarapi,
+                        query,
+                        api_keys["serpApiKey"],
+                        num_res,
+                        our_datetime=year_month,
+                        only_pdf=None,
+                        only_science_sites=None,
+                    )
+                    for query in query_strings
+                ]
+            )
+            serps.extend(
+                [
+                    get_async_future(
+                        gscholarapi,
+                        generate_science_site_query(query),
+                        api_keys["serpApiKey"],
+                        num_res,
+                        our_datetime=year_month,
+                        only_pdf=None,
+                        only_science_sites=None,
+                    )
+                    for query in query_strings
+                ]
+            )
+            serps.extend(
+                [
+                    get_async_future(
+                        gscholarapi_published,
+                        query,
+                        api_keys["serpApiKey"],
+                        num_res,
+                        our_datetime=year_month,
+                        only_pdf=None,
+                        only_science_sites=None,
+                    )
+                    for query in query_strings
+                ]
+            )
+            serps.extend(
+                [
+                    get_async_future(
+                        gscholarapi,
+                        query + f" in {year}",
+                        api_keys["serpApiKey"],
+                        num_res,
+                        our_datetime=year_month,
+                        only_pdf=None,
+                        only_science_sites=None,
+                    )
+                    for query in query_strings
+                ]
+            )
 
     if google_available:
         if not gscholar:
-            serps.extend([get_async_future(googleapi_v2, query,
-                                           dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]),
-                                           num_res, our_datetime=year_month, only_pdf=None, only_science_sites=None) for
-                          query in query_strings])
+            serps.extend(
+                [
+                    get_async_future(
+                        googleapi_v2,
+                        query,
+                        dict(
+                            cx=api_keys["googleSearchCxId"],
+                            api_key=api_keys["googleSearchApiKey"],
+                        ),
+                        num_res,
+                        our_datetime=year_month,
+                        only_pdf=None,
+                        only_science_sites=None,
+                    )
+                    for query in query_strings
+                ]
+            )
         if gscholar and use_original_query:
-            serps.extend([get_async_future(googleapi_v2, f" research paper for {query}",
-                                           dict(cx=api_keys["googleSearchCxId"],
-                                                api_key=api_keys["googleSearchApiKey"]), 10,
-                                           our_datetime=year_month, only_pdf=None,
-                                           only_science_sites=None) for ix, query in
-                          enumerate(query_strings)])
+            serps.extend(
+                [
+                    get_async_future(
+                        googleapi_v2,
+                        f" research paper for {query}",
+                        dict(
+                            cx=api_keys["googleSearchCxId"],
+                            api_key=api_keys["googleSearchApiKey"],
+                        ),
+                        10,
+                        our_datetime=year_month,
+                        only_pdf=None,
+                        only_science_sites=None,
+                    )
+                    for ix, query in enumerate(query_strings)
+                ]
+            )
         if gscholar and not use_original_query:
-            serps.extend([get_async_future(googleapi_v2, query + f" research paper in {year}",
-                                           dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), 10,
-                                           our_datetime=year_month, only_pdf=True if ix % 2 == 0 else None,
-                                           only_science_sites=True if ix % 2 == 1 else None) for ix, query in
-                          enumerate(query_strings)])
+            serps.extend(
+                [
+                    get_async_future(
+                        googleapi_v2,
+                        query + f" research paper in {year}",
+                        dict(
+                            cx=api_keys["googleSearchCxId"],
+                            api_key=api_keys["googleSearchApiKey"],
+                        ),
+                        10,
+                        our_datetime=year_month,
+                        only_pdf=True if ix % 2 == 0 else None,
+                        only_science_sites=True if ix % 2 == 1 else None,
+                    )
+                    for ix, query in enumerate(query_strings)
+                ]
+            )
             if month <= 3:
-                serps.extend([get_async_future(googleapi_v2, query + f" research paper in {str(year - 1)}",
-                                               dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), 10,
-                                               our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
-                                               only_science_sites=True if ix % 2 == 0 else None) for ix, query in
-                              enumerate(query_strings)])
-            serps.extend([get_async_future(googleapi_v2, generate_science_site_query(query + f" research paper in {year}"),
-                                           dict(cx=api_keys["googleSearchCxId"], api_key=api_keys["googleSearchApiKey"]), 10,
-                                           our_datetime=year_month, only_pdf=True if ix % 2 == 1 else None,
-                                           only_science_sites=True if ix % 2 == 0 else None) for ix, query in
-                          enumerate(query_strings)])
+                serps.extend(
+                    [
+                        get_async_future(
+                            googleapi_v2,
+                            query + f" research paper in {str(year - 1)}",
+                            dict(
+                                cx=api_keys["googleSearchCxId"],
+                                api_key=api_keys["googleSearchApiKey"],
+                            ),
+                            10,
+                            our_datetime=year_month,
+                            only_pdf=True if ix % 2 == 1 else None,
+                            only_science_sites=True if ix % 2 == 0 else None,
+                        )
+                        for ix, query in enumerate(query_strings)
+                    ]
+                )
+            serps.extend(
+                [
+                    get_async_future(
+                        googleapi_v2,
+                        generate_science_site_query(
+                            query + f" research paper in {year}"
+                        ),
+                        dict(
+                            cx=api_keys["googleSearchCxId"],
+                            api_key=api_keys["googleSearchApiKey"],
+                        ),
+                        10,
+                        our_datetime=year_month,
+                        only_pdf=True if ix % 2 == 1 else None,
+                        only_science_sites=True if ix % 2 == 0 else None,
+                    )
+                    for ix, query in enumerate(query_strings)
+                ]
+            )
 
     if bing_available:
         if not gscholar:
-            serps.extend([get_async_future(bingapi, query, api_keys["bingKey"], num_res + 10, our_datetime=None,
-                                           only_pdf=None, only_science_sites=None) for query in query_strings])
+            serps.extend(
+                [
+                    get_async_future(
+                        bingapi,
+                        query,
+                        api_keys["bingKey"],
+                        num_res + 10,
+                        our_datetime=None,
+                        only_pdf=None,
+                        only_science_sites=None,
+                    )
+                    for query in query_strings
+                ]
+            )
         if gscholar and use_original_query:
-            serps.extend([get_async_future(bingapi, f"Research paper for {query}", api_keys["bingKey"], num_res, our_datetime=None,
-                                           only_pdf=True, only_science_sites=None) for query in
-                          query_strings])
+            serps.extend(
+                [
+                    get_async_future(
+                        bingapi,
+                        f"Research paper for {query}",
+                        api_keys["bingKey"],
+                        num_res,
+                        our_datetime=None,
+                        only_pdf=True,
+                        only_science_sites=None,
+                    )
+                    for query in query_strings
+                ]
+            )
         if gscholar and not use_original_query:
-            serps.extend([get_async_future(bingapi, query, api_keys["bingKey"], num_res, our_datetime=None,
-                                           only_pdf=True, only_science_sites=None) for query in
-                          query_strings])
-            serps.extend([get_async_future(bingapi, query + f" research paper in {year}", api_keys["bingKey"], num_res,
-                                           our_datetime=None,
-                                           only_pdf=None, only_science_sites=None) for query in
-                          query_strings])
-            serps.extend([get_async_future(bingapi, query + f" research paper", api_keys["bingKey"], num_res,
-                                           our_datetime=None,
-                                           only_pdf=None, only_science_sites=None) for query in
-                          query_strings])
+            serps.extend(
+                [
+                    get_async_future(
+                        bingapi,
+                        query,
+                        api_keys["bingKey"],
+                        num_res,
+                        our_datetime=None,
+                        only_pdf=True,
+                        only_science_sites=None,
+                    )
+                    for query in query_strings
+                ]
+            )
+            serps.extend(
+                [
+                    get_async_future(
+                        bingapi,
+                        query + f" research paper in {year}",
+                        api_keys["bingKey"],
+                        num_res,
+                        our_datetime=None,
+                        only_pdf=None,
+                        only_science_sites=None,
+                    )
+                    for query in query_strings
+                ]
+            )
+            serps.extend(
+                [
+                    get_async_future(
+                        bingapi,
+                        query + f" research paper",
+                        api_keys["bingKey"],
+                        num_res,
+                        our_datetime=None,
+                        only_pdf=None,
+                        only_science_sites=None,
+                    )
+                    for query in query_strings
+                ]
+            )
 
     try:
         assert len(serps) > 0
     except AssertionError:
-        logger.error(f"Neither GOOGLE, Bing nor SERP keys are given but Search option choosen.")
-        yield {"type": "error", "error": "Neither GOOGLE, Bing nor SERP keys are given but Search option choosen."}
-
+        logger.error(
+            f"Neither GOOGLE, Bing nor SERP keys are given but Search option choosen."
+        )
+        yield {
+            "type": "error",
+            "error": "Neither GOOGLE, Bing nor SERP keys are given but Search option choosen.",
+        }
 
     query_vs_results_count = Counter()
     total_count = 0
@@ -1733,215 +2738,467 @@ def web_search_part1_real(context, doc_source, doc_context, api_keys, year_month
     result_context_emb_map = dict()
     # logger.error(f"Total number of queries = {len(query_strings)} and total serps = {len(serps)}")
     for ix, s in enumerate(as_completed(serps)):
-        time_logger.info(f"[web_search_part1_real] Time taken for {ix}-th serp result in web search part 1 = {(time.time() - search_st):.2f} and full time = {(time.time() - st):.2f} and validity = {s.done() and s.exception() is None and len(s.result())> 0}")
-        if s.exception is not None:
-            try:
-                s.result()
-            except Exception as e:
-                traceback.print_exc()
-                logger.error(f"Exception in getting search results from serp = \n{s.exception()}")
-        if s.done() and s.exception() is None and exists_tmp_marker_file(web_search_tmp_marker_name):
-            for iqx, r in enumerate(s.result()):
-                if iqx > min(5, num_res//2):
-                    break
-                query = remove_year_month_substring(r.get("query", "").lower()).replace("recent research papers", "").replace("research paper", "").replace("research papers", "").strip()
-                title = r.get("title", "").lower()
-                description = r.get("description", "").lower()
-                source = r.get("source", "").lower()
-                cite_text = f"""{(f" Cited by {r['citations']}") if r['citations'] else ""}"""
-                title = title + f" ({r['year'] if r['year'] else ''})" + f"{cite_text}"
-                link = r.get("link", "").lower().replace(".pdf", '').replace("v1", '').replace("v2", '').replace(
-                    "v3", '').replace("v4", '').replace("v5", '').replace("v6", '').replace("v7", '').replace("v8",
-                                                                                                              '').replace(
-                    "v9", '')
-                link = convert_to_pdf_link_if_needed(link)
-                if title in seen_titles or len(
-                        title) == 0 or link in deduped_results or any(fbdn in link for fbdn in forbidden_links):
-                    deduped_results.add(link)
-                    seen_titles.add(title)
-                    continue
-                result_context = context + ".\n" + query + "?\n"
-                if result_context not in result_context_emb_map:
-                    result_context_emb_future = get_async_future(get_text_embedding, result_context, api_keys)
-                result_text = title + "\n" + description + "\nLink Url: " + link.replace("https://",'').replace("http://",'').replace(".com",'').replace("www.",'').replace("/",' ').replace("_", ' ').replace("-", ' ')
-                assert len(description.split()) > 0 or len(title.split()) > 0, "Link Description is empty"
-                result_text_emb_future = get_async_future(get_text_embedding, result_text, api_keys)
-                try:
-                    if result_context not in result_context_emb_map:
-                        result_context_emb = sleep_and_get_future_result(result_context_emb_future)
-                        result_context_emb_map[result_context] = result_context_emb
-                    else:
-                        result_context_emb = result_context_emb_map[result_context]
-                    result_text_emb = sleep_and_get_future_result(result_text_emb_future)
-                    # numpy cosine similarity
-                    sim = np.dot(result_context_emb, result_text_emb) / (np.linalg.norm(result_context_emb) * np.linalg.norm(result_text_emb))
-                    if sim < THRESHOLD_SIM_FOR_SEARCH_RESULT:
-                        continue
-                except Exception as e:
-                    pass
-                source_count[source] += 1
-                full_queue.append({"query": query, "title": title, "link": link, "context": result_context, "type": "result", "rank": iqx, "source": source})
-                
-
-                if link not in deduped_results and title not in seen_titles and (
-                        len(query_vs_results_count) == len(query_strings) or query not in query_vs_results_count or query_vs_results_count[query] <= (5 if provide_detailed_answers <= 2 else 6)):
-                    yield {"query": query, "title": title, "link": link, "context": result_context, "type": "result",
-                           "rank": iqx, "start_time": start_time, "source": source}
-                    query_vs_results_count[query] += 1
-                    total_count += 1
-                    time_logger.info(
-                        f"[web_search_part1_real] [Main Loop] Time taken for getting search results from {source} n= {source_count[source]}-th, time {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}, link = {link}")
-                elif link not in deduped_results and title not in seen_titles:
-                    temp_queue.put(
-                        {"query": query, "title": title, "link": link, "context": result_context, "type": "result",
-                         "rank": iqx, "start_time": start_time, "source": source})
-
-                deduped_results.add(link)
-                seen_titles.add(title)
-    for ix, s in enumerate(as_completed(serps)):
         time_logger.info(
-            f"[web_search_part1_real] Time taken for {ix}-th serp result in web search part 1 = {(time.time() - search_st):.2f} and full time = {(time.time() - st):.2f} and validity = {s.done() and s.exception() is None and len(s.result()) > 0}")
+            f"[web_search_part1_real] Time taken for {ix}-th serp result in web search part 1 = {(time.time() - search_st):.2f} and full time = {(time.time() - st):.2f} and validity = {s.done() and s.exception() is None and len(s.result()) > 0}"
+        )
         if s.exception is not None:
             try:
                 s.result()
             except Exception as e:
                 traceback.print_exc()
-                logger.error(f"Exception in getting search results from serp = \n{s.exception()}")
-        if s.done() and s.exception() is None and exists_tmp_marker_file(web_search_tmp_marker_name):
+                logger.error(
+                    f"Exception in getting search results from serp = \n{s.exception()}"
+                )
+        if (
+            s.done()
+            and s.exception() is None
+            and exists_tmp_marker_file(web_search_tmp_marker_name)
+        ):
             for iqx, r in enumerate(s.result()):
-                if iqx <= min(5, num_res//2):
-                    continue
-                query = remove_year_month_substring(r.get("query", "").lower()).replace("recent research papers",
-                                                                                        "").replace("research paper",
-                                                                                                    "").replace(
-                    "research papers", "").strip()
+                if iqx > min(5, num_res // 2):
+                    break
+                query = (
+                    remove_year_month_substring(r.get("query", "").lower())
+                    .replace("recent research papers", "")
+                    .replace("research paper", "")
+                    .replace("research papers", "")
+                    .strip()
+                )
                 title = r.get("title", "").lower()
                 description = r.get("description", "").lower()
                 source = r.get("source", "").lower()
-                cite_text = f"""{(f" Cited by {r['citations']}") if r['citations'] else ""}"""
+                cite_text = (
+                    f"""{(f" Cited by {r['citations']}") if r["citations"] else ""}"""
+                )
                 title = title + f" ({r['year'] if r['year'] else ''})" + f"{cite_text}"
-                link = r.get("link", "").lower().replace(".pdf", '').replace("v1", '').replace("v2", '').replace(
-                    "v3", '').replace("v4", '').replace("v5", '').replace("v6", '').replace("v7", '').replace("v8",
-                                                                                                              '').replace(
-                    "v9", '')
+                link = (
+                    r.get("link", "")
+                    .lower()
+                    .replace(".pdf", "")
+                    .replace("v1", "")
+                    .replace("v2", "")
+                    .replace("v3", "")
+                    .replace("v4", "")
+                    .replace("v5", "")
+                    .replace("v6", "")
+                    .replace("v7", "")
+                    .replace("v8", "")
+                    .replace("v9", "")
+                )
                 link = convert_to_pdf_link_if_needed(link)
-                if title in seen_titles or len(
-                        title) == 0 or link in deduped_results or any(fbdn in link for fbdn in forbidden_links):
+                if (
+                    title in seen_titles
+                    or len(title) == 0
+                    or link in deduped_results
+                    or any(fbdn in link for fbdn in forbidden_links)
+                ):
                     deduped_results.add(link)
                     seen_titles.add(title)
                     continue
                 result_context = context + ".\n" + query + "?\n"
                 if result_context not in result_context_emb_map:
-                    result_context_emb_future = get_async_future(get_text_embedding, result_context, api_keys)
-                result_text = title + "\n" + description + "\nLink Url: " + link.replace("https://", '').replace("http://", '').replace(".com",
-                                                                                                        '').replace(
-                    "www.", '').replace("/", ' ').replace("_", ' ').replace("-", ' ')
-                
-                result_text_emb_future = get_async_future(get_text_embedding, result_text, api_keys)
+                    result_context_emb_future = get_async_future(
+                        get_text_embedding, result_context, api_keys
+                    )
+                result_text = (
+                    title
+                    + "\n"
+                    + description
+                    + "\nLink Url: "
+                    + link.replace("https://", "")
+                    .replace("http://", "")
+                    .replace(".com", "")
+                    .replace("www.", "")
+                    .replace("/", " ")
+                    .replace("_", " ")
+                    .replace("-", " ")
+                )
+                assert len(description.split()) > 0 or len(title.split()) > 0, (
+                    "Link Description is empty"
+                )
+                result_text_emb_future = get_async_future(
+                    get_text_embedding, result_text, api_keys
+                )
                 try:
                     if result_context not in result_context_emb_map:
-                        result_context_emb = sleep_and_get_future_result(result_context_emb_future)
+                        result_context_emb = sleep_and_get_future_result(
+                            result_context_emb_future
+                        )
                         result_context_emb_map[result_context] = result_context_emb
                     else:
                         result_context_emb = result_context_emb_map[result_context]
-                    result_text_emb = sleep_and_get_future_result(result_text_emb_future)
+                    result_text_emb = sleep_and_get_future_result(
+                        result_text_emb_future
+                    )
                     # numpy cosine similarity
                     sim = np.dot(result_context_emb, result_text_emb) / (
-                                np.linalg.norm(result_context_emb) * np.linalg.norm(result_text_emb))
+                        np.linalg.norm(result_context_emb)
+                        * np.linalg.norm(result_text_emb)
+                    )
                     if sim < THRESHOLD_SIM_FOR_SEARCH_RESULT:
                         continue
                 except Exception as e:
                     pass
                 source_count[source] += 1
                 full_queue.append(
-                    {"query": query, "title": title, "link": link, "context": result_context, "type": "result",
-                     "rank": iqx, "source": source})
-                if link not in deduped_results and title not in seen_titles and (
-                        len(query_vs_results_count) == len(query_strings) or query not in query_vs_results_count or
-                        query_vs_results_count[query] <= (5 if provide_detailed_answers <= 2 else 6)):
-                    yield {"query": query, "title": title, "link": link, "context": result_context, "type": "result",
-                           "rank": iqx, "start_time": start_time, "source": source}
+                    {
+                        "query": query,
+                        "title": title,
+                        "link": link,
+                        "context": result_context,
+                        "type": "result",
+                        "rank": iqx,
+                        "source": source,
+                    }
+                )
+
+                if (
+                    link not in deduped_results
+                    and title not in seen_titles
+                    and (
+                        len(query_vs_results_count) == len(query_strings)
+                        or query not in query_vs_results_count
+                        or query_vs_results_count[query]
+                        <= (5 if provide_detailed_answers <= 2 else 6)
+                    )
+                ):
+                    yield {
+                        "query": query,
+                        "title": title,
+                        "link": link,
+                        "context": result_context,
+                        "type": "result",
+                        "rank": iqx,
+                        "start_time": start_time,
+                        "source": source,
+                    }
                     query_vs_results_count[query] += 1
                     total_count += 1
                     time_logger.info(
-                        f"[web_search_part1_real] [Main Loop] Time taken for getting search results from {source} n= {source_count[source]}-th, time {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}, link = {link}")
+                        f"[web_search_part1_real] [Main Loop] Time taken for getting search results from {source} n= {source_count[source]}-th, time {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}, link = {link}"
+                    )
                 elif link not in deduped_results and title not in seen_titles:
                     temp_queue.put(
-                        {"query": query, "title": title, "link": link, "context": result_context, "type": "result",
-                         "rank": iqx, "start_time": start_time, "source": source})
+                        {
+                            "query": query,
+                            "title": title,
+                            "link": link,
+                            "context": result_context,
+                            "type": "result",
+                            "rank": iqx,
+                            "start_time": start_time,
+                            "source": source,
+                        }
+                    )
+
+                deduped_results.add(link)
+                seen_titles.add(title)
+    for ix, s in enumerate(as_completed(serps)):
+        time_logger.info(
+            f"[web_search_part1_real] Time taken for {ix}-th serp result in web search part 1 = {(time.time() - search_st):.2f} and full time = {(time.time() - st):.2f} and validity = {s.done() and s.exception() is None and len(s.result()) > 0}"
+        )
+        if s.exception is not None:
+            try:
+                s.result()
+            except Exception as e:
+                traceback.print_exc()
+                logger.error(
+                    f"Exception in getting search results from serp = \n{s.exception()}"
+                )
+        if (
+            s.done()
+            and s.exception() is None
+            and exists_tmp_marker_file(web_search_tmp_marker_name)
+        ):
+            for iqx, r in enumerate(s.result()):
+                if iqx <= min(5, num_res // 2):
+                    continue
+                query = (
+                    remove_year_month_substring(r.get("query", "").lower())
+                    .replace("recent research papers", "")
+                    .replace("research paper", "")
+                    .replace("research papers", "")
+                    .strip()
+                )
+                title = r.get("title", "").lower()
+                description = r.get("description", "").lower()
+                source = r.get("source", "").lower()
+                cite_text = (
+                    f"""{(f" Cited by {r['citations']}") if r["citations"] else ""}"""
+                )
+                title = title + f" ({r['year'] if r['year'] else ''})" + f"{cite_text}"
+                link = (
+                    r.get("link", "")
+                    .lower()
+                    .replace(".pdf", "")
+                    .replace("v1", "")
+                    .replace("v2", "")
+                    .replace("v3", "")
+                    .replace("v4", "")
+                    .replace("v5", "")
+                    .replace("v6", "")
+                    .replace("v7", "")
+                    .replace("v8", "")
+                    .replace("v9", "")
+                )
+                link = convert_to_pdf_link_if_needed(link)
+                if (
+                    title in seen_titles
+                    or len(title) == 0
+                    or link in deduped_results
+                    or any(fbdn in link for fbdn in forbidden_links)
+                ):
+                    deduped_results.add(link)
+                    seen_titles.add(title)
+                    continue
+                result_context = context + ".\n" + query + "?\n"
+                if result_context not in result_context_emb_map:
+                    result_context_emb_future = get_async_future(
+                        get_text_embedding, result_context, api_keys
+                    )
+                result_text = (
+                    title
+                    + "\n"
+                    + description
+                    + "\nLink Url: "
+                    + link.replace("https://", "")
+                    .replace("http://", "")
+                    .replace(".com", "")
+                    .replace("www.", "")
+                    .replace("/", " ")
+                    .replace("_", " ")
+                    .replace("-", " ")
+                )
+
+                result_text_emb_future = get_async_future(
+                    get_text_embedding, result_text, api_keys
+                )
+                try:
+                    if result_context not in result_context_emb_map:
+                        result_context_emb = sleep_and_get_future_result(
+                            result_context_emb_future
+                        )
+                        result_context_emb_map[result_context] = result_context_emb
+                    else:
+                        result_context_emb = result_context_emb_map[result_context]
+                    result_text_emb = sleep_and_get_future_result(
+                        result_text_emb_future
+                    )
+                    # numpy cosine similarity
+                    sim = np.dot(result_context_emb, result_text_emb) / (
+                        np.linalg.norm(result_context_emb)
+                        * np.linalg.norm(result_text_emb)
+                    )
+                    if sim < THRESHOLD_SIM_FOR_SEARCH_RESULT:
+                        continue
+                except Exception as e:
+                    pass
+                source_count[source] += 1
+                full_queue.append(
+                    {
+                        "query": query,
+                        "title": title,
+                        "link": link,
+                        "context": result_context,
+                        "type": "result",
+                        "rank": iqx,
+                        "source": source,
+                    }
+                )
+                if (
+                    link not in deduped_results
+                    and title not in seen_titles
+                    and (
+                        len(query_vs_results_count) == len(query_strings)
+                        or query not in query_vs_results_count
+                        or query_vs_results_count[query]
+                        <= (5 if provide_detailed_answers <= 2 else 6)
+                    )
+                ):
+                    yield {
+                        "query": query,
+                        "title": title,
+                        "link": link,
+                        "context": result_context,
+                        "type": "result",
+                        "rank": iqx,
+                        "start_time": start_time,
+                        "source": source,
+                    }
+                    query_vs_results_count[query] += 1
+                    total_count += 1
+                    time_logger.info(
+                        f"[web_search_part1_real] [Main Loop] Time taken for getting search results from {source} n= {source_count[source]}-th, time {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}, link = {link}"
+                    )
+                elif link not in deduped_results and title not in seen_titles:
+                    temp_queue.put(
+                        {
+                            "query": query,
+                            "title": title,
+                            "link": link,
+                            "context": result_context,
+                            "type": "result",
+                            "rank": iqx,
+                            "start_time": start_time,
+                            "source": source,
+                        }
+                    )
 
                 deduped_results.add(link)
                 seen_titles.add(title)
 
-    while not temp_queue.empty() and total_count <= ((provide_detailed_answers + 2) * 10):
+    while not temp_queue.empty() and total_count <= (
+        (provide_detailed_answers + 2) * 10
+    ):
         r = temp_queue.get()
         yield r
         total_count += 1
         time_logger.debug(
-            f"Time taken for getting search results n= {total_count}-th in web search part 1 [Post all serps] = {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}")
+            f"Time taken for getting search results n= {total_count}-th in web search part 1 [Post all serps] = {(time.time() - search_st):.2f}, full time = {(time.time() - st):.2f}"
+        )
         query_vs_results_count[r.get("query", "")] += 1
-    time_logger.info(f"[web_search_part1_real] Time taken for web search part 1 = {(time.time() - st):.2f} and yielded {total_count} results. {f'Query strings: {query_strings}' if total_count == 0 else ''} and source counts: {source_count}")
-    yield {"type": "end", "query": query_strings, "query_type": "web_search_part1", "year_month": year_month, "gscholar": gscholar, "provide_detailed_answers": provide_detailed_answers, "full_results": full_queue}
+    time_logger.info(
+        f"[web_search_part1_real] Time taken for web search part 1 = {(time.time() - st):.2f} and yielded {total_count} results. {f'Query strings: {query_strings}' if total_count == 0 else ''} and source counts: {source_count}"
+    )
+    yield {
+        "type": "end",
+        "query": query_strings,
+        "query_type": "web_search_part1",
+        "year_month": year_month,
+        "gscholar": gscholar,
+        "provide_detailed_answers": provide_detailed_answers,
+        "full_results": full_queue,
+    }
 
 
-web_search_part1 = web_search_part1_real # web_search_part1_real
+web_search_part1 = web_search_part1_real  # web_search_part1_real
 
-def web_search_queue(context, doc_source, doc_context, api_keys, year_month=None, previous_answer=None, previous_search_results=None, extra_queries=None,
-                     previous_turn_search_results=None,
-                     gscholar=False, provide_detailed_answers=False,
-                     web_search_tmp_marker_name=None):
+
+def web_search_queue(
+    context,
+    doc_source,
+    doc_context,
+    api_keys,
+    year_month=None,
+    previous_answer=None,
+    previous_search_results=None,
+    extra_queries=None,
+    previous_turn_search_results=None,
+    gscholar=False,
+    provide_detailed_answers=False,
+    web_search_tmp_marker_name=None,
+):
     if previous_turn_search_results is None:
-        part1_res = get_async_future(web_search_part1, context, doc_source, doc_context, api_keys, year_month, previous_answer, previous_search_results, extra_queries, gscholar, provide_detailed_answers, time.time(), web_search_tmp_marker_name)
+        part1_res = get_async_future(
+            web_search_part1,
+            context,
+            doc_source,
+            doc_context,
+            api_keys,
+            year_month,
+            previous_answer,
+            previous_search_results,
+            extra_queries,
+            gscholar,
+            provide_detailed_answers,
+            time.time(),
+            web_search_tmp_marker_name,
+        )
     else:
+
         def get_pseudo_results():
             queries = previous_turn_search_results["queries"]
-            yield {"type": "query", "query": queries, "query_type": "web_search_part1", "year_month": year_month,
-                   "gscholar": gscholar, "provide_detailed_answers": provide_detailed_answers}
+            yield {
+                "type": "query",
+                "query": queries,
+                "query_type": "web_search_part1",
+                "year_month": year_month,
+                "gscholar": gscholar,
+                "provide_detailed_answers": provide_detailed_answers,
+            }
             for idx, r in enumerate(previous_turn_search_results["links"]):
-                yield {"query": random.choice(queries), "title": r["title"], "link": r["link"], "context": context, "type": "result",
-                       "rank": idx, "start_time": time.time()}
-            yield {"type": "end", "query": queries, "query_type": "web_search_part1", "year_month": year_month,
-                   "gscholar": gscholar, "provide_detailed_answers": provide_detailed_answers,
-                   "full_results": previous_turn_search_results["links"]}
+                yield {
+                    "query": random.choice(queries),
+                    "title": r["title"],
+                    "link": r["link"],
+                    "context": context,
+                    "type": "result",
+                    "rank": idx,
+                    "start_time": time.time(),
+                }
+            yield {
+                "type": "end",
+                "query": queries,
+                "query_type": "web_search_part1",
+                "year_month": year_month,
+                "gscholar": gscholar,
+                "provide_detailed_answers": provide_detailed_answers,
+                "full_results": previous_turn_search_results["links"],
+            }
+
         part1_res = get_async_future(get_pseudo_results)
     gen1, gen2 = thread_safe_tee(part1_res.result(), 2)
-    read_queue = queued_read_over_multiple_links(gen2, api_keys, provide_detailed_answers=max(0, int(provide_detailed_answers) - 1),
-                                                 web_search_tmp_marker_name=web_search_tmp_marker_name)
-    return [get_async_future(get_part_1_results, gen1), read_queue] # get_async_future(get_part_1_results, part1_res)
+    read_queue = queued_read_over_multiple_links(
+        gen2,
+        api_keys,
+        provide_detailed_answers=max(0, int(provide_detailed_answers) - 1),
+        web_search_tmp_marker_name=web_search_tmp_marker_name,
+    )
+    return [
+        get_async_future(get_part_1_results, gen1),
+        read_queue,
+    ]  # get_async_future(get_part_1_results, part1_res)
 
 
-
-
-def execute_simple_web_search(keys, user_context, queries, gscholar, provide_detailed_answers, timeout=30):
+def execute_simple_web_search(
+    keys, user_context, queries, gscholar, provide_detailed_answers, timeout=30
+):
     random_identifier = str(uuid.uuid4())
     answer = ""
     web_search_tmp_marker_name = "_web_search" + str(time.time()) + str(uuid.uuid4())
     create_tmp_marker_file(web_search_tmp_marker_name)
-    web_results = get_async_future(web_search_queue, user_context, 'helpful ai assistant',
-                                   "",
-                                   keys, datetime.now().strftime("%Y-%m"), extra_queries=queries,
-                                   previous_turn_search_results=None,
-                                   gscholar=gscholar, provide_detailed_answers=provide_detailed_answers,
-                                   web_search_tmp_marker_name=web_search_tmp_marker_name)
-    max_time_to_wait_for_web_results = max(MAX_TIME_TO_WAIT_FOR_WEB_RESULTS, timeout * provide_detailed_answers)
+    web_results = get_async_future(
+        web_search_queue,
+        user_context,
+        "helpful ai assistant",
+        "",
+        keys,
+        datetime.now().strftime("%Y-%m"),
+        extra_queries=queries,
+        previous_turn_search_results=None,
+        gscholar=gscholar,
+        provide_detailed_answers=provide_detailed_answers,
+        web_search_tmp_marker_name=web_search_tmp_marker_name,
+    )
+    max_time_to_wait_for_web_results = max(
+        MAX_TIME_TO_WAIT_FOR_WEB_RESULTS, timeout * provide_detailed_answers
+    )
     cut_off = 15
     search_results = next(web_results.result()[0].result())
-    atext = f"**Single Query Web Search:**<div data-toggle='collapse' href='#singleQueryWebSearch-{random_identifier}' role='button'></div> <div class='collapse' id='singleQueryWebSearch-{random_identifier}'>" + "\n"
+    atext = (
+        f"**Single Query Web Search:**<div data-toggle='collapse' href='#singleQueryWebSearch-{random_identifier}' role='button'></div> <div class='collapse' id='singleQueryWebSearch-{random_identifier}'>"
+        + "\n"
+    )
     answer += atext
     atext = f"**Web searched with Queries:** <div data-toggle='collapse' href='#webSearchedQueries-{random_identifier}' role='button'></div> <div class='collapse' id='webSearchedQueries-{random_identifier}'>"
     # atext = "**Web searched with Queries:**" + "\n"
     answer += atext
-    queries = two_column_list(search_results['queries'])
-    answer += (queries + "</div>\n")
-    if len(search_results['search_results']) > 0:
-        query_results_part1 = search_results['search_results']
+    queries = two_column_list(search_results["queries"])
+    answer += queries + "</div>\n"
+    if len(search_results["search_results"]) > 0:
+        query_results_part1 = search_results["search_results"]
         seen_query_results = query_results_part1[:20]
-        atext = f"\n**Search Results:** <div data-toggle='collapse' href='#searchResults-{random_identifier}' role='button'></div> <div class='collapse' id='searchResults-{random_identifier}'>" + "\n"
+        atext = (
+            f"\n**Search Results:** <div data-toggle='collapse' href='#searchResults-{random_identifier}' role='button'></div> <div class='collapse' id='searchResults-{random_identifier}'>"
+            + "\n"
+        )
         # atext = "\n**Search Results:**" + "\n"
         answer += atext
-        query_results = [f"<a href='{qr['link']}'>{qr['title']}</a>" for qr in seen_query_results]
+        query_results = [
+            f"<a href='{qr['link']}'>{qr['title']}</a>" for qr in seen_query_results
+        ]
         query_results = two_column_list(query_results)
-        answer += (query_results + "</div>\n")
+        answer += query_results + "</div>\n"
     result_queue = web_results.result()[1]
     qu_st = time.time()
     st = time.time()
@@ -1949,7 +3206,8 @@ def execute_simple_web_search(keys, user_context, queries, gscholar, provide_det
     while True:
         qu_wait = time.time()
         break_condition = len(web_text_accumulator) >= cut_off or (
-                (qu_wait - qu_st) > max_time_to_wait_for_web_results)
+            (qu_wait - qu_st) > max_time_to_wait_for_web_results
+        )
         if break_condition and result_queue.empty():
             break
         one_web_result = None
@@ -1964,29 +3222,60 @@ def execute_simple_web_search(keys, user_context, queries, gscholar, provide_det
         if one_web_result == TERMINATION_SIGNAL:
             break
 
-        if one_web_result["text"] is not None and one_web_result["text"].strip() != "" and len(
-                one_web_result["text"].strip().split()) > LEN_CUTOFF_WEB_TEXT:
-            web_text_accumulator.append((one_web_result["text"],
-                                         f'[{one_web_result["title"]}]({one_web_result["link"]})',
-                                         one_web_result["llm_result_future"]))
+        if (
+            one_web_result["text"] is not None
+            and one_web_result["text"].strip() != ""
+            and len(one_web_result["text"].strip().split()) > LEN_CUTOFF_WEB_TEXT
+        ):
+            web_text_accumulator.append(
+                (
+                    one_web_result["text"],
+                    f"[{one_web_result['title']}]({one_web_result['link']})",
+                    one_web_result["llm_result_future"],
+                )
+            )
 
             time_logger.info(
-                f"Time taken to get n-th {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}, time = {(time.time() - st):.2f}, wait time = {(qu_et - qu_st):.2f}, link = {one_web_result['link']}")
+                f"Time taken to get n-th {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}, time = {(time.time() - st):.2f}, wait time = {(qu_et - qu_st):.2f}, link = {one_web_result['link']}"
+            )
         time.sleep(0.5)
-    web_text_accumulator = sorted(web_text_accumulator, key=lambda x: len(x[0].split()), reverse=True)
-    web_text_accumulator = list(filter(
-        lambda x: len(x[0].split()) > LEN_CUTOFF_WEB_TEXT and "No relevant information found." not in x[0].lower(),
-        web_text_accumulator))
+    web_text_accumulator = sorted(
+        web_text_accumulator, key=lambda x: len(x[0].split()), reverse=True
+    )
+    web_text_accumulator = list(
+        filter(
+            lambda x: len(x[0].split()) > LEN_CUTOFF_WEB_TEXT
+            and "No relevant information found." not in x[0].lower(),
+            web_text_accumulator,
+        )
+    )
     remove_tmp_marker_file(web_search_tmp_marker_name)
-    read_links = [[link.strip(), len(text.strip().split()),
-                   llm_future_dict.result() if llm_future_dict.done() and llm_future_dict.exception() is None else text]
-                  for text, link, llm_future_dict in web_text_accumulator]
+    read_links = [
+        [
+            link.strip(),
+            len(text.strip().split()),
+            llm_future_dict.result()
+            if llm_future_dict.done() and llm_future_dict.exception() is None
+            else text,
+        ]
+        for text, link, llm_future_dict in web_text_accumulator
+    ]
     if len(read_links) > 0:
-        atext = f"\n**We read the below links:** <div data-toggle='collapse' href='#readLinksStage2-{random_identifier}' role='button'></div> <div class='collapse' id='readLinksStage2-{random_identifier}'>" + "\n"
+        atext = (
+            f"\n**We read the below links:** <div data-toggle='collapse' href='#readLinksStage2-{random_identifier}' role='button'></div> <div class='collapse' id='readLinksStage2-{random_identifier}'>"
+            + "\n"
+        )
         # atext = "\n**We read the below links:**" + "\n"
-        read_links = atext + "\n\n".join([
-            f"{i + 1}. {wta} : <{link_len} words>\n\t- {' '.join(text.split()[:(1024 if 'No Link' not in wta else 1024)])}"
-            for i, (wta, link_len, text) in enumerate(read_links)]) + "</div>\n\n"
+        read_links = (
+            atext
+            + "\n\n".join(
+                [
+                    f"{i + 1}. {wta} : <{link_len} words>\n\t- {' '.join(text.split()[: (1024 if 'No Link' not in wta else 1024)])}"
+                    for i, (wta, link_len, text) in enumerate(read_links)
+                ]
+            )
+            + "</div>\n\n"
+        )
 
         answer += read_links
     else:
@@ -1997,9 +3286,23 @@ def execute_simple_web_search(keys, user_context, queries, gscholar, provide_det
     return answer
 
 
-
-def simple_web_search_with_llm(keys, user_context, queries, gscholar, provide_detailed_answers=0, no_llm=False, timeout=60):
-    web_search_result = execute_simple_web_search(keys, user_context, queries, gscholar, provide_detailed_answers, timeout=(timeout if no_llm else timeout - 30))
+def simple_web_search_with_llm(
+    keys,
+    user_context,
+    queries,
+    gscholar,
+    provide_detailed_answers=0,
+    no_llm=False,
+    timeout=60,
+):
+    web_search_result = execute_simple_web_search(
+        keys,
+        user_context,
+        queries,
+        gscholar,
+        provide_detailed_answers,
+        timeout=(timeout if no_llm else timeout - 30),
+    )
     # web_search_result = simple_web_search(keys, user_context, queries, gscholar, provide_detailed_answers)
     if no_llm:
         return web_search_result
@@ -2027,9 +3330,15 @@ Web Search Results:
 
 Please begin your response with the literature review, followed by the bibliography.
 """
-    response = llm(llm_prompt, images=[], temperature=0.7, stream=False, max_tokens=None, system=None)
+    response = llm(
+        llm_prompt,
+        images=[],
+        temperature=0.7,
+        stream=False,
+        max_tokens=None,
+        system=None,
+    )
     return response
-
 
 
 def get_part_1_results(part1_res):
@@ -2060,7 +3369,11 @@ def get_part_1_results(part1_res):
                         aggregated_data[link]["ranks"].append(rank)
                         aggregated_data[link]["count"] += 1
                     else:
-                        aggregated_data[link] = {"title": title, "ranks": [rank], "count": 1}
+                        aggregated_data[link] = {
+                            "title": title,
+                            "ranks": [rank],
+                            "count": 1,
+                        }
 
                 # Calculating Average Rank
                 for data in aggregated_data.values():
@@ -2068,22 +3381,36 @@ def get_part_1_results(part1_res):
                     del data["ranks"]  # Remove the ranks list as it's no longer needed
 
                 # Creating the Final List
-                final_list = [{"link": link, **data} for link, data in aggregated_data.items()]
+                final_list = [
+                    {"link": link, **data} for link, data in aggregated_data.items()
+                ]
 
                 # Sorting the List
                 final_list.sort(key=lambda x: (-x["count"], x["rank"]))
 
                 return final_list
 
-            end_result["full_results"] = deduplicate_and_sort(end_result["full_results"])
+            end_result["full_results"] = deduplicate_and_sort(
+                end_result["full_results"]
+            )
     yield end_result
+
 
 import multiprocessing
 from multiprocessing import Pool
 
-@CacheResults(cache, key_function=lambda args, kwargs: str(mmh3.hash(str(args[0]), signed=False)), enabled=False,
-              should_cache_predicate=lambda result: result is not None and "full_text" in result and len(result["full_text"].strip()) > 10)
-def process_link(link_title_context_apikeys, use_large_context=False, get_link_summary=True):
+
+@CacheResults(
+    cache,
+    key_function=lambda args, kwargs: str(mmh3.hash(str(args[0]), signed=False)),
+    enabled=False,
+    should_cache_predicate=lambda result: result is not None
+    and "full_text" in result
+    and len(result["full_text"].strip()) > 10,
+)
+def process_link(
+    link_title_context_apikeys, use_large_context=False, get_link_summary=True
+):
     # TODO: process links which are images as well.
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
     detailed = 2 if use_large_context else detailed
@@ -2100,33 +3427,72 @@ def process_link(link_title_context_apikeys, use_large_context=False, get_link_s
             summary = link_data["full_text"]
         elif get_link_summary:
             if detailed >= 2:
-                more_summary = get_async_future(get_downloaded_data_summary, (link, title, query, api_keys, text, detailed), use_large_context=False)
+                more_summary = get_async_future(
+                    get_downloaded_data_summary,
+                    (link, title, query, api_keys, text, detailed),
+                    use_large_context=False,
+                )
             if is_science_site(link):
                 keys = SCIENCE_KEYS
                 if detailed < 2:
                     keys = ["methodology"]
                 key_to_query_map = prompts.paper_details_map
-                science_answers = [get_async_future(get_downloaded_data_summary, (link, title, key_to_query_map[key], api_keys, text, detailed), use_large_context=len(keys) == 1) for key in keys]
-            summary = get_downloaded_data_summary(link_title_context_apikeys, use_large_context=use_large_context)["text"]
+                science_answers = [
+                    get_async_future(
+                        get_downloaded_data_summary,
+                        (link, title, key_to_query_map[key], api_keys, text, detailed),
+                        use_large_context=len(keys) == 1,
+                    )
+                    for key in keys
+                ]
+            summary = get_downloaded_data_summary(
+                link_title_context_apikeys, use_large_context=use_large_context
+            )["text"]
             if detailed >= 2:
-                more_summary = sleep_and_get_future_result(more_summary)["text"] if sleep_and_get_future_exception(more_summary) is None else ""
+                more_summary = (
+                    sleep_and_get_future_result(more_summary)["text"]
+                    if sleep_and_get_future_exception(more_summary) is None
+                    else ""
+                )
                 summary = f"{summary}\n\n{more_summary}"
             if is_science_site(link):
-                science_answers = [f"<|{key}|>" + "\n" + sleep_and_get_future_result(sa)["text"] + f"\n<|/{key}|>" for key, sa in zip(keys, science_answers)]
+                science_answers = [
+                    f"<|{key}|>"
+                    + "\n"
+                    + sleep_and_get_future_result(sa)["text"]
+                    + f"\n<|/{key}|>"
+                    for key, sa in zip(keys, science_answers)
+                ]
                 science_answers = "\n".join(science_answers)
                 summary = f"{summary}\n\n{science_answers}"
         else:
             summary = text
 
-
     except AssertionError as e:
-        return {"link": link, "title": title, "text": '', "exception": False, "full_text": text, "detailed": detailed}
+        return {
+            "link": link,
+            "title": title,
+            "text": "",
+            "exception": False,
+            "full_text": text,
+            "detailed": detailed,
+        }
     logger.debug(f"Time for processing PDF/Link {link} = {(time.time() - st):.2f}")
     assert len(link.strip()) > 0, f"[process_link] Link is empty for title {title}"
     # assert semantic_validation_web_page_scrape(context, {"link": link, "title": title, "text": summary}, api_keys)
-    return {"link": link, "title": title, "text": summary, "exception": False, "full_text": text, "detailed": detailed, "is_image": is_image}
+    return {
+        "link": link,
+        "title": title,
+        "text": summary,
+        "exception": False,
+        "full_text": text,
+        "detailed": detailed,
+        "is_image": is_image,
+    }
+
 
 from concurrent.futures import ThreadPoolExecutor
+
 
 def link_has_html_version(link):
     if "arxiv.org" in link:
@@ -2141,30 +3507,31 @@ def convert_pdf_link_to_html(link):
         link = link.replace("pdf", "html")
     return link
 
+
 def is_youtube_link(link):
     """
     Determines if a given URL is a YouTube link.
-    
+
     Args:
         link (str): The URL to check
-        
+
     Returns:
         bool: True if the URL is a YouTube link, False otherwise
     """
     if not isinstance(link, str):
         return False
-    
+
     link = link.lower()
-    
+
     # Check for common YouTube URL patterns
     youtube_patterns = [
         "youtube.com/watch",
         "youtu.be/",
         "youtube.com/embed/",
         "youtube.com/v/",
-        "youtube.com/shorts/"
+        "youtube.com/shorts/",
     ]
-    
+
     return any(pattern in link for pattern in youtube_patterns)
 
 
@@ -2178,73 +3545,119 @@ def create_leetcode_links(url):
         Extract LeetCode problem name from various URL formats
         """
         # Remove redirect prefix if present
-        if 'r.jina.ai' in url:
-            url = url.split('https://leetcode.com/')[-1]
+        if "r.jina.ai" in url:
+            url = url.split("https://leetcode.com/")[-1]
         else:
-            url = url.split('leetcode.com/')[-1]
-        
+            url = url.split("leetcode.com/")[-1]
+
         # Extract problem name from problems/name/whatever path
-        parts = url.split('/')
-        if 'problems' in parts:
-            problem_idx = parts.index('problems') + 1
+        parts = url.split("/")
+        if "problems" in parts:
+            problem_idx = parts.index("problems") + 1
             if problem_idx < len(parts):
                 return parts[problem_idx]
-        
+
         return None
+
     problem_name = extract_problem_name(url)
     if not problem_name:
         raise ValueError("Invalid LeetCode URL format")
-    
+
     base_url = f"https://leetcode.com/problems/{problem_name}"
     return {
         "description": f"{base_url}/description",
-        "editorial": f"{base_url}/editorial"
+        "editorial": f"{base_url}/editorial",
     }
 
 
-
-@CacheResults(cache=cache, key_function=lambda args, kwargs: str(mmh3.hash(str(args[0][0]), signed=False)),
-            enabled=False)
+@CacheResults(
+    cache=cache,
+    key_function=lambda args, kwargs: str(mmh3.hash(str(args[0][0]), signed=False)),
+    enabled=False,
+)
 def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=None):
     st = time.time()
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
-    assert len(link.strip()) > 0, f"[download_link_data] Link is empty for title {title}"
+    assert len(link.strip()) > 0, (
+        f"[download_link_data] Link is empty for title {title}"
+    )
     link = convert_to_pdf_link_if_needed(link)
     is_image_link_future = get_async_future(is_image_link, link)
     is_pdf = is_pdf_link(link)
     is_image = sleep_and_get_future_result(is_image_link_future)
     link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
     if is_image:
-        llm = CallLLm(api_keys, use_gpt4=True, use_16k=True, model_name=EXPENSIVE_LLM[0])
-        doc_text_f1 = get_async_future(llm, prompts.deep_caption_prompt, images=[link], stream=False)
+        llm = CallLLm(
+            api_keys, use_gpt4=True, use_16k=True, model_name=EXPENSIVE_LLM[0]
+        )
+        doc_text_f1 = get_async_future(
+            llm, prompts.deep_caption_prompt, images=[link], stream=False
+        )
         llm = CallLLm(api_keys, use_gpt4=True, model_name=CHEAP_LLM[0])
-        new_context = context.replace(link, 'this given image')
+        new_context = context.replace(link, "this given image")
         prompt = prompts.deep_caption_prompt_with_query(query=new_context)
         # prompt = f"You are an AI expert at reading images and performing OCR, image analysis, graph analysis, object detection, image recognition and text extraction from images. OCR the image, extract text, tables, data, charts or plot information or any other text and tell me what this image says. Then answer the query: {context}"
         answer = llm(prompt, images=[link], temperature=0.7, stream=False)
-        answer += ("\n" + sleep_and_get_future_result(doc_text_f1))
-        answer = f"OCR (low accuracy) and image extraction results and answers: {answer}\n\n"
-        result = {"link": link, "title": title, "text": answer, "exception": False, "full_text": answer, "is_pdf": False, "is_image": True}
+        answer += "\n" + sleep_and_get_future_result(doc_text_f1)
+        answer = (
+            f"OCR (low accuracy) and image extraction results and answers: {answer}\n\n"
+        )
+        result = {
+            "link": link,
+            "title": title,
+            "text": answer,
+            "exception": False,
+            "full_text": answer,
+            "is_pdf": False,
+            "is_image": True,
+        }
     elif is_pdf:
         html_result_future = None
         if link_has_html_version(link):
             html_link = convert_pdf_link_to_html(link)
-            new_link_title_context_apikeys = (html_link, title, context, api_keys, text, detailed)
-            html_result_future = get_async_future(get_page_text, new_link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
-        pdf_result_future = get_async_future(read_pdf, link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
-        while not (pdf_result_future.done() or (html_result_future is not None and html_result_future.done() and not html_result_future.exception())):
+            new_link_title_context_apikeys = (
+                html_link,
+                title,
+                context,
+                api_keys,
+                text,
+                detailed,
+            )
+            html_result_future = get_async_future(
+                get_page_text,
+                new_link_title_context_apikeys,
+                web_search_tmp_marker_name=web_search_tmp_marker_name,
+            )
+        pdf_result_future = get_async_future(
+            read_pdf,
+            link_title_context_apikeys,
+            web_search_tmp_marker_name=web_search_tmp_marker_name,
+        )
+        while not (
+            pdf_result_future.done()
+            or (
+                html_result_future is not None
+                and html_result_future.done()
+                and not html_result_future.exception()
+            )
+        ):
             time.sleep(0.1)
-        if html_result_future is not None and html_result_future.done() and html_result_future.exception() is None:
+        if (
+            html_result_future is not None
+            and html_result_future.done()
+            and html_result_future.exception() is None
+        ):
             result = html_result_future.result()
         if pdf_result_future.done():
             result = pdf_result_future.result()
 
         result["is_pdf"] = True
         result["is_image"] = False
-        
+
     elif False:
         from youtube_transcript_api import YouTubeTranscriptApi
         from youtube_transcript_api.proxies import GenericProxyConfig
+
         ytt_api = YouTubeTranscriptApi(
             proxy_config=GenericProxyConfig(
                 http_url=api_keys["brightdataProxy"],
@@ -2256,29 +3669,44 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
         result = []
         for i, entry in enumerate(fetched_transcript, 1):
             # Calculate end time by adding duration to start time
-            start_time = entry['start']
-            end_time = start_time + entry['duration']
-            
+            start_time = entry["start"]
+            end_time = start_time + entry["duration"]
+
             # Convert times to SRT format (HH:MM:SS,mmm)
-            start_str = f"{int(start_time//3600):02d}:{int((start_time%3600)//60):02d}:{int(start_time%60):02d},{int((start_time*1000)%1000):03d}"
-            end_str = f"{int(end_time//3600):02d}:{int((end_time%3600)//60):02d}:{int(end_time%60):02d},{int((end_time*1000)%1000):03d}"
-            
+            start_str = f"{int(start_time // 3600):02d}:{int((start_time % 3600) // 60):02d}:{int(start_time % 60):02d},{int((start_time * 1000) % 1000):03d}"
+            end_str = f"{int(end_time // 3600):02d}:{int((end_time % 3600) // 60):02d}:{int(end_time % 60):02d},{int((end_time * 1000) % 1000):03d}"
+
             # Format subtitle entry
             result.append(str(i))  # Subtitle number
             result.append(f"{start_str} --> {end_str}")  # Timestamp
-            result.append(entry['text'])  # Text
+            result.append(entry["text"])  # Text
             result.append("")  # Blank line between entries
         result = "\n".join([d["text"] for d in result])
-        result = {"link": link, "title": title, "text": result, "exception": False, "full_text": result, "is_pdf": False, "is_image": False}
+        result = {
+            "link": link,
+            "title": title,
+            "text": result,
+            "exception": False,
+            "full_text": result,
+            "is_pdf": False,
+            "is_image": False,
+        }
         result["is_pdf"] = False
         result["is_image"] = False
     elif False:
         from langchain_community.document_loaders import YoutubeLoader
-        doc_text = YoutubeLoader.from_youtube_url(
-            link, add_video_info=False
-        ).load()
+
+        doc_text = YoutubeLoader.from_youtube_url(link, add_video_info=False).load()
         doc_text = "\n".join([d.page_content for d in doc_text])
-        result = {"link": link, "title": title, "text": doc_text, "exception": False, "full_text": doc_text, "is_pdf": False, "is_image": False}
+        result = {
+            "link": link,
+            "title": title,
+            "text": doc_text,
+            "exception": False,
+            "full_text": doc_text,
+            "is_pdf": False,
+            "is_image": False,
+        }
         result["is_pdf"] = False
         result["is_image"] = False
 
@@ -2287,17 +3715,47 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
         if not os.path.exists(temp_folder):
             os.makedirs(temp_folder)
         from YouTubeDocIndex import answer_youtube_question
-        result = answer_youtube_question(context, link, api_keys["ASSEMBLYAI_API_KEY"], api_keys["OPENROUTER_API_KEY"], temp_folder, proxy=api_keys["brightdataProxy"])
+
+        result = answer_youtube_question(
+            context,
+            link,
+            api_keys["ASSEMBLYAI_API_KEY"],
+            api_keys["OPENROUTER_API_KEY"],
+            temp_folder,
+            proxy=api_keys["brightdataProxy"],
+        )
         result["is_pdf"] = False
         result["is_image"] = False
     else:
         if "leetcode.com" in link:
             link, title, context, api_keys, text, detailed = link_title_context_apikeys
             leetcode_links = create_leetcode_links(link)
-            link_title_context_apikeys = (leetcode_links["description"], title, context, api_keys, text, detailed)
-            result1 = get_async_future(get_page_text, link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
-            link_title_context_apikeys = (leetcode_links["editorial"], title, context, api_keys, text, detailed)
-            result2 = get_async_future(get_page_text, link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
+            link_title_context_apikeys = (
+                leetcode_links["description"],
+                title,
+                context,
+                api_keys,
+                text,
+                detailed,
+            )
+            result1 = get_async_future(
+                get_page_text,
+                link_title_context_apikeys,
+                web_search_tmp_marker_name=web_search_tmp_marker_name,
+            )
+            link_title_context_apikeys = (
+                leetcode_links["editorial"],
+                title,
+                context,
+                api_keys,
+                text,
+                detailed,
+            )
+            result2 = get_async_future(
+                get_page_text,
+                link_title_context_apikeys,
+                web_search_tmp_marker_name=web_search_tmp_marker_name,
+            )
             result1 = sleep_and_get_future_result(result1)
             result2 = sleep_and_get_future_result(result2)
             result = {}
@@ -2307,7 +3765,10 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
                 else:
                     result[key] = result1[key]
         else:
-            result = get_page_text(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
+            result = get_page_text(
+                link_title_context_apikeys,
+                web_search_tmp_marker_name=web_search_tmp_marker_name,
+            )
         result["is_pdf"] = False
         result["is_image"] = False
     # Don't hard-fail on short content; return partial and let the caller decide.
@@ -2319,7 +3780,9 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
         result["partial"] = True
         result["error"] = result.get("error") or "too_short"
     et = time.time() - st
-    time_logger.info(f"[download_link_data] Time taken to download link data for {link} = {et:.2f}")
+    time_logger.info(
+        f"[download_link_data] Time taken to download link data for {link} = {et:.2f}"
+    )
     return result
 
 
@@ -2348,14 +3811,10 @@ def convert_pdf_to_txt(file_url, secret_key):
     api_endpoint = f"https://v2.convertapi.com/convert/pdf/to/txt?Secret={secret_key}"
 
     # Data for non-file fields
-    data = {
-        'Timeout': 30,
-        'PageRange': '1-50',
-        'StoreFile': 'true'
-    }
+    data = {"Timeout": 30, "PageRange": "1-50", "StoreFile": "true"}
 
     # File payload
-    files = {'File': (None, file_url)}
+    files = {"File": (None, file_url)}
 
     # Make the POST request
     response = requests.post(api_endpoint, data=data, files=files)
@@ -2366,14 +3825,16 @@ def convert_pdf_to_txt(file_url, secret_key):
         response_json = response.json()
 
         # Extract the FileData field
-        file_data_base64 = response_json['Files'][0]['FileData']
+        file_data_base64 = response_json["Files"][0]["FileData"]
 
         # Decode the base64 string to get the file content
-        file_content = base64.b64decode(file_data_base64).decode('utf-8')
+        file_content = base64.b64decode(file_data_base64).decode("utf-8")
 
         return file_content
     else:
-        raise Exception(f"Failed to convert PDF: {response.status_code} {response.text}")
+        raise Exception(
+            f"Failed to convert PDF: {response.status_code} {response.text}"
+        )
 
 
 def convert_arxiv_link_to_html(link):
@@ -2396,11 +3857,13 @@ def convert_arxiv_link_to_html(link):
 
     return new_link.strip(), new_link_2.strip()
 
+
 def get_arxiv_pdf_link(link):
     try:
         assert "arxiv.org" in link
         import re
         from bs4 import BeautifulSoup, SoupStrainer
+
         # convert to ar5iv link
         if "pdf" in link:
             arxiv_id = link.replace(".pdf", "").split("/")[-1]
@@ -2426,18 +3889,22 @@ def get_arxiv_pdf_link(link):
         else:
             arxiv_request = sleep_and_get_future_result(arxiv_request_v2)
             arxiv_text = arxiv_request.text
-        assert arxiv_request.status_code == 200 or arxiv_request_v2.status_code == 200, f"Error converting arxiv link {link} to ar5iv link with status code {arxiv_request.status_code}"
+        assert (
+            arxiv_request.status_code == 200 or arxiv_request_v2.status_code == 200
+        ), (
+            f"Error converting arxiv link {link} to ar5iv link with status code {arxiv_request.status_code}"
+        )
         arxiv_pdf_html_parse_start = time.time()
-        soup = BeautifulSoup(arxiv_text, 'lxml', parse_only=SoupStrainer('article'))
-        element = soup.find(id='bib')
-        title = ''
+        soup = BeautifulSoup(arxiv_text, "lxml", parse_only=SoupStrainer("article"))
+        element = soup.find(id="bib")
+        title = ""
         # Remove the element
         if element is not None:
             element.decompose()
         try:
             title = soup.select("h1")[0].text
         except:
-            title = ''
+            title = ""
         try:
             text = soup.select("article")[0].text
         except:
@@ -2445,23 +3912,33 @@ def get_arxiv_pdf_link(link):
             text = soupy["text"]
             title = soupy["title"]
         arxiv_pdf_html_parse_end = time.time()
-        time_logger.info(f"Time taken to parse arxiv html {link} = {(arxiv_pdf_html_parse_end - arxiv_pdf_html_parse_start):.2f}")
+        time_logger.info(
+            f"Time taken to parse arxiv html {link} = {(arxiv_pdf_html_parse_end - arxiv_pdf_html_parse_start):.2f}"
+        )
         text = normalize_whitespace(text)
-        text = re.sub('\n{3,}', '\n\n', text)
-        assert len(text.strip().split()) > 500, f"Extracted arxiv info is too short for link: {link}"
+        text = re.sub("\n{3,}", "\n\n", text)
+        assert len(text.strip().split()) > 500, (
+            f"Extracted arxiv info is too short for link: {link}"
+        )
         return title, text
     except AssertionError as e:
-        logger.warning(f"Error converting arxiv link {link} to ar5iv link with error {str(e)}")
+        logger.warning(
+            f"Error converting arxiv link {link} to ar5iv link with error {str(e)}"
+        )
         raise e
     except Exception as e:
-        logger.warning(f"Error reading arxiv / ar5iv pdf {link} with error = {str(e)}\n{traceback.format_exc()}")
+        logger.warning(
+            f"Error reading arxiv / ar5iv pdf {link} with error = {str(e)}\n{traceback.format_exc()}"
+        )
         raise e
 
 
 def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
     link, title, context, api_keys, _, detailed = link_title_context_apikeys
     assert len(link.strip()) > 0, f"[read_pdf] Link is empty for link {link}"
-    assert exists_tmp_marker_file(web_search_tmp_marker_name), f"Marker file not found for link: {link}"
+    assert exists_tmp_marker_file(web_search_tmp_marker_name), (
+        f"Marker file not found for link: {link}"
+    )
     st = time.time()
     # Reading PDF
     pdfReader = PDFReaderTool({"mathpixKey": None, "mathpixId": None})
@@ -2485,42 +3962,88 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
     if "arxiv.org" in link:
         get_arxiv_pdf_link_future = get_async_future(get_arxiv_pdf_link, link)
         arxiv_html_link = convert_arxiv_link_to_html(link)
-        arxiv_brightdata_future_1 = get_async_future(fetch_content_brightdata_html, arxiv_html_link[0], api_keys['brightdataUrl'], False, True)
+        arxiv_brightdata_future_1 = get_async_future(
+            fetch_content_brightdata_html,
+            arxiv_html_link[0],
+            api_keys["brightdataUrl"],
+            False,
+            True,
+        )
         # arxiv_brightdata_future_2 = get_async_future(fetch_content_brightdata_html, arxiv_html_link[1], api_keys['brightdataUrl'], False, True)
         # arxiv_zenrows_future = get_async_future(send_request_zenrows_html, arxiv_html_link[0], api_keys['zenrows'], readability=False, js_render=False, clean_parse=True)
-        arxiv_ant_future = get_async_future(send_request_ant_html, arxiv_html_link[1], api_keys['scrapingant'], readability=False)
-    text = ''
+        arxiv_ant_future = get_async_future(
+            send_request_ant_html,
+            arxiv_html_link[1],
+            api_keys["scrapingant"],
+            readability=False,
+        )
+    text = ""
     while time.time() - st < (45 if detailed <= 1 else 75):
-        if pdf_text_future is not None and pdf_text_future.done() and pdf_text_future.exception() is None:
+        if (
+            pdf_text_future is not None
+            and pdf_text_future.done()
+            and pdf_text_future.exception() is None
+        ):
             text = pdf_text_future.result()
             if isinstance(text, str):
-                txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>',
-                                                                                                      '')
+                txt = (
+                    text.replace("<|endoftext|>", "\n")
+                    .replace("endoftext", "end_of_text")
+                    .replace("<|endoftext|>", "")
+                )
                 txt_len = len(txt.strip().split())
                 if txt_len > 500:
                     result_from = "pdf_reader_tool"
                     break
-        if convert_api_pdf_future is not None and convert_api_pdf_future.done() and convert_api_pdf_future.exception() is None:
+        if (
+            convert_api_pdf_future is not None
+            and convert_api_pdf_future.done()
+            and convert_api_pdf_future.exception() is None
+        ):
             text = convert_api_pdf_future.result()
             if isinstance(text, str):
-                txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>',
-                                                                                                      '')
+                txt = (
+                    text.replace("<|endoftext|>", "\n")
+                    .replace("endoftext", "end_of_text")
+                    .replace("<|endoftext|>", "")
+                )
                 txt_len = len(txt.strip().split())
                 if txt_len > 500:
                     result_from = "convert_api"
                     break
-        if get_arxiv_pdf_link_future is not None and get_arxiv_pdf_link_future.done() and get_arxiv_pdf_link_future.exception() is None and not (convert_api_pdf_future is not None and convert_api_pdf_future.done() and convert_api_pdf_future.exception() is None) and not (pdf_text_future is not None and pdf_text_future.done() and pdf_text_future.exception() is None):
+        if (
+            get_arxiv_pdf_link_future is not None
+            and get_arxiv_pdf_link_future.done()
+            and get_arxiv_pdf_link_future.exception() is None
+            and not (
+                convert_api_pdf_future is not None
+                and convert_api_pdf_future.done()
+                and convert_api_pdf_future.exception() is None
+            )
+            and not (
+                pdf_text_future is not None
+                and pdf_text_future.done()
+                and pdf_text_future.exception() is None
+            )
+        ):
             maybe_title, text = get_arxiv_pdf_link_future.result()
             if isinstance(maybe_title, str) and len(maybe_title.strip()) > 0:
                 title = maybe_title
             if isinstance(text, str):
-                txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>',
-                                                                                                      '')
+                txt = (
+                    text.replace("<|endoftext|>", "\n")
+                    .replace("endoftext", "end_of_text")
+                    .replace("<|endoftext|>", "")
+                )
                 txt_len = len(txt.strip().split())
                 if txt_len > 500:
                     result_from = "arxiv_html"
                     break
-        if arxiv_brightdata_future_1 is not None and arxiv_brightdata_future_1.done() and arxiv_brightdata_future_1.exception() is None:
+        if (
+            arxiv_brightdata_future_1 is not None
+            and arxiv_brightdata_future_1.done()
+            and arxiv_brightdata_future_1.exception() is None
+        ):
             text = str(arxiv_brightdata_future_1.result())
             if isinstance(text, str):
                 txt_len = len(text.strip().split())
@@ -2528,7 +4051,11 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
                     result_from = "arxiv_brightdata_1"
                     break
 
-        if arxiv_brightdata_future_2 is not None and arxiv_brightdata_future_2.done() and arxiv_brightdata_future_2.exception() is None:
+        if (
+            arxiv_brightdata_future_2 is not None
+            and arxiv_brightdata_future_2.done()
+            and arxiv_brightdata_future_2.exception() is None
+        ):
             text = str(arxiv_brightdata_future_2.result())
             if isinstance(text, str):
                 txt_len = len(text.strip().split())
@@ -2536,7 +4063,11 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
                     result_from = "arxiv_brightdata_2"
                     break
 
-        if arxiv_zenrows_future is not None and arxiv_zenrows_future.done() and arxiv_zenrows_future.exception() is None:
+        if (
+            arxiv_zenrows_future is not None
+            and arxiv_zenrows_future.done()
+            and arxiv_zenrows_future.exception() is None
+        ):
             text = str(arxiv_zenrows_future.result())
             if isinstance(text, str):
                 txt_len = len(text.strip().split())
@@ -2544,7 +4075,11 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
                     result_from = "arxiv_zenrows"
                     break
 
-        if arxiv_ant_future is not None and arxiv_ant_future.done() and arxiv_ant_future.exception() is None:
+        if (
+            arxiv_ant_future is not None
+            and arxiv_ant_future.done()
+            and arxiv_ant_future.exception() is None
+        ):
             text = str(arxiv_ant_future.result())
             if isinstance(text, str):
                 txt_len = len(text.strip().split())
@@ -2553,38 +4088,87 @@ def read_pdf(link_title_context_apikeys, web_search_tmp_marker_name=None):
                     break
         time.sleep(0.5)
 
-    txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
+    txt = (
+        text.replace("<|endoftext|>", "\n")
+        .replace("endoftext", "end_of_text")
+        .replace("<|endoftext|>", "")
+    )
     txt = normalize_whitespace(txt)
     txt_len = len(txt.strip().split())
-    time_logger.info(f"Time taken to read PDF {link} = {(time.time() - st):.2f} with text len = {txt_len}")
+    time_logger.info(
+        f"Time taken to read PDF {link} = {(time.time() - st):.2f} with text len = {txt_len}"
+    )
 
-    assert txt_len > 500, f"Extracted pdf from {result_from} with len = {txt_len} is too short for pdf link: {link}"
+    assert txt_len > 500, (
+        f"Extracted pdf from {result_from} with len = {txt_len} is too short for pdf link: {link}"
+    )
     # assert semantic_validation_web_page_scrape(context, {"link": link, "title": title, "text": txt}, api_keys)
-    return {"link": link, "title": title, "context": context, "detailed":detailed, "exception": False, "full_text": txt}
+    return {
+        "link": link,
+        "title": title,
+        "context": context,
+        "detailed": detailed,
+        "exception": False,
+        "full_text": txt,
+    }
+
 
 def get_downloaded_data_summary(link_title_context_apikeys, use_large_context=False):
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
-    txt = text.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', '')
+    txt = (
+        text.replace("<|endoftext|>", "\n")
+        .replace("endoftext", "end_of_text")
+        .replace("<|endoftext|>", "")
+    )
     st = time.time()
     input_len = len(txt.strip().split())
-    assert input_len > 100, f"Input length is too short, input len = {input_len}, for link: {link}"
+    assert input_len > 100, (
+        f"Input length is too short, input len = {input_len}, for link: {link}"
+    )
     # chunked_text = ChunkText(txt, TOKEN_LIMIT_FOR_DETAILED if detailed else TOKEN_LIMIT_FOR_SHORT, 0)[0]
-    logger.debug(f"Time for content extraction for link: {link} = {(time.time() - st):.2f}")
-    time_logger.info(f"Invoke contextual reader for link: {link}. Input length = {input_len}")
+    logger.debug(
+        f"Time for content extraction for link: {link} = {(time.time() - st):.2f}"
+    )
+    time_logger.info(
+        f"Invoke contextual reader for link: {link}. Input length = {input_len}"
+    )
 
-    result = ContextualReader(api_keys, provide_short_responses=not use_large_context, scan=use_large_context)(context, txt, retriever=None)
+    result = ContextualReader(
+        api_keys, provide_short_responses=not use_large_context, scan=use_large_context
+    )(context, txt, retriever=None)
     extracted_info, llm_result_future = result
 
     tt = time.time() - st
     tex_len = len(extracted_info.split())
-    time_logger.info(f"Called contextual reader for link: {link}, Input length = {input_len}, Result length = {tex_len} with total time = {tt:.2f}")
-    return {"link": link, "title": title, "context": context, "text": extracted_info, "llm_result_future": llm_result_future, "detailed": detailed, "exception": False, "full_text": txt, "detailed": detailed}
+    time_logger.info(
+        f"Called contextual reader for link: {link}, Input length = {input_len}, Result length = {tex_len} with total time = {tt:.2f}"
+    )
+    return {
+        "link": link,
+        "title": title,
+        "context": context,
+        "text": extracted_info,
+        "llm_result_future": llm_result_future,
+        "detailed": detailed,
+        "exception": False,
+        "full_text": txt,
+        "detailed": detailed,
+    }
+
 
 def get_page_text(link_title_context_apikeys, web_search_tmp_marker_name=None):
     st = time.time()
     link, title, context, api_keys, text, detailed = link_title_context_apikeys
-    assert exists_tmp_marker_file(web_search_tmp_marker_name), f"Marker file not found for link: {link}"
-    pgc = web_scrape_page(link, context, api_keys, web_search_tmp_marker_name=web_search_tmp_marker_name, detailed=detailed)
+    assert exists_tmp_marker_file(web_search_tmp_marker_name), (
+        f"Marker file not found for link: {link}"
+    )
+    pgc = web_scrape_page(
+        link,
+        context,
+        api_keys,
+        web_search_tmp_marker_name=web_search_tmp_marker_name,
+        detailed=detailed,
+    )
     title = pgc.get("title", "") if isinstance(pgc, dict) else ""
     text = pgc.get("text", "") if isinstance(pgc, dict) else ""
     assert len(link.strip()) > 0, f"[get_page_text] Link is empty for title {title}"
@@ -2607,8 +4191,17 @@ def get_page_text(link_title_context_apikeys, web_search_tmp_marker_name=None):
         partial = True
         error = error or "validation_error"
     # assert semantic_validation_web_page_scrape(context, dict(**pgc), api_keys)
-    time_logger.info(f"[get_page_text] Time taken to download page data with len = {len(text.split())} for {link} = {(time.time() - st):.2f}")
-    out = {"link": link, "title": title, "context": context, "exception": False, "full_text": text, "detailed": detailed}
+    time_logger.info(
+        f"[get_page_text] Time taken to download page data with len = {len(text.split())} for {link} = {(time.time() - st):.2f}"
+    )
+    out = {
+        "link": link,
+        "title": title,
+        "context": context,
+        "exception": False,
+        "full_text": text,
+        "detailed": detailed,
+    }
     if partial:
         out["partial"] = True
         out["error"] = error
@@ -2617,38 +4210,66 @@ def get_page_text(link_title_context_apikeys, web_search_tmp_marker_name=None):
 
 pdf_process_executor = ThreadPoolExecutor(max_workers=32)
 
-def queued_read_over_multiple_links(results_generator, api_keys, provide_detailed_answers=False, web_search_tmp_marker_name=None):
+
+def queued_read_over_multiple_links(
+    results_generator,
+    api_keys,
+    provide_detailed_answers=False,
+    web_search_tmp_marker_name=None,
+):
     def yeild_one():
         for r in results_generator:
             if isinstance(r, dict) and r["type"] == "result":
-                yield [r["link"], r["title"], r["context"], api_keys, '', provide_detailed_answers, r.get("start_time", time.time()), r["query"]]
+                yield [
+                    r["link"],
+                    r["title"],
+                    r["context"],
+                    api_keys,
+                    "",
+                    provide_detailed_answers,
+                    r.get("start_time", time.time()),
+                    r["query"],
+                ]
             else:
                 continue
 
     def call_back(result, *args, **kwargs):
         try:
-            if result is not None and "link" in result and len(result["link"].strip()) > 0:
-                link = result['link']
+            if (
+                result is not None
+                and "link" in result
+                and len(result["link"].strip()) > 0
+            ):
+                link = result["link"]
             else:
-                link = args[0][0]['link']
+                link = args[0][0]["link"]
             assert len(link.strip()) > 0, f"Empty input link in call_back"
         except:
-            link = ''
+            link = ""
         full_result = None
-        text = ''
+        text = ""
         llm_result_future = wrap_in_future("NO_LLM_RESULT")
 
         if result is not None:
             assert isinstance(result, dict)
             result.pop("exception", None)
             result.pop("detailed", None)
-            llm_result_future = result.pop("llm_result_future", wrap_in_future("NO_LLM_RESULT"))
+            llm_result_future = result.pop(
+                "llm_result_future", wrap_in_future("NO_LLM_RESULT")
+            )
             full_result = deepcopy(result)
             result.pop("full_text", None)
             text = f"[{result['title']}]({result['link']})\n{result['text']}"
-        return {"text": text, "llm_result_future": llm_result_future, "full_info": full_result, "link": link, "title": result['title']}
+        return {
+            "text": text,
+            "llm_result_future": llm_result_future,
+            "full_info": full_result,
+            "link": link,
+            "title": result["title"],
+        }
 
     threads = 64
+
     # task_queue = orchestrator(process_link, list(zip(link_title_context_apikeys, [{}]*len(link_title_context_apikeys))), call_back, threads, 120)
     def fn2(*args, **kwargs):
         link_title_context_apikeys = args[0]
@@ -2666,20 +4287,39 @@ def queued_read_over_multiple_links(results_generator, api_keys, provide_detaile
         web_search_tmp_marker_name = kwargs.get("keep_going_marker", None)
         link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
         if exists_tmp_marker_file(web_search_tmp_marker_name):
-            web_res = download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=web_search_tmp_marker_name)
+            web_res = download_link_data(
+                link_title_context_apikeys,
+                web_search_tmp_marker_name=web_search_tmp_marker_name,
+            )
         else:
             web_res = {"exception": True, "error": "Marker file not found"}
-            raise ForceStoppedException(f"fn2 Web search stopped for link: {link}, {web_res['error']}")
+            raise ForceStoppedException(
+                f"fn2 Web search stopped for link: {link}, {web_res['error']}"
+            )
         error = web_res["error"] if "error" in web_res else None
         elapsed = time.time() - start_time
         if elapsed > MAX_TIME_TO_WAIT_FOR_WEB_RESULTS:
-            raise ForceStoppedException(f"fn2 Web search stopped due to too long download time for link: {link}, {error}")
-        time_logger.info(f"[fn2] Time taken for downloading link: = {elapsed:.2f}, fn2 time = {(time.time() - st):.2f} with len = {len(web_res['full_text'].split())}, link = {link}")
-        if exists_tmp_marker_file(web_search_tmp_marker_name) and not web_res.get("exception",
-                                                                                  False) and "full_text" in web_res and len(
-                web_res["full_text"].split()) > 0:
+            raise ForceStoppedException(
+                f"fn2 Web search stopped due to too long download time for link: {link}, {error}"
+            )
+        time_logger.info(
+            f"[fn2] Time taken for downloading link: = {elapsed:.2f}, fn2 time = {(time.time() - st):.2f} with len = {len(web_res['full_text'].split())}, link = {link}"
+        )
+        if (
+            exists_tmp_marker_file(web_search_tmp_marker_name)
+            and not web_res.get("exception", False)
+            and "full_text" in web_res
+            and len(web_res["full_text"].split()) > 0
+        ):
             text = web_res["full_text"]
-            link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
+            link_title_context_apikeys = (
+                link,
+                title,
+                context,
+                api_keys,
+                text,
+                detailed,
+            )
             # If the page is too short, avoid invoking ContextualReader (it asserts on short inputs).
             # Return partial raw text instead of throwing and forcing the pipeline to "retry" via other links.
             wc = len(text.strip().split())
@@ -2696,22 +4336,33 @@ def queued_read_over_multiple_links(results_generator, api_keys, provide_detaile
                     "partial": True,
                     "error": web_res.get("error") or "too_short_for_summary",
                 }
-                time_logger.info(f"[fn2] Returning partial result (wc={wc}) for link={link}")
+                time_logger.info(
+                    f"[fn2] Returning partial result (wc={wc}) for link={link}"
+                )
                 return partial
 
             st = time.time()
             summary = get_downloaded_data_summary(link_title_context_apikeys)
             if "is_image" in web_res and web_res["is_image"]:
-                summary["text"] += ("\n" + web_res["full_text"])
-            assert "link" in summary and len(summary["link"].strip()) > 10, f"Empty output link in summary"
-            time_logger.info(f"[fn2] Time taken for processing link and summary: = {(time.time() - start_time):.2f}, fn2 time = {(time.time() - st):.2f}, link = {link}")
+                summary["text"] += "\n" + web_res["full_text"]
+            assert "link" in summary and len(summary["link"].strip()) > 10, (
+                f"Empty output link in summary"
+            )
+            time_logger.info(
+                f"[fn2] Time taken for processing link and summary: = {(time.time() - start_time):.2f}, fn2 time = {(time.time() - st):.2f}, link = {link}"
+            )
             return summary
         elif error or web_res.get("exception", False):
-            raise ForceStoppedException(f"fn2 Web search stopped for link: {link}, {error}")
+            raise ForceStoppedException(
+                f"fn2 Web search stopped for link: {link}, {error}"
+            )
         elif not exists_tmp_marker_file(web_search_tmp_marker_name):
-            raise ForceStoppedException(f"fn2 Web search stopped for link: {link} due to marker file not found")
+            raise ForceStoppedException(
+                f"fn2 Web search stopped for link: {link} due to marker file not found"
+            )
         else:
             raise GenericShortException(f"fn2 Web search stopped for link: {link}")
+
     # def compute_timeout(link):
     #     return {"timeout": 60 + (30 if provide_detailed_answers else 0)} if is_pdf_link(link) else {"timeout": 30 + (15 if provide_detailed_answers else 0)}
     # timeouts = list(pdf_process_executor.map(compute_timeout, links))
@@ -2722,55 +4373,129 @@ def queued_read_over_multiple_links(results_generator, api_keys, provide_detaile
         except Exception as e:
             traceback.print_exc()
             pass
-    task_queue = orchestrator_with_queue(zip(yeild_one(), yield_timeout()), fn2, call_back, max_workers=threads, timeout=MAX_TIME_TO_WAIT_FOR_WEB_RESULTS * (3 if provide_detailed_answers else 2))
+
+    task_queue = orchestrator_with_queue(
+        zip(yeild_one(), yield_timeout()),
+        fn2,
+        call_back,
+        max_workers=threads,
+        timeout=MAX_TIME_TO_WAIT_FOR_WEB_RESULTS
+        * (3 if provide_detailed_answers else 2),
+    )
     return task_queue
 
 
-def read_over_multiple_links(links, titles, contexts, api_keys, texts=None, provide_detailed_answers=False):
+def read_over_multiple_links(
+    links, titles, contexts, api_keys, texts=None, provide_detailed_answers=False
+):
     if texts is None:
-        texts = [''] * len(links)
+        texts = [""] * len(links)
     # Combine links, titles, contexts and api_keys into tuples for processing
-    link_title_context_apikeys = list(zip(links, titles, contexts, [api_keys] * len(links), texts, [provide_detailed_answers] * len(links)))
+    link_title_context_apikeys = list(
+        zip(
+            links,
+            titles,
+            contexts,
+            [api_keys] * len(links),
+            texts,
+            [provide_detailed_answers] * len(links),
+        )
+    )
     # Use the executor to apply process_pdf to each tuple
-    futures = [pdf_process_executor.submit(process_link, l_t_c_a, 2 if (provide_detailed_answers and len(links) <= 4) else 1, get_link_summary=len(links) >= 3) for l_t_c_a in link_title_context_apikeys]
+    futures = [
+        pdf_process_executor.submit(
+            process_link,
+            l_t_c_a,
+            2 if (provide_detailed_answers and len(links) <= 4) else 1,
+            get_link_summary=len(links) >= 3,
+        )
+        for l_t_c_a in link_title_context_apikeys
+    ]
     # Collect the results as they become available
     processed_texts = [sleep_and_get_future_result(future) for future in futures]
     processed_texts = [p for p in processed_texts if not p["exception"]]
     # processed_texts = [p for p in processed_texts if not "no relevant information" in p["text"].lower()]
     # assert len(processed_texts) > 0
     if len(processed_texts) == 0:
-        logger.warning(f"Number of processed texts: {len(processed_texts)}, with links: {links} in read_over_multiple_links")
+        logger.warning(
+            f"Number of processed texts: {len(processed_texts)}, with links: {links} in read_over_multiple_links"
+        )
     full_processed_texts = deepcopy(processed_texts)
     for fp, p in zip(full_processed_texts, processed_texts):
         p.pop("exception", None)
         p.pop("detailed", None)
         if len(p["text"].strip()) == 0:
-            p["text"] = p.pop("full_text", '')
-            fp["text"] = fp.pop("full_text", '')
+            p["text"] = p.pop("full_text", "")
+            fp["text"] = fp.pop("full_text", "")
         p.pop("full_text", None)
     # Concatenate all the texts
 
     # Cohere rerank here
     # result = "\n\n".join([json.dumps(p, indent=2) for p in processed_texts])
     if len(links) == 1:
-        raw_texts = [p.get("full_text", '') if not p.get('is_image', False) else '' for p in full_processed_texts]
-        raw_texts = [ChunkText(p.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', ''),
-                              TOKEN_LIMIT_FOR_DETAILED*2 - get_gpt4_word_count(p), 0)[0] if len(p) > 0 else "" for p in raw_texts]
-        result = "\n\n".join([f"[{p['title'] if len(p['title']) > 0 else p['link']}]({p['link']})\nSummary:\n{p['text']}\n{'Raw article text:' if len(r.strip()) > 0 else ''}\n{r}\n" for r, p in
-                              zip(raw_texts, processed_texts)])
+        raw_texts = [
+            p.get("full_text", "") if not p.get("is_image", False) else ""
+            for p in full_processed_texts
+        ]
+        raw_texts = [
+            ChunkText(
+                p.replace("<|endoftext|>", "\n")
+                .replace("endoftext", "end_of_text")
+                .replace("<|endoftext|>", ""),
+                TOKEN_LIMIT_FOR_DETAILED * 2 - get_gpt4_word_count(p),
+                0,
+            )[0]
+            if len(p) > 0
+            else ""
+            for p in raw_texts
+        ]
+        result = "\n\n".join(
+            [
+                f"[{p['title'] if len(p['title']) > 0 else p['link']}]({p['link']})\nSummary:\n{p['text']}\n{'Raw article text:' if len(r.strip()) > 0 else ''}\n{r}\n"
+                for r, p in zip(raw_texts, processed_texts)
+            ]
+        )
     elif len(links) == 2 and provide_detailed_answers:
-        raw_texts = [p.get("full_text", '') if not p.get('is_image', False) else '' for p in full_processed_texts]
-        raw_texts = [ChunkText(p.replace('<|endoftext|>', '\n').replace('endoftext', 'end_of_text').replace('<|endoftext|>', ''),
-                               TOKEN_LIMIT_FOR_NORMAL - get_gpt4_word_count(p),
-                               0)[0] if len(p) > 0 else "" for p in raw_texts]
-        result = "\n\n".join([f"[{p['title'] if len(p['title']) > 0 else p['link']}]({p['link']})\nSummary:\n{p['text']}\n{'Raw article text:' if len(r.strip()) > 0 else ''}\n{r}\n" for r, p in
-                              zip(raw_texts, processed_texts)])
+        raw_texts = [
+            p.get("full_text", "") if not p.get("is_image", False) else ""
+            for p in full_processed_texts
+        ]
+        raw_texts = [
+            ChunkText(
+                p.replace("<|endoftext|>", "\n")
+                .replace("endoftext", "end_of_text")
+                .replace("<|endoftext|>", ""),
+                TOKEN_LIMIT_FOR_NORMAL - get_gpt4_word_count(p),
+                0,
+            )[0]
+            if len(p) > 0
+            else ""
+            for p in raw_texts
+        ]
+        result = "\n\n".join(
+            [
+                f"[{p['title'] if len(p['title']) > 0 else p['link']}]({p['link']})\nSummary:\n{p['text']}\n{'Raw article text:' if len(r.strip()) > 0 else ''}\n{r}\n"
+                for r, p in zip(raw_texts, processed_texts)
+            ]
+        )
     else:
-        result = "\n\n".join([f"[{p['title'] if len(p['title']) > 0 else p['link']}]({p['link']})\n{p['text']}" for p in processed_texts])
+        result = "\n\n".join(
+            [
+                f"[{p['title'] if len(p['title']) > 0 else p['link']}]({p['link']})\n{p['text']}"
+                for p in processed_texts
+            ]
+        )
     return result, full_processed_texts
 
 
-def get_multiple_answers(query, additional_docs:list, current_doc_summary:str, provide_detailed_answers=False, provide_raw_text=True, dont_join_answers=False):
+def get_multiple_answers(
+    query,
+    additional_docs: list,
+    current_doc_summary: str,
+    provide_detailed_answers=False,
+    provide_raw_text=True,
+    dont_join_answers=False,
+):
     # prompt = prompts.document_search_prompt.format(context=query, doc_context=current_doc_summary)
     # api_keys = additional_docs[0].get_api_keys()
     # query_strings = CallLLm(api_keys, use_gpt4=False)(prompt, temperature=0.5, max_tokens=100, model_name=CHEAP_LLM[0])
@@ -2791,87 +4516,196 @@ def get_multiple_answers(query, additional_docs:list, current_doc_summary:str, p
 
     start_time = time.time()
     query_string = (
-                       f"Previous context: '''{current_doc_summary}'''\n" if len(
-                           current_doc_summary.strip()) > 0 else '') + f"Focus on this Current conversation summary and query: \n'''\n{query}\n'''\n"
-    image_condition = all([doc.doc_type=="image" for doc in additional_docs]) and len(additional_docs) <= 3
+        f"Previous context: '''{current_doc_summary}'''\n"
+        if len(current_doc_summary.strip()) > 0
+        else ""
+    ) + f"Focus on this Current conversation summary and query: \n'''\n{query}\n'''\n"
+    image_condition = (
+        all([doc.doc_type == "image" for doc in additional_docs])
+        and len(additional_docs) <= 3
+    )
     provide_raw_text = False
 
     if provide_raw_text or image_condition:
-        per_doc_text_len = (32_000 if provide_detailed_answers >= 2 else 16_000) // len(additional_docs)
-        doc_search_results_futures = [pdf_process_executor.submit(doc.semantic_search_document, query_string, per_doc_text_len) if not doc.doc_type=="image" or len(additional_docs) > 1 else wrap_in_future("") for doc in additional_docs]
+        per_doc_text_len = (32_000 if provide_detailed_answers >= 2 else 16_000) // len(
+            additional_docs
+        )
+        doc_search_results_futures = [
+            pdf_process_executor.submit(
+                doc.semantic_search_document, query_string, per_doc_text_len
+            )
+            if not doc.doc_type == "image" or len(additional_docs) > 1
+            else wrap_in_future("")
+            for doc in additional_docs
+        ]
         if provide_detailed_answers >= 2:
-            doc_search_results_small_futures = [pdf_process_executor.submit(doc.semantic_search_document_small, query_string, per_doc_text_len//2) if not doc.doc_type=="image" else wrap_in_future("") for doc in
-                additional_docs]
+            doc_search_results_small_futures = [
+                pdf_process_executor.submit(
+                    doc.semantic_search_document_small,
+                    query_string,
+                    per_doc_text_len // 2,
+                )
+                if not doc.doc_type == "image"
+                else wrap_in_future("")
+                for doc in additional_docs
+            ]
     query_string = (
-                       f"Previous context: '''{current_doc_summary}'''\n" if len(
-                           current_doc_summary.strip()) > 0 else '') + f"{'Write detailed, informative, comprehensive and in depth answer. Provide more details, information and in-depth response covering all aspects. We will use this response as an essay so write clearly and elaborately using excerts from the document.' if provide_detailed_answers else ''}. Provide {'detailed, comprehensive, thoughtful, insightful, informative and in depth' if provide_detailed_answers else ''} answer for this current query: '''{query}'''"
-    if (not provide_raw_text or provide_detailed_answers >= 2 ) and not image_condition:
-        futures = [pdf_process_executor.submit(doc.get_short_answer, query_string, defaultdict(lambda:provide_detailed_answers, {"provide_detailed_answers": 2 if provide_detailed_answers >= 4 else provide_detailed_answers}), False)  for doc in additional_docs]
+        (
+            f"Previous context: '''{current_doc_summary}'''\n"
+            if len(current_doc_summary.strip()) > 0
+            else ""
+        )
+        + f"{'Write detailed, informative, comprehensive and in depth answer. Provide more details, information and in-depth response covering all aspects. We will use this response as an essay so write clearly and elaborately using excerts from the document.' if provide_detailed_answers else ''}. Provide {'detailed, comprehensive, thoughtful, insightful, informative and in depth' if provide_detailed_answers else ''} answer for this current query: '''{query}'''"
+    )
+    if (not provide_raw_text or provide_detailed_answers >= 2) and not image_condition:
+        futures = [
+            pdf_process_executor.submit(
+                doc.get_short_answer,
+                query_string,
+                defaultdict(
+                    lambda: provide_detailed_answers,
+                    {
+                        "provide_detailed_answers": 2
+                        if provide_detailed_answers >= 4
+                        else provide_detailed_answers
+                    },
+                ),
+                False,
+            )
+            for doc in additional_docs
+        ]
         answers = [sleep_and_get_future_result(future) for future in futures]
-        logger.info(f"[get_multiple_answers]: Getting answers only Time spent = {time.time() - start_time:.2f}, query len = {len(query.split())}")
-        answers = [{"link": doc.doc_source, "title": doc.title, "text": answer} for answer, doc in zip(answers, additional_docs)]
+        logger.info(
+            f"[get_multiple_answers]: Getting answers only Time spent = {time.time() - start_time:.2f}, query len = {len(query.split())}"
+        )
+        answers = [
+            {"link": doc.doc_source, "title": doc.title, "text": answer}
+            for answer, doc in zip(answers, additional_docs)
+        ]
 
         if provide_detailed_answers >= 4 and len(additional_docs) > 1:
-            stage_1_answers = [f"[{p['title']}]({p['link']})\nAnswer:\n{p['text']}" for p in answers]
+            stage_1_answers = [
+                f"[{p['title']}]({p['link']})\nAnswer:\n{p['text']}" for p in answers
+            ]
             joined_answers = "\n\n".join(stage_1_answers)
-            query_string = query_string + f"\n\nStage 1 Answers from multiple documents:\n```\n{joined_answers}\n```\n\nNow based on these answers, we want to refine the answer from this document and compare and contrast this answer with the answers from the multiple documents to add more context and comparative analysis. Comparison with Answers from multiple documents is needed.\n\n"
-            futures = [pdf_process_executor.submit(doc.get_short_answer, query_string,
-                                                   defaultdict(lambda: provide_detailed_answers, {
-                                                       "provide_detailed_answers": 2}),
-                                                   False) for doc in additional_docs]
-            answers_stage_2 = [sleep_and_get_future_result(future) for future in futures]
-            
+            query_string = (
+                query_string
+                + f"\n\nStage 1 Answers from multiple documents:\n```\n{joined_answers}\n```\n\nNow based on these answers, we want to refine the answer from this document and compare and contrast this answer with the answers from the multiple documents to add more context and comparative analysis. Comparison with Answers from multiple documents is needed.\n\n"
+            )
+            futures = [
+                pdf_process_executor.submit(
+                    doc.get_short_answer,
+                    query_string,
+                    defaultdict(
+                        lambda: provide_detailed_answers,
+                        {"provide_detailed_answers": 2},
+                    ),
+                    False,
+                )
+                for doc in additional_docs
+            ]
+            answers_stage_2 = [
+                sleep_and_get_future_result(future) for future in futures
+            ]
+
             joined_answers_stage_2 = "\n\n".join(answers_stage_2)
-            answers_stage_2 = [{"link": doc.doc_source, "title": doc.title, "text": answer} for answer, doc in
-                       zip(answers_stage_2, additional_docs)]
-            answers = [{"link": doc.doc_source, "title": doc.title, "text": a1["text"] + "\n" + a2["text"]} for a1, a2, doc in zip(answers, answers_stage_2, additional_docs)]
-            logger.info(f"[get_multiple_answers]: Getting answers stage 2 Time spent = {time.time() - start_time:.2f}")
-
-
+            answers_stage_2 = [
+                {"link": doc.doc_source, "title": doc.title, "text": answer}
+                for answer, doc in zip(answers_stage_2, additional_docs)
+            ]
+            answers = [
+                {
+                    "link": doc.doc_source,
+                    "title": doc.title,
+                    "text": a1["text"] + "\n" + a2["text"],
+                }
+                for a1, a2, doc in zip(answers, answers_stage_2, additional_docs)
+            ]
+            logger.info(
+                f"[get_multiple_answers]: Getting answers stage 2 Time spent = {time.time() - start_time:.2f}"
+            )
 
     if provide_raw_text or image_condition:
         if provide_detailed_answers >= 2:
-            doc_search_results = [sleep_and_get_future_result(f) + "\n\n" + sleep_and_get_future_result(q) for f, q in zip(doc_search_results_futures, doc_search_results_small_futures)]
+            doc_search_results = [
+                sleep_and_get_future_result(f) + "\n\n" + sleep_and_get_future_result(q)
+                for f, q in zip(
+                    doc_search_results_futures, doc_search_results_small_futures
+                )
+            ]
         else:
-            doc_search_results = [sleep_and_get_future_result(f) for f in doc_search_results_futures]
+            doc_search_results = [
+                sleep_and_get_future_result(f) for f in doc_search_results_futures
+            ]
         logger.info(
-            f"[get_multiple_answers]: Getting raw data Time spent = {time.time() - start_time:.2f}, Query = ```{query}```")
+            f"[get_multiple_answers]: Getting raw data Time spent = {time.time() - start_time:.2f}, Query = ```{query}```"
+        )
 
     if provide_detailed_answers >= 2 and provide_raw_text and not image_condition:
-        read_text = [f"[{p['title']}]({p['link']})\nAnswer:\n{p['text']}\n{'Raw article text:' if len(r.strip()) > 0 else ''}\n{r}\n" for r, p in
-                     zip(doc_search_results, answers)]
+        read_text = [
+            f"[{p['title']}]({p['link']})\nAnswer:\n{p['text']}\n{'Raw article text:' if len(r.strip()) > 0 else ''}\n{r}\n"
+            for r, p in zip(doc_search_results, answers)
+        ]
     elif provide_detailed_answers >= 2 and not image_condition:
-        read_text = [f"[{p['title']}]({p['link']})\nAnswer:\n{p['text']}" for p in answers]
+        read_text = [
+            f"[{p['title']}]({p['link']})\nAnswer:\n{p['text']}" for p in answers
+        ]
     elif provide_raw_text or image_condition:
         read_text = [d for d in doc_search_results]
     else:
         # read_text = [f"[{p['title']}]({p['link']})\n{p['text']}" for p in answers]
         read_text = ["Problem reading documents"] * len(additional_docs)
 
-    new_line = '\n\n'
+    new_line = "\n\n"
 
     if dont_join_answers:
         pass
     else:
         read_text = new_line.join(read_text)
-    dedup_results = [{"link": doc.doc_source, "title": doc.title} for doc in additional_docs]
+    dedup_results = [
+        {"link": doc.doc_source, "title": doc.title} for doc in additional_docs
+    ]
     time_spent = time.time() - start_time
-    logger.info(f"[get_multiple_answers]: Time spent = {time_spent:.2f}, \nAnswers len = {len((read_text if isinstance(read_text, str) else new_line.join(read_text)).split())}")
-    return wrap_in_future({"search_results": dedup_results, "queries": [f"[{r['title']}]({r['link']})" for r in dedup_results]}), wrap_in_future({"text": read_text, "search_results": dedup_results, "queries": [f"[{r['title']}]({r['link']})" for r in dedup_results]})
+    logger.info(
+        f"[get_multiple_answers]: Time spent = {time_spent:.2f}, \nAnswers len = {len((read_text if isinstance(read_text, str) else new_line.join(read_text)).split())}"
+    )
+    return wrap_in_future(
+        {
+            "search_results": dedup_results,
+            "queries": [f"[{r['title']}]({r['link']})" for r in dedup_results],
+        }
+    ), wrap_in_future(
+        {
+            "text": read_text,
+            "search_results": dedup_results,
+            "queries": [f"[{r['title']}]({r['link']})" for r in dedup_results],
+        }
+    )
 
 
 def is_coding_hint_cancelled(conversation_id):
     """Check if coding hint generation has been cancelled"""
     if conversation_id in coding_hint_cancellation_requests:
-        return coding_hint_cancellation_requests[conversation_id].get('cancelled', False)
+        return coding_hint_cancellation_requests[conversation_id].get(
+            "cancelled", False
+        )
     return False
+
 
 def clear_coding_hint_cancellation(conversation_id):
     """Clear coding hint cancellation flag"""
     if conversation_id in coding_hint_cancellation_requests:
         del coding_hint_cancellation_requests[conversation_id]
 
-def get_coding_hint(text, conversation_history="", current_code="", keys=None, stream=False, conversation_id=None) -> Union[str, Generator[str, None, None]]:
+
+def get_coding_hint(
+    text,
+    conversation_history="",
+    current_code="",
+    keys=None,
+    stream=False,
+    conversation_id=None,
+) -> Union[str, Generator[str, None, None]]:
     """Generate a helpful coding hint based on the context, return a generator if stream is True"""
     try:
         # Clear any existing cancellation at the start
@@ -2919,8 +4753,13 @@ If the user has written bare minimum code, or no code at all, then provide an ou
 """
 
         llm = CallLLm(keys, CHEAP_LLM[0])
-        hint_generator = llm(hint_prompt, temperature=0.7, stream=stream, system="You are a helpful coding mentor who provides targeted hints without giving away the complete solution.")
-        
+        hint_generator = llm(
+            hint_prompt,
+            temperature=0.7,
+            stream=stream,
+            system="You are a helpful coding mentor who provides targeted hints without giving away the complete solution.",
+        )
+
         if stream and conversation_id:
             # Wrap generator with cancellation checks
             def cancellation_aware_generator():
@@ -2931,11 +4770,11 @@ If the user has written bare minimum code, or no code at all, then provide an ou
                     yield chunk
                 # Clear cancellation flag after completion
                 clear_coding_hint_cancellation(conversation_id)
-            
+
             return cancellation_aware_generator()
         else:
             return hint_generator
-        
+
     except Exception as e:
         logger.error(f"Error generating coding hint: {str(e)}")
         return f"Unable to generate hint at this time. Try breaking down the problem into smaller steps and consider what data structures or algorithms might be most appropriate for this type of problem."
@@ -2944,15 +4783,26 @@ If the user has written bare minimum code, or no code at all, then provide an ou
 def is_coding_solution_cancelled(conversation_id):
     """Check if coding solution generation has been cancelled"""
     if conversation_id in coding_solution_cancellation_requests:
-        return coding_solution_cancellation_requests[conversation_id].get('cancelled', False)
+        return coding_solution_cancellation_requests[conversation_id].get(
+            "cancelled", False
+        )
     return False
+
 
 def clear_coding_solution_cancellation(conversation_id):
     """Clear coding solution cancellation flag"""
     if conversation_id in coding_solution_cancellation_requests:
         del coding_solution_cancellation_requests[conversation_id]
 
-def get_full_solution_code(text, conversation_history="", current_code="", keys=None, stream=False, conversation_id=None) -> Union[str, Generator[str, None, None]]:
+
+def get_full_solution_code(
+    text,
+    conversation_history="",
+    current_code="",
+    keys=None,
+    stream=False,
+    conversation_id=None,
+) -> Union[str, Generator[str, None, None]]:
     """Generate a complete solution with explanation, return a generator if stream is True"""
     try:
         # Clear any existing cancellation at the start
@@ -3026,8 +4876,13 @@ Provide a solution that demonstrates best practices and helps the user learn pro
 """
 
         llm = CallLLm(keys, EXPENSIVE_LLM[0])  # Use better model for complete solutions
-        solution_generator = llm(solution_prompt, temperature=0.3, stream=stream, system="You are an expert software engineer providing complete, well-documented solutions with educational explanations in python. Make sure that it is a complete solution self contained and does not require any external libraries or modules to be installed. It should be directly executable and also include test cases")
-        
+        solution_generator = llm(
+            solution_prompt,
+            temperature=0.3,
+            stream=stream,
+            system="You are an expert software engineer providing complete, well-documented solutions with educational explanations in python. Make sure that it is a complete solution self contained and does not require any external libraries or modules to be installed. It should be directly executable and also include test cases",
+        )
+
         if stream and conversation_id:
             # Wrap generator with cancellation checks
             def cancellation_aware_generator():
@@ -3038,23 +4893,30 @@ Provide a solution that demonstrates best practices and helps the user learn pro
                     yield chunk
                 # Clear cancellation flag after completion
                 clear_coding_solution_cancellation(conversation_id)
-            
+
             return cancellation_aware_generator()
         else:
             return solution_generator
-        
+
     except Exception as e:
         logger.error(f"Error generating full solution: {str(e)}")
         return f"Unable to generate complete solution at this time. Please try again or consider breaking down the problem into smaller, more manageable parts."
 
 
-def get_reward_decision(conversation_history: str, current_user_text: str, reward_level_dialer: int, 
-                       conversation_summary: str, conversation_length: int, user_info: str, 
-                       keys=None, context_data: dict = None) -> dict:
+def get_reward_decision(
+    conversation_history: str,
+    current_user_text: str,
+    reward_level_dialer: int,
+    conversation_summary: str,
+    conversation_length: int,
+    user_info: str,
+    keys=None,
+    context_data: dict = None,
+) -> dict:
     """
     Advanced reward decision system that evaluates user performance across multiple dimensions
     and adjusts feedback based on reward level dialer setting.
-    
+
     Args:
         conversation_history: Full conversation history for context
         current_user_text: Current user message to evaluate
@@ -3064,7 +4926,7 @@ def get_reward_decision(conversation_history: str, current_user_text: str, rewar
         user_info: Additional user information/context
         keys: API keys for LLM calls
         context_data: Optional additional context (scores, achievements, etc.)
-    
+
     Returns:
         dict: Structured reward decision with type, level, message, reasoning
     """
@@ -3074,56 +4936,62 @@ def get_reward_decision(conversation_history: str, current_user_text: str, rewar
             -3: {
                 "personality": "EXTREMELY_BRUTAL",
                 "description": "Ruthlessly critical, penalizes even minor imperfections",
-                "tendency": "Heavy penalties for small mistakes, rare rewards only for perfection"
+                "tendency": "Heavy penalties for small mistakes, rare rewards only for perfection",
             },
             -2: {
-                "personality": "VERY_STRICT", 
+                "personality": "VERY_STRICT",
                 "description": "Demanding high standards, critical of average performance",
-                "tendency": "Frequent penalties, rewards only exceptional work"
+                "tendency": "Frequent penalties, rewards only exceptional work",
             },
             -1: {
                 "personality": "STRICT_BUT_FAIR",
                 "description": "High expectations but recognizes good effort",
-                "tendency": "Moderate penalties for mistakes, modest rewards for good work"
+                "tendency": "Moderate penalties for mistakes, modest rewards for good work",
             },
             0: {
                 "personality": "BALANCED_JUDGE",
                 "description": "Fair and balanced assessment, phi-like neutrality",
-                "tendency": "Proportional rewards and penalties based on merit"
+                "tendency": "Proportional rewards and penalties based on merit",
             },
             1: {
                 "personality": "ENCOURAGING",
                 "description": "Supportive while maintaining standards",
-                "tendency": "Frequent small rewards, gentle penalties for learning"
+                "tendency": "Frequent small rewards, gentle penalties for learning",
             },
             2: {
                 "personality": "VERY_LENIENT",
                 "description": "Highly supportive, rewards effort over perfection",
-                "tendency": "Regular rewards for participation, minimal penalties"
+                "tendency": "Regular rewards for participation, minimal penalties",
             },
             3: {
                 "personality": "EXTREMELY_GENEROUS",
                 "description": "Celebrates all participation, almost never penalizes",
-                "tendency": "Rewards everything, penalties only for complete disengagement"
-            }
+                "tendency": "Rewards everything, penalties only for complete disengagement",
+            },
         }
-        
+
         # Clamp dialer value to valid range
         reward_level_dialer = max(-3, min(3, reward_level_dialer))
         judge_profile = dialer_personalities[reward_level_dialer]
-        
+
         # Extract context data if provided
         current_score = context_data.get("current_score", 0) if context_data else 0
-        recent_achievements = context_data.get("recent_achievements", []) if context_data else []
-        problem_difficulty = context_data.get("problem_difficulty", "medium") if context_data else "medium"
-        
+        recent_achievements = (
+            context_data.get("recent_achievements", []) if context_data else []
+        )
+        problem_difficulty = (
+            context_data.get("problem_difficulty", "medium")
+            if context_data
+            else "medium"
+        )
+
         reward_decision_prompt = f"""
 You are an advanced performance evaluation AI that assesses user engagement and learning progress. Your task is to determine appropriate rewards or penalties based on comprehensive analysis.
 
 **Current Judge Profile:**
-- Personality: {judge_profile['personality']}
-- Description: {judge_profile['description']}
-- Tendency: {judge_profile['tendency']}
+- Personality: {judge_profile["personality"]}
+- Description: {judge_profile["description"]}
+- Tendency: {judge_profile["tendency"]}
 - Reward Level Dialer: {reward_level_dialer} (Range: -3=brutal to +3=generous)
 
 **Evaluation Context:**
@@ -3249,52 +5117,80 @@ Focus on being thorough, fair (adjusted by dialer), and educational in your asse
 """
 
         # Make LLM call with appropriate system message
-        system_message = f"""You are an advanced learning assessment AI with a {judge_profile['personality']} evaluation style. 
-Your role is to provide {judge_profile['description']} feedback that helps users improve while maintaining your designated judgment personality.
+        system_message = f"""You are an advanced learning assessment AI with a {judge_profile["personality"]} evaluation style. 
+Your role is to provide {judge_profile["description"]} feedback that helps users improve while maintaining your designated judgment personality.
 Current reward sensitivity level: {reward_level_dialer} (-3=brutal, 0=balanced, +3=generous).
 Always respond with valid JSON only, no additional text or formatting."""
 
-        llm = CallLLm(keys, CHEAP_LONG_CONTEXT_LLM[0])  # Use better model for nuanced evaluation
-        response = llm(reward_decision_prompt, temperature=0.3, stream=False, system=system_message)
-        
+        llm = CallLLm(
+            keys, CHEAP_LONG_CONTEXT_LLM[0]
+        )  # Use better model for nuanced evaluation
+        response = llm(
+            reward_decision_prompt, temperature=0.3, stream=False, system=system_message
+        )
+
         # Parse JSON response
         try:
             import json
             import re
-            
+
             # Extract JSON from response
-            json_match = re.search(r'\{.*\}', response, re.DOTALL)
+            json_match = re.search(r"\{.*\}", response, re.DOTALL)
             if json_match:
                 json_string = json_match.group()
                 json_string = json_string.replace("```json", "").replace("```", "")
                 reward_decision = json.loads(json_string)
-                
+
                 # Validate required fields
-                required_fields = ["reward_type", "reward_level", "reward_message", "overall_assessment", "reasoning"]
+                required_fields = [
+                    "reward_type",
+                    "reward_level",
+                    "reward_message",
+                    "overall_assessment",
+                    "reasoning",
+                ]
                 for field in required_fields:
                     if field not in reward_decision:
                         reward_decision[field] = f"Missing {field}"
-                
+
                 # Validate reward_type
-                if reward_decision.get("reward_type") not in ["reward", "penalty", "none"]:
+                if reward_decision.get("reward_type") not in [
+                    "reward",
+                    "penalty",
+                    "none",
+                ]:
                     reward_decision["reward_type"] = "none"
-                
+
                 # Validate reward_level
-                valid_levels = ["EXCELLENT", "VERY_GOOD", "GOOD", "FAIR", "BASIC", 
-                              "MINOR", "MODERATE", "SIGNIFICANT", "MAJOR", "CRITICAL"]
+                valid_levels = [
+                    "EXCELLENT",
+                    "VERY_GOOD",
+                    "GOOD",
+                    "FAIR",
+                    "BASIC",
+                    "MINOR",
+                    "MODERATE",
+                    "SIGNIFICANT",
+                    "MAJOR",
+                    "CRITICAL",
+                ]
                 if reward_decision.get("reward_level") not in valid_levels:
-                    reward_decision["reward_level"] = "FAIR" if reward_decision["reward_type"] == "reward" else "MINOR"
-                
+                    reward_decision["reward_level"] = (
+                        "FAIR"
+                        if reward_decision["reward_type"] == "reward"
+                        else "MINOR"
+                    )
+
                 # Add metadata
                 reward_decision["dialer_setting"] = reward_level_dialer
-                reward_decision["judge_personality"] = judge_profile['personality']
+                reward_decision["judge_personality"] = judge_profile["personality"]
                 reward_decision["evaluation_timestamp"] = time.time()
-                
+
                 return reward_decision
-                
+
         except (json.JSONDecodeError, AttributeError, TypeError) as e:
             logger.warning(f"Failed to parse reward decision JSON: {e}")
-        
+
         # Fallback decision based on dialer setting
         if reward_level_dialer >= 1:
             # Lenient fallback - give basic reward
@@ -3305,22 +5201,22 @@ Always respond with valid JSON only, no additional text or formatting."""
                 "overall_assessment": "Fallback assessment - basic positive recognition",
                 "reasoning": "Fallback mode activated due to parsing error",
                 "dialer_setting": reward_level_dialer,
-                "judge_personality": judge_profile['personality'],
+                "judge_personality": judge_profile["personality"],
                 "evaluation_timestamp": time.time(),
-                "confidence_level": "low"
+                "confidence_level": "low",
             }
         elif reward_level_dialer <= -1:
             # Strict fallback - give minor penalty
             return {
-                "reward_type": "penalty", 
+                "reward_type": "penalty",
                 "reward_level": "MINOR",
                 "reward_message": "Assessment incomplete. Minor deduction applied.",
                 "overall_assessment": "Fallback assessment - technical evaluation failed",
                 "reasoning": "Fallback mode with penalty due to assessment failure",
                 "dialer_setting": reward_level_dialer,
-                "judge_personality": judge_profile['personality'],
+                "judge_personality": judge_profile["personality"],
                 "evaluation_timestamp": time.time(),
-                "confidence_level": "low"
+                "confidence_level": "low",
             }
         else:
             # Neutral fallback
@@ -3331,33 +5227,35 @@ Always respond with valid JSON only, no additional text or formatting."""
                 "overall_assessment": "Fallback assessment - neutral evaluation",
                 "reasoning": "Neutral fallback due to technical issues",
                 "dialer_setting": reward_level_dialer,
-                "judge_personality": judge_profile['personality'],
+                "judge_personality": judge_profile["personality"],
                 "evaluation_timestamp": time.time(),
-                "confidence_level": "low"
+                "confidence_level": "low",
             }
-            
+
     except Exception as e:
         logger.error(f"Error in reward decision system: {str(e)}")
         return {
             "reward_type": "none",
-            "reward_level": "FAIR", 
+            "reward_level": "FAIR",
             "reward_message": "Technical evaluation error occurred.",
             "overall_assessment": "Error in assessment system",
             "reasoning": f"System error: {str(e)}",
-            "dialer_setting": reward_level_dialer if 'reward_level_dialer' in locals() else 0,
+            "dialer_setting": reward_level_dialer
+            if "reward_level_dialer" in locals()
+            else 0,
             "judge_personality": "ERROR_STATE",
             "evaluation_timestamp": time.time(),
-            "confidence_level": "low"
+            "confidence_level": "low",
         }
 
 
 def apply_reward_gamification(reward_decision: dict) -> str:
     """
     Convert reward decision into gamified output with appropriate styling and feedback.
-    
+
     Args:
         reward_decision: Dictionary from get_reward_decision()
-    
+
     Returns:
         str: Formatted gamification output with audio/animation cues
     """
@@ -3366,42 +5264,92 @@ def apply_reward_gamification(reward_decision: dict) -> str:
         reward_level = reward_decision.get("reward_level", "FAIR")
         reward_message = reward_decision.get("reward_message", "")
         judge_personality = reward_decision.get("judge_personality", "BALANCED_JUDGE")
-        
+
         if reward_type == "reward":
             # Map reward levels to points and animations
             reward_mapping = {
-                "EXCELLENT": {"points": 10, "animation": "celebration_5", "audio": "reward_excellent", "emoji": "🏆"},
-                "VERY_GOOD": {"points": 7, "animation": "celebration_4", "audio": "reward_very_good", "emoji": "🌟"},
-                "GOOD": {"points": 5, "animation": "celebration_3", "audio": "reward_good", "emoji": "🎉"},
-                "FAIR": {"points": 3, "animation": "celebration_2", "audio": "reward_fair", "emoji": "👍"},
-                "BASIC": {"points": 1, "animation": "celebration_1", "audio": "reward_basic", "emoji": "✅"}
+                "EXCELLENT": {
+                    "points": 10,
+                    "animation": "celebration_5",
+                    "audio": "reward_excellent",
+                    "emoji": "🏆",
+                },
+                "VERY_GOOD": {
+                    "points": 7,
+                    "animation": "celebration_4",
+                    "audio": "reward_very_good",
+                    "emoji": "🌟",
+                },
+                "GOOD": {
+                    "points": 5,
+                    "animation": "celebration_3",
+                    "audio": "reward_good",
+                    "emoji": "🎉",
+                },
+                "FAIR": {
+                    "points": 3,
+                    "animation": "celebration_2",
+                    "audio": "reward_fair",
+                    "emoji": "👍",
+                },
+                "BASIC": {
+                    "points": 1,
+                    "animation": "celebration_1",
+                    "audio": "reward_basic",
+                    "emoji": "✅",
+                },
             }
-            
+
             reward_info = reward_mapping.get(reward_level, reward_mapping["BASIC"])
-            return f"""<audio style="display: none;">{reward_info['audio']}</audio>
-<animation style="display: none;">{reward_info['animation']}</animation>
+            return f"""<audio style="display: none;">{reward_info["audio"]}</audio>
+<animation style="display: none;">{reward_info["animation"]}</animation>
 <message style="display: none;">{reward_message}</message>
-{reward_info['emoji']} **{reward_level.title()} Performance!** {reward_message} (+{reward_info['points']} points)
+{reward_info["emoji"]} **{reward_level.title()} Performance!** {reward_message} (+{reward_info["points"]} points)
 
 *Judge: {judge_personality}*
 
 """
-            
+
         elif reward_type == "penalty":
             # Map penalty levels to points and animations
             penalty_mapping = {
-                "MINOR": {"points": -1, "animation": "disappointment_1", "audio": "penalty_minor", "emoji": "⚠️"},
-                "MODERATE": {"points": -3, "animation": "disappointment_2", "audio": "penalty_moderate", "emoji": "😕"},
-                "SIGNIFICANT": {"points": -5, "animation": "disappointment_3", "audio": "penalty_significant", "emoji": "😞"},
-                "MAJOR": {"points": -7, "animation": "disappointment_4", "audio": "penalty_major", "emoji": "😨"},
-                "CRITICAL": {"points": -10, "animation": "disappointment_5", "audio": "penalty_critical", "emoji": "💥"}
+                "MINOR": {
+                    "points": -1,
+                    "animation": "disappointment_1",
+                    "audio": "penalty_minor",
+                    "emoji": "⚠️",
+                },
+                "MODERATE": {
+                    "points": -3,
+                    "animation": "disappointment_2",
+                    "audio": "penalty_moderate",
+                    "emoji": "😕",
+                },
+                "SIGNIFICANT": {
+                    "points": -5,
+                    "animation": "disappointment_3",
+                    "audio": "penalty_significant",
+                    "emoji": "😞",
+                },
+                "MAJOR": {
+                    "points": -7,
+                    "animation": "disappointment_4",
+                    "audio": "penalty_major",
+                    "emoji": "😨",
+                },
+                "CRITICAL": {
+                    "points": -10,
+                    "animation": "disappointment_5",
+                    "audio": "penalty_critical",
+                    "emoji": "💥",
+                },
             }
-            
+
             penalty_info = penalty_mapping.get(reward_level, penalty_mapping["MINOR"])
-            return f"""<audio style="display: none;">{penalty_info['audio']}</audio>
-<animation style="display: none;">{penalty_info['animation']}</animation>
+            return f"""<audio style="display: none;">{penalty_info["audio"]}</audio>
+<animation style="display: none;">{penalty_info["animation"]}</animation>
 <message style="display: none;">{reward_message}</message>
-{penalty_info['emoji']} **{reward_level.title()} Issue** {reward_message} ({penalty_info['points']} points)
+{penalty_info["emoji"]} **{reward_level.title()} Issue** {reward_message} ({penalty_info["points"]} points)
 *Judge: {judge_personality}*
 
 """
@@ -3412,28 +5360,27 @@ def apply_reward_gamification(reward_decision: dict) -> str:
 *Judge: {judge_personality}*
 
 """
-            
+
     except Exception as e:
         logger.error(f"Error in reward gamification: {str(e)}")
         return f"⚙️ **Assessment Complete** {reward_decision.get('reward_message', 'Evaluation processed.')}\n\n"
-    
 
 
 def buffer_generator_async(generator):
     """
     Buffer a generator's output into a queue using a separate thread and return a new generator
     that yields from the buffered queue.
-    
+
     This function exhausts the input generator in a background thread, storing all items
     in a queue. The returned generator yields items from this queue as they become available,
     allowing immediate access to the generator's content without blocking the main thread.
-    
+
     Args:
         generator: The input generator to buffer
-        
+
     Returns:
         Generator: A new generator that yields items from the buffered queue
-        
+
     Example:
         >>> def slow_generator():
         ...     for i in range(3):
@@ -3445,32 +5392,86 @@ def buffer_generator_async(generator):
     """
     queue = Queue()
     finished = threading.Event()
-    
+    stream_start = time.perf_counter()
+    first_item_enqueued_at = None
+    first_item_dequeued_at = None
+    time_logger.warning(
+        "[STREAM] buffer_generator_async start | t=%.3fs",
+        stream_start,
+    )
+
     def accumulate_items():
+        nonlocal first_item_enqueued_at
+        time_logger.warning(
+            "[STREAM] buffer_generator_async accumulate_items thread started | dt=%.3fs",
+            time.perf_counter() - stream_start,
+        )
         try:
+            time_logger.warning(
+                "[STREAM] buffer_generator_async about to iterate generator | dt=%.3fs",
+                time.perf_counter() - stream_start,
+            )
+            item_count = 0
+            last_log_time = time.perf_counter()
             for item in generator:
+                item_count += 1
+                current_time = time.perf_counter()
+                # Log every 5 seconds to track progress
+                if current_time - last_log_time > 5.0:
+                    time_logger.warning(
+                        "[STREAM] buffer_generator_async progress | items=%d | dt=%.3fs",
+                        item_count,
+                        current_time - stream_start,
+                    )
+                    last_log_time = current_time
+                if first_item_enqueued_at is None:
+                    first_item_enqueued_at = time.perf_counter()
+                    time_logger.warning(
+                        "[STREAM] buffer_generator_async first item enqueued | dt=%.3fs",
+                        first_item_enqueued_at - stream_start,
+                    )
                 queue.put(item)
+                # Yield control periodically to prevent GIL starvation
+                # Using 0.001s (1ms) instead of 0 to force actual thread scheduling
+                if item_count % 5 == 0:
+                    time.sleep(0.001)
         except Exception as e:
-            queue.put(('__error__', e))
+            queue.put(("__error__", e))
         finally:
             finished.set()
-    
+            time_logger.warning(
+                "[STREAM] buffer_generator_async accumulate done | items=%d | dt=%.3fs",
+                item_count if "item_count" in dir() else -1,
+                time.perf_counter() - stream_start,
+            )
+
     thread = threading.Thread(target=accumulate_items)
     thread.daemon = True
     thread.start()
-    
+
     def buffered_generator():
+        nonlocal first_item_dequeued_at
         while not finished.is_set() or not queue.empty():
             try:
                 item = queue.get(timeout=0.1)
-                if isinstance(item, tuple) and len(item) == 2 and item[0] == '__error__':
+                if (
+                    isinstance(item, tuple)
+                    and len(item) == 2
+                    and item[0] == "__error__"
+                ):
                     raise item[1]
+                if first_item_dequeued_at is None:
+                    first_item_dequeued_at = time.perf_counter()
+                    time_logger.warning(
+                        "[STREAM] buffer_generator_async first item dequeued | dt=%.3fs",
+                        first_item_dequeued_at - stream_start,
+                    )
                 yield item
             except:
                 if finished.is_set():
                     break
                 continue
-    
+
     return buffered_generator()
 
 
@@ -3478,5 +5479,3 @@ cancellation_requests = {}  # {conversation_id: {cancelled: bool, timestamp: flo
 coding_hint_cancellation_requests = {}  # {conversation_id: {cancelled: bool, timestamp: float}}
 coding_solution_cancellation_requests = {}  # {conversation_id: {cancelled: bool, timestamp: float}}
 doubt_cancellation_requests = {}  # {conversation_id: {cancelled: bool, timestamp: float}}
-
-

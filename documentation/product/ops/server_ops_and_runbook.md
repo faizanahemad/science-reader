@@ -198,6 +198,18 @@ echo "SSL certificate setup and Nginx configuration complete for $DOMAIN."
 
 `SECRET_KEY=XX GOOGLE_CLIENT_ID=XXX GOOGLE_CLIENT_SECRET=XXX python server.py`
 
+# PWA asset versioning (manifest + icons)
+The UI uses a Service Worker and versioned PWA assets to avoid repeated icon/manifest fetches.
+
+When updating the manifest or icons:
+- Bump the query param value in all three places:
+  - `interface/interface.html` (manifest link)
+  - `interface/manifest.json` (icon `src` values)
+  - `interface/service-worker.js` (manifest cache key and precache icon URLs)
+- Bump the SW cache namespace: `CACHE_VERSION` in `interface/service-worker.js`
+
+The server serves these PWA assets with 30-day immutable cache headers.
+
 `CTRL+A+D`
 
 `CUDA_VISIBLE_DEVICES=2,3,4,5 python -m vllm.entrypoints.api_server --model conceptofmind/Hermes-LLongMA-2-13b-8k --tensor-parallel-size 4 --max-num-batched-tokens 8100`
@@ -263,4 +275,3 @@ sudo snap install libreoffice
 
 
 ```
-

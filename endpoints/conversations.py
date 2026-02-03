@@ -1308,6 +1308,12 @@ def send_message(conversation_id: str):
 
     query = request.json
 
+    logger.warning(
+        "[send_message] received request | conv=%s | t=%.2fs",
+        conversation_id,
+        time.time(),
+    )
+
     # Inject conversation-pinned claim IDs into the query (for Deliberate Memory Attachment)
     conv_pinned_ids = list(state.pinned_claims.get(conversation_id, set()))
     if conv_pinned_ids:
@@ -1320,12 +1326,22 @@ def send_message(conversation_id: str):
 
     @copy_current_request_context
     def generate_response():
+        logger.warning(
+            "[send_message] generate_response start | conv=%s | t=%.2fs",
+            conversation_id,
+            time.time(),
+        )
         # Capture message_id + answer text from the stream so we can create auto-takeaways
         # immediately after streaming completes (without waiting for async persistence).
         captured_response_message_id: str | None = None
         captured_answer_parts: list[str] = []
         answer_done = False
 
+        logger.warning(
+            "[send_message] starting Conversation.__call__ | conv=%s | t=%.2fs",
+            conversation_id,
+            time.time(),
+        )
         for chunk in conversation(query, user_details):
             # `Conversation.__call__` yields JSON-lines: json.dumps(dict) + "\n"
             # We parse best-effort to extract `message_ids` and reconstruct the same answer
@@ -1356,6 +1372,11 @@ def send_message(conversation_id: str):
                 pass
 
             response_queue.put(chunk)
+        logger.warning(
+            "[send_message] Conversation.__call__ done | conv=%s | t=%.2fs",
+            conversation_id,
+            time.time(),
+        )
         response_queue.put("<--END-->")
         conversation.clear_cancellation()
         # Post-stream background work (must never block streaming / user experience)
@@ -1387,10 +1408,20 @@ def send_message(conversation_id: str):
     _future = get_async_future(generate_response)
 
     def run_queue():
+        logger.warning(
+            "[send_message] run_queue start | conv=%s | t=%.2fs",
+            conversation_id,
+            time.time(),
+        )
         try:
             while True:
                 chunk = response_queue.get()
                 if chunk == "<--END-->":
+                    logger.warning(
+                        "[send_message] run_queue end sentinel | conv=%s | t=%.2fs",
+                        conversation_id,
+                        time.time(),
+                    )
                     break
                 yield chunk
         except GeneratorExit:

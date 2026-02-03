@@ -139,7 +139,14 @@ def create_app(argv: Optional[list[str]] = None) -> Flask:
     - tests (via `app = create_app([...])`)
     """
 
-    global folder, login_not_needed, cache_dir, users_dir, pdfs_dir, locks_dir, conversation_folder
+    global \
+        folder, \
+        login_not_needed, \
+        cache_dir, \
+        users_dir, \
+        pdfs_dir, \
+        locks_dir, \
+        conversation_folder
 
     folder, login_not_needed = _parse_argv(argv)
     check_environment()
@@ -216,7 +223,9 @@ def create_app(argv: Optional[list[str]] = None) -> Flask:
     )
 
     # Shared state for blueprints
-    conversation_cache = DefaultDictQueue(maxsize=200, default_factory=load_conversation)
+    conversation_cache = DefaultDictQueue(
+        maxsize=200, default_factory=load_conversation
+    )
     pinned_claims: dict[str, set] = {}
 
     init_state(
@@ -257,5 +266,3 @@ def main(argv: Optional[list[str]] = None) -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-

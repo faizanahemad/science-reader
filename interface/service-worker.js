@@ -11,7 +11,8 @@
 
 const DEBUG = false;
 
-const CACHE_VERSION = "v8";
+// Bump cache when UI shell assets change.
+const CACHE_VERSION = "v12";
 const UI_SHELL_CACHE = `ui-shell-${CACHE_VERSION}`;
 const META_CACHE = `meta-${CACHE_VERSION}`;
 
@@ -63,9 +64,16 @@ const PRECACHE_URLS = [
   "/interface/interface/workspace-manager.js",
   "/interface/interface/audio_process.js",
 
-  // PWA artifacts are intentionally excluded from precache to avoid
-  // duplicate install-time fetches. Browsers fetch them independently.
+  // PWA icons
+  "/interface/icons/app-icon.svg?v=10",
+  "/interface/icons/maskable-icon.svg?v=10",
 ];
+
+const PWA_ASSET_PATHS = new Set([
+  "/interface/manifest.json",
+  "/interface/icons/app-icon.svg",
+  "/interface/icons/maskable-icon.svg",
+]);
 
 const ASSET_EXTENSIONS = new Set([
   ".js",
@@ -180,7 +188,8 @@ self.addEventListener("install", (event) => {
       );
 
       // Conservative default: don't force-activate; next navigation will pick up the new SW.
-      // (No skipWaiting here on purpose.)
+      // Force activation so PWA assets cache immediately.
+      self.skipWaiting();
     })()
   );
 });
@@ -201,6 +210,9 @@ self.addEventListener("activate", (event) => {
           return undefined;
         })
       );
+
+      // Take control immediately so icon fetches hit SW cache.
+      await self.clients.claim();
     })()
   );
 });
@@ -247,6 +259,32 @@ self.addEventListener("fetch", (event) => {
 
   // Special-case: never cache the SW script itself (avoid update weirdness).
   if (url.pathname === "/interface/service-worker.js") return;
+
+  // PWA artifacts: always CacheFirst to avoid repeated icon/manifest fetches.
+  if (PWA_ASSET_PATHS.has(url.pathname)) {
+    var cacheKey = req;
+    if (url.pathname === "/interface/manifest.json") {
+      cacheKey = "/interface/manifest.json?v=10";
+    }
+    event.respondWith(
+      (async () => {
+        const cache = await caches.open(UI_SHELL_CACHE);
+        const cached = await cache.match(cacheKey);
+        if (cached) return cached;
+        try {
+          const resp = await fetch(req);
+          if (resp.ok && resp.type === "basic" && !resp.redirected) {
+            cachePutWithMeta(cache, cacheKey, resp.clone()).catch(() => {});
+          }
+          return resp;
+        } catch (_e) {
+          if (cached) return cached;
+          return new Response("Offline", { status: 503, headers: { "Content-Type": "text/plain" } });
+        }
+      })()
+    );
+    return;
+  }
 
   // Only handle app-shell paths; everything else remains NetworkOnly (covers all APIs).
   if (!isInterfaceOrStaticPath(url.pathname) && url.pathname !== "/interface") return;
@@ -306,4 +344,3 @@ self.addEventListener("fetch", (event) => {
 
   // Default: NetworkOnly for any other same-origin GET under `/interface/*` or `/static/*`.
 });
-

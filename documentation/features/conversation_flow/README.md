@@ -12,16 +12,21 @@ This doc explains how chat messages move from UI to server and back, and how the
 2) **Immediate user render**
 - `ChatManager.sendMessage()` immediately renders the user card before the server responds:
   - `ChatManager.renderMessages(conversationId, [userMessage], false, ...)`
+- If the user has selected history-message checkboxes, those IDs are added to the payload and the UI clears the checkboxes locally before sending.
 
 3) **Streaming request**
 - `ChatManager.sendMessage()` sends `POST /send_message/<conversation_id>` with JSON body:
   - `messageText`, `checkboxes` (settings), `links`, `search`
   - optional `attached_claim_ids`, `referenced_claim_ids`
 - The response is streamed (`text/plain`) as newline-delimited JSON chunks.
+- Server also injects `conversation_pinned_claim_ids` into the request context (for PKB memory pinning).
 
 4) **Streaming render**
 - `sendMessageCallback()` calls `renderStreamingResponse(response, ...)` in `interface/common-chat.js`.
 - This reads `ReadableStream` chunks, parses per-line JSON, and incrementally renders markdown via `renderInnerContentAsMarkdown()`.
+- The UI creates a placeholder assistant card on the first chunk and updates it in-place as chunks arrive.
+- Streaming updates the status bar in the card header to show server progress (e.g. “Preparing prompt ...”, “Calling LLM ...”).
+- On cancellation, the UI swaps status text to “Response cancelled by user” and re-enables the send button.
 
 5) **Persistence + follow-ups**
 - Server persists messages + summary after completion (in `Conversation.persist_current_turn`).
@@ -39,6 +44,7 @@ This doc explains how chat messages move from UI to server and back, and how the
 - `Conversation.reply()` yields dicts like:
   - `{ "text": "...", "status": "...", "message_ids": { "user_message_id": "...", "response_message_id": "..." } }`
 - `message_ids` appear during streaming; the UI uses them to update card metadata and message actions.
+- Stream chunks may also include status-only updates (`text: ""`) to drive UX progress indicators.
 
 ### Persistence
 - `Conversation.persist_current_turn()` writes:
@@ -52,6 +58,18 @@ This doc explains how chat messages move from UI to server and back, and how the
 
 ## UI Rendering Pipeline
 
+### Conversation load (history + snapshot restore)
+Location: `interface/common-chat.js` (ConversationManager.activateConversation)
+
+- On conversation selection, the UI first tries to restore a DOM snapshot via `RenderedStateManager.restore(conversationId)` for fast paint.
+- In parallel, it fetches the canonical message list via `ChatManager.listMessages(conversationId)`.
+- If the snapshot matches the latest message list, it keeps the snapshot; otherwise it re-renders from the API list.
+- Post-load work includes:
+  - fetching conversation settings (for model overrides)
+  - rendering documents
+  - wiring document upload/download/share buttons
+  - focusing the input and updating the URL
+
 ### `ChatManager.renderMessages()` (history + non-streaming)
 Location: `interface/common-chat.js`
 
@@ -64,6 +82,8 @@ Location: `interface/common-chat.js`
   - It also includes "Edit as Artefact" for assistant answers, creating an artefact that syncs back on save.
 - Applies `showMore()` for long responses and adds scroll-to-top button for long assistant messages.
 - Updates URL with message focus for deep-linking.
+- Message IDs drive all follow-on actions; `message-index` is computed from the number of message cards in `#chatView` (not global `.card` count).
+- When a message contains slide markup, the renderer schedules a slide resize pass after the markdown is rendered.
 
 ### `renderStreamingResponse()` (streaming)
 Location: `interface/common-chat.js`
@@ -78,6 +98,67 @@ Location: `interface/common-chat.js`
   - `initialiseVoteBank(...)`
   - `renderNextQuestionSuggestions(conversationId)`
   - optional scroll-to-hash for deep links
+- The streaming renderer throttles re-renders and forces a final render even for short (<50 char) tail chunks.
+- Mermaid blocks are normalized and rendered after the stream completes.
+
+## Multi-Model Responses (Main Model multi-select)
+
+When the user selects **multiple models** in `settings-main-model-selector`, the request carries `checkboxes.main_model` as a list. The server uses this to decide between a single-model call and a multi-model ensemble.
+
+### Decision logic
+- `Conversation.reply()` normalizes `checkboxes.main_model` into canonical model names.
+- If it is a list with more than one unique model and no agent is selected, `ensemble` is enabled.
+- If a specialized agent is selected (e.g. `NResponseAgent`), the agent is responsible for multi-model behavior.
+
+### How ensemble streaming works
+- The ensemble path instantiates `NResponseAgent` with the list of model names.
+- `NResponseAgent` uses `CallMultipleLLM`, which in turn streams via `stream_multiple_models`.
+- Models are executed in parallel but streamed **one model at a time** (order of first response).
+
+### Formatting of multi-model output
+- Each model’s response is wrapped in a `<details>` section with a header like “Response from <model>”.
+- Output is still standard markdown/HTML; the UI does not add model labels itself.
+- A `---` separator is appended after the multi-model output.
+
+### UI tab rendering (multi-model + TLDR)
+- The UI converts model responses (and TLDR, when present) into tabs inside the assistant message card.
+- Tabs are built client-side in `renderInnerContentAsMarkdown()` after markdown render, so history reloads use the same layout.
+- When only one model response exists and TLDR is present, tabs render as “Main” and “TLDR”.
+- When multiple model responses exist, each model becomes its own tab label (derived from the “Response from …” summary), plus a “TLDR” tab if present.
+- Tabs appear during streaming as soon as each model response `<details>` block arrives; additional tabs are added as more model output streams in.
+- If there is only a single response and no TLDR, the UI keeps the normal (non-tabbed) layout.
+
+Implementation note (Feb 2026):
+- Tab construction/hiding is scoped to `.chat-card-body` (the message body), not just the markdown render element. This ensures single-model+TLDR hides duplicate render containers the same way multi-model hides its `<details>` sources.
+- `showMore()` rebuilds DOM for long messages; it re-invokes `applyModelResponseTabs()` so tabs remain correct after expand/collapse.
+
+Key refs:
+- `Conversation.py` (model selection + ensemble trigger)
+- `agents/search_and_information_agents.py` (`NResponseAgent`)
+- `call_llm.py` (`CallMultipleLLM`)
+- `common.py` (`stream_multiple_models`)
+
+## TLDR Summary (auto-added after long answers)
+
+`Conversation.reply()` can append a TLDR block to the end of the answer when the response is very long. This is a server-side augmentation that shows up as a collapsible “TLDR Summary” section in the UI.
+
+### When it triggers
+- The answer exceeds 1000 words (after stripping `<answer>` tags).
+- The request is not cancelled.
+- The model is not the `FILLER_MODEL`.
+- No specialized agent is active (`agent is None`).
+
+### How it is generated
+- The TLDR prompt includes the user query, the running summary (if available), and the full answer content.
+- The model is selected via conversation overrides if present:
+  - `conversation_settings.model_overrides.tldr_model`, else `CHEAP_LONG_CONTEXT_LLM[0]`.
+- The TLDR LLM runs non-streaming (`stream=False`) to get the full text, then wraps it in a collapsible block.
+
+### How it is appended and rendered
+- The TLDR is appended after the main answer with a horizontal rule (`---`), then an `<answer_tldr>` wrapper.
+- The content itself is wrapped with `collapsible_wrapper(...)`, header: “📝 TLDR Summary (Quick Read)”.
+- The UI renders the `<details>` section like any other markdown block and preserves open/close state.
+- If TLDR generation fails, the error is logged and the main answer still completes.
 
 ### `renderInnerContentAsMarkdown()`
 Location: `interface/common.js`
@@ -88,12 +169,30 @@ Key responsibilities:
 - Wraps `---` sections in `<details>` blocks and persists hidden/visible state.
 - Handles slide presentation markup, producing a blob URL and optional inline iframe.
 - Updates ToC and triggers MathJax typesetting.
+- Protects incomplete code fences and inline code during streaming to avoid invalid HTML.
+- Avoids breaking or reflowing inside `<details>` blocks, code fences, or math blocks.
 
 ## Deep Links + URL State
 
 - URL is updated to `/interface/<conversation_id>/<message_id>` on card focus.
 - During streaming, once `message_ids` arrive, `renderStreamingResponse()` attaches focus handlers.
 - Hash deep links (ToC anchors) are resolved after render with `scrollToHashTargetInCard()`.
+
+## Other Rendering Cases
+
+### Shared conversation view
+Location: `interface/shared.js`
+
+- Shared links fetch a bundled payload with `messages` and `documents` and render them using the same `ChatManager.renderMessages()` path.
+- The shared view disables voting initialization (history-only rendering), but still supports markdown, slides, and ToC.
+
+### Document view alongside chat
+- Document list and viewer are rendered via `ChatManager.renderDocuments()` and `showPDF()`.
+- The chat UI does not reflow the message list when documents are loaded; PDF view toggles independently.
+
+### Cancellation and error states
+- The streaming controller is stored in `currentStreamingController` and can be cancelled via the stop button.
+- On network errors or aborts, the UI resets the send/stop buttons and displays a status error in the card.
 
 ## Key Files
 
