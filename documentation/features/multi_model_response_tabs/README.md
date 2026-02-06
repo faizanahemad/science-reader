@@ -433,10 +433,36 @@ This feature is sensitive to cached DOM snapshots and cached JS:
 
 When changing tab behavior, bump both together.
 
+## Stream-Safe TLDR Handling
+
+During streaming, `<answer_tldr>` tags may arrive without their closing counterpart. To prevent malformed HTML from hiding the main answer:
+
+- **Streaming** (`continuous=true`): If `<answer_tldr>` is open but not closed, it's replaced with a placeholder `<!--answer_tldr_pending-->`.
+- **Final render** (`continuous=false`): Both tags are converted to `<div data-answer-tldr="true">...</div>`.
+
+Additionally, `hasMeaningfulContent()` was updated to ignore `<summary>` text when checking `<details>` elements, preventing premature tab creation from partially-rendered TLDR.
+
+## Scroll Preservation During Tab Creation
+
+When tabs appear (especially with TLDR added after streaming), the DOM restructuring can shift scroll position. The current solution uses:
+
+1. **CSS `overflow-anchor: auto`** on `#chatView` — handles most reflow automatically
+2. **Single outermost JavaScript restore** in streaming `done` handler — only activates if CSS anchoring didn't cover it (> 50px drift)
+3. **No inner function scroll preservation** — prevents multiple restores from fighting each other
+
+See [Scroll Preservation](../scroll_preservation/README.md) for full implementation details.
+
+## Rendering Performance
+
+`showMore()` and `addScrollToTopButton()` now run synchronously via `immediate_callback` (not after MathJax). The last card gets MathJax priority via `defer_mathjax`. See [Rendering Performance](../rendering_performance/README.md).
+
 ## Further Reading
 
 - `documentation/features/multi_model_response_tabs/TAB_BASED_RENDERING_IMPLEMENTATION.md`
 - `documentation/features/multi_model_response_tabs/EMPTY_TLDR_FIX_CONTEXT.md`
+- `documentation/features/scroll_preservation/README.md`
+- `documentation/features/rendering_performance/README.md`
+- `documentation/features/toc_streaming_fix/README.md`
 
 ---
 

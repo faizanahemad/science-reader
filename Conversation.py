@@ -8583,6 +8583,8 @@ def model_name_to_canonical_name(model_name):
         model_name = "anthropic/claude-opus-4.5"
     elif model_name == "anthropic/claude-opus-4.5" or model_name == "Opus 4.5":
         model_name = "anthropic/claude-opus-4.5"
+    elif model_name == "anthropic/claude-opus-4.6" or model_name == "Opus 4.6":
+        model_name = "anthropic/claude-opus-4.6"
     elif (
         model_name == "anthropic/claude-sonnet-4"
         or model_name == "Claude Sonnet 4"

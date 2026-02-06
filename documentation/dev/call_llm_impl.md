@@ -226,6 +226,38 @@ Used for context-window safety checks (100K token limit).
 - `make_stream()`: Converts between iterables and generators
 - `check_if_stream_and_raise_exception()`: Validates stream input
 
+### Math Formatting Pipeline (`math_formatting.py`)
+
+The main `call_llm.py` wraps LLM streaming responses through `stream_with_math_formatting()` before yielding chunks. This module handles math delimiter escaping and formatting for the frontend MathJax renderer.
+
+**File**: `math_formatting.py`
+
+| Function | Purpose |
+|----------|---------|
+| `process_math_formatting(text)` | Doubles backslashes on math delimiters: `\[` → `\\[`, `\]` → `\\]`, `\(` → `\\(`, `\)` → `\\)`. This ensures MathJax sees `\[` in the DOM after markdown processing. |
+| `_find_safe_split_point(text, min_keep=1)` | Finds a safe point to split the buffer that doesn't break a math delimiter across chunks. Returns index where text can be safely split. |
+| `stream_with_math_formatting(response)` | Generator wrapping the OpenAI streaming response. Buffers tokens, finds safe split points, applies `process_math_formatting()` and `ensure_display_math_newlines()` before yielding. Includes a 5ms sleep per chunk to prevent GIL starvation. |
+| `ensure_display_math_newlines(text)` | Inserts `\n` before `\\[` and after `\\]` when adjacent to non-newline content. Helps the frontend's `getTextAfterLastBreakpoint()` detect display math boundaries for section splitting. Only affects display math, not inline math (`\\(`, `\\)`). |
+
+**Usage in `call_llm.py`**:
+
+```python
+# In call_chat_model_original():
+for formatted_chunk in stream_with_math_formatting(response):
+    yield formatted_chunk
+```
+
+**How the escaping works**:
+1. LLM outputs `\[E=mc^2\]` (raw tokens)
+2. `process_math_formatting`: `\[E=mc^2\]` → `\\[E=mc^2\\]`
+3. `ensure_display_math_newlines`: adds `\n` around `\\[` and `\\]`
+4. JSON serialization on wire: `\\[` → `\\\\[` in JSON text
+5. Frontend `JSON.parse`: `\\\\[` → `\\[` in JS string
+6. `marked.marked()` passes `\\[` through to HTML
+7. MathJax sees `\\[` in innerHTML → interprets as display math
+
+**Testing**: Run `python math_formatting.py` for the built-in 7-test suite covering character-by-character streaming, word-by-word streaming, boundary splits, and edge cases.
+
 ### Image Encoding
 
 `_encode_image_reference()` handles:

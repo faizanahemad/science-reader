@@ -27,6 +27,10 @@ If you are new to the codebase, start with:
 - `features/audio_slide_agent/`: audio/slide agent docs
 - `features/stocks/`: stocks module notes
 - `features/multi_model_response_tabs/`: tabbed UI for multi-model responses and TLDR summaries (start: `features/multi_model_response_tabs/TAB_BASED_RENDERING_IMPLEMENTATION.md`)
+- `features/toc_streaming_fix/`: Table of Contents streaming fix — collapsed inline ToC, floating ToC panel, toggle button styling
+- `features/scroll_preservation/`: scroll position preservation during DOM changes — CSS scroll anchoring, JavaScript anchor-based restore, card spacing
+- `features/rendering_performance/`: rendering speed optimizations — MathJax priority for last card, deferred MathJax, immediate callbacks for showMore/buttons
+- `features/math_streaming_reflow_fix/`: math equation reflow prevention during streaming — display math breakpoint detection (`\\[...\\]` and `$$`), math-aware render gating, min-height stabilization, over-indented list normalization; includes backend `ensure_display_math_newlines()` and frontend `isInsideDisplayMath()`, `normalizeOverIndentedLists()`
 
 ## APIs
 - `api/internal/`: internal API docs and route summaries
@@ -45,6 +49,10 @@ If you are new to the codebase, start with:
 ## Dev
 - `dev/`: developer documentation
 - `dev/cursor/`: Cursor-internal context docs (optional reference)
+
+## Changelogs
+- `changelogs/AUTOSCROLL_REMOVAL_CHANGELOG.md`: removal of unwanted auto-scroll behaviors
+- `changelogs/MATH_STREAMING_REFLOW_FIX.md`: math streaming reflow fix + over-indented list normalization (Feb 2026)
 
 ## Scratch
 - `scratch/`: non-product notes and experiments

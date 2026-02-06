@@ -46,6 +46,13 @@ This doc explains how chat messages move from UI to server and back, and how the
 - `message_ids` appear during streaming; the UI uses them to update card metadata and message actions.
 - Stream chunks may also include status-only updates (`text: ""`) to drive UX progress indicators.
 
+### Math Formatting Pipeline (Backend)
+- LLM streaming responses pass through `stream_with_math_formatting()` (`math_formatting.py`) before reaching `Conversation.reply()`.
+- This generator buffers tokens to avoid splitting math delimiters (`\[`, `\]`, `\(`, `\)`) across chunk boundaries.
+- `process_math_formatting()` doubles backslashes (`\[` → `\\[`) so that after markdown processing, MathJax sees the correct `\[` in the DOM.
+- `ensure_display_math_newlines()` inserts `\n` around display math delimiters (`\\[`, `\\]`) to help the frontend breakpoint detector split sections at math boundaries.
+- See [Math Streaming Reflow Fix](../math_streaming_reflow_fix/README.md) and `dev/call_llm_impl.md` for implementation details.
+
 ### Persistence
 - `Conversation.persist_current_turn()` writes:
   - messages (`messages` field)
@@ -90,7 +97,7 @@ Location: `interface/common-chat.js`
 
 - Creates a placeholder assistant card by calling `ChatManager.renderMessages(...)` with a server message stub.
 - Accumulates streamed text in `rendered_answer` and periodically re-renders via `renderInnerContentAsMarkdown()`.
-- Splits content at safe breakpoints (headers, paragraphs, rules) using `getTextAfterLastBreakpoint()` to reduce reflow.
+- Splits content at safe breakpoints (headers, paragraphs, rules, display math closings) using `getTextAfterLastBreakpoint()` to reduce reflow.
 - Handles `<answer>` blocks and slide content buffering (`<slide-presentation>` tags) to avoid partial rendering.
 - When `message_ids` arrive, updates DOM attributes so action buttons map to correct IDs.
 - On completion:
@@ -98,8 +105,13 @@ Location: `interface/common-chat.js`
   - `initialiseVoteBank(...)`
   - `renderNextQuestionSuggestions(conversationId)`
   - optional scroll-to-hash for deep links
-- The streaming renderer throttles re-renders and forces a final render even for short (<50 char) tail chunks.
 - Mermaid blocks are normalized and rendered after the stream completes.
+
+**Math-aware rendering gate** (Feb 2026):
+- Before each render, `isInsideDisplayMath(rendered_answer)` checks for unclosed `$$` or `\\[` blocks. If inside one, rendering is **deferred** until the math block closes. This prevents MathJax from attempting to typeset incomplete expressions.
+- The re-render threshold is **dynamic**: 200 chars when the section contains display math (fewer MathJax re-runs), 80 chars for text-only sections.
+- `getTextAfterLastBreakpoint()` now tracks `\\[...\\]` display math blocks as protected environments and places breakpoints after completed display math (types: `"after-display-math-bracket"`, `"after-display-math-dollar"`).
+- See [Math Streaming Reflow Fix](../math_streaming_reflow_fix/README.md) for full details.
 
 ## Multi-Model Responses (Main Model multi-select)
 
@@ -165,12 +177,15 @@ Location: `interface/common.js`
 
 Key responsibilities:
 - Removes `<answer>` tags and renders markdown via `marked`.
+- **Normalizes over-indented list items** via `normalizeOverIndentedLists()` before passing to `marked`. Some LLMs indent bullets with 4+ spaces, which CommonMark treats as code blocks instead of list items. This pre-processing subtracts 4 spaces from such lines while preserving relative nesting.
 - Supports streaming mode with a sibling "-md-render" element to avoid DOM thrash.
+- **Min-height locking** (streaming mode): Before replacing innerHTML, locks the element's current height as `min-height` to prevent layout collapse. Released after MathJax re-typesets.
 - Wraps `---` sections in `<details>` blocks and persists hidden/visible state.
 - Handles slide presentation markup, producing a blob URL and optional inline iframe.
-- Updates ToC and triggers MathJax typesetting.
+- Updates ToC and triggers MathJax typesetting (with min-height release in `_queueMathJax()` callback).
 - Protects incomplete code fences and inline code during streaming to avoid invalid HTML.
 - Avoids breaking or reflowing inside `<details>` blocks, code fences, or math blocks.
+- See [Math Streaming Reflow Fix](../math_streaming_reflow_fix/README.md) for math-specific rendering details.
 
 ## Deep Links + URL State
 
@@ -197,7 +212,9 @@ Location: `interface/shared.js`
 ## Key Files
 
 - `interface/chat.js` (UI wiring, settings, send button)
-- `interface/common-chat.js` (ChatManager, renderMessages, renderStreamingResponse)
-- `interface/common.js` (renderInnerContentAsMarkdown)
+- `interface/common-chat.js` (ChatManager, renderMessages, renderStreamingResponse, getTextAfterLastBreakpoint, isInsideDisplayMath)
+- `interface/common.js` (renderInnerContentAsMarkdown, normalizeOverIndentedLists)
 - `endpoints/conversations.py` (`/send_message` streaming endpoint)
 - `Conversation.py` (reply, streaming yield, persistence)
+- `math_formatting.py` (stream_with_math_formatting, process_math_formatting, ensure_display_math_newlines)
+- `call_llm.py` (CallLLm, call_chat_model — uses math_formatting for streaming)

@@ -283,26 +283,34 @@ function buildFallbackTocItemsFromCard($cardBody, tocPrefix) {
     return items;
 }
 
-function renderMessageToc($tocContainer, items, tocPrefix) {
+function renderMessageToc($tocContainer, items, tocPrefix, expanded) {
     /**
      * Render ToC UI into container.
      *
      * @param {jQuery} $tocContainer
      * @param {Array} items
      * @param {string} tocPrefix
+     * @param {boolean} expanded - If true, show expanded ToC. If false, show collapsed with item count.
+     *                            Default: true (expanded) for backward compatibility.
      */
+    if (expanded === undefined) expanded = true;
+    
     if (!items || items.length === 0) {
         $tocContainer.hide().empty();
         return;
     }
 
+    var itemCount = items.length;
+    var buttonText = expanded ? 'Hide' : 'Show (' + itemCount + ')';
+    var bodyStyle = expanded ? '' : ' style="display:none;"';
+    
     var html = '';
-    html += `<div class="message-toc card" data-toc-prefix="${tocPrefix}">`;
+    html += `<div class="message-toc card" data-toc-prefix="${tocPrefix}" data-toc-expanded="${expanded}">`;
     html += `  <div class="message-toc-header d-flex justify-content-between align-items-center">`;
     html += `    <div><strong>Table of Contents</strong></div>`;
-    html += `    <button class="btn btn-xs btn-secondary message-toc-toggle" type="button" data-toc-action="toggle">Hide</button>`;
+    html += `    <button class="btn btn-xs btn-secondary message-toc-toggle" type="button" data-toc-action="toggle">${buttonText}</button>`;
     html += `  </div>`;
-    html += `  <div class="message-toc-body">`;
+    html += `  <div class="message-toc-body"${bodyStyle}>`;
     html += `    <ul class="message-toc-list">`;
 
     items.forEach(function(it) {
@@ -324,6 +332,11 @@ function updateMessageTocForElement(elem_to_render_in, rawMarkdown, continuous =
     /**
      * Update (or hide) the ToC for the message card containing elem_to_render_in.
      * Safe to call frequently; internally throttled.
+     *
+     * Expanded state logic (3-way):
+     * 1. Historic render (no streaming flags): expanded = true
+     * 2. Live streaming (data-live-stream="true"): expanded = false, unless user already expanded
+     * 3. Post-streaming (data-live-stream-ended="true"): keep current state (collapsed unless user expanded)
      *
      * @param {HTMLElement|jQuery} elem_to_render_in
      * @param {string} rawMarkdown
@@ -347,7 +360,7 @@ function updateMessageTocForElement(elem_to_render_in, rawMarkdown, continuous =
 
     // Word count strategy:
     // Use the entire card content (excluding ToC UI) for BOTH streaming and non-streaming.
-    // This prevents “chunk-sized” word counts from keeping ToC hidden during streaming and
+    // This prevents "chunk-sized" word counts from keeping ToC hidden during streaming and
     // avoids ToC disappearing when later chunks are small.
     var $tabsContainer = $cardBody.find('.model-tabs-container').first();
     if ($tabsContainer.length > 0) {
@@ -355,6 +368,24 @@ function updateMessageTocForElement(elem_to_render_in, rawMarkdown, continuous =
         // In a tabbed response we render per-tab ToC via updateMessageTocForTabs.
         ensureMessageTocContainer($cardBody).hide().empty();
         updateMessageTocForTabs($tabsContainer, rawMarkdown, continuous);
+
+        // If floating ToC is open for this card, update it with the active tab's items.
+        try {
+            if ($card.attr('data-floating-toc-open') === 'true') {
+                var tocPrefix = getOrCreateTocPrefix($card);
+                var $activePane = $tabsContainer.find('.tab-pane.active').first();
+                var $activeBody = $activePane.find('> .model-tab-body');
+                var tabIndex = $tabsContainer.find('.tab-pane').index($activePane);
+                if (tabIndex < 0) tabIndex = 0;
+
+                var panePrefix = tocPrefix + '-tab-' + tabIndex;
+                var items = buildTocItemsFromCard($activeBody.length ? $activeBody : $activePane, panePrefix);
+                if (!items || items.length === 0) {
+                    items = buildFallbackTocItemsFromCard($activeBody.length ? $activeBody : $activePane, panePrefix);
+                }
+                updateFloatingTocIfOpen($card, items || [], panePrefix);
+            }
+        } catch (e) { /* ignore */ }
         return;
     }
 
@@ -383,12 +414,64 @@ function updateMessageTocForElement(elem_to_render_in, rawMarkdown, continuous =
         $tocContainer.hide().empty();
         return;
     }
-    renderMessageToc($tocContainer, items, tocPrefix);
+    
+    // Determine expanded state using 3-way logic
+    var expanded = determineTocExpandedState($card, $tocContainer);
+    
+    renderMessageToc($tocContainer, items, tocPrefix, expanded);
+    
+    // Also update floating ToC if it's open for this card
+    updateFloatingTocIfOpen($card, items, tocPrefix);
+}
+
+/**
+ * Determine whether the ToC should be rendered expanded or collapsed.
+ * 
+ * 3-way logic:
+ * 1. Historic render (no streaming flags): expanded = true (backward compat)
+ * 2. Live streaming (data-live-stream="true"): expanded = false, unless user already expanded
+ * 3. Post-streaming (data-live-stream-ended="true"): keep current state (collapsed unless user expanded)
+ *
+ * @param {jQuery} $card - The message card
+ * @param {jQuery} $tocContainer - The ToC container (to check current expanded state)
+ * @returns {boolean} true if expanded, false if collapsed
+ */
+function determineTocExpandedState($card, $tocContainer) {
+    // Check if user has explicitly expanded the ToC
+    var userExpanded = $card.attr('data-toc-user-expanded') === 'true';
+    if (userExpanded) {
+        return true;
+    }
+    
+    // Check streaming state flags
+    var isLiveStreaming = $card.attr('data-live-stream') === 'true';
+    var isPostStreaming = $card.attr('data-live-stream-ended') === 'true';
+    
+    if (isLiveStreaming) {
+        // During live streaming: collapsed by default
+        return false;
+    } else if (isPostStreaming) {
+        // After streaming ended: keep current state
+        // If ToC already exists, preserve its current expanded state
+        var $existingToc = $tocContainer.find('.message-toc');
+        if ($existingToc.length > 0) {
+            var currentExpanded = $existingToc.attr('data-toc-expanded');
+            if (currentExpanded !== undefined) {
+                return currentExpanded === 'true';
+            }
+        }
+        // Default to collapsed if no previous state
+        return false;
+    } else {
+        // Historic render (no streaming flags): expanded by default (backward compat)
+        return true;
+    }
 }
 
 function updateMessageTocForTabs($tabsContainer, rawMarkdown, continuous = false) {
     /**
      * Render per-tab ToC inside a tabbed response container.
+     * For tabbed responses, the expanded state is tracked per tab-pane.
      *
      * @param {jQuery} $tabsContainer
      * @param {string} rawMarkdown
@@ -423,6 +506,16 @@ function updateMessageTocForTabs($tabsContainer, rawMarkdown, continuous = false
         }
         var wordCount = estimateWordCountFromMarkdown(contentText || rawMarkdown || '');
 
+        // Preserve existing ToC container's expanded state before removing
+        var $existingTocContainer = $pane.find('.message-toc-container').first();
+        var existingExpanded = null;
+        if ($existingTocContainer.length > 0) {
+            var $existingToc = $existingTocContainer.find('.message-toc');
+            if ($existingToc.length > 0) {
+                existingExpanded = $existingToc.attr('data-toc-expanded');
+            }
+        }
+        
         $pane.find('.message-toc-container').remove();
         var $tocContainer = $('<div class="message-toc-container" style="display:none;"></div>');
         $pane.prepend($tocContainer);
@@ -441,7 +534,11 @@ function updateMessageTocForTabs($tabsContainer, rawMarkdown, continuous = false
             $tocContainer.hide().empty();
             return;
         }
-        renderMessageToc($tocContainer, items, panePrefix);
+        
+        // Determine expanded state for this tab-pane
+        var expanded = determineTocExpandedStateForPane($card, $pane, $tocContainer, existingExpanded);
+        
+        renderMessageToc($tocContainer, items, panePrefix, expanded);
         anyRendered = true;
     });
 
@@ -449,6 +546,51 @@ function updateMessageTocForTabs($tabsContainer, rawMarkdown, continuous = false
         try {
             ensureMessageTocContainer($cardBody).hide().empty();
         } catch (e) { /* ignore */ }
+    }
+}
+
+/**
+ * Determine whether the ToC should be rendered expanded or collapsed for a tab-pane.
+ * For tabbed responses, the state is tracked per tab-pane.
+ *
+ * @param {jQuery} $card - The message card
+ * @param {jQuery} $pane - The tab-pane
+ * @param {jQuery} $tocContainer - The ToC container
+ * @param {string|null} existingExpanded - Previous expanded state ('true'/'false') if any
+ * @returns {boolean} true if expanded, false if collapsed
+ */
+function determineTocExpandedStateForPane($card, $pane, $tocContainer, existingExpanded) {
+    // Check if user has explicitly expanded the ToC in this pane
+    var userExpanded = $pane.attr('data-toc-user-expanded') === 'true';
+    if (userExpanded) {
+        return true;
+    }
+
+    // Pane nodes can be rebuilt during streaming tab re-renders (applyModelResponseTabs),
+    // so also honor the card-level preference if present.
+    try {
+        if ($card && $card.length > 0 && $card.attr('data-toc-user-expanded') === 'true') {
+            return true;
+        }
+    } catch (e) { /* ignore */ }
+    
+    // Check streaming state flags on the card
+    var isLiveStreaming = $card.attr('data-live-stream') === 'true';
+    var isPostStreaming = $card.attr('data-live-stream-ended') === 'true';
+    
+    if (isLiveStreaming) {
+        // During live streaming: collapsed by default
+        return false;
+    } else if (isPostStreaming) {
+        // After streaming ended: keep current state
+        if (existingExpanded !== null && existingExpanded !== undefined) {
+            return existingExpanded === 'true';
+        }
+        // Default to collapsed if no previous state
+        return false;
+    } else {
+        // Historic render (no streaming flags): expanded by default (backward compat)
+        return true;
     }
 }
 
@@ -461,12 +603,37 @@ $(document)
         var $toc = $(this).closest('.message-toc');
         var $body = $toc.find('.message-toc-body');
         var isVisible = $body.is(':visible');
+        var itemCount = $toc.find('.message-toc-item').length;
+        
+        // Find the card or tab-pane to persist expanded state
+        var $tabPane = $toc.closest('.tab-pane');
+        var $card = $toc.closest('.card.message-card');
+        var $stateContainer = $tabPane.length > 0 ? $tabPane : $card;
+        
         if (isVisible) {
             $body.hide();
-            $(this).text('Show');
+            $(this).text('Show (' + itemCount + ')');
+            $toc.attr('data-toc-expanded', 'false');
+            // If user collapses after expanding, clear the "user expanded" preference so it can stay collapsed.
+            if ($stateContainer.length > 0) {
+                $stateContainer.removeAttr('data-toc-user-expanded');
+            }
+            // Also clear card-level preference so rebuilt tab panes won't re-expand during streaming.
+            if ($card.length > 0) {
+                $card.removeAttr('data-toc-user-expanded');
+            }
         } else {
             $body.show();
             $(this).text('Hide');
+            $toc.attr('data-toc-expanded', 'true');
+            // Mark that user has explicitly expanded the ToC - this persists through streaming updates
+            if ($stateContainer.length > 0) {
+                $stateContainer.attr('data-toc-user-expanded', 'true');
+            }
+            // Persist at card-level too (stable across tab pane rebuilds during streaming).
+            if ($card.length > 0) {
+                $card.attr('data-toc-user-expanded', 'true');
+            }
         }
     })
     .off('click', '.message-toc-link')
@@ -511,6 +678,296 @@ $(document)
         try { targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (err) {}
         try { window.location.hash = targetId; } catch (err) {}
     });
+
+// ============================================
+// Floating ToC Panel (Solution 7)
+// ============================================
+
+/**
+ * Show a floating ToC panel for the given card element.
+ * The floating panel is positioned relative to the card and provides
+ * an alternative way to navigate long responses.
+ *
+ * @param {jQuery} $cardElem - The card element to show ToC for
+ */
+function showFloatingToc($cardElem) {
+    var $card = $($cardElem);
+    if (!$card || $card.length === 0) {
+        showToast('Unable to find message card', 'warning');
+        return;
+    }
+    
+    // Close any existing floating ToC panels
+    closeAllFloatingTocs();
+    
+    var $cardBody = $card.find('.card-body').first();
+    if ($cardBody.length === 0) {
+        showToast('Message content not found', 'warning');
+        return;
+    }
+    
+    // Determine if this is a tabbed response and get the active tab's content
+    var $tabsContainer = $cardBody.find('.model-tabs-container').first();
+    var $targetContent = $cardBody;
+    var tocPrefix = getOrCreateTocPrefix($card);
+    
+    if ($tabsContainer.length > 0) {
+        // For tabbed responses, get the active tab's content
+        var $activePane = $tabsContainer.find('.tab-pane.active').first();
+        if ($activePane.length > 0) {
+            var $activeBody = $activePane.find('> .model-tab-body');
+            if ($activeBody.length > 0) {
+                $targetContent = $activeBody;
+                var tabIndex = $tabsContainer.find('.tab-pane').index($activePane);
+                tocPrefix = tocPrefix + '-tab-' + tabIndex;
+            }
+        }
+    }
+    
+    // Build ToC items
+    var items = buildTocItemsFromCard($targetContent, tocPrefix);
+    if (!items || items.length === 0) {
+        items = buildFallbackTocItemsFromCard($targetContent, tocPrefix);
+    }
+    
+    if (!items || items.length === 0) {
+        showToast('No table of contents available for this message', 'info');
+        return;
+    }
+    
+    // Create the floating panel
+    var panelHtml = buildFloatingTocPanelHtml(items, tocPrefix);
+    var $panel = $(panelHtml);
+    
+    // Position the panel relative to the card
+    $card.css('position', 'relative');
+    $card.append($panel);
+    
+    // Store reference on card for updates
+    $card.attr('data-floating-toc-open', 'true');
+    
+    // Set up event handlers for the floating panel
+    setupFloatingTocHandlers($panel, $card);
+    
+    // Animate the panel in
+    requestAnimationFrame(function() {
+        $panel.addClass('floating-toc-visible');
+    });
+}
+
+/**
+ * Build the HTML for the floating ToC panel.
+ *
+ * @param {Array} items - ToC items from buildTocItemsFromCard
+ * @param {string} tocPrefix - Prefix for this card's ToC
+ * @returns {string} HTML string for the panel
+ */
+function buildFloatingTocPanelHtml(items, tocPrefix) {
+    var html = '';
+    html += '<div class="floating-toc-panel" data-toc-prefix="' + tocPrefix + '">';
+    html += '  <div class="floating-toc-header d-flex justify-content-between align-items-center">';
+    html += '    <span><strong>Contents</strong></span>';
+    html += '    <button class="btn btn-xs btn-secondary floating-toc-close" type="button">&times;</button>';
+    html += '  </div>';
+    html += '  <div class="floating-toc-body">';
+    html += '    <ul class="floating-toc-list">';
+    
+    items.forEach(function(it) {
+        var indent = Math.max(0, Math.min(3, (it.level || 2) - 1));
+        var safeText = String(it.text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        html += '      <li class="floating-toc-item indent-' + indent + '">';
+        html += '        <a href="#' + it.id + '" class="floating-toc-link" data-toc-target="' + it.id + '">' + safeText + '</a>';
+        html += '      </li>';
+    });
+    
+    html += '    </ul>';
+    html += '  </div>';
+    html += '</div>';
+    
+    return html;
+}
+
+/**
+ * Set up event handlers for the floating ToC panel.
+ *
+ * @param {jQuery} $panel - The floating panel element
+ * @param {jQuery} $card - The card element containing the panel
+ */
+function setupFloatingTocHandlers($panel, $card) {
+    // Close button
+    $panel.find('.floating-toc-close').on('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        closeFloatingToc($card);
+    });
+    
+    // ToC link clicks - reuse existing navigation logic
+    $panel.find('.floating-toc-link').on('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        var targetId = $(this).attr('data-toc-target');
+        if (!targetId) return;
+        
+        // Expand showMore() if the message is currently collapsed
+        try {
+            var $moreText = $card.find('.more-text').first();
+            if ($moreText.length && !$moreText.is(':visible')) {
+                var $toggle = $card.find('.show-more').first();
+                if ($toggle.length) $toggle.trigger('click');
+            }
+        } catch (err) { /* ignore */ }
+        
+        // Expand any <details> ancestors of the target
+        var targetEl = document.getElementById(targetId);
+        if (!targetEl) {
+            window.location.hash = targetId;
+            return;
+        }
+        
+        try {
+            var el = targetEl;
+            while (el) {
+                if (el.tagName && el.tagName.toLowerCase() === 'details') {
+                    el.open = true;
+                }
+                el = el.parentElement;
+            }
+        } catch (err) { /* ignore */ }
+        
+        // Scroll into view and update URL hash
+        try { targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (err) {}
+        try { window.location.hash = targetId; } catch (err) {}
+    });
+    
+    // Close on click outside (after a short delay to avoid closing immediately)
+    setTimeout(function() {
+        $(document).on('click.floatingToc', function(e) {
+            if (!$(e.target).closest('.floating-toc-panel').length && 
+                !$(e.target).closest('.floating-toc-trigger').length) {
+                closeAllFloatingTocs();
+            }
+        });
+    }, 100);
+    
+    // Close on escape key
+    $(document).on('keydown.floatingToc', function(e) {
+        if (e.key === 'Escape') {
+            closeAllFloatingTocs();
+        }
+    });
+}
+
+/**
+ * Close the floating ToC panel for a specific card.
+ *
+ * @param {jQuery} $card - The card element
+ */
+function closeFloatingToc($card) {
+    var $panel = $card.find('.floating-toc-panel');
+    if ($panel.length === 0) return;
+    
+    $panel.removeClass('floating-toc-visible');
+    
+    // Remove after animation
+    setTimeout(function() {
+        $panel.remove();
+        $card.removeAttr('data-floating-toc-open');
+    }, 200);
+}
+
+/**
+ * Close all floating ToC panels and clean up event handlers.
+ */
+function closeAllFloatingTocs() {
+    $('.floating-toc-panel').each(function() {
+        var $panel = $(this);
+        var $card = $panel.closest('.card.message-card');
+        $panel.removeClass('floating-toc-visible');
+        
+        setTimeout(function() {
+            $panel.remove();
+            if ($card.length) {
+                $card.removeAttr('data-floating-toc-open');
+            }
+        }, 200);
+    });
+    
+    // Clean up document-level event handlers
+    $(document).off('click.floatingToc');
+    $(document).off('keydown.floatingToc');
+}
+
+/**
+ * Update the floating ToC panel if it's open.
+ * Called during streaming updates to keep floating ToC in sync.
+ *
+ * @param {jQuery} $card - The card element
+ * @param {Array} items - New ToC items
+ * @param {string} tocPrefix - ToC prefix
+ */
+function updateFloatingTocIfOpen($card, items, tocPrefix) {
+    if ($card.attr('data-floating-toc-open') !== 'true') return;
+    
+    var $panel = $card.find('.floating-toc-panel');
+    if ($panel.length === 0) return;
+    
+    if (!items || items.length === 0) {
+        closeFloatingToc($card);
+        return;
+    }
+    
+    // Update the panel body with new items
+    var html = '<ul class="floating-toc-list">';
+    items.forEach(function(it) {
+        var indent = Math.max(0, Math.min(3, (it.level || 2) - 1));
+        var safeText = String(it.text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        html += '<li class="floating-toc-item indent-' + indent + '">';
+        html += '  <a href="#' + it.id + '" class="floating-toc-link" data-toc-target="' + it.id + '">' + safeText + '</a>';
+        html += '</li>';
+    });
+    html += '</ul>';
+    
+    var $body = $panel.find('.floating-toc-body');
+    $body.html(html);
+    
+    // Re-setup click handlers for new links
+    $panel.find('.floating-toc-link').off('click').on('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        var targetId = $(this).attr('data-toc-target');
+        if (!targetId) return;
+        
+        var targetEl = document.getElementById(targetId);
+        if (targetEl) {
+            // Expand showMore() if the message is currently collapsed.
+            try {
+                var $moreText = $card.find('.more-text').first();
+                if ($moreText.length && !$moreText.is(':visible')) {
+                    var $toggle = $card.find('.show-more').first();
+                    if ($toggle.length) $toggle.trigger('click');
+                }
+            } catch (err) { /* ignore */ }
+
+            try {
+                var el = targetEl;
+                while (el) {
+                    if (el.tagName && el.tagName.toLowerCase() === 'details') {
+                        el.open = true;
+                    }
+                    el = el.parentElement;
+                }
+            } catch (err) { /* ignore */ }
+            
+            try { targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (err) {}
+            try { window.location.hash = targetId; } catch (err) {}
+        }
+    });
+}
+
+// Close floating ToC when switching conversations
+$(document).on('conversationChanged', closeAllFloatingTocs);
 
 async function responseWaitAndSuccessChecker(url, responsePromise) {
     // Set a timeout for the API call
@@ -654,6 +1111,209 @@ function setMaxHeightForTextbox(textboxId, height = 10) {
     messageText.css('overflow-y', 'auto');
 }
 
+// Scroll preservation helpers
+// NOTE: Preserving a raw scrollTop value is often insufficient when we insert/remove DOM above the
+// user's viewport (e.g., when building Main/TLDR tabs). In those cases, keeping the same scrollTop
+// can still "shift" the visible content. Instead, we capture an on-screen anchor and keep it at
+// the same viewport offset after DOM changes.
+function captureChatViewScrollAnchor($chatView) {
+    /**
+     * Capture a "visual anchor" inside #chatView so we can restore the same content position
+     * after large DOM rewrites (innerHTML, tab-building, showMore(), etc.).
+     *
+     * We attempt to capture:
+     * - a stable element id (preferably a heading/section id) visible near the top of the viewport
+     * - fallback: message-id of the card header + pixel offset within that card
+     */
+    try {
+        if (!$chatView || $chatView.length === 0 || !$chatView[0]) return null;
+        var container = $chatView[0];
+        var rect = container.getBoundingClientRect();
+        if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+
+        // Pick a point near the top third of the viewport, away from left gutters.
+        var x = rect.left + Math.min(80, rect.width * 0.5);
+        var y = rect.top + Math.min(140, rect.height * 0.33);
+        var el = document.elementFromPoint(x, y);
+        if (!el) return null;
+        if (!container.contains(el)) return null;
+
+        var $el = $(el);
+        var $card = $el.closest('.card.message-card');
+        var messageId = '';
+        if ($card.length > 0) {
+            messageId = ($card.find('.card-header[message-id]').attr('message-id') || '').toString();
+        }
+
+        // Walk up to find a stable id in the DOM (headings often have ids for ToC).
+        var idNode = el;
+        while (idNode && idNode !== document.body && idNode !== ($card[0] || null)) {
+            if (idNode.id) break;
+            idNode = idNode.parentElement;
+        }
+        var anchorId = (idNode && idNode.id) ? idNode.id : '';
+
+        // Capture the desired on-screen offset of the anchor (relative to chatView top).
+        var desiredOffset = (el.getBoundingClientRect().top - rect.top);
+
+        // Fallback: keep the same offset within the same message card.
+        var cardOffset = null;
+        if ($card.length > 0) {
+            cardOffset = (el.getBoundingClientRect().top - $card[0].getBoundingClientRect().top);
+        }
+
+        return {
+            anchorId: anchorId,
+            messageId: messageId,
+            desiredOffset: desiredOffset,
+            cardOffset: cardOffset
+        };
+    } catch (e) {
+        return null;
+    }
+}
+
+function captureChatViewScrollAnchorForCard($chatView, $card) {
+    /**
+     * Capture a scroll anchor STRICTLY inside the given message card.
+     * NEVER falls back to a generic (non-card-scoped) capture — that would anchor
+     * to a different card and cause scroll jumps to the wrong position.
+     *
+     * If $card is not provided or not found, forces the last .message-card in chatView.
+     *
+     * Fallback chain (all card-scoped):
+     * 1. elementFromPoint → find visible element with ID inside the card
+     * 2. Card header message-id + offset from card top
+     * 3. null (caller should skip restoration)
+     *
+     * @param {jQuery} $chatView
+     * @param {jQuery} $card - The specific card to anchor to (forced to last card if null)
+     * @returns {Object|null}
+     */
+    try {
+        if (!$chatView || $chatView.length === 0 || !$chatView[0]) return null;
+        var container = $chatView[0];
+        var chatRect = container.getBoundingClientRect();
+        if (!chatRect || chatRect.width <= 0 || chatRect.height <= 0) return null;
+
+        // Force to last message card if no card provided or card not in DOM
+        if (!$card || $card.length === 0 || !$card[0]) {
+            $card = $chatView.find('.card.message-card').last();
+        }
+        if (!$card || $card.length === 0 || !$card[0]) return null;
+
+        var cardEl = $card[0];
+        var cardRect = cardEl.getBoundingClientRect();
+
+        // Get message-id early — used as fallback anchor
+        var messageId = '';
+        try {
+            messageId = ($card.find('.card-header[message-id]').attr('message-id') || '').toString();
+        } catch (e) { messageId = ''; }
+
+        // Compute intersection of card with chatView viewport.
+        var yMin = Math.max(chatRect.top + 20, cardRect.top + 20);
+        var yMax = Math.min(chatRect.bottom - 20, cardRect.bottom - 20);
+
+        if (yMin < yMax) {
+            // Card is visible — try elementFromPoint to find a specific element
+            var x = chatRect.left + Math.min(80, chatRect.width * 0.5);
+            var y = yMin + Math.min(120, (yMax - yMin) * 0.25);
+            var el = document.elementFromPoint(x, y);
+
+            if (el && container.contains(el) && cardEl.contains(el)) {
+                // Found a visible element inside the card — walk up to find an ID
+                var idNode = el;
+                while (idNode && idNode !== document.body && idNode !== cardEl) {
+                    if (idNode.id) break;
+                    idNode = idNode.parentElement;
+                }
+                var anchorId = (idNode && idNode.id) ? idNode.id : '';
+                var desiredOffset = (el.getBoundingClientRect().top - chatRect.top);
+                var cardOffset = (el.getBoundingClientRect().top - cardRect.top);
+
+                return {
+                    anchorId: anchorId,
+                    messageId: messageId,
+                    desiredOffset: desiredOffset,
+                    cardOffset: cardOffset
+                };
+            }
+        }
+
+        // Fallback: card-scoped anchor using the card's own position.
+        // This handles cases where elementFromPoint misses (overlay, card partially visible, etc.)
+        var fallbackOffset = Math.max(0, chatRect.top - cardRect.top);
+        return {
+            anchorId: '',
+            messageId: messageId,
+            desiredOffset: 0,
+            cardOffset: fallbackOffset
+        };
+    } catch (e) {
+        return null;
+    }
+}
+
+function restoreChatViewScrollAnchor($chatView, anchor) {
+    /**
+     * Restore the chat view scroll position using a captured anchor.
+     * This adjusts scrollTop by the delta required to keep the anchor at the same viewport offset.
+     */
+    try {
+        if (!anchor || !$chatView || $chatView.length === 0 || !$chatView[0]) return false;
+        var container = $chatView[0];
+        var rect = container.getBoundingClientRect();
+        if (!rect) return false;
+
+        // 1) Prefer restoring by a stable element id.
+        if (anchor.anchorId) {
+            var target = document.getElementById(anchor.anchorId);
+            if (target) {
+                var newOffset = target.getBoundingClientRect().top - rect.top;
+                var delta = newOffset - (anchor.desiredOffset || 0);
+                if (isFinite(delta) && Math.abs(delta) > 0.5) {
+                    var newTop = ($chatView.scrollTop() || 0) + delta;
+                    var maxTop = ($chatView.prop('scrollHeight') || 0) - ($chatView.innerHeight() || 0);
+                    if (isFinite(maxTop)) {
+                        newTop = Math.max(0, Math.min(maxTop, newTop));
+                    } else {
+                        newTop = Math.max(0, newTop);
+                    }
+                    $chatView.scrollTop(newTop);
+                }
+                return true;
+            }
+        }
+
+        // 2) Fallback: restore within the same message card by message-id.
+        if (anchor.messageId && anchor.cardOffset !== null && anchor.cardOffset !== undefined) {
+            var $header = $chatView.find('.message-card .card-header[message-id="' + anchor.messageId + '"]').first();
+            if ($header.length > 0) {
+                var $card = $header.closest('.card.message-card');
+                if ($card.length > 0) {
+                    var cardRect = $card[0].getBoundingClientRect();
+                    var targetViewportY = cardRect.top + anchor.cardOffset;
+                    var desiredViewportY = rect.top + (anchor.desiredOffset || 0);
+                    var delta2 = targetViewportY - desiredViewportY;
+                    if (isFinite(delta2) && Math.abs(delta2) > 0.5) {
+                        var newTop2 = ($chatView.scrollTop() || 0) + delta2;
+                        var maxTop2 = ($chatView.prop('scrollHeight') || 0) - ($chatView.innerHeight() || 0);
+                        if (isFinite(maxTop2)) {
+                            newTop2 = Math.max(0, Math.min(maxTop2, newTop2));
+                        } else {
+                            newTop2 = Math.max(0, newTop2);
+                        }
+                        $chatView.scrollTop(newTop2);
+                    }
+                    return true;
+                }
+            }
+        }
+    } catch (e) { /* ignore */ }
+    return false;
+}
+
 function showMore(parentElem, text = null, textElem = null, as_html = false, show_at_start = false, server_side = null) {
 
     if (textElem) {
@@ -674,10 +1334,6 @@ function showMore(parentElem, text = null, textElem = null, as_html = false, sho
 
     if (as_html) {
 
-        // FIXED: Preserve scroll position when rebuilding content
-        var $chatView = $('#chatView');
-        
-
         var moreText = $('<span class="more-text" style="display:none;"></span>')
         moreText.html(text)
         moreText.find('.show-more').each(function () { $(this).remove(); })
@@ -685,7 +1341,22 @@ function showMore(parentElem, text = null, textElem = null, as_html = false, sho
         var lessText = $(`<span class="less-text" style="display:block;">${shortText}</span>`)
         previous_sm = textElem.find('.show-more').length
         var smClick = $(' <a href="#" class="show-more">[show]</a> ')
-        var originalScrollTop = $chatView.scrollTop();
+        
+        // HEIGHT LOCK: Prevent scroll shift during textElem.empty() + rebuild.
+        // When we empty the text element, the card body height drops to ~0, causing a scroll jump.
+        // Lock the closest card body's min-height to its current height during DOM manipulation.
+        var _smHeightLockEl = null;
+        var _smHeightLockValue = 0;
+        try {
+            _smHeightLockEl = textElem.closest('.chat-card-body')[0] || textElem.parent()[0];
+            if (_smHeightLockEl) {
+                _smHeightLockValue = _smHeightLockEl.offsetHeight || 0;
+                if (_smHeightLockValue > 0) {
+                    _smHeightLockEl.style.minHeight = _smHeightLockValue + 'px';
+                }
+            }
+        } catch (e) { /* ignore */ }
+        
         textElem.empty()
         textElem.append(lessText)
         textElem.append(smClick)
@@ -694,19 +1365,27 @@ function showMore(parentElem, text = null, textElem = null, as_html = false, sho
 
         moreText.append(smClick.clone())
 
-        // Restore scroll position after rebuilding content
-        // $chatView.scrollTop(originalScrollTop);
-
-        // FIXED: Restore scroll position after DOM changes
-        requestAnimationFrame(function() {
-            $chatView.scrollTop(originalScrollTop);
-        });
-
         // If the rendered message includes model tabs (Main/TLDR), showMore() rebuilds the DOM.
         // Re-apply model tabs on the new `.more-text` wrapper so source nodes get hidden.
+        // Note: applyModelResponseTabs has its own height lock for the hide+insert swap.
         try {
             if (typeof applyModelResponseTabs === 'function') {
                 applyModelResponseTabs(moreText);
+            }
+        } catch (e) { /* ignore */ }
+        
+        // RELEASE HEIGHT LOCK: showMore DOM rebuild + tab re-application is complete.
+        try {
+            if (_smHeightLockEl && _smHeightLockValue > 0) {
+                _smHeightLockEl.style.minHeight = '';
+            }
+        } catch (e) { /* ignore */ }
+
+        // Ensure ToC is generated after showMore() rebuilds the DOM. Without this, ToC can go missing
+        // in some streaming->finalization paths where the final render happens before showMore() runs.
+        try {
+            if (typeof updateMessageTocForElement === 'function') {
+                updateMessageTocForElement(moreText, moreText.html(), false);
             }
         } catch (e) { /* ignore */ }
     }
@@ -750,6 +1429,13 @@ function showMore(parentElem, text = null, textElem = null, as_html = false, sho
             try {
                 if (typeof applyModelResponseTabs === 'function') {
                     applyModelResponseTabs(moreText);
+                }
+            } catch (e) { /* ignore */ }
+
+            // After expanding, ensure ToC exists and is up to date for the expanded content.
+            try {
+                if (typeof updateMessageTocForElement === 'function') {
+                    updateMessageTocForElement(moreText, moreText.html(), false);
                 }
             } catch (e) { /* ignore */ }
         }
@@ -1189,6 +1875,23 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
             voteDropdown.append(shortPodcastItem, podcastItem);
         }
         
+        // Add Table of Contents menu item
+        var tocItem = $('<a class="dropdown-item floating-toc-trigger" href="#"><i class="bi bi-list-ul mr-2"></i>Table of Contents</a>');
+        tocItem.click(function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            // Close the dropdown menu before showing floating ToC
+            try {
+                var $dropdown = $(this).closest('.dropdown');
+                if ($dropdown.length > 0) {
+                    // Bootstrap 4.6 dropdown hide
+                    $dropdown.find('[data-toggle="dropdown"]').dropdown('hide');
+                }
+            } catch (err) { /* ignore */ }
+            showFloatingToc(cardElem);
+        });
+        
+        voteDropdown.append($('<div class="dropdown-divider"></div>'), tocItem);
         voteDropdown.append($('<div class="dropdown-divider"></div>'), editItem, editAsArtefactItem);
         
     } else {
@@ -1416,6 +2119,80 @@ const options = {
   };
   
 marked.use(markedKatex(options));
+
+
+/**
+ * Normalize over-indented list items that the markdown parser would treat as
+ * indented code blocks.
+ *
+ * In standard CommonMark / GFM markdown, 4 or more spaces of leading
+ * indentation creates an "indented code block".  Many LLMs format bullet
+ * points with 4-space indentation (e.g., "    *   text"), which causes
+ * `marked` to wrap them in `<pre><code>` instead of rendering them as list
+ * items with inline math / formatting.
+ *
+ * This function detects lines that:
+ *   1. Have 4+ spaces of leading whitespace, AND
+ *   2. Start with a list marker (`*`, `-`, `+`, or `1.` etc.)
+ * and removes exactly 4 spaces of indentation.  Subtracting 4 (rather than
+ * stripping to zero) preserves relative nesting:
+ *   - `    *  item`   → `*  item`       (top-level)
+ *   - `        * sub` → `    * sub`     (nested; still valid inside the list)
+ *
+ * Continuation lines (non-list, non-blank lines that follow a de-indented
+ * list item and also have 4+ spaces) are de-indented too, so wrapped bullet
+ * text doesn't become a code block.
+ *
+ * Fenced code blocks (```, ~~~) are skipped entirely so legitimate code is
+ * never modified.
+ *
+ * @param {string} text  Raw markdown text before parsing
+ * @returns {string}     Text with over-indented list items normalised
+ */
+function normalizeOverIndentedLists(text) {
+    if (!text) return text;
+
+    var lines = text.split('\n');
+    var inCodeBlock = false;
+    var deindenting = false;  // are we in a "run" of lines being de-indented?
+
+    for (var i = 0; i < lines.length; i++) {
+        var line = lines[i];
+        // Compute trimmed + leading-space count without mutating `line`
+        var trimmed = line.replace(/^\s+/, '');
+        var leadingSpaces = line.length - trimmed.length;
+
+        // ── Track fenced code blocks ─────────────────────────────────
+        if (trimmed.startsWith('```') || trimmed.startsWith('~~~')) {
+            inCodeBlock = !inCodeBlock;
+            deindenting = false;
+            continue;
+        }
+        if (inCodeBlock) continue;
+
+        // ── Detect list markers ──────────────────────────────────────
+        var isListItem = /^[\*\-\+]\s/.test(trimmed) || /^\d+\.\s/.test(trimmed);
+
+        if (isListItem && leadingSpaces >= 4) {
+            // Over-indented list item → subtract 4 spaces
+            lines[i] = line.substring(4);
+            deindenting = true;
+        } else if (deindenting && leadingSpaces >= 4 && trimmed !== '') {
+            // Continuation line of a de-indented list item
+            // (still has 4+ spaces and is non-blank → de-indent too)
+            lines[i] = line.substring(4);
+        } else if (trimmed === '') {
+            // Blank lines: keep the de-indent state alive
+            // (blank lines between list items are normal)
+        } else if (leadingSpaces < 4) {
+            // Non-indented / lightly-indented content → end the run
+            deindenting = false;
+        }
+    }
+
+    return lines.join('\n');
+}
+
 
 /**
  * Build a standalone HTML document string that renders the given slides HTML
@@ -1702,6 +2479,14 @@ function normalizeTextForClipboard(textElem, textToCopy, mode) {
 
 function applyModelResponseTabs(elem_to_render_in) {
     var $root = elem_to_render_in ? $(elem_to_render_in) : $(document);
+    
+    // Scroll preservation uses a TWO-LEVEL strategy:
+    // 1. OUTER level: renderInnerContentAsMarkdown() captures scrollTop BEFORE innerHTML and
+    //    restores AFTER all synchronous work (including showMore + this function) completes.
+    // 2. INNER level (here): We capture scrollTop RIGHT BEFORE the insert/hide DOM swap and
+    //    restore RIGHT AFTER. This covers calls from showMore() toggle and other non-render paths.
+    // Both levels use immediate restore + requestAnimationFrame + setTimeout retries.
+
     // Chat UI responses can involve multiple sibling render containers under a single
     // `.chat-card-body` (e.g., `#message-render-space` and `#message-render-space-md-render`,
     // plus showMore() wrappers). For tabbed responses we need to:
@@ -1778,7 +2563,19 @@ function applyModelResponseTabs(elem_to_render_in) {
         return summaryText.indexOf('tldr') !== -1;
     }).not('.section-details').not('.model-tabs-container details');
 
+    // DIAGNOSTIC: Log what applyModelResponseTabs found
+    // Diagnostic logs removed — uncomment below to debug tab detection:
+    // console.warn('[applyModelResponseTabs] $root:', $root.prop('tagName'), $root.attr('class'));
+    // console.warn('[applyModelResponseTabs] detailsBlocks:', $detailsBlocks.length, 'hasTldrWrapper:', hasTldrWrapper);
+    if ($detailsBlocks.length > 0) {
+        $detailsBlocks.each(function(i) {
+            var sum = ($(this).find('> summary').first().text() || '').trim();
+            // console.warn('[applyModelResponseTabs] details[' + i + ']:', sum);
+        });
+    }
+
     if ($detailsBlocks.length === 0 && !hasTldrWrapper && preservedTldrContent === null) {
+        // No tabs needed — no details blocks, no TLDR wrapper, no preserved content
         if ($existingContainer.length > 0) {
             $existingContainer.remove();
         }
@@ -1846,9 +2643,28 @@ function applyModelResponseTabs(elem_to_render_in) {
     // Returns true if there's actual text beyond just whitespace and empty tags
     function hasMeaningfulContent($elem) {
         if (!$elem || $elem.length === 0) return false;
-        // Get text content, trim whitespace
+        // Special-case <details>: ignore <summary> text, since TLDR streams the summary header
+        // early (e.g., "📝 TLDR Summary...") before the body arrives. Counting summary text
+        // causes premature TLDR-tab creation and hides the main answer while TLDR is still streaming.
+        try {
+            if ($elem.is('details')) {
+                var $clone = $elem.clone();
+                $clone.find('> summary').first().remove();
+                var bodyText = ($clone.text() || '').trim();
+                return bodyText.length > 10;
+            }
+        } catch (e) { /* ignore */ }
+
+        // If this wrapper contains a <details>, prefer checking that detail body (excluding summary).
+        try {
+            var $innerDetails = $elem.find('details').first();
+            if ($innerDetails.length > 0) {
+                return hasMeaningfulContent($innerDetails);
+            }
+        } catch (e) { /* ignore */ }
+
+        // Default: text length threshold
         var textContent = ($elem.text() || '').trim();
-        // Check if there's at least some meaningful text (more than just punctuation/whitespace)
         return textContent.length > 10; // Require at least 10 chars of actual content
     }
     
@@ -1890,19 +2706,44 @@ function applyModelResponseTabs(elem_to_render_in) {
     // Final check: do we actually have meaningful TLDR content?
     var actuallyHasTldrContent = tldrContentClone !== null && hasMeaningfulContent(tldrContentClone);
     
+    // Check if this card is currently streaming
+    // During live streaming, DON'T build single-model+TLDR tabs because:
+    // - The main content is still being streamed to source containers
+    // - Building tabs hides those containers, causing main content to "disappear"
+    // - The cloned "Main" tab content won't receive streaming updates
+    // Multi-model is fine because each model's <details> block is complete.
+    var isLiveStreaming = false;
+    try {
+        var $card = $root.closest('.card.message-card');
+        if ($card.length === 0) {
+            $card = $root.closest('.card');
+        }
+        isLiveStreaming = $card.attr('data-live-stream') === 'true';
+    } catch (e) { /* ignore */ }
+    
+    // DIAGNOSTIC: Log tab decision inputs
+    // console.warn('[applyModelResponseTabs] models:', modelDetails.length, 'tldr:', actuallyHasTldrContent, 'streaming:', isLiveStreaming);
+    
     // ========================================================================
     // STEP 2: Decide whether to build tabs based on validated content
     // ========================================================================
     var shouldBuildTabs = false;
     if (modelDetails.length > 1) {
         // Multiple models = always show tabs (one tab per model)
+        // Safe during streaming because each model <details> block is complete
         shouldBuildTabs = true;
     } else if (modelDetails.length === 1 && actuallyHasTldrContent) {
         // Single model WITH meaningful TLDR = show tabs (Main + TLDR)
-        shouldBuildTabs = true;
+        // But NOT during live streaming - wait until streaming ends
+        if (!isLiveStreaming) {
+            shouldBuildTabs = true;
+        }
     } else if (modelDetails.length === 0 && actuallyHasTldrContent) {
         // No model details but has meaningful TLDR = show tabs (Main + TLDR)
-        shouldBuildTabs = true;
+        // But NOT during live streaming - wait until streaming ends
+        if (!isLiveStreaming) {
+            shouldBuildTabs = true;
+        }
     }
 
     if (!shouldBuildTabs) {
@@ -2062,11 +2903,55 @@ function applyModelResponseTabs(elem_to_render_in) {
         $content.append($pane);
     });
 
+    // ========================================================================
+    // DOM SWAP: Insert tabs + hide originals
+    // ========================================================================
+    // SCROLL PREVENTION via HEIGHT LOCK:
+    // When we hide all children then insert the tab container, the card body's height
+    // momentarily drops to ~0 (all children hidden) before growing back (tabs inserted).
+    // This height collapse causes the browser to shift scrollTop — visible as a "scroll up
+    // then back down" jank. To prevent this, we lock the container's min-height to its
+    // current rendered height BEFORE any DOM changes, then release AFTER all changes.
+    // The scroll position never shifts because the total page height stays constant.
+    var _heightLockEl = $root[0];
+    var _heightLockValue = 0;
+    try {
+        if (_heightLockEl) {
+            _heightLockValue = _heightLockEl.offsetHeight || 0;
+            if (_heightLockValue > 0) {
+                _heightLockEl.style.minHeight = _heightLockValue + 'px';
+            }
+        }
+    } catch (e) { /* ignore */ }
+    
+    // --- Step A: Hide originals FIRST (using css directly to avoid forced reflows) ---
+    // By hiding originals before inserting tabs, we avoid the "content pushed down then
+    // pulled back up" problem. The originals disappear, then tabs fill the same space.
+    var $hideHost = $tabsHostPreferred;
+    try {
+        if (!($hideHost && $hideHost.length)) {
+            $hideHost = $root;
+        }
+        if ($hideHost && $hideHost.length > 0) {
+            $hideHost.children()
+                .not('.model-tabs-container')
+                .not('.message-toc-container')
+                .each(function() {
+                    $(this).attr('data-model-tabs-hidden', 'true');
+                    this.style.display = 'none';  // Direct style access avoids jQuery overhead
+                });
+        }
+    } catch (e) { /* ignore */ }
+
+    modelDetails.forEach(function(item) {
+        item.element.attr('data-model-tabs-hidden', 'true');
+        if (item.element[0]) item.element[0].style.display = 'none';
+    });
+
+    // --- Step B: Insert/move the tab container ---
     if ($existingContainer.length === 0) {
         // Insert tabs at the top-level of the preferred host so they are not trapped
         // inside section <details> wrappers (common when answers are split by `---`).
-        // If tabs are inserted inside a section-details block, collapsing that section
-        // will hide the tabs and make it look like TLDR vanished on reload.
         var $insertHost = $tabsHostPreferred;
         if ($insertHost && $insertHost.length && $insertHost[0] !== document) {
             $insertHost.prepend($container);
@@ -2076,59 +2961,33 @@ function applyModelResponseTabs(elem_to_render_in) {
             $root.prepend($container);
         }
     } else {
-        // Re-apply scenario: ensure the container lives under the preferred host so we can
-        // consistently hide the original source nodes (single-model + TLDR otherwise shows
-        // the main answer outside the tabs).
+        // Re-apply scenario: ensure the container lives under the preferred host.
         try {
             if ($tabsHostPreferred && $tabsHostPreferred.length && $container.parent().length && $container.parent()[0] !== $tabsHostPreferred[0]) {
                 $tabsHostPreferred.prepend($container);
             }
         } catch (e) { /* ignore */ }
     }
-
-    // When tabs are active, the underlying rendered message content (sections, PKB details,
-    // debug stats) can remain in the DOM and appear outside/under the tabs.
-    // Hide those source nodes so only the tab container is visible.
-    //
-    // Important: In single-model + TLDR there are no `Response from ...` details blocks,
-    // so sibling hiding is the ONLY thing that prevents duplicate main content.
-    // Always hide within the preferred host (chat-card-body).
+    
+    // Ensure the container is within the hide host so children() covers the sources.
     try {
-        var $hideHost = $tabsHostPreferred;
-        if (!($hideHost && $hideHost.length)) {
-            $hideHost = $container.parent();
+        if ($hideHost && $hideHost.length > 0 && $container.parent().length && $container.parent()[0] !== $hideHost[0]) {
+            $hideHost.prepend($container);
         }
-        if ($hideHost && $hideHost.length > 0) {
-            // Ensure the container is within the hide host so `children()` covers the sources.
-            if ($container.parent().length && $container.parent()[0] !== $hideHost[0]) {
-                $hideHost.prepend($container);
-            }
-            $hideHost.children()
-                .not('.model-tabs-container')
-                .not('.message-toc-container')
-                .each(function() {
-                    $(this).attr('data-model-tabs-hidden', 'true').hide();
-                });
-        }
-    } catch (e) {
-        // Never break rendering due to tab hiding logic
-    }
+    } catch (e) { /* ignore */ }
 
     // If the tab UI isn't actually attached, don't hide sources.
     // This prevents the "ToC shows but content is blank" state on reload.
     try {
         if (!$container || $container.length === 0 || !$container[0] || !document.body.contains($container[0])) {
             $root.find('[data-model-tabs-hidden="true"]').show().removeAttr('data-model-tabs-hidden');
+            // Release height lock before early exit
+            try { if (_heightLockEl && _heightLockValue > 0) _heightLockEl.style.minHeight = ''; } catch (e2) {}
             return;
         }
     } catch (e) { /* ignore */ }
 
-    modelDetails.forEach(function(item) {
-        item.element.attr('data-model-tabs-hidden', 'true').hide();
-    });
-    
-    // Only remove/hide TLDR sources if we successfully captured meaningful content
-    // This prevents losing content during streaming when it's incomplete
+    // --- Step C: Remove TLDR sources (only after content is cloned into tabs) ---
     if (actuallyHasTldrContent) {
         if (hasTldrWrapper && $tldrWrapper.length > 0) {
             $tldrWrapper.remove();
@@ -2136,10 +2995,8 @@ function applyModelResponseTabs(elem_to_render_in) {
         tldrDetails.forEach(function(item) {
             item.element.remove();
         });
-
         // Defensive: if we accidentally inserted tabs inside the TLDR wrapper,
         // removing the wrapper would also remove the tabs container.
-        // Ensure the container remains attached so we don't leave the message blank.
         try {
             if ($container && $container.length > 0 && $container[0] && !document.body.contains($container[0])) {
                 $root.prepend($container);
@@ -2152,14 +3009,24 @@ function applyModelResponseTabs(elem_to_render_in) {
     }
 
     // Final sanity check: never leave a message blank.
-    // If we hid source nodes but for any reason the tabs container isn't present,
-    // restore hidden nodes so content remains visible.
     try {
         var hasTabsInRoot = $root.find('.model-tabs-container').length > 0;
         if (!hasTabsInRoot) {
             $root.find('[data-model-tabs-hidden="true"]').show().removeAttr('data-model-tabs-hidden');
         }
     } catch (e) { /* ignore */ }
+    
+    // RELEASE HEIGHT LOCK: All DOM changes (hide, insert, remove) are done.
+    // The tab container is now visible with content. Release the min-height lock
+    // so the card body settles to its natural height. Any small height difference
+    // between the locked height and the natural height is handled by CSS scroll
+    // anchoring (overflow-anchor: auto).
+    try {
+        if (_heightLockEl && _heightLockValue > 0) {
+            _heightLockEl.style.minHeight = '';
+        }
+    } catch (e) { /* ignore */ }
+    
 }
 
 // Function to attach listeners directly to section elements
@@ -2338,7 +3205,31 @@ function persistSectionState(conversation_id, sectionHash, isHidden) {
     });
 }
 
-function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = false, html = null, immediate_callback = null) {
+function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = false, html = null, immediate_callback = null, defer_mathjax = false) {
+    /**
+     * Render markdown/HTML content into a DOM element with MathJax typesetting,
+     * model response tabs, ToC generation, and showMore() support.
+     *
+     * @param {jQuery}   jqelem             - Target element to render into
+     * @param {Function} callback           - Callback queued AFTER MathJax typesetting (async)
+     * @param {boolean}  continuous          - true = streaming (incremental), false = final render
+     * @param {string}   html               - Raw HTML/markdown to render (null = use jqelem content)
+     * @param {Function} immediate_callback  - Callback that runs SYNCHRONOUSLY after HTML render
+     *                                         (before MathJax). Use for showMore(), addScrollToTopButton()
+     *                                         so they don't wait for MathJax.
+     * @param {boolean}  defer_mathjax       - When true, MathJax typesetting is deferred via
+     *                                         setTimeout(0) so higher-priority cards (e.g. the last
+     *                                         message) get processed first. Default: false.
+     *
+     * Purpose:
+     * Central rendering function for chat messages. Converts markdown to HTML,
+     * handles streaming vs final render, processes answer_tldr tags, builds
+     * model response tabs, generates ToC, and queues MathJax typesetting.
+     */
+    // NOTE: Scroll preservation is handled ONCE at the outermost level in the streaming
+    // finalization handler (common-chat.js). We do NOT capture/restore here because
+    // multiple nested restores fight each other and cause progressive scroll drift.
+    
     conversation_id = (typeof ConversationManager !== 'undefined' && ConversationManager && ConversationManager.getActiveConversation()!= '') ? ConversationManager.getActiveConversation() : '';
     parent = jqelem.parent()
     elem_id = jqelem.attr('id');
@@ -2374,8 +3265,23 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
     // check html has </answer> tag
     has_end_answer_tag = html.includes('</answer>')
     html = html.replace(/<answer>/g, '').replace(/<\/answer>/g, '');
-    html = html.replace(/<\s*answer_tldr\s*>/gi, '<div data-answer-tldr="true">')
-        .replace(/<\s*\/\s*answer_tldr\s*>/gi, '</div>');
+    // Streaming-safety for <answer_tldr>:
+    // During streaming, we may receive the opening tag before the closing tag arrives.
+    // Converting an unclosed <answer_tldr> into a <div> produces malformed HTML, and browsers
+    // can auto-close at the end of the container, effectively wrapping the rest of the message
+    // (including the main answer) inside the TLDR wrapper. That can trigger premature tab-building
+    // and hide the main answer while TLDR is still being generated.
+    var hasOpenAnswerTldr = /<\s*answer_tldr\s*>/i.test(html);
+    var hasCloseAnswerTldr = /<\s*\/\s*answer_tldr\s*>/i.test(html);
+    // console.warn('[renderInnerContentAsMarkdown] answer_tldr: open=' + hasOpenAnswerTldr + ', close=' + hasCloseAnswerTldr);
+    if (continuous && hasOpenAnswerTldr && !hasCloseAnswerTldr) {
+        // Do NOT create a wrapper div until the closing tag arrives.
+        // Remove the opening tag so inner <details> can still render, but we don't create a stable TLDR wrapper yet.
+        html = html.replace(/<\s*answer_tldr\s*>/gi, '<!--answer_tldr_pending-->');
+    } else {
+        html = html.replace(/<\s*answer_tldr\s*>/gi, '<div data-answer-tldr="true">')
+            .replace(/<\s*\/\s*answer_tldr\s*>/gi, '</div>');
+    }
 
     // Check if we should wrap sections (you might want to make this configurable)
     var wrapSectionsInDetails = true; // You can make this configurable via options
@@ -2797,7 +3703,7 @@ ${innerSectionWithCode}
         for (var pi = 0; pi < split.parts.length; pi++) {
             var part = split.parts[pi];
             if (part.type === 'text') {
-                var renderedText = marked.marked(part.content, { renderer: markdownParser });
+                var renderedText = marked.marked(normalizeOverIndentedLists(part.content), { renderer: markdownParser });
                 renderedText = removeEmTags(renderedText);
                 combined += renderedText;
             } else if (part.type === 'slide') {
@@ -2869,7 +3775,10 @@ ${innerSectionWithCode}
         htmlChunk = combined;
     } else {
         // Normal markdown processing
-        htmlChunk = marked.marked(html, { renderer: markdownParser });
+        // Normalize over-indented list items BEFORE marked parses them.
+        // Some LLMs indent bullets with 4+ spaces (e.g., "    *   text"),
+        // which CommonMark treats as an indented code block instead of a list.
+        htmlChunk = marked.marked(normalizeOverIndentedLists(html), { renderer: markdownParser });
         htmlChunk = removeEmTags(htmlChunk);
     }
     
@@ -2881,6 +3790,26 @@ ${innerSectionWithCode}
     
     // Batch DOM write operation - single innerHTML assignment is faster than empty() + append()
     var targetElement = elem_to_render_in[0] || elem_to_render_in;
+    // Height lock in applyModelResponseTabs + streaming done handler prevents scroll shift
+    
+    // ── Reflow prevention: lock element height during continuous rendering ──
+    // During streaming (continuous=true), replacing innerHTML destroys existing
+    // MathJax-rendered content.  Until MathJax re-typesets the new HTML, the
+    // element can shrink dramatically (raw text is shorter than formatted math),
+    // causing a visible "jump".  By setting min-height to the current rendered
+    // height before the replacement, we keep the element from collapsing.
+    // The min-height is cleared after MathJax finishes in _queueMathJax().
+    var _lockedMinHeight = false;
+    if (continuous) {
+        try {
+            var _curHeight = targetElement.offsetHeight || 0;
+            if (_curHeight > 50) { // only lock if there's meaningful rendered content
+                targetElement.style.minHeight = _curHeight + 'px';
+                _lockedMinHeight = true;
+            }
+        } catch (e) { /* ignore */ }
+    }
+    
     try {
         if (targetElement.innerHTML !== undefined) {
             targetElement.innerHTML = htmlChunk;
@@ -2910,33 +3839,64 @@ ${innerSectionWithCode}
 
     mathjax_elem = elem_to_render_in[0] || jqelem;
     
-    // Queue MathJax typesetting
-    MathJax.Hub.Queue(["Typeset", MathJax.Hub, mathjax_elem]);
-    
-    // After MathJax finishes, handle slide height adjustment (consolidated - was duplicated before)
-    if (isSlidePresentation) {
+    // Queue MathJax typesetting.
+    // When defer_mathjax=true, wrap in setTimeout(0) so the MathJax queue item is added
+    // AFTER the current call stack completes. This allows non-deferred cards (e.g. the last
+    // message, which the user is reading) to get their MathJax processed first.
+    // This dramatically improves perceived rendering speed for the most relevant card.
+    function _queueMathJax() {
+        MathJax.Hub.Queue(["Typeset", MathJax.Hub, mathjax_elem]);
+        
+        // After MathJax finishes:
+        // 1. Release the min-height lock so the element can size naturally
+        // 2. Handle slide height adjustment if applicable
         MathJax.Hub.Queue(function() {
-            // Use requestAnimationFrame to avoid forced reflow during MathJax callback
-            requestAnimationFrame(function() {
+            // Release min-height lock set before innerHTML replacement.
+            // At this point MathJax has re-typeset the math, so the element
+            // should be at its correct natural height (or larger).
+            if (_lockedMinHeight) {
                 try {
-                    var slideWrapper = $(elem_to_render_in).find('.slide-presentation-wrapper');
-                    if (slideWrapper && slideWrapper.length > 0) {
-                        adjustCardHeightForSlides(slideWrapper);
-                    }
-                } catch (e) { 
-                    console.warn('Post-MathJax slide height adjust failed:', e); 
-                }
-            });
+                    targetElement.style.minHeight = '';
+                } catch (e) { /* ignore */ }
+            }
         });
+        
+        // After MathJax finishes, handle slide height adjustment
+        if (isSlidePresentation) {
+            MathJax.Hub.Queue(function() {
+                requestAnimationFrame(function() {
+                    try {
+                        var slideWrapper = $(elem_to_render_in).find('.slide-presentation-wrapper');
+                        if (slideWrapper && slideWrapper.length > 0) {
+                            adjustCardHeightForSlides(slideWrapper);
+                        }
+                    } catch (e) { 
+                        console.warn('Post-MathJax slide height adjust failed:', e); 
+                    }
+                });
+            });
+        }
+        
+        if (callback) {
+            MathJax.Hub.Queue(callback);
+        }
     }
     
-    if (callback) {
-        MathJax.Hub.Queue(callback);
+    if (defer_mathjax) {
+        // Deferred: yield to browser event loop so priority cards process first.
+        // setTimeout(0) ensures this runs after all synchronous code (including the
+        // last card's immediate MathJax queue) completes.
+        setTimeout(_queueMathJax, 0);
+    } else {
+        // Immediate: add to MathJax queue now (high priority — last/visible card).
+        _queueMathJax();
     }
 
     if (immediate_callback) {
         immediate_callback();
     }
+    
+    // NOTE: Scroll restoration is handled at the outermost level in common-chat.js streaming handler.
     
     // Defer non-critical DOM operations to avoid blocking the main thread
     // Use requestAnimationFrame for operations that need to happen soon but shouldn't block

@@ -374,10 +374,30 @@ bi bi-trash-fill {
     margin: 10px 0;
 }
 
+/* ========================================================================
+ * Scroll Anchoring & Card Spacing
+ * ========================================================================
+ * overflow-anchor: auto tells the browser to automatically compensate scroll
+ * position when content ABOVE the viewport changes height (e.g. MathJax renders
+ * math formulas, showMore() collapses cards, buttons are added).  Without this,
+ * the user's reading position shifts whenever any card above the viewport gets
+ * re-rendered.  This is the CSS Scroll Anchoring spec (supported in all modern
+ * browsers since 2019).
+ * ======================================================================== */
+#chatView {
+    overflow-anchor: auto;
+}
+
 /* Allow message cards to grow for slides */
 .message-card {
     overflow: visible !important;
     min-height: auto;
+    /* Each card is a valid scroll anchor candidate */
+    overflow-anchor: auto;
+    /* Larger gap between cards for readability and to absorb minor reflow from
+       deferred MathJax/button rendering */
+    margin-bottom: 0.75rem !important;
+    margin-top: 0.25rem !important;
 }
 
 .message-card .card-body {
@@ -711,6 +731,161 @@ table, tr, thead, th, td {
 
 .message-toc-link:hover {
     text-decoration: underline;
+}
+
+/* ToC toggle button — make it clearly visible and clickable */
+.message-toc-toggle {
+    font-weight: 600;
+    font-size: 0.72rem;
+    color: #fff !important;
+    background-color: #5a7d8a !important;
+    border-color: #4a6d7a !important;
+    padding: 2px 10px;
+    border-radius: 3px;
+    letter-spacing: 0.02em;
+}
+
+.message-toc-toggle:hover,
+.message-toc-toggle:focus {
+    background-color: #3d5f6d !important;
+    border-color: #2e4f5d !important;
+    color: #fff !important;
+}
+
+/* Collapsed ToC state - shows just header with item count */
+.message-toc[data-toc-expanded="false"] {
+    padding: 6px 10px;
+}
+
+.message-toc[data-toc-expanded="false"] .message-toc-header {
+    margin-bottom: 0;
+}
+
+.message-toc[data-toc-expanded="false"] .message-toc-toggle {
+    background-color: #4a7a8a !important;
+    border-color: #3a6a7a !important;
+}
+
+/* Smooth transition for ToC body expansion */
+.message-toc-body {
+    transition: max-height 0.2s ease-out, opacity 0.2s ease-out;
+}
+
+/* ============================================
+   Floating ToC Panel (Solution 7)
+   ============================================ */
+
+.floating-toc-panel {
+    position: absolute;
+    top: 48px;
+    right: 8px;
+    width: 280px;
+    max-width: 90%;
+    background: #ffffff;
+    border: 1px solid #d1d5db;
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+    z-index: 1045; /* Above dropdowns (~1000), below Bootstrap modals (~1050) */
+    opacity: 0;
+    transform: translateY(-10px);
+    transition: opacity 0.2s ease-out, transform 0.2s ease-out;
+}
+
+.floating-toc-panel.floating-toc-visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.floating-toc-header {
+    padding: 8px 12px;
+    background: #f9fafb;
+    border-bottom: 1px solid #e5e7eb;
+    border-radius: 8px 8px 0 0;
+}
+
+.floating-toc-close {
+    padding: 2px 8px;
+    font-size: 16px;
+    line-height: 1;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+}
+
+.floating-toc-close:hover {
+    background: #e5e7eb;
+}
+
+.floating-toc-body {
+    max-height: 320px;
+    overflow-y: auto;
+    padding: 8px 0;
+}
+
+.floating-toc-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.floating-toc-item {
+    margin: 0;
+}
+
+.floating-toc-item.indent-1 { padding-left: 12px; }
+.floating-toc-item.indent-2 { padding-left: 24px; }
+.floating-toc-item.indent-3 { padding-left: 36px; }
+
+.floating-toc-link {
+    display: block;
+    padding: 4px 12px;
+    color: #374151;
+    text-decoration: none;
+    font-size: 0.85rem;
+    transition: background-color 0.15s;
+}
+
+.floating-toc-link:hover {
+    background: #f3f4f6;
+    text-decoration: none;
+    color: #1f2937;
+}
+
+/* Dark mode support for floating ToC */
+@media (prefers-color-scheme: dark) {
+    .floating-toc-panel {
+        background: #1f2937;
+        border-color: #374151;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    }
+    
+    .floating-toc-header {
+        background: #111827;
+        border-bottom-color: #374151;
+    }
+    
+    .floating-toc-close:hover {
+        background: #374151;
+    }
+    
+    .floating-toc-link {
+        color: #d1d5db;
+    }
+    
+    .floating-toc-link:hover {
+        background: #374151;
+        color: #f9fafb;
+    }
+}
+
+/* Mobile adjustments for floating ToC */
+@media (max-width: 576px) {
+    .floating-toc-panel {
+        right: 4px;
+        left: 4px;
+        width: auto;
+        max-width: none;
+    }
 }
 
 #chat-assistant-sidebar {

@@ -176,14 +176,87 @@ When changing tab/render logic, bump both versions together so old JS + old snap
   - clear the service worker and refresh
   - clear IndexedDB `science-chat-rendered-state` (or bump `UI_CACHE_VERSION`)
 
+## 6) Stream-Safe `<answer_tldr>` Tag Handling
+
+Problem:
+- During streaming (`continuous=true`), the opening `<answer_tldr>` tag may arrive before the closing `</answer_tldr>`.
+- The markdown-to-HTML conversion turns this unclosed tag into malformed HTML, which can cause the browser to wrap all subsequent content inside the TLDR div — hiding the main answer.
+
+Fix in `renderInnerContentAsMarkdown()`:
+```javascript
+if (continuous && hasOpenAnswerTldr && !hasCloseAnswerTldr) {
+    // Stream-safe: replace opening tag with placeholder until closing tag arrives
+    html = html.replace(/<\s*answer_tldr\s*>/i, '<!--answer_tldr_pending-->');
+}
+```
+
+When `continuous=false` (final render), both tags are present and converted normally:
+```javascript
+html = html.replace(/<\s*answer_tldr\s*>/gi, '<div data-answer-tldr="true">');
+html = html.replace(/<\s*\/\s*answer_tldr\s*>/gi, '</div>');
+```
+
+## 7) `isLiveStreaming` Guard for Single-Model+TLDR
+
+Problem:
+- During streaming, `hasMeaningfulContent()` could count `<summary>` text from a partially-rendered TLDR `<details>` block, triggering premature tab creation.
+- This hid the main answer content while TLDR was still being generated.
+
+Fix in `applyModelResponseTabs()`:
+- `hasMeaningfulContent()` ignores `<summary>` text when checking `<details>` elements.
+- When `isLiveStreaming=true` and there's only 1 model detail (single-model), tabs are NOT built even if TLDR content exists — the TLDR is still being generated.
+
+```javascript
+var isLiveStreaming = $card.attr('data-live-stream') === 'true';
+
+// Single model + TLDR during live streaming: don't build tabs yet
+if (modelDetails.length <= 1 && isLiveStreaming && actuallyHasTldrContent) {
+    shouldBuildTabs = false;
+}
+```
+
+Multi-model (2+ models) tabs ARE built during streaming because the model tabs are needed immediately.
+
+## 8) Scroll Preservation During Tab Creation
+
+When tabs are first created or rebuilt (e.g., TLDR tab added after streaming), large DOM changes can shift the user's scroll position. Multiple approaches were tried and refined:
+
+### What Didn't Work
+- **scrollTop capture/restore inside `applyModelResponseTabs()`**: Captured AFTER `innerHTML` already shifted scroll.
+- **Multiple nested restores**: `applyModelResponseTabs()`, `renderInnerContentAsMarkdown()`, and `showMore()` each trying to restore independently caused progressive drift.
+- **Anchor-based restore competing with CSS anchoring**: In multi-model mode, CSS scroll anchoring already handled the shift, but JavaScript restore overrode it with a worse value.
+- **Raw scrollTop restore**: When TLDR content was stripped from the Main tab clone, the page got ~2000px shorter, making the original scrollTop exceed maxScrollTop.
+- **Scroll correction (any approach)**: Even a correct correction was visible to the user as a "scroll up then back down" jank because the browser painted the shifted position before the correction could run.
+
+### Current Solution — Height Lock (Prevention, Not Correction)
+The key insight is that scroll **correction** is fundamentally flawed — it's always visible. Instead, we **prevent** the shift from happening by locking container heights during DOM manipulation.
+
+**Three height locks:**
+1. **`applyModelResponseTabs()`** locks `$root` (`chat-card-body`) min-height before hiding children + inserting tabs, releases after all DOM changes.
+2. **`showMore()`** locks closest `chat-card-body` min-height before `textElem.empty()` + rebuild, releases after `applyModelResponseTabs(moreText)`.
+3. **Streaming `done` handler** locks card body min-height before `renderInnerContentAsMarkdown`, releases after all synchronous DOM work.
+
+**Fallback layers:**
+- **CSS `overflow-anchor: auto`** on `#chatView` and `.message-card` handles small deltas when height locks are released.
+- **JavaScript anchor-based restore** as safety net: only runs if drift > 50px (CSS anchoring threshold).
+
+See [Scroll Preservation](../scroll_preservation/README.md) for full implementation details and evolution history.
+
 ## Files Touched (Most Relevant)
 
 - `interface/common.js`
-  - `renderInnerContentAsMarkdown()`
-  - `applyModelResponseTabs()`
-  - `showMore()`
+  - `renderInnerContentAsMarkdown()` — stream-safe TLDR handling, `defer_mathjax` parameter
+  - `applyModelResponseTabs()` — `isLiveStreaming` guard, `hasMeaningfulContent` improvements, **height lock** around DOM swap
+  - `showMore()` — re-applies tabs after DOM rebuild, **height lock** around `textElem.empty()`
+  - `captureChatViewScrollAnchorForCard()` — card-scoped anchor capture (last card forced)
+  - `restoreChatViewScrollAnchor()` — anchor-based restore with card fallback
   - `window.UI_CACHE_VERSION`
-- `interface/common-chat.js` (calls renderer for history + streaming)
+- `interface/common-chat.js`
+  - Calls renderer for history + streaming
+  - Streaming `done` handler: **height lock** (outermost), anchor capture, CSS-threshold-aware restore (safety net)
+  - `renderMessages`: `immediate_callback` for showMore, `defer_mathjax` for non-last cards
+  - `scrollToHashTargetInCard()`: card-scoped safety guard
+- `interface/style.css` — CSS scroll anchoring (`overflow-anchor: auto`), card spacing, ToC toggle button styling
 - `interface/service-worker.js` (`CACHE_VERSION`)
 - `interface/rendered-state-manager.js` (snapshot versioning)
 - `Conversation.py` (`persist_current_turn()` TLDR injection)

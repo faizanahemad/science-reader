@@ -555,17 +555,74 @@ ConversationManager.createConversation = function() {
 };
 
 /**
+ * Check whether the given text currently ends inside an unclosed display math block.
+ *
+ * Handles both $$...$$ and \\[...\\] (escaped bracket) display math delimiters.
+ * Code blocks (``` fenced) are excluded from the check so that math delimiters
+ * inside code are not counted.
+ *
+ * Purpose:
+ *   During streaming, we want to SKIP rendering while inside an incomplete
+ *   display math block.  Rendering partial math causes MathJax to flash raw
+ *   delimiters and triggers layout reflow.  By deferring the render until the
+ *   math block closes, the user sees the fully-typeset equation in one step.
+ *
+ * How it works:
+ *   1. Strip out complete code blocks (```...```) so delimiters inside code
+ *      are not counted.
+ *   2. Handle dangling (unclosed) code fences by removing everything from the
+ *      last unmatched ``` to the end.
+ *   3. Count unmatched \\[ vs \\] and odd $$ occurrences to determine whether
+ *      a display math block is still open.
+ *
+ * @param {string} text - The accumulated text to check
+ * @returns {boolean} true if text ends inside an unclosed display math block
+ */
+function isInsideDisplayMath(text) {
+    if (!text) return false;
+
+    // 1. Remove complete fenced code blocks so their content is ignored
+    var textNoCode = text.replace(/```[\s\S]*?```/g, '');
+
+    // 2. Handle incomplete (streaming) code fences: if an odd number of ```
+    //    remains, remove from the last ``` to the end (that's still inside code)
+    var fenceCount = (textNoCode.match(/```/g) || []).length;
+    if (fenceCount % 2 !== 0) {
+        var lastFence = textNoCode.lastIndexOf('```');
+        if (lastFence !== -1) {
+            textNoCode = textNoCode.substring(0, lastFence);
+        }
+    }
+
+    // 3. Check for unmatched \\[ without \\]
+    //    In the runtime string \\[ is the 3-char sequence: backslash, backslash, [
+    //    Regex /\\\\\[/g  matches exactly that.
+    var bracketOpenCount  = (textNoCode.match(/\\\\\[/g) || []).length;
+    var bracketCloseCount = (textNoCode.match(/\\\\\]/g) || []).length;
+    if (bracketOpenCount > bracketCloseCount) return true;
+
+    // 4. Check for unmatched $$ (odd count means one is still open)
+    var doubleDollarCount = (textNoCode.match(/\$\$/g) || []).length;
+    if (doubleDollarCount % 2 !== 0) return true;
+
+    return false;
+}
+
+
+/**
  * Detects the last valid breakpoint in text and returns sections before and after it.
  * 
  * Protected environments (no breaks inside):
  * - Code blocks (between triple backticks ```)
  * - Math display blocks (between $$ delimiters)
+ * - Display math blocks (between \\[ and \\] delimiters)
  * - Details elements (between <details> and </details> tags)
  * - Inline math ($...$) within paragraphs
  * 
  * Valid breakpoints (in priority order):
  * - Before markdown headers (# ## ###)
  * - After horizontal rules (---)
+ * - After completed display math blocks (\\] or closing $$)
  * - Between paragraphs (double newlines)
  * - After lists and blockquotes
  * 
@@ -580,7 +637,8 @@ function getTextAfterLastBreakpoint(text) {
     
     // Track protected environments
     let inCodeBlock = false;
-    let inMathBlock = false;
+    let inMathBlock = false;           // $$ display math
+    let inDisplayMathBracket = false;  // \\[...\\] display math
     let inDetailsBlock = false;
     let detailsDepth = 0;
     
@@ -605,7 +663,42 @@ function getTextAfterLastBreakpoint(text) {
         // Skip if we're inside a code block
         if (inCodeBlock) continue;
         
-        // Check for math block boundaries ($$)
+        // ── \\[...\\] display math tracking ──────────────────────────
+        // In the runtime string, display math opening is the 3-char sequence
+        // backslash + backslash + [ (written as '\\\\[' in JS source).
+        // The backend's ensure_display_math_newlines() puts these on their own
+        // lines, so typically trimmedLine === '\\\\[' or '\\\\]'.
+        const hasDisplayOpen  = trimmedLine.includes('\\\\[');
+        const hasDisplayClose = trimmedLine.includes('\\\\]');
+        
+        if (inDisplayMathBracket) {
+            if (hasDisplayClose) {
+                inDisplayMathBracket = false;
+                // Display math just closed — excellent breakpoint
+                if (i > 2 && !inList && !inBlockquote) {
+                    lastBreakpointIndex = i + 1;  // break AFTER closing line
+                    breakpointType = "after-display-math-bracket";
+                }
+            }
+            // While inside \\[...\\], skip all other breakpoint logic
+            continue;
+        } else {
+            if (hasDisplayOpen && !hasDisplayClose) {
+                // Opening \\[ without a closing \\] on the same line
+                inDisplayMathBracket = true;
+                continue;
+            } else if (hasDisplayOpen && hasDisplayClose) {
+                // Complete display math on one line (e.g. \\[E=mc^2\\])
+                // Good breakpoint after this line
+                if (i > 2 && !inList && !inBlockquote) {
+                    lastBreakpointIndex = i + 1;
+                    breakpointType = "after-display-math-bracket";
+                }
+                // Don't set inDisplayMathBracket — the block is already closed
+            }
+        }
+        
+        // ── $$ display math tracking ─────────────────────────────────
         // Count $$ occurrences in the line
         const doubleDollarCount = (trimmedLine.match(/\$\$/g) || []).length;
         
@@ -615,13 +708,23 @@ function getTextAfterLastBreakpoint(text) {
             inMathBlock = !inMathBlock;
             if (inMathBlock) {
                 mathBlockStart = i;
+            } else {
+                // $$ display math just closed — good breakpoint
+                if (i > 2 && !inList && !inBlockquote) {
+                    lastBreakpointIndex = i + 1;  // break AFTER closing line
+                    breakpointType = "after-display-math-dollar";
+                }
             }
         } else if (doubleDollarCount > 0 && doubleDollarCount % 2 === 0) {
             // Even number of $$ means complete math expressions on one line
             // This line contains complete math, safe to break after it
+            if (i > 2 && !inList && !inBlockquote) {
+                lastBreakpointIndex = i + 1;
+                breakpointType = "after-display-math-dollar";
+            }
         }
         
-        // Skip if we're inside a math block
+        // Skip if we're inside a $$ math block
         if (inMathBlock) continue;
         
         // Check for details element boundaries
@@ -656,7 +759,7 @@ function getTextAfterLastBreakpoint(text) {
         inBlockquote = trimmedLine.startsWith('>');
         
         // Only look for breakpoints if not in any protected environment
-        if (!inCodeBlock && !inMathBlock && !inDetailsBlock && !inList) {
+        if (!inCodeBlock && !inMathBlock && !inDisplayMathBracket && !inDetailsBlock && !inList) {
             
             // Priority 1: Before headers (most significant break)
             if (trimmedLine === '' && 
@@ -686,9 +789,11 @@ function getTextAfterLastBreakpoint(text) {
             else if (trimmedLine === '' && trimmedNext === '') {
                 // Additional check: make sure the previous line isn't math or code
                 const prevLine = i > 0 ? lines[i - 1].trim() : '';
-                const isAfterMath = prevLine.includes('$$') || prevLine.endsWith('$');
+                const isAfterMath = prevLine.includes('$$') || prevLine.endsWith('$')
+                    || prevLine.includes('\\\\]');
                 const isBeforeMath = i + 2 < lines.length && 
-                    (lines[i + 2].trim().startsWith('$$') || lines[i + 2].trim().startsWith('$'));
+                    (lines[i + 2].trim().startsWith('$$') || lines[i + 2].trim().startsWith('$')
+                     || lines[i + 2].trim().startsWith('\\\\['));
                 
                 // Don't break right before or after math blocks
                 if (!isAfterMath && !isBeforeMath && i < lines.length - 3) {
@@ -703,20 +808,29 @@ function getTextAfterLastBreakpoint(text) {
     const codeBlockCount = (text.match(/```/g) || []).length;
     const hasUnclosedCodeBlock = codeBlockCount % 2 !== 0;
     
-    // More sophisticated math block detection
+    // $$ display math: odd count means unclosed
     const mathBlockMatches = text.match(/\$\$/g) || [];
     const hasUnclosedMathBlock = mathBlockMatches.length % 2 !== 0;
+    
+    // \\[...\\] display math: more opens than closes means unclosed
+    const displayMathOpenCount  = (text.match(/\\\\\[/g) || []).length;
+    const displayMathCloseCount = (text.match(/\\\\\]/g) || []).length;
+    const hasUnclosedDisplayMathBracket = displayMathOpenCount > displayMathCloseCount;
     
     const detailsOpenCount = (text.match(/<details[^>]*>/g) || []).length;
     const detailsCloseCount = (text.match(/<\/details>/g) || []).length;
     const hasUnclosedDetails = detailsOpenCount > detailsCloseCount;
     
     // Don't create breakpoints if we have unclosed structures
-    if (hasUnclosedCodeBlock || hasUnclosedMathBlock || hasUnclosedDetails) {
+    if (hasUnclosedCodeBlock || hasUnclosedMathBlock || hasUnclosedDisplayMathBracket || hasUnclosedDetails) {
+        var unclosedType = hasUnclosedCodeBlock ? 'code' 
+            : hasUnclosedMathBlock ? 'math-dollar' 
+            : hasUnclosedDisplayMathBracket ? 'math-bracket' 
+            : 'details';
         return { 
             hasBreakpoint: false, 
             textAfterBreakpoint: text,
-            reason: `Unclosed structure: ${hasUnclosedCodeBlock ? 'code' : hasUnclosedMathBlock ? 'math' : 'details'}`
+            reason: 'Unclosed structure: ' + unclosedType
         };
     }
     
@@ -740,7 +854,7 @@ function getTextAfterLastBreakpoint(text) {
             };
         }
         
-        console.log(`Found breakpoint at line ${lastBreakpointIndex} (type: ${breakpointType})`);
+        console.log('Found breakpoint at line ' + lastBreakpointIndex + ' (type: ' + breakpointType + ')');
         
         return {
             hasBreakpoint: true,
@@ -894,14 +1008,22 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                     // Continue with normal completion logic
                 } else if (isCancelled) {
                     // Handle cancellation
-                    var statusDiv = card.find('.status-div');
-                    statusDiv.find('.status-text').html('Response cancelled by user');
-                    statusDiv.find('.spinner-border').hide();
-                    
-                    // Hide status after a brief moment to show the cancellation message
-                    setTimeout(function() {
-                        statusDiv.hide();
-                    }, 2000);
+                    try {
+                        if (card && card.find) {
+                            var statusDiv = card.find('.status-div');
+                            statusDiv.find('.status-text').html('Response cancelled by user');
+                            statusDiv.find('.spinner-border').hide();
+                            
+                            // Mark streaming as ended (cancelled counts as ended)
+                            card.removeAttr('data-live-stream');
+                            card.attr('data-live-stream-ended', 'true');
+                            
+                            // Hide status after a brief moment to show the cancellation message
+                            setTimeout(function() {
+                                statusDiv.hide();
+                            }, 2000);
+                        }
+                    } catch (e) { /* ignore */ }
                     
                     console.log('Stream cancelled by user');
                     return;
@@ -918,6 +1040,12 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
 
         if (!card) {
             card = ChatManager.renderMessages(conversationId, [serverMessage], false, true, history_message_ids, true);
+            // Mark the card as actively streaming - used by ToC to decide collapsed vs expanded state
+            try {
+                if (card && card.attr) {
+                    card.attr('data-live-stream', 'true');
+                }
+            } catch (e) { /* ignore */ }
             // Set up initial event handlers (without message ID initially)
             setupStreamingCardEventHandlers(card, null);
         }
@@ -1025,7 +1153,24 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
             
             // elem_to_render.append(part['text']);
             
-            if ((rendered_answer.length > content_length + 50 || breakpointResult.hasBreakpoint) && !rendered_till_now.includes(rendered_answer)) {
+            // ── Math-aware rendering gate ─────────────────────────────
+            // 1. NEVER render while inside an unclosed display math block
+            //    (\\[...  or $$... without closing delimiter). Rendering
+            //    partial math triggers MathJax on incomplete expressions,
+            //    causing flash-of-raw-delimiters and layout reflow.
+            // 2. Use a DYNAMIC threshold: sections that already contain
+            //    rendered math need fewer re-renders (each re-render forces
+            //    MathJax to re-typeset everything in the section).
+            //    - No math in section → 80 chars  (smooth text streaming)
+            //    - Math in section    → 200 chars  (fewer MathJax re-runs)
+            var insideMath = isInsideDisplayMath(rendered_answer);
+            var hasMathContent = rendered_answer.includes('\\\\[') || rendered_answer.includes('\\\\]')
+                || (rendered_answer.match(/\$\$/g) || []).length >= 2;
+            var renderThreshold = hasMathContent ? 200 : 80;
+            
+            if (!insideMath
+                && (rendered_answer.length > content_length + renderThreshold || breakpointResult.hasBreakpoint)
+                && !rendered_till_now.includes(rendered_answer)) {
                 mathjax_elem = renderInnerContentAsMarkdown(elem_to_render,
                     callback = null, continuous = true, html = rendered_answer);
                 content_length = rendered_answer.length;
@@ -1091,6 +1236,25 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
         }
 
         if (done) {
+            // ====================================================================
+            // SCROLL PRESERVATION: Capture anchor ONCE here, restore ONCE after all
+            // DOM work (renderInnerContentAsMarkdown + showMore + applyModelResponseTabs)
+            // is complete. This is the ONLY place scroll preservation runs.
+            // Inner functions do NOT do their own capture/restore to avoid drift.
+            // ====================================================================
+            var _streamScrollAnchor = null;
+            var _streamScrollChatView = null;
+            var _streamScrollTopBeforeDone = 0; // Raw scrollTop before any DOM changes
+            try {
+                _streamScrollChatView = $('#chatView');
+                if (_streamScrollChatView && _streamScrollChatView.length > 0) {
+                    _streamScrollTopBeforeDone = _streamScrollChatView.scrollTop() || 0;
+                    var _lastCard = _streamScrollChatView.find('.card.message-card').last();
+                    _streamScrollAnchor = captureChatViewScrollAnchorForCard(_streamScrollChatView, _lastCard);
+                    // console.warn('[streaming done] CAPTURED anchor:', _streamScrollAnchor ? _streamScrollAnchor.anchorId : 'null', 'scrollTop:', _streamScrollTopBeforeDone);
+                }
+            } catch (e) { /* ignore */ }
+            
             $('#messageText').prop('working', false);
             $('#stopResponseButton').hide();
             $('#sendMessageButton').show();
@@ -1101,7 +1265,36 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
             statusDiv.find('.spinner-border').hide();
             statusDiv.find('.spinner-border').removeClass('spinner-border');
             console.log('Stream complete');
+            
+            // Mark streaming as ended - used by ToC to distinguish live-streaming vs post-streaming renders
+            try {
+                if (card && card.attr) {
+                    card.removeAttr('data-live-stream');
+                    card.attr('data-live-stream-ended', 'true');
+                }
+            } catch (e) { /* ignore */ }
 
+            // ====================================================================
+            // HEIGHT LOCK: Prevent visible scroll shift during DOM finalization.
+            // When tabs are built (hide children → insert tab container) and showMore()
+            // rebuilds the DOM (empty textElem → rebuild), the card body's height
+            // momentarily drops, causing a visible "scroll up then back down" jank.
+            // By locking min-height to the current rendered height, the page height stays
+            // constant throughout all DOM changes, so scrollTop never shifts.
+            // Released after all synchronous DOM work + scroll restoration completes.
+            // ====================================================================
+            var _cardBodyForLock = null;
+            var _cardBodyLockedHeight = 0;
+            try {
+                _cardBodyForLock = card.find('.chat-card-body')[0];
+                if (_cardBodyForLock) {
+                    _cardBodyLockedHeight = _cardBodyForLock.offsetHeight || 0;
+                    if (_cardBodyLockedHeight > 0) {
+                        _cardBodyForLock.style.minHeight = _cardBodyLockedHeight + 'px';
+                    }
+                }
+            } catch (e) { /* ignore */ }
+            
             // Always render the last active section once more at the end
             // This ensures that any content less than the 150 character threshold gets rendered
 
@@ -1137,6 +1330,9 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
 
             if (last_elem_to_render && last_elem_to_render.length > 0) {
                 const alreadyRendered = rendered_till_now.includes(last_rendered_answer);
+                
+                // Diagnostic logs for tab/TLDR detection — uncomment to debug:
+                // console.warn('[done] lastRendered:', (last_rendered_answer || '').length, 'alreadyRendered:', alreadyRendered, 'hasTldr:', (answer || '').indexOf('<answer_tldr') !== -1);
                 
                 if (!alreadyRendered) {
                     renderInnerContentAsMarkdown(last_elem_to_render, 
@@ -1195,9 +1391,13 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
 
             // If user navigated with a hash deep-link (e.g. from a ToC URL),
             // try to scroll to it now that the streaming message is fully rendered.
-            try {
-                setTimeout(function() { scrollToHashTargetInCard(card); }, 250);
-            } catch (e) { /* ignore */ }
+            // NOTE: Only do hash-based scroll if there's actually a hash in the URL
+            var hasHashTarget = !!(window.location.hash && window.location.hash.length > 1);
+            if (hasHashTarget) {
+                try {
+                    setTimeout(function() { scrollToHashTargetInCard(card); }, 250);
+                } catch (e) { /* ignore */ }
+            }
             
             // Final setup of event handlers with the complete message ID (if available)
             if (response_message_id) {
@@ -1208,6 +1408,84 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
             setTimeout(function() {
                 renderNextQuestionSuggestions(conversationId);
             }, 500);
+            
+            // ====================================================================
+            // RELEASE HEIGHT LOCK: All synchronous DOM work is complete.
+            // Release min-height so the card body settles to its natural height.
+            // CSS scroll anchoring (overflow-anchor: auto) will handle the small
+            // height delta between the locked height and the natural height.
+            // ====================================================================
+            try {
+                if (_cardBodyForLock && _cardBodyLockedHeight > 0) {
+                    _cardBodyForLock.style.minHeight = '';
+                }
+            } catch (e) { /* ignore */ }
+            
+            // ====================================================================
+            // SCROLL RESTORATION: Safety net after ALL DOM work settles.
+            // With the height lock, scroll should NOT have shifted. The _tryRestore
+            // checks drift and only corrects if CSS anchoring didn't handle it.
+            // ====================================================================
+            if (_streamScrollChatView && _streamScrollChatView.length > 0 && _streamScrollTopBeforeDone > 0) {
+                // SCROLL RESTORATION STRATEGY:
+                // CSS scroll anchoring (overflow-anchor: auto) automatically compensates for DOM
+                // changes above the viewport. For multi-model streaming, this works perfectly.
+                // Our JavaScript anchor-based restore can actually FIGHT CSS anchoring and cause
+                // a ~40px drift (e.g., when TLDR tab is added to the nav bar, the tab pane
+                // shifts, and our anchor computes a slightly different restore target).
+                //
+                // Strategy:
+                // 1. If CSS scroll anchoring preserved the position (scrollTop barely changed),
+                //    DON'T run JavaScript restore — it would only make things worse.
+                // 2. If scrollTop drifted significantly (> 50px), use anchor-based restore.
+                // 3. If anchor restore isn't available, fallback to raw scrollTop restore.
+                var CSS_ANCHORING_THRESHOLD = 50; // px — if scrollTop drifted less than this, CSS anchoring handled it
+                
+                function _tryRestore(label) {
+                    try {
+                        if (!_streamScrollChatView || _streamScrollChatView.length === 0) return;
+                        var currentScrollTop = _streamScrollChatView.scrollTop() || 0;
+                        var drift = Math.abs(currentScrollTop - _streamScrollTopBeforeDone);
+                        
+                        if (drift <= CSS_ANCHORING_THRESHOLD) {
+                            // CSS scroll anchoring already preserved the position — don't override.
+                            // console.warn('[streaming done]', label, 'CSS OK, drift=' + Math.round(drift) + 'px');
+                            return;
+                        }
+                        
+                        // Significant drift — try anchor-based restore first
+                        if (_streamScrollAnchor) {
+                            restoreChatViewScrollAnchor(_streamScrollChatView, _streamScrollAnchor);
+                            var afterAnchor = _streamScrollChatView.scrollTop() || 0;
+                            var anchorDrift = Math.abs(afterAnchor - _streamScrollTopBeforeDone);
+                            
+                            // If anchor restore got us closer, keep it. Otherwise fallback to raw scrollTop.
+                            if (anchorDrift < drift) {
+                                // console.warn('[streaming done]', label, 'Anchor restore drift=' + Math.round(drift) + '→' + Math.round(anchorDrift));
+                                return;
+                            }
+                        }
+                        
+                        // Fallback: restore raw scrollTop (clamped to valid range)
+                        var maxS = (_streamScrollChatView.prop('scrollHeight') || 0) - (_streamScrollChatView.innerHeight() || 0);
+                        var target = Math.max(0, Math.min(maxS, _streamScrollTopBeforeDone));
+                        _streamScrollChatView.scrollTop(target);
+                        // console.warn('[streaming done]', label, 'Raw scrollTop restore, drift=' + Math.round(drift));
+                    } catch (e) { /* ignore */ }
+                }
+                
+                // Immediate restore
+                _tryRestore('Immediate');
+                
+                (function(cv, anchor, origTop, tryFn) {
+                    // rAF restore
+                    requestAnimationFrame(function() { tryFn('rAF'); });
+                    // After show_more (500ms) + toggle + applyModelResponseTabs settle
+                    setTimeout(function() { tryFn('700ms'); }, 700);
+                    // Final safety net at 1200ms (after MathJax/Mermaid)
+                    setTimeout(function() { tryFn('1200ms'); }, 1200);
+                })(_streamScrollChatView, _streamScrollAnchor, _streamScrollTopBeforeDone, _tryRestore);
+            }
             
             return;
         }
@@ -1224,6 +1502,10 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                     statusDiv.find('.status-text').html('Response cancelled by user');
                     statusDiv.find('.spinner-border').hide();
                     
+                    // Mark streaming as ended (cancelled counts as ended)
+                    card.removeAttr('data-live-stream');
+                    card.attr('data-live-stream-ended', 'true');
+                    
                     // Hide status after a brief moment
                     setTimeout(function() {
                         statusDiv.hide();
@@ -1236,6 +1518,10 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                     var statusDiv = card.find('.status-div');
                     statusDiv.find('.status-text').html('Error occurred during streaming');
                     statusDiv.find('.spinner-border').hide();
+                    
+                    // Mark streaming as ended (error counts as ended)
+                    card.removeAttr('data-live-stream');
+                    card.attr('data-live-stream-ended', 'true');
                     
                     // Hide status after a brief moment
                     setTimeout(function() {
@@ -1436,6 +1722,18 @@ function scrollToHashTargetInCard(cardElem) {
         var hash = (window.location.hash || '').replace(/^#/, '').trim();
         if (!hash) return;
 
+        var targetEl = document.getElementById(hash);
+        if (!targetEl) return;
+        
+        // CRITICAL: Only scroll if the hash target is actually inside this card.
+        // Otherwise, a stale hash from a previous message (e.g. after clicking an older ToC link)
+        // would yank the user back to a previous card when a new streaming response finishes.
+        try {
+            if (!cardElem || !cardElem.length || !cardElem[0] || !cardElem[0].contains(targetEl)) {
+                return;
+            }
+        } catch (e) { return; }
+
         // Expand showMore if present and currently collapsed.
         var $moreText = cardElem.find('.more-text').first();
         if ($moreText.length && !$moreText.is(':visible')) {
@@ -1444,9 +1742,6 @@ function scrollToHashTargetInCard(cardElem) {
                 $toggle.trigger('click');
             }
         }
-
-        var targetEl = document.getElementById(hash);
-        if (!targetEl) return;
 
         // Expand <details> ancestors.
         var el = targetEl;
@@ -1913,7 +2208,7 @@ var ChatManager = {
         let currentFocusedMessageId = null;
         var messageElement = null;
         
-        messages.forEach(function (message, index, array) {
+        messages.forEach(function (message, originalIndex, array) {
             // IMPORTANT:
             // We use message-index in several API calls (edit/delete/move).
             // This MUST be stable and refer to the message order, not arbitrary UI cards.
@@ -1924,7 +2219,10 @@ var ChatManager = {
             //
             // Count only actual message cards inside the chat view.
             var card_elements_count = $('#chatView').find('.message-card').length;
-            index = card_elements_count;
+            var index = card_elements_count;
+            // Track whether this is the last message in the batch for MathJax priority.
+            // originalIndex is the forEach iterator; index is the card position in the DOM.
+            var isLastInBatch = (originalIndex === array.length - 1);
             var senderText = message.sender === 'user' ? 'You' : 'Assistant';
             var showHide = message.show_hide || 'hide';
             messageElement = $('<div class="mb-1 mt-0 card w-100 my-1 d-flex flex-column message-card"></div>');
@@ -2008,39 +2306,53 @@ var ChatManager = {
             
             if (message.text.trim().length > 0) {
                 // Capture the current messageElement in a closure
-                (function(currentMessageElement, currentMessage) {
-                    renderInnerContentAsMarkdown(textElem, immediate_callback=function () {
-                        const hasSlides = (
-                            !!textElem.closest('.card-body').find('.slide-presentation-wrapper').length ||
-                            !!textElem.closest('.card-body').find('.slide-external-link').length ||
-                            (textElem && textElem.attr('data-has-slides') === 'true')
-                        );
-                        if (hasSlides) {
-                            // Ensure historic messages with slides resize properly
-                            setTimeout(function() {
-                                var slideWrapper = textElem.closest('.card-body').find('.slide-presentation-wrapper');
-                                if (slideWrapper.length > 0) {
-                                    adjustCardHeightForSlides(slideWrapper);
-                                }
-                            }, 100);
-                        } else if (textElem.text().length > 300) { // && (index < array.length - 2)
-                            showMore(null, text = null, textElem = textElem, as_html = true, show_at_start = showHide === 'show', server_side = {
-                                'message_id': currentMessage.message_id
-                            }); // index >= array.length - 2
-                        }
-                        
-                        // Add scroll-to-top button for old messages (assistant messages only)
-                        // Now inside the callback with proper closure
-                        if (currentMessage.sender !== 'user' && currentMessage.text.length > 300) {
-                            // Check if button doesn't already exist to avoid duplicates
-                            if (currentMessageElement.find('.scroll-to-top-btn').length === 0) {
-                                if (typeof window.addScrollToTopButton === 'function') {
-                                    window.addScrollToTopButton(currentMessageElement, '↑ Top of Answer', 'chat-scroll-top');
+                // IMPORTANT: showMore() and addScrollToTopButton() are passed as immediate_callback
+                // (5th param) so they run SYNCHRONOUSLY right after HTML rendering, NOT waiting
+                // for MathJax typesetting.  Previously they were passed as `callback` (2nd param)
+                // which queued them AFTER MathJax — meaning the last card wouldn't get its
+                // showMore/buttons until ALL previous cards' MathJax was done.
+                (function(currentMessageElement, currentMessage, currentTextElem, currentShowHide, isLastMessage) {
+                    renderInnerContentAsMarkdown(currentTextElem,
+                        /* callback (runs after MathJax) */ null,
+                        /* continuous */ false,
+                        /* html */ currentMessage.text.replace(/\n/g, '  \n'),
+                        /* immediate_callback (runs synchronously) */ function () {
+                            var _textElem = currentTextElem;
+                            var _showHide = currentShowHide;
+                            var _currentMessage = currentMessage;
+                            var _currentMessageElement = currentMessageElement;
+                            
+                            var hasSlides = (
+                                !!_textElem.closest('.card-body').find('.slide-presentation-wrapper').length ||
+                                !!_textElem.closest('.card-body').find('.slide-external-link').length ||
+                                (_textElem && _textElem.attr('data-has-slides') === 'true')
+                            );
+                            if (hasSlides) {
+                                // Ensure historic messages with slides resize properly
+                                setTimeout(function() {
+                                    var slideWrapper = _textElem.closest('.card-body').find('.slide-presentation-wrapper');
+                                    if (slideWrapper.length > 0) {
+                                        adjustCardHeightForSlides(slideWrapper);
+                                    }
+                                }, 100);
+                            } else if (_textElem.text().length > 300) {
+                                showMore(null, text = null, textElem = _textElem, as_html = true, show_at_start = _showHide === 'show', server_side = {
+                                    'message_id': _currentMessage.message_id
+                                });
+                            }
+                            
+                            // Add scroll-to-top button for old messages (assistant messages only)
+                            if (_currentMessage.sender !== 'user' && _currentMessage.text.length > 300) {
+                                if (_currentMessageElement.find('.scroll-to-top-btn').length === 0) {
+                                    if (typeof window.addScrollToTopButton === 'function') {
+                                        window.addScrollToTopButton(_currentMessageElement, '↑ Top of Answer', 'chat-scroll-top');
+                                    }
                                 }
                             }
-                        }
-                    }, continuous = false, html = currentMessage.text.replace(/\n/g, '  \n'));
-                })(messageElement, message);
+                        },
+                        /* defer_mathjax */ !isLastMessage
+                    );
+                })(messageElement, message, textElem, showHide, isLastInBatch);
             }
 
             var statusDiv = $('<div class="status-div d-flex align-items-center"></div>');
