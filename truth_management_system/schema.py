@@ -21,7 +21,7 @@ All tables use:
 - Soft deletion via retracted_at timestamp
 """
 
-SCHEMA_VERSION = 2  # v2: Added user_email column for multi-user support
+SCHEMA_VERSION = 6  # v6: Added possible_questions column for QnA-style claims
 
 
 # =============================================================================
@@ -35,12 +35,16 @@ TABLES_DDL = """
 CREATE TABLE IF NOT EXISTS claims (
     claim_id TEXT PRIMARY KEY,
     user_email TEXT,                    -- Owner email for multi-user support (NULL = global/system)
+    claim_number INTEGER,               -- Per-user auto-incremented numeric ID (v5), referenceable as @claim_N
+    friendly_id TEXT,                   -- User-facing alphanumeric ID (auto-generated or user-specified)
     claim_type TEXT NOT NULL,           -- fact|memory|decision|preference|task|reminder|habit|observation
+    claim_types TEXT,                   -- JSON array of all types (e.g. '["preference","fact"]')
     statement TEXT NOT NULL,
     subject_text TEXT,                  -- SPO subject (optional extraction)
     predicate TEXT,                     -- SPO predicate (optional extraction)
     object_text TEXT,                   -- SPO object (optional extraction)
     context_domain TEXT NOT NULL,       -- personal|health|relationships|learning|life_ops|work|finance
+    context_domains TEXT,               -- JSON array of all domains (e.g. '["health","personal"]')
     status TEXT NOT NULL DEFAULT 'active',  -- active|contested|historical|superseded|retracted|draft
     confidence REAL,                    -- Confidence score 0.0-1.0
     created_at TEXT NOT NULL,
@@ -48,7 +52,8 @@ CREATE TABLE IF NOT EXISTS claims (
     valid_from TEXT NOT NULL DEFAULT '1970-01-01T00:00:00Z',
     valid_to TEXT,                      -- NULL means no end date
     meta_json TEXT,                     -- JSON: {keywords, source, visibility, llm}
-    retracted_at TEXT                   -- Soft delete timestamp
+    retracted_at TEXT,                  -- Soft delete timestamp
+    possible_questions TEXT             -- JSON array of questions this claim answers (v6)
 );
 
 -- =============================================================================
@@ -154,6 +159,58 @@ CREATE TABLE IF NOT EXISTS note_embeddings (
 );
 
 -- =============================================================================
+-- Contexts: Hierarchical grouping of claims (v3)
+-- Contexts allow users to organize memories into named groups/collections.
+-- A context can contain claims directly and/or child contexts, forming a tree.
+-- Resolution: given a context_id, recursively collect all leaf claims.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS contexts (
+    context_id TEXT PRIMARY KEY,
+    user_email TEXT,
+    friendly_id TEXT,                   -- User-facing alphanumeric ID
+    name TEXT NOT NULL,                 -- Display name for the context
+    description TEXT,                   -- Optional longer description
+    parent_context_id TEXT REFERENCES contexts(context_id) ON DELETE SET NULL,
+    meta_json TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(user_email, friendly_id)     -- Friendly IDs unique per user
+);
+
+-- =============================================================================
+-- Context-Claims join: many-to-many linking contexts to claims (v3)
+-- A claim can belong to multiple contexts.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS context_claims (
+    context_id TEXT NOT NULL REFERENCES contexts(context_id) ON DELETE CASCADE,
+    claim_id TEXT NOT NULL REFERENCES claims(claim_id) ON DELETE CASCADE,
+    PRIMARY KEY (context_id, claim_id)
+);
+
+-- =============================================================================
+-- Catalog tables for dynamic types and domains (v4)
+-- These replace the hardcoded enums so users can add custom types/domains.
+-- Rows with user_email IS NULL are system-provided defaults.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS claim_types_catalog (
+    type_name TEXT NOT NULL,
+    user_email TEXT DEFAULT '',
+    display_name TEXT,
+    description TEXT,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (type_name, user_email)
+);
+
+CREATE TABLE IF NOT EXISTS context_domains_catalog (
+    domain_name TEXT NOT NULL,
+    user_email TEXT DEFAULT '',
+    display_name TEXT,
+    description TEXT,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (domain_name, user_email)
+);
+
+-- =============================================================================
 -- Schema version tracking
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -203,6 +260,11 @@ CREATE INDEX IF NOT EXISTS idx_claim_entities_role ON claim_entities(role);
 CREATE INDEX IF NOT EXISTS idx_conflict_sets_user_email ON conflict_sets(user_email);
 CREATE INDEX IF NOT EXISTS idx_conflict_sets_status ON conflict_sets(status);
 CREATE INDEX IF NOT EXISTS idx_conflict_set_members_claim_id ON conflict_set_members(claim_id);
+
+-- v3 indexes for claims.friendly_id and contexts are created by the migration
+-- or by _ensure_v3_indexes() during initialization. They are NOT included here
+-- because for a v2 database, claims.friendly_id doesn't exist yet, and
+-- executescript() would fail with "no such column: friendly_id".
 """
 
 
@@ -212,8 +274,10 @@ CREATE INDEX IF NOT EXISTS idx_conflict_set_members_claim_id ON conflict_set_mem
 
 FTS_DDL = """
 -- FTS5 for claims (indexes: statement, predicate, object_text, subject_text, context_domain)
--- content='' creates a contentless FTS table that stores only the index
--- We manually keep it in sync with CRUD operations
+-- NOTE: For v3 databases, the migration adds the friendly_id column by
+-- dropping and recreating this table. The DDL here uses the v2 column set
+-- so that IF NOT EXISTS safely skips for existing v2 databases.
+-- For fresh databases, the migration post-fixup upgrades the FTS table.
 CREATE VIRTUAL TABLE IF NOT EXISTS claims_fts USING fts5(
     claim_id UNINDEXED,
     statement,
@@ -243,7 +307,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS notes_fts USING fts5(
 # =============================================================================
 
 FTS_TRIGGERS_DDL = """
--- Trigger: sync claims to FTS on insert
+-- Trigger: sync claims to FTS on insert (v2 column set - safe for both v2 and v3)
 CREATE TRIGGER IF NOT EXISTS claims_ai AFTER INSERT ON claims BEGIN
     INSERT INTO claims_fts(rowid, claim_id, statement, predicate, object_text, subject_text, context_domain)
     VALUES (new.rowid, new.claim_id, new.statement, new.predicate, new.object_text, new.subject_text, new.context_domain);
@@ -313,6 +377,7 @@ def get_tables_list() -> list:
         'claim_tags', 'claim_entities',
         'conflict_sets', 'conflict_set_members',
         'claim_embeddings', 'note_embeddings',
+        'contexts', 'context_claims',
         'schema_version'
     ]
 

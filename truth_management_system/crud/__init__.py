@@ -26,6 +26,8 @@ from .notes import NoteCRUD
 from .entities import EntityCRUD
 from .tags import TagCRUD
 from .conflicts import ConflictCRUD
+from .contexts import ContextCRUD
+from .catalog import TypeCatalogCRUD, DomainCatalogCRUD
 from .links import (
     link_claim_tag,
     unlink_claim_tag,
@@ -44,6 +46,9 @@ __all__ = [
     'EntityCRUD',
     'TagCRUD',
     'ConflictCRUD',
+    'ContextCRUD',
+    'TypeCatalogCRUD',
+    'DomainCatalogCRUD',
     'sync_claim_to_fts',
     'sync_note_to_fts',
     'link_claim_tag',

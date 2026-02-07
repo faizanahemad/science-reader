@@ -519,6 +519,7 @@ function buildSettingsStateFromControlsOrDefaults() {
         persist_or_not: $('#chat-options-assistant-persist_or_not').length ? $('#chat-options-assistant-persist_or_not').is(':checked') : ($('#settings-persist_or_not').is(':checked') || true),
         use_memory_pad: $('#use_memory_pad').length ? $('#use_memory_pad').is(':checked') : ($('#settings-use_memory_pad').is(':checked') || false),
         enable_planner: $('#enable_planner').length ? $('#enable_planner').is(':checked') : ($('#settings-enable_planner').is(':checked') || false),
+        use_pkb: $('#settings-use_pkb').length ? $('#settings-use_pkb').is(':checked') : true,
         enable_custom_context_menu: defaultEnableCustomContextMenu,
         ppt_answer: $('#settings-ppt-answer').is(':checked') || false,
         depth: $('#depthSelector').length ? $('#depthSelector').val() : ($('#settings-depthSelector').val() || '2'),
@@ -542,6 +543,7 @@ function setModalFromState(state) {
     $('#settings-persist_or_not').prop('checked', state.persist_or_not !== false);
     $('#settings-use_memory_pad').prop('checked', !!state.use_memory_pad);
     $('#settings-enable_planner').prop('checked', !!state.enable_planner);
+    $('#settings-use_pkb').prop('checked', state.use_pkb !== false);
     $('#settings-enable_custom_context_menu').prop(
         'checked',
         (state.enable_custom_context_menu !== undefined && state.enable_custom_context_menu !== null)
@@ -629,6 +631,7 @@ function collectSettingsFromModal() {
         persist_or_not: $('#settings-persist_or_not').is(':checked'),
         use_memory_pad: $('#settings-use_memory_pad').is(':checked'),
         enable_planner: $('#settings-enable_planner').is(':checked'),
+        use_pkb: $('#settings-use_pkb').is(':checked'),
         enable_custom_context_menu: $('#settings-enable_custom_context_menu').is(':checked'),
         ppt_answer: $('#settings-ppt-answer').is(':checked'),
         depth: $('#settings-depthSelector').val() || '2',
@@ -996,6 +999,7 @@ function resetSettingsToDefaults() {
     $('#settings-ppt-answer').prop('checked', false);
     $('#settings-use_memory_pad').prop('checked', false);
     $('#settings-enable_planner').prop('checked', false);
+    $('#settings-use_pkb').prop('checked', true);
     $('#settings-enable_custom_context_menu').prop('checked', !isProbablyMobileDevice());
     
     // Advanced Settings

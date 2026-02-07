@@ -579,6 +579,11 @@
                   <i class="bi bi-file-text"></i> Import Text
                 </a>
               </li>
+              <li class="nav-item">
+                <a class="nav-link" id="pkb-contexts-tab" data-toggle="tab" href="#pkb-contexts-pane" role="tab">
+                  <i class="bi bi-folder"></i> Contexts
+                </a>
+              </li>
             </ul>
             
             <!-- Tab Content -->
@@ -605,10 +610,10 @@
                   </div>
                 </div>
                 
-                <!-- Filters -->
-                <div class="row mb-3">
+                <!-- Filters Row 1: Type, Domain, Status -->
+                <div class="row mb-2">
                   <div class="col-md-4">
-                    <select id="pkb-filter-type" class="form-control form-control-sm">
+                    <select id="pkb-filter-type" class="form-control form-control-sm" multiple title="Filter by type (multi-select)">
                       <option value="">All Types</option>
                       <option value="fact">Facts</option>
                       <option value="preference">Preferences</option>
@@ -621,7 +626,7 @@
                     </select>
                   </div>
                   <div class="col-md-4">
-                    <select id="pkb-filter-domain" class="form-control form-control-sm">
+                    <select id="pkb-filter-domain" class="form-control form-control-sm" multiple title="Filter by domain (multi-select)">
                       <option value="">All Domains</option>
                       <option value="personal">Personal</option>
                       <option value="health">Health</option>
@@ -638,6 +643,30 @@
                       <option value="">All Statuses</option>
                       <option value="contested">Contested</option>
                       <option value="historical">Historical</option>
+                    </select>
+                  </div>
+                </div>
+                <!-- Filters Row 2: Entity, Tag, Sort -->
+                <div class="row mb-3">
+                  <div class="col-md-4">
+                    <select id="pkb-filter-entity" class="form-control form-control-sm">
+                      <option value="">All Entities</option>
+                      <!-- Populated dynamically by JS -->
+                    </select>
+                  </div>
+                  <div class="col-md-4">
+                    <select id="pkb-filter-tag" class="form-control form-control-sm">
+                      <option value="">All Tags</option>
+                      <!-- Populated dynamically by JS -->
+                    </select>
+                  </div>
+                  <div class="col-md-4">
+                    <select id="pkb-sort-by" class="form-control form-control-sm">
+                      <option value="-updated_at">Recently Updated</option>
+                      <option value="-created_at">Recently Created</option>
+                      <option value="statement">Alphabetical</option>
+                      <option value="claim_type">By Type</option>
+                      <option value="context_domain">By Domain</option>
                     </select>
                   </div>
                 </div>
@@ -666,6 +695,29 @@
               
               <!-- Entities Tab -->
               <div class="tab-pane fade" id="pkb-entities-pane" role="tabpanel">
+                <!-- Add Entity Form -->
+                <div class="row mb-3">
+                  <div class="col-md-5">
+                    <input type="text" id="pkb-new-entity-name" class="form-control form-control-sm" placeholder="Entity name (e.g., Mom, Python, Gym)">
+                  </div>
+                  <div class="col-md-4">
+                    <select id="pkb-new-entity-type" class="form-control form-control-sm">
+                      <option value="person">Person</option>
+                      <option value="org">Organization</option>
+                      <option value="place">Place</option>
+                      <option value="topic" selected>Topic</option>
+                      <option value="project">Project</option>
+                      <option value="system">System</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                  <div class="col-md-3">
+                    <button class="btn btn-success btn-sm btn-block" id="pkb-add-entity-btn">
+                      <i class="bi bi-plus-lg"></i> Add Entity
+                    </button>
+                  </div>
+                </div>
+                
                 <div id="pkb-entities-list" class="list-group">
                   <div class="text-center text-muted py-4">
                     <i class="bi bi-person-badge" style="font-size: 2rem;"></i>
@@ -813,6 +865,46 @@
                 <div id="pkb-import-error" class="alert alert-danger mt-3" style="display:none;"></div>
               </div>
               
+              <!-- Contexts Tab (v0.5) -->
+              <div class="tab-pane fade" id="pkb-contexts-pane" role="tabpanel">
+                <div class="mb-3">
+                  <small class="text-muted">
+                    Contexts let you group memories into collections. Reference a context with <code>@context_friendly_id</code> in chat 
+                    to include all its memories in the conversation.
+                  </small>
+                </div>
+                
+                <!-- Create Context Form -->
+                <div class="card mb-3">
+                  <div class="card-body py-2">
+                    <div class="row">
+                      <div class="col-md-4">
+                        <input type="text" id="pkb-new-context-name" class="form-control form-control-sm" placeholder="Context name">
+                      </div>
+                      <div class="col-md-3">
+                        <input type="text" id="pkb-new-context-friendly-id" class="form-control form-control-sm" placeholder="@friendly_id (optional)">
+                      </div>
+                      <div class="col-md-3">
+                        <input type="text" id="pkb-new-context-description" class="form-control form-control-sm" placeholder="Description (optional)">
+                      </div>
+                      <div class="col-md-2">
+                        <button class="btn btn-success btn-sm btn-block" id="pkb-create-context-btn">
+                          <i class="bi bi-plus-lg"></i> Create
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                <!-- Contexts List -->
+                <div id="pkb-contexts-list" class="list-group">
+                  <div class="text-center text-muted py-4">
+                    <i class="bi bi-folder" style="font-size: 2rem;"></i>
+                    <p>No contexts yet. Create one to group your memories!</p>
+                  </div>
+                </div>
+              </div>
+              
             </div>
           </div>
           <div class="modal-footer">
@@ -840,34 +932,44 @@
               <textarea id="pkb-claim-statement" class="form-control" rows="3" placeholder="e.g., I prefer morning workouts..."></textarea>
             </div>
             
+            <div class="form-group">
+              <label for="pkb-claim-friendly-id">Friendly ID <small class="text-muted">(optional, auto-generated if blank)</small></label>
+              <div class="input-group">
+                <div class="input-group-prepend">
+                  <span class="input-group-text">@</span>
+                </div>
+                <input type="text" id="pkb-claim-friendly-id" class="form-control" placeholder="e.g., morning_workouts" pattern="[a-zA-Z0-9_-]+">
+              </div>
+              <small class="form-text text-muted">Use this ID to reference this memory in chat with @friendly_id</small>
+            </div>
+            
             <div class="row">
               <div class="col-md-6">
                 <div class="form-group">
-                  <label for="pkb-claim-type">Type</label>
-                  <select id="pkb-claim-type" class="form-control">
-                    <option value="fact">Fact</option>
-                    <option value="preference" selected>Preference</option>
-                    <option value="decision">Decision</option>
-                    <option value="task">Task</option>
-                    <option value="reminder">Reminder</option>
-                    <option value="habit">Habit</option>
-                    <option value="memory">Memory</option>
-                    <option value="observation">Observation</option>
+                  <label for="pkb-claim-type">Type <small class="text-muted">(Ctrl/Cmd for multi)</small></label>
+                  <select id="pkb-claim-type" class="form-control" multiple size="4">
+                    <!-- Populated dynamically from /pkb/types -->
                   </select>
+                  <div class="input-group input-group-sm mt-1">
+                    <input type="text" id="pkb-new-type-input" class="form-control" placeholder="New type...">
+                    <div class="input-group-append">
+                      <button class="btn btn-outline-success" id="pkb-add-new-type" type="button" title="Add custom type"><i class="bi bi-plus"></i></button>
+                    </div>
+                  </div>
                 </div>
               </div>
               <div class="col-md-6">
                 <div class="form-group">
-                  <label for="pkb-claim-domain">Domain</label>
-                  <select id="pkb-claim-domain" class="form-control">
-                    <option value="personal" selected>Personal</option>
-                    <option value="health">Health</option>
-                    <option value="work">Work</option>
-                    <option value="relationships">Relationships</option>
-                    <option value="learning">Learning</option>
-                    <option value="life_ops">Life Ops</option>
-                    <option value="finance">Finance</option>
+                  <label for="pkb-claim-domain">Domain <small class="text-muted">(Ctrl/Cmd for multi)</small></label>
+                  <select id="pkb-claim-domain" class="form-control" multiple size="4">
+                    <!-- Populated dynamically from /pkb/domains -->
                   </select>
+                  <div class="input-group input-group-sm mt-1">
+                    <input type="text" id="pkb-new-domain-input" class="form-control" placeholder="New domain...">
+                    <div class="input-group-append">
+                      <button class="btn btn-outline-success" id="pkb-add-new-domain" type="button" title="Add custom domain"><i class="bi bi-plus"></i></button>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
@@ -875,6 +977,20 @@
             <div class="form-group">
               <label for="pkb-claim-tags">Tags (comma separated)</label>
               <input type="text" id="pkb-claim-tags" class="form-control" placeholder="e.g., fitness, routine, morning">
+            </div>
+            
+            <div class="form-group">
+              <label for="pkb-claim-questions">Possible Questions <small class="text-muted">(auto-generated if left blank; one per line)</small></label>
+              <textarea id="pkb-claim-questions" class="form-control" rows="3" placeholder="What questions does this memory answer?&#10;e.g., What are my dietary restrictions?&#10;Am I allergic to anything?"></textarea>
+              <small class="form-text text-muted">Questions this memory answers. Used to improve search relevance.</small>
+            </div>
+            
+            <div class="form-group">
+              <label for="pkb-claim-contexts">Contexts <small class="text-muted">(optional, hold Ctrl/Cmd to multi-select)</small></label>
+              <select id="pkb-claim-contexts" class="form-control" multiple size="4">
+                <!-- Populated dynamically from /pkb/contexts -->
+              </select>
+              <small class="form-text text-muted">Assign this memory to one or more contexts/groups</small>
             </div>
           </div>
           <div class="modal-footer">
@@ -1858,6 +1974,12 @@
                                         <div class="form-check mb-2">
                                             <input class="form-check-input" id="settings-render-close-to-source" type="checkbox">
                                             <label class="form-check-label" for="settings-render-close-to-source">Render Close</label>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="form-check mb-2">
+                                            <input class="form-check-input" id="settings-use_pkb" type="checkbox" checked>
+                                            <label class="form-check-label" for="settings-use_pkb">Use PKB Memory</label>
                                         </div>
                                     </div>
                                     <div class="col-md-3">

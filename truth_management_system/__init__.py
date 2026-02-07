@@ -51,12 +51,15 @@ from .models import (
     Entity,
     Tag,
     ConflictSet,
+    Context,
+    ContextClaim,
     ClaimTag,
     ClaimEntity,
     CLAIM_COLUMNS,
     NOTE_COLUMNS,
     ENTITY_COLUMNS,
     TAG_COLUMNS,
+    CONTEXT_COLUMNS,
 )
 
 # Constants/enums
@@ -74,6 +77,7 @@ from .constants import (
     ALL_ENTITY_ROLES,
     ALL_CONFLICT_STATUSES,
     ALL_CONTEXT_DOMAINS,
+    FRIENDLY_ID_REGEX,
 )
 
 # CRUD operations
@@ -83,6 +87,7 @@ from .crud import (
     EntityCRUD,
     TagCRUD,
     ConflictCRUD,
+    ContextCRUD,
 )
 
 # Search strategies
@@ -121,6 +126,8 @@ from .llm_helpers import LLMHelpers, ExtractionResult
 # Utility functions
 from .utils import (
     generate_uuid,
+    generate_friendly_id,
+    validate_friendly_id,
     now_iso,
     epoch_iso,
     is_valid_iso_timestamp,
@@ -148,12 +155,15 @@ __all__ = [
     "Entity",
     "Tag",
     "ConflictSet",
+    "Context",
+    "ContextClaim",
     "ClaimTag",
     "ClaimEntity",
     "CLAIM_COLUMNS",
     "NOTE_COLUMNS",
     "ENTITY_COLUMNS",
     "TAG_COLUMNS",
+    "CONTEXT_COLUMNS",
     
     # Constants
     "ClaimType",
@@ -169,6 +179,7 @@ __all__ = [
     "ALL_ENTITY_ROLES",
     "ALL_CONFLICT_STATUSES",
     "ALL_CONTEXT_DOMAINS",
+    "FRIENDLY_ID_REGEX",
     
     # CRUD
     "ClaimCRUD",
@@ -176,6 +187,7 @@ __all__ = [
     "EntityCRUD",
     "TagCRUD",
     "ConflictCRUD",
+    "ContextCRUD",
     
     # Search
     "SearchStrategy",
@@ -209,6 +221,8 @@ __all__ = [
     
     # Utils
     "generate_uuid",
+    "generate_friendly_id",
+    "validate_friendly_id",
     "now_iso",
     "epoch_iso",
     "is_valid_iso_timestamp",

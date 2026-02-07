@@ -340,7 +340,7 @@ class FTSSearchStrategy(SearchStrategy):
         Returns:
             List of SearchResults from the specified column.
         """
-        allowed_columns = {"statement", "predicate", "subject_text", "object_text", "context_domain"}
+        allowed_columns = {"statement", "predicate", "subject_text", "object_text", "context_domain", "friendly_id", "possible_questions"}
         if column not in allowed_columns:
             raise ValueError(
                 f"Invalid FTS column '{column}'. Allowed columns: {sorted(allowed_columns)}"

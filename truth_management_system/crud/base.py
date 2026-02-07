@@ -279,6 +279,35 @@ class BaseCRUD(ABC, Generic[T]):
 # FTS Sync Helpers (for manual sync when triggers are disabled)
 # =============================================================================
 
+def _fts_has_friendly_id(conn: sqlite3.Connection) -> bool:
+    """
+    Check whether the claims_fts virtual table includes the friendly_id column.
+    
+    Caches the result per-connection to avoid repeated PRAGMA calls.
+    Returns False if the table doesn't exist or doesn't have the column.
+    """
+    cache_key = '_fts_has_friendly_id'
+    # Simple per-connection cache using connection object attribute
+    cached = getattr(conn, cache_key, None)
+    if cached is not None:
+        return cached
+    
+    try:
+        # For FTS5 content-synced tables we can check the column list
+        # by querying the table's column names via a zero-result SELECT.
+        cursor = conn.execute("SELECT * FROM claims_fts LIMIT 0")
+        col_names = [desc[0] for desc in cursor.description] if cursor.description else []
+        result = 'friendly_id' in col_names
+    except Exception:
+        result = False
+    
+    try:
+        setattr(conn, cache_key, result)
+    except Exception:
+        pass
+    return result
+
+
 def sync_claim_to_fts(
     conn: sqlite3.Connection,
     claim_id: str,
@@ -289,6 +318,9 @@ def sync_claim_to_fts(
     
     Note: Only needed if FTS triggers are disabled.
     With triggers enabled (default), this is handled automatically.
+    
+    Handles both v2 (without friendly_id) and v3 (with friendly_id) FTS schemas
+    gracefully so that the function works regardless of migration state.
     
     Args:
         conn: Active database connection.
@@ -310,26 +342,53 @@ def sync_claim_to_fts(
     if not row:
         return
     
-    if operation == 'insert':
-        conn.execute("""
-            INSERT INTO claims_fts(rowid, claim_id, statement, predicate, object_text, subject_text, context_domain)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (row['rowid'], row['claim_id'], row['statement'], row['predicate'],
-              row['object_text'], row['subject_text'], row['context_domain']))
+    # Determine whether FTS table has the friendly_id column (v3 schema)
+    has_fid = _fts_has_friendly_id(conn)
     
-    elif operation == 'update':
-        # FTS5 update = delete + insert
-        conn.execute("""
-            INSERT INTO claims_fts(claims_fts, rowid, claim_id, statement, predicate, object_text, subject_text, context_domain)
-            VALUES ('delete', ?, ?, ?, ?, ?, ?, ?)
-        """, (row['rowid'], row['claim_id'], row['statement'], row['predicate'],
-              row['object_text'], row['subject_text'], row['context_domain']))
+    if has_fid:
+        # v3 schema: include friendly_id
+        fid_val = row['friendly_id'] if 'friendly_id' in row.keys() else None
         
-        conn.execute("""
-            INSERT INTO claims_fts(rowid, claim_id, statement, predicate, object_text, subject_text, context_domain)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        """, (row['rowid'], row['claim_id'], row['statement'], row['predicate'],
-              row['object_text'], row['subject_text'], row['context_domain']))
+        if operation == 'insert':
+            conn.execute("""
+                INSERT INTO claims_fts(rowid, claim_id, statement, predicate, object_text, subject_text, context_domain, friendly_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (row['rowid'], row['claim_id'], row['statement'], row['predicate'],
+                  row['object_text'], row['subject_text'], row['context_domain'], fid_val))
+        
+        elif operation == 'update':
+            conn.execute("""
+                INSERT INTO claims_fts(claims_fts, rowid, claim_id, statement, predicate, object_text, subject_text, context_domain, friendly_id)
+                VALUES ('delete', ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (row['rowid'], row['claim_id'], row['statement'], row['predicate'],
+                  row['object_text'], row['subject_text'], row['context_domain'], fid_val))
+            
+            conn.execute("""
+                INSERT INTO claims_fts(rowid, claim_id, statement, predicate, object_text, subject_text, context_domain, friendly_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (row['rowid'], row['claim_id'], row['statement'], row['predicate'],
+                  row['object_text'], row['subject_text'], row['context_domain'], fid_val))
+    else:
+        # v2 schema: no friendly_id in FTS
+        if operation == 'insert':
+            conn.execute("""
+                INSERT INTO claims_fts(rowid, claim_id, statement, predicate, object_text, subject_text, context_domain)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (row['rowid'], row['claim_id'], row['statement'], row['predicate'],
+                  row['object_text'], row['subject_text'], row['context_domain']))
+        
+        elif operation == 'update':
+            conn.execute("""
+                INSERT INTO claims_fts(claims_fts, rowid, claim_id, statement, predicate, object_text, subject_text, context_domain)
+                VALUES ('delete', ?, ?, ?, ?, ?, ?, ?)
+            """, (row['rowid'], row['claim_id'], row['statement'], row['predicate'],
+                  row['object_text'], row['subject_text'], row['context_domain']))
+            
+            conn.execute("""
+                INSERT INTO claims_fts(rowid, claim_id, statement, predicate, object_text, subject_text, context_domain)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            """, (row['rowid'], row['claim_id'], row['statement'], row['predicate'],
+                  row['object_text'], row['subject_text'], row['context_domain']))
 
 
 def sync_note_to_fts(

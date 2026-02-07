@@ -7,7 +7,7 @@ This doc explains how chat messages move from UI to server and back, and how the
 1) **UI submit**
 - Entry: `interface/chat.js` binds `#sendMessageButton` to `sendMessageCallback()` in `interface/common-chat.js`.
 - `sendMessageCallback()` collects settings and payload, clears the input, and calls:
-  - `ChatManager.sendMessage(conversationId, messageText, options, links, search, attached_claim_ids, referenced_claim_ids)`
+  - `ChatManager.sendMessage(conversationId, messageText, options, links, search, attached_claim_ids, referenced_claim_ids, referenced_friendly_ids)`
 
 2) **Immediate user render**
 - `ChatManager.sendMessage()` immediately renders the user card before the server responds:
@@ -17,9 +17,10 @@ This doc explains how chat messages move from UI to server and back, and how the
 3) **Streaming request**
 - `ChatManager.sendMessage()` sends `POST /send_message/<conversation_id>` with JSON body:
   - `messageText`, `checkboxes` (settings), `links`, `search`
-  - optional `attached_claim_ids`, `referenced_claim_ids`
+  - optional `attached_claim_ids`, `referenced_claim_ids`, `referenced_friendly_ids`
 - The response is streamed (`text/plain`) as newline-delimited JSON chunks.
 - Server also injects `conversation_pinned_claim_ids` into the request context (for PKB memory pinning).
+- In `Conversation.reply()`, all PKB claims are fetched via `_get_pkb_context()` and included in the distillation prompt. After distillation, only `[REFERENCED ...]` claims are re-injected verbatim into the final prompt via `_extract_referenced_claims()` to ensure explicitly referenced claims are never lost.
 
 4) **Streaming render**
 - `sendMessageCallback()` calls `renderStreamingResponse(response, ...)` in `interface/common-chat.js`.
@@ -31,6 +32,40 @@ This doc explains how chat messages move from UI to server and back, and how the
 5) **Persistence + follow-ups**
 - Server persists messages + summary after completion (in `Conversation.persist_current_turn`).
 - UI updates next-question suggestions after stream completion.
+
+## Chat Settings Management
+
+Settings are managed via the **chat-settings-modal** in `interface/interface.html` and persisted across sessions via `localStorage`.
+
+### Architecture
+
+| Layer | File | Role |
+|-------|------|------|
+| HTML | `interface/interface.html` | Checkbox/select elements in the `#chat-settings-modal` |
+| Persistence | `interface/chat.js` | `buildSettingsStateFromControlsOrDefaults()`, `collectSettingsFromModal()`, `setModalFromState()`, `persistSettingsStateFromModal()`, `getPersistedSettingsState()`, `resetSettingsToDefaults()` |
+| Runtime read | `interface/common.js` | `getOptions(parentElementId, type)` reads DOM state into the `checkboxes` object sent with each message |
+| Backend | `Conversation.py` | `reply()` reads `query["checkboxes"]` and uses flags to gate features |
+
+### Settings Lifecycle
+
+1. **On page load**: `loadSettingsIntoModal()` (chat.js) calls `getPersistedSettingsState()` which reads from `localStorage` keyed by tab name (`${tab}chatSettingsState`). Falls back to `buildSettingsStateFromControlsOrDefaults()` on first run.
+2. **On modal close**: `persistSettingsStateFromModal()` collects values via `collectSettingsFromModal()`, saves to `window.chatSettingsState` and `localStorage`.
+3. **On send message**: `getOptions('chat-options', 'assistant')` (common.js) reads current checkbox/select state and returns the `checkboxes` object. This is merged with slash-command overrides from `parseMessageForCheckBoxes()` and sent in the POST body.
+4. **On reset**: `resetSettingsToDefaults()` resets all controls to hardcoded defaults.
+
+### Key Settings (Basic Options checkboxes)
+
+| Setting | DOM ID | Default | Backend key | What it controls |
+|---------|--------|---------|-------------|-----------------|
+| Search | `settings-perform-web-search-checkbox` | off | `perform_web_search` | Web search augmentation |
+| Search Exact | `settings-search-exact` | off | `search_exact` | Exact match search mode |
+| Auto Clarify | `settings-auto_clarify` | off | `auto_clarify` | Auto-ask clarifying questions |
+| Persist | `settings-persist_or_not` | **on** | `persist_or_not` | Save messages to conversation history |
+| PPT Answer | `settings-ppt-answer` | off | `ppt_answer` | Slide/presentation mode |
+| Use Memory Pad | `settings-use_memory_pad` | off | `use_memory_pad` | Include memory pad in prompt |
+| Use PKB Memory | `settings-use_pkb` | **on** | `use_pkb` | PKB claim retrieval + user info distillation |
+| LLM Right-Click Menu | `settings-enable_custom_context_menu` | on (desktop) | `enable_custom_context_menu` | Context menu on selected text |
+| Planner | `settings-enable_planner` | off | `enable_planner` | Multi-step planner agent (hidden) |
 
 ## Server-Side Streaming
 

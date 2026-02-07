@@ -592,13 +592,20 @@ Response:"""
         claim_type: str,
         context_domain: str
     ) -> ActionResult:
-        """Execute a single proposal."""
+        """Execute a single proposal.
+        
+        Uses auto_extract=False because:
+        - Similarity/duplicate analysis was already done during ingest_and_propose()
+        - Running LLM extraction + similarity check per claim during bulk save
+          causes excessive LLM calls, request timeouts, and UI hangs.
+        - Tags/entities can be extracted later via a separate enrichment step.
+        """
         if proposal.action == 'add':
             return self.api.add_claim(
                 statement=statement,
                 claim_type=claim_type,
                 context_domain=context_domain,
-                auto_extract=True,
+                auto_extract=False,
                 meta_json=json.dumps({"source": "text_ingestion"})
             )
         elif proposal.action == 'edit' and proposal.existing_claim:

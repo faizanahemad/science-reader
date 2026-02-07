@@ -2,20 +2,82 @@
 
 Technical documentation for the Personal Knowledge Base (PKB) module implementation.
 
+> **📘 For Comprehensive Details:** See [Implementation Deep Dive](./implementation_deep_dive.md) for in-depth architecture, data flows, integration patterns, and troubleshooting.
+
 ## Overview
 
 PKB v0 is a SQLite-backed personal knowledge base designed for integration with LLM chatbot applications. It provides structured storage for claims (atomic memory units), notes, entities, and tags with full-text search and embedding-based semantic search capabilities.
 
-**Key Features (v0.4):**
+**Key Features (v0.6):**
 - **Multi-user support**: Shared database with per-user data isolation via `user_email`
 - **Flask REST API**: Full CRUD endpoints at `/pkb/*` for web integration
 - **Conversation.py integration**: Async PKB context retrieval for LLM prompts
 - **Frontend module**: `pkb-manager.js` for UI operations
 - **Memory update workflow**: Propose → Approve → Execute pattern for chat distillation
-- **Schema migration**: Automatic v1→v2 upgrade for existing databases
+- **Schema migration**: Automatic v1→v2→v3→v4→v5→v6 upgrade for existing databases
 - **Legacy data migration**: Script to import from `UserDetails` table
 - **Bulk operations**: Batch claim addition and text ingestion with AI analysis
 - **Deliberate memory attachment**: Global pinning, conversation pinning, "Use Now", and @memory references
+- **Friendly IDs** (v0.5): User-facing alphanumeric IDs for memories, auto-generated or user-specified
+- **Multi-type/domain** (v0.5): Claims can have multiple types and domains
+- **Context/Group System** (v0.5): Hierarchical grouping of memories with `@context_id` references
+- **@friendly_id references** (v0.5): Reference memories and contexts by friendly ID in chat
+- **Autocomplete** (v0.5): `@` triggered autocomplete in chat input for memory/context references
+- **Entity management UI** (v0.5): Create entities, link them to claims from the UI
+- **Enhanced filtering** (v0.5): Filter claims by tag, entity, domain, type with multi-select
+- **Expandable entity/tag/context views** (v0.5.1): Click to expand and see linked claims with full action controls
+- **Context-claim linking in modals** (v0.5.1): Multi-select contexts when creating/editing a memory
+- **Dynamic types/domains** (v0.5.1): Types and domains stored in DB catalog tables, user-extensible
+- **Numeric claim IDs** (v0.6): Per-user auto-incremented `claim_number`, referenceable as `@claim_42`
+- **QnA possible questions** (v0.6): Each claim can have LLM-generated or user-provided self-sufficient questions it answers, indexed in FTS. Each question must contain specific subjects/entities from the claim to be understandable on its own.
+- **Unified search endpoint** (v0.6): `GET /pkb/claims` accepts `query` param for combined list+search in one call
+- **Universal claim resolver** (v0.6): `resolve_claim_identifier()` accepts UUID, `#N`, `claim_N`, `@friendly_id`
+- **Context name fallback** (v0.6): `resolve_reference()` falls back to context name matching
+
+**Recent Updates (v0.6):**
+- Schema v5: Added `claim_number INTEGER` column with per-user auto-increment and backfill
+- Schema v6: Added `possible_questions TEXT` column (JSON array), rebuilt FTS to include it
+- `LLMHelpers.generate_possible_questions()` for auto-generating 2-4 self-sufficient questions per claim (each question includes specific entities/subjects from the claim)
+- `StructuredAPI.resolve_claim_identifier()` universal resolver for any claim identifier format
+- `resolve_reference()` enhanced with `@claim_N` support and context name fallback
+- Unified `GET /pkb/claims` endpoint replaces separate `POST /pkb/search` for UI
+- `StructuredAPI.edit_claim()` auto-generates `possible_questions` via LLM if missing
+- Improved `generate_friendly_id()` with comprehensive stopword filtering
+- Search filter bug fix: `api.search()` accepts both singular and plural filter keys
+- Frontend `loadClaims()` unified to handle both list and search with filters in one pipeline
+- Claim cards now display `#claim_number` badge and `@friendly_id` badge
+- Edit modal populates `friendly_id` and `possible_questions` fields from existing claim data
+- Context search panel: inline search bar with type/domain filters and checkbox link/unlink within expanded context cards
+- `possible_questions` included in `Conversation.py` context formatting as `(answers: Q1; Q2)` suffix for LLM context
+- `_extract_referenced_claims()` in `Conversation.py`: extracts only `[REFERENCED ...]` claims from PKB context for post-distillation re-injection (preserves explicitly referenced claims verbatim while auto/pinned/attached claims go through cheap LLM distillation)
+
+**v0.5.1 Updates:**
+- Schema v4: Added `claim_types_catalog` and `context_domains_catalog` tables for dynamic types/domains
+- New `TypeCatalogCRUD` and `DomainCatalogCRUD` in `crud/catalog.py`
+- Expandable entity cards in Entities tab with linked claims and "Add Memory" button
+- Expandable tag cards in Tags tab with linked claims
+- Expandable context cards in Contexts tab with "Attach Memory" and "Remove from Context" buttons
+- Context multi-select dropdown in Create/Edit Memory modal
+- Multi-select Type/Domain dropdowns populated from DB with inline "Add New" capability
+- New endpoints: `GET /pkb/entities/<id>/claims`, `GET /pkb/tags/<id>/claims`, `GET /pkb/claims/<id>/contexts`, `PUT /pkb/claims/<id>/contexts`, `GET/POST /pkb/types`, `GET/POST /pkb/domains`
+- Shared `bindClaimCardActions()` helper for reusable claim action buttons across all views
+- Updated `StructuredAPI` with `type_catalog` and `domain_catalog` instances
+
+**v0.5.0 Updates:**
+- Schema v3: Added `friendly_id`, `claim_types`, `context_domains` columns to claims
+- New `contexts` and `context_claims` tables for hierarchical memory grouping
+- `ContextCRUD` for full context lifecycle management
+- `resolve_reference()` API for unified @reference resolution (memory or context)
+- `autocomplete()` API for prefix search of friendly IDs
+- Updated `Conversation.py` to resolve `@friendly_id` and `@context_id` references
+- New REST endpoints: `/pkb/contexts/*`, `/pkb/autocomplete`, `/pkb/resolve/*`, entity linking
+- Frontend: Contexts tab, entity management, @autocomplete widget, friendly_id display
+- See [PKB v0.5 Enhancement Plan](./PKB_V05_ENHANCEMENT_PLAN.md) for full details
+
+**Post-v0.5.0 Bug Fixes:**
+- **Schema migration robustness:** `database.py` now ensures v3 columns exist on every `initialize_schema()` call (not just first init), fixing `no such column: friendly_id` for long-running servers. `ClaimCRUD.add()` uses dynamic column detection (`_get_actual_claim_columns()`) to only INSERT into columns that actually exist in the table. `_ensure_fts_v3()` idempotently upgrades FTS table and triggers.
+- **Text ingestion attribute fix:** `endpoints/pkb.py` `pkb_ingest_text_route()` now uses `proposal.existing_claim` and `proposal.similarity_score` instead of non-existent `proposal.match`.
+- **Text ingestion performance:** `text_ingestion.py` `_execute_proposal()` now uses `auto_extract=False` to avoid redundant LLM calls during bulk save (analysis was already done in proposal phase).
 
 ## File Tree Structure
 
@@ -26,19 +88,21 @@ truth_management_system/
 ├── config.py                # PKBConfig dataclass and load/save functions
 ├── utils.py                 # UUID generation, timestamps, JSON helpers, ParallelExecutor
 ├── models.py                # Dataclasses: Claim, Note, Entity, Tag, ConflictSet (all with user_email)
-├── schema.py                # SQLite DDL v2 with user_email columns and indexes
-├── database.py              # PKBDatabase connection manager with schema migration
-├── llm_helpers.py           # LLM-powered extraction (tags, entities, SPO, similarity)
+├── schema.py                # SQLite DDL v6 with possible_questions, claim_number, catalog tables
+├── database.py              # PKBDatabase connection manager with schema migration (v1→v2→v3→v4→v5→v6)
+├── llm_helpers.py           # LLM-powered extraction (tags, entities, SPO, similarity, possible questions)
 ├── migrate_user_details.py  # Migration script: UserDetails → PKB claims
 │
 ├── crud/                    # Data access layer (all support user_email filtering)
 │   ├── __init__.py          # CRUD exports
 │   ├── base.py              # BaseCRUD with user_email filtering helpers
-│   ├── claims.py            # ClaimCRUD: add, edit, delete, get_by_entity/tag
+│   ├── claims.py            # ClaimCRUD: add, edit, delete, get_by_entity/tag, get_by_friendly_id
 │   ├── notes.py             # NoteCRUD: add, edit, delete, list
 │   ├── entities.py          # EntityCRUD: add, edit, delete, get_or_create
 │   ├── tags.py              # TagCRUD: add, edit, delete, hierarchy operations
 │   ├── conflicts.py         # ConflictCRUD: create, resolve, ignore
+│   ├── contexts.py          # ContextCRUD: add, edit, delete, resolve_claims, hierarchy (v0.5)
+│   ├── catalog.py           # TypeCatalogCRUD, DomainCatalogCRUD: dynamic types/domains (v0.5.1)
 │   └── links.py             # Join table operations (claim_tags, claim_entities)
 │
 ├── search/                  # Search strategies (all support user_email)
@@ -976,9 +1040,16 @@ def reply(self, query, userData=None, ...):
     # 3. Get PKB context (blocks only if not ready)
     pkb_context = pkb_future.result(timeout=5.0)
     
-    # 4. Inject into system prompt
-    if pkb_context:
-        user_info += f"\n\nRelevant user facts:\n{pkb_context}"
+    # 4. Two-stage injection into system prompt:
+    #    Stage 1: Full PKB context included in distillation prompt → cheap LLM extracts relevant user prefs
+    #    Stage 2: Only [REFERENCED] claims re-appended verbatim AFTER distillation
+    #    (auto/pinned/attached claims handled by distillation; referenced claims preserved
+    #     because the user explicitly asked for them via @friendly_id or @memory:uuid)
+    distilled_info = cheap_llm(f"{pkb_section} {user_memory} {user_preferences} ...")
+    referenced_only = self._extract_referenced_claims(pkb_context)
+    if referenced_only:
+        ref_section = f"\n**User's explicitly referenced memories (ground truth):**\n{referenced_only}\n"
+    user_info_text = f"User Preferences:\n{distilled_info}\n{ref_section}"
 ```
 
 **Server-Side Injection (server.py):**
@@ -1350,22 +1421,28 @@ Conversation.py (_get_pkb_context):
 
 ---
 
-## Database Schema (v2)
+## Database Schema (v6)
 
-| Table | Key Columns | Relationships |
-|-------|-------------|---------------|
-| **claims** | claim_id (PK), claim_type, statement, status, context_domain, meta_json, user_email | → claim_embeddings (1:N), claim_tags (M:N), claim_entities (M:N) |
-| **notes** | note_id (PK), title, body, context_domain, user_email | → note_embeddings (1:N) |
-| **entities** | entity_id (PK), entity_type, name, user_email, UNIQUE(user,type,name) | ← claim_entities (M:1) |
-| **tags** | tag_id (PK), name, parent_tag_id (self-ref), user_email, UNIQUE(user,name,parent) | ← claim_tags (M:1) |
-| **conflict_sets** | conflict_set_id (PK), status, resolution_notes, user_email | → conflict_set_members |
-| **claim_embeddings** | claim_id (PK,FK), embedding (BLOB), model_name | |
-| **note_embeddings** | note_id (PK,FK), embedding (BLOB), model_name | |
-| **claims_fts** | FTS5: statement, predicate, object_text, subject_text, context_domain | |
-| **notes_fts** | FTS5: title, body, context_domain | |
-| **schema_version** | version (PK), applied_at — Current: 2 | |
+| Table | Key Columns | Relationships | Version |
+|-------|-------------|---------------|---------|
+| **claims** | claim_id (PK), claim_number, friendly_id, claim_type, claim_types, statement, possible_questions, context_domain, context_domains, status, meta_json, user_email | → claim_embeddings (1:N), claim_tags (M:N), claim_entities (M:N), context_claims (M:N) | v1+ |
+| **notes** | note_id (PK), title, body, context_domain, user_email | → note_embeddings (1:N) | v1+ |
+| **entities** | entity_id (PK), entity_type, name, user_email, UNIQUE(user,type,name) | ← claim_entities (M:1) | v1+ |
+| **tags** | tag_id (PK), name, parent_tag_id (self-ref), user_email, UNIQUE(user,name,parent) | ← claim_tags (M:1) | v1+ |
+| **conflict_sets** | conflict_set_id (PK), status, resolution_notes, user_email | → conflict_set_members | v1+ |
+| **contexts** | context_id (PK), friendly_id, name, description, parent_context_id (self-ref), user_email | → context_claims (M:N) | v3+ |
+| **context_claims** | context_id (PK,FK), claim_id (PK,FK) | Junction table | v3+ |
+| **claim_types_catalog** | type_name (PK), user_email (PK), display_name, description | System + user-defined types | v4+ |
+| **context_domains_catalog** | domain_name (PK), user_email (PK), display_name, description | System + user-defined domains | v4+ |
+| **claim_embeddings** | claim_id (PK,FK), embedding (BLOB), model_name | | v1+ |
+| **note_embeddings** | note_id (PK,FK), embedding (BLOB), model_name | | v1+ |
+| **claims_fts** | FTS5: statement, predicate, object_text, subject_text, context_domain, friendly_id, possible_questions | | v6+ |
+| **notes_fts** | FTS5: title, body, context_domain | | v1+ |
+| **schema_version** | version (PK), applied_at — Current: 6 | | v1+ |
 
-**User Email Indexes (v2):** idx_claims_user_email, idx_claims_user_status, idx_notes_user_email, idx_entities_user_email, idx_tags_user_email, idx_conflict_sets_user_email
+**Schema Migration Path:** v1 → v2 (user_email) → v3 (friendly_id, contexts) → v4 (catalog tables) → v5 (claim_number) → v6 (possible_questions)
+
+**Key Indexes:** idx_claims_user_email, idx_claims_user_status, idx_claims_friendly_id, idx_claims_user_friendly_id, idx_contexts_user_email, idx_contexts_friendly_id, idx_context_claims_claim_id
 
 ---
 
@@ -1460,3 +1537,37 @@ time_logger.info(f"[EMBEDDING] Got {len(candidates)} candidate claims")
 - `[FTS]` - Full-text search operations
 - `[EMBEDDING]` - Embedding search operations  
 - `[HYBRID]` - Hybrid search orchestration
+
+---
+
+## Documentation Structure
+
+This documentation is organized into three main files:
+
+1. **implementation.md** (this file) - High-level overview, file tree, module descriptions
+2. **[implementation_deep_dive.md](./implementation_deep_dive.md)** - Comprehensive technical details:
+   - Detailed architecture and layer responsibilities
+   - Complete data flow diagrams with code examples
+   - Integration patterns and best practices
+   - Search architecture internals
+   - Multi-user implementation details
+   - Memory attachment system flows
+   - Common development patterns
+   - Testing strategies
+   - Troubleshooting guide with solutions
+3. **[api.md](./api.md)** - Public API reference and usage examples
+
+**When to use each:**
+- **Quick reference**: Use this file for file locations and module overview
+- **Development/debugging**: Use implementation_deep_dive.md for detailed flows and patterns
+- **API usage**: Use api.md for function signatures and examples
+
+---
+
+## Quick Links
+
+- **For understanding architecture**: See [Architecture Overview](./implementation_deep_dive.md#architecture-overview) in deep dive
+- **For integration patterns**: See [Integration Patterns](./implementation_deep_dive.md#integration-patterns) in deep dive
+- **For troubleshooting**: See [Troubleshooting Guide](./implementation_deep_dive.md#troubleshooting-guide) in deep dive
+- **For API usage**: See [api.md](./api.md)
+- **For requirements**: See [truth_management_system_requirements.md](./truth_management_system_requirements.md)

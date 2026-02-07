@@ -360,81 +360,198 @@ comprehensiveTestParseMessageForCheckBoxesV2();
  * Supports the following formats:
  * - @memory:claim_id (e.g., @memory:abc123)
  * - @mem:claim_id (shorter syntax)
+ * - @friendly_id (e.g., @prefer_morning_workouts_a3f2 for claims)
+ * - @context_id (e.g., @ssdva or @work_context_a3b2 for contexts)
+ * 
+ * Friendly IDs for both claims and contexts are captured. The backend's
+ * resolve_reference() will determine whether each ID refers to a claim
+ * or a context (tries claim first, then context, then context name).
  * 
  * Returns the claim IDs found and the cleaned text with references removed.
  * 
  * @param {string} text - The message text to parse
- * @returns {{cleanText: string, claimIds: string[]}} - Object with cleaned text and extracted claim IDs
+ * @returns {{cleanText: string, claimIds: string[], friendlyIds: string[]}} - Object with cleaned text, legacy claim IDs, and friendly IDs
  */
 function parseMemoryReferences(text) {
     if (!text) {
-        return { cleanText: '', claimIds: [] };
+        return { cleanText: '', claimIds: [], friendlyIds: [] };
     }
     
-    // Regex to match @memory:claim_id or @mem:claim_id
-    // Claim IDs can contain letters, numbers, and hyphens (typical UUID format)
-    var regex = /@(?:memory|mem):([a-zA-Z0-9-]+)/g;
     var claimIds = [];
+    var friendlyIds = [];
+    
+    // 1. Legacy regex: @memory:claim_id or @mem:claim_id (UUID format)
+    var legacyRegex = /@(?:memory|mem):([a-zA-Z0-9-]+)/g;
     var match;
     
-    // Extract all claim IDs
-    while ((match = regex.exec(text)) !== null) {
+    // Collect legacy @memory: positions so we can skip them in step 2
+    var legacyPositions = [];
+    while ((match = legacyRegex.exec(text)) !== null) {
         var claimId = match[1];
         if (claimId && claimIds.indexOf(claimId) === -1) {
             claimIds.push(claimId);
         }
+        legacyPositions.push({ start: match.index, end: match.index + match[0].length });
     }
     
-    // Remove the @memory references from text
-    var cleanText = text.replace(regex, '').replace(/\s+/g, ' ').trim();
+    // 2. Friendly_id regex: @identifier (alphanumeric + underscores + hyphens, 3+ chars total)
+    // Matches both claim friendly_ids (e.g., @prefer_morning_a3f2) and context friendly_ids
+    // (e.g., @ssdva, @work_context_a3b2). Minimum 3 chars to reduce false positives.
+    //
+    // Rules:
+    // - Must start with a letter
+    // - 3+ total characters (letter + 2 or more alphanumeric/underscore/hyphen chars)
+    // - Must be preceded by start-of-string or whitespace (not part of an email like user@domain)
+    // - Must NOT be the legacy @memory: or @mem: prefix
+    //
+    // We use a global regex that matches any @word pattern, then manually check the
+    // preceding character to ensure it's at the start of the string or after whitespace.
+    // This avoids lookbehind assertions which are not supported in all browsers.
+    var friendlyRegex = /@([a-zA-Z][a-zA-Z0-9_-]{2,})/g;
+    
+    while ((match = friendlyRegex.exec(text)) !== null) {
+        var fid = match[1];
+        var matchStart = match.index;
+        
+        // Check that @ is at start of string or preceded by whitespace (not part of email)
+        if (matchStart > 0 && !/\s/.test(text.charAt(matchStart - 1))) {
+            continue;
+        }
+        
+        // Skip if this position overlaps with a legacy @memory:/@mem: match
+        var isLegacy = false;
+        for (var i = 0; i < legacyPositions.length; i++) {
+            if (matchStart >= legacyPositions[i].start && matchStart < legacyPositions[i].end) {
+                isLegacy = true;
+                break;
+            }
+        }
+        if (isLegacy) continue;
+        
+        // Skip the legacy prefix words themselves (e.g., @memory followed by :)
+        if (/^(?:memory|mem)$/i.test(fid)) continue;
+        
+        // Skip if already captured
+        if (fid && friendlyIds.indexOf(fid) === -1 && claimIds.indexOf(fid) === -1) {
+            friendlyIds.push(fid);
+        }
+    }
+    
+    // Remove all reference patterns from text for cleanText
+    var cleanText = text;
+    // Remove legacy @memory:/@mem: patterns first
+    cleanText = cleanText.replace(legacyRegex, '');
+    // Remove only the friendly_ids we actually captured (not @memory/@mem standalone)
+    for (var fi = 0; fi < friendlyIds.length; fi++) {
+        // Escape special regex chars in the friendly_id (hyphens in particular)
+        var escapedFid = friendlyIds[fi].replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+        var removeRegex = new RegExp('(^|\\s)@' + escapedFid + '(?=\\s|$)', 'g');
+        cleanText = cleanText.replace(removeRegex, '$1');
+    }
+    cleanText = cleanText.replace(/\s+/g, ' ').trim();
     
     return {
         cleanText: cleanText,
-        claimIds: claimIds
+        claimIds: claimIds,
+        friendlyIds: friendlyIds
     };
 }
 
 // Test function for parseMemoryReferences
 function testParseMemoryReferences() {
     var testCases = [
+        // Legacy @memory:/@mem: patterns
         { 
             input: "Please consider @memory:abc123 this fact", 
-            expected: { cleanText: "Please consider this fact", claimIds: ["abc123"] }
+            expected: { cleanText: "Please consider this fact", claimIds: ["abc123"], friendlyIds: [] }
         },
         { 
             input: "@mem:fact-1 and @memory:fact-2 are relevant", 
-            expected: { cleanText: "and are relevant", claimIds: ["fact-1", "fact-2"] }
+            expected: { cleanText: "and are relevant", claimIds: ["fact-1", "fact-2"], friendlyIds: [] }
         },
         { 
             input: "No references here", 
-            expected: { cleanText: "No references here", claimIds: [] }
+            expected: { cleanText: "No references here", claimIds: [], friendlyIds: [] }
         },
         { 
             input: "@memory:a1b2c3d4-e5f6-7890-abcd-ef1234567890 with UUID", 
-            expected: { cleanText: "with UUID", claimIds: ["a1b2c3d4-e5f6-7890-abcd-ef1234567890"] }
+            expected: { cleanText: "with UUID", claimIds: ["a1b2c3d4-e5f6-7890-abcd-ef1234567890"], friendlyIds: [] }
         },
         { 
             input: "@memory:same @memory:same duplicate", 
-            expected: { cleanText: "duplicate", claimIds: ["same"] }
+            expected: { cleanText: "duplicate", claimIds: ["same"], friendlyIds: [] }
+        },
+        // Friendly ID patterns: with underscores (claim-style)
+        {
+            input: "Check @prefer_morning_a3f2 for details",
+            expected: { cleanText: "Check for details", claimIds: [], friendlyIds: ["prefer_morning_a3f2"] }
+        },
+        // Friendly ID patterns: short without underscores (context-style)
+        {
+            input: "@ssdva what are the claims",
+            expected: { cleanText: "what are the claims", claimIds: [], friendlyIds: ["ssdva"] }
+        },
+        // Mixed: claim friendly_id + context friendly_id
+        {
+            input: "@in_2020_at_age_1vqt @ssdva what are the claims",
+            expected: { cleanText: "what are the claims", claimIds: [], friendlyIds: ["in_2020_at_age_1vqt", "ssdva"] }
+        },
+        // Mixed: legacy + friendly_id (claim + context)
+        {
+            input: "@memory:uuid123 @work_context_a3b2 @myctx tell me about them",
+            expected: { cleanText: "tell me about them", claimIds: ["uuid123"], friendlyIds: ["work_context_a3b2", "myctx"] }
+        },
+        // Should NOT match: email addresses (@ preceded by non-whitespace)
+        {
+            input: "Send to user@domain.com please",
+            expected: { cleanText: "Send to user@domain.com please", claimIds: [], friendlyIds: [] }
+        },
+        // Should NOT match: too short (1-2 chars after @)
+        {
+            input: "Hey @ab what's up",
+            expected: { cleanText: "Hey @ab what's up", claimIds: [], friendlyIds: [] }
+        },
+        // Should match: exactly 3 chars
+        {
+            input: "Check @abc for info",
+            expected: { cleanText: "Check for info", claimIds: [], friendlyIds: ["abc"] }
+        },
+        // Should NOT match: @memory and @mem as standalone words (legacy prefixes)
+        {
+            input: "@memory is a system @mem is short",
+            expected: { cleanText: "@memory is a system @mem is short", claimIds: [], friendlyIds: [] }
         }
     ];
     
+    var failures = 0;
     testCases.forEach(function(testCase, index) {
         var result = parseMemoryReferences(testCase.input);
-        console.log('Memory Reference Test ' + (index + 1) + ':', result);
+        var passed = true;
         
-        console.assert(
-            result.cleanText === testCase.expected.cleanText,
-            'Clean text mismatch. Expected: "' + testCase.expected.cleanText + '", Got: "' + result.cleanText + '"'
-        );
+        if (result.cleanText !== testCase.expected.cleanText) {
+            console.error('Test ' + (index + 1) + ' FAILED cleanText. Expected: "' + testCase.expected.cleanText + '", Got: "' + result.cleanText + '"');
+            passed = false;
+        }
         
-        console.assert(
-            JSON.stringify(result.claimIds.sort()) === JSON.stringify(testCase.expected.claimIds.sort()),
-            'Claim IDs mismatch. Expected: ' + JSON.stringify(testCase.expected.claimIds) + ', Got: ' + JSON.stringify(result.claimIds)
-        );
+        if (JSON.stringify(result.claimIds.sort()) !== JSON.stringify(testCase.expected.claimIds.sort())) {
+            console.error('Test ' + (index + 1) + ' FAILED claimIds. Expected: ' + JSON.stringify(testCase.expected.claimIds) + ', Got: ' + JSON.stringify(result.claimIds));
+            passed = false;
+        }
+        
+        if (JSON.stringify(result.friendlyIds.sort()) !== JSON.stringify(testCase.expected.friendlyIds.sort())) {
+            console.error('Test ' + (index + 1) + ' FAILED friendlyIds. Expected: ' + JSON.stringify(testCase.expected.friendlyIds) + ', Got: ' + JSON.stringify(result.friendlyIds));
+            passed = false;
+        }
+        
+        if (passed) {
+            console.log('Test ' + (index + 1) + ' PASSED: "' + testCase.input.substring(0, 50) + '..."');
+        } else {
+            failures++;
+            console.log('Test ' + (index + 1) + ' result:', result);
+        }
     });
     
-    console.log("Memory reference parsing tests completed.");
+    console.log("Memory reference parsing tests completed. " + (failures > 0 ? failures + " FAILURES" : "All passed."));
 }
 
 testParseMemoryReferences();

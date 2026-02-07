@@ -11,8 +11,11 @@ The ParallelExecutor wraps ThreadPoolExecutor and is compatible
 with patterns used in code_common/call_llm.py.
 """
 
+import re
 import uuid
 import json
+import string
+import random
 import logging
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, Future, as_completed
@@ -405,3 +408,121 @@ def normalize_whitespace(s: str) -> str:
         Normalized string.
     """
     return ' '.join(s.split())
+
+
+# =============================================================================
+# Friendly ID Generation & Validation
+# =============================================================================
+
+# Pattern for valid friendly IDs: alphanumeric, underscores, hyphens
+FRIENDLY_ID_PATTERN = re.compile(r'^[a-zA-Z0-9_-]+$')
+
+
+def validate_friendly_id(friendly_id: str) -> bool:
+    """
+    Validate that a friendly_id matches the allowed pattern.
+    
+    Friendly IDs are user-facing identifiers for memories and contexts.
+    They must be alphanumeric with underscores and hyphens allowed.
+    Minimum length is 2 characters, maximum 128.
+    
+    Args:
+        friendly_id: The ID string to validate.
+        
+    Returns:
+        True if valid, False otherwise.
+    """
+    if not friendly_id or not isinstance(friendly_id, str):
+        return False
+    if len(friendly_id) < 2 or len(friendly_id) > 128:
+        return False
+    return bool(FRIENDLY_ID_PATTERN.match(friendly_id))
+
+
+def generate_friendly_id(
+    statement: str,
+    max_words: int = 3,
+    suffix_len: int = 4
+) -> str:
+    """
+    Generate a short, human-readable friendly ID that captures the essence
+    of a statement.
+    
+    Strategy:
+    1. Lowercase and strip non-alphanumeric characters
+    2. Remove common stopwords (articles, pronouns, auxiliary verbs, etc.)
+    3. Take up to max_words meaningful words (1-3 typically)
+    4. Join with underscores and append a 4-char random alphanumeric suffix
+    
+    The result is short (typically 10-30 chars), descriptive, and unique.
+    
+    Args:
+        statement: The claim/context text to generate ID from.
+        max_words: Maximum number of meaningful words to use (default: 3).
+        suffix_len: Length of random suffix (default: 4).
+        
+    Returns:
+        Friendly ID string, e.g., "prefer_morning_workouts_a3f2"
+        
+    Examples:
+        >>> generate_friendly_id("I prefer morning workouts over evening ones")
+        'prefer_morning_workouts_x7k2'
+        >>> generate_friendly_id("My favorite color is blue")
+        'favorite_color_blue_p4m1'
+        >>> generate_friendly_id("I am allergic to peanuts")
+        'allergic_peanuts_r9d3'
+    """
+    if not statement or not isinstance(statement, str):
+        suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
+        return f"memory_{suffix}"
+    
+    # Clean: lowercase, keep only alphanumeric and spaces
+    cleaned = re.sub(r'[^a-zA-Z0-9\s]', '', statement.lower().strip())
+    
+    words = cleaned.split()
+    if not words:
+        suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
+        return f"memory_{suffix}"
+    
+    # Comprehensive stopword list — remove filler words to keep only meaningful ones
+    stopwords = {
+        'i', 'me', 'my', 'mine', 'myself', 'we', 'our', 'ours', 'ourselves',
+        'you', 'your', 'yours', 'he', 'him', 'his', 'she', 'her', 'hers',
+        'it', 'its', 'they', 'them', 'their', 'theirs',
+        'a', 'an', 'the', 'this', 'that', 'these', 'those',
+        'is', 'am', 'are', 'was', 'were', 'be', 'been', 'being',
+        'have', 'has', 'had', 'having',
+        'do', 'does', 'did', 'doing',
+        'will', 'would', 'shall', 'should', 'may', 'might', 'must', 'can', 'could',
+        'not', 'no', 'nor', 'but', 'and', 'or', 'so', 'if', 'then', 'than',
+        'to', 'of', 'in', 'for', 'on', 'at', 'by', 'with', 'from', 'up',
+        'about', 'into', 'over', 'after', 'before', 'between', 'under', 'during',
+        'very', 'really', 'just', 'also', 'too', 'more', 'most', 'some', 'any',
+        'all', 'each', 'every', 'both', 'few', 'many', 'much',
+        'been', 'there', 'here', 'when', 'where', 'what', 'which', 'who', 'whom',
+        'how', 'why', 'because', 'since', 'while', 'although',
+        'ones', 'like', 'get', 'got', 'make', 'made',
+    }
+    
+    filtered = [w for w in words if w not in stopwords and len(w) > 1]
+    
+    # If all words were filtered, use first meaningful word from original
+    if not filtered:
+        filtered = [w for w in words if len(w) > 1]
+    if not filtered:
+        filtered = words[:1]
+    
+    # Take up to max_words
+    id_words = filtered[:max_words]
+    
+    base_id = '_'.join(id_words)
+    
+    # Truncate if too long
+    max_base_len = 60 - suffix_len - 1
+    if len(base_id) > max_base_len:
+        base_id = base_id[:max_base_len]
+    
+    # Add random suffix for uniqueness
+    suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=suffix_len))
+    
+    return f"{base_id}_{suffix}"

@@ -4225,6 +4225,7 @@ function getOptions(parentElementId, type) {
         render_slides_inline: $('#settings-render-slides-inline').is(':checked'),
         only_slides: $('#settings-only-slides').is(':checked'),
         render_close_to_source: $('#settings-render-close-to-source').is(':checked'),
+        use_pkb: $('#settings-use_pkb').length ? $('#settings-use_pkb').is(':checked') : true,
     };
     let speedValue = $("#depthSelector").length ? $("#depthSelector").val() : ($("#settings-depthSelector").val() || '2');
     values['provide_detailed_answers'] = speedValue;

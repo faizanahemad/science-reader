@@ -18,9 +18,10 @@ from typing import List, Dict, Optional, Any
 
 from ..database import PKBDatabase
 from ..config import PKBConfig
-from ..models import Claim, Note, Entity, Tag, ConflictSet
+from ..models import Claim, Note, Entity, Tag, ConflictSet, Context
 from ..constants import ClaimType, ClaimStatus, ContextDomain, EntityType
-from ..crud import ClaimCRUD, NoteCRUD, EntityCRUD, TagCRUD, ConflictCRUD
+from ..crud import ClaimCRUD, NoteCRUD, EntityCRUD, TagCRUD, ConflictCRUD, ContextCRUD, TypeCatalogCRUD, DomainCatalogCRUD
+from ..crud.links import link_claim_entity, unlink_claim_entity, get_claim_entities
 from ..search import HybridSearchStrategy, SearchFilters, SearchResult
 from ..search.notes_search import NotesSearchStrategy
 from ..llm_helpers import LLMHelpers
@@ -100,6 +101,9 @@ class StructuredAPI:
         self.entities = EntityCRUD(db, user_email=user_email)
         self.tags = TagCRUD(db, user_email=user_email)
         self.conflicts = ConflictCRUD(db, user_email=user_email)
+        self.contexts = ContextCRUD(db, user_email=user_email)
+        self.type_catalog = TypeCatalogCRUD(db, user_email=user_email)
+        self.domain_catalog = DomainCatalogCRUD(db, user_email=user_email)
         
         # Initialize search (we'll pass user_email in search methods)
         self.search_strategy = HybridSearchStrategy(db, keys, config)
@@ -202,6 +206,36 @@ class StructuredAPI:
                         elif relation == 'contradicts':
                             warnings.append(f"May contradict claim: {claim.claim_id[:8]} ({sim:.2f})")
             
+            # Parse multi-type/domain arrays.  The frontend may send them as
+            # JSON strings (e.g. '["fact","preference"]') or as Python lists.
+            import json as _json
+            raw_types = kwargs.get('claim_types')
+            raw_domains = kwargs.get('context_domains')
+            claim_types_list = None
+            context_domains_list = None
+            if raw_types:
+                claim_types_list = _json.loads(raw_types) if isinstance(raw_types, str) else raw_types
+            if raw_domains:
+                context_domains_list = _json.loads(raw_domains) if isinstance(raw_domains, str) else raw_domains
+            
+            # Handle possible_questions: user-provided or auto-generated
+            raw_pq = kwargs.get('possible_questions')
+            possible_questions_json = None
+            if raw_pq:
+                # User provided: could be JSON string or list
+                if isinstance(raw_pq, str):
+                    possible_questions_json = raw_pq  # already JSON string
+                elif isinstance(raw_pq, list):
+                    possible_questions_json = _json.dumps(raw_pq)
+            elif auto_extract and self.llm:
+                # Auto-generate questions using LLM
+                try:
+                    questions = self.llm.generate_possible_questions(statement, claim_type)
+                    if questions:
+                        possible_questions_json = _json.dumps(questions)
+                except Exception as e:
+                    logger.warning(f"Failed to auto-generate questions: {e}")
+            
             # Create claim (user_email is applied by ClaimCRUD if set)
             claim = Claim.create(
                 statement=statement,
@@ -211,7 +245,10 @@ class StructuredAPI:
                 confidence=confidence,
                 valid_from=valid_from,
                 valid_to=valid_to,
-                meta_json=meta_json
+                meta_json=meta_json,
+                claim_types=claim_types_list,
+                context_domains=context_domains_list,
+                possible_questions=possible_questions_json,
             )
             
             # Add to database
@@ -243,6 +280,12 @@ class StructuredAPI:
         """
         Edit an existing claim.
         
+        If the claim has no friendly_id and none is provided in the patch,
+        one is auto-generated (using heuristic).
+        
+        If the claim has no possible_questions and none are provided,
+        they are auto-generated via LLM (if available).
+        
         Args:
             claim_id: ID of claim to edit.
             **patch: Fields to update.
@@ -251,6 +294,22 @@ class StructuredAPI:
             ActionResult with updated claim.
         """
         try:
+            # Pre-fetch existing claim to check what needs auto-generation
+            existing = self.claims.get(claim_id)
+            if existing and self.llm:
+                stmt = patch.get('statement', existing.statement)
+                ctype = patch.get('claim_type', existing.claim_type)
+                
+                # Auto-generate possible_questions if claim has none and none provided
+                if not existing.possible_questions and 'possible_questions' not in patch:
+                    try:
+                        import json as _json
+                        questions = self.llm.generate_possible_questions(stmt, ctype)
+                        if questions:
+                            patch['possible_questions'] = _json.dumps(questions)
+                    except Exception as e:
+                        logger.warning(f"Failed to auto-generate questions on edit: {e}")
+            
             claim = self.claims.edit(claim_id, patch)
             
             if claim:
@@ -596,12 +655,25 @@ class StructuredAPI:
             )
             
             if filters:
+                # Support both plural list form ("claim_types": ["fact","pref"])
+                # and singular string form ("claim_type": "fact") from the UI.
                 if 'context_domains' in filters:
-                    search_filters.context_domains = filters['context_domains']
+                    val = filters['context_domains']
+                    search_filters.context_domains = val if isinstance(val, list) else [val]
+                elif 'context_domain' in filters and filters['context_domain']:
+                    search_filters.context_domains = [filters['context_domain']]
+                
                 if 'claim_types' in filters:
-                    search_filters.claim_types = filters['claim_types']
+                    val = filters['claim_types']
+                    search_filters.claim_types = val if isinstance(val, list) else [val]
+                elif 'claim_type' in filters and filters['claim_type']:
+                    search_filters.claim_types = [filters['claim_type']]
+                
                 if 'statuses' in filters:
                     search_filters.statuses = filters['statuses']
+                elif 'status' in filters and filters['status']:
+                    search_filters.statuses = [filters['status']]
+                
                 if 'valid_at' in filters:
                     search_filters.valid_at = filters['valid_at']
             
@@ -985,5 +1057,658 @@ class StructuredAPI:
                 success=False,
                 action='get_by_ids',
                 object_type='claim',
+                errors=[str(e)]
+            )
+    
+    # =========================================================================
+    # Friendly ID & Reference Resolution (v0.5)
+    # =========================================================================
+    
+    def get_claim_by_friendly_id(self, friendly_id: str) -> ActionResult:
+        """
+        Get a claim by its user-facing friendly_id.
+        
+        Args:
+            friendly_id: The user-facing alphanumeric identifier.
+            
+        Returns:
+            ActionResult with Claim if found.
+        """
+        try:
+            claim = self.claims.get_by_friendly_id(friendly_id)
+            if claim:
+                return ActionResult(
+                    success=True,
+                    action='get',
+                    object_type='claim',
+                    object_id=claim.claim_id,
+                    data=claim
+                )
+            return ActionResult(
+                success=False,
+                action='get',
+                object_type='claim',
+                errors=[f"No claim found with friendly_id: {friendly_id}"]
+            )
+        except Exception as e:
+            logger.error(f"Failed to get claim by friendly_id: {e}")
+            return ActionResult(
+                success=False,
+                action='get',
+                object_type='claim',
+                errors=[str(e)]
+            )
+    
+    def resolve_claim_identifier(self, identifier: str) -> Optional[Claim]:
+        """
+        Resolve any claim identifier to a Claim object.
+        
+        Tries multiple resolution strategies in order:
+        1. @claim_N or claim_N or bare number -> claim_number lookup
+        2. UUID format -> direct claim_id lookup
+        3. friendly_id lookup (with or without @ prefix)
+        
+        This is the universal "find a claim by whatever the user typed" method.
+        
+        Args:
+            identifier: Any string the user might use to reference a claim.
+                       Supported formats: "42", "claim_42", "@claim_42",
+                       "@friendly_id", "friendly_id", "uuid-string"
+        
+        Returns:
+            Claim if found, None otherwise.
+        """
+        import re as _re
+        
+        if not identifier:
+            return None
+        
+        # Strip leading @ if present
+        ident = identifier.strip()
+        if ident.startswith('@'):
+            ident = ident[1:]
+        
+        # 1. Try as claim_N or bare number
+        claim_num_match = _re.match(r'^claim_(\d+)$', ident)
+        if claim_num_match:
+            num = int(claim_num_match.group(1))
+            claim = self.claims.get_by_claim_number(num)
+            if claim:
+                return claim
+        
+        # Also try bare number
+        if ident.isdigit():
+            claim = self.claims.get_by_claim_number(int(ident))
+            if claim:
+                return claim
+        
+        # 2. Try as UUID (direct claim_id)
+        uuid_pattern = _re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', _re.I)
+        if uuid_pattern.match(ident):
+            claim = self.claims.get(ident)
+            if claim:
+                return claim
+        
+        # 3. Try as friendly_id
+        claim = self.claims.get_by_friendly_id(ident)
+        if claim:
+            return claim
+        
+        return None
+    
+    def resolve_reference(self, reference_id: str) -> ActionResult:
+        """
+        Resolve a @reference_id to claims.
+        
+        First tries to match as a memory friendly_id, then as a context
+        friendly_id. For contexts, recursively resolves all leaf claims.
+        
+        This is the single entry point for reference resolution, used by
+        both Conversation.py and REST endpoints.
+        
+        Args:
+            reference_id: The friendly_id from an @reference in chat.
+            
+        Returns:
+            ActionResult with data dict:
+            {
+                'type': 'claim' | 'context',
+                'claims': List[Claim],
+                'source_id': str,
+                'source_name': str  # context name or claim statement preview
+            }
+        """
+        try:
+            # 0. Try as @claim_N numeric reference (e.g., "claim_42")
+            import re as _re
+            claim_num_match = _re.match(r'^claim_(\d+)$', reference_id)
+            if claim_num_match:
+                num = int(claim_num_match.group(1))
+                claim = self.claims.get_by_claim_number(num)
+                if claim:
+                    return ActionResult(
+                        success=True,
+                        action='resolve',
+                        object_type='reference',
+                        object_id=claim.claim_id,
+                        data={
+                            'type': 'claim',
+                            'claims': [claim],
+                            'source_id': claim.claim_id,
+                            'source_name': claim.statement[:80]
+                        }
+                    )
+            
+            # 1. Try as memory friendly_id
+            claim = self.claims.get_by_friendly_id(reference_id)
+            if claim:
+                return ActionResult(
+                    success=True,
+                    action='resolve',
+                    object_type='reference',
+                    object_id=claim.claim_id,
+                    data={
+                        'type': 'claim',
+                        'claims': [claim],
+                        'source_id': claim.claim_id,
+                        'source_name': claim.statement[:80]
+                    }
+                )
+            
+            # 2. Try as context friendly_id
+            context = self.contexts.get_by_friendly_id(reference_id)
+            if context:
+                resolved_claims = self.contexts.resolve_claims(context.context_id)
+                logger.info(f"[resolve_reference] Resolved '{reference_id}' as context '{context.name}' with {len(resolved_claims)} claims")
+                return ActionResult(
+                    success=True,
+                    action='resolve',
+                    object_type='reference',
+                    object_id=context.context_id,
+                    data={
+                        'type': 'context',
+                        'claims': resolved_claims,
+                        'source_id': context.context_id,
+                        'source_name': context.name
+                    }
+                )
+            
+            # 3. Try as context name (fallback - search contexts by name)
+            try:
+                all_contexts = self.contexts.get_children(parent_context_id=None)
+                for ctx in all_contexts:
+                    if ctx.name and ctx.name.lower().replace(' ', '_') == reference_id.lower().replace(' ', '_'):
+                        resolved_claims = self.contexts.resolve_claims(ctx.context_id)
+                        logger.info(f"[resolve_reference] Resolved '{reference_id}' as context by name '{ctx.name}' with {len(resolved_claims)} claims")
+                        return ActionResult(
+                            success=True,
+                            action='resolve',
+                            object_type='reference',
+                            object_id=ctx.context_id,
+                            data={
+                                'type': 'context',
+                                'claims': resolved_claims,
+                                'source_id': ctx.context_id,
+                                'source_name': ctx.name
+                            }
+                        )
+            except Exception as e:
+                logger.warning(f"[resolve_reference] Context name search failed: {e}")
+            
+            # 4. Not found
+            logger.info(f"[resolve_reference] No claim or context found for '{reference_id}'")
+            return ActionResult(
+                success=False,
+                action='resolve',
+                object_type='reference',
+                errors=[f"No memory or context found with ID: {reference_id}"]
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to resolve reference: {e}")
+            return ActionResult(
+                success=False,
+                action='resolve',
+                object_type='reference',
+                errors=[str(e)]
+            )
+    
+    def autocomplete(self, prefix: str, limit: int = 10) -> ActionResult:
+        """
+        Search memories and contexts by friendly_id prefix for autocomplete.
+        
+        This powers the @autocomplete dropdown in the chat input.
+        Returns both matching memories and contexts.
+        
+        Args:
+            prefix: The search prefix (characters typed after @).
+            limit: Maximum results per category (default: 10).
+            
+        Returns:
+            ActionResult with data dict:
+            {
+                'memories': [{'friendly_id', 'statement', 'claim_type', 'claim_id'}],
+                'contexts': [{'friendly_id', 'name', 'description', 'context_id', 'claim_count'}]
+            }
+        """
+        try:
+            # Search memories by friendly_id prefix
+            memory_results = self.claims.search_friendly_ids(prefix, limit=limit)
+            memories = [
+                {
+                    'friendly_id': c.friendly_id,
+                    'statement': c.statement[:100],
+                    'claim_type': c.claim_type,
+                    'claim_id': c.claim_id
+                }
+                for c in memory_results
+            ]
+            
+            # Search contexts by friendly_id prefix
+            context_results = self.contexts.search_friendly_ids(prefix, limit=limit)
+            contexts = []
+            for ctx in context_results:
+                # Get claim count for each context
+                claims = self.contexts.get_claims(ctx.context_id)
+                contexts.append({
+                    'friendly_id': ctx.friendly_id,
+                    'name': ctx.name,
+                    'description': ctx.description or '',
+                    'context_id': ctx.context_id,
+                    'claim_count': len(claims)
+                })
+            
+            return ActionResult(
+                success=True,
+                action='autocomplete',
+                object_type='reference',
+                data={
+                    'memories': memories,
+                    'contexts': contexts
+                }
+            )
+            
+        except Exception as e:
+            logger.error(f"Autocomplete failed: {e}")
+            return ActionResult(
+                success=False,
+                action='autocomplete',
+                object_type='reference',
+                errors=[str(e)]
+            )
+    
+    # =========================================================================
+    # Context Management (v0.5)
+    # =========================================================================
+    
+    def add_context(
+        self,
+        name: str,
+        friendly_id: Optional[str] = None,
+        description: Optional[str] = None,
+        parent_context_id: Optional[str] = None,
+        claim_ids: Optional[List[str]] = None
+    ) -> ActionResult:
+        """
+        Create a new context (grouping of memories).
+        
+        If friendly_id is not provided, one will be auto-generated from the name.
+        Optionally links claims to the context immediately.
+        
+        Args:
+            name: Display name for the context.
+            friendly_id: Optional user-specified friendly ID.
+            description: Optional description.
+            parent_context_id: Optional parent context for hierarchy.
+            claim_ids: Optional list of claim IDs to link immediately.
+            
+        Returns:
+            ActionResult with created Context.
+        """
+        try:
+            context = Context.create(
+                name=name,
+                user_email=self.user_email,
+                friendly_id=friendly_id,
+                description=description,
+                parent_context_id=parent_context_id
+            )
+            
+            created = self.contexts.add(context)
+            
+            # Link claims if provided
+            if claim_ids:
+                for cid in claim_ids:
+                    self.contexts.add_claim(created.context_id, cid)
+            
+            return ActionResult(
+                success=True,
+                action='add',
+                object_type='context',
+                object_id=created.context_id,
+                data=created
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to add context: {e}")
+            return ActionResult(
+                success=False,
+                action='add',
+                object_type='context',
+                errors=[str(e)]
+            )
+    
+    def edit_context(self, context_id: str, **patch) -> ActionResult:
+        """
+        Update context fields.
+        
+        Args:
+            context_id: ID of context to update.
+            **patch: Fields to update (name, description, friendly_id, parent_context_id).
+            
+        Returns:
+            ActionResult with updated Context.
+        """
+        try:
+            updated = self.contexts.edit(context_id, patch)
+            if updated:
+                return ActionResult(
+                    success=True,
+                    action='edit',
+                    object_type='context',
+                    object_id=context_id,
+                    data=updated
+                )
+            return ActionResult(
+                success=False,
+                action='edit',
+                object_type='context',
+                errors=[f"Context not found: {context_id}"]
+            )
+        except Exception as e:
+            logger.error(f"Failed to edit context: {e}")
+            return ActionResult(
+                success=False,
+                action='edit',
+                object_type='context',
+                errors=[str(e)]
+            )
+    
+    def delete_context(self, context_id: str) -> ActionResult:
+        """
+        Delete a context. Claims are NOT deleted, just unlinked.
+        
+        Args:
+            context_id: ID of context to delete.
+            
+        Returns:
+            ActionResult indicating success/failure.
+        """
+        try:
+            if self.contexts.delete(context_id):
+                return ActionResult(
+                    success=True,
+                    action='delete',
+                    object_type='context',
+                    object_id=context_id
+                )
+            return ActionResult(
+                success=False,
+                action='delete',
+                object_type='context',
+                errors=[f"Context not found: {context_id}"]
+            )
+        except Exception as e:
+            logger.error(f"Failed to delete context: {e}")
+            return ActionResult(
+                success=False,
+                action='delete',
+                object_type='context',
+                errors=[str(e)]
+            )
+    
+    def get_context(self, context_id: str) -> ActionResult:
+        """
+        Get a context by ID with child info and claim count.
+        
+        Args:
+            context_id: ID of context to retrieve.
+            
+        Returns:
+            ActionResult with Context.
+        """
+        try:
+            context = self.contexts.get(context_id)
+            if context:
+                return ActionResult(
+                    success=True,
+                    action='get',
+                    object_type='context',
+                    object_id=context_id,
+                    data=context
+                )
+            return ActionResult(
+                success=False,
+                action='get',
+                object_type='context',
+                errors=[f"Context not found: {context_id}"]
+            )
+        except Exception as e:
+            logger.error(f"Failed to get context: {e}")
+            return ActionResult(
+                success=False,
+                action='get',
+                object_type='context',
+                errors=[str(e)]
+            )
+    
+    def resolve_context(self, context_id: str) -> ActionResult:
+        """
+        Recursively get all claims under a context and its sub-contexts.
+        
+        Args:
+            context_id: ID of the root context to resolve.
+            
+        Returns:
+            ActionResult with List[Claim].
+        """
+        try:
+            claims = self.contexts.resolve_claims(context_id)
+            return ActionResult(
+                success=True,
+                action='resolve',
+                object_type='context',
+                object_id=context_id,
+                data=claims
+            )
+        except Exception as e:
+            logger.error(f"Failed to resolve context: {e}")
+            return ActionResult(
+                success=False,
+                action='resolve',
+                object_type='context',
+                errors=[str(e)]
+            )
+    
+    def add_claim_to_context(self, context_id: str, claim_id: str) -> ActionResult:
+        """
+        Link a claim to a context.
+        
+        Args:
+            context_id: ID of the context.
+            claim_id: ID of the claim to link.
+            
+        Returns:
+            ActionResult indicating success/failure.
+        """
+        try:
+            if self.contexts.add_claim(context_id, claim_id):
+                return ActionResult(
+                    success=True,
+                    action='link',
+                    object_type='context_claim',
+                    data={'context_id': context_id, 'claim_id': claim_id}
+                )
+            return ActionResult(
+                success=False,
+                action='link',
+                object_type='context_claim',
+                errors=["Failed to link claim to context"]
+            )
+        except Exception as e:
+            logger.error(f"Failed to add claim to context: {e}")
+            return ActionResult(
+                success=False,
+                action='link',
+                object_type='context_claim',
+                errors=[str(e)]
+            )
+    
+    def remove_claim_from_context(self, context_id: str, claim_id: str) -> ActionResult:
+        """
+        Unlink a claim from a context.
+        
+        Args:
+            context_id: ID of the context.
+            claim_id: ID of the claim to unlink.
+            
+        Returns:
+            ActionResult indicating success/failure.
+        """
+        try:
+            if self.contexts.remove_claim(context_id, claim_id):
+                return ActionResult(
+                    success=True,
+                    action='unlink',
+                    object_type='context_claim',
+                    data={'context_id': context_id, 'claim_id': claim_id}
+                )
+            return ActionResult(
+                success=False,
+                action='unlink',
+                object_type='context_claim',
+                errors=["Link not found"]
+            )
+        except Exception as e:
+            logger.error(f"Failed to remove claim from context: {e}")
+            return ActionResult(
+                success=False,
+                action='unlink',
+                object_type='context_claim',
+                errors=[str(e)]
+            )
+    
+    # =========================================================================
+    # Entity Linking (v0.5)
+    # =========================================================================
+    
+    def link_entity_to_claim(
+        self,
+        claim_id: str,
+        entity_id: str,
+        role: str = "mentioned"
+    ) -> ActionResult:
+        """
+        Link an entity to a claim with a specific role.
+        
+        Args:
+            claim_id: ID of the claim.
+            entity_id: ID of the entity.
+            role: Role of the entity (subject, object, mentioned, about_person).
+            
+        Returns:
+            ActionResult indicating success/failure.
+        """
+        try:
+            success = link_claim_entity(self.db, claim_id, entity_id, role)
+            if success:
+                return ActionResult(
+                    success=True,
+                    action='link',
+                    object_type='claim_entity',
+                    data={'claim_id': claim_id, 'entity_id': entity_id, 'role': role}
+                )
+            return ActionResult(
+                success=False,
+                action='link',
+                object_type='claim_entity',
+                errors=["Failed to link entity to claim (may already exist)"]
+            )
+        except Exception as e:
+            logger.error(f"Failed to link entity to claim: {e}")
+            return ActionResult(
+                success=False,
+                action='link',
+                object_type='claim_entity',
+                errors=[str(e)]
+            )
+    
+    def unlink_entity_from_claim(
+        self,
+        claim_id: str,
+        entity_id: str,
+        role: Optional[str] = None
+    ) -> ActionResult:
+        """
+        Unlink an entity from a claim.
+        
+        If role is None, removes all roles for this entity-claim pair.
+        
+        Args:
+            claim_id: ID of the claim.
+            entity_id: ID of the entity.
+            role: Optional role to remove (None = all roles).
+            
+        Returns:
+            ActionResult indicating success/failure.
+        """
+        try:
+            success = unlink_claim_entity(self.db, claim_id, entity_id, role)
+            if success:
+                return ActionResult(
+                    success=True,
+                    action='unlink',
+                    object_type='claim_entity',
+                    data={'claim_id': claim_id, 'entity_id': entity_id, 'role': role}
+                )
+            return ActionResult(
+                success=False,
+                action='unlink',
+                object_type='claim_entity',
+                errors=["Link not found"]
+            )
+        except Exception as e:
+            logger.error(f"Failed to unlink entity from claim: {e}")
+            return ActionResult(
+                success=False,
+                action='unlink',
+                object_type='claim_entity',
+                errors=[str(e)]
+            )
+    
+    def get_claim_entities_list(self, claim_id: str) -> ActionResult:
+        """
+        Get all entities linked to a claim with their roles.
+        
+        Args:
+            claim_id: ID of the claim.
+            
+        Returns:
+            ActionResult with list of (Entity, role) tuples.
+        """
+        try:
+            entities = get_claim_entities(self.db, claim_id)
+            return ActionResult(
+                success=True,
+                action='get',
+                object_type='claim_entity',
+                data=entities
+            )
+        except Exception as e:
+            logger.error(f"Failed to get claim entities: {e}")
+            return ActionResult(
+                success=False,
+                action='get',
+                object_type='claim_entity',
                 errors=[str(e)]
             )

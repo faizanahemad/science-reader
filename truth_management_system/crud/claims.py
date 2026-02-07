@@ -24,6 +24,45 @@ from ..models import Claim, CLAIM_COLUMNS
 from ..constants import ClaimStatus
 from ..utils import now_iso, generate_uuid
 
+# Cache for the actual columns in the claims table (detected at runtime).
+# This handles v2 databases that don't have friendly_id/claim_types/context_domains yet.
+# The cache is reset when reset_claim_columns_cache() is called (e.g., after migration).
+_actual_claim_columns = None
+
+
+def reset_claim_columns_cache():
+    """Reset the cached claim columns list. Called after schema migration."""
+    global _actual_claim_columns
+    _actual_claim_columns = None
+
+
+def _get_actual_claim_columns(db: PKBDatabase) -> list:
+    """
+    Get the actual column list from the claims table at runtime.
+    
+    This ensures INSERT statements only reference columns that exist,
+    which is critical for backwards compatibility when the database
+    hasn't been migrated to v3 yet.
+    
+    Args:
+        db: PKBDatabase instance.
+        
+    Returns:
+        List of column names that exist in both CLAIM_COLUMNS and the actual table.
+    """
+    global _actual_claim_columns
+    if _actual_claim_columns is not None:
+        return _actual_claim_columns
+    
+    try:
+        cursor = db.execute("PRAGMA table_info(claims)")
+        db_columns = {row[1] for row in cursor.fetchall()}
+        _actual_claim_columns = [c for c in CLAIM_COLUMNS if c in db_columns]
+    except Exception:
+        _actual_claim_columns = CLAIM_COLUMNS
+    
+    return _actual_claim_columns
+
 logger = logging.getLogger(__name__)
 
 
@@ -90,13 +129,25 @@ class ClaimCRUD(BaseCRUD[Claim]):
         claim = self._ensure_user_email(claim)
         
         with self.db.transaction() as conn:
-            # Build INSERT statement
-            columns = ', '.join(CLAIM_COLUMNS)
-            placeholders = ', '.join(['?' for _ in CLAIM_COLUMNS])
+            # Auto-assign claim_number if the column exists and claim doesn't have one
+            actual_cols = _get_actual_claim_columns(self.db)
+            if 'claim_number' in actual_cols and not claim.claim_number:
+                user_filter = claim.user_email or ''
+                max_row = conn.execute(
+                    "SELECT COALESCE(MAX(claim_number), 0) FROM claims WHERE COALESCE(user_email, '') = ?",
+                    (user_filter,)
+                ).fetchone()
+                claim.claim_number = (max_row[0] if max_row else 0) + 1
+            
+            # Build INSERT statement using only columns that exist in the table.
+            # This handles older databases that don't have all columns yet.
+            columns = ', '.join(actual_cols)
+            placeholders = ', '.join(['?' for _ in actual_cols])
+            values = tuple(getattr(claim, k) for k in actual_cols)
             
             conn.execute(
                 f"INSERT INTO claims ({columns}) VALUES ({placeholders})",
-                claim.to_insert_tuple()
+                values
             )
             
             # Link tags
@@ -152,6 +203,12 @@ class ClaimCRUD(BaseCRUD[Claim]):
         existing = self.get(claim_id)
         if not existing:
             return None
+        
+        # Auto-generate friendly_id if the existing claim doesn't have one
+        if not existing.friendly_id and 'friendly_id' not in patch:
+            from ..utils import generate_friendly_id
+            stmt = patch.get('statement', existing.statement)
+            patch['friendly_id'] = generate_friendly_id(stmt)
         
         statement_changed = 'statement' in patch and patch['statement'] != existing.statement
         
@@ -292,6 +349,84 @@ class ClaimCRUD(BaseCRUD[Claim]):
             params = [tag_id] + statuses + user_params
         
         rows = self.db.fetchall(sql, tuple(params))
+        return [Claim.from_row(row) for row in rows]
+    
+    def get_by_friendly_id(self, friendly_id: str) -> Optional[Claim]:
+        """
+        Get a claim by its user-facing friendly_id.
+        
+        If user_email is set on this CRUD instance, the lookup is scoped
+        to that user's claims only.
+        
+        Args:
+            friendly_id: The user-facing alphanumeric identifier.
+            
+        Returns:
+            Claim if found, None otherwise.
+        """
+        if self.user_email:
+            row = self.db.fetchone(
+                "SELECT * FROM claims WHERE friendly_id = ? AND user_email = ?",
+                (friendly_id, self.user_email)
+            )
+        else:
+            row = self.db.fetchone(
+                "SELECT * FROM claims WHERE friendly_id = ?",
+                (friendly_id,)
+            )
+        return Claim.from_row(row) if row else None
+    
+    def get_by_claim_number(self, claim_number: int) -> Optional[Claim]:
+        """
+        Get a claim by its per-user numeric claim_number.
+        
+        Used to resolve @claim_N references in chat messages.
+        
+        Args:
+            claim_number: The numeric identifier.
+            
+        Returns:
+            Claim if found, None otherwise.
+        """
+        if self.user_email:
+            row = self.db.fetchone(
+                "SELECT * FROM claims WHERE claim_number = ? AND user_email = ?",
+                (claim_number, self.user_email)
+            )
+        else:
+            row = self.db.fetchone(
+                "SELECT * FROM claims WHERE claim_number = ?",
+                (claim_number,)
+            )
+        return Claim.from_row(row) if row else None
+    
+    def search_friendly_ids(self, prefix: str, limit: int = 10) -> List[Claim]:
+        """
+        Search claims by friendly_id prefix (for autocomplete).
+        
+        Returns claims whose friendly_id starts with the given prefix,
+        scoped to the current user if user_email is set.
+        
+        Args:
+            prefix: The prefix to search for.
+            limit: Maximum number of results (default: 10).
+            
+        Returns:
+            List of claims matching the prefix.
+        """
+        if not prefix:
+            return []
+        
+        if self.user_email:
+            rows = self.db.fetchall(
+                "SELECT * FROM claims WHERE friendly_id LIKE ? AND user_email = ? AND status != ? ORDER BY friendly_id LIMIT ?",
+                (f"{prefix}%", self.user_email, ClaimStatus.RETRACTED.value, limit)
+            )
+        else:
+            rows = self.db.fetchall(
+                "SELECT * FROM claims WHERE friendly_id LIKE ? AND status != ? ORDER BY friendly_id LIMIT ?",
+                (f"{prefix}%", ClaimStatus.RETRACTED.value, limit)
+            )
         return [Claim.from_row(row) for row in rows]
     
     def get_contested(self) -> List[Claim]:

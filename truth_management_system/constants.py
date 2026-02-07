@@ -159,3 +159,12 @@ ALL_ENTITY_TYPES = [e.value for e in EntityType]
 ALL_ENTITY_ROLES = [e.value for e in EntityRole]
 ALL_CONFLICT_STATUSES = [e.value for e in ConflictStatus]
 ALL_CONTEXT_DOMAINS = [e.value for e in ContextDomain]
+
+# Friendly ID pattern: alphanumeric + underscores + hyphens, 2-128 chars
+FRIENDLY_ID_REGEX = r'^[a-zA-Z0-9_-]{2,128}$'
+
+# Reference patterns for parsing @references in chat messages
+# New friendly_id syntax: @some_friendly_id (alphanumeric, underscores, hyphens)
+# Old UUID syntax: @memory:uuid or @mem:uuid (backwards compatible)
+REFERENCE_FRIENDLY_ID_REGEX = r'@([a-zA-Z0-9_-]{2,128})'
+REFERENCE_LEGACY_UUID_REGEX = r'@(?:memory|mem):([a-zA-Z0-9-]+)'

@@ -159,6 +159,15 @@ def get_pkb_database():
         except Exception as e:
             logger.error(f"Failed to initialize PKB database: {e}")
             return None, None
+    else:
+        # Ensure schema is up-to-date for long-running processes (e.g. dev server
+        # with hot reload) where the code schema may change after the DB object
+        # was first created.
+        try:
+            _pkb_db_instance.initialize_schema()
+        except Exception as e:
+            logger.error(f"Failed to ensure PKB schema is initialized: {e}")
+            return None, None
 
     return _pkb_db_instance, _pkb_config_instance
 
@@ -237,6 +246,67 @@ class Conversation:
             setattr(self, "_flag", value)
         self.save_local()
 
+    @staticmethod
+    def _extract_referenced_claims(pkb_context: str) -> str:
+        """
+        Extract only explicitly referenced claims from formatted PKB context text.
+
+        The PKB context returned by ``_get_pkb_context`` is a newline-joined
+        string of bullet-point claims, each starting with ``- ``.  Claims that
+        the user explicitly referenced (via ``@friendly_id`` or ``@memory:uuid``)
+        carry a ``[REFERENCED ...]`` tag in their source prefix.
+
+        This function returns *only* those referenced claims, preserving multi-
+        line statements intact.  It is used after the cheap-LLM distillation
+        step to re-inject the referenced claims verbatim into the final prompt
+        (the distillation LLM may drop or paraphrase them, but the user asked
+        for these specific facts).
+
+        Parsing strategy
+        ----------------
+        Rather than splitting on newlines (which would break multi-line claim
+        statements), we split on the bullet prefix ``- [`` which starts every
+        claim.  Each resulting chunk is then checked for the ``[REFERENCED``
+        tag.  This is robust against multi-line claim text.
+
+        Args:
+            pkb_context: The formatted PKB context string from
+                ``_get_pkb_context``, or an empty string.
+
+        Returns:
+            A newline-joined string of only the referenced claim bullets, or
+            an empty string if none are found.
+
+        Examples:
+            >>> ctx = (
+            ...     "- [REFERENCED @ssdva] [fact] I work at Amazon India.\\n"
+            ...     "- [fact] I like morning meetings."
+            ... )
+            >>> Conversation._extract_referenced_claims(ctx)
+            '- [REFERENCED @ssdva] [fact] I work at Amazon India.'
+        """
+        if not pkb_context:
+            return ""
+
+        import re as _re
+
+        # Split on the bullet prefix "- [" which starts every claim.
+        # We use a regex that keeps the delimiter as part of the next chunk.
+        # Pattern: split just before "- [" that appears at the start of a line
+        # or the start of the string.
+        chunks = _re.split(r"(?=^- \[|\n- \[)", pkb_context)
+
+        referenced = []
+        for chunk in chunks:
+            stripped = chunk.strip()
+            if not stripped:
+                continue
+            # Check if this claim bullet has a [REFERENCED ...] tag
+            if "[REFERENCED" in stripped:
+                referenced.append(stripped)
+
+        return "\n".join(referenced)
+
     def _get_pkb_context(
         self,
         user_email: str,
@@ -247,12 +317,14 @@ class Conversation:
         conversation_id: str = None,
         conversation_pinned_claim_ids: list = None,
         referenced_claim_ids: list = None,
+        referenced_friendly_ids: list = None,
     ) -> str:
         """
         Retrieve relevant claims from PKB for the current query.
 
         This method retrieves PKB context from multiple sources with priority:
-        1. Referenced claims (from @memory:id in message) - highest priority
+        0. Referenced friendly IDs (from @friendly_id in message) - highest priority
+        1. Referenced claims (from @memory:uuid in message) - highest priority
         2. Attached claims (from "Use in next message" UI selection) - high priority
         3. Globally pinned claims (meta_json.pinned = true) - medium-high priority
         4. Conversation-pinned claims - medium priority
@@ -268,7 +340,8 @@ class Conversation:
             attached_claim_ids: Optional list of claim IDs explicitly attached by user.
             conversation_id: Optional conversation ID for conversation-level pinning.
             conversation_pinned_claim_ids: Optional list of claim IDs pinned to this conversation.
-            referenced_claim_ids: Optional list of claim IDs from @memory:id references in message.
+            referenced_claim_ids: Optional list of claim IDs from @memory:uuid references in message.
+            referenced_friendly_ids: Optional list of friendly IDs from @friendly_id references in message.
 
         Returns:
             Formatted string of relevant claims, or empty string if none found.
@@ -287,6 +360,9 @@ class Conversation:
         attached_claim_ids = attached_claim_ids or []
         conversation_pinned_claim_ids = conversation_pinned_claim_ids or []
         referenced_claim_ids = referenced_claim_ids or []
+        referenced_friendly_ids = referenced_friendly_ids or []
+
+        time_logger.info(f"[PKB] referenced_friendly_ids={referenced_friendly_ids}")
 
         try:
             db, config = get_pkb_database()
@@ -305,7 +381,31 @@ class Conversation:
             all_claims = []  # List of (source, claim) tuples
             seen_ids = set()
 
-            # 1. Referenced claims (from @memory:id in message) - highest priority
+            # 0. Referenced friendly IDs (from @friendly_id in message) - highest priority
+            if referenced_friendly_ids:
+                time_logger.info(
+                    f"[PKB] Resolving {len(referenced_friendly_ids)} friendly_id references"
+                )
+                for fid in referenced_friendly_ids:
+                    result = api.resolve_reference(fid)
+                    if result.success and result.data:
+                        ref_type = result.data.get("type", "unknown")
+                        ref_claims = result.data.get("claims", [])
+                        source_name = result.data.get("source_name", fid)
+                        for claim in ref_claims:
+                            if claim and claim.claim_id not in seen_ids:
+                                source_label = f"referenced_@{fid}"
+                                all_claims.append((source_label, claim))
+                                seen_ids.add(claim.claim_id)
+                        time_logger.info(
+                            f"[PKB] @{fid} resolved as {ref_type}: {len(ref_claims)} claims ({source_name})"
+                        )
+                    else:
+                        time_logger.info(
+                            f"[PKB] @{fid} could not be resolved: {result.errors}"
+                        )
+
+            # 1. Referenced claims (from @memory:uuid in message) - highest priority
             if referenced_claim_ids:
                 time_logger.info(
                     f"[PKB] Fetching {len(referenced_claim_ids)} referenced claims"
@@ -467,7 +567,11 @@ class Conversation:
             for source, claim in all_claims:
                 claim_type_prefix = f"[{claim.claim_type}]" if claim.claim_type else ""
                 source_prefix = ""
-                if source == "referenced":
+                if source.startswith("referenced_@"):
+                    # Friendly ID reference: @some_friendly_id
+                    fid = source.replace("referenced_@", "")
+                    source_prefix = f"[REFERENCED @{fid}] "
+                elif source == "referenced":
                     source_prefix = "[REFERENCED] "
                 elif source == "attached":
                     source_prefix = "[ATTACHED] "
@@ -475,8 +579,23 @@ class Conversation:
                     source_prefix = "[PINNED] "
                 elif source == "conv_pinned":
                     source_prefix = "[CONV-PINNED] "
+                # Include possible questions if available (helps LLM understand relevance)
+                pq_suffix = ""
+                if hasattr(claim, "possible_questions") and claim.possible_questions:
+                    try:
+                        import json as _json
+
+                        questions = (
+                            _json.loads(claim.possible_questions)
+                            if isinstance(claim.possible_questions, str)
+                            else claim.possible_questions
+                        )
+                        if questions and isinstance(questions, list):
+                            pq_suffix = f" (answers: {'; '.join(questions[:3])})"
+                    except Exception:
+                        pass
                 context_lines.append(
-                    f"- {source_prefix}{claim_type_prefix} {claim.statement}"
+                    f"- {source_prefix}{claim_type_prefix} {claim.statement}{pq_suffix}"
                 )
 
             formatted_context = "\n".join(context_lines)
@@ -4652,21 +4771,32 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             if isinstance(query, dict)
             else []
         )
-        # Extract referenced claim IDs (from @memory:id references in message)
+        # Extract referenced claim IDs (from @memory:uuid references in message)
         referenced_claim_ids = (
             query.get("referenced_claim_ids", []) if isinstance(query, dict) else []
         )
+        # Extract referenced friendly IDs (from @friendly_id references in message, v0.5)
+        referenced_friendly_ids = (
+            query.get("referenced_friendly_ids", []) if isinstance(query, dict) else []
+        )
 
-        # Start PKB context retrieval in parallel (if PKB is available)
+        # Start PKB context retrieval in parallel (if PKB is available and use_pkb is enabled)
         pkb_context_future = None
         pkb_k = None
-        time_logger.info(
-            f"[PKB-REPLY] PKB_AVAILABLE={PKB_AVAILABLE}, user_email={user_email}, userData_is_None={userData is None}"
+        # use_pkb checkbox controls whether PKB memory retrieval and user_info
+        # distillation happen.  Default is True (enabled).
+        use_pkb = (
+            query.get("checkboxes", {}).get("use_pkb", True)
+            if isinstance(query, dict)
+            else True
         )
         time_logger.info(
-            f"[PKB-REPLY] attached_claim_ids={attached_claim_ids}, conv_pinned={conversation_pinned_claim_ids}, referenced={referenced_claim_ids}"
+            f"[PKB-REPLY] PKB_AVAILABLE={PKB_AVAILABLE}, user_email={user_email}, userData_is_None={userData is None}, use_pkb={use_pkb}"
         )
-        if PKB_AVAILABLE and user_email:
+        time_logger.info(
+            f"[PKB-REPLY] attached_claim_ids={attached_claim_ids}, conv_pinned={conversation_pinned_claim_ids}, referenced={referenced_claim_ids}, friendly_refs={referenced_friendly_ids}"
+        )
+        if PKB_AVAILABLE and user_email and use_pkb:
             time_logger.info(
                 f"[PKB-REPLY] Starting PKB context retrieval for user: {user_email}"
             )
@@ -4681,6 +4811,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 conversation_id=self.conversation_id,
                 conversation_pinned_claim_ids=conversation_pinned_claim_ids,
                 referenced_claim_ids=referenced_claim_ids,
+                referenced_friendly_ids=referenced_friendly_ids,
             )
             yield {
                 "text": "",
@@ -4690,7 +4821,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             time_logger.info(
                 f"[PKB-REPLY] Skipping PKB context: PKB_AVAILABLE={PKB_AVAILABLE}, user_email={'set' if user_email else 'NOT SET'}"
             )
-            if not PKB_AVAILABLE:
+            if not use_pkb:
+                yield {"text": "", "status": "PKB memory disabled by user setting"}
+            elif not PKB_AVAILABLE:
                 yield {"text": "", "status": "PKB not available (import failed)"}
             elif not user_email:
                 yield {"text": "", "status": "PKB skipped: No user email provided"}
@@ -5389,7 +5522,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 system="You are a helpful assistant that can answer questions and provide detailed information.",
             )
 
-        if userData is not None:
+        if userData is not None and use_pkb:
             yield {"text": "", "status": "Retrieving PKB memory context ..."}
             time_logger.info(
                 f"[PKB-REPLY] userData is not None, checking pkb_context_future..."
@@ -6358,7 +6491,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             truncate_text = truncate_text_for_gpt4_96k
 
         user_info_text = ""
-        if userData is not None:
+        if userData is not None and use_pkb:
             time_logger.info(
                 "[PKB-REPLY] Waiting for user_info extraction LLM calls to complete..."
             )
@@ -6433,7 +6566,29 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 if user_info_text and len(user_info_text) > 500
                 else f"[PKB-REPLY] user_info_text: {user_info_text}"
             )
-            user_info_text = f"\nUser Preferences and What we know about the user:\n{user_info_text}\n\n"
+            # Re-inject only the explicitly referenced PKB claims verbatim.
+            # The cheap LLM distillation above may drop or paraphrase claims,
+            # but referenced claims (those the user asked for via @friendly_id
+            # or @memory:uuid) must reach the main LLM word-for-word.
+            # Auto-retrieved / pinned / attached claims are left to the
+            # distillation output since they are supplementary context.
+            referenced_claims_section = ""
+            if pkb_context:
+                referenced_only = self._extract_referenced_claims(pkb_context)
+                if referenced_only:
+                    referenced_claims_section = (
+                        "\n**User's explicitly referenced memories (use as ground truth):**\n"
+                        f"```\n{referenced_only}\n```\n"
+                    )
+                    time_logger.info(
+                        f"[PKB-REPLY] Re-appending {len(referenced_only.splitlines())} referenced claims "
+                        f"({len(referenced_only)} chars) to user_info_text"
+                    )
+                else:
+                    time_logger.info(
+                        "[PKB-REPLY] No referenced claims found in pkb_context, skipping re-append"
+                    )
+            user_info_text = f"\nUser Preferences and What we know about the user:\n{user_info_text}\n{referenced_claims_section}\n"
         else:
             time_logger.info(
                 "[PKB-REPLY] userData is None, user_info_text will be empty"
@@ -8591,7 +8746,10 @@ def model_name_to_canonical_name(model_name):
         or model_name == "Sonnet 4"
     ):
         model_name = "anthropic/claude-sonnet-4"
-    elif model_name == "google/gemini-3-flash-preview" or model_name == "Gemini 3 Flash Preview":
+    elif (
+        model_name == "google/gemini-3-flash-preview"
+        or model_name == "Gemini 3 Flash Preview"
+    ):
         model_name = "google/gemini-3-flash-preview"
     elif model_name == "anthropic/claude-sonnet-4.5" or model_name == "Sonnet 4.5":
         model_name = "anthropic/claude-sonnet-4.5"

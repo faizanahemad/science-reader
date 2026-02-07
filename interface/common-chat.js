@@ -2576,7 +2576,7 @@ var ChatManager = {
 
 
 
-    sendMessage: function (conversationId, messageText, checkboxes, links, search, attached_claim_ids, referenced_claim_ids) {
+    sendMessage: function (conversationId, messageText, checkboxes, links, search, attached_claim_ids, referenced_claim_ids, referenced_friendly_ids) {
         // Render user's message immediately
         var userMessage = {
             sender: 'user',
@@ -2602,6 +2602,11 @@ var ChatManager = {
         // Include referenced claim IDs from @memory: refs if provided
         if (referenced_claim_ids && referenced_claim_ids.length > 0) {
             requestBody['referenced_claim_ids'] = referenced_claim_ids;
+        }
+        
+        // Include referenced friendly IDs from @friendly_id refs if provided (v0.5)
+        if (referenced_friendly_ids && referenced_friendly_ids.length > 0) {
+            requestBody['referenced_friendly_ids'] = referenced_friendly_ids;
         }
 
         // Use Fetch API to make request
@@ -2845,15 +2850,17 @@ function sendMessageCallback(skipAutoClarify) {
     
     // Parse @memory references from message text (Deliberate Memory Attachment feature)
     var referenced_claim_ids = [];
+    var referenced_friendly_ids = [];
     if (typeof parseMemoryReferences === 'function') {
         var memoryRefs = parseMemoryReferences(messageText);
         referenced_claim_ids = memoryRefs.claimIds;
+        referenced_friendly_ids = memoryRefs.friendlyIds || [];
         // Optionally clean the message text (remove @memory: refs)
         // We keep the original text for now - the backend will see both
         // messageText = memoryRefs.cleanText;
     }
 
-    ChatManager.sendMessage(ConversationManager.activeConversationId, messageText, options, links, search, attached_claim_ids, referenced_claim_ids).then(function (response) {
+    ChatManager.sendMessage(ConversationManager.activeConversationId, messageText, options, links, search, attached_claim_ids, referenced_claim_ids, referenced_friendly_ids).then(function (response) {
         if (!response.ok) {
             alert('An error occurred: ' + response.status);
             // Reset UI state on error
@@ -3289,3 +3296,309 @@ function initializeChatControlsToggleHandler() {
         $(window).data('suggestions-resize-handler-bound', true);
     }
 }
+
+// =============================================================================
+// PKB @Autocomplete Widget (v0.5)
+// Provides inline autocomplete for @memory and @context references in chat input.
+// Triggered after typing '@' followed by 1+ characters.
+// =============================================================================
+(function() {
+    'use strict';
+    
+    var autocompleteState = {
+        active: false,          // Whether autocomplete dropdown is visible
+        query: '',              // Current search prefix (chars after @)
+        atPosition: -1,         // Position of the @ character in textarea
+        selectedIndex: 0,       // Currently highlighted item
+        results: [],            // Combined results [{type, friendly_id, label, sublabel}]
+        debounceTimer: null
+    };
+    
+    /**
+     * Initialize the autocomplete widget.
+     * Creates the dropdown container and binds events to the message textarea.
+     */
+    function initAutocomplete() {
+        // Create dropdown container if it doesn't exist
+        if ($('#pkb-autocomplete-dropdown').length === 0) {
+            var dropdownHtml = '<div id="pkb-autocomplete-dropdown" ' +
+                'style="display:none; position:absolute; z-index:1100; ' +
+                'background:white; border:1px solid #dee2e6; border-radius:6px; ' +
+                'box-shadow:0 4px 12px rgba(0,0,0,0.15); max-height:240px; ' +
+                'overflow-y:auto; min-width:300px; max-width:500px;">' +
+                '</div>';
+            $('body').append(dropdownHtml);
+        }
+        
+        var $textarea = $('#messageText');
+        if ($textarea.length === 0) return;
+        
+        // Bind input event for detecting @ and typing
+        $textarea.on('input.pkbAutocomplete', function() {
+            handleInput(this);
+        });
+        
+        // Bind keydown for navigation (up/down/enter/escape/tab)
+        $textarea.on('keydown.pkbAutocomplete', function(e) {
+            if (!autocompleteState.active) return;
+            
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                navigateAutocomplete(1);
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                navigateAutocomplete(-1);
+            } else if (e.key === 'Enter' || e.key === 'Tab') {
+                if (autocompleteState.results.length > 0) {
+                    e.preventDefault();
+                    selectAutocompleteItem(autocompleteState.selectedIndex);
+                }
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                hideAutocomplete();
+            }
+        });
+        
+        // Hide on blur (with small delay for click handling)
+        $textarea.on('blur.pkbAutocomplete', function() {
+            setTimeout(function() {
+                hideAutocomplete();
+            }, 200);
+        });
+        
+        // Handle clicks on autocomplete items
+        $(document).on('mousedown', '#pkb-autocomplete-dropdown .pkb-ac-item', function(e) {
+            e.preventDefault();
+            var index = parseInt($(this).data('index'));
+            selectAutocompleteItem(index);
+        });
+    }
+    
+    /**
+     * Handle input changes in the textarea.
+     * Detects @ character and triggers autocomplete search.
+     */
+    function handleInput(textarea) {
+        var text = textarea.value;
+        var cursorPos = textarea.selectionStart;
+        
+        // Find the @ character before cursor
+        var textBeforeCursor = text.substring(0, cursorPos);
+        var lastAtIndex = textBeforeCursor.lastIndexOf('@');
+        
+        if (lastAtIndex === -1) {
+            hideAutocomplete();
+            return;
+        }
+        
+        // Check if @ is at start or preceded by whitespace (not part of email)
+        if (lastAtIndex > 0 && !/\s/.test(text.charAt(lastAtIndex - 1))) {
+            hideAutocomplete();
+            return;
+        }
+        
+        // Get the text between @ and cursor
+        var prefix = textBeforeCursor.substring(lastAtIndex + 1);
+        
+        // Must not contain spaces (we're typing a single reference token)
+        if (/\s/.test(prefix)) {
+            hideAutocomplete();
+            return;
+        }
+        
+        // Need at least 1 character after @
+        if (prefix.length < 1) {
+            hideAutocomplete();
+            return;
+        }
+        
+        // Debounce the search
+        autocompleteState.atPosition = lastAtIndex;
+        autocompleteState.query = prefix;
+        
+        clearTimeout(autocompleteState.debounceTimer);
+        autocompleteState.debounceTimer = setTimeout(function() {
+            fetchAutocompleteResults(prefix, textarea);
+        }, 200);
+    }
+    
+    /**
+     * Fetch autocomplete results from the server.
+     */
+    function fetchAutocompleteResults(prefix, textarea) {
+        if (typeof PKBManager === 'undefined' || !PKBManager.searchAutocomplete) {
+            return;
+        }
+        
+        PKBManager.searchAutocomplete(prefix, 8).done(function(response) {
+            var results = [];
+            
+            // Add memories
+            if (response.memories && response.memories.length > 0) {
+                response.memories.forEach(function(m) {
+                    results.push({
+                        type: 'memory',
+                        friendly_id: m.friendly_id,
+                        label: m.statement,
+                        sublabel: m.claim_type,
+                        icon: 'bi-card-text'
+                    });
+                });
+            }
+            
+            // Add contexts
+            if (response.contexts && response.contexts.length > 0) {
+                response.contexts.forEach(function(c) {
+                    results.push({
+                        type: 'context',
+                        friendly_id: c.friendly_id,
+                        label: c.name,
+                        sublabel: c.claim_count + ' memories',
+                        icon: 'bi-folder'
+                    });
+                });
+            }
+            
+            autocompleteState.results = results;
+            autocompleteState.selectedIndex = 0;
+            
+            if (results.length > 0) {
+                showAutocomplete(textarea);
+            } else {
+                hideAutocomplete();
+            }
+        }).fail(function() {
+            hideAutocomplete();
+        });
+    }
+    
+    /**
+     * Show the autocomplete dropdown positioned near the textarea.
+     */
+    function showAutocomplete(textarea) {
+        var $dropdown = $('#pkb-autocomplete-dropdown');
+        var $textarea = $(textarea);
+        
+        // Position dropdown above or below the textarea
+        var offset = $textarea.offset();
+        var textareaHeight = $textarea.outerHeight();
+        
+        $dropdown.css({
+            left: offset.left + 'px',
+            bottom: ($(window).height() - offset.top + 4) + 'px',
+            top: 'auto'
+        });
+        
+        // Render items
+        var html = '';
+        autocompleteState.results.forEach(function(item, index) {
+            var isSelected = index === autocompleteState.selectedIndex;
+            var bgClass = isSelected ? 'background-color:#e9ecef;' : '';
+            var typeLabel = item.type === 'context' ? 
+                '<span class="badge badge-info badge-sm ml-1">context</span>' : '';
+            
+            html += '<div class="pkb-ac-item px-3 py-2" data-index="' + index + '" ' +
+                'style="cursor:pointer; border-bottom:1px solid #f0f0f0; ' + bgClass + '">' +
+                '<div class="d-flex align-items-center">' +
+                    '<i class="bi ' + item.icon + ' mr-2 text-muted"></i>' +
+                    '<div class="flex-grow-1" style="min-width:0;">' +
+                        '<div style="font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' + 
+                            escapeHtml(item.label) + typeLabel +
+                        '</div>' +
+                        '<div style="font-size:11px; color:#6c757d;">' +
+                            '<code>@' + escapeHtml(item.friendly_id) + '</code> &middot; ' + 
+                            escapeHtml(item.sublabel) +
+                        '</div>' +
+                    '</div>' +
+                '</div>' +
+            '</div>';
+        });
+        
+        $dropdown.html(html).show();
+        autocompleteState.active = true;
+    }
+    
+    /**
+     * Hide the autocomplete dropdown.
+     */
+    function hideAutocomplete() {
+        $('#pkb-autocomplete-dropdown').hide();
+        autocompleteState.active = false;
+        autocompleteState.results = [];
+        autocompleteState.selectedIndex = 0;
+    }
+    
+    /**
+     * Navigate the autocomplete dropdown (up/down).
+     */
+    function navigateAutocomplete(direction) {
+        var newIndex = autocompleteState.selectedIndex + direction;
+        if (newIndex < 0) newIndex = autocompleteState.results.length - 1;
+        if (newIndex >= autocompleteState.results.length) newIndex = 0;
+        
+        autocompleteState.selectedIndex = newIndex;
+        
+        // Update visual highlight
+        var $items = $('#pkb-autocomplete-dropdown .pkb-ac-item');
+        $items.css('background-color', '');
+        $items.eq(newIndex).css('background-color', '#e9ecef');
+        
+        // Scroll into view
+        var $dropdown = $('#pkb-autocomplete-dropdown');
+        var $selected = $items.eq(newIndex);
+        if ($selected.length) {
+            var itemTop = $selected.position().top;
+            var itemHeight = $selected.outerHeight();
+            var dropdownHeight = $dropdown.height();
+            var scrollTop = $dropdown.scrollTop();
+            
+            if (itemTop < 0) {
+                $dropdown.scrollTop(scrollTop + itemTop);
+            } else if (itemTop + itemHeight > dropdownHeight) {
+                $dropdown.scrollTop(scrollTop + itemTop + itemHeight - dropdownHeight);
+            }
+        }
+    }
+    
+    /**
+     * Select an autocomplete item and insert it into the textarea.
+     */
+    function selectAutocompleteItem(index) {
+        if (index < 0 || index >= autocompleteState.results.length) return;
+        
+        var item = autocompleteState.results[index];
+        var $textarea = $('#messageText');
+        var text = $textarea.val();
+        var atPos = autocompleteState.atPosition;
+        var cursorPos = $textarea[0].selectionStart;
+        
+        // Replace @prefix with @friendly_id followed by a space
+        var replacement = '@' + item.friendly_id + ' ';
+        var newText = text.substring(0, atPos) + replacement + text.substring(cursorPos);
+        
+        $textarea.val(newText);
+        
+        // Set cursor position after the inserted reference
+        var newCursorPos = atPos + replacement.length;
+        $textarea[0].setSelectionRange(newCursorPos, newCursorPos);
+        $textarea.focus();
+        
+        // Trigger input event to update textarea height
+        $textarea.trigger('input');
+        
+        hideAutocomplete();
+    }
+    
+    // Helper: escape HTML (use existing or define simple version)
+    function escapeHtml(str) {
+        if (!str) return '';
+        return str.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                  .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    
+    // Initialize when document is ready
+    $(document).ready(function() {
+        // Small delay to ensure messageText textarea exists
+        setTimeout(initAutocomplete, 500);
+    });
+})();

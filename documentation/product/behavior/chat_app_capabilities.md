@@ -69,11 +69,12 @@ This section is the “copy into Android” backbone: what exists, how to call i
 ```json
 {
   "messageText": "string",
-  "checkboxes": { "...": "various options" },
+  "checkboxes": { "perform_web_search": false, "use_pkb": true, "...": "various options" },
   "links": ["optional url list"],
   "search": ["optional search query list"],
-  "attached_claim_ids": ["optional PKB claim ids"],
-  "referenced_claim_ids": ["optional PKB claim ids extracted from @memory:<id> refs"]
+  "attached_claim_ids": ["optional PKB claim ids from 'Use Now' button"],
+  "referenced_claim_ids": ["optional PKB claim ids from @memory:<uuid> refs"],
+  "referenced_friendly_ids": ["optional friendly IDs from @friendly_id refs (claims or contexts)"]
 }
 ```
 
@@ -232,31 +233,55 @@ Server-side injection:
 
 ---
 
-### 6) PKB (Personal Knowledge Base) integration
+### 6) PKB (Personal Knowledge Base) / Claims Memory System
 
 **What it does**
-- Retrieves relevant “claims” as context for the current query.
-- Combines multiple sources with explicit prioritization:
-  1. referenced claims (e.g. `@memory:<id>` references)
-  2. attached claims (“use in next message” selection)
+- Stores personal facts, preferences, decisions, and tasks as **claims** (atomic memory units) in a SQLite-backed Personal Knowledge Base.
+- Each claim has: statement, claim_type, context_domain, friendly_id, possible_questions (QnA), and optional contexts/groups.
+- **Contexts** (groups) organize claims hierarchically; referencing `@context_friendly_id` in chat resolves to all claims within that context and sub-contexts.
+- Retrieves relevant claims as context for the current query, combining multiple sources with explicit prioritization:
+  1. `@friendly_id` / `@memory:uuid` references (highest -- user explicitly asked for these)
+  2. attached claims ("Use in next message" UI selection)
   3. globally pinned claims
   4. conversation-pinned claims
-  5. auto-retrieved via hybrid search
+  5. auto-retrieved via hybrid (FTS5 + embedding) search
+
+**Chat integration flow**
+- UI parses `@references` from message text (`parseMemoryReferences()`) and collects "Use Now" attachments (`PKBManager.getPendingAttachments()`).
+- Server injects conversation-pinned claim IDs from session state.
+- `Conversation.reply()` fetches claims via `_get_pkb_context()` in a background thread.
+- Full PKB context is sent to a cheap LLM for distillation (extracts relevant user prefs).
+- After distillation, explicitly `[REFERENCED]` claims are re-injected verbatim via `_extract_referenced_claims()` to ensure they reach the main LLM word-for-word.
+- The combined user_info_text (distilled prefs + referenced claims) is injected into the `permanent_instructions` slot of the chat prompt.
+
+**Toggle**
+- Controlled by `checkboxes.use_pkb` (UI: "Use PKB Memory" checkbox, default enabled). When unchecked, PKB retrieval and user info distillation are skipped entirely.
 
 **APIs**
 - PKB management and retrieval:
   - `GET/POST/PUT/DELETE /pkb/claims[...]`
+  - `GET/POST/PUT/DELETE /pkb/contexts[...]`
   - `POST /pkb/search`
   - `POST /pkb/relevant_context`
+  - `GET /pkb/autocomplete?prefix=...` (powers `@` autocomplete in chat input)
   - pinning endpoints (`/pkb/*/pin`, `/pkb/pinned`, conversation pinning routes)
 - Main chat uses PKB context automatically if available (part of `send_message` execution).
 
 **Persistence**
 - PKB uses a separate sqlite DB: `pkb.sqlite` under `users_dir`.
+- Schema v6 with: claims, contexts, context_claims (M:N), claims_fts (FTS5), claim_embeddings.
 - Conversation-level pinned claims are tracked server-side (in app state) and injected into chat requests.
 
+**Key files**
+- `truth_management_system/` -- core module (models, CRUD, search, LLM helpers)
+- `truth_management_system/interface/structured_api.py` -- StructuredAPI facade
+- `Conversation.py` -- `_get_pkb_context()`, `_extract_referenced_claims()`
+- `interface/pkb-manager.js` -- UI for claims CRUD, contexts, search
+- `interface/parseMessageForCheckBoxes.js` -- `parseMemoryReferences()` for `@` reference parsing
+- `endpoints/pkb.py` -- REST API endpoints
+
 **Differentiator**
-- This is a major capability gap vs “plain ChatGPT chat”: it supports an internal, queryable memory store with explicit attachment and pinning flows.
+- This is a major capability gap vs "plain ChatGPT chat": it supports an internal, queryable memory store with explicit attachment, pinning, context grouping, inline `@` references with autocomplete, and QnA-style retrieval.
 
 ---
 
@@ -437,9 +462,11 @@ and avoids loading everything for every request.
   - list + download + delete
   - doc references (`#doc_n`) helper UI
 - PKB:
-  - list/search claims
-  - pin/unpin and “attach to next message”
-  - parse `@memory:<id>` references (client-side)
+  - list/search claims; CRUD for claims and contexts
+  - pin/unpin and "attach to next message"
+  - parse `@memory:<id>` and `@friendly_id` references (client-side)
+  - `@` autocomplete dropdown for claims and contexts
+  - toggle via `use_pkb` checkbox (default: on)
 
 ### UI screens (suggested)
 - Login / session
@@ -448,7 +475,7 @@ and avoids loading everything for every request.
   - message stream rendering
   - “status” progress line support
   - attach documents
-  - toggle options (web search, memory pad, planner, reward dialer, model selection, preamble)
+  - toggle options (web search, memory pad, PKB memory, planner, reward dialer, model selection, preamble)
   - next question suggestions
   - per-message actions: doubt clearing, TTS, edit/delete, show/hide
 - PKB screen:

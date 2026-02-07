@@ -33,9 +33,10 @@ from .constants import ClaimStatus, ClaimType, EntityType, EntityRole, ConflictS
 # =============================================================================
 
 CLAIM_COLUMNS = [
-    'claim_id', 'user_email', 'claim_type', 'statement', 'subject_text', 'predicate',
-    'object_text', 'context_domain', 'status', 'confidence', 'created_at',
-    'updated_at', 'valid_from', 'valid_to', 'meta_json', 'retracted_at'
+    'claim_id', 'user_email', 'claim_number', 'friendly_id', 'claim_type', 'claim_types', 'statement',
+    'subject_text', 'predicate', 'object_text', 'context_domain', 'context_domains',
+    'status', 'confidence', 'created_at', 'updated_at', 'valid_from', 'valid_to',
+    'meta_json', 'retracted_at', 'possible_questions'
 ]
 
 NOTE_COLUMNS = [
@@ -55,6 +56,11 @@ CONFLICT_SET_COLUMNS = [
     'conflict_set_id', 'user_email', 'status', 'resolution_notes', 'created_at', 'updated_at'
 ]
 
+CONTEXT_COLUMNS = [
+    'context_id', 'user_email', 'friendly_id', 'name', 'description',
+    'parent_context_id', 'meta_json', 'created_at', 'updated_at'
+]
+
 
 # =============================================================================
 # Claim Model
@@ -71,9 +77,12 @@ class Claim:
     Attributes:
         claim_id: Unique identifier (UUID).
         user_email: Email of the user who owns this claim (for multi-user support).
-        claim_type: Type from ClaimType enum.
+        friendly_id: User-facing alphanumeric ID (auto-generated or user-specified).
+        claim_type: Primary type from ClaimType enum.
+        claim_types: JSON string of all types (e.g., '["preference","fact"]').
         statement: The actual claim text.
-        context_domain: Life domain from ContextDomain enum.
+        context_domain: Primary life domain from ContextDomain enum.
+        context_domains: JSON string of all domains (e.g., '["health","personal"]').
         status: Lifecycle state from ClaimStatus enum.
         subject_text: SPO subject (optional extraction).
         predicate: SPO predicate (optional extraction).
@@ -96,6 +105,10 @@ class Claim:
     statement: str
     context_domain: str
     user_email: Optional[str] = None
+    claim_number: Optional[int] = None
+    friendly_id: Optional[str] = None
+    claim_types: Optional[str] = None
+    context_domains: Optional[str] = None
     status: str = ClaimStatus.ACTIVE.value
     subject_text: Optional[str] = None
     predicate: Optional[str] = None
@@ -107,6 +120,7 @@ class Claim:
     valid_to: Optional[str] = None
     meta_json: Optional[str] = None
     retracted_at: Optional[str] = None
+    possible_questions: Optional[str] = None  # JSON array of questions this claim answers
     
     # Computed fields (not stored in DB)
     _embedding: Optional[Any] = field(default=None, repr=False, compare=False)
@@ -152,21 +166,55 @@ class Claim:
         claim_type: str,
         context_domain: str,
         user_email: Optional[str] = None,
+        friendly_id: Optional[str] = None,
+        claim_types: Optional[List[str]] = None,
+        context_domains: Optional[List[str]] = None,
         **kwargs
     ) -> 'Claim':
         """
         Factory method to create a new claim with generated ID.
         
+        If friendly_id is not provided, one will be auto-generated from the statement.
+        If claim_types/context_domains lists are provided, they are JSON-serialized.
+        The primary claim_type and context_domain are always the first in the list.
+        
         Args:
             statement: The claim text.
-            claim_type: Type from ClaimType enum.
-            context_domain: Domain from ContextDomain enum.
+            claim_type: Primary type from ClaimType enum.
+            context_domain: Primary domain from ContextDomain enum.
             user_email: Email of the owning user (for multi-user support).
+            friendly_id: Optional user-specified friendly ID.
+            claim_types: Optional list of all types (primary first).
+            context_domains: Optional list of all domains (primary first).
             **kwargs: Additional fields.
             
         Returns:
-            New Claim instance with generated claim_id.
+            New Claim instance with generated claim_id and friendly_id.
         """
+        import json as _json
+        from .utils import generate_friendly_id as _gen_fid
+        
+        # Auto-generate friendly_id if not provided
+        if not friendly_id:
+            friendly_id = _gen_fid(statement)
+        
+        # Build JSON arrays for multi-type/domain
+        types_json = None
+        if claim_types:
+            # Ensure primary type is first
+            all_types = [claim_type] + [t for t in claim_types if t != claim_type]
+            types_json = _json.dumps(all_types)
+        else:
+            types_json = _json.dumps([claim_type])
+        
+        domains_json = None
+        if context_domains:
+            # Ensure primary domain is first
+            all_domains = [context_domain] + [d for d in context_domains if d != context_domain]
+            domains_json = _json.dumps(all_domains)
+        else:
+            domains_json = _json.dumps([context_domain])
+        
         # Filter out None values so defaults are used
         filtered_kwargs = {k: v for k, v in kwargs.items() if v is not None}
         return cls(
@@ -175,6 +223,9 @@ class Claim:
             statement=statement,
             context_domain=context_domain,
             user_email=user_email,
+            friendly_id=friendly_id,
+            claim_types=types_json,
+            context_domains=domains_json,
             **filtered_kwargs
         )
     
@@ -463,6 +514,132 @@ class ConflictSet:
     def is_resolved(self) -> bool:
         """Check if conflict has been resolved."""
         return self.status == ConflictStatus.RESOLVED.value
+
+
+# =============================================================================
+# Context Model (v0.5)
+# =============================================================================
+
+@dataclass
+class Context:
+    """
+    Hierarchical grouping node for organizing claims into named collections.
+    
+    Contexts allow users to group memories by topic, project, or any
+    user-defined category. Contexts form a tree via parent_context_id.
+    A claim can belong to multiple contexts. Resolution of a context
+    recursively collects all claims under it and its sub-contexts.
+    
+    Use cases:
+    - Group memories by project: @project_alpha contains all project claims
+    - Group by life area: @health_goals with sub-contexts @diet, @exercise
+    - Reference in chat: typing @health_goals retrieves all health claims
+    
+    Attributes:
+        context_id: Unique identifier (UUID).
+        user_email: Email of the user who owns this context.
+        friendly_id: User-facing alphanumeric ID for @references.
+        name: Display name for the context.
+        description: Optional longer description.
+        parent_context_id: Parent context for hierarchy (optional).
+        meta_json: Extensible JSON metadata.
+        created_at: ISO timestamp of creation.
+        updated_at: ISO timestamp of last update.
+        
+    Computed fields (not stored):
+        _children: List of child Context objects.
+        _claim_ids: List of directly linked claim IDs.
+        _claim_count: Total count of claims (including from sub-contexts).
+    """
+    context_id: str
+    name: str
+    user_email: Optional[str] = None
+    friendly_id: Optional[str] = None
+    description: Optional[str] = None
+    parent_context_id: Optional[str] = None
+    meta_json: Optional[str] = None
+    created_at: str = field(default_factory=now_iso)
+    updated_at: str = field(default_factory=now_iso)
+    
+    # Computed fields (not stored in DB)
+    _children: List['Context'] = field(default_factory=list, repr=False, compare=False)
+    _claim_ids: List[str] = field(default_factory=list, repr=False, compare=False)
+    _claim_count: int = field(default=0, repr=False, compare=False)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for DB insert (excludes computed fields)."""
+        return {k: getattr(self, k) for k in CONTEXT_COLUMNS}
+    
+    def to_insert_tuple(self) -> tuple:
+        """Return tuple for SQL INSERT in column order."""
+        return tuple(getattr(self, k) for k in CONTEXT_COLUMNS)
+    
+    @classmethod
+    def from_row(cls, row: sqlite3.Row) -> 'Context':
+        """Create Context from SQLite row."""
+        row_keys = row.keys() if hasattr(row, 'keys') else CONTEXT_COLUMNS
+        return cls(**{k: row[k] for k in CONTEXT_COLUMNS if k in row_keys})
+    
+    @classmethod
+    def create(
+        cls,
+        name: str,
+        user_email: Optional[str] = None,
+        friendly_id: Optional[str] = None,
+        description: Optional[str] = None,
+        parent_context_id: Optional[str] = None,
+        **kwargs
+    ) -> 'Context':
+        """
+        Factory method to create a new context with generated ID.
+        
+        If friendly_id is not provided, one will be auto-generated from the name.
+        
+        Args:
+            name: Display name for the context.
+            user_email: Email of the owning user.
+            friendly_id: Optional user-specified friendly ID.
+            description: Optional description.
+            parent_context_id: Optional parent context for hierarchy.
+            **kwargs: Additional fields (meta_json).
+            
+        Returns:
+            New Context instance with generated context_id and friendly_id.
+        """
+        from .utils import generate_friendly_id as _gen_fid
+        
+        if not friendly_id:
+            friendly_id = _gen_fid(name)
+        
+        return cls(
+            context_id=generate_uuid(),
+            name=name,
+            user_email=user_email,
+            friendly_id=friendly_id,
+            description=description,
+            parent_context_id=parent_context_id,
+            **kwargs
+        )
+
+
+@dataclass
+class ContextClaim:
+    """
+    Join between contexts and claims (many-to-many).
+    
+    A claim can belong to multiple contexts, enabling
+    flexible organization of memories.
+    
+    Attributes:
+        context_id: Foreign key to contexts table.
+        claim_id: Foreign key to claims table.
+    """
+    context_id: str
+    claim_id: str
+    
+    def to_tuple(self) -> tuple:
+        """Return tuple for SQL INSERT."""
+        return (self.context_id, self.claim_id)
 
 
 # =============================================================================
