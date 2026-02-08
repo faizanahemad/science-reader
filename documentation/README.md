@@ -20,9 +20,9 @@ If you are new to the codebase, start with:
 - `features/extension/`: Chrome extension design + implementation docs
 - `features/pwa/`: PWA/service-worker notes
 - `features/conversation_artefacts/`: conversation-scoped artefacts (files + LLM edit flow)
-- `features/conversation_flow/`: chat message send + streaming render pipeline (includes notes on conversation-level + Doc Index model overrides, chat settings management and persistence)
+- `features/conversation_flow/`: chat message send + streaming render pipeline (includes notes on conversation-level + Doc Index model overrides, chat settings management and persistence, PKB `@` autocomplete UX, and suffix-based reference resolution for all PKB object types)
 - `features/conversation_model_overrides/`: per-conversation model override system and UI
-- `features/truth_management_system/`: Personal Knowledge Base (PKB/TMS) — requirements, API reference, implementation guide, deep dive. **Current: v0.6** — includes claims CRUD, contexts/groups, friendly IDs, claim numbers, QnA possible questions (self-sufficient), dynamic types/domains, FTS5 + embedding search, LLM extraction, conversation integration (with `use_pkb` toggle), `@` autocomplete, referenced claim preservation, expandable entity/tag/context views
+- `features/truth_management_system/`: Personal Knowledge Base (PKB/TMS) — requirements, API reference, implementation guide, deep dive. **Current: v0.7** — includes claims CRUD, contexts/groups, friendly IDs, claim numbers, QnA possible questions (self-sufficient), dynamic types/domains, FTS5 + embedding search, LLM extraction, conversation integration (with `use_pkb` toggle), `@` autocomplete (across claims, contexts, entities, tags, domains), referenced claim preservation, expandable entity/tag/context views, universal `@` references with type-suffixed friendly IDs (`_context`, `_entity`, `_tag`, `_domain`), suffix-based routing in `resolve_reference()`, recursive tag resolution, domain references
 - `features/web_search/`: web search implementation notes
 - `features/audio_slide_agent/`: audio/slide agent docs
 - `features/stocks/`: stocks module notes

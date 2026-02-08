@@ -8,6 +8,18 @@ This doc explains how chat messages move from UI to server and back, and how the
 - Entry: `interface/chat.js` binds `#sendMessageButton` to `sendMessageCallback()` in `interface/common-chat.js`.
 - `sendMessageCallback()` collects settings and payload, clears the input, and calls:
   - `ChatManager.sendMessage(conversationId, messageText, options, links, search, attached_claim_ids, referenced_claim_ids, referenced_friendly_ids)`
+- Before sending, `parseMemoryReferences()` extracts `@references` from the message text. These can reference any PKB object type — claims, contexts, entities, tags, or domains.
+
+**PKB `@` autocomplete** (pre-submit UX):
+- Typing `@` in the chat input triggers `fetchAutocompleteResults()` in `interface/common-chat.js`.
+- The autocomplete dropdown calls `GET /pkb/autocomplete?prefix=...` and shows results in five categories:
+  - **Memories** (claims): icon `bi-journal-text`
+  - **Contexts**: icon `bi-folder`, friendly_ids ending in `_context`
+  - **Entities**: icon `bi-person`, friendly_ids ending in `_entity`
+  - **Tags**: icon `bi-tag`, friendly_ids ending in `_tag`
+  - **Domains**: icon `bi-grid`, friendly_ids ending in `_domain`
+- Selecting a result inserts the full friendly_id (with suffix) into the message text.
+- The suffix determines the resolution type at the backend; see step 3 for details.
 
 2) **Immediate user render**
 - `ChatManager.sendMessage()` immediately renders the user card before the server responds:
@@ -18,9 +30,17 @@ This doc explains how chat messages move from UI to server and back, and how the
 - `ChatManager.sendMessage()` sends `POST /send_message/<conversation_id>` with JSON body:
   - `messageText`, `checkboxes` (settings), `links`, `search`
   - optional `attached_claim_ids`, `referenced_claim_ids`, `referenced_friendly_ids`
+- `referenced_friendly_ids` can include any PKB object type: claims (no suffix), contexts (`_context`), entities (`_entity`), tags (`_tag`), and domains (`_domain`). The suffix determines which resolver is invoked.
 - The response is streamed (`text/plain`) as newline-delimited JSON chunks.
 - Server also injects `conversation_pinned_claim_ids` into the request context (for PKB memory pinning).
-- In `Conversation.reply()`, all PKB claims are fetched via `_get_pkb_context()` and included in the distillation prompt. After distillation, only `[REFERENCED ...]` claims are re-injected verbatim into the final prompt via `_extract_referenced_claims()` to ensure explicitly referenced claims are never lost.
+- In `Conversation.reply()`, all PKB claims are fetched via `_get_pkb_context()` and included in the distillation prompt. Each `@friendly_id` is resolved by `resolve_reference()` in `structured_api.py`, which uses suffix-based routing to dispatch to the correct resolver:
+  - `_entity` suffix → entity CRUD `resolve_claims()` — all claims linked to entity via `claim_entities` join
+  - `_tag` suffix → tag CRUD `resolve_claims()` — recursive CTE collects claims from tag + all descendant tags
+  - `_domain` suffix → domain filter — claims matching `context_domain` or `context_domains`
+  - `_context` suffix → context CRUD `resolve_claims()` — recursive CTE collects claims from context + sub-contexts
+  - No suffix → backwards-compatible path (claim_number → claim friendly_id → legacy context → context name fallback)
+- After distillation, only `[REFERENCED ...]` claims are re-injected verbatim into the final prompt via `_extract_referenced_claims()` to ensure explicitly referenced claims are never lost.
+- For complete details on how PKB references are parsed, resolved, and injected, see [PKB Reference Resolution Flow](../truth_management_system/pkb_reference_resolution_flow.md).
 
 4) **Streaming render**
 - `sendMessageCallback()` calls `renderStreamingResponse(response, ...)` in `interface/common-chat.js`.
@@ -247,9 +267,14 @@ Location: `interface/shared.js`
 ## Key Files
 
 - `interface/chat.js` (UI wiring, settings, send button)
-- `interface/common-chat.js` (ChatManager, renderMessages, renderStreamingResponse, getTextAfterLastBreakpoint, isInsideDisplayMath)
+- `interface/common-chat.js` (ChatManager, renderMessages, renderStreamingResponse, getTextAfterLastBreakpoint, isInsideDisplayMath, fetchAutocompleteResults — `@` autocomplete for all PKB types)
 - `interface/common.js` (renderInnerContentAsMarkdown, normalizeOverIndentedLists)
+- `interface/parseMessageForCheckBoxes.js` (parseMemoryReferences — extracts `@references` from message text)
 - `endpoints/conversations.py` (`/send_message` streaming endpoint)
-- `Conversation.py` (reply, streaming yield, persistence)
+- `endpoints/pkb.py` (`/pkb/autocomplete` — returns memories, contexts, entities, tags, domains)
+- `Conversation.py` (reply, streaming yield, persistence, `_get_pkb_context`, `_extract_referenced_claims`)
+- `truth_management_system/interface/structured_api.py` (`resolve_reference` — suffix-based routing, `autocomplete` — all 5 categories)
+- `truth_management_system/crud/entities.py` (`resolve_claims` — entity → linked claims)
+- `truth_management_system/crud/tags.py` (`resolve_claims` — recursive tag → claims)
 - `math_formatting.py` (stream_with_math_formatting, process_math_formatting, ensure_display_math_newlines)
 - `call_llm.py` (CallLLm, call_chat_model — uses math_formatting for streaming)

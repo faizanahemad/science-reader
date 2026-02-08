@@ -24,6 +24,23 @@ Complete product specification including:
 
 ---
 
+### 🔗 [pkb_reference_resolution_flow.md](./pkb_reference_resolution_flow.md)
+**PKB Reference Resolution: Complete Technical Guide**
+
+End-to-end documentation of how @references work:
+- Database structure (claims, contexts, IDs)
+- ID types and formats (UUID, claim_number, friendly_id, context name)
+- UI parsing (`parseMemoryReferences()` in JavaScript)
+- Backend resolution (`resolve_reference()` in Python)
+- Context resolution (recursive SQL queries)
+- LLM context formatting and priority system
+- Post-distillation re-injection to preserve explicitly referenced claims
+- Complete data flow diagrams
+
+**When to use:** Understanding how `@ssdva` or `@claim_42` gets resolved, debugging reference issues, implementing new reference features.
+
+---
+
 ### 🏗️ [implementation.md](./implementation.md)
 **Implementation Guide & Module Overview**
 
@@ -84,6 +101,24 @@ Complete API documentation including:
 - Chatbot integration patterns
 
 **When to use:** Implementing features that use the PKB API, integrating with other systems, understanding function signatures and parameters.
+
+---
+
+### 🚀 [PKB_V07_UNIVERSAL_REFERENCES_PLAN.md](./PKB_V07_UNIVERSAL_REFERENCES_PLAN.md)
+**v0.7 Plan: Universal @References for Entities, Tags, and Domains**
+
+Design plan for extending @references to all PKB object types:
+- Type-suffixed friendly IDs (`_context`, `_entity`, `_tag`, `_domain`) to eliminate namespace clashes
+- Suffix-based routing for fast backend resolution
+- DB schema changes (v7): friendly_id on entities and tags
+- CRUD additions: `get_by_friendly_id()`, `search_friendly_ids()`, `resolve_claims()` for entities and tags
+- Recursive tag resolution (like contexts)
+- Domain references by query-time filtering
+- Migration strategy for existing contexts (append `_context` suffix)
+- Backwards compatibility with existing claim/context references
+- Complete implementation plan with milestones and testing
+
+**When to use:** Planning or implementing v0.7 universal references. Understanding the namespace disambiguation design.
 
 ---
 
@@ -210,9 +245,23 @@ interface/interface.html     # UI components
 
 ## Version Information
 
-**Current Version:** v0.6 (Schema v6)
+**Current Version:** v0.7 (Schema v7)
 
-**Recent Changes (v0.6):**
+**Recent Changes (v0.7):**
+- **Universal @references** (schema v7): Entities, tags, and domains can now be referenced in chat using `@` syntax with type suffixes (`_entity`, `_tag`, `_domain`, `_context`)
+- **Type-suffixed friendly IDs**: All non-claim objects get a type suffix to eliminate namespace clashes (e.g., `@john_smith_person_entity`, `@fitness_tag`, `@health_domain`, `@health_goals_context`)
+- **Entity friendly_id** (new): `friendly_id TEXT` column added to entities table, auto-generated as `{name}_{type}_entity`
+- **Tag friendly_id** (new): `friendly_id TEXT` column added to tags table, auto-generated as `{name}_tag`
+- **Context suffix migration**: Existing context friendly_ids get `_context` suffix appended; old unsuffixed references still work via backwards-compatible fallback
+- **Suffix-based routing**: `resolve_reference()` parses the suffix for direct routing — no sequential fallback needed for suffixed references
+- **Entity references**: `@entity_fid` resolves to all claims linked to that entity via `claim_entities` join table
+- **Tag references (recursive)**: `@tag_fid` resolves to all claims tagged with that tag and all descendant tags via recursive CTE
+- **Domain references**: `@domain_name_domain` resolves to all claims in that context domain
+- **Expanded autocomplete**: Autocomplete dropdown now shows entities, tags, and domains alongside memories and contexts
+- **Reserved suffix guard**: Claim friendly_id generation checks for reserved suffixes to prevent ambiguity
+- See [PKB_V07_UNIVERSAL_REFERENCES_PLAN.md](../../planning/plans/PKB_V07_UNIVERSAL_REFERENCES.plan.md) for full design document
+
+**Previous Changes (v0.6):**
 - **QnA-style memories** (schema v6): New `possible_questions` column — each claim can have auto-generated or user-provided self-sufficient questions it answers, indexed in FTS for improved search relevance. Each question must include specific subjects/entities from the claim to be understandable without reading the claim itself.
 - **Numeric claim IDs** (schema v5): New `claim_number` column — per-user auto-incremented ID, referenceable as `@claim_42` in chat
 - **Unified search endpoint**: `GET /pkb/claims` now accepts `query` param for hybrid search with filters in a single call (replaces separate `POST /pkb/search` in UI)
@@ -238,6 +287,7 @@ interface/interface.html     # UI components
 - Bug fixes: schema migration robustness, IngestProposal attribute fix, text ingestion performance
 
 **Version History:**
+- v0.7: Universal @references for entities, tags, domains; type-suffixed friendly IDs; suffix-based routing (schema v7)
 - v0.6: QnA possible_questions, numeric claim_number, unified search endpoint, universal resolver (schema v5-v6)
 - v0.5.1: Expandable views, context linking in modals, dynamic types/domains catalog (schema v4)
 - v0.5.0: Friendly IDs, contexts, autocomplete, @references, entity linking (schema v3)

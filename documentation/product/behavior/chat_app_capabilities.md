@@ -74,7 +74,7 @@ This section is the “copy into Android” backbone: what exists, how to call i
   "search": ["optional search query list"],
   "attached_claim_ids": ["optional PKB claim ids from 'Use Now' button"],
   "referenced_claim_ids": ["optional PKB claim ids from @memory:<uuid> refs"],
-  "referenced_friendly_ids": ["optional friendly IDs from @friendly_id refs (claims or contexts)"]
+  "referenced_friendly_ids": ["optional friendly IDs from @friendly_id refs (claims, contexts, entities, tags, domains)"]
 }
 ```
 
@@ -239,6 +239,9 @@ Server-side injection:
 - Stores personal facts, preferences, decisions, and tasks as **claims** (atomic memory units) in a SQLite-backed Personal Knowledge Base.
 - Each claim has: statement, claim_type, context_domain, friendly_id, possible_questions (QnA), and optional contexts/groups.
 - **Contexts** (groups) organize claims hierarchically; referencing `@context_friendly_id` in chat resolves to all claims within that context and sub-contexts.
+- **Entities** represent people, organizations, or other named objects linked to claims. Referencing `@entity_friendly_id` resolves to all claims linked to that entity (any role).
+- **Tags** categorize claims and form a hierarchy. Referencing `@tag_friendly_id` resolves to all claims tagged with that tag and all descendant tags (recursive).
+- **Domains** are topic namespaces (health, work, personal, etc.). Referencing `@domain_friendly_id` filters claims by that context domain.
 - Retrieves relevant claims as context for the current query, combining multiple sources with explicit prioritization:
   1. `@friendly_id` / `@memory:uuid` references (highest -- user explicitly asked for these)
   2. attached claims ("Use in next message" UI selection)
@@ -246,10 +249,37 @@ Server-side injection:
   4. conversation-pinned claims
   5. auto-retrieved via hybrid (FTS5 + embedding) search
 
+**Universal @References (v0.7)**
+
+All PKB object types are referenceable in chat via `@friendly_id` with type-suffixed IDs to eliminate namespace clashes:
+
+| Reference Type | Suffix | Example | Resolves To |
+|---------------|--------|---------|-------------|
+| Claim | none (most common) | `@prefer_morning_a3f2` | Single claim |
+| Context | `_context` | `@health_goals_context` | All claims in context + sub-contexts (recursive) |
+| Entity | `_entity` | `@john_smith_person_entity` | All claims linked to entity via `claim_entities` join |
+| Tag | `_tag` | `@fitness_tag` | All claims tagged with tag + descendant tags (recursive CTE) |
+| Domain | `_domain` | `@health_domain` | All claims with matching `context_domain` |
+
+The backend resolver (`resolve_reference()`) uses suffix-based routing for fast dispatch:
+- If reference ends with `_context` → resolve as context
+- If reference ends with `_entity` → resolve as entity
+- If reference ends with `_tag` → resolve as tag
+- If reference ends with `_domain` → resolve as domain
+- No suffix → backwards-compatible path (claim_number → claim friendly_id → legacy context → context name fallback)
+
+**Autocomplete** (UI: `@` in chat input) now returns results across all five categories:
+- `memories`: claim friendly_ids
+- `contexts`: context friendly_ids (with `_context` suffix)
+- `entities`: entity friendly_ids (with `_entity` suffix, icon: person)
+- `tags`: tag friendly_ids (with `_tag` suffix, icon: tag)
+- `domains`: domain friendly_ids (with `_domain` suffix, icon: grid)
+
 **Chat integration flow**
 - UI parses `@references` from message text (`parseMemoryReferences()`) and collects "Use Now" attachments (`PKBManager.getPendingAttachments()`).
 - Server injects conversation-pinned claim IDs from session state.
 - `Conversation.reply()` fetches claims via `_get_pkb_context()` in a background thread.
+- Each `@friendly_id` is resolved by `resolve_reference()` which routes by suffix to the correct resolver (claim, context, entity, tag, or domain).
 - Full PKB context is sent to a cheap LLM for distillation (extracts relevant user prefs).
 - After distillation, explicitly `[REFERENCED]` claims are re-injected verbatim via `_extract_referenced_claims()` to ensure they reach the main LLM word-for-word.
 - The combined user_info_text (distilled prefs + referenced claims) is injected into the `permanent_instructions` slot of the chat prompt.
@@ -263,25 +293,33 @@ Server-side injection:
   - `GET/POST/PUT/DELETE /pkb/contexts[...]`
   - `POST /pkb/search`
   - `POST /pkb/relevant_context`
-  - `GET /pkb/autocomplete?prefix=...` (powers `@` autocomplete in chat input)
+  - `GET /pkb/autocomplete?prefix=...` (powers `@` autocomplete in chat input; returns memories, contexts, entities, tags, domains)
   - pinning endpoints (`/pkb/*/pin`, `/pkb/pinned`, conversation pinning routes)
 - Main chat uses PKB context automatically if available (part of `send_message` execution).
 
 **Persistence**
 - PKB uses a separate sqlite DB: `pkb.sqlite` under `users_dir`.
-- Schema v6 with: claims, contexts, context_claims (M:N), claims_fts (FTS5), claim_embeddings.
+- Schema v7 with: claims, contexts, context_claims (M:N), entities (with `friendly_id`), tags (with `friendly_id`), claim_entities, claim_tags, claims_fts (FTS5), claim_embeddings.
+- Entity and tag friendly_ids are auto-generated with type suffixes (`_entity`, `_tag`) and indexed.
+- Context friendly_ids have `_context` suffix (migrated from unsuffixed in v6→v7).
+- Domain references are computed at query time (no separate DB table).
 - Conversation-level pinned claims are tracked server-side (in app state) and injected into chat requests.
 
 **Key files**
 - `truth_management_system/` -- core module (models, CRUD, search, LLM helpers)
-- `truth_management_system/interface/structured_api.py` -- StructuredAPI facade
+- `truth_management_system/interface/structured_api.py` -- StructuredAPI facade, `resolve_reference()` (suffix-based routing), `autocomplete()` (all 5 categories)
+- `truth_management_system/crud/entities.py` -- `get_by_friendly_id()`, `resolve_claims()`, `search_friendly_ids()`
+- `truth_management_system/crud/tags.py` -- `get_by_friendly_id()`, `resolve_claims()` (recursive CTE), `search_friendly_ids()`
+- `truth_management_system/utils.py` -- `generate_entity_friendly_id()`, `generate_tag_friendly_id()`, `generate_context_friendly_id()`, `domain_to_friendly_id()`
+- `truth_management_system/database.py` -- `_migrate_v6_to_v7()` (adds friendly_id to entities/tags, appends `_context` to contexts)
 - `Conversation.py` -- `_get_pkb_context()`, `_extract_referenced_claims()`
 - `interface/pkb-manager.js` -- UI for claims CRUD, contexts, search
+- `interface/common-chat.js` -- autocomplete rendering for all 5 categories (entities, tags, domains with type badges)
 - `interface/parseMessageForCheckBoxes.js` -- `parseMemoryReferences()` for `@` reference parsing
 - `endpoints/pkb.py` -- REST API endpoints
 
 **Differentiator**
-- This is a major capability gap vs "plain ChatGPT chat": it supports an internal, queryable memory store with explicit attachment, pinning, context grouping, inline `@` references with autocomplete, and QnA-style retrieval.
+- This is a major capability gap vs "plain ChatGPT chat": it supports an internal, queryable memory store with explicit attachment, pinning, context grouping, entity and tag linking, domain namespacing, inline `@` references with type-aware autocomplete across all object types, recursive resolution (contexts and tags), and QnA-style retrieval.
 
 ---
 
@@ -465,7 +503,8 @@ and avoids loading everything for every request.
   - list/search claims; CRUD for claims and contexts
   - pin/unpin and "attach to next message"
   - parse `@memory:<id>` and `@friendly_id` references (client-side)
-  - `@` autocomplete dropdown for claims and contexts
+  - `@` autocomplete dropdown for claims, contexts, entities, tags, and domains
+  - type-suffixed friendly IDs: claims (no suffix), contexts (`_context`), entities (`_entity`), tags (`_tag`), domains (`_domain`)
   - toggle via `use_pkb` checkbox (default: on)
 
 ### UI screens (suggested)
@@ -495,9 +534,12 @@ and avoids loading everything for every request.
 - First-class conversation document library with `#doc_n` referencing and doc-aware prompts.
 - Optional PKB with:
   - pinned memories,
-  - “attach for next message” flows,
+  - "attach for next message" flows,
   - conversation-pinned claims,
-  - hybrid search retrieval.
+  - hybrid search retrieval,
+  - universal `@` references for claims, contexts, entities, tags, and domains (v0.7),
+  - type-aware autocomplete across all PKB object types,
+  - recursive resolution for contexts and tags (entire subtrees).
 
 ### Multi-agent orchestration
 - Switchable agents for:
@@ -537,7 +579,7 @@ and avoids loading everything for every request.
 
 ### “Why not just ChatGPT?”
 - Built-in **document library + doc referencing** per conversation.
-- Built-in **PKB** for structured memory retrieval and pinning.
+- Built-in **PKB** for structured memory retrieval, pinning, and universal `@` references across claims, contexts, entities, tags, and domains.
 - Built-in **execution + artifacts** (plots/files/diagrams) and **streaming** UX for long tasks.
 - Built-in **specialized agents** for research, interviews, slides, and more.
 

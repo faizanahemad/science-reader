@@ -52,7 +52,9 @@ try:
     PKB_AVAILABLE = True
 except ImportError:
     PKB_AVAILABLE = False
-    warnings.warn("PKB (truth_management_system) not available. PKB endpoints will be disabled.")
+    warnings.warn(
+        "PKB (truth_management_system) not available. PKB endpoints will be disabled."
+    )
 
 
 # =============================================================================
@@ -162,13 +164,13 @@ def serialize_claim(claim):
     return {
         "claim_id": claim.claim_id,
         "user_email": claim.user_email,
-        "claim_number": getattr(claim, 'claim_number', None),
-        "friendly_id": getattr(claim, 'friendly_id', None),
+        "claim_number": getattr(claim, "claim_number", None),
+        "friendly_id": getattr(claim, "friendly_id", None),
         "claim_type": claim.claim_type,
-        "claim_types": getattr(claim, 'claim_types', None),
+        "claim_types": getattr(claim, "claim_types", None),
         "statement": claim.statement,
         "context_domain": claim.context_domain,
-        "context_domains": getattr(claim, 'context_domains', None),
+        "context_domains": getattr(claim, "context_domains", None),
         "status": claim.status,
         "confidence": claim.confidence,
         "subject_text": claim.subject_text,
@@ -179,7 +181,7 @@ def serialize_claim(claim):
         "valid_from": claim.valid_from,
         "valid_to": claim.valid_to,
         "meta_json": claim.meta_json,
-        "possible_questions": getattr(claim, 'possible_questions', None),
+        "possible_questions": getattr(claim, "possible_questions", None),
     }
 
 
@@ -309,24 +311,39 @@ def pkb_list_claims_route():
             keys = keyParser(session)
             api = get_pkb_api_for_user(email, keys)
             if api is None:
-                return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+                return json_error(
+                    "Failed to initialize PKB", status=500, code="pkb_init_failed"
+                )
 
             result = api.search(query, strategy=strategy, k=limit, filters=filters)
             if result.success:
                 claims = [r.claim for r in result.data]
-                return jsonify({"claims": [serialize_claim(c) for c in claims], "count": len(claims)})
+                return jsonify(
+                    {
+                        "claims": [serialize_claim(c) for c in claims],
+                        "count": len(claims),
+                    }
+                )
             return json_error("; ".join(result.errors), status=400, code="bad_request")
         else:
             # --- List mode: simple DB query with filters ---
             api = get_pkb_api_for_user(email)
             if api is None:
-                return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+                return json_error(
+                    "Failed to initialize PKB", status=500, code="pkb_init_failed"
+                )
 
-            claims = api.claims.list(filters=filters, limit=limit, offset=offset, order_by="-updated_at")
-            return jsonify({"claims": [serialize_claim(c) for c in claims], "count": len(claims)})
+            claims = api.claims.list(
+                filters=filters, limit=limit, offset=offset, order_by="-updated_at"
+            )
+            return jsonify(
+                {"claims": [serialize_claim(c) for c in claims], "count": len(claims)}
+            )
     except Exception as e:
         logger.error(f"Error in pkb_list_claims: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 @pkb_bp.route("/pkb/claims", methods=["POST"])
@@ -358,14 +375,16 @@ def pkb_add_claim_route():
         auto_extract = data.get("auto_extract", False)
         confidence = data.get("confidence")
         meta_json = data.get("meta_json")
-        claim_types = data.get("claim_types")              # JSON string or None
-        context_domains = data.get("context_domains")      # JSON string or None
-        possible_questions = data.get("possible_questions") # JSON string or None
+        claim_types = data.get("claim_types")  # JSON string or None
+        context_domains = data.get("context_domains")  # JSON string or None
+        possible_questions = data.get("possible_questions")  # JSON string or None
 
         keys = keyParser(session) if auto_extract else {}
         api = get_pkb_api_for_user(email, keys)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         result = api.add_claim(
             statement=statement,
@@ -382,12 +401,20 @@ def pkb_add_claim_route():
         )
 
         if result.success:
-            return jsonify({"success": True, "claim": serialize_claim(result.data), "warnings": result.warnings})
+            return jsonify(
+                {
+                    "success": True,
+                    "claim": serialize_claim(result.data),
+                    "warnings": result.warnings,
+                }
+            )
 
         return json_error("; ".join(result.errors), status=400, code="bad_request")
     except Exception as e:
         logger.error(f"Error in pkb_add_claim: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 @pkb_bp.route("/pkb/claims/bulk", methods=["POST"])
@@ -413,7 +440,11 @@ def pkb_add_claims_bulk_route():
         if len(claims) == 0:
             return json_error("Claims array is empty", status=400, code="bad_request")
         if len(claims) > 100:
-            return json_error("Too many claims. Maximum is 100 per request.", status=400, code="bad_request")
+            return json_error(
+                "Too many claims. Maximum is 100 per request.",
+                status=400,
+                code="bad_request",
+            )
 
         auto_extract = data.get("auto_extract", False)
         stop_on_error = data.get("stop_on_error", False)
@@ -421,9 +452,13 @@ def pkb_add_claims_bulk_route():
         keys = keyParser(session) if auto_extract else {}
         api = get_pkb_api_for_user(email, keys)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
-        result = api.add_claims_bulk(claims=claims, auto_extract=auto_extract, stop_on_error=stop_on_error)
+        result = api.add_claims_bulk(
+            claims=claims, auto_extract=auto_extract, stop_on_error=stop_on_error
+        )
         return jsonify(
             {
                 "success": result.success,
@@ -437,7 +472,9 @@ def pkb_add_claims_bulk_route():
     except Exception as e:
         logger.error(f"Error in pkb_add_claims_bulk: {e}")
         traceback.print_exc()
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 @pkb_bp.route("/pkb/claims/<claim_id>", methods=["GET"])
@@ -454,7 +491,9 @@ def pkb_get_claim_route(claim_id: str):
     try:
         api = get_pkb_api_for_user(email)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         result = api.get_claim(claim_id)
         if result.success:
@@ -463,7 +502,9 @@ def pkb_get_claim_route(claim_id: str):
         return json_error("Claim not found", status=404, code="claim_not_found")
     except Exception as e:
         logger.error(f"Error in pkb_get_claim: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 @pkb_bp.route("/pkb/claims/<claim_id>", methods=["PUT"])
@@ -483,13 +524,26 @@ def pkb_update_claim_route(claim_id: str):
         api = get_pkb_api_for_user(email, keys)
 
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         # Preserve legacy behavior: accept partial updates via patch dict.
         patch = {}
-        for field in ["statement", "claim_type", "context_domain", "status", "confidence",
-                       "meta_json", "valid_from", "valid_to", "claim_types", "context_domains",
-                       "possible_questions", "friendly_id"]:
+        for field in [
+            "statement",
+            "claim_type",
+            "context_domain",
+            "status",
+            "confidence",
+            "meta_json",
+            "valid_from",
+            "valid_to",
+            "claim_types",
+            "context_domains",
+            "possible_questions",
+            "friendly_id",
+        ]:
             if field in data:
                 patch[field] = data[field]
 
@@ -503,7 +557,9 @@ def pkb_update_claim_route(claim_id: str):
         return json_error("; ".join(result.errors), status=404, code="not_found")
     except Exception as e:
         logger.error(f"Error in pkb_update_claim: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 @pkb_bp.route("/pkb/claims/<claim_id>", methods=["DELETE"])
@@ -520,7 +576,9 @@ def pkb_delete_claim_route(claim_id: str):
     try:
         api = get_pkb_api_for_user(email)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         result = api.delete_claim(claim_id)
         if result.success:
@@ -528,7 +586,9 @@ def pkb_delete_claim_route(claim_id: str):
         return json_error("; ".join(result.errors), status=404, code="not_found")
     except Exception as e:
         logger.error(f"Error in pkb_delete_claim: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 # =============================================================================
@@ -550,7 +610,9 @@ def pkb_pin_claim_route(claim_id: str):
     try:
         api = get_pkb_api_for_user(email)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         data = request.get_json() or {}
         pin = data.get("pin", True)
@@ -577,7 +639,9 @@ def pkb_pin_claim_route(claim_id: str):
         return json_error("; ".join(result.errors), status=404, code="not_found")
     except Exception as e:
         logger.error(f"Error in pkb_pin_claim: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 @pkb_bp.route("/pkb/pinned", methods=["GET"])
@@ -594,7 +658,9 @@ def pkb_get_pinned_route():
     try:
         api = get_pkb_api_for_user(email)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         limit = request.args.get("limit", 50, type=int)
         result = api.get_pinned_claims(limit=limit)
@@ -614,12 +680,16 @@ def pkb_get_pinned_route():
                 }
                 for c in result.data
             ]
-            return jsonify({"success": True, "pinned_claims": claims, "count": len(claims)})
+            return jsonify(
+                {"success": True, "pinned_claims": claims, "count": len(claims)}
+            )
 
         return json_error("; ".join(result.errors), status=500, code="internal_error")
     except Exception as e:
         logger.error(f"Error in pkb_get_pinned: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 # =============================================================================
@@ -647,7 +717,9 @@ def pkb_conversation_pin_route(conv_id: str):
 
         api = get_pkb_api_for_user(email)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         result = api.get_claim(claim_id)
         if not result.success:
@@ -671,7 +743,9 @@ def pkb_conversation_pin_route(conv_id: str):
         )
     except Exception as e:
         logger.error(f"Error in pkb_conversation_pin: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 @pkb_bp.route("/pkb/conversation/<conv_id>/pinned", methods=["GET"])
@@ -688,7 +762,9 @@ def pkb_conversation_get_pinned_route(conv_id: str):
     try:
         api = get_pkb_api_for_user(email)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         pinned_ids = list(get_conversation_pinned_claims(conv_id))
 
@@ -719,7 +795,9 @@ def pkb_conversation_get_pinned_route(conv_id: str):
         )
     except Exception as e:
         logger.error(f"Error in pkb_conversation_get_pinned: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 @pkb_bp.route("/pkb/conversation/<conv_id>/pinned", methods=["DELETE"])
@@ -735,10 +813,18 @@ def pkb_conversation_clear_pinned_route(conv_id: str):
 
     try:
         clear_conversation_pinned_claims(conv_id)
-        return jsonify({"success": True, "conversation_id": conv_id, "message": "All conversation-pinned claims cleared"})
+        return jsonify(
+            {
+                "success": True,
+                "conversation_id": conv_id,
+                "message": "All conversation-pinned claims cleared",
+            }
+        )
     except Exception as e:
         logger.error(f"Error in pkb_conversation_clear_pinned: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 # =============================================================================
@@ -761,7 +847,9 @@ def pkb_search_route():
         data = request.get_json()
         query = data.get("query")
         if not query:
-            return json_error("Missing required field: query", status=400, code="bad_request")
+            return json_error(
+                "Missing required field: query", status=400, code="bad_request"
+            )
 
         strategy = data.get("strategy", "hybrid")
         k = data.get("k", 20)
@@ -770,15 +858,24 @@ def pkb_search_route():
         keys = keyParser(session)
         api = get_pkb_api_for_user(email, keys)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         result = api.search(query, strategy=strategy, k=k, filters=filters)
         if result.success:
-            return jsonify({"results": [serialize_search_result(r) for r in result.data], "count": len(result.data)})
+            return jsonify(
+                {
+                    "results": [serialize_search_result(r) for r in result.data],
+                    "count": len(result.data),
+                }
+            )
         return json_error("; ".join(result.errors), status=400, code="bad_request")
     except Exception as e:
         logger.error(f"Error in pkb_search: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 @pkb_bp.route("/pkb/entities", methods=["GET"])
@@ -795,7 +892,9 @@ def pkb_list_entities_route():
     try:
         api = get_pkb_api_for_user(email)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         filters = {}
         if request.args.get("entity_type"):
@@ -803,10 +902,17 @@ def pkb_list_entities_route():
 
         limit = int(request.args.get("limit", 100))
         entities = api.entities.list(filters=filters, limit=limit, order_by="name")
-        return jsonify({"entities": [serialize_entity(e) for e in entities], "count": len(entities)})
+        return jsonify(
+            {
+                "entities": [serialize_entity(e) for e in entities],
+                "count": len(entities),
+            }
+        )
     except Exception as e:
         logger.error(f"Error in pkb_list_entities: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 @pkb_bp.route("/pkb/entities/<entity_id>/claims", methods=["GET"])
@@ -833,15 +939,21 @@ def pkb_entity_claims_route(entity_id):
     try:
         api = get_pkb_api_for_user(email)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         limit = int(request.args.get("limit", 200))
         claims = api.claims.get_by_entity(entity_id)
         claims = claims[:limit]
-        return jsonify({"claims": [serialize_claim(c) for c in claims], "count": len(claims)})
+        return jsonify(
+            {"claims": [serialize_claim(c) for c in claims], "count": len(claims)}
+        )
     except Exception as e:
         logger.error(f"Error in pkb_entity_claims: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 @pkb_bp.route("/pkb/tags", methods=["GET"])
@@ -858,14 +970,18 @@ def pkb_list_tags_route():
     try:
         api = get_pkb_api_for_user(email)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         limit = int(request.args.get("limit", 100))
         tags = api.tags.list(limit=limit, order_by="name")
         return jsonify({"tags": [serialize_tag(t) for t in tags], "count": len(tags)})
     except Exception as e:
         logger.error(f"Error in pkb_list_tags: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 @pkb_bp.route("/pkb/tags/<tag_id>/claims", methods=["GET"])
@@ -893,16 +1009,24 @@ def pkb_tag_claims_route(tag_id):
     try:
         api = get_pkb_api_for_user(email)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         limit = int(request.args.get("limit", 200))
-        include_children = request.args.get("include_children", "false").lower() == "true"
+        include_children = (
+            request.args.get("include_children", "false").lower() == "true"
+        )
         claims = api.claims.get_by_tag(tag_id, include_children=include_children)
         claims = claims[:limit]
-        return jsonify({"claims": [serialize_claim(c) for c in claims], "count": len(claims)})
+        return jsonify(
+            {"claims": [serialize_claim(c) for c in claims], "count": len(claims)}
+        )
     except Exception as e:
         logger.error(f"Error in pkb_tag_claims: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 @pkb_bp.route("/pkb/conflicts", methods=["GET"])
@@ -919,15 +1043,24 @@ def pkb_list_conflicts_route():
     try:
         api = get_pkb_api_for_user(email)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         result = api.get_open_conflicts()
         if result.success:
-            return jsonify({"conflicts": [serialize_conflict_set(c) for c in result.data], "count": len(result.data)})
+            return jsonify(
+                {
+                    "conflicts": [serialize_conflict_set(c) for c in result.data],
+                    "count": len(result.data),
+                }
+            )
         return json_error("; ".join(result.errors), status=400, code="bad_request")
     except Exception as e:
         logger.error(f"Error in pkb_list_conflicts: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 @pkb_bp.route("/pkb/conflicts/<conflict_id>/resolve", methods=["POST"])
@@ -945,20 +1078,32 @@ def pkb_resolve_conflict_route(conflict_id: str):
         data = request.get_json()
         resolution_notes = data.get("resolution_notes")
         if not resolution_notes:
-            return json_error("Missing required field: resolution_notes", status=400, code="bad_request")
+            return json_error(
+                "Missing required field: resolution_notes",
+                status=400,
+                code="bad_request",
+            )
 
         winning_claim_id = data.get("winning_claim_id")
         api = get_pkb_api_for_user(email)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
-        result = api.resolve_conflict_set(conflict_id, resolution_notes, winning_claim_id)
+        result = api.resolve_conflict_set(
+            conflict_id, resolution_notes, winning_claim_id
+        )
         if result.success:
-            return jsonify({"success": True, "conflict": serialize_conflict_set(result.data)})
+            return jsonify(
+                {"success": True, "conflict": serialize_conflict_set(result.data)}
+            )
         return json_error("; ".join(result.errors), status=404, code="not_found")
     except Exception as e:
         logger.error(f"Error in pkb_resolve_conflict: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 # =============================================================================
@@ -984,12 +1129,16 @@ def pkb_propose_updates_route():
         assistant_message = data.get("assistant_message", "")
 
         if not user_message:
-            return json_error("Missing required field: user_message", status=400, code="bad_request")
+            return json_error(
+                "Missing required field: user_message", status=400, code="bad_request"
+            )
 
         keys = keyParser(session)
         api = get_pkb_api_for_user(email, keys)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         distiller = ConversationDistiller(api, keys)
         plan = distiller.extract_and_propose(
@@ -999,7 +1148,9 @@ def pkb_propose_updates_route():
         )
 
         if not plan or len(plan.candidates) == 0:
-            return jsonify({"has_updates": False, "proposed_actions": [], "user_prompt": None})
+            return jsonify(
+                {"has_updates": False, "proposed_actions": [], "user_prompt": None}
+            )
 
         plan_id = str(uuid.uuid4())
         _memory_update_plans[plan_id] = plan
@@ -1018,7 +1169,11 @@ def pkb_propose_updates_route():
                 action["existing_claim_id"] = match.claim.claim_id
                 action["existing_statement"] = match.claim.statement
                 action["similarity_score"] = match.score
-                action["action"] = plan.proposed_actions[i] if plan.proposed_actions and i < len(plan.proposed_actions) else "edit"
+                action["action"] = (
+                    plan.proposed_actions[i]
+                    if plan.proposed_actions and i < len(plan.proposed_actions)
+                    else "edit"
+                )
             proposed_actions.append(action)
 
         return jsonify(
@@ -1032,7 +1187,9 @@ def pkb_propose_updates_route():
     except Exception as e:
         logger.error(f"Error in pkb_propose_updates: {e}")
         traceback.print_exc()
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 @pkb_bp.route("/pkb/ingest_text", methods=["POST"])
@@ -1050,7 +1207,9 @@ def pkb_ingest_text_route():
         data = request.get_json()
         text = data.get("text", "").strip()
         if not text:
-            return json_error("Missing required field: text", status=400, code="bad_request")
+            return json_error(
+                "Missing required field: text", status=400, code="bad_request"
+            )
 
         max_size = 50 * 1024
         if len(text) > max_size:
@@ -1067,7 +1226,9 @@ def pkb_ingest_text_route():
         keys = keyParser(session)
         api = get_pkb_api_for_user(email, keys)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         distiller = TextIngestionDistiller(api, keys)
         plan = distiller.ingest_and_propose(
@@ -1078,7 +1239,14 @@ def pkb_ingest_text_route():
         )
 
         if not plan.proposals:
-            return jsonify({"has_proposals": False, "proposals": [], "summary": plan.summary, "total_parsed": plan.total_lines_parsed})
+            return jsonify(
+                {
+                    "has_proposals": False,
+                    "proposals": [],
+                    "summary": plan.summary,
+                    "total_parsed": plan.total_lines_parsed,
+                }
+            )
 
         _text_ingestion_plans[plan.plan_id] = plan
 
@@ -1094,8 +1262,12 @@ def pkb_ingest_text_route():
                     "reason": proposal.reason,
                     "confidence": proposal.candidate.confidence,
                     "editable": proposal.editable,
-                    "existing_claim_id": proposal.existing_claim.claim_id if proposal.existing_claim else None,
-                    "existing_statement": proposal.existing_claim.statement if proposal.existing_claim else None,
+                    "existing_claim_id": proposal.existing_claim.claim_id
+                    if proposal.existing_claim
+                    else None,
+                    "existing_statement": proposal.existing_claim.statement
+                    if proposal.existing_claim
+                    else None,
                     "similarity_score": proposal.similarity_score,
                 }
             )
@@ -1115,7 +1287,9 @@ def pkb_ingest_text_route():
     except Exception as e:
         logger.error(f"Error in pkb_ingest_text: {e}")
         traceback.print_exc()
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 @pkb_bp.route("/pkb/execute_ingest", methods=["POST"])
@@ -1135,7 +1309,9 @@ def pkb_execute_ingest_route():
         approved = data.get("approved", [])
 
         if not plan_id:
-            return json_error("Missing required field: plan_id", status=400, code="bad_request")
+            return json_error(
+                "Missing required field: plan_id", status=400, code="bad_request"
+            )
 
         plan = _text_ingestion_plans.get(plan_id)
         if not plan:
@@ -1144,14 +1320,23 @@ def pkb_execute_ingest_route():
         keys = keyParser(session)
         api = get_pkb_api_for_user(email, keys)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         distiller = TextIngestionDistiller(api, keys)
         result = distiller.execute_plan(plan, approved)
 
         results = []
         for exec_result in result.execution_results:
-            results.append({"action": exec_result.action, "success": exec_result.success, "claim_id": exec_result.object_id, "errors": exec_result.errors})
+            results.append(
+                {
+                    "action": exec_result.action,
+                    "success": exec_result.success,
+                    "claim_id": exec_result.object_id,
+                    "errors": exec_result.errors,
+                }
+            )
 
         del _text_ingestion_plans[plan_id]
 
@@ -1167,7 +1352,9 @@ def pkb_execute_ingest_route():
     except Exception as e:
         logger.error(f"Error in pkb_execute_ingest: {e}")
         traceback.print_exc()
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 @pkb_bp.route("/pkb/execute_updates", methods=["POST"])
@@ -1185,7 +1372,9 @@ def pkb_execute_updates_route():
         data = request.get_json()
         plan_id = data.get("plan_id")
         if not plan_id:
-            return json_error("Missing required field: plan_id", status=400, code="bad_request")
+            return json_error(
+                "Missing required field: plan_id", status=400, code="bad_request"
+            )
 
         plan = _memory_update_plans.get(plan_id)
         if not plan:
@@ -1194,7 +1383,9 @@ def pkb_execute_updates_route():
         keys = keyParser(session)
         api = get_pkb_api_for_user(email, keys)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         approved_list = data.get("approved", None)
         approved_indices = data.get("approved_indices", [])
@@ -1210,7 +1401,9 @@ def pkb_execute_updates_route():
                             "index": idx,
                             "statement": item.get("statement", candidate.statement),
                             "claim_type": item.get("claim_type", candidate.claim_type),
-                            "context_domain": item.get("context_domain", candidate.context_domain),
+                            "context_domain": item.get(
+                                "context_domain", candidate.context_domain
+                            ),
                         }
                     )
         else:
@@ -1218,7 +1411,12 @@ def pkb_execute_updates_route():
                 if 0 <= idx < len(plan.candidates):
                     candidate = plan.candidates[idx]
                     items_to_process.append(
-                        {"index": idx, "statement": candidate.statement, "claim_type": candidate.claim_type, "context_domain": candidate.context_domain}
+                        {
+                            "index": idx,
+                            "statement": candidate.statement,
+                            "claim_type": candidate.claim_type,
+                            "context_domain": candidate.context_domain,
+                        }
                     )
 
         results = []
@@ -1235,10 +1433,27 @@ def pkb_execute_updates_route():
             if plan.proposed_actions and idx < len(plan.proposed_actions):
                 action = plan.proposed_actions[idx]
 
-            if action == "edit" and plan.matches and idx < len(plan.matches) and plan.matches[idx]:
+            if (
+                action == "edit"
+                and plan.matches
+                and idx < len(plan.matches)
+                and plan.matches[idx]
+            ):
                 existing_claim_id = plan.matches[idx].claim.claim_id
-                result = api.edit_claim(existing_claim_id, statement=statement, claim_type=claim_type, context_domain=context_domain)
-                results.append({"action": "edit", "claim_id": existing_claim_id, "success": result.success, "errors": result.errors})
+                result = api.edit_claim(
+                    existing_claim_id,
+                    statement=statement,
+                    claim_type=claim_type,
+                    context_domain=context_domain,
+                )
+                results.append(
+                    {
+                        "action": "edit",
+                        "claim_id": existing_claim_id,
+                        "success": result.success,
+                        "errors": result.errors,
+                    }
+                )
                 if result.success:
                     edited_count += 1
             else:
@@ -1250,7 +1465,14 @@ def pkb_execute_updates_route():
                     tags=candidate.tags if hasattr(candidate, "tags") else [],
                     auto_extract=False,
                 )
-                results.append({"action": "add", "claim_id": result.object_id if result.success else None, "success": result.success, "errors": result.errors})
+                results.append(
+                    {
+                        "action": "add",
+                        "claim_id": result.object_id if result.success else None,
+                        "success": result.success,
+                        "errors": result.errors,
+                    }
+                )
                 if result.success:
                     added_count += 1
 
@@ -1267,7 +1489,9 @@ def pkb_execute_updates_route():
         )
     except Exception as e:
         logger.error(f"Error in pkb_execute_updates: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 # =============================================================================
@@ -1293,12 +1517,16 @@ def pkb_get_relevant_context_route():
         k = data.get("k", 10)
 
         if not query:
-            return json_error("Missing required field: query", status=400, code="bad_request")
+            return json_error(
+                "Missing required field: query", status=400, code="bad_request"
+            )
 
         keys = keyParser(session)
         api = get_pkb_api_for_user(email, keys)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         enhanced_query = query
         if conversation_summary:
@@ -1316,15 +1544,23 @@ def pkb_get_relevant_context_route():
             context_lines.append(f"- {prefix} {claim.statement}")
 
         formatted_context = "\n".join(context_lines)
-        return jsonify({"claims": [serialize_claim(sr.claim) for sr in claims[:k]], "formatted_context": formatted_context})
+        return jsonify(
+            {
+                "claims": [serialize_claim(sr.claim) for sr in claims[:k]],
+                "formatted_context": formatted_context,
+            }
+        )
     except Exception as e:
         logger.error(f"Error in pkb_get_relevant_context: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 # =============================================================================
 # === Friendly ID Lookup Endpoint (v0.5) ===
 # =============================================================================
+
 
 @pkb_bp.route("/pkb/claims/by-friendly-id/<friendly_id>", methods=["GET"])
 @limiter.limit("30 per minute")
@@ -1345,28 +1581,39 @@ def pkb_get_claim_by_friendly_id(friendly_id):
         keys = keyParser(session)
         api = get_pkb_api_for_user(email, keys)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         # Use the universal resolver that handles all formats
         claim = api.resolve_claim_identifier(friendly_id)
         if claim:
             return jsonify({"success": True, "claim": serialize_claim(claim)})
-        return json_error(f"No claim found with identifier: {friendly_id}", status=404, code="not_found")
+        return json_error(
+            f"No claim found with identifier: {friendly_id}",
+            status=404,
+            code="not_found",
+        )
     except Exception as e:
         logger.error(f"Error getting claim by friendly_id: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 # =============================================================================
 # === Autocomplete Endpoint (v0.5) ===
 # =============================================================================
 
+
 @pkb_bp.route("/pkb/autocomplete", methods=["GET"])
 @limiter.limit("60 per minute")
 @login_required
 def pkb_autocomplete():
-    """Search memories and contexts by friendly_id prefix for autocomplete.
-    
+    """Search all PKB object types by friendly_id prefix for autocomplete.
+
+    Returns memories, contexts, entities, tags, and domains matching the prefix.
+
     Query params:
         q: prefix string to search for
         limit: max results per category (default 10)
@@ -1378,30 +1625,42 @@ def pkb_autocomplete():
     if not loggedin:
         return json_error("User not logged in", status=401, code="unauthorized")
 
+    empty_result = {
+        "memories": [],
+        "contexts": [],
+        "entities": [],
+        "tags": [],
+        "domains": [],
+    }
     try:
         q = request.args.get("q", "").strip()
         limit = min(int(request.args.get("limit", 10)), 20)
 
         if not q or len(q) < 1:
-            return jsonify({"memories": [], "contexts": []})
+            return jsonify(empty_result)
 
         keys = keyParser(session)
         api = get_pkb_api_for_user(email, keys)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         result = api.autocomplete(q, limit=limit)
         if result.success:
             return jsonify(result.data)
-        return jsonify({"memories": [], "contexts": []})
+        return jsonify(empty_result)
     except Exception as e:
         logger.error(f"Error in autocomplete: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 # =============================================================================
 # === Reference Resolution Endpoint (v0.5) ===
 # =============================================================================
+
 
 @pkb_bp.route("/pkb/resolve/<reference_id>", methods=["GET"])
 @limiter.limit("30 per minute")
@@ -1419,27 +1678,38 @@ def pkb_resolve_reference(reference_id):
         keys = keyParser(session)
         api = get_pkb_api_for_user(email, keys)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         result = api.resolve_reference(reference_id)
         if result.success:
             data = result.data
-            return jsonify({
-                "success": True,
-                "type": data["type"],
-                "claims": [serialize_claim(c) for c in data["claims"]],
-                "source_id": data["source_id"],
-                "source_name": data["source_name"],
-            })
-        return json_error(result.errors[0] if result.errors else "Not found", status=404, code="not_found")
+            return jsonify(
+                {
+                    "success": True,
+                    "type": data["type"],
+                    "claims": [serialize_claim(c) for c in data["claims"]],
+                    "source_id": data["source_id"],
+                    "source_name": data["source_name"],
+                }
+            )
+        return json_error(
+            result.errors[0] if result.errors else "Not found",
+            status=404,
+            code="not_found",
+        )
     except Exception as e:
         logger.error(f"Error resolving reference: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 # =============================================================================
 # === Context CRUD Endpoints (v0.5) ===
 # =============================================================================
+
 
 @pkb_bp.route("/pkb/contexts", methods=["GET"])
 @limiter.limit("30 per minute")
@@ -1457,7 +1727,9 @@ def pkb_list_contexts():
         keys = keyParser(session)
         api = get_pkb_api_for_user(email, keys)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         contexts_with_counts = api.contexts.get_with_claim_count(limit=200)
         result = []
@@ -1469,7 +1741,9 @@ def pkb_list_contexts():
         return jsonify({"success": True, "contexts": result})
     except Exception as e:
         logger.error(f"Error listing contexts: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 @pkb_bp.route("/pkb/contexts", methods=["POST"])
@@ -1488,12 +1762,16 @@ def pkb_create_context():
         data = request.get_json()
         name = data.get("name", "").strip()
         if not name:
-            return json_error("Missing required field: name", status=400, code="bad_request")
+            return json_error(
+                "Missing required field: name", status=400, code="bad_request"
+            )
 
         keys = keyParser(session)
         api = get_pkb_api_for_user(email, keys)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         result = api.add_context(
             name=name,
@@ -1508,7 +1786,9 @@ def pkb_create_context():
         return json_error("; ".join(result.errors), status=400, code="bad_request")
     except Exception as e:
         logger.error(f"Error creating context: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 @pkb_bp.route("/pkb/contexts/<context_id>", methods=["GET"])
@@ -1527,7 +1807,9 @@ def pkb_get_context(context_id):
         keys = keyParser(session)
         api = get_pkb_api_for_user(email, keys)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         result = api.get_context(context_id)
         if result.success:
@@ -1541,7 +1823,9 @@ def pkb_get_context(context_id):
         return json_error("Context not found", status=404, code="not_found")
     except Exception as e:
         logger.error(f"Error getting context: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 @pkb_bp.route("/pkb/contexts/<context_id>", methods=["PUT"])
@@ -1561,7 +1845,9 @@ def pkb_update_context(context_id):
         keys = keyParser(session)
         api = get_pkb_api_for_user(email, keys)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         result = api.edit_context(context_id, **data)
         if result.success:
@@ -1569,7 +1855,9 @@ def pkb_update_context(context_id):
         return json_error("; ".join(result.errors), status=400, code="bad_request")
     except Exception as e:
         logger.error(f"Error updating context: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 @pkb_bp.route("/pkb/contexts/<context_id>", methods=["DELETE"])
@@ -1588,7 +1876,9 @@ def pkb_delete_context(context_id):
         keys = keyParser(session)
         api = get_pkb_api_for_user(email, keys)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         result = api.delete_context(context_id)
         if result.success:
@@ -1596,7 +1886,9 @@ def pkb_delete_context(context_id):
         return json_error("; ".join(result.errors), status=404, code="not_found")
     except Exception as e:
         logger.error(f"Error deleting context: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 @pkb_bp.route("/pkb/contexts/<context_id>/claims", methods=["POST"])
@@ -1621,17 +1913,25 @@ def pkb_add_claim_to_context(context_id):
         data = request.get_json()
         claim_identifier = data.get("claim_id")
         if not claim_identifier:
-            return json_error("Missing required field: claim_id", status=400, code="bad_request")
+            return json_error(
+                "Missing required field: claim_id", status=400, code="bad_request"
+            )
 
         keys = keyParser(session)
         api = get_pkb_api_for_user(email, keys)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         # Resolve any identifier format to a real claim
         claim = api.resolve_claim_identifier(claim_identifier)
         if not claim:
-            return json_error(f"No claim found matching: {claim_identifier}", status=404, code="not_found")
+            return json_error(
+                f"No claim found matching: {claim_identifier}",
+                status=404,
+                code="not_found",
+            )
 
         result = api.add_claim_to_context(context_id, claim.claim_id)
         if result.success:
@@ -1639,7 +1939,9 @@ def pkb_add_claim_to_context(context_id):
         return json_error("; ".join(result.errors), status=400, code="bad_request")
     except Exception as e:
         logger.error(f"Error adding claim to context: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 @pkb_bp.route("/pkb/contexts/<context_id>/claims/<claim_id>", methods=["DELETE"])
@@ -1658,7 +1960,9 @@ def pkb_remove_claim_from_context(context_id, claim_id):
         keys = keyParser(session)
         api = get_pkb_api_for_user(email, keys)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         result = api.remove_claim_from_context(context_id, claim_id)
         if result.success:
@@ -1666,7 +1970,9 @@ def pkb_remove_claim_from_context(context_id, claim_id):
         return json_error("; ".join(result.errors), status=404, code="not_found")
     except Exception as e:
         logger.error(f"Error removing claim from context: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 @pkb_bp.route("/pkb/contexts/<context_id>/resolve", methods=["GET"])
@@ -1685,24 +1991,31 @@ def pkb_resolve_context(context_id):
         keys = keyParser(session)
         api = get_pkb_api_for_user(email, keys)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         result = api.resolve_context(context_id)
         if result.success:
-            return jsonify({
-                "success": True,
-                "claims": [serialize_claim(c) for c in result.data],
-                "count": len(result.data),
-            })
+            return jsonify(
+                {
+                    "success": True,
+                    "claims": [serialize_claim(c) for c in result.data],
+                    "count": len(result.data),
+                }
+            )
         return json_error("; ".join(result.errors), status=400, code="bad_request")
     except Exception as e:
         logger.error(f"Error resolving context: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 # =============================================================================
 # === Entity Management Endpoints (v0.5) ===
 # =============================================================================
+
 
 @pkb_bp.route("/pkb/entities", methods=["POST"])
 @limiter.limit("15 per minute")
@@ -1721,20 +2034,28 @@ def pkb_create_entity():
         name = data.get("name", "").strip()
         entity_type = data.get("entity_type", "other")
         if not name:
-            return json_error("Missing required field: name", status=400, code="bad_request")
+            return json_error(
+                "Missing required field: name", status=400, code="bad_request"
+            )
 
         keys = keyParser(session)
         api = get_pkb_api_for_user(email, keys)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
-        result = api.add_entity(name=name, entity_type=entity_type, meta_json=data.get("meta_json"))
+        result = api.add_entity(
+            name=name, entity_type=entity_type, meta_json=data.get("meta_json")
+        )
         if result.success:
             return jsonify({"success": True, "entity": serialize_entity(result.data)})
         return json_error("; ".join(result.errors), status=400, code="bad_request")
     except Exception as e:
         logger.error(f"Error creating entity: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 @pkb_bp.route("/pkb/claims/<claim_id>/entities", methods=["GET"])
@@ -1753,7 +2074,9 @@ def pkb_get_claim_entities(claim_id):
         keys = keyParser(session)
         api = get_pkb_api_for_user(email, keys)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         result = api.get_claim_entities_list(claim_id)
         if result.success:
@@ -1765,7 +2088,9 @@ def pkb_get_claim_entities(claim_id):
         return json_error("; ".join(result.errors), status=400, code="bad_request")
     except Exception as e:
         logger.error(f"Error getting claim entities: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 @pkb_bp.route("/pkb/claims/<claim_id>/entities", methods=["POST"])
@@ -1785,12 +2110,16 @@ def pkb_link_entity_to_claim(claim_id):
         entity_id = data.get("entity_id")
         role = data.get("role", "mentioned")
         if not entity_id:
-            return json_error("Missing required field: entity_id", status=400, code="bad_request")
+            return json_error(
+                "Missing required field: entity_id", status=400, code="bad_request"
+            )
 
         keys = keyParser(session)
         api = get_pkb_api_for_user(email, keys)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         result = api.link_entity_to_claim(claim_id, entity_id, role)
         if result.success:
@@ -1798,7 +2127,9 @@ def pkb_link_entity_to_claim(claim_id):
         return json_error("; ".join(result.errors), status=400, code="bad_request")
     except Exception as e:
         logger.error(f"Error linking entity to claim: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 @pkb_bp.route("/pkb/claims/<claim_id>/entities/<entity_id>", methods=["DELETE"])
@@ -1817,7 +2148,9 @@ def pkb_unlink_entity_from_claim(claim_id, entity_id):
         keys = keyParser(session)
         api = get_pkb_api_for_user(email, keys)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         role = request.args.get("role")
         result = api.unlink_entity_from_claim(claim_id, entity_id, role)
@@ -1826,7 +2159,9 @@ def pkb_unlink_entity_from_claim(claim_id, entity_id):
         return json_error("; ".join(result.errors), status=404, code="not_found")
     except Exception as e:
         logger.error(f"Error unlinking entity from claim: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 # =============================================================================
@@ -1854,13 +2189,22 @@ def pkb_claim_contexts_route(claim_id):
         keys = keyParser(session)
         api = get_pkb_api_for_user(email, keys)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         contexts = api.contexts.get_contexts_for_claim(claim_id)
-        return jsonify({"contexts": [serialize_context(c) for c in contexts], "count": len(contexts)})
+        return jsonify(
+            {
+                "contexts": [serialize_context(c) for c in contexts],
+                "count": len(contexts),
+            }
+        )
     except Exception as e:
         logger.error(f"Error getting contexts for claim: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 @pkb_bp.route("/pkb/claims/<claim_id>/contexts", methods=["PUT"])
@@ -1885,7 +2229,9 @@ def pkb_set_claim_contexts_route(claim_id):
         keys = keyParser(session)
         api = get_pkb_api_for_user(email, keys)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         data = request.get_json()
         desired_ids = set(data.get("context_ids", []))
@@ -1902,10 +2248,18 @@ def pkb_set_claim_contexts_route(claim_id):
         for cid in current_ids - desired_ids:
             api.contexts.remove_claim(cid, claim_id)
 
-        return jsonify({"success": True, "added": len(desired_ids - current_ids), "removed": len(current_ids - desired_ids)})
+        return jsonify(
+            {
+                "success": True,
+                "added": len(desired_ids - current_ids),
+                "removed": len(current_ids - desired_ids),
+            }
+        )
     except Exception as e:
         logger.error(f"Error setting contexts for claim: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 # =============================================================================
@@ -1929,13 +2283,17 @@ def pkb_list_types_route():
         keys = keyParser(session)
         api = get_pkb_api_for_user(email, keys)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         types = api.type_catalog.list()
         return jsonify({"types": types, "count": len(types)})
     except Exception as e:
         logger.error(f"Error listing types: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 @pkb_bp.route("/pkb/types", methods=["POST"])
@@ -1958,14 +2316,18 @@ def pkb_add_type_route():
 
     try:
         data = request.get_json()
-        type_name = data.get("type_name", "").strip().lower().replace(' ', '_')
+        type_name = data.get("type_name", "").strip().lower().replace(" ", "_")
         if not type_name:
-            return json_error("Missing required field: type_name", status=400, code="bad_request")
+            return json_error(
+                "Missing required field: type_name", status=400, code="bad_request"
+            )
 
         keys = keyParser(session)
         api = get_pkb_api_for_user(email, keys)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         result = api.type_catalog.add(
             type_name=type_name,
@@ -1975,7 +2337,9 @@ def pkb_add_type_route():
         return jsonify({"success": True, "type": result})
     except Exception as e:
         logger.error(f"Error adding type: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 @pkb_bp.route("/pkb/domains", methods=["GET"])
@@ -1994,13 +2358,17 @@ def pkb_list_domains_route():
         keys = keyParser(session)
         api = get_pkb_api_for_user(email, keys)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         domains = api.domain_catalog.list()
         return jsonify({"domains": domains, "count": len(domains)})
     except Exception as e:
         logger.error(f"Error listing domains: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 
 @pkb_bp.route("/pkb/domains", methods=["POST"])
@@ -2023,14 +2391,18 @@ def pkb_add_domain_route():
 
     try:
         data = request.get_json()
-        domain_name = data.get("domain_name", "").strip().lower().replace(' ', '_')
+        domain_name = data.get("domain_name", "").strip().lower().replace(" ", "_")
         if not domain_name:
-            return json_error("Missing required field: domain_name", status=400, code="bad_request")
+            return json_error(
+                "Missing required field: domain_name", status=400, code="bad_request"
+            )
 
         keys = keyParser(session)
         api = get_pkb_api_for_user(email, keys)
         if api is None:
-            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
 
         result = api.domain_catalog.add(
             domain_name=domain_name,
@@ -2040,4 +2412,6 @@ def pkb_add_domain_route():
         return jsonify({"success": True, "domain": result})
     except Exception as e:
         logger.error(f"Error adding domain: {e}")
-        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )

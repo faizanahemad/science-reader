@@ -21,7 +21,9 @@ All tables use:
 - Soft deletion via retracted_at timestamp
 """
 
-SCHEMA_VERSION = 6  # v6: Added possible_questions column for QnA-style claims
+SCHEMA_VERSION = (
+    7  # v7: Added friendly_id to entities and tags for universal @references
+)
 
 
 # =============================================================================
@@ -76,6 +78,7 @@ CREATE TABLE IF NOT EXISTS notes (
 CREATE TABLE IF NOT EXISTS entities (
     entity_id TEXT PRIMARY KEY,
     user_email TEXT,                    -- Owner email for multi-user support
+    friendly_id TEXT,                   -- User-facing alphanumeric ID with _entity suffix (v7)
     entity_type TEXT NOT NULL,          -- person|org|place|topic|project|system|other
     name TEXT NOT NULL,
     meta_json TEXT,
@@ -90,6 +93,7 @@ CREATE TABLE IF NOT EXISTS entities (
 CREATE TABLE IF NOT EXISTS tags (
     tag_id TEXT PRIMARY KEY,
     user_email TEXT,                    -- Owner email for multi-user support
+    friendly_id TEXT,                   -- User-facing alphanumeric ID with _tag suffix (v7)
     name TEXT NOT NULL,
     parent_tag_id TEXT REFERENCES tags(tag_id) ON DELETE SET NULL,
     meta_json TEXT,
@@ -352,10 +356,10 @@ END;
 def get_all_ddl(include_triggers: bool = True) -> str:
     """
     Get complete DDL for database initialization.
-    
+
     Args:
         include_triggers: Whether to include FTS sync triggers.
-        
+
     Returns:
         Complete SQL DDL string.
     """
@@ -368,25 +372,32 @@ def get_all_ddl(include_triggers: bool = True) -> str:
 def get_tables_list() -> list:
     """
     Get list of all table names in schema.
-    
+
     Returns:
         List of table names.
     """
     return [
-        'claims', 'notes', 'entities', 'tags',
-        'claim_tags', 'claim_entities',
-        'conflict_sets', 'conflict_set_members',
-        'claim_embeddings', 'note_embeddings',
-        'contexts', 'context_claims',
-        'schema_version'
+        "claims",
+        "notes",
+        "entities",
+        "tags",
+        "claim_tags",
+        "claim_entities",
+        "conflict_sets",
+        "conflict_set_members",
+        "claim_embeddings",
+        "note_embeddings",
+        "contexts",
+        "context_claims",
+        "schema_version",
     ]
 
 
 def get_fts_tables_list() -> list:
     """
     Get list of FTS virtual table names.
-    
+
     Returns:
         List of FTS table names.
     """
-    return ['claims_fts', 'notes_fts']
+    return ["claims_fts", "notes_fts"]

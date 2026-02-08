@@ -3433,7 +3433,7 @@ function initializeChatControlsToggleHandler() {
         PKBManager.searchAutocomplete(prefix, 8).done(function(response) {
             var results = [];
             
-            // Add memories
+            // Add memories (claims — no type suffix)
             if (response.memories && response.memories.length > 0) {
                 response.memories.forEach(function(m) {
                     results.push({
@@ -3446,7 +3446,7 @@ function initializeChatControlsToggleHandler() {
                 });
             }
             
-            // Add contexts
+            // Add contexts (_context suffix)
             if (response.contexts && response.contexts.length > 0) {
                 response.contexts.forEach(function(c) {
                     results.push({
@@ -3455,6 +3455,45 @@ function initializeChatControlsToggleHandler() {
                         label: c.name,
                         sublabel: c.claim_count + ' memories',
                         icon: 'bi-folder'
+                    });
+                });
+            }
+            
+            // Add entities (_entity suffix, v0.7)
+            if (response.entities && response.entities.length > 0) {
+                response.entities.forEach(function(e) {
+                    results.push({
+                        type: 'entity',
+                        friendly_id: e.friendly_id,
+                        label: e.name,
+                        sublabel: e.entity_type,
+                        icon: 'bi-person'
+                    });
+                });
+            }
+            
+            // Add tags (_tag suffix, v0.7)
+            if (response.tags && response.tags.length > 0) {
+                response.tags.forEach(function(t) {
+                    results.push({
+                        type: 'tag',
+                        friendly_id: t.friendly_id,
+                        label: t.name,
+                        sublabel: 'tag',
+                        icon: 'bi-tag'
+                    });
+                });
+            }
+            
+            // Add domains (_domain suffix, v0.7)
+            if (response.domains && response.domains.length > 0) {
+                response.domains.forEach(function(d) {
+                    results.push({
+                        type: 'domain',
+                        friendly_id: d.friendly_id,
+                        label: d.display_name,
+                        sublabel: 'domain',
+                        icon: 'bi-grid'
                     });
                 });
             }
@@ -3494,8 +3533,9 @@ function initializeChatControlsToggleHandler() {
         autocompleteState.results.forEach(function(item, index) {
             var isSelected = index === autocompleteState.selectedIndex;
             var bgClass = isSelected ? 'background-color:#e9ecef;' : '';
-            var typeLabel = item.type === 'context' ? 
-                '<span class="badge badge-info badge-sm ml-1">context</span>' : '';
+            var badgeColors = { context: 'info', entity: 'primary', tag: 'success', domain: 'warning' };
+            var typeLabel = item.type !== 'memory' ? 
+                '<span class="badge badge-' + (badgeColors[item.type] || 'secondary') + ' badge-sm ml-1">' + item.type + '</span>' : '';
             
             html += '<div class="pkb-ac-item px-3 py-2" data-index="' + index + '" ' +
                 'style="cursor:pointer; border-bottom:1px solid #f0f0f0; ' + bgClass + '">' +
