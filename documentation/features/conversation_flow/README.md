@@ -118,12 +118,48 @@ Settings are managed via the **chat-settings-modal** in `interface/interface.htm
 - Doc Index overrides (`doc_long_summary_model`, `doc_long_summary_v2_model`, `doc_short_answer_model`) apply when reading uploaded documents and generating document summaries/answers.
 - See `documentation/features/conversation_model_overrides/README.md` for the override system details.
 
+## Sidebar Conversation Selection (pre-chat)
+
+Before any chat message can be sent, a conversation must be selected in the sidebar. The sidebar is rendered by `WorkspaceManager` (`interface/workspace-manager.js`) using **jsTree** (jQuery tree plugin).
+
+### How conversations appear in the sidebar
+
+1. `WorkspaceManager.loadConversationsWithWorkspaces(autoselect)` fires two parallel AJAX requests:
+   - `GET /list_workspaces/{domain}` — workspace metadata (including `parent_workspace_id` for hierarchical nesting)
+   - `GET /list_conversation_by_user/{domain}` — conversation metadata (title, last_updated, flag, workspace_id)
+2. Conversations are grouped by `workspace_id` and sorted by `last_updated` descending.
+3. `renderTree(convByWs)` builds a flat node array (workspace nodes as folders, conversation nodes as files) and initializes jsTree with `default-dark` theme, `types`, `wholerow`, and `contextmenu` plugins.
+4. Workspace nodes use `parent: "ws_" + parent_workspace_id` (or `"#"` for root) so jsTree builds the hierarchy.
+
+### How a conversation gets selected
+
+- **Click in sidebar**: jsTree `select_node.jstree` event fires. If the selected node ID starts with `cv_`, extracts the conversation ID and calls `ConversationManager.setActiveConversation(conversationId)`.
+- **Deep link** (`/interface/<conversation_id>`): `getConversationIdFromUrl()` extracts the ID. `loadConversationsWithWorkspaces(true)` calls `ConversationManager.setActiveConversation(id)` and `highlightActiveConversation(id)`.
+- **Resume from localStorage**: On page load without a deep link, the UI reads `lastActiveConversationId:{email}:{domain}` from localStorage and resumes that conversation.
+- **Auto-select first**: Falls back to the first conversation in the sorted list.
+- **After CRUD** (create, move, delete): `loadConversationsWithWorkspaces(false)` refreshes the tree without auto-selecting, then re-highlights the current active conversation.
+
+### Highlight timing
+
+jsTree initializes asynchronously. `highlightActiveConversation(conversationId)` may be called before the tree DOM exists. If `_jsTreeReady` is false, the conversation ID is queued in `_pendingHighlight` and processed when the `ready.jstree` event fires. Highlighting opens all parent workspace nodes (from root down) and calls `tree.select_node()`.
+
+### Mobile sidebar behavior
+
+A capture-phase event interceptor (`installMobileConversationInterceptor`) listens for `touchend`/`pointerup`/`click` on `document`. On mobile widths (<=768px), tapping a conversation node hides the sidebar (`#chat-assistant-sidebar` gets `d-none`) and expands the chat area before calling `ConversationManager.setActiveConversation()`.
+
+### Key files for sidebar flow
+
+- `interface/workspace-manager.js` — `WorkspaceManager` object (tree rendering, selection, CRUD, context menus)
+- `interface/workspace-styles.css` — jsTree styling overrides
+- `interface/interface.html` — sidebar toolbar HTML and jsTree container `#workspaces-container`
+- Full sidebar documentation: `documentation/features/workspaces/README.md`
+
 ## UI Rendering Pipeline
 
 ### Conversation load (history + snapshot restore)
 Location: `interface/common-chat.js` (ConversationManager.activateConversation)
 
-- On conversation selection, the UI first tries to restore a DOM snapshot via `RenderedStateManager.restore(conversationId)` for fast paint.
+- On conversation selection (triggered by sidebar click, deep link, or auto-select — see above), the UI first tries to restore a DOM snapshot via `RenderedStateManager.restore(conversationId)` for fast paint.
 - In parallel, it fetches the canonical message list via `ChatManager.listMessages(conversationId)`.
 - If the snapshot matches the latest message list, it keeps the snapshot; otherwise it re-renders from the API list.
 - Post-load work includes:
@@ -266,8 +302,9 @@ Location: `interface/shared.js`
 
 ## Key Files
 
+- `interface/workspace-manager.js` (WorkspaceManager — sidebar tree rendering, conversation selection, workspace CRUD, context menus; see `documentation/features/workspaces/README.md`)
 - `interface/chat.js` (UI wiring, settings, send button)
-- `interface/common-chat.js` (ChatManager, renderMessages, renderStreamingResponse, getTextAfterLastBreakpoint, isInsideDisplayMath, fetchAutocompleteResults — `@` autocomplete for all PKB types)
+- `interface/common-chat.js` (ChatManager, ConversationManager, renderMessages, renderStreamingResponse, getTextAfterLastBreakpoint, isInsideDisplayMath, fetchAutocompleteResults — `@` autocomplete for all PKB types)
 - `interface/common.js` (renderInnerContentAsMarkdown, normalizeOverIndentedLists)
 - `interface/parseMessageForCheckBoxes.js` (parseMemoryReferences — extracts `@references` from message text)
 - `endpoints/conversations.py` (`/send_message` streaming endpoint)

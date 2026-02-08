@@ -1,531 +1,295 @@
-/* Workspace Styles */
-.workspace-section {
-    margin-bottom: 8px;
-    border: 1px solid #e0e0e0;
-    border-radius: 6px;
-    background: #f8f9fa;
-}
+/* ============================================================
+   Workspace / Sidebar styles — jsTree integration
+   ============================================================ */
 
-.workspace-header {
-    padding: 8px 12px;
-    background: #e9ecef;
-    border-bottom: 1px solid #e0e0e0;
-    cursor: pointer;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    border-radius: 6px 6px 0 0;
-    color: #212529;
-}
-
-.workspace-header:hover {
-    background: #dee2e6;
-}
-
-.workspace-header.collapsed {
-    border-radius: 6px;
-}
-
-.workspace-title {
-    font-weight: 600;
-    font-size: 0.9rem;
-    flex-grow: 1;
-    margin-right: 10px;
-}
-
-.workspace-count {
-    font-size: 0.75rem;
-    color: #6c757d;
-    background: #ffffff;
-    padding: 2px 6px;
-    border-radius: 10px;
-    margin-right: 8px;
-    min-width: 20px;
-    text-align: center;
-}
-
-.workspace-toggle {
-    color: #6c757d;
-    transition: transform 0.2s;
-}
-
-.workspace-toggle.collapsed {
-    transform: rotate(-90deg);
-}
-
-.workspace-content {
-    padding: 0;
-    max-height: 500px;
-    overflow-y: auto;
-}
-
-.workspace-conversations {
-    padding: 5px;
-}
-
-.workspace-conversations .list-group-item {
-    margin-bottom: 3px;
-    border-radius: 4px;
-    padding: 8px 10px;
-    font-size: 0.85rem;
-    border: 1px solid #dee2e6;
-}
-
-.conversation-content {
-    min-width: 0; /* Allows text truncation */
-}
-
-.conversation-actions {
-    flex-shrink: 0;
-    opacity: 0.7;
-    transition: opacity 0.2s;
-}
-
-.conversation-item:hover .conversation-actions {
-    opacity: 1;
-}
-
-/* Drag and Drop Styles */
-.conversation-dragging {
-    opacity: 0.5;
-    transform: rotate(2deg);
-}
-
-.workspace-drop-zone {
-    background: #e3f2fd !important;
-    border: 2px dashed #2196f3 !important;
-}
-
-.workspace-drop-zone .workspace-header {
-    background: #bbdefb !important;
-}
-
-.drop-indicator {
-    height: 3px;
-    background: #2196f3;
-    margin: 2px 0;
-    border-radius: 2px;
-    opacity: 0;
-    transition: opacity 0.2s;
-}
-
-.drop-indicator.show {
-    opacity: 1;
-}
-
-/* Context Menu Styles */
-.context-menu {
-    position: absolute;
-    background: white;
-    border: 1px solid #ccc;
-    border-radius: 4px;
-    box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-    z-index: 1000;
-    min-width: 150px;
-}
-
-.context-menu ul li {
-    padding: 0;
-}
-
-.context-menu ul li a {
-    display: block;
-    padding: 8px 12px;
-    text-decoration: none;
-    color: #333;
-    font-size: 0.85rem;
-}
-
-.context-menu ul li a:hover {
-    background: #f8f9fa;
-    color: #333;
-    text-decoration: none;
-}
-
-.context-menu ul li:first-child a {
-    border-radius: 4px 4px 0 0;
-}
-
-.context-menu ul li:last-child a {
-    border-radius: 0 0 4px 4px;
-}
-
-/* Workspace Colors */
-.workspace-color-primary { border-left: 4px solid #007bff; }
-.workspace-color-success { border-left: 4px solid #28a745; }
-.workspace-color-danger { border-left: 4px solid #dc3545; }
-.workspace-color-warning { border-left: 4px solid #ffc107; }
-.workspace-color-info { border-left: 4px solid #17a2b8; }
-.workspace-color-purple { border-left: 4px solid #6f42c1; }
-.workspace-color-pink { border-left: 4px solid #e83e8c; }
-.workspace-color-orange { border-left: 4px solid #fd7e14; }
-
-
-#add-new-workspace {
-    background-color: #f8f9fa !important;
-    border-color: #6c757d !important;
-    color: #6c757d !important;
-    margin-left: 2px !important;
-}
-
-#add-new-workspace:hover {
-    background-color: #6c757d !important;
-    border-color: #6c757d !important;
-    color: white !important;
-}
-
-/* Ensure btn-group spacing */
-.btn-group .btn {
-    margin-right: 0 !important;
-}
-
-.btn-group .btn:not(:first-child) {
-    border-left: 1px solid #dee2e6;
-}
-
-/* Fallback if FontAwesome doesn't load */
-#add-new-workspace i::before {
-    content: "📁+";
-    font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif;
-    font-style: normal;
-}
-
-#add-new-chat i::before {
-    content: "+";
-    font-weight: bold;
-    font-style: normal;
-}
-
-/* Updated workspace header styles */
-.workspace-header {
-    padding: 8px 12px;
-    background: #e9ecef;
-    border-bottom: 1px solid #e0e0e0;
-    cursor: pointer;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    border-radius: 6px 6px 0 0;
-}
-
-.workspace-header-actions {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-}
-
-.workspace-count {
-    font-size: 0.75rem;
-    color: #6c757d;
-    background: #ffffff;
-    padding: 2px 6px;
-    border-radius: 10px;
-    min-width: 20px;
-    text-align: center;
-}
-
-.workspace-add-chat {
-    border: none;
-    background: none;
-    padding: 2px 4px;
-    border-radius: 3px;
-    transition: background-color 0.2s;
-}
-
-.workspace-add-chat:hover {
-    background: rgba(0,0,0,0.1);
-}
-
-.workspace-add-chat i {
-    color: #6c757d;
-}
-
-.workspace-add-chat:hover i {
-    color: #495057;
-}
-
-.workspace-toggle {
-    color: #6c757d;
-    transition: transform 0.2s;
-    /* Make it a proper clickable button-like element */
-    padding: 8px 10px;
-    margin-left: 8px;
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 4px;
-    min-width: 24px;
-    min-height: 24px;
-    /* Ensure it's on top */
-    position: relative;
-    z-index: 2;
-    /* Prevent other elements from interfering */
-    pointer-events: auto;
-}
-
-.workspace-toggle.collapsed {
-    transform: rotate(-90deg);
-}
-
-.workspace-toggle:hover {
-    color: #495057;
-    background: rgba(0,0,0,0.08);
-}
-
-/* Ensure the icon itself doesn't interfere */
-.workspace-toggle i {
-    pointer-events: none;
-}
-
-
-/* Add this to your workspace-styles.css */
-.conversation-item.active {
-    background-color: #007bff !important;
-    color: white !important;
-    border-color: #007bff !important;
-}
-
-.conversation-item.active .conversation-summary {
-    color: rgba(255, 255, 255, 0.8) !important;
-}
-
-/* Make all action buttons white EXCEPT the flag button */
-.conversation-item.active .conversation-actions .clone-conversation-button i,
-.conversation-item.active .conversation-actions .delete-chat-button i,
-.conversation-item.active .conversation-actions .stateless-button i {
-    color: white !important;
-}
-
-/* Flag colors on active conversations are preserved via inline styles in the HTML */
-
-
-/* Enhanced drag and drop styles */
-.conversation-item[draggable="true"] {
-    cursor: grab;
-}
-
-.conversation-item[draggable="true"]:active {
-    cursor: grabbing;
-}
-
-.conversation-dragging {
-    opacity: 0.6 !important;
-    transform: rotate(3deg) !important;
-    z-index: 1000 !important;
-    box-shadow: 0 4px 8px rgba(0,0,0,0.3) !important;
-}
-
-.workspace-drop-zone {
-    background: #e3f2fd !important;
-    border: 2px dashed #2196f3 !important;
-    transition: all 0.2s ease !important;
-}
-
-.workspace-drop-zone .workspace-header {
-    background: #bbdefb !important;
-}
-
-/* Prevent text selection during drag */
-.conversation-item {
-    -webkit-user-select: none;
-    -moz-user-select: none;
-    -ms-user-select: none;
-    user-select: none;
-}
-
-/* Add to workspace-styles.css */
-.moving-conversation {
-    opacity: 0.3 !important;
-    pointer-events: none !important;
-}
-
-.moving-conversation::after {
-    content: "Moving...";
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: rgba(0,0,0,0.8);
-    color: white;
+/* ---- Sidebar toolbar (file+ / folder+ buttons) ---- */
+.sidebar-toolbar {
     padding: 4px 8px;
-    border-radius: 4px;
-    font-size: 0.7rem;
-    z-index: 1001;
 }
 
-
-/* Add these to workspace-styles.css to fix drag and drop */
-
-/* Ensure proper drag and drop behavior */
-.workspace-section {
-    pointer-events: auto;
+.sidebar-toolbar h5 {
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #888;
+    margin: 0;
 }
 
-.workspace-header, 
-.workspace-conversations,
-.workspace-content {
-    pointer-events: auto;
+.sidebar-toolbar-actions {
+    display: flex;
+    gap: 2px;
 }
 
-/* Prevent child elements from blocking drop events */
-.workspace-section * {
-    pointer-events: auto;
+.sidebar-tool-btn {
+    border: none;
+    background: transparent;
+    color: #888;
+    padding: 2px 6px;
+    font-size: 0.85rem;
+    line-height: 1;
 }
 
-/* Make sure dragged items don't interfere */
-.conversation-dragging {
-    pointer-events: none !important;
+.sidebar-tool-btn:hover {
+    color: #ccc;
+    background: rgba(255,255,255,0.08);
 }
 
-/* Ensure workspace sections are properly positioned for drop detection */
-.workspace-section {
+/* ---- jsTree overrides ---- */
+
+/* Container — hard-constrain to sidebar width */
+#workspaces-container {
+    overflow-y: auto;
+    overflow-x: hidden !important;
+    width: 100% !important;
+    max-width: 100% !important;
+}
+
+/* Every <ul> in the tree must stay within parent */
+#workspaces-container ul {
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+    padding-left: 0 !important;
+    list-style: none;
+}
+
+/* Root <ul> — no padding at all */
+#workspaces-container > .jstree > .jstree-container-ul {
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+/* Children <ul> inside open nodes — small indent only */
+#workspaces-container .jstree-children {
+    padding-left: 6px !important;
+    margin-left: 0 !important;
+}
+
+/* ---- Node (<li>) ---- */
+#workspaces-container .jstree-node {
+    margin-left: 0 !important;
+    padding-left: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    overflow: hidden !important;
+    box-sizing: border-box !important;
     position: relative;
-    z-index: 1;
+    min-height: 20px;
+    line-height: 18px;
+    background-image: none !important;  /* kill theme indent guides */
 }
 
-/* Flag Color Picker Popover Styles */
+/* Leaf nodes (conversations) — hide the useless ocl toggle */
+#workspaces-container .jstree-leaf > .jstree-ocl {
+    display: none !important;
+}
+
+/* Open/close toggle — make it tiny */
+#workspaces-container .jstree-ocl {
+    width: 14px !important;
+    height: 18px !important;
+    line-height: 18px !important;
+    background-image: none !important;
+}
+
+/* Theme icon (folder/comment) */
+#workspaces-container .jstree-themeicon {
+    width: 14px !important;
+    margin-right: 2px !important;
+}
+
+/* ---- Anchor (clickable text) ---- */
+#workspaces-container .jstree-anchor {
+    font-size: 0.76rem !important;
+    line-height: 17px !important;
+    min-height: 18px !important;
+    height: auto !important;
+    padding: 1px 18px 1px 0 !important;  /* right space for triple-dot */
+    white-space: normal !important;
+    word-break: break-word !important;
+    overflow-wrap: break-word !important;
+    display: block !important;
+    overflow: hidden !important;
+    box-sizing: border-box !important;
+    text-overflow: unset !important;
+}
+
+/* Wholerow — must also constrain */
+#workspaces-container .jstree-wholerow {
+    width: 100% !important;
+    height: 100% !important;
+    position: absolute;
+    top: 0;
+    left: 0;
+}
+
+#workspaces-container .jstree-wholerow-clicked {
+    background: rgba(0, 120, 212, 0.35) !important;
+}
+
+#workspaces-container .jstree-wholerow-hovered {
+    background: rgba(255, 255, 255, 0.06) !important;
+}
+
+/* Selected/hovered anchor — no extra bg from theme */
+#workspaces-container .jstree-clicked {
+    color: #fff !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+#workspaces-container .jstree-hovered {
+    background: transparent !important;
+    box-shadow: none !important;
+}
+
+/* Icon sizing */
+#workspaces-container .jstree-icon.jstree-themeicon {
+    font-size: 0.75rem !important;
+}
+
+/* Folder icon colour */
+#workspaces-container .ws-node > .jstree-anchor > .jstree-themeicon {
+    color: #dcb67a;
+}
+
+/* Workspace color indicator — left border on the anchor */
+#workspaces-container .ws-node[data-color="primary"] > .jstree-anchor   { border-left: 3px solid #007bff; padding-left: 2px; }
+#workspaces-container .ws-node[data-color="success"] > .jstree-anchor   { border-left: 3px solid #28a745; padding-left: 2px; }
+#workspaces-container .ws-node[data-color="danger"] > .jstree-anchor    { border-left: 3px solid #dc3545; padding-left: 2px; }
+#workspaces-container .ws-node[data-color="warning"] > .jstree-anchor   { border-left: 3px solid #ffc107; padding-left: 2px; }
+#workspaces-container .ws-node[data-color="info"] > .jstree-anchor      { border-left: 3px solid #17a2b8; padding-left: 2px; }
+#workspaces-container .ws-node[data-color="purple"] > .jstree-anchor    { border-left: 3px solid #6f42c1; padding-left: 2px; }
+#workspaces-container .ws-node[data-color="pink"] > .jstree-anchor      { border-left: 3px solid #e83e8c; padding-left: 2px; }
+#workspaces-container .ws-node[data-color="orange"] > .jstree-anchor    { border-left: 3px solid #fd7e14; padding-left: 2px; }
+
+/* Conversation icon colour */
+#workspaces-container .conv-node > .jstree-anchor > .jstree-themeicon {
+    color: #75beff;
+}
+
+/* Flag-coloured conversation nodes — left border indicator */
+#workspaces-container .jstree-flag-red > .jstree-anchor    { border-left: 3px solid red; }
+#workspaces-container .jstree-flag-blue > .jstree-anchor   { border-left: 3px solid blue; }
+#workspaces-container .jstree-flag-green > .jstree-anchor  { border-left: 3px solid green; }
+#workspaces-container .jstree-flag-yellow > .jstree-anchor { border-left: 3px solid #ffc107; }
+#workspaces-container .jstree-flag-orange > .jstree-anchor { border-left: 3px solid orange; }
+#workspaces-container .jstree-flag-purple > .jstree-anchor { border-left: 3px solid purple; }
+
+/* ---- Triple-dot menu button ---- */
+.jstree-node-menu-btn {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: 0;
+    border: none;
+    background: transparent;
+    color: #999;
+    font-size: 0.7rem;
+    padding: 1px 4px;
+    cursor: pointer;
+    z-index: 10;
+    line-height: 18px;
+}
+
+.jstree-node-menu-btn:hover {
+    color: #fff;
+    background: rgba(255,255,255,0.15);
+    border-radius: 3px;
+}
+
+/* Show on hover or selected — broad selectors */
+.jstree-node:hover > .jstree-node-menu-btn {
+    display: inline-block !important;
+}
+.jstree-clicked ~ .jstree-node-menu-btn {
+    display: inline-block !important;
+}
+
+/* ---- Context menu (vakata) ---- */
+.vakata-context,
+.vakata-context ul {
+    background: #252526 !important;
+    border: 1px solid #454545 !important;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4) !important;
+    border-radius: 4px !important;
+    min-width: 160px !important;
+    -webkit-font-smoothing: antialiased !important;
+    -moz-osx-font-smoothing: grayscale !important;
+    text-rendering: optimizeLegibility !important;
+    transform: none !important;
+}
+
+.vakata-context li > a {
+    padding: 4px 16px !important;
+    font-size: 0.82rem !important;
+    color: #e0e0e0 !important;
+    font-weight: 400 !important;
+    letter-spacing: 0.01em !important;
+    text-shadow: none !important;
+    -webkit-font-smoothing: antialiased !important;
+    -moz-osx-font-smoothing: grayscale !important;
+}
+
+.vakata-context li > a:hover,
+.vakata-context li > a.vakata-context-hover {
+    background: #094771 !important;
+    color: #fff !important;
+    box-shadow: none !important;
+}
+
+.vakata-context li > a > i {
+    margin-right: 6px !important;
+    color: #888 !important;
+}
+
+.vakata-context li > a.vakata-context-hover > i {
+    color: #fff !important;
+}
+
+.vakata-context .vakata-context-separator > a {
+    border-top: 1px solid #454545 !important;
+    margin: 2px 0 !important;
+}
+
+.vakata-context li > a.vakata-context-disabled {
+    color: #666 !important;
+    cursor: default !important;
+}
+
+.vakata-context li > a.vakata-context-disabled:hover {
+    background: transparent !important;
+    color: #666 !important;
+}
+
+/* ---- Legacy / flag picker ---- */
 .flag-color-picker-popover {
     position: absolute;
-    background: white;
-    border: 1px solid #ccc;
+    background: #252526;
+    border: 1px solid #454545;
     border-radius: 6px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
     z-index: 1050;
     padding: 4px;
     min-width: 140px;
+    color: #ccc;
 }
 
 .flag-color-option {
-    padding: 8px 12px;
+    padding: 6px 10px;
     cursor: pointer;
-    border-radius: 4px;
-    font-size: 0.85rem;
+    border-radius: 3px;
+    font-size: 0.8rem;
     display: flex;
     align-items: center;
-    gap: 8px;
-    transition: background-color 0.2s;
+    gap: 6px;
 }
 
 .flag-color-option:hover {
-    background-color: #f8f9fa;
+    background: #094771;
+    color: #fff;
 }
 
 .flag-color-option.selected {
-    background-color: #e3f2fd;
+    background: rgba(0, 120, 212, 0.25);
 }
-
-.flag-color-option i {
-    font-size: 0.9rem;
-}
-
-/* Flag Filter Styles */
-.workspace-flag-filter-container {
-    position: relative;
-    display: flex;
-    align-items: center;
-}
-
-.flag-filter-button {
-    border: none;
-    background: none;
-    padding: 2px 4px;
-    border-radius: 3px;
-    transition: background-color 0.2s;
-}
-
-.flag-filter-button:hover {
-    background: rgba(0,0,0,0.1);
-}
-
-.flag-filter-dropdown {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    background: white;
-    border: 1px solid #ccc;
-    border-radius: 6px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-    z-index: 1050;
-    padding: 4px;
-    min-width: 140px;
-    margin-top: 5px;
-}
-
-.flag-filter-option {
-    padding: 8px 12px;
-    cursor: pointer;
-    border-radius: 4px;
-    font-size: 0.85rem;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    transition: background-color 0.2s;
-}
-
-.flag-filter-option:hover {
-    background-color: #f8f9fa;
-}
-
-.flag-filter-option i {
-    font-size: 0.9rem;
-}
-
-.flag-filter-divider {
-    margin: 4px 0;
-    border-top: 1px solid #e0e0e0;
-}
-
-/* Flag Button Styles in Conversation Actions */
-.flag-conversation-button {
-    border: 1px solid #000000;
-    background: none;
-    transition: all 0.2s;
-    border-radius: 4px;
-    padding: 5px;
-    color: #000000;
-}
-
-.flag-filter-button {
-    border: 1px solid #000000;
-    border-radius: 4px;
-    padding: 5px;
-    color: #000000;
-}
-
-
-.list-group-item-action.active .flag-conversation-button,
-.list-group-item-action.active .flag-conversation-button:visited {
-    border: 1px solid #FFFFFF;
-    border-radius: 4px;      /* Change for more or less curvature */
-    padding: 5px;
-    color: #FFFFFF;
-}
-
-.flag-conversation-button:hover {
-    background: rgba(0, 0, 0, 0.05);
-    border-color: rgba(0, 0, 0, 0.1);
-}
-
-.flag-conversation-button:focus {
-    outline: none;
-    border-color: rgba(0, 0, 0, 0.2);
-}
-
-/* Keep flag colors visible on active conversations - don't override the inline colors */
-.conversation-item.active .flag-conversation-button {
-    opacity: 1;
-}
-
-.conversation-item.active .flag-conversation-button:hover {
-    background: rgba(255, 255, 255, 0.1);
-    border-color: rgba(255, 255, 255, 0.3);
-}
-
-/* Only make the other action buttons white on active conversations, not flag buttons */
-.conversation-item.active .clone-conversation-button i,
-.conversation-item.active .delete-chat-button i,
-.conversation-item.active .stateless-button i {
-    color: white !important;
-}
-

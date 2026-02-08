@@ -38,12 +38,35 @@ Each conversation has:
 - **Optional flag/statefulness**:
   - “Stateless mode” disables some persistence/context behavior (exposed in API).
 
-### Workspaces
+### Workspaces (Hierarchical)
 
-Conversations can be organized into **workspaces** per user and domain:
-- create/update/delete workspaces
-- move conversations between workspaces
-- default workspace auto-created per `(user, domain)`
+Conversations are organized into **hierarchical workspaces** per user and domain:
+- Unlimited nesting depth — workspaces can contain sub-workspaces and conversations at any level.
+- Create, rename, recolor, delete, and move workspaces.
+- Move conversations between workspaces.
+- Default workspace ("General") auto-created per `(user, domain)`.
+- Deleting a workspace moves its children and conversations to its parent (or General if root).
+- Cycle-safe moves — cannot move a workspace into its own descendant.
+
+**Sidebar UI** uses jsTree (jQuery plugin) for a VS Code-like file explorer:
+- Folder icons for workspaces (with color-coded left border), comment icons for conversations.
+- Right-click context menus and triple-dot (kebab) menus on every node.
+- Workspace context menu: New Conversation, New Sub-Workspace, Rename, Change Color, Move to..., Delete.
+- Conversation context menu: Open in New Window, Clone, Toggle Stateless, Set Flag, Move to..., Delete.
+- Toolbar: file+ creates conversation in selected workspace, folder+ always creates top-level workspace.
+- Expand/collapse state persisted to server.
+- Active conversation highlighted with auto-expand of parent workspaces.
+
+**API endpoints:**
+- `POST /create_workspace/<domain>/<name>` — optional `parent_workspace_id` in JSON body
+- `PUT /move_workspace/<workspace_id>` — JSON body: `{ "parent_workspace_id": "..." }`
+- `GET /get_workspace_path/<workspace_id>` — returns breadcrumb path from root
+- `PUT /update_workspace/<workspace_id>` — rename, recolor, expand/collapse
+- `DELETE /delete_workspace/<domain>/<workspace_id>` — cascade-safe deletion
+- `PUT /move_conversation_to_workspace/<conversation_id>` — move conversation
+
+**Key files:** `database/workspaces.py`, `endpoints/workspaces.py`, `interface/workspace-manager.js`, `interface/workspace-styles.css`
+**Docs:** `documentation/features/workspaces/README.md`
 
 ### Domains
 

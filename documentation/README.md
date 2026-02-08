@@ -25,6 +25,7 @@ If you are new to the codebase, start with:
 - `features/truth_management_system/`: Personal Knowledge Base (PKB/TMS) — requirements, API reference, implementation guide, deep dive. **Current: v0.7** — includes claims CRUD, contexts/groups, friendly IDs, claim numbers, QnA possible questions (self-sufficient), dynamic types/domains, FTS5 + embedding search, LLM extraction, conversation integration (with `use_pkb` toggle), `@` autocomplete (across claims, contexts, entities, tags, domains), referenced claim preservation, expandable entity/tag/context views, universal `@` references with type-suffixed friendly IDs (`_context`, `_entity`, `_tag`, `_domain`), suffix-based routing in `resolve_reference()`, recursive tag resolution, domain references
 - `features/web_search/`: web search implementation notes
 - `features/audio_slide_agent/`: audio/slide agent docs
+- `features/workspaces/`: hierarchical workspace system — jsTree-based sidebar, unlimited nesting, workspace color indicators, context menus (right-click + triple-dot), move workspace/conversation, cascade delete, `parent_workspace_id` schema, API endpoints, Bootstrap 4.6 modals, vakata styling fixes
 - `features/stocks/`: stocks module notes
 - `features/multi_model_response_tabs/`: tabbed UI for multi-model responses and TLDR summaries (start: `features/multi_model_response_tabs/TAB_BASED_RENDERING_IMPLEMENTATION.md`)
 - `features/toc_streaming_fix/`: Table of Contents streaming fix — collapsed inline ToC, floating ToC panel, toggle button styling

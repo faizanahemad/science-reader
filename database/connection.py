@@ -108,6 +108,7 @@ def create_tables(*, users_dir: str, logger: Optional[logging.Logger] = None) ->
                                     workspace_color text,
                                     domain text,
                                     expanded boolean,
+                                    parent_workspace_id text,
                                     created_at text,
                                     updated_at text
                                 ); """
@@ -163,7 +164,20 @@ def create_tables(*, users_dir: str, logger: Optional[logging.Logger] = None) ->
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_ConversationIdToWorkspaceId_user_email ON ConversationIdToWorkspaceId (user_email)"
     )
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_WorkspaceMetadata_workspace_id ON WorkspaceMetadata (workspace_id)")
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_WorkspaceMetadata_workspace_id ON WorkspaceMetadata (workspace_id)"
+    )
+    # Add parent_workspace_id column if it doesn't exist (hierarchical workspaces)
+    try:
+        cur.execute("ALTER TABLE WorkspaceMetadata ADD COLUMN parent_workspace_id text")
+        log.info("Added parent_workspace_id column to WorkspaceMetadata table")
+    except Exception:
+        # Column already exists or other error - this is fine
+        pass
+
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_WorkspaceMetadata_parent_workspace_id ON WorkspaceMetadata (parent_workspace_id)"
+    )
 
     # Add child_doubt_id column if it doesn't exist (for bidirectional pointers)
     try:
@@ -174,22 +188,44 @@ def create_tables(*, users_dir: str, logger: Optional[logging.Logger] = None) ->
         pass
 
     # create indexes for DoubtsClearing table
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_DoubtsClearing_conversation_id ON DoubtsClearing (conversation_id)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_DoubtsClearing_user_email ON DoubtsClearing (user_email)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_DoubtsClearing_message_id ON DoubtsClearing (message_id)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_DoubtsClearing_conv_msg ON DoubtsClearing (conversation_id, message_id)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_DoubtsClearing_parent_doubt_id ON DoubtsClearing (parent_doubt_id)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_DoubtsClearing_child_doubt_id ON DoubtsClearing (child_doubt_id)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_DoubtsClearing_is_root ON DoubtsClearing (is_root_doubt)")
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_DoubtsClearing_conversation_id ON DoubtsClearing (conversation_id)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_DoubtsClearing_user_email ON DoubtsClearing (user_email)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_DoubtsClearing_message_id ON DoubtsClearing (message_id)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_DoubtsClearing_conv_msg ON DoubtsClearing (conversation_id, message_id)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_DoubtsClearing_parent_doubt_id ON DoubtsClearing (parent_doubt_id)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_DoubtsClearing_child_doubt_id ON DoubtsClearing (child_doubt_id)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_DoubtsClearing_is_root ON DoubtsClearing (is_root_doubt)"
+    )
 
     # create indexes for SectionHiddenDetails table
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_SectionHiddenDetails_conversation_id ON SectionHiddenDetails (conversation_id)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_SectionHiddenDetails_section_id ON SectionHiddenDetails (section_id)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_SectionHiddenDetails_hidden ON SectionHiddenDetails (hidden)")
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_SectionHiddenDetails_conversation_id ON SectionHiddenDetails (conversation_id)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_SectionHiddenDetails_section_id ON SectionHiddenDetails (section_id)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_SectionHiddenDetails_hidden ON SectionHiddenDetails (hidden)"
+    )
 
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_User_email_doc_conversation ON UserToConversationId (user_email)")
-    cur.execute("CREATE INDEX IF NOT EXISTS idx_UserDetails_email ON UserDetails (user_email)")
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_User_email_doc_conversation ON UserToConversationId (user_email)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_UserDetails_email ON UserDetails (user_email)"
+    )
     conn.commit()
     conn.close()
-
-
