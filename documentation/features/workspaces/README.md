@@ -361,6 +361,10 @@ Returns the `$.when()` promise for chaining.
 
 Returns "General" for the default workspace, otherwise `workspace.name`.
 
+#### `getWorkspaceBreadcrumb(workspaceId) -> string`
+
+Builds a full breadcrumb path string for a workspace by walking up the `parent_workspace_id` chain, collecting display names, reversing, and joining with ` > `. Example: a workspace "Deep" inside "Private" inside "General" returns `"General > Private > Deep"`. Uses a `visited` set for cycle safety. Used by `buildConversationMoveSubmenu()` and `buildWorkspaceMoveSubmenu()` to show the full hierarchy in move-to menus.
+
 #### `getWorkspaceDescendantIds(workspaceId) -> object`
 
 Iterative BFS using a stack. Returns an object where keys are workspace IDs that are descendants of `workspaceId`. Used by `buildWorkspaceMoveSubmenu()` to disable invalid move targets.
@@ -491,14 +495,13 @@ Separators: before `clone` and before `deleteConv`.
 - none (No Flag, `fa-flag-o`), red, blue, green, yellow, orange, purple (all `fa-flag`).
 - Each calls `POST /set_flag/{convId}/{color}` then reloads.
 
-**`buildConversationMoveSubmenu(convId)`** — hierarchical workspace list:
-- Recursively builds items by walking workspace tree (starting from root workspaces where `parent_workspace_id` is null).
-- Each workspace gets a folder icon. Display name is prefixed with spaces for visual indentation.
-- Action: `moveConversationToWorkspace(convId, workspace_id)`.
+**`buildConversationMoveSubmenu(convId)`** — flat list of all workspaces with breadcrumb paths:
+- Iterates all workspaces and shows each with its full breadcrumb path via `getWorkspaceBreadcrumb()` (e.g. `General > Private > Target`).
+- Each item gets a folder icon and calls `moveConversationToWorkspace(convId, workspace_id)` on click.
 
-**`buildWorkspaceMoveSubmenu(wsId)`** — hierarchical workspace list with cycle prevention:
-- First item: "Top level" (`fa-arrow-up`). Disabled if workspace is already at root level.
-- Then recursively lists all workspaces. Disabled if the target is:
+**`buildWorkspaceMoveSubmenu(wsId)`** — flat list of all workspaces with breadcrumb paths and cycle prevention:
+- First item: "Top level (root)" (`fa-arrow-up`). Disabled if workspace is already at root level.
+- Then lists all workspaces with full breadcrumb paths via `getWorkspaceBreadcrumb()`. Disabled if the target is:
   - The workspace itself or a descendant (from `getWorkspaceDescendantIds()`).
   - The workspace's current parent (already there).
 
@@ -639,6 +642,7 @@ Conversation nodes with flags get a CSS class `jstree-flag-{color}` on the `<li>
 Vakata is the context menu library bundled with jsTree. It renders a `<ul class="vakata-context">` appended to `<body>`.
 
 Container:
+- `z-index: 99999` — ensures the menu renders above all page elements including next-question-suggestions, Bootstrap modals, and other overlays
 - `background: #252526` (VS Code dark background)
 - `border: 1px solid #454545`
 - `border-radius: 4px`
@@ -681,6 +685,10 @@ Flag color picker popover styles are preserved for any remnant DOM (`.flag-color
 4. **Highlight not working on page load / deep link**: jsTree initializes asynchronously — the `ready.jstree` event fires after DOM creation. `highlightActiveConversation()` called before this event would silently fail (node doesn't exist yet). Fixed with `_pendingHighlight` queue that's processed in the `ready.jstree` handler.
 
 5. **Modal close/cancel buttons not working**: Modals used Bootstrap 5 syntax (`data-bs-dismiss="modal"`, `btn-close`, `form-select`) but the project uses Bootstrap 4.6. Fixed to `data-dismiss="modal"`, `close`, `custom-select`.
+
+6. **Context menu hidden behind page elements**: The vakata context menu had no explicit `z-index`, so it appeared behind elements like the next-question-suggestions div when opened at certain scroll positions. Fixed with `z-index: 99999 !important`.
+
+7. **Move-to submenus showed no hierarchy**: The "Move to..." submenus for both workspaces and conversations used space-prefix indentation which was invisible in the rendered menu. Replaced with breadcrumb-style labels via `getWorkspaceBreadcrumb()` (e.g. `General > Private > Target`).
 
 ## Files Modified
 

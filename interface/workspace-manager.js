@@ -248,6 +248,25 @@ var WorkspaceManager = {
         return workspace.name || '';
     },
 
+    /**
+     * Build a breadcrumb path string for a workspace, e.g. "General > Private > Sub".
+     * Walks up parent_workspace_id chain and reverses.
+     */
+    getWorkspaceBreadcrumb: function (workspaceId) {
+        var parts = [];
+        var visited = {};
+        var currentId = workspaceId;
+        while (currentId && !visited[currentId]) {
+            visited[currentId] = true;
+            var ws = this.workspaces[currentId];
+            if (!ws) break;
+            parts.push(this.getWorkspaceDisplayName(ws));
+            currentId = ws.parent_workspace_id;
+        }
+        parts.reverse();
+        return parts.join(' > ');
+    },
+
     getWorkspaceDescendantIds: function (workspaceId) {
         var descendants = {};
         var stack = [workspaceId];
@@ -745,24 +764,17 @@ var WorkspaceManager = {
     buildConversationMoveSubmenu: function (convId) {
         var self = this;
         var submenu = {};
-        var addItems = function (parentId, prefix) {
-            var children = Object.values(self.workspaces).filter(function (ws) {
-                return (ws.parent_workspace_id || null) === parentId;
-            });
-            children.forEach(function (ws) {
-                var displayName = prefix + self.getWorkspaceDisplayName(ws);
-                submenu['move_' + ws.workspace_id] = {
-                    label: displayName,
-                    icon: 'fa fa-folder',
-                    action: function () {
-                        self.moveConversationToWorkspace(convId, ws.workspace_id);
-                    }
-                };
-                // recurse for children
-                addItems(ws.workspace_id, prefix + '  ');
-            });
-        };
-        addItems(null, '');
+        // Flatten all workspaces and show full breadcrumb path for each
+        Object.values(this.workspaces).forEach(function (ws) {
+            var breadcrumb = self.getWorkspaceBreadcrumb(ws.workspace_id);
+            submenu['move_' + ws.workspace_id] = {
+                label: breadcrumb,
+                icon: 'fa fa-folder',
+                action: function () {
+                    self.moveConversationToWorkspace(convId, ws.workspace_id);
+                }
+            };
+        });
         return submenu;
     },
 
@@ -777,30 +789,24 @@ var WorkspaceManager = {
 
         // "Top level" option
         submenu['move_root'] = {
-            label: 'Top level',
+            label: 'Top level (root)',
             icon: 'fa fa-arrow-up',
             _disabled: !currentParent,
             action: function () { self.moveWorkspaceToParent(wsId, null); }
         };
 
-        var addItems = function (parentId, prefix) {
-            var children = Object.values(self.workspaces).filter(function (ws) {
-                return (ws.parent_workspace_id || null) === parentId;
-            });
-            children.forEach(function (ws) {
-                var isDisabled = !!descendants[ws.workspace_id];
-                var isCurrent = (ws.workspace_id === (currentParent || ''));
-                var displayName = prefix + self.getWorkspaceDisplayName(ws);
-                submenu['move_ws_' + ws.workspace_id] = {
-                    label: displayName,
-                    icon: 'fa fa-folder',
-                    _disabled: isDisabled || isCurrent,
-                    action: function () { self.moveWorkspaceToParent(wsId, ws.workspace_id); }
-                };
-                addItems(ws.workspace_id, prefix + '  ');
-            });
-        };
-        addItems(null, '');
+        // Flatten all workspaces with full breadcrumb path
+        Object.values(this.workspaces).forEach(function (ws) {
+            var isDisabled = !!descendants[ws.workspace_id];
+            var isCurrent = (ws.workspace_id === (currentParent || ''));
+            var breadcrumb = self.getWorkspaceBreadcrumb(ws.workspace_id);
+            submenu['move_ws_' + ws.workspace_id] = {
+                label: breadcrumb,
+                icon: 'fa fa-folder',
+                _disabled: isDisabled || isCurrent,
+                action: function () { self.moveWorkspaceToParent(wsId, ws.workspace_id); }
+            };
+        });
         return submenu;
     },
 

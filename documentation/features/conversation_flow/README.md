@@ -147,10 +147,18 @@ jsTree initializes asynchronously. `highlightActiveConversation(conversationId)`
 
 A capture-phase event interceptor (`installMobileConversationInterceptor`) listens for `touchend`/`pointerup`/`click` on `document`. On mobile widths (<=768px), tapping a conversation node hides the sidebar (`#chat-assistant-sidebar` gets `d-none`) and expands the chat area before calling `ConversationManager.setActiveConversation()`.
 
+### Context menus (conversation management from sidebar)
+
+Right-clicking or clicking the triple-dot (kebab) button on a conversation node opens a context menu with actions: Open in New Window, Clone, Toggle Stateless, Set Flag, Move to..., Delete. The "Move to..." submenu lists all workspaces with full breadcrumb paths (e.g. `General > Private > Target`) so the user can see exactly where each workspace sits in the hierarchy.
+
+Right-clicking or clicking the triple-dot on a workspace node offers: New Conversation, New Sub-Workspace, Rename, Change Color, Move to..., Delete. The workspace "Move to..." submenu also uses breadcrumb paths and disables invalid targets (descendants, current parent) to prevent cycles.
+
+The context menu (`vakata-context`) uses `z-index: 99999` to render above all page elements including next-question-suggestions and Bootstrap modals.
+
 ### Key files for sidebar flow
 
-- `interface/workspace-manager.js` — `WorkspaceManager` object (tree rendering, selection, CRUD, context menus)
-- `interface/workspace-styles.css` — jsTree styling overrides
+- `interface/workspace-manager.js` — `WorkspaceManager` object (tree rendering, selection, CRUD, context menus, breadcrumb path builder)
+- `interface/workspace-styles.css` — jsTree styling overrides, vakata context menu styling
 - `interface/interface.html` — sidebar toolbar HTML and jsTree container `#workspaces-container`
 - Full sidebar documentation: `documentation/features/workspaces/README.md`
 

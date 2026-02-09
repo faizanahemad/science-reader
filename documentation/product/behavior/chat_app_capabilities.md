@@ -51,8 +51,8 @@ Conversations are organized into **hierarchical workspaces** per user and domain
 **Sidebar UI** uses jsTree (jQuery plugin) for a VS Code-like file explorer:
 - Folder icons for workspaces (with color-coded left border), comment icons for conversations.
 - Right-click context menus and triple-dot (kebab) menus on every node.
-- Workspace context menu: New Conversation, New Sub-Workspace, Rename, Change Color, Move to..., Delete.
-- Conversation context menu: Open in New Window, Clone, Toggle Stateless, Set Flag, Move to..., Delete.
+- Workspace context menu: New Conversation, New Sub-Workspace, Rename, Change Color, Move to... (with breadcrumb paths like `General > Private > Target`), Delete.
+- Conversation context menu: Open in New Window, Clone, Toggle Stateless, Set Flag, Move to... (with breadcrumb paths), Delete.
 - Toolbar: file+ creates conversation in selected workspace, folder+ always creates top-level workspace.
 - Expand/collapse state persisted to server.
 - Active conversation highlighted with auto-expand of parent workspaces.
