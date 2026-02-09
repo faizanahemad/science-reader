@@ -346,6 +346,7 @@ See [PKB_V05_ENHANCEMENT_PLAN.md](./PKB_V05_ENHANCEMENT_PLAN.md) for v0.5+ desig
 
 ## Related Documentation
 
+- **Cross-Conversation Message References:** `../cross_conversation_references/README.md` - Reference specific messages from other conversations using `@conversation_<fid>_message_<hash>`. Uses the same `[REFERENCED ...]` label system and post-distillation re-injection as PKB references, but resolves from conversation storage instead of PKB.
 - **Code Common Utilities:** `code_common/call_llm.md` - LLM calling patterns
 - **Server Documentation:** `endpoints_brief_details.md` - All API endpoints
 - **Testing:** `AGENTS.md` - Testing commands and strategies

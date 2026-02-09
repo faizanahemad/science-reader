@@ -320,6 +320,7 @@ var WorkspaceManager = {
                     li_attr: {
                         'data-conversation-id': conv.conversation_id,
                         'data-flag': conv.flag || 'none',
+                        'data-conversation-friendly-id': conv.conversation_friendly_id || '',
                         'class': flagClass
                     },
                     a_attr: {
@@ -667,6 +668,20 @@ var WorkspaceManager = {
         var convId = node.id.substring(3);
 
         var items = {
+            copyConvRef: {
+                label: 'Copy Conversation Reference',
+                icon: 'fa fa-at',
+                action: function () {
+                    var fid = node.li_attr['data-conversation-friendly-id'];
+                    if (fid) {
+                        navigator.clipboard.writeText(fid).then(function () {
+                            showToast && showToast('Copied: ' + fid, 'info');
+                        });
+                    }
+                },
+                _disabled: !node.li_attr['data-conversation-friendly-id'],
+                separator_after: true
+            },
             openNewWindow: {
                 label: 'Open in New Window',
                 icon: 'fa fa-external-link',

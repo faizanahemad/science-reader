@@ -149,6 +149,9 @@ Source file: `/Users/ahemf/Documents/Backup_2025/Research/chatgpt-iterative/serv
 - **getAllCoversations** (L1287): `def getAllCoversations()`
 - **getConversationById** (L1295): `def getConversationById(conversation_id)`
 - **removeUserFromConversation** (L1304): `def removeUserFromConversation(user_email, conversation_id)`
+- **setConversationFriendlyId** (`database/conversations.py`): `def setConversationFriendlyId(*, users_dir, user_email, conversation_id, conversation_friendly_id)` — stores the human-readable `conversation_friendly_id` in `UserToConversationId` for cross-conversation reference resolution.
+- **getConversationIdByFriendlyId** (`database/conversations.py`): `def getConversationIdByFriendlyId(*, users_dir, user_email, conversation_friendly_id) -> Optional[str]` — resolves `conversation_friendly_id` back to `conversation_id` (user-scoped).
+- **conversationFriendlyIdExists** (`database/conversations.py`): `def conversationFriendlyIdExists(*, users_dir, user_email, conversation_friendly_id) -> bool` — collision check during friendly ID generation.
 - **addUserToUserDetailsTable** (L1313): `def addUserToUserDetailsTable(user_email, user_preferences=None, user_memory=None)`
 - **getUserFromUserDetailsTable** (L1364): `def getUserFromUserDetailsTable(user_email)`
 - **updateUserInfoInUserDetailsTable** (L1400): `def updateUserInfoInUserDetailsTable(user_email, user_preferences=None, user_memory=None)`
@@ -233,6 +236,9 @@ Source file: `/Users/ahemf/Documents/Backup_2025/Research/chatgpt-iterative/serv
   - limiter: `@limiter.limit("100 per minute")`
 - **GET** `/get_section_hidden_details` → `get_section_hidden_details_endpoint()` (route L5629, def L5632) (login_required, rate_limited)
   - limiter: `@limiter.limit("100 per minute")`
+- **GET** `/get_workspace_path/<workspace_id>` → `get_workspace_path()` (`endpoints/workspaces.py`) (login_required, rate_limited)
+  - limiter: `@limiter.limit("500 per minute")`
+  - Returns breadcrumb path from root to workspace. Response: JSON array of workspace metadata objects.
 - **GET** `/get_user_detail` → `get_user_detail()` (route L3707, def L3710) (login_required, rate_limited)
   - limiter: `@limiter.limit("25 per minute")`
 - **GET (default)** `/get_user_info` → `get_user_info()` (route L1868, def L1871) (login_required, rate_limited)
@@ -246,10 +252,12 @@ Source file: `/Users/ahemf/Documents/Backup_2025/Research/chatgpt-iterative/serv
 - **POST** `/is_tts_done/<conversation_id>/<message_id>` → `is_tts_done()` (route L3683, def L3684)
 - **GET** `/list_conversation_by_user/<domain>` → `list_conversation_by_user()` (route L2434, def L2437) (login_required, rate_limited)
   - limiter: `@limiter.limit("500 per minute")`
+  - Response metadata now includes `conversation_friendly_id` (string). Old conversations without friendly IDs are lazily backfilled on first call.
 - **GET** `/list_documents_by_conversation/<conversation_id>` → `list_documents_by_conversation()` (route L2194, def L2197) (login_required, rate_limited)
   - limiter: `@limiter.limit("30 per minute")`
 - **GET** `/list_messages_by_conversation/<conversation_id>` → `list_messages_by_conversation()` (route L2642, def L2645) (login_required, rate_limited)
   - limiter: `@limiter.limit("1000 per minute")`
+  - Each message object now includes `message_short_hash` (6-char base36 string) for cross-conversation referencing. Old messages without hashes are backfilled on-the-fly.
 - **GET** `/list_messages_by_conversation_shareable/<conversation_id>` → `list_messages_by_conversation_shareable()` (route L2658, def L2660) (rate_limited)
   - limiter: `@limiter.limit("100 per minute")`
 - **GET** `/list_workspaces/<domain>` → `list_workspaces()` (route L2525, def L2528) (login_required, rate_limited)
@@ -269,6 +277,9 @@ Source file: `/Users/ahemf/Documents/Backup_2025/Research/chatgpt-iterative/serv
   - limiter: `@limiter.limit("15 per minute")`
 - **PUT** `/move_conversation_to_workspace/<conversation_id>` → `move_conversation_to_workspace()` (route L2585, def L2588) (login_required, rate_limited)
   - limiter: `@limiter.limit("500 per minute")`
+- **PUT** `/move_workspace/<workspace_id>` → `move_workspace()` (`endpoints/workspaces.py`) (login_required, rate_limited)
+  - limiter: `@limiter.limit("500 per minute")`
+  - Moves a workspace under a new parent. Cycle-safe. Request JSON: `{ "parent_workspace_id": "..." }` or `null` for root.
 - **POST** `/move_messages_up_or_down/<conversation_id>` → `move_messages_up_or_down()` (route L3004, def L3007) (login_required, rate_limited)
   - limiter: `@limiter.limit("30 per minute")`
 - **GET** `/pkb/claims` → `pkb_list_claims()` (route L3944, def L3947) (login_required, rate_limited)
@@ -319,6 +330,8 @@ Source file: `/Users/ahemf/Documents/Backup_2025/Research/chatgpt-iterative/serv
   - limiter: `@limiter.limit("10 per minute")`
 - **POST** `/send_message/<conversation_id>` → `send_message()` (route L2867, def L2870) (login_required, rate_limited)
   - limiter: `@limiter.limit("50 per minute")`
+  - Server injects `query["_users_dir"]` and `query["_conversation_loader"]` for cross-conversation reference resolution.
+  - Streaming `message_ids` chunk now includes `user_message_short_hash` and `response_message_short_hash` (6-char base36 hashes).
 - **POST** `/set_flag/<conversation_id>/<flag>` → `set_flag()` (route L2410, def L2413) (login_required, rate_limited)
   - limiter: `@limiter.limit("100 per minute")`
 - **POST** `/set_memory_pad/<conversation_id>` → `set_memory_pad()` (route L3591, def L3594) (login_required, rate_limited)

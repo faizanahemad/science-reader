@@ -46,7 +46,7 @@ It’s intentionally brief: endpoint purpose + request/response shape “at a gl
 
 #### `GET /list_conversation_by_user/<domain>`
 - **Purpose**: list conversation metadata for a user within a domain.
-- **Response (JSON)**: list of conversation metadata objects (sorted).
+- **Response (JSON)**: list of conversation metadata objects (sorted). Each object includes `conversation_id`, `user_id`, `title`, `summary_till_now`, `domain`, `flag`, `last_updated`, `conversation_settings`, `workspace_id`, `workspace_name`, and `conversation_friendly_id` (short human-readable ID like `react_optimization_b4f2`, used for cross-conversation message references). Old conversations without friendly IDs are lazily backfilled on first call.
 
 #### `POST /create_conversation/<domain>/` and `POST /create_conversation/<domain>/<workspace_id>`
 - **Purpose**: create a new conversation (optionally inside a workspace).
@@ -54,7 +54,7 @@ It’s intentionally brief: endpoint purpose + request/response shape “at a gl
 
 #### `GET /list_messages_by_conversation/<conversation_id>`
 - **Purpose**: return conversation messages.
-- **Response (JSON)**: array of message objects.
+- **Response (JSON)**: array of message objects. Each message includes `message_id`, `text`, `sender`, `user_id`, `conversation_id`, and `message_short_hash` (6-char base36 string for cross-conversation referencing; backfilled on-the-fly for old messages).
 
 #### `GET /list_messages_by_conversation_shareable/<conversation_id>`
 - **Purpose**: shareable message list (public-ish flow).
@@ -71,12 +71,24 @@ It’s intentionally brief: endpoint purpose + request/response shape “at a gl
 
 #### `POST /send_message/<conversation_id>` (streaming)
 - **Purpose**: stream assistant response for the provided user query payload.
-- **Request (JSON)**: “legacy” chat payload (varies; forwarded into `Conversation.__call__`).
-- **Response (text/plain)**: streamed chunks (ends with an internal end marker).
+- **Request (JSON)**: chat payload including `messageText`, `checkboxes`, `links`, `search`, optional `attached_claim_ids`, `referenced_claim_ids`, `referenced_friendly_ids`. The `referenced_friendly_ids` array can include both PKB friendly IDs and cross-conversation message references (e.g. `conversation_react_optimization_b4f2_message_a3f2b1`).
+- **Response (text/plain)**: streamed newline-delimited JSON chunks. Each chunk is `{ "text": "...", "status": "..." }`. Some chunks include `message_ids`:
+  ```json
+  {
+    "message_ids": {
+      "user_message_id": "...",
+      "response_message_id": "...",
+      "user_message_short_hash": "...",
+      "response_message_short_hash": "..."
+    }
+  }
+  ```
+  The `*_short_hash` fields (6-char base36) are present when the conversation has a `conversation_friendly_id`. They are used by the UI for cross-conversation message reference badges.
 - **Side-effect (when enabled)**: if `checkboxes.persist_or_not` is true (default), the server may automatically create a root doubt for the assistant message with:
   - `doubt_text == "Auto takeaways"`
   - `doubt_answer ==` a short, crisp quick-reference version of the assistant response
   This will show up in `GET /get_doubts/<conversation_id>/<message_id>` for that assistant message.
+- **Cross-conversation references**: if `referenced_friendly_ids` includes entries matching `conversation_<fid>_message_<hash>` or `conv_<fid>_msg_<hash>`, the server resolves the referenced message from the target conversation and injects its content into the LLM prompt as `[REFERENCED @conversation_...]`. Resolution is user-scoped. See `documentation/features/cross_conversation_references/README.md`.
 
 #### `POST /clarify_intent/<conversation_id>`
 - **Purpose**: generate up to 3 MCQ-style clarification questions for a *draft* user message (manual “Clarify” button flow).
@@ -202,27 +214,50 @@ It’s intentionally brief: endpoint purpose + request/response shape “at a gl
 
 ## Workspaces (`endpoints/workspaces.py`)
 
+Workspaces support unlimited hierarchical nesting via `parent_workspace_id`. See `documentation/features/workspaces/README.md` for full details.
+
 #### `POST /create_workspace/<domain>/<workspace_name>`
-- **Request (JSON)** (optional): `{ "workspace_color": "..." }`
-- **Response (JSON)**: `{ "workspace_id": "...", "workspace_name": "...", "workspace_color": "..." }`
+- **Rate limit**: 500/min
+- **Request (JSON)** (optional): `{ "workspace_color": "...", "parent_workspace_id": "..." }`
+  - `parent_workspace_id`: string (workspace ID to nest under) or `null`/`""` for top-level. Validated server-side — returns 400 if parent not found.
+- **Response (JSON)**: `{ "workspace_id": "...", "workspace_name": "...", "workspace_color": "...", "parent_workspace_id": "..." }`
 
 #### `GET /list_workspaces/<domain>`
-- **Response (JSON)**: array of workspace objects.
+- **Rate limit**: 200/min
+- **Response (JSON)**: array of workspace objects. Each object includes `workspace_id`, `workspace_name`, `workspace_color`, `domain`, `expanded`, `parent_workspace_id`.
 
 #### `PUT /update_workspace/<workspace_id>`
-- **Request (JSON)**: any of `workspace_name`, `workspace_color`, `expanded`
+- **Rate limit**: 500/min
+- **Request (JSON)**: any of `workspace_name`, `workspace_color`, `expanded` (at least one required)
 - **Response (JSON)**: `{ "message": "Workspace updated successfully" }`
 
 #### `POST /collapse_workspaces`
+- **Rate limit**: 500/min
 - **Request (JSON)**: `{ "workspace_ids": [...] }`
 - **Response (JSON)**: `{ "message": "Workspaces collapsed successfully" }`
 
 #### `DELETE /delete_workspace/<domain>/<workspace_id>`
+- **Rate limit**: 500/min
+- Cascade-safe: child workspaces and conversations are moved to the parent workspace (or default if root).
 - **Response (JSON)**: `{ "message": "Workspace deleted and conversations moved to default workspace." }`
 
 #### `PUT /move_conversation_to_workspace/<conversation_id>`
+- **Rate limit**: 500/min
 - **Request (JSON)**: `{ "workspace_id": "..." }`
 - **Response (JSON)**: `{ "message": "..." }`
+
+#### `PUT /move_workspace/<workspace_id>`
+- **Rate limit**: 500/min
+- Moves a workspace under a new parent. Cycle-safe — returns 400 if moving into own descendant.
+- **Request (JSON)**: `{ "parent_workspace_id": "..." }` or `{ "parent_workspace_id": null }` for root. Empty string `""` treated as null.
+- **Response (JSON)**: `{ "message": "Workspace moved successfully." }`
+- **Error (400)**: `{ "error": "Workspace cannot be its own parent." }` / `"Cannot move workspace into its own descendant."` / `"Workspace not found for user."`
+
+#### `GET /get_workspace_path/<workspace_id>`
+- **Rate limit**: 500/min
+- Returns the breadcrumb path from root to the specified workspace.
+- **Response (JSON)**: array of workspace metadata objects, root first, target last. Each: `{ "workspace_id", "workspace_name", "workspace_color", "domain", "expanded", "parent_workspace_id" }`.
+- **Error (404)**: `{ "error": "Workspace not found." }`
 
 ---
 

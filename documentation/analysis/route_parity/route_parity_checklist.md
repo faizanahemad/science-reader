@@ -44,6 +44,7 @@ Goal: as we extract routes from server.py into endpoints/* blueprints, tick each
 - [ ] `GET` `/get_prompt_by_name/<prompt_name>`
 - [ ] `GET` `/get_prompts`
 - [ ] `GET` `/get_section_hidden_details`
+- [ ] `GET` `/get_workspace_path/<workspace_id>`
 - [ ] `GET` `/get_user_detail`
 - [ ] `GET` `/get_user_preference`
 - [ ] `POST` `/is_tts_done/<conversation_id>/<message_id>`
@@ -58,6 +59,7 @@ Goal: as we extract routes from server.py into endpoints/* blueprints, tick each
 - [ ] `POST` `/modify_user_detail`
 - [ ] `POST` `/modify_user_preference`
 - [ ] `PUT` `/move_conversation_to_workspace/<conversation_id>`
+- [ ] `PUT` `/move_workspace/<workspace_id>`
 - [ ] `POST` `/move_messages_up_or_down/<conversation_id>`
 - [ ] `GET` `/pkb/claims`
 - [ ] `POST` `/pkb/claims`

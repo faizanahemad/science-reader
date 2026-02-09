@@ -52,7 +52,7 @@ Conversations are organized into **hierarchical workspaces** per user and domain
 - Folder icons for workspaces (with color-coded left border), comment icons for conversations.
 - Right-click context menus and triple-dot (kebab) menus on every node.
 - Workspace context menu: New Conversation, New Sub-Workspace, Rename, Change Color, Move to... (with breadcrumb paths like `General > Private > Target`), Delete.
-- Conversation context menu: Open in New Window, Clone, Toggle Stateless, Set Flag, Move to... (with breadcrumb paths), Delete.
+- Conversation context menu: Copy Conversation Reference, Open in New Window, Clone, Toggle Stateless, Set Flag, Move to... (with breadcrumb paths), Delete.
 - Toolbar: file+ creates conversation in selected workspace, folder+ always creates top-level workspace.
 - Expand/collapse state persisted to server.
 - Active conversation highlighted with auto-expand of parent workspaces.
@@ -97,12 +97,13 @@ This section is the “copy into Android” backbone: what exists, how to call i
   "search": ["optional search query list"],
   "attached_claim_ids": ["optional PKB claim ids from 'Use Now' button"],
   "referenced_claim_ids": ["optional PKB claim ids from @memory:<uuid> refs"],
-  "referenced_friendly_ids": ["optional friendly IDs from @friendly_id refs (claims, contexts, entities, tags, domains)"]
+  "referenced_friendly_ids": ["optional friendly IDs from @friendly_id refs (claims, contexts, entities, tags, domains, and cross-conversation message refs)"]
 }
 ```
 
 Server-side injection:
 - `conversation_pinned_claim_ids` is injected by the server (from per-conversation pinned claims state).
+- `_users_dir` and `_conversation_loader` are injected for cross-conversation reference resolution.
 
 **Streaming response shape**
 - Each line is `json.dumps({ "text": "...", "status": "..." }) + "\n"` (plus additional keys sometimes).
@@ -112,8 +113,9 @@ Server-side injection:
   - append `text` to the assistant message,
   - optionally show `status` as progress UI.
 - Some chunks include `message_ids` once the server has generated and/or persisted message IDs.
-  - Shape: `{ "message_ids": { "user_message_id": "...", "response_message_id": "..." } }`.
+  - Shape: `{ "message_ids": { "user_message_id": "...", "response_message_id": "...", "user_message_short_hash": "...", "response_message_short_hash": "..." } }`.
   - The UI uses this to update DOM attributes so delete/move/doubts actions target the correct IDs.
+  - `*_short_hash` fields (6-char base36) are present when the conversation has a `conversation_friendly_id`. They update message reference badges for the cross-conversation reference system.
 
 **Client rendering behavior (web UI)**
 - The UI renders the user message immediately, before the server responds.
@@ -343,6 +345,29 @@ The backend resolver (`resolve_reference()`) uses suffix-based routing for fast 
 
 **Differentiator**
 - This is a major capability gap vs "plain ChatGPT chat": it supports an internal, queryable memory store with explicit attachment, pinning, context grouping, entity and tag linking, domain namespacing, inline `@` references with type-aware autocomplete across all object types, recursive resolution (contexts and tags), and QnA-style retrieval.
+
+---
+
+### 6b) Cross-Conversation Message References
+
+**What it does**
+- Users can reference specific messages from any of their conversations using `@conversation_<friendly_id>_message_<index_or_hash>` syntax.
+- The referenced message content is injected into the LLM prompt alongside PKB claims, enabling knowledge reuse across conversations without copy-paste.
+- Each conversation gets a short, human-readable `conversation_friendly_id` (e.g. `react_optimization_b4f2`) generated from the title.
+- Each message gets a `message_short_hash` (6-char base36) for stable cross-conversation referencing.
+
+**UI**
+- Sidebar context menu: "Copy Conversation Reference" (first item, `fa-at` icon) copies the conversation friendly ID.
+- Message card headers: reference badge shows `#<index> . <hash>`. Click copies the full `@conversation_<fid>_message_<hash>` reference.
+- During streaming, badges update with hashes when `message_ids` arrive.
+
+**Backend**
+- `_get_pkb_context()` separates conversation refs from PKB refs using `CONV_REF_PATTERN` regex.
+- Resolves conversation friendly ID via DB lookup, loads conversation via cache-aware loader, extracts the target message.
+- Injects as `[REFERENCED @conversation_...]` blocks that survive post-distillation re-injection.
+
+**Key files:** `conversation_reference_utils.py`, `Conversation.py`, `database/conversations.py`, `interface/workspace-manager.js`, `interface/common-chat.js`
+**Docs:** `documentation/features/cross_conversation_references/README.md`
 
 ---
 

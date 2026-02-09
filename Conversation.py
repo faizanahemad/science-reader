@@ -249,51 +249,68 @@ class Conversation:
     @staticmethod
     def _extract_referenced_claims(pkb_context: str) -> str:
         """
-        Extract only explicitly referenced claims from formatted PKB context text.
+        Extract only explicitly referenced items from formatted PKB context.
 
         The PKB context returned by ``_get_pkb_context`` is a newline-joined
-        string of bullet-point claims, each starting with ``- ``.  Claims that
-        the user explicitly referenced (via ``@friendly_id`` or ``@memory:uuid``)
-        carry a ``[REFERENCED ...]`` tag in their source prefix.
+        string of ``<pkb_item>`` XML-tagged items.  Items that the user
+        explicitly referenced (via ``@friendly_id``, ``@memory:uuid``, or
+        cross-conversation ``@conv_fid_message_hash``) have
+        ``source="referenced"`` in their XML attributes.
 
-        This function returns *only* those referenced claims, preserving multi-
-        line statements intact.  It is used after the cheap-LLM distillation
-        step to re-inject the referenced claims verbatim into the final prompt
-        (the distillation LLM may drop or paraphrase them, but the user asked
-        for these specific facts).
+        This function returns *only* those referenced items, preserving their
+        full XML wrapper so the downstream LLM prompt can use them as-is.
+        It is used after the cheap-LLM distillation step to re-inject the
+        referenced claims verbatim into the final prompt (the distillation LLM
+        may drop or paraphrase them, but the user asked for these specific
+        facts).
+
+        Falls back to legacy ``- [REFERENCED ...]`` bullet parsing for any
+        cached/older context strings that are not XML-tagged.
 
         Parsing strategy
         ----------------
-        Rather than splitting on newlines (which would break multi-line claim
-        statements), we split on the bullet prefix ``- [`` which starts every
-        claim.  Each resulting chunk is then checked for the ``[REFERENCED``
-        tag.  This is robust against multi-line claim text.
+        Parse ``<pkb_item ... source="referenced" ...>`` tags using regex with
+        ``re.DOTALL`` to handle multi-line content correctly.
 
         Args:
             pkb_context: The formatted PKB context string from
                 ``_get_pkb_context``, or an empty string.
 
         Returns:
-            A newline-joined string of only the referenced claim bullets, or
-            an empty string if none are found.
+            A newline-joined string of only the referenced items (in their
+            original XML or bullet format), or an empty string if none found.
 
         Examples:
             >>> ctx = (
-            ...     "- [REFERENCED @ssdva] [fact] I work at Amazon India.\\n"
-            ...     "- [fact] I like morning meetings."
+            ...     '<pkb_item source="referenced" type="fact" ref="@ssdva">'
+            ...     'I work at Amazon India.</pkb_item>\\n'
+            ...     '<pkb_item source="auto" type="fact">'
+            ...     'I like morning meetings.</pkb_item>'
             ... )
             >>> Conversation._extract_referenced_claims(ctx)
-            '- [REFERENCED @ssdva] [fact] I work at Amazon India.'
+            '<pkb_item source="referenced" type="fact" ref="@ssdva">I work at Amazon India.</pkb_item>'
         """
         if not pkb_context:
             return ""
 
         import re as _re
 
-        # Split on the bullet prefix "- [" which starts every claim.
-        # We use a regex that keeps the delimiter as part of the next chunk.
-        # Pattern: split just before "- [" that appears at the start of a line
-        # or the start of the string.
+        # Try XML format first
+        xml_pattern = _re.compile(
+            r"<pkb_item\s+([^>]*)>(.*?)</pkb_item>",
+            _re.DOTALL,
+        )
+        matches = list(xml_pattern.finditer(pkb_context))
+        if matches:
+            # XML format detected
+            referenced = []
+            for m in matches:
+                attrs_str = m.group(1)
+                if 'source="referenced"' in attrs_str:
+                    referenced.append(m.group(0))  # full match including tags
+            return "\n".join(referenced)
+
+        # Legacy fallback: split on bullet prefix "- [" and check for [REFERENCED
         chunks = _re.split(r"(?=^- \[|\n- \[)", pkb_context)
 
         referenced = []
@@ -301,11 +318,152 @@ class Conversation:
             stripped = chunk.strip()
             if not stripped:
                 continue
-            # Check if this claim bullet has a [REFERENCED ...] tag
             if "[REFERENCED" in stripped:
                 referenced.append(stripped)
 
         return "\n".join(referenced)
+
+    def _resolve_conversation_message_refs(
+        self, conv_refs, user_email, users_dir, conversation_loader=None
+    ):
+        """
+        Resolve cross-conversation message references.
+
+        For each (full_ref, conv_fid, msg_identifier) tuple, look up the target
+        conversation by its friendly_id, load the conversation, and extract the
+        referenced message by index (if digits) or short hash (if alphanumeric).
+
+        Parameters
+        ----------
+        conv_refs : list of (str, str, str)
+            List of (full_reference_string, conversation_friendly_id, message_identifier).
+        user_email : str
+            Current user's email for ownership scoping.
+        users_dir : str
+            Path to users directory for DB access.
+        conversation_loader : callable or None
+            Optional function(conversation_id) -> Conversation. Uses cache if available.
+
+        Returns
+        -------
+        list of (str, str)
+            List of (reference_label, message_text) tuples for resolved messages.
+        """
+        import os
+        from database.conversations import getConversationIdByFriendlyId
+        from conversation_reference_utils import generate_message_short_hash
+
+        resolved = []
+        loaded_conversations = {}  # Within-request cache: conv_id -> Conversation
+
+        for full_ref, conv_fid, msg_identifier in conv_refs:
+            try:
+                # Look up conversation_id from friendly_id
+                conv_id = getConversationIdByFriendlyId(
+                    users_dir=users_dir,
+                    user_email=user_email,
+                    conversation_friendly_id=conv_fid,
+                )
+                if not conv_id:
+                    logger.warning(
+                        "[CrossConvRef] Conversation not found for friendly_id: %s",
+                        conv_fid,
+                    )
+                    continue
+
+                # Load conversation (cached within this request)
+                if conv_id not in loaded_conversations:
+                    if conversation_loader:
+                        try:
+                            loaded_conversations[conv_id] = conversation_loader(conv_id)
+                        except Exception:
+                            # Fallback: load from disk
+                            conv_root = os.path.dirname(self._storage)
+                            other_path = os.path.join(conv_root, conv_id)
+                            loaded_conversations[conv_id] = Conversation.load_local(
+                                other_path
+                            )
+                    else:
+                        conv_root = os.path.dirname(self._storage)
+                        other_path = os.path.join(conv_root, conv_id)
+                        loaded_conversations[conv_id] = Conversation.load_local(
+                            other_path
+                        )
+
+                other_conv = loaded_conversations[conv_id]
+                if not other_conv:
+                    logger.warning(
+                        "[CrossConvRef] Failed to load conversation: %s", conv_id
+                    )
+                    continue
+
+                messages = other_conv.get_message_list()
+                if not messages:
+                    logger.warning(
+                        "[CrossConvRef] No messages in conversation: %s", conv_fid
+                    )
+                    continue
+
+                target_msg = None
+                msg_index = None
+
+                # Resolve by index (all digits) or by hash
+                if msg_identifier.isdigit():
+                    idx = int(msg_identifier)
+                    if 1 <= idx <= len(messages):
+                        target_msg = messages[idx - 1]
+                        msg_index = idx
+                    else:
+                        logger.warning(
+                            "[CrossConvRef] Index %d out of range (1-%d) for %s",
+                            idx,
+                            len(messages),
+                            conv_fid,
+                        )
+                else:
+                    # Search by message_short_hash
+                    for i, msg in enumerate(messages):
+                        stored_hash = msg.get("message_short_hash", "")
+                        if not stored_hash and msg.get("text"):
+                            stored_hash = generate_message_short_hash(
+                                conv_fid, msg["text"]
+                            )
+                        if stored_hash == msg_identifier:
+                            target_msg = msg
+                            msg_index = i + 1
+                            break
+                    if not target_msg:
+                        logger.warning(
+                            "[CrossConvRef] Hash '%s' not found in %s",
+                            msg_identifier,
+                            conv_fid,
+                        )
+
+                if target_msg:
+                    sender = target_msg.get("sender", "unknown")
+                    sender_label = "user" if sender == "user" else "assistant"
+                    msg_text = target_msg.get("text", "")
+                    resolved.append(
+                        (
+                            full_ref,
+                            f"from {conv_fid} #{msg_index} ({sender_label}):\n{msg_text}",
+                        )
+                    )
+                    time_logger.info(
+                        "[CrossConvRef] Resolved @%s -> %s #%d (%s, %d chars)",
+                        full_ref,
+                        conv_fid,
+                        msg_index,
+                        sender_label,
+                        len(msg_text),
+                    )
+            except Exception as e:
+                logger.exception(
+                    "[CrossConvRef] Failed to resolve @%s: %s", full_ref, e
+                )
+                continue
+
+        return resolved
 
     def _get_pkb_context(
         self,
@@ -318,6 +476,8 @@ class Conversation:
         conversation_pinned_claim_ids: list = None,
         referenced_claim_ids: list = None,
         referenced_friendly_ids: list = None,
+        users_dir: str = None,
+        conversation_loader=None,
     ) -> str:
         """
         Retrieve relevant claims from PKB for the current query.
@@ -381,12 +541,80 @@ class Conversation:
             all_claims = []  # List of (source, claim) tuples
             seen_ids = set()
 
-            # 0. Referenced friendly IDs (from @friendly_id in message) - highest priority
+            # 0a. Separate cross-conversation refs from PKB friendly_id refs
+            conv_refs = []
+            pkb_fids = []
             if referenced_friendly_ids:
-                time_logger.info(
-                    f"[PKB] Resolving {len(referenced_friendly_ids)} friendly_id references"
-                )
+                from conversation_reference_utils import CONV_REF_PATTERN
+
                 for fid in referenced_friendly_ids:
+                    m = CONV_REF_PATTERN.match(fid)
+                    if m:
+                        conv_refs.append((fid, m.group(1), m.group(2)))
+                    else:
+                        pkb_fids.append(fid)
+
+            # 0b. Resolve cross-conversation message references
+            if conv_refs and users_dir:
+                try:
+                    resolved_msgs = self._resolve_conversation_message_refs(
+                        conv_refs, user_email, users_dir, conversation_loader
+                    )
+                    for ref_label, msg_text in resolved_msgs:
+                        truncated = msg_text[:8000]
+                        if len(msg_text) > 8000:
+                            truncated += (
+                                f"\n... [truncated, original was {len(msg_text)} chars]"
+                            )
+                        # Create a mock claim-like object with the required attributes
+                        # so the formatting loop can handle it alongside PKB claims.
+                        mock_claim = type(
+                            "_ConvMsgRef",
+                            (),
+                            {
+                                "claim_id": f"conv_ref_{ref_label}",
+                                "claim_type": "conversation_message",
+                                "statement": truncated,
+                                "possible_questions": None,
+                            },
+                        )()
+                        all_claims.append((f"referenced_@{ref_label}", mock_claim))
+                        seen_ids.add(f"conv_ref_{ref_label}")
+                except Exception as e:
+                    logger.exception(
+                        "[PKB] Failed to resolve cross-conversation refs: %s", e
+                    )
+                    for ref_label, msg_text in resolved_msgs:
+                        truncated = msg_text[:8000]
+                        if len(msg_text) > 8000:
+                            truncated += (
+                                f"\n... [truncated, original was {len(msg_text)} chars]"
+                            )
+                        all_claims.append(
+                            (
+                                f"referenced_@{ref_label}",
+                                type(
+                                    "_ConvMsg",
+                                    (),
+                                    {
+                                        "claim_id": f"conv_ref_{ref_label}",
+                                        "text": f"[conversation_message]:\n```\n{truncated}\n```",
+                                    },
+                                )(),
+                            )
+                        )
+                        seen_ids.add(f"conv_ref_{ref_label}")
+                except Exception as e:
+                    logger.exception(
+                        "[PKB] Failed to resolve cross-conversation refs: %s", e
+                    )
+
+            # 0c. Referenced friendly IDs (from @friendly_id in message) - highest priority
+            if pkb_fids:
+                time_logger.info(
+                    f"[PKB] Resolving {len(pkb_fids)} friendly_id references"
+                )
+                for fid in pkb_fids:
                     result = api.resolve_reference(fid)
                     if result.success and result.data:
                         ref_type = result.data.get("type", "unknown")
@@ -562,23 +790,38 @@ class Conversation:
                 time_logger.info("[PKB] No claims found, returning empty string")
                 return ""
 
-            # Format claims with source indicators
+            # Format claims as XML-tagged items.
+            #
+            # Each claim is wrapped in a ``<pkb_item>`` tag with attributes
+            # for source, type, and optional reference ID.  This avoids the
+            # ambiguity of ``- `` bullet-prefix splitting which breaks when
+            # item content (e.g. cross-conversation messages) contains
+            # newlines or its own ``- `` bullet lines.
+            #
+            # Downstream consumers:
+            # - LLM prompt: XML is sent as-is (LLMs handle XML well).
+            # - ``_format_pkb_audit_details``: parses ``<pkb_item>`` tags.
+            # - ``_extract_referenced_claims``: filters by source attribute.
+            import xml.sax.saxutils as _saxutils
+
             context_lines = []
             for source, claim in all_claims:
-                claim_type_prefix = f"[{claim.claim_type}]" if claim.claim_type else ""
-                source_prefix = ""
+                claim_type = claim.claim_type if claim.claim_type else ""
+                source_attr = "auto"  # default
+                ref_attr = ""
                 if source.startswith("referenced_@"):
-                    # Friendly ID reference: @some_friendly_id
                     fid = source.replace("referenced_@", "")
-                    source_prefix = f"[REFERENCED @{fid}] "
+                    source_attr = "referenced"
+                    ref_attr = f"@{fid}"
                 elif source == "referenced":
-                    source_prefix = "[REFERENCED] "
+                    source_attr = "referenced"
                 elif source == "attached":
-                    source_prefix = "[ATTACHED] "
+                    source_attr = "attached"
                 elif source == "pinned":
-                    source_prefix = "[PINNED] "
+                    source_attr = "pinned"
                 elif source == "conv_pinned":
-                    source_prefix = "[CONV-PINNED] "
+                    source_attr = "conv_pinned"
+
                 # Include possible questions if available (helps LLM understand relevance)
                 pq_suffix = ""
                 if hasattr(claim, "possible_questions") and claim.possible_questions:
@@ -594,9 +837,13 @@ class Conversation:
                             pq_suffix = f" (answers: {'; '.join(questions[:3])})"
                     except Exception:
                         pass
-                context_lines.append(
-                    f"- {source_prefix}{claim_type_prefix} {claim.statement}{pq_suffix}"
-                )
+
+                # Build XML attributes string
+                attrs = f'source="{_saxutils.escape(source_attr)}" type="{_saxutils.escape(claim_type)}"'
+                if ref_attr:
+                    attrs += f' ref="{_saxutils.escape(ref_attr)}"'
+                statement_text = f"{claim.statement}{pq_suffix}"
+                context_lines.append(f"<pkb_item {attrs}>{statement_text}</pkb_item>")
 
             formatted_context = "\n".join(context_lines)
             time_logger.info(
@@ -2818,25 +3065,43 @@ Extract facts, details, numbers, code snippets, decisions, preferences, and any 
             return f"# Conversation History\n\nUnable to retrieve conversation history due to an error: {str(e)}"
 
     def get_message_ids(self, query, response):
+        query_text = query["messageText"] if isinstance(query, dict) else query
+        response_text = (
+            response["messageText"] if isinstance(response, dict) else response
+        )
         user_message_id = str(
             mmh3.hash(
-                self.conversation_id + self.user_id + query["messageText"]
-                if isinstance(query, dict)
-                else query,
+                self.conversation_id + self.user_id + query_text,
                 signed=False,
             )
         )
         response_message_id = str(
             mmh3.hash(
-                self.conversation_id + self.user_id + response["messageText"]
-                if isinstance(response, dict)
-                else response,
+                self.conversation_id + self.user_id + response_text,
                 signed=False,
             )
         )
-        return dict(
+        result = dict(
             user_message_id=user_message_id, response_message_id=response_message_id
         )
+        # Include message_short_hash if conversation_friendly_id is available.
+        # These are sent to the frontend via the streaming message_ids chunk so
+        # message ref badges can display hashes immediately.
+        try:
+            memory = self.get_field("memory")
+            conv_fid = memory.get("conversation_friendly_id", "") if memory else ""
+            if conv_fid:
+                from conversation_reference_utils import generate_message_short_hash
+
+                result["user_message_short_hash"] = generate_message_short_hash(
+                    conv_fid, query_text
+                )
+                result["response_message_short_hash"] = generate_message_short_hash(
+                    conv_fid, response_text
+                )
+        except Exception:
+            pass  # Non-critical; hashes can be computed on-the-fly later
+        return result
 
     def show_hide_message(self, message_id, index, show_hide):
         # Add lock acquisition at the beginning
@@ -2984,6 +3249,76 @@ Give 4 suggestions.
             "can_cleanup": len(stale_locks) > 0 or lock_status["any_lock_acquired"],
         }
 
+    def _ensure_conversation_friendly_id(self, memory: dict, users_dir: str) -> None:
+        """
+        Generate and persist a conversation_friendly_id if not already set.
+
+        Called on first persist after title is generated. The friendly ID is
+        stored in both the conversation memory dict and the UserToConversationId
+        DB table for fast lookup during cross-conversation reference resolution.
+
+        Parameters
+        ----------
+        memory : dict
+            The conversation memory dict (modified in-place).
+        users_dir : str
+            Path to users directory for DB access.
+        """
+        from conversation_reference_utils import (
+            generate_conversation_friendly_id,
+            _to_base36,
+        )
+        from database.conversations import (
+            setConversationFriendlyId,
+            conversationFriendlyIdExists,
+        )
+
+        title = memory.get("title", "")
+        if not title:
+            return
+
+        # Use a stable timestamp — first persist time, never changes
+        if "created_at" not in memory:
+            memory["created_at"] = memory.get("last_updated", "")
+        created_at = str(memory["created_at"])
+
+        candidate = generate_conversation_friendly_id(title, created_at)
+
+        # Collision retry loop (up to 5 attempts with different salts)
+        for attempt in range(5):
+            if not conversationFriendlyIdExists(
+                users_dir=users_dir,
+                user_email=self.user_id,
+                conversation_friendly_id=candidate,
+            ):
+                break
+            # Re-hash with salt
+            salt_input = title + created_at + self.conversation_id + str(attempt)
+            candidate = generate_conversation_friendly_id(salt_input, created_at)
+        else:
+            # All 5 attempts collided — extend hash length to 6 chars
+            import mmh3 as _mmh3
+            from conversation_reference_utils import _simple_extract_words
+
+            words = _simple_extract_words(title, max_words=2) or ["chat"]
+            h = _mmh3.hash(title + created_at + self.conversation_id, signed=False)
+            candidate = "_".join(words) + "_" + _to_base36(h, 6)
+
+        memory["conversation_friendly_id"] = candidate
+        try:
+            setConversationFriendlyId(
+                users_dir=users_dir,
+                user_email=self.user_id,
+                conversation_id=self.conversation_id,
+                conversation_friendly_id=candidate,
+            )
+        except Exception as e:
+            logger.exception(
+                "[Conversation] [_ensure_conversation_friendly_id] "
+                "Failed to store friendly_id in DB: %s",
+                e,
+            )
+
     @timer
     def persist_current_turn(
         self,
@@ -2995,6 +3330,7 @@ Give 4 suggestions.
         new_docs,
         persist_or_not=True,
         past_message_ids=None,
+        users_dir=None,
     ):
         self.clear_cancellation()
         if not persist_or_not:
@@ -3124,6 +3460,27 @@ Your response will be in below xml style format:
                 },
             ]
 
+            # Compute message_short_hash if conversation_friendly_id is already available.
+            # For first-turn conversations (no friendly_id yet), hashes are backfilled
+            # on-the-fly by get_message_list() when messages are read later.
+            _existing_fid = (
+                self.get_field("memory").get("conversation_friendly_id", "")
+                if self.get_field("memory")
+                else ""
+            )
+            if _existing_fid:
+                try:
+                    from conversation_reference_utils import generate_message_short_hash
+
+                    preserved_messages[0]["message_short_hash"] = (
+                        generate_message_short_hash(_existing_fid, query)
+                    )
+                    preserved_messages[1]["message_short_hash"] = (
+                        generate_message_short_hash(_existing_fid, response_to_store)
+                    )
+                except Exception:
+                    pass  # Non-critical; hashes can be backfilled later
+
             if (
                 past_message_ids
                 and len(past_message_ids) > 0
@@ -3185,6 +3542,17 @@ Your response will be in below xml style format:
                 past_message_ids is None or len(past_message_ids) == 0
             ):
                 memory["title"] = title
+
+            # Generate conversation_friendly_id on first persist (after title is set)
+            if users_dir and not memory.get("conversation_friendly_id"):
+                try:
+                    self._ensure_conversation_friendly_id(memory, users_dir)
+                except Exception as e:
+                    logger.exception(
+                        "[Conversation] [persist_current_turn] "
+                        "Failed to generate conversation_friendly_id: %s",
+                        e,
+                    )
 
             if (
                 past_message_ids
@@ -4779,6 +5147,11 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         referenced_friendly_ids = (
             query.get("referenced_friendly_ids", []) if isinstance(query, dict) else []
         )
+        # Extract cross-conversation reference resolution dependencies (injected by endpoint)
+        users_dir = query.get("_users_dir", None) if isinstance(query, dict) else None
+        conversation_loader = (
+            query.get("_conversation_loader", None) if isinstance(query, dict) else None
+        )
 
         # Start PKB context retrieval in parallel (if PKB is available and use_pkb is enabled)
         pkb_context_future = None
@@ -4812,6 +5185,8 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 conversation_pinned_claim_ids=conversation_pinned_claim_ids,
                 referenced_claim_ids=referenced_claim_ids,
                 referenced_friendly_ids=referenced_friendly_ids,
+                users_dir=users_dir,
+                conversation_loader=conversation_loader,
             )
             yield {
                 "text": "",
@@ -5218,6 +5593,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 {},
                 persist_or_not,
                 past_message_ids,
+                users_dir=users_dir,
             )
             # Process reward evaluation after summary streaming completes
             _collect_reward_output(block=True)
@@ -5311,6 +5687,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     {},
                     persist_or_not,
                     past_message_ids,
+                    users_dir=users_dir,
                 )
                 message_ids = self.get_message_ids(query["messageText"], answer)
                 # Process reward evaluation before saving message
@@ -5549,12 +5926,113 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 )
 
             def _format_pkb_audit_details(context_text, k_value):
-                """Build a structured PKB audit summary as a bullet list."""
-                lines = [
-                    line.strip()
-                    for line in (context_text or "").splitlines()
-                    if line.strip().startswith("- ")
-                ]
+                """Build a structured PKB audit summary as pure HTML.
+
+                Parses ``<pkb_item>`` XML tags emitted by ``_get_pkb_context``
+                to extract individual items.  This is robust against multi-line
+                content (e.g. cross-conversation message references whose text
+                contains newlines, bullets, or markdown) because the XML tags
+                provide unambiguous boundaries.
+
+                Falls back to legacy ``- `` bullet splitting for backward
+                compatibility with any cached/older context strings.
+
+                Each retrieved item shows:
+
+                - Source/type tags as styled ``<code>`` badges
+                - Truncated preview (~15 words, all whitespace flattened)
+                - Word count badge (e.g. ``35w``)
+                - Click preview text to copy full content to clipboard
+                - ``[+expand]`` button for items longer than 15 words
+
+                The entire section is emitted as an HTML block (preceded by a
+                blank line) so CommonMark treats it as raw HTML passthrough.
+                """
+                import html as _html
+                import re as _re
+                import urllib.parse as _urlparse
+
+                MAX_PREVIEW_WORDS = 15
+
+                # --- Parse items from XML-tagged context ---
+                # Each item is: <pkb_item source="..." type="..." ref="...">content</pkb_item>
+                raw = (context_text or "").strip()
+                # parsed_items: list of dicts {source, type, ref, content}
+                parsed_items = []
+                if raw:
+                    xml_pattern = _re.compile(
+                        r"<pkb_item\s+([^>]*)>(.*?)</pkb_item>",
+                        _re.DOTALL,
+                    )
+                    for m in xml_pattern.finditer(raw):
+                        attrs_str = m.group(1)
+                        content = m.group(2)
+                        # Parse attributes
+                        src = _re.search(r'source="([^"]*)"', attrs_str)
+                        typ = _re.search(r'type="([^"]*)"', attrs_str)
+                        ref = _re.search(r'ref="([^"]*)"', attrs_str)
+                        parsed_items.append(
+                            {
+                                "source": src.group(1) if src else "auto",
+                                "type": typ.group(1) if typ else "",
+                                "ref": ref.group(1) if ref else "",
+                                "content": content,
+                            }
+                        )
+
+                    # Fallback: if no XML tags found, try legacy "- " bullet format
+                    if not parsed_items:
+                        parts = _re.split(r"\n(?=- )", raw)
+                        for part in parts:
+                            stripped = part.strip()
+                            if not stripped:
+                                continue
+                            # Try to extract legacy source/type from "- [SOURCE] [type] text"
+                            legacy_src = "auto"
+                            legacy_type = ""
+                            legacy_ref = ""
+                            legacy_text = stripped
+                            if stripped.startswith("- "):
+                                legacy_text = stripped[2:]
+                            # Parse legacy tags
+                            tag_match = _re.match(
+                                r"^((?:\[[^\]]*\]\s*)*)(.*)", legacy_text, _re.DOTALL
+                            )
+                            if tag_match:
+                                tags_block = tag_match.group(1).strip()
+                                body = tag_match.group(2).strip()
+                                if "[REFERENCED" in tags_block:
+                                    legacy_src = "referenced"
+                                    ref_m = _re.search(
+                                        r"\[REFERENCED\s+(@\S+)\]", tags_block
+                                    )
+                                    if ref_m:
+                                        legacy_ref = ref_m.group(1)
+                                elif "[ATTACHED]" in tags_block:
+                                    legacy_src = "attached"
+                                elif "[CONV-PINNED]" in tags_block:
+                                    legacy_src = "conv_pinned"
+                                elif "[PINNED]" in tags_block:
+                                    legacy_src = "pinned"
+                                type_m = _re.search(r"\[(\w+)\]", tags_block)
+                                if type_m and type_m.group(1) not in (
+                                    "REFERENCED",
+                                    "ATTACHED",
+                                    "PINNED",
+                                    "CONV-PINNED",
+                                ):
+                                    legacy_type = type_m.group(1)
+                                legacy_text = body
+                            parsed_items.append(
+                                {
+                                    "source": legacy_src,
+                                    "type": legacy_type,
+                                    "ref": legacy_ref,
+                                    "content": legacy_text,
+                                }
+                            )
+
+                # --- Source counting ---
                 source_counts = {
                     "referenced": 0,
                     "attached": 0,
@@ -5562,39 +6040,201 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     "conv_pinned": 0,
                     "auto": 0,
                 }
-                for line in lines:
-                    if "[REFERENCED]" in line:
-                        source_counts["referenced"] += 1
-                    if "[ATTACHED]" in line:
-                        source_counts["attached"] += 1
-                    if "[PINNED]" in line and "[CONV-PINNED]" not in line:
-                        source_counts["pinned"] += 1
-                    if "[CONV-PINNED]" in line:
-                        source_counts["conv_pinned"] += 1
-                    if "[AUTO]" in line:
+                for item in parsed_items:
+                    src = item["source"]
+                    if src in source_counts:
+                        source_counts[src] += 1
+                    else:
                         source_counts["auto"] += 1
 
-                detail_lines = [
-                    f"- PKB available: {PKB_AVAILABLE}",
-                    f"- User email present: {bool(user_email)}",
-                    f"- Requested k: {k_value}",
-                    f"- Attached claim ids: {len(attached_claim_ids)}",
-                    f"- Conversation pinned claim ids: {len(conversation_pinned_claim_ids)}",
-                    f"- Referenced claim ids: {len(referenced_claim_ids)}",
-                    f"- Retrieved claims: {len(lines)}",
-                    "- Source counts:",
-                    f"  - referenced: {source_counts['referenced']}",
-                    f"  - attached: {source_counts['attached']}",
-                    f"  - pinned: {source_counts['pinned']}",
-                    f"  - conv_pinned: {source_counts['conv_pinned']}",
-                    f"  - auto: {source_counts['auto']}",
+                total_word_count = sum(
+                    len(it["content"].split()) for it in parsed_items
+                )
+
+                # --- Build output as pure HTML block ---
+                h = []  # html parts accumulator
+                # Leading blank line tells CommonMark this is a raw HTML block
+                h.append("")
+                h.append(
+                    '<div class="pkb-audit-details" '
+                    'style="font-size:0.88em;color:#ccc;">'
+                )
+
+                # Summary stats as an HTML list
+                stats = [
+                    f"PKB available: {PKB_AVAILABLE}",
+                    f"User email present: {bool(user_email)}",
+                    f"Requested k: {k_value}",
+                    f"Attached claim ids: {len(attached_claim_ids)}",
+                    f"Conversation pinned ids: {len(conversation_pinned_claim_ids)}",
+                    f"Referenced claim ids: {len(referenced_claim_ids)}",
+                    f"Retrieved items: <b>{len(parsed_items)}</b> ({total_word_count} words total)",
                 ]
-                if lines:
-                    detail_lines.append("- Retrieved claims:")
-                    detail_lines.extend(lines)
+                h.append(
+                    '<ul style="margin:4px 0 8px 16px;padding:0;'
+                    'list-style:disc;color:#aaa;">'
+                )
+                for s in stats:
+                    h.append(f"<li>{s}</li>")
+                # Nested source counts
+                h.append(
+                    "<li>Source counts:"
+                    '<ul style="margin:2px 0 2px 16px;padding:0;'
+                    'list-style:circle;">'
+                )
+                for k, v in source_counts.items():
+                    h.append(f"<li>{_html.escape(k)}: {v}</li>")
+                h.append("</ul></li>")
+                h.append("</ul>")
+
+                # Retrieved items
+                if parsed_items:
+                    h.append(
+                        '<div style="font-weight:600;margin:6px 0 4px 0;">'
+                        "Retrieved items:</div>"
+                    )
+                    for idx, item in enumerate(parsed_items):
+                        h.append(
+                            _format_audit_item_html(
+                                item,
+                                idx,
+                                MAX_PREVIEW_WORDS,
+                                _html,
+                                _re,
+                                _urlparse,
+                            )
+                        )
                 else:
-                    detail_lines.append("- Retrieved claims: none")
-                return "\n".join(detail_lines)
+                    h.append(
+                        '<div style="margin:4px 0;color:#666;">'
+                        "No items retrieved.</div>"
+                    )
+
+                h.append("</div>")
+                return "\n".join(h)
+
+            def _format_audit_item_html(item, idx, max_words, _html, _re, _urlparse):
+                """Format one parsed PKB item as a self-contained HTML block.
+
+                Receives a parsed item dict (from XML or legacy fallback) and
+                renders it as a styled ``<div>`` with source/type badges,
+                truncated preview, word count, click-to-copy, and expand.
+
+                Parameters
+                ----------
+                item : dict
+                    Parsed item with keys: ``source``, ``type``, ``ref``,
+                    ``content``.
+                idx : int
+                    Unique index for element IDs.
+                max_words : int
+                    Truncation threshold for preview.
+                _html, _re, _urlparse : modules
+                    Pre-imported stdlib modules.
+
+                Returns
+                -------
+                str
+                    Self-contained HTML ``<div>`` for this item.
+                """
+                source = item["source"]
+                item_type = item["type"]
+                ref = item["ref"]
+                content = item["content"]
+
+                # Build a human-readable tag string for display
+                tag_parts = []
+                if source == "referenced" and ref:
+                    tag_parts.append(f"[REFERENCED {ref}]")
+                elif source == "referenced":
+                    tag_parts.append("[REFERENCED]")
+                elif source == "attached":
+                    tag_parts.append("[ATTACHED]")
+                elif source == "pinned":
+                    tag_parts.append("[PINNED]")
+                elif source == "conv_pinned":
+                    tag_parts.append("[CONV-PINNED]")
+                if item_type:
+                    tag_parts.append(f"[{item_type}]")
+                tags_display = " ".join(tag_parts)
+
+                # Flatten ALL whitespace for word count and preview
+                flat_text = _re.sub(r"\s+", " ", content).strip()
+                word_count = len(flat_text.split()) if flat_text else 0
+
+                words = flat_text.split()
+                is_long = len(words) > max_words
+                preview = " ".join(words[:max_words])
+                if is_long:
+                    preview += "..."
+
+                # Full flattened content for clipboard (tags + text)
+                full_for_clipboard = (
+                    f"{tags_display} {flat_text}".strip() if tags_display else flat_text
+                )
+                full_encoded = _urlparse.quote(full_for_clipboard, safe="")
+
+                tags_esc = _html.escape(tags_display)
+                preview_esc = _html.escape(preview)
+                uid = f"pkb-item-{idx}"
+
+                p = []
+                p.append(
+                    '<div style="margin:3px 0;padding:3px 6px;'
+                    "border-left:2px solid #555;background:transparent;"
+                    'border-radius:0 3px 3px 0;line-height:1.5;">'
+                )
+
+                # Tags badge
+                if tags_esc:
+                    p.append(
+                        '<code style="font-size:0.78em;background:#2a2a3a;'
+                        "color:#8be9fd;padding:1px 4px;border-radius:2px;"
+                        f'white-space:nowrap;">{tags_esc}</code> '
+                    )
+
+                # Preview — click to copy full text
+                p.append(
+                    f'<span style="cursor:pointer;color:#ccc;" '
+                    f'title="Click to copy full text to clipboard" '
+                    f'onclick="(function(){{'
+                    f"navigator.clipboard.writeText("
+                    f"decodeURIComponent('{full_encoded}')"
+                    f").then(function(){{"
+                    f"var b=document.getElementById('{uid}-b');"
+                    f"if(b){{var o=b.textContent;b.textContent='copied!';"
+                    f"setTimeout(function(){{b.textContent=o}},1200)}}"
+                    f"}})"
+                    f'}})()">'
+                    f"{preview_esc}</span>"
+                )
+
+                # Word count badge
+                p.append(
+                    f' <span id="{uid}-b" style="font-size:0.72em;color:#888;'
+                    f"background:transparent;padding:1px 5px;border-radius:3px;"
+                    f'margin-left:4px;white-space:nowrap;">{word_count}w</span>'
+                )
+
+                # Expand/collapse for long items
+                if is_long:
+                    full_for_expand = _html.escape(flat_text)
+                    p.append(
+                        '<details style="margin-top:3px;">'
+                        '<summary style="cursor:pointer;font-size:0.78em;'
+                        "color:#6a9fef;list-style:none;display:inline;"
+                        'margin-left:4px;">[+expand]</summary>'
+                        '<div style="margin:4px 0 2px 0;padding:6px 8px;'
+                        "background:rgba(255,255,255,0.03);border:1px solid #333;"
+                        "border-radius:4px;font-size:0.84em;"
+                        "color:#bbb;white-space:pre-wrap;word-break:break-word;"
+                        'max-height:400px;overflow-y:auto;line-height:1.45;">'
+                        f"{full_for_expand}</div>"
+                        "</details>"
+                    )
+
+                p.append("</div>")
+                return "".join(p)
 
             # Build user info prompt with both legacy data and PKB context
             pkb_section = ""
@@ -6252,6 +6892,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     full_doc_texts,
                     persist_or_not,
                     past_message_ids,
+                    users_dir=users_dir,
                 )
                 return
 
@@ -6293,6 +6934,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 full_doc_texts,
                 persist_or_not,
                 past_message_ids,
+                users_dir=users_dir,
             )
             message_ids = self.get_message_ids(query["messageText"], answer)
             yield {
@@ -6345,6 +6987,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 full_doc_texts,
                 persist_or_not,
                 past_message_ids,
+                users_dir=users_dir,
             )
             message_ids = self.get_message_ids(query["messageText"], answer)
             yield {
@@ -6376,6 +7019,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 full_doc_texts,
                 persist_or_not,
                 past_message_ids,
+                users_dir=users_dir,
             )
             message_ids = self.get_message_ids(query["messageText"], answer)
             yield {
@@ -7550,6 +8194,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             full_doc_texts,
             persist_or_not,
             past_message_ids,
+            users_dir=users_dir,
         )
         message_ids = self.get_message_ids(query["messageText"], answer)
         yield {
@@ -7582,7 +8227,26 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         return self.get_field("messages")[-10:]
 
     def get_message_list(self):
+        """Return the message list, backfilling message_short_hash for old messages on-the-fly."""
         msg_list = self.get_field("messages")
+        if not msg_list:
+            return msg_list
+        # Lazy backfill: compute hashes for messages that don't have them yet.
+        # This is non-persisting — we don't write back to storage. Hashes are
+        # deterministic (mmh3) so the same message always gets the same hash.
+        try:
+            memory = self.get_field("memory")
+            conv_fid = memory.get("conversation_friendly_id", "") if memory else ""
+            if conv_fid:
+                from conversation_reference_utils import generate_message_short_hash
+
+                for msg in msg_list:
+                    if "message_short_hash" not in msg and msg.get("text"):
+                        msg["message_short_hash"] = generate_message_short_hash(
+                            conv_fid, msg["text"]
+                        )
+        except Exception:
+            pass  # Non-critical; hashes are a UI convenience
         return msg_list
 
     def get_metadata(self):
@@ -7604,6 +8268,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             if isinstance(memory["last_updated"], datetime)
             else memory["last_updated"],
             conversation_settings=self.get_conversation_settings(),
+            conversation_friendly_id=memory.get("conversation_friendly_id", ""),
         )
 
     def _initiate_reward_evaluation(

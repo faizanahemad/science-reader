@@ -482,6 +482,7 @@ Separators: before `rename` and before `deleteWs`.
 
 | Key | Label | Icon | Behavior |
 |-----|-------|------|----------|
+| `copyConvRef` | Copy Conversation Reference | `fa-at` | Copies `conversation_friendly_id` to clipboard. Disabled if no friendly ID. |
 | `openNewWindow` | Open in New Window | `fa-external-link` | `window.open('/interface/' + convId, '_blank')` |
 | `clone` | Clone | `fa-clone` | `ConversationManager.cloneConversation(convId)` then reload + highlight |
 | `toggleStateless` | Toggle Stateless | `fa-eye-slash` | `ConversationManager.statelessConversation(convId)` |
@@ -489,7 +490,9 @@ Separators: before `rename` and before `deleteWs`.
 | `moveTo` | Move to... | `fa-folder-open` | submenu via `buildConversationMoveSubmenu(convId)` |
 | `deleteConv` | Delete | `fa-trash` | `DELETE /delete_conversation/{convId}` then reload |
 
-Separators: before `clone` and before `deleteConv`.
+Separators: after `copyConvRef`, before `clone`, and before `deleteConv`.
+
+The `copyConvRef` item reads `node.li_attr['data-conversation-friendly-id']` which is populated from `conv.conversation_friendly_id` in `buildJsTreeData()`. See [Cross-Conversation Message References](../cross_conversation_references/README.md) for details.
 
 **`buildFlagSubmenu(convId)`** — flag color options:
 - none (No Flag, `fa-flag-o`), red, blue, green, yellow, orange, purple (all `fa-flag`).

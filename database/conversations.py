@@ -39,7 +39,9 @@ def _resolve_users_dir(users_dir: Optional[str]) -> str:
     if users_dir is not None:
         return users_dir
     if _default_users_dir is None:
-        raise RuntimeError("users_dir not configured. Pass users_dir=... or call configure_users_dir(users_dir).")
+        raise RuntimeError(
+            "users_dir not configured. Pass users_dir=... or call configure_users_dir(users_dir)."
+        )
     return _default_users_dir
 
 
@@ -69,7 +71,9 @@ def addConversation(
 
     default_workspace_id = f"default_{user_email}_{domain}"
     now = datetime.now()
-    workspace_id_to_use = workspace_id if workspace_id is not None else default_workspace_id
+    workspace_id_to_use = (
+        workspace_id if workspace_id is not None else default_workspace_id
+    )
 
     conn = create_connection(_db_path(users_dir=users_dir_resolved))
     if conn is None:
@@ -103,7 +107,9 @@ def addConversation(
         conn.close()
 
 
-def checkConversationExists(user_email: str, conversation_id: str, *, users_dir: Optional[str] = None) -> bool:
+def checkConversationExists(
+    user_email: str, conversation_id: str, *, users_dir: Optional[str] = None
+) -> bool:
     """Return True if the user has access to the given conversation id."""
 
     users_dir_resolved = _resolve_users_dir(users_dir)
@@ -118,7 +124,9 @@ def checkConversationExists(user_email: str, conversation_id: str, *, users_dir:
     return exists
 
 
-def getCoversationsForUser(user_email: str, domain: str, *, users_dir: Optional[str] = None):
+def getCoversationsForUser(
+    user_email: str, domain: str, *, users_dir: Optional[str] = None
+):
     """
     Fetch all conversations for a user, along with associated workspace metadata.
     """
@@ -164,7 +172,14 @@ def getCoversationsForUser(user_email: str, domain: str, *, users_dir: Optional[
             now = datetime.now()
             cur.execute(
                 "INSERT INTO WorkspaceMetadata (workspace_id, workspace_name, workspace_color, domain, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-                (f"default_{user_email}_{domain}", f"default_{user_email}_{domain}", None, domain, now, now),
+                (
+                    f"default_{user_email}_{domain}",
+                    f"default_{user_email}_{domain}",
+                    None,
+                    domain,
+                    now,
+                    now,
+                ),
             )
 
         conn.commit()
@@ -183,7 +198,9 @@ def getCoversationsForUser(user_email: str, domain: str, *, users_dir: Optional[
     return rows
 
 
-def deleteConversationForUser(user_email: str, conversation_id: str, *, users_dir: Optional[str] = None) -> None:
+def deleteConversationForUser(
+    user_email: str, conversation_id: str, *, users_dir: Optional[str] = None
+) -> None:
     """Delete conversation mapping rows for a user."""
 
     users_dir_resolved = _resolve_users_dir(users_dir)
@@ -225,12 +242,26 @@ def cleanup_deleted_conversations(
     try:
         cur = conn.cursor()
         placeholders = ",".join(["?"] * len(conversation_ids))
-        cur.execute(f"DELETE FROM SectionHiddenDetails WHERE conversation_id IN ({placeholders})", conversation_ids)
-        cur.execute(f"DELETE FROM DoubtsClearing WHERE conversation_id IN ({placeholders})", conversation_ids)
-        cur.execute(f"DELETE FROM ConversationIdToWorkspaceId WHERE conversation_id IN ({placeholders})", conversation_ids)
-        cur.execute(f"DELETE FROM UserToConversationId WHERE conversation_id IN ({placeholders})", conversation_ids)
+        cur.execute(
+            f"DELETE FROM SectionHiddenDetails WHERE conversation_id IN ({placeholders})",
+            conversation_ids,
+        )
+        cur.execute(
+            f"DELETE FROM DoubtsClearing WHERE conversation_id IN ({placeholders})",
+            conversation_ids,
+        )
+        cur.execute(
+            f"DELETE FROM ConversationIdToWorkspaceId WHERE conversation_id IN ({placeholders})",
+            conversation_ids,
+        )
+        cur.execute(
+            f"DELETE FROM UserToConversationId WHERE conversation_id IN ({placeholders})",
+            conversation_ids,
+        )
         conn.commit()
-        log.info(f"Cleaned up database entries for {len(conversation_ids)} deleted conversations")
+        log.info(
+            f"Cleaned up database entries for {len(conversation_ids)} deleted conversations"
+        )
     except Exception as e:
         log.error(f"Error cleaning up deleted conversations: {e}")
         conn.rollback()
@@ -256,13 +287,17 @@ def getConversationById(conversation_id: str, *, users_dir: Optional[str] = None
     users_dir_resolved = _resolve_users_dir(users_dir)
     conn = create_connection(_db_path(users_dir=users_dir_resolved))
     cur = conn.cursor()
-    cur.execute("SELECT * FROM UserToConversationId WHERE conversation_id=?", (conversation_id,))
+    cur.execute(
+        "SELECT * FROM UserToConversationId WHERE conversation_id=?", (conversation_id,)
+    )
     rows = cur.fetchall()
     conn.close()
     return rows
 
 
-def removeUserFromConversation(user_email: str, conversation_id: str, *, users_dir: Optional[str] = None) -> None:
+def removeUserFromConversation(
+    user_email: str, conversation_id: str, *, users_dir: Optional[str] = None
+) -> None:
     """Remove a user->conversation mapping row."""
 
     users_dir_resolved = _resolve_users_dir(users_dir)
@@ -276,3 +311,111 @@ def removeUserFromConversation(user_email: str, conversation_id: str, *, users_d
     conn.close()
 
 
+# ---------------------------------------------------------------------------
+# Cross-conversation reference helpers (conversation_friendly_id)
+# ---------------------------------------------------------------------------
+
+
+def setConversationFriendlyId(
+    *,
+    users_dir: str,
+    user_email: str,
+    conversation_id: str,
+    conversation_friendly_id: str,
+) -> None:
+    """
+    Set the conversation_friendly_id for a conversation in the DB mapping.
+
+    Updates the UserToConversationId row for the given user+conversation pair.
+    Used when a friendly ID is first generated (on first persist) or during
+    backfill of older conversations.
+
+    Parameters
+    ----------
+    users_dir : str
+        Path to users directory for DB access.
+    user_email : str
+        The user's email address.
+    conversation_id : str
+        The conversation's full opaque ID.
+    conversation_friendly_id : str
+        The short human-readable identifier (e.g. "react_optimization_b4f2").
+    """
+    conn = create_connection(_db_path(users_dir=users_dir))
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE UserToConversationId SET conversation_friendly_id=? "
+        "WHERE user_email=? AND conversation_id=?",
+        (conversation_friendly_id, user_email, conversation_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def getConversationIdByFriendlyId(
+    *, users_dir: str, user_email: str, conversation_friendly_id: str
+) -> Optional[str]:
+    """
+    Look up conversation_id from a conversation_friendly_id for a user.
+
+    Used during cross-conversation reference resolution to find the target
+    conversation from a short friendly identifier.
+
+    Parameters
+    ----------
+    users_dir : str
+        Path to users directory for DB access.
+    user_email : str
+        The user's email address (ownership check).
+    conversation_friendly_id : str
+        The short identifier to look up.
+
+    Returns
+    -------
+    Optional[str]
+        The conversation_id if found, else None.
+    """
+    conn = create_connection(_db_path(users_dir=users_dir))
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT conversation_id FROM UserToConversationId "
+        "WHERE user_email=? AND conversation_friendly_id=?",
+        (user_email, conversation_friendly_id),
+    )
+    row = cur.fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def conversationFriendlyIdExists(
+    *, users_dir: str, user_email: str, conversation_friendly_id: str
+) -> bool:
+    """
+    Check if a conversation_friendly_id already exists for this user.
+
+    Used during friendly ID generation to detect collisions before storing.
+
+    Parameters
+    ----------
+    users_dir : str
+        Path to users directory for DB access.
+    user_email : str
+        The user's email address.
+    conversation_friendly_id : str
+        The candidate friendly ID to check.
+
+    Returns
+    -------
+    bool
+        True if the friendly ID is already taken by another conversation.
+    """
+    conn = create_connection(_db_path(users_dir=users_dir))
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT 1 FROM UserToConversationId "
+        "WHERE user_email=? AND conversation_friendly_id=?",
+        (user_email, conversation_friendly_id),
+    )
+    exists = cur.fetchone() is not None
+    conn.close()
+    return exists

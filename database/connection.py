@@ -179,6 +179,20 @@ def create_tables(*, users_dir: str, logger: Optional[logging.Logger] = None) ->
         "CREATE INDEX IF NOT EXISTS idx_WorkspaceMetadata_parent_workspace_id ON WorkspaceMetadata (parent_workspace_id)"
     )
 
+    # Add conversation_friendly_id column if it doesn't exist (cross-conversation references)
+    try:
+        cur.execute(
+            "ALTER TABLE UserToConversationId ADD COLUMN conversation_friendly_id text"
+        )
+        log.info("Added conversation_friendly_id column to UserToConversationId table")
+    except Exception:
+        pass  # Column already exists
+
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_UserToConversationId_friendly_id "
+        "ON UserToConversationId (user_email, conversation_friendly_id)"
+    )
+
     # Add child_doubt_id column if it doesn't exist (for bidirectional pointers)
     try:
         cur.execute("ALTER TABLE DoubtsClearing ADD COLUMN child_doubt_id text")

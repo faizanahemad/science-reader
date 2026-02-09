@@ -1,7 +1,7 @@
 # PKB Reference Resolution Flow: Complete Technical Guide
 
-**Last Updated:** 2026-02-08  
-**Version:** v0.7
+**Last Updated:** 2026-02-09  
+**Version:** v0.8
 
 ## Table of Contents
 
@@ -426,16 +426,15 @@ return ActionResult(
 
 ### Why Recursive?
 
-Contexts form a **tree hierarchy**:
-```
-Project Alpha (@ssdva)
-├── Backend (@backend_ssdva_sub1)
-│   ├── API Design
-│   └── Database Schema
-└── Frontend (@frontend_ssdva_sub2)
-    ├── UI Components
-    └── State Management
-```
+Contexts form a **tree hierarchy**. Example:
+
+- **Project Alpha** (`@ssdva`) -- root context
+  - **Backend** (`@backend_ssdva_sub1`) -- child of Project Alpha
+    - API Design -- child of Backend
+    - Database Schema -- child of Backend
+  - **Frontend** (`@frontend_ssdva_sub2`) -- child of Project Alpha
+    - UI Components -- child of Frontend
+    - State Management -- child of Frontend
 
 When user types `@ssdva`, they want **all** claims from:
 - Project Alpha itself
@@ -504,39 +503,49 @@ ORDER BY c.updated_at DESC
 
 ## LLM Context Formatting
 
-### Label System
+### XML-Tagged Format
 
-Each claim is formatted with a source label to indicate priority:
+Each claim is wrapped in a `<pkb_item>` XML tag with structured attributes:
 
-```python
-# Format: "- [LABEL] [type] statement (answers: Q1; Q2)"
+```xml
+<!-- source: referenced | attached | pinned | conv_pinned | auto -->
+<!-- type: fact | preference | decision | conversation_message | etc. -->
+<!-- ref: optional @friendly_id or @conversation_..._message_... reference -->
 
-# Priority 0: Referenced (highest)
-"- [REFERENCED @ssdva] [fact] Working on project Alpha (answers: What project am I on?)"
-
-# Priority 1: Attached
-"- [ATTACHED] [decision] Using Python 3.11"
-
-# Priority 2: Global Pinned
-"- [GLOBAL PINNED] [fact] My timezone is IST"
-
-# Priority 3: Conversation Pinned
-"- [CONV PINNED] [preference] I like detailed explanations"
-
-# Priority 4: Auto Search
-"- [AUTO] [fact] I work in tech"
+<pkb_item source="referenced" type="fact" ref="@ssdva">Working on project Alpha (answers: What project am I on?)</pkb_item>
+<pkb_item source="referenced" type="preference" ref="@prefer_morning_a3f2">I prefer morning workouts</pkb_item>
+<pkb_item source="attached" type="decision">Using Python 3.11</pkb_item>
+<pkb_item source="pinned" type="fact">My timezone is IST</pkb_item>
+<pkb_item source="conv_pinned" type="preference">I like detailed explanations</pkb_item>
+<pkb_item source="auto" type="fact">I work in tech</pkb_item>
 ```
 
-### Label Meanings
+**Why XML tags instead of bullet prefixes?**
 
-| Label | Meaning | Why Important |
+The previous format used `- [SOURCE] [type] statement` bullets separated by newlines. This broke when item content contained its own newlines or bullet points (e.g., cross-conversation message references with markdown-formatted text). The XML `<pkb_item>...</pkb_item>` tags provide unambiguous boundaries regardless of content, and LLMs handle XML-tagged content well.
+
+### Legacy Bullet Format (Backward Compatibility)
+
+The old format is still supported by the parser as a fallback:
+
+```
+- [REFERENCED @ssdva] [fact] Working on project Alpha (answers: What project am I on?)
+- [ATTACHED] [decision] Using Python 3.11
+- [PINNED] [fact] My timezone is IST
+- [CONV-PINNED] [preference] I like detailed explanations
+- [fact] I work in tech
+```
+
+### Source Attributes
+
+| Source Attribute | Meaning | Why Important |
 |-------|---------|---------------|
-| `[REFERENCED @fid]` | User explicitly asked for this memory/context | **Must not be dropped** by distillation |
-| `[REFERENCED]` | Legacy UUID reference | **Must not be dropped** by distillation |
-| `[ATTACHED]` | User clicked "Use Now" in UI | High priority, user intent |
-| `[GLOBAL PINNED]` | User pinned globally (persistent) | Always relevant |
-| `[CONV PINNED]` | Pinned to this conversation (ephemeral) | Session-specific relevance |
-| `[AUTO]` | Hybrid search result | Contextually relevant |
+| `source="referenced"` (with `ref="@fid"`) | User explicitly asked for this memory/context | **Must not be dropped** by distillation |
+| `source="referenced"` (no ref) | Legacy UUID reference | **Must not be dropped** by distillation |
+| `source="attached"` | User clicked "Use Now" in UI | High priority, user intent |
+| `source="pinned"` | User pinned globally (persistent) | Always relevant |
+| `source="conv_pinned"` | Pinned to this conversation (ephemeral) | Session-specific relevance |
+| `source="auto"` | Hybrid search result | Contextually relevant |
 
 ### Deduplication Logic
 
@@ -549,7 +558,8 @@ for claim in referenced_claims:
     if claim.claim_id not in seen_ids:
         seen_ids.add(claim.claim_id)
         formatted_claims.append(
-            f"- [REFERENCED @{fid}] [{claim.claim_type}] {claim.statement}"
+            f'<pkb_item source="referenced" type="{claim.claim_type}" ref="@{fid}">'
+            f'{claim.statement}</pkb_item>'
         )
 
 # Priority 1: Attached
@@ -557,7 +567,8 @@ for claim in attached_claims:
     if claim.claim_id not in seen_ids:  # Skip if already added as REFERENCED
         seen_ids.add(claim.claim_id)
         formatted_claims.append(
-            f"- [ATTACHED] [{claim.claim_type}] {claim.statement}"
+            f'<pkb_item source="attached" type="{claim.claim_type}">'
+            f'{claim.statement}</pkb_item>'
         )
 
 # ... and so on for other priority levels
@@ -627,237 +638,219 @@ User Preferences:
 
 ### Function: `_extract_referenced_claims(pkb_context)`
 
-**Location:** `Conversation.py` (lines 249-308)
+**Location:** `Conversation.py` (lines 249-330)
 
-**Purpose:** Parse PKB context and extract only `[REFERENCED ...]` bullets.
+**Purpose:** Parse PKB context and extract only `source="referenced"` items.
 
 **Algorithm:**
 ```python
 def _extract_referenced_claims(pkb_context):
     """
-    Parse bullet-point PKB context and extract only [REFERENCED ...] claims.
+    Parse XML-tagged PKB context and extract only referenced items.
+    Falls back to legacy bullet parsing for backward compatibility.
     
-    Example input:
-    - [REFERENCED @ssdva] [fact] Working on Alpha
-    - [AUTO] [fact] I work in tech
-    - [REFERENCED @prefer] [pref] Morning workouts
-    - [GLOBAL PINNED] [fact] Timezone IST
+    Example input (XML format):
+    <pkb_item source="referenced" type="fact" ref="@ssdva">Working on Alpha</pkb_item>
+    <pkb_item source="auto" type="fact">I work in tech</pkb_item>
+    <pkb_item source="referenced" type="preference" ref="@prefer">Morning workouts</pkb_item>
     
-    Output:
-    - [REFERENCED @ssdva] [fact] Working on Alpha
-    - [REFERENCED @prefer] [pref] Morning workouts
+    Output (full XML tags preserved):
+    <pkb_item source="referenced" type="fact" ref="@ssdva">Working on Alpha</pkb_item>
+    <pkb_item source="referenced" type="preference" ref="@prefer">Morning workouts</pkb_item>
     """
     if not pkb_context:
         return ""
     
-    # Split on "- [" boundaries (robust against multi-line claims)
-    bullets = pkb_context.split('\n- [')
+    # Parse <pkb_item> tags with DOTALL regex
+    xml_pattern = re.compile(r'<pkb_item\s+([^>]*)>(.*?)</pkb_item>', re.DOTALL)
+    matches = list(xml_pattern.finditer(pkb_context))
+    if matches:
+        referenced = [m.group(0) for m in matches
+                      if 'source="referenced"' in m.group(1)]
+        return '\n'.join(referenced)
     
-    referenced = []
-    for bullet in bullets:
-        if bullet.strip().startswith('REFERENCED'):
-            referenced.append(bullet)
-    
-    # Rebuild with "- [" prefix
-    if referenced:
-        return '\n- [' + '\n- ['.join(referenced)
-    return ""
+    # Legacy fallback: split on "\n- [" and check for [REFERENCED
+    # ...
 ```
 
-**Why split on `\n- [`?**
-- Claim statements can span multiple lines
-- Splitting on `\n-` would break multi-line claims
-- `\n- [` is the exact bullet prefix pattern
-
-**Edge Cases:**
-- Empty PKB context → returns `""`
-- No referenced claims → returns `""`
-- Claim statement contains `"- ["` → safe (we split on `\n- [`, not just `- [`)
+**Why XML parsing?**
+- Previous approach split on `\n- [` boundaries which broke when item content contained newlines
+- XML `<pkb_item>` tags provide unambiguous boundaries via DOTALL regex
+- Filtering by `source="referenced"` attribute is simpler and more robust than checking for `[REFERENCED` substring
+- Full XML tags are preserved in the output so the LLM can interpret them
 
 ---
 
-## Complete Data Flow Diagram
+## Complete Data Flow
+
+This section traces a complete example through the system. The user types: `"@ssdva @prefer_morning_a3f2 what should I do?"`
+
+### Step 1: UI Parsing
+
+**Function:** `parseMemoryReferences()` in `interface/parseMessageForCheckBoxes.js:375`
+
+The UI applies two regexes to extract references before sending to the server:
+
+- `legacyRegex` (`/@(?:memory|mem):([a-zA-Z0-9-]+)/g`) -- matches `@memory:uuid` format. Result for this input: `claimIds: []` (none matched).
+- `friendlyRegex` (`/@([a-zA-Z][a-zA-Z0-9_-]{2,})/g`) -- matches `@identifier` format (3+ chars, starts with letter). Checks whitespace before `@` (not email), skips standalone `@memory`/`@mem`. Result: `friendlyIds: ["ssdva", "prefer_morning_a3f2"]`.
+
+Clean text sent to server: `"what should I do?"`
+
+### Step 2: HTTP Request
+
+**Endpoint:** `POST /send_message/<conversation_id>`
+
+Request body:
+```json
+{
+  "messageText": "what should I do?",
+  "referenced_friendly_ids": ["ssdva", "prefer_morning_a3f2"],
+  "checkboxes": { "use_pkb": true }
+}
+```
+
+### Step 3: Server Routing
+
+**File:** `endpoints/conversations.py`
+
+The endpoint handler injects `conversation_pinned_claim_ids` from session state, then calls `conversation.reply(query)`.
+
+### Step 4: Async PKB Retrieval
+
+**Function:** `Conversation.reply()` at `Conversation.py:4717`
+
+If `use_pkb` is true and `user_email` is present, launches an async future:
+
+```python
+pkb_context_future = get_async_future(
+    self._get_pkb_context,
+    user_email,
+    query["messageText"],
+    k=10,
+    referenced_friendly_ids=["ssdva", "prefer_morning_a3f2"]
+)
+```
+
+This runs in parallel with embeddings and other preprocessing.
+
+### Step 5: Reference Resolution (inside `_get_pkb_context`)
+
+**Function:** `_get_pkb_context()` at `Conversation.py:452`
+
+For each friendly ID, calls `api.resolve_reference(fid)` which tries resolution strategies sequentially (see "Backend Resolution Flow" section above).
+
+**For `"ssdva"`:** Step 1 (@claim_N?) -- No. Step 2 (claim friendly_id?) -- No. Step 3 (context friendly_id?) -- Yes. Resolves via `contexts.get_by_friendly_id("ssdva")` to `context_id="ctx-uuid-123"`, then `contexts.resolve_claims()` with recursive CTE. Returns `type='context', claims=[c1, c2, c3]` (all claims from context tree).
+
+**For `"prefer_morning_a3f2"`:** Step 1 (@claim_N?) -- No. Step 2 (claim friendly_id?) -- Yes. Resolves via `claims.get_by_friendly_id("prefer_morning_a3f2")` to `claim_id="claim-uuid-456"`. Returns `type='claim', claims=[claim456]`.
+
+### Step 6: XML Formatting
+
+All resolved claims are formatted as XML-tagged items:
+
+```xml
+<pkb_item source="referenced" type="fact" ref="@ssdva">Working on project Alpha (answers: What project am I on?)</pkb_item>
+<pkb_item source="referenced" type="fact" ref="@ssdva">Using Python 3.11 for Alpha</pkb_item>
+<pkb_item source="referenced" type="decision" ref="@ssdva">Microservices architecture</pkb_item>
+<pkb_item source="referenced" type="preference" ref="@prefer_morning_a3f2">I prefer morning</pkb_item>
+```
+
+### Step 7: Collect Other Priority Levels
+
+After referenced items, `_get_pkb_context` collects from lower-priority sources (attached, globally pinned, conversation pinned, auto-search), deduplicating by `claim_id` (highest priority wins). All are wrapped in `<pkb_item>` tags.
+
+Full PKB context example:
+
+```xml
+<pkb_item source="referenced" type="fact" ref="@ssdva">Working on project Alpha</pkb_item>
+<pkb_item source="referenced" type="fact" ref="@ssdva">Using Python 3.11</pkb_item>
+<pkb_item source="referenced" type="preference" ref="@prefer_morning_a3f2">I prefer morning...</pkb_item>
+<pkb_item source="auto" type="fact">I work in tech</pkb_item>
+<pkb_item source="pinned" type="fact">My timezone is IST</pkb_item>
+```
+
+### Step 8: Stage 1 -- Distillation (Cheap LLM)
+
+The full PKB context (XML-tagged) plus `user_memory` and `user_preferences` are sent to a cheap LLM for distillation. The prompt asks it to extract the most relevant user preferences and context for answering the query.
+
+Input includes all items (referenced + auto + pinned). Output is a condensed summary like: `"User works in tech, timezone IST, morning person"`. The distillation may drop or paraphrase some claims to save tokens.
+
+### Step 9: Stage 2 -- Re-inject Referenced Items
+
+**Function:** `_extract_referenced_claims()` at `Conversation.py:249`
+
+Parses the original PKB context for `<pkb_item>` tags with `source="referenced"` attribute. Keeps only those items (full XML tags preserved):
+
+```xml
+<pkb_item source="referenced" type="fact" ref="@ssdva">Working on project Alpha</pkb_item>
+<pkb_item source="referenced" type="fact" ref="@ssdva">Using Python 3.11</pkb_item>
+<pkb_item source="referenced" type="preference" ref="@prefer">I prefer morning...</pkb_item>
+```
+
+These are appended after the distillation output as `"**User's explicitly referenced memories (ground truth):**"` + the referenced items.
+
+### Step 10: Final Prompt Assembly
+
+The main LLM receives `user_info_text` containing:
+
+1. **Distilled preferences** (condensed from cheap LLM): `"User works in tech, timezone IST, morning person"`
+2. **Referenced items verbatim** (not summarized, ground truth): the 3 referenced `<pkb_item>` tags from Step 9
+
+The main LLM also receives the user query `"what should I do?"`, conversation history, system prompt, etc. It generates a response using the explicitly referenced memories as ground truth.
+
+---
+
+## Cross-Conversation Message References
+
+In addition to PKB references (`@claim_42`, `@context_fid`, `@entity_fid`, `@tag_fid`, `@domain_fid`), the `@reference` system also supports **cross-conversation message references** using the syntax:
 
 ```
-┌─────────────────────────────────────────────────────────────────────┐
-│ USER TYPES IN CHAT INPUT:                                           │
-│ "@ssdva @prefer_morning_a3f2 what should I do?"                     │
-└────────────────────────────────────┬────────────────────────────────┘
-                                     │
-                                     ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ UI: parseMemoryReferences() (parseMessageForCheckBoxes.js:375)     │
-│                                                                      │
-│   ├─ legacyRegex: /@(?:memory|mem):([a-zA-Z0-9-]+)/g               │
-│   │  → claimIds: []                                                 │
-│   │                                                                  │
-│   └─ friendlyRegex: /@([a-zA-Z][a-zA-Z0-9_-]{2,})/g                │
-│      ├─ Check whitespace before @ (not email)                      │
-│      ├─ Skip @memory/@mem standalone                               │
-│      └─ friendlyIds: ["ssdva", "prefer_morning_a3f2"]              │
-└────────────────────────────────────┬────────────────────────────────┘
-                                     │
-                                     ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ HTTP POST /send_message/<conversation_id>                           │
-│                                                                      │
-│   body: {                                                            │
-│     messageText: "what should I do?",                                │
-│     referenced_friendly_ids: ["ssdva", "prefer_morning_a3f2"],      │
-│     checkboxes: { use_pkb: true, ... }                              │
-│   }                                                                  │
-└────────────────────────────────────┬────────────────────────────────┘
-                                     │
-                                     ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ Server: endpoints/conversations.py                                  │
-│   ├─ Inject conversation_pinned_claim_ids from session state        │
-│   └─ Call conversation.reply(query)                                 │
-└────────────────────────────────────┬────────────────────────────────┘
-                                     │
-                                     ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ Conversation.reply() (Conversation.py:4717)                         │
-│                                                                      │
-│   if use_pkb and user_email:                                         │
-│       pkb_context_future = get_async_future(                         │
-│           self._get_pkb_context,                                     │
-│           user_email,                                                │
-│           query["messageText"],                                      │
-│           k=10,                                                       │
-│           referenced_friendly_ids=["ssdva", "prefer_morning_a3f2"]  │
-│       )                                                              │
-└────────────────────────────────────┬────────────────────────────────┘
-                                     │
-                                     ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ _get_pkb_context() (async, runs in parallel)                        │
-│                                                                      │
-│   for fid in referenced_friendly_ids:                               │
-│       result = api.resolve_reference(fid)                           │
-│       # Priority 0: REFERENCED claims                               │
-└────────────────────────────────────┬────────────────────────────────┘
-                                     │
-                  ┌──────────────────┴──────────────────┐
-                  │                                      │
-                  ▼                                      ▼
-┌─────────────────────────────────┐   ┌─────────────────────────────────┐
-│ resolve_reference("ssdva")      │   │ resolve_reference("prefer_...") │
-│ (structured_api.py:1159)        │   │                                 │
-│                                 │   │                                 │
-│ Step 1: @claim_N? No            │   │ Step 1: @claim_N? No            │
-│ Step 2: claim friendly_id? No   │   │ Step 2: claim friendly_id? YES  │
-│ Step 3: context friendly_id? YES│   │   → claims.get_by_friendly_id() │
-│   → contexts.get_by_friendly_id()│  │   → claim_id="claim-uuid-456"   │
-│   → context_id="ctx-uuid-123"   │   │                                 │
-│   → contexts.resolve_claims()   │   │ Return: type='claim',           │
-│                                 │   │         claims=[claim456]       │
-│ SQL: WITH RECURSIVE ctx_tree... │   └─────────────────────────────────┘
-│ SELECT c.* FROM claims c        │                 │
-│ JOIN context_claims cc ...      │                 │
-│ JOIN ctx_tree ct ...            │                 │
-│ WHERE user_email=? AND status..│                 │
-│                                 │                 │
-│ Return: type='context',         │                 │
-│         claims=[c1, c2, c3]     │                 │
-└─────────────────────────────────┘                 │
-                  │                                  │
-                  └──────────────────┬───────────────┘
-                                     │
-                                     ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ Format with labels:                                                  │
-│                                                                      │
-│ "- [REFERENCED @ssdva] [fact] Working on project Alpha (answers...)"│
-│ "- [REFERENCED @ssdva] [fact] Using Python 3.11 for Alpha"         │
-│ "- [REFERENCED @ssdva] [decision] Microservices architecture"      │
-│ "- [REFERENCED @prefer_morning_a3f2] [preference] I prefer morning" │
-└────────────────────────────────────┬────────────────────────────────┘
-                                     │
-                                     ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ Collect from other priority levels:                                 │
-│   ├─ Priority 1: Attached claims ([ATTACHED])                       │
-│   ├─ Priority 2: Global pinned ([GLOBAL PINNED])                    │
-│   ├─ Priority 3: Conversation pinned ([CONV PINNED])                │
-│   └─ Priority 4: Auto search ([AUTO])                               │
-│                                                                      │
-│ Deduplicate by claim_id (keep highest priority label)               │
-└────────────────────────────────────┬────────────────────────────────┘
-                                     │
-                                     ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ PKB Context (full):                                                  │
-│                                                                      │
-│ - [REFERENCED @ssdva] [fact] Working on project Alpha               │
-│ - [REFERENCED @ssdva] [fact] Using Python 3.11                       │
-│ - [REFERENCED @prefer_morning_a3f2] [preference] I prefer morning... │
-│ - [AUTO] [fact] I work in tech                                      │
-│ - [GLOBAL PINNED] [fact] My timezone is IST                          │
-└────────────────────────────────────┬────────────────────────────────┘
-                                     │
-                                     ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ STAGE 1: Distillation (Cheap LLM)                                   │
-│                                                                      │
-│   Input: full PKB context + user_memory + user_preferences          │
-│                                                                      │
-│   Prompt:                                                            │
-│   "User query: what should I do?                                    │
-│                                                                      │
-│    User memory:                                                      │
-│    - [REFERENCED @ssdva] [fact] Working on project Alpha            │
-│    - [REFERENCED @ssdva] [fact] Using Python 3.11                    │
-│    - [REFERENCED @prefer] [pref] I prefer morning...                │
-│    - [AUTO] [fact] I work in tech                                   │
-│    - [GLOBAL PINNED] [fact] My timezone is IST                       │
-│                                                                      │
-│    Extract relevant user preferences..."                            │
-│                                                                      │
-│   Output (distilled_prefs):                                          │
-│   "User works in tech, timezone IST, morning person"                │
-│   (May have dropped/paraphrased some claims to save tokens)         │
-└────────────────────────────────────┬────────────────────────────────┘
-                                     │
-                                     ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ STAGE 2: Re-inject REFERENCED claims                                │
-│   (Conversation.py:249 _extract_referenced_claims())                │
-│                                                                      │
-│   ├─ Parse PKB context on "\n- [" boundaries                        │
-│   ├─ Keep only bullets starting with "REFERENCED"                   │
-│   └─ referenced_only:                                                │
-│       "- [REFERENCED @ssdva] [fact] Working on project Alpha        │
-│        - [REFERENCED @ssdva] [fact] Using Python 3.11               │
-│        - [REFERENCED @prefer] [pref] I prefer morning..."           │
-│                                                                      │
-│   ref_section = "**User's explicitly referenced memories:**\n" +    │
-│                 referenced_only                                      │
-└────────────────────────────────────┬────────────────────────────────┘
-                                     │
-                                     ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ Final user_info_text (injected into main LLM prompt):               │
-│                                                                      │
-│ User Preferences:                                                    │
-│ User works in tech, timezone IST, morning person                    │
-│                                                                      │
-│ **User's explicitly referenced memories (ground truth):**           │
-│ - [REFERENCED @ssdva] [fact] Working on project Alpha               │
-│ - [REFERENCED @ssdva] [fact] Using Python 3.11                       │
-│ - [REFERENCED @prefer_morning_a3f2] [preference] I prefer morning... │
-└────────────────────────────────────┬────────────────────────────────┘
-                                     │
-                                     ▼
-┌─────────────────────────────────────────────────────────────────────┐
-│ Main LLM receives:                                                   │
-│   - User query: "what should I do?"                                 │
-│   - Distilled user preferences (condensed context)                  │
-│   - Referenced claims verbatim (ground truth, not summarized)       │
-│                                                                      │
-│ → Generates response using explicitly referenced memories           │
-└─────────────────────────────────────────────────────────────────────┘
+@conversation_<conv_friendly_id>_message_<index_or_hash>
 ```
+
+These are handled as a separate branch in `_get_pkb_context()` **before** the PKB resolution loop.
+
+### How they differ from PKB references
+
+| Aspect | PKB References | Cross-Conversation References |
+|--------|---------------|-------------------------------|
+| Syntax | `@friendly_id` (with optional suffix) | `@conversation_<fid>_message_<id>` |
+| Resolver | `StructuredAPI.resolve_reference()` | `Conversation._resolve_conversation_message_refs()` |
+| Data source | PKB SQLite (`pkb.sqlite`) | Conversation storage (dill `.index` files) |
+| Content type | Atomic claims (1-line statements) | Full message text (possibly multi-KB) |
+| Detection | No `conversation_` prefix | `CONV_REF_PATTERN` regex match |
+| Truncation | None (claims are short) | 8000 chars max |
+
+### Detection regex
+
+```python
+CONV_REF_PATTERN = re.compile(
+    r'^(?:conversation|conv)_(.+)_(?:message|msg)_([a-z0-9]+)$'
+)
+```
+
+The greedy `.+` captures everything up to the LAST `_message_` or `_msg_`, handling underscores in friendly IDs correctly.
+
+### Resolution flow
+
+1. `_get_pkb_context()` partitions `referenced_friendly_ids` into `conv_refs` and `pkb_fids`.
+2. `_resolve_conversation_message_refs()` is called for `conv_refs`:
+   - DB lookup: `getConversationIdByFriendlyId(users_dir, user_email, conv_fid)` (scoped by user).
+   - Load conversation via `conversation_loader` (LRU cache) or `Conversation.load_local()` fallback.
+   - Extract message by 1-based index (digits) or `message_short_hash` (6-char alphanumeric).
+3. Resolved messages are wrapped as mock claim-like objects with `claim_type = "conversation_message"` and injected into `all_claims` with source `"referenced_@conversation_..."`. The XML formatting wraps them as `<pkb_item source="referenced" type="conversation_message" ref="@conversation_...">...</pkb_item>`.
+4. The `source="referenced"` attribute ensures they survive `_extract_referenced_claims()` post-distillation re-injection.
+
+### Coexistence with PKB references
+
+Cross-conversation references and PKB references can be mixed in the same message. For example:
+
+```
+@conversation_react_optimization_b4f2_message_a3f2b1 @my_health_context Apply the approach from the React chat to my health tracker
+```
+
+Both are captured by the existing `friendlyRegex` in `parseMemoryReferences()`. The backend separates them by pattern matching before resolution.
+
+For full details, see [Cross-Conversation Message References](../cross_conversation_references/README.md).
 
 ---
 
@@ -870,9 +863,17 @@ def _extract_referenced_claims(pkb_context):
 
 ### Backend Resolution
 - **`Conversation.py`**
-  - `_get_pkb_context()` (lines ~4800-6600) - Main entry point
+  - `_get_pkb_context()` (lines ~4800-6600) - Main entry point (handles both PKB and cross-conversation refs)
+  - `_resolve_conversation_message_refs()` - Cross-conversation message resolution
+  - `_ensure_conversation_friendly_id()` - Friendly ID generation on first persist
   - `_extract_referenced_claims()` (lines 249-308) - Re-injection helper
   - `reply()` (lines 4717+) - Async PKB retrieval invocation
+
+- **`conversation_reference_utils.py`** (repo root)
+  - `CONV_REF_PATTERN` - Regex for detecting cross-conversation refs
+  - `generate_conversation_friendly_id(title, created_at)` - Conversation ID generation
+  - `generate_message_short_hash(conv_fid, message_text)` - Message hash generation
+  - `_to_base36(num, length)` - Base36 encoding helper
 
 - **`truth_management_system/interface/structured_api.py`**
   - `resolve_reference()` (lines 1159-1274) - Universal resolver

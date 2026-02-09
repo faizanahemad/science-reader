@@ -40,7 +40,9 @@ This doc explains how chat messages move from UI to server and back, and how the
   - `_context` suffix → context CRUD `resolve_claims()` — recursive CTE collects claims from context + sub-contexts
   - No suffix → backwards-compatible path (claim_number → claim friendly_id → legacy context → context name fallback)
 - After distillation, only `[REFERENCED ...]` claims are re-injected verbatim into the final prompt via `_extract_referenced_claims()` to ensure explicitly referenced claims are never lost.
+- **Cross-conversation message references** (`@conversation_<fid>_message_<hash>`) are also detected here. Before PKB resolution, `_get_pkb_context()` separates conversation refs from PKB friendly IDs using `CONV_REF_PATTERN`, resolves them via `_resolve_conversation_message_refs()`, and injects the referenced message text as `[REFERENCED @conversation_...]` blocks. These survive post-distillation re-injection alongside PKB claims.
 - For complete details on how PKB references are parsed, resolved, and injected, see [PKB Reference Resolution Flow](../truth_management_system/pkb_reference_resolution_flow.md).
+- For cross-conversation message references, see [Cross-Conversation Message References](../cross_conversation_references/README.md).
 
 4) **Streaming render**
 - `sendMessageCallback()` calls `renderStreamingResponse(response, ...)` in `interface/common-chat.js`.
@@ -98,7 +100,7 @@ Settings are managed via the **chat-settings-modal** in `interface/interface.htm
 - `Conversation.__call__()` (`Conversation.py`) yields `json.dumps(chunk) + "\n"`.
 - `Conversation.reply()` yields dicts like:
   - `{ "text": "...", "status": "...", "message_ids": { "user_message_id": "...", "response_message_id": "..." } }`
-- `message_ids` appear during streaming; the UI uses them to update card metadata and message actions.
+- `message_ids` appear during streaming; the UI uses them to update card metadata and message actions. The `message_ids` dict also includes `user_message_short_hash` and `response_message_short_hash` (6-char base36 hashes) when the conversation has a `conversation_friendly_id`. These are used by the UI to update message reference badges.
 - Stream chunks may also include status-only updates (`text: ""`) to drive UX progress indicators.
 
 ### Math Formatting Pipeline (Backend)
@@ -110,10 +112,11 @@ Settings are managed via the **chat-settings-modal** in `interface/interface.htm
 
 ### Persistence
 - `Conversation.persist_current_turn()` writes:
-  - messages (`messages` field)
+  - messages (`messages` field) -- each message dict now includes `message_short_hash` (6-char base36) when the conversation has a `conversation_friendly_id`
   - running summary (`memory.running_summary`)
   - title (`memory.title`)
-- `Conversation.get_message_ids()` hashes `(conversation_id + user_id + messageText)` to create stable IDs.
+  - conversation_friendly_id (`memory.conversation_friendly_id`) -- generated on first persist, stored in both memory and `UserToConversationId` DB table
+- `Conversation.get_message_ids()` hashes `(conversation_id + user_id + messageText)` to create stable IDs. It also returns `user_message_short_hash` and `response_message_short_hash` when the conversation has a friendly ID.
 - Conversation-level model overrides (stored in `conversation_settings`) can switch the models used for summaries, TLDR, artefact edits, and context menu actions.
 - Doc Index overrides (`doc_long_summary_model`, `doc_long_summary_v2_model`, `doc_short_answer_model`) apply when reading uploaded documents and generating document summaries/answers.
 - See `documentation/features/conversation_model_overrides/README.md` for the override system details.
@@ -149,7 +152,7 @@ A capture-phase event interceptor (`installMobileConversationInterceptor`) liste
 
 ### Context menus (conversation management from sidebar)
 
-Right-clicking or clicking the triple-dot (kebab) button on a conversation node opens a context menu with actions: Open in New Window, Clone, Toggle Stateless, Set Flag, Move to..., Delete. The "Move to..." submenu lists all workspaces with full breadcrumb paths (e.g. `General > Private > Target`) so the user can see exactly where each workspace sits in the hierarchy.
+Right-clicking or clicking the triple-dot (kebab) button on a conversation node opens a context menu with actions: Copy Conversation Reference, Open in New Window, Clone, Toggle Stateless, Set Flag, Move to..., Delete. "Copy Conversation Reference" copies the `conversation_friendly_id` (e.g. `react_optimization_b4f2`) to clipboard for use in cross-conversation message references. The "Move to..." submenu lists all workspaces with full breadcrumb paths (e.g. `General > Private > Target`) so the user can see exactly where each workspace sits in the hierarchy.
 
 Right-clicking or clicking the triple-dot on a workspace node offers: New Conversation, New Sub-Workspace, Rename, Change Color, Move to..., Delete. The workspace "Move to..." submenu also uses breadcrumb paths and disables invalid targets (descendants, current parent) to prevent cycles.
 
@@ -198,7 +201,7 @@ Location: `interface/common-chat.js`
 - Accumulates streamed text in `rendered_answer` and periodically re-renders via `renderInnerContentAsMarkdown()`.
 - Splits content at safe breakpoints (headers, paragraphs, rules, display math closings) using `getTextAfterLastBreakpoint()` to reduce reflow.
 - Handles `<answer>` blocks and slide content buffering (`<slide-presentation>` tags) to avoid partial rendering.
-- When `message_ids` arrive, updates DOM attributes so action buttons map to correct IDs.
+- When `message_ids` arrive, updates DOM attributes so action buttons map to correct IDs. Also updates `.message-ref-badge` elements with `message_short_hash` values for both user and assistant cards.
 - On completion:
   - final render pass
   - `initialiseVoteBank(...)`
@@ -317,7 +320,8 @@ Location: `interface/shared.js`
 - `interface/parseMessageForCheckBoxes.js` (parseMemoryReferences — extracts `@references` from message text)
 - `endpoints/conversations.py` (`/send_message` streaming endpoint)
 - `endpoints/pkb.py` (`/pkb/autocomplete` — returns memories, contexts, entities, tags, domains)
-- `Conversation.py` (reply, streaming yield, persistence, `_get_pkb_context`, `_extract_referenced_claims`)
+- `Conversation.py` (reply, streaming yield, persistence, `_get_pkb_context`, `_extract_referenced_claims`, `_resolve_conversation_message_refs`, `_ensure_conversation_friendly_id`)
+- `conversation_reference_utils.py` (cross-conversation reference ID generation: `generate_conversation_friendly_id`, `generate_message_short_hash`, `CONV_REF_PATTERN`)
 - `truth_management_system/interface/structured_api.py` (`resolve_reference` — suffix-based routing, `autocomplete` — all 5 categories)
 - `truth_management_system/crud/entities.py` (`resolve_claims` — entity → linked claims)
 - `truth_management_system/crud/tags.py` (`resolve_claims` — recursive tag → claims)

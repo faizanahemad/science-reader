@@ -58,6 +58,7 @@
 - **GET** `/get_prompt_by_name/<prompt_name>` → `prompts.get_prompt_by_name_route`
 - **GET** `/get_prompts` → `prompts.get_prompts_route`
 - **GET** `/get_section_hidden_details` → `sections.get_section_hidden_details_route`
+- **GET** `/get_workspace_path/<workspace_id>` → `workspaces.get_workspace_path`
 - **GET** `/get_user_detail` → `users.get_user_detail_route`
 - **GET** `/get_user_info` → `auth.get_user_info`
 - **GET** `/get_user_preference` → `users.get_user_preference_route`
@@ -77,6 +78,7 @@
 - **POST** `/modify_user_detail` → `users.modify_user_detail_route`
 - **POST** `/modify_user_preference` → `users.modify_user_preference_route`
 - **PUT** `/move_conversation_to_workspace/<conversation_id>` → `workspaces.move_conversation_to_workspace`
+- **PUT** `/move_workspace/<workspace_id>` → `workspaces.move_workspace`
 - **POST** `/move_messages_up_or_down/<conversation_id>` → `conversations.move_messages_up_or_down`
 - **GET** `/pkb/claims` → `pkb.pkb_list_claims_route`
 - **POST** `/pkb/claims` → `pkb.pkb_add_claim_route`

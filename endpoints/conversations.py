@@ -1201,6 +1201,51 @@ def list_conversation_by_user(domain: str):
         ]["workspace_name"]
         metadata["domain"] = conversation.domain
 
+        # Lazy backfill: generate conversation_friendly_id for old conversations
+        if not metadata.get("conversation_friendly_id"):
+            try:
+                from conversation_reference_utils import (
+                    generate_conversation_friendly_id,
+                )
+                from database.conversations import (
+                    setConversationFriendlyId,
+                    conversationFriendlyIdExists,
+                )
+
+                title = metadata.get("title", "")
+                last_updated = metadata.get("last_updated", "")
+                if title and last_updated:
+                    candidate = generate_conversation_friendly_id(title, last_updated)
+                    # Simple collision check (no retry in backfill — keep it fast)
+                    if conversationFriendlyIdExists(
+                        users_dir=state.users_dir,
+                        user_email=email,
+                        conversation_friendly_id=candidate,
+                    ):
+                        candidate = generate_conversation_friendly_id(
+                            title + conversation.conversation_id[:8], last_updated
+                        )
+                    # Store in conversation memory
+                    memory = conversation.get_field("memory")
+                    memory["conversation_friendly_id"] = candidate
+                    if "created_at" not in memory:
+                        memory["created_at"] = last_updated
+                    conversation.set_field("memory", memory)
+                    conversation.save_local()
+                    # Store in DB
+                    setConversationFriendlyId(
+                        users_dir=state.users_dir,
+                        user_email=email,
+                        conversation_id=conversation.conversation_id,
+                        conversation_friendly_id=candidate,
+                    )
+                    metadata["conversation_friendly_id"] = candidate
+            except Exception:
+                logger.exception(
+                    "Failed to backfill conversation_friendly_id for %s",
+                    metadata.get("conversation_id", "unknown"),
+                )
+
     sorted_data_reverse = sorted(data, key=lambda x: x[0]["last_updated"], reverse=True)
 
     if (
@@ -1318,6 +1363,10 @@ def send_message(conversation_id: str):
     conv_pinned_ids = list(state.pinned_claims.get(conversation_id, set()))
     if conv_pinned_ids:
         query["conversation_pinned_claim_ids"] = conv_pinned_ids
+
+    # Inject cross-conversation reference resolution dependencies
+    query["_users_dir"] = state.users_dir
+    query["_conversation_loader"] = lambda cid: state.conversation_cache[cid]
 
     from queue import Queue
     from flask import copy_current_request_context

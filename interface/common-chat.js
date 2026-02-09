@@ -6,6 +6,7 @@ var currentDoubtStreamingController = null;
 
 var ConversationManager = {
     activeConversationId: null,
+    activeConversationFriendlyId: '',
     getActiveConversation: function () {
         return this.activeConversationId;
     },
@@ -414,6 +415,18 @@ var ConversationManager = {
         } catch (_e) { /* ignore */ }
 
         this.activeConversationId = conversationId;
+        // Set the conversation_friendly_id from WorkspaceManager's cached conversation data
+        this.activeConversationFriendlyId = '';
+        try {
+            if (typeof WorkspaceManager !== 'undefined' && WorkspaceManager.conversations) {
+                var convData = WorkspaceManager.conversations.find(function (c) {
+                    return c.conversation_id === conversationId;
+                });
+                if (convData && convData.conversation_friendly_id) {
+                    this.activeConversationFriendlyId = convData.conversation_friendly_id;
+                }
+            }
+        } catch (_e) { /* ignore */ }
         // Resume-on-open: record the last active conversation id so `/interface/` can reopen it.
         try {
             localStorage.setItem(_lastConversationStorageKey(), String(conversationId));
@@ -1226,6 +1239,30 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                 
                 // Re-setup event handlers now that we have the message ID
                 setupStreamingCardEventHandlers(card, response_message_id);
+
+                // Update message reference badges with short hashes from streaming
+                if (part['message_ids']['response_message_short_hash']) {
+                    var rHash = part['message_ids']['response_message_short_hash'];
+                    var rBadge = card.find('.message-ref-badge');
+                    if (rBadge.length) {
+                        rBadge.attr('data-msg-hash', rHash);
+                        var rIdx = rBadge.data('msg-idx');
+                        rBadge.text('#' + rIdx + ' \u00b7 ' + rHash);
+                    }
+                }
+                if (part['message_ids']['user_message_short_hash']) {
+                    var uHash = part['message_ids']['user_message_short_hash'];
+                    var userCard = card.prev('.message-card');
+                    if (!userCard.length) userCard = card.prev('.card');
+                    if (userCard.length) {
+                        var uBadge = userCard.find('.message-ref-badge');
+                        if (uBadge.length) {
+                            uBadge.attr('data-msg-hash', uHash);
+                            var uIdx = uBadge.data('msg-idx');
+                            uBadge.text('#' + uIdx + ' \u00b7 ' + uHash);
+                        }
+                    }
+                }
                 
                 // Initialize Bootstrap 4.6 dropdowns for the streaming card
                 setTimeout(function() {
@@ -2256,10 +2293,13 @@ var ChatManager = {
                     </div>
                 </div>`;
             
+            var displayIndex = originalIndex + 1;
+            var msgHash = message.message_short_hash || '';
+            var refBadgeText = '#' + displayIndex + (msgHash ? ' \u00b7 ' + msgHash : '');
             var cardHeader = $(`<div class="card-header d-flex justify-content-between align-items-center" message-index="${index}" message-id=${message.message_id}>
                 <div class="d-flex align-items-center">
                     <input type="checkbox" class="history-message-checkbox mr-2" id="message-checkbox-${message.message_id}" message-id=${message.message_id}>
-                    <small><small><strong>` + senderText + `</strong></small></small>
+                    <small><small><strong>` + senderText + `</strong><span class="message-ref-badge text-muted" style="font-family:monospace;font-size:0.65rem;cursor:pointer;margin-left:4px;" data-msg-idx="${displayIndex}" data-msg-hash="${msgHash}" title="Click to copy message reference">${refBadgeText}</span></small></small>
                     ${actionDropdown}
                 </div>
                 <div class="d-flex align-items-center">
@@ -2504,6 +2544,24 @@ var ChatManager = {
             } else {
                 showToast('Artefacts manager not loaded', 'error');
             }
+        });
+
+        // Click-to-copy handler for message reference badges
+        $(".message-ref-badge").off('click').on("click", function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            var hash = $(this).data('msg-hash');
+            var idx = $(this).data('msg-idx');
+            var convFid = ConversationManager.activeConversationFriendlyId || '';
+            if (!convFid) return;
+            var msgPart = hash ? hash : idx;
+            var ref = '@conversation_' + convFid + '_message_' + msgPart;
+            var badge = $(this);
+            navigator.clipboard.writeText(ref).then(function () {
+                var original = badge.text();
+                badge.text('Copied!');
+                setTimeout(function () { badge.text(original); }, 1200);
+            });
         });
         
         // Initialize Bootstrap 4.6 dropdowns
