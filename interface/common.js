@@ -1892,7 +1892,27 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
         });
         
         voteDropdown.append($('<div class="dropdown-divider"></div>'), tocItem);
-        voteDropdown.append($('<div class="dropdown-divider"></div>'), editItem, editAsArtefactItem);
+        
+        // Save to Memory - opens PKB add claim modal with message text pre-filled
+        var saveToMemoryItem = $('<a class="dropdown-item" href="#"><i class="bi bi-journal-plus mr-2"></i>Save to Memory</a>');
+        saveToMemoryItem.click(function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            // Close the dropdown first
+            try {
+                var $dropdown = $(this).closest('.dropdown');
+                if ($dropdown.length > 0) {
+                    $dropdown.find('[data-toggle="dropdown"]').dropdown('hide');
+                }
+            } catch (err) { /* ignore */ }
+            if (typeof PKBManager !== 'undefined' && PKBManager.openAddClaimModalWithText) {
+                PKBManager.openAddClaimModalWithText(text);
+            } else {
+                console.warn('PKBManager not available for Save to Memory');
+            }
+        });
+        
+        voteDropdown.append($('<div class="dropdown-divider"></div>'), editItem, editAsArtefactItem, saveToMemoryItem);
         
     } else {
         // Fallback to old vote box if dropdown not found

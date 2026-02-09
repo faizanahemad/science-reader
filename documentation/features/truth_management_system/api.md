@@ -963,6 +963,7 @@ fetch('/pkb/conversation/conv-456/pin', {
 // Global PKBManager API
 PKBManager.listClaims({status:'active'});  PKBManager.addClaim({...});  PKBManager.searchClaims("query");
 PKBManager.checkMemoryUpdates(summary, userMsg, assistantMsg);  PKBManager.openPKBModal();
+PKBManager.openAddClaimModal();  PKBManager.openAddClaimModalWithText("pre-filled text");
 // Bulk: addBulkRow(), saveBulkClaims(), analyzeTextForIngestion(), saveSelectedProposals()
 // Pinning: pinClaim(id, true), addToNextMessage(id), getPendingAttachments()
 ```
@@ -1227,6 +1228,10 @@ PKBManager.getPendingCount();                // Count queued
 PKBManager.removeFromPending(claimId);       // Remove specific
 PKBManager.clearPendingAttachments();        // Clear all (called after send)
 PKBManager.updatePendingAttachmentsIndicator();  // Update UI chips
+
+// Modal (Add/Edit Memory)
+PKBManager.openAddClaimModal();              // Open blank Add Memory modal
+PKBManager.openAddClaimModalWithText(text);  // Open Add Memory modal with statement pre-filled (used by message triple-dots "Save to Memory")
 ```
 
 ### @memory and @friendly_id References

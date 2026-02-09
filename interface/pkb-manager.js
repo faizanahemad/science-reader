@@ -1220,6 +1220,35 @@ var PKBManager = (function() {
     }
     
     /**
+     * Open the add claim modal with pre-filled statement text.
+     *
+     * Triggered from the triple-dots menu on message cards (initialiseVoteBank
+     * in common.js). Pre-fills the statement textarea with the message text
+     * so the user can save part or all of a conversation message as a PKB memory.
+     * Strips <answer> tags and trims whitespace before inserting.
+     * Defaults to type 'fact' (message content is typically factual) and
+     * domain 'personal'.
+     *
+     * @param {string} text - The raw message text to pre-fill into the statement field.
+     */
+    function openAddClaimModalWithText(text) {
+        var cleanText = (text || '')
+            .replace(/<answer>/g, '')
+            .replace(/<\/answer>/g, '')
+            .trim();
+        $('#pkb-claim-edit-id').val('');
+        $('#pkb-claim-statement').val(cleanText);
+        $('#pkb-claim-friendly-id').val('');
+        populateTypesDropdown(['fact']);
+        populateDomainsDropdown(['personal']);
+        $('#pkb-claim-tags').val('');
+        $('#pkb-claim-questions').val('');
+        $('#pkb-claim-edit-title').text('Add Memory');
+        populateContextsDropdown([]);
+        $('#pkb-claim-edit-modal').modal('show');
+    }
+    
+    /**
      * Open the edit claim modal.
      * @param {string} claimId - Claim ID to edit
      */
@@ -2925,6 +2954,7 @@ var PKBManager = (function() {
         // UI functions
         openPKBModal: openPKBModal,
         openAddClaimModal: openAddClaimModal,
+        openAddClaimModalWithText: openAddClaimModalWithText,
         checkMemoryUpdates: checkMemoryUpdates,
         showMemoryProposalModal: showMemoryProposalModal,
         

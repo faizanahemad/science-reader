@@ -135,6 +135,15 @@ The claim Add/Edit modal (`#pkb-claim-edit-modal`) now contains:
 6. Possible Questions (textarea, one per line, auto-generated if blank)
 7. Contexts (multi-select, populated from `GET /pkb/contexts`)
 
+### Modal Entry Points
+
+| Trigger | Location | Mode | Notes |
+|---------|----------|------|-------|
+| `#pkb-add-claim-btn` click | `pkb-manager.js` init() | Add (blank) | Opens via `openAddClaimModal()` |
+| `.pkb-edit-claim` button on claim cards | `pkb-manager.js` `bindClaimCardActions()` | Edit | Opens via `openEditClaimModal(claimId)` |
+| `.pkb-entity-add-memory` on entity cards | `pkb-manager.js` | Add (with entity link) | Also sets `_pendingEntityLink` |
+| "Save to Memory" in message triple-dots | `common.js` `initialiseVoteBank()` | Add (pre-filled) | Calls `PKBManager.openAddClaimModalWithText(text)`. Strips `<answer>` tags. Defaults type to `fact`, domain to `personal`. |
+
 ### Conversation.py Context Formatting
 
 When formatting claims for the LLM system prompt, `_get_pkb_context()` now includes possible_questions as a hint:

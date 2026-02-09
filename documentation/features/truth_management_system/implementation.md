@@ -1141,6 +1141,8 @@ var PKBManager = (function() {
         
         // UI
         openPKBModal: function() {...},
+        openAddClaimModal: function() {...},
+        openAddClaimModalWithText: function(text) {...},  // Pre-fill statement from message triple-dots menu
         renderClaimsList: function(claims) {...},
         // ...
     };

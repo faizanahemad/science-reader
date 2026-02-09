@@ -35,11 +35,6 @@ Notes:
 - Recommended auto-start:
   - `cd extension/tests && ./run_tests.sh`
   - or `python extension/tests/run_integration_tests.py`
-- Manual server + tests:
-  - Terminal 1: `python extension_server.py --port 5001 --debug`
-  - Terminal 2: `pytest extension/tests/test_extension_api.py -v`
-- Run a single extension test:
-  - `pytest extension/tests/test_extension_api.py::TestAuth::test_login_success -v`
 
 ### Ad hoc files in repo root
 
@@ -110,16 +105,21 @@ Follow existing patterns in the file you touch. Do not reformat unrelated code.
 - PKB module: `truth_management_system/`.
 - Extension: `extension/` + `extension_server.py`.
 - Documentation in markdown files within same module and in documentation folder.
+- Feature documentation in documentation/features
+- Planning documents go into documentation/planning/plans and have extension as `.plan.md`.
 
 ## Guidance for Agents
 
 - Work hard, read code, read files and code mentioned in chat, and read documentation and indexes and plans as needed, but basically hard work beats shortcuts, so read more.
 - Keep changes minimal and scoped; avoid reformatting large legacy files.
+- When writing code, write modular code as functions and separate modules and then integrate into existing systems.
 - Update docs when you add or change behavior. Docs are usually markdown files which are within the same module or within documentation folder.
-- If a command is not documented, call it out rather than inventing one.
-- First write down the requirements and what is asked to do clearly and then think carefully how you will solve it and also write down your plan of solution. Then finally write down code. If you are making corrections or changes to code then first mention what was wrong before and why, then mention what changes or corrections you will make, then finally write corrected code. 
+- First write down the requirements, describe clearly what are the goals and what we are trying to achieve, what has been asked to do and then think carefully how you will solve it and also write down your plan of solution and break it into tasks and sub-tasks which are granular. Then finally write down code. 
+- If you are making corrections or changes to code then first mention what was wrong before and why, then mention what changes or corrections you will make, then finally write corrected code. 
 - Ensure to write docstrings for functions and classes describing what they do, inputs, outputs and also their overall purpose and why we created them (if known).
-- Plan strategically, break it into logical small steps, make multiple tasks, and build in an incremental way such that errors or logical mistakes in later tasks don't leave earlier task work unusable. When making a plan to execute a task, write down descriptively and clearly what are the goals and what we are trying to achieve and how we intend to do it. Also note down alternatives and possible challenges that might be revealed while reading the code more deeply so anyone using the plan will be able to carefully execute it while still having autonomy to make decisions for any risks.
-- When making a plan, in our planning or plan documents write down granular milestones and tasks under them so that we know clearly what needs to be implemented. How the function signatures or API signatures should look like to work well together also need to be in the plan. Plans should have granular milestones and atomic tasks for ease of correctly implementing by a junior dev.
-- Make sure to re-use existing code and solutions where ever possible. Reusable code is in files named commonly with words like "common", "util", etc. 
-- When creating or updating documentation, add implementation notes and files modified as well so that later we can use this to further enhance the feature.
+- Plan strategically, break it into logical small steps, make multiple tasks, and build in an incremental way such that errors or logical mistakes in later tasks don't leave earlier task work unusable. Also note down alternatives and possible challenges that might be revealed while reading the code more deeply so anyone using the plan will be able to carefully execute it while still having autonomy to make decisions for any risks.
+- Plans should have granular milestones and atomic tasks for ease of correctly implementing by a junior dev.
+- Make sure to re-use existing code and solutions where ever possible. Reusable code is in files named commonly with words like "common", "util", "base", etc. 
+- When creating or updating documentation, add UI details if applicable, add api details, function details, feature details, add implementation notes and files modified as well so that later we can use this to further enhance the feature.
+- Write in markdown format but don't make any diagrams. Our docs are intended to be friendly to LLM agents and software agents, diagrams are not friendly to agents.
+- Apply small patches or edits sequentially. Even when writing an entire new file, first touch and create the file and then write in chunks and maybe write outlines and then fill the file if possible.

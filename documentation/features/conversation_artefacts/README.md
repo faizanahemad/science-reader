@@ -7,7 +7,7 @@ Conversation artefacts are conversation-scoped files stored on disk and editable
 - Message action menu: message triple-dot dropdown opens the artefacts modal.
 - Chat settings: the Artefacts button opens the modal.
 - Context menu: right-click selection and choose Artefacts.
-- Vote menu: "Edit as Artefact" from the right-side triple-dot menu on assistant cards creates an artefact from the answer and links saves back to the message.
+- Vote menu: "Edit as Artefact" from the right-side triple-dot menu on assistant cards creates an artefact from the answer and links saves back to the message. The same triple-dot menu also includes "Save to Memory" which opens the PKB Add Memory modal with the message text pre-filled.
 
 ## Storage Model
 
@@ -92,7 +92,7 @@ Entry points:
 - `interface/common-chat.js`: action dropdown item `open-artefacts-button` inside `renderMessages()`.
 - `interface/context-menu-manager.js`: `artefacts` action opens the modal.
 - `interface/chat.js`: settings modal button `settings-artefacts-modal-open-button` opens the modal.
-- `interface/common.js`: `initialiseVoteBank()` adds "Edit as Artefact" to the vote dropdown on assistant cards.
+- `interface/common.js`: `initialiseVoteBank()` adds "Edit as Artefact" and "Save to Memory" to the vote dropdown on assistant cards.
 
 ## Recent Enhancements
 

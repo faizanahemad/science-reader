@@ -189,6 +189,7 @@ Location: `interface/common-chat.js`
 - The right-side triple-dot menu comes from `initialiseVoteBank()` (in `interface/common.js`).
   - This menu can expose edit actions for user/assistant messages (and other vote-related actions).
   - It also includes "Edit as Artefact" for assistant answers, creating an artefact that syncs back on save.
+  - "Save to Memory" opens the PKB "Add Memory" modal (`#pkb-claim-edit-modal`) with the message text pre-filled into the statement field. Calls `PKBManager.openAddClaimModalWithText(text)`. Strips `<answer>` tags before inserting. Defaults type to `fact` and domain to `personal`.
 - Applies `showMore()` for long responses and adds scroll-to-top button for long assistant messages.
 - Updates URL with message focus for deep-linking.
 - Message IDs drive all follow-on actions; `message-index` is computed from the number of message cards in `#chatView` (not global `.card` count).

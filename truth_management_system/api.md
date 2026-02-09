@@ -913,6 +913,7 @@ fetch('/pkb/search', {method:'POST', headers:{'Content-Type':'application/json'}
 // Global PKBManager API
 PKBManager.listClaims({status:'active'});  PKBManager.addClaim({...});  PKBManager.searchClaims("query");
 PKBManager.checkMemoryUpdates(summary, userMsg, assistantMsg);  PKBManager.openPKBModal();
+PKBManager.openAddClaimModal();  PKBManager.openAddClaimModalWithText("pre-filled text");
 // Bulk: addBulkRow(), saveBulkClaims(), analyzeTextForIngestion(), saveSelectedProposals()
 ```
 
@@ -1006,6 +1007,7 @@ api.get_claims_by_ids([...])       # Batch fetch
 // Global: pinClaim(id,true), getPinnedClaims(), togglePinAndRefresh(id)
 // Conversation: pinToConversation(convId,claimId,true), getConversationPinned(convId)
 // Use Now: addToNextMessage(id), getPendingAttachments(), clearPendingAttachments()
+// Modal: openAddClaimModal(), openAddClaimModalWithText(text)  // "Save to Memory" from message triple-dots
 ```
 
 ### @memory References

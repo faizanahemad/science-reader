@@ -564,7 +564,7 @@ and avoids loading everything for every request.
   - attach documents
   - toggle options (web search, memory pad, PKB memory, planner, reward dialer, model selection, preamble)
   - next question suggestions
-  - per-message actions: doubt clearing, TTS, edit/delete, show/hide
+  - per-message actions: doubt clearing, TTS, edit/delete, show/hide, edit as artefact, save to memory, table of contents
 - PKB screen:
   - claims CRUD
   - pinned claims
