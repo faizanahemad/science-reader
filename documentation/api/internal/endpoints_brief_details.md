@@ -320,10 +320,39 @@ Source file: `/Users/ahemf/Documents/Backup_2025/Research/chatgpt-iterative/serv
   - limiter: `@limiter.limit("10 per minute")`
 - **POST** `/pkb/relevant_context` → `pkb_get_relevant_context()` (route L5242, def L5245) (login_required, rate_limited)
   - limiter: `@limiter.limit("60 per minute")`
+- **POST** `/pkb/analyze_statement` → `pkb_analyze_statement_route()` (login_required, rate_limited)
+  - limiter: `@limiter.limit("20 per minute")`
+  - Body: `{statement}`
+  - Returns: `{success, analysis: {claim_type, context_domain, tags, entities, possible_questions, confidence, friendly_id}}`
+  - Uses `CHEAP_LLM[0]` for single-call LLM extraction via `LLMHelpers.analyze_claim_statement()`
 - **POST** `/pkb/search` → `pkb_search()` (route L4553, def L4556) (login_required, rate_limited)
   - limiter: `@limiter.limit("20 per minute")`
-- **GET** `/pkb/tags` → `pkb_list_tags()` (route L4655, def L4658) (login_required, rate_limited)
+- **GET** `/pkb/tags` → `pkb_list_tags()` (login_required, rate_limited)
   - limiter: `@limiter.limit("30 per minute")`
+- **POST** `/pkb/tags` → `pkb_create_tag_route()` (login_required, rate_limited)
+  - limiter: `@limiter.limit("15 per minute")`
+  - Body: `{name, parent_tag_id?}`
+- **GET** `/pkb/tags/<tag_id>/claims` → `pkb_tag_claims_route()` (login_required, rate_limited)
+  - limiter: `@limiter.limit("30 per minute")`
+- **GET** `/pkb/claims/<claim_id>/tags` → `pkb_get_claim_tags_route()` (login_required, rate_limited)
+  - limiter: `@limiter.limit("30 per minute")`
+- **POST** `/pkb/claims/<claim_id>/tags` → `pkb_link_tag_to_claim()` (login_required, rate_limited)
+  - limiter: `@limiter.limit("15 per minute")`
+  - Body: `{tag_id}`
+- **DELETE** `/pkb/claims/<claim_id>/tags/<tag_id>` → `pkb_unlink_tag_from_claim()` (login_required, rate_limited)
+  - limiter: `@limiter.limit("15 per minute")`
+- **POST** `/pkb/entities` → `pkb_create_entity_route()` (login_required, rate_limited)
+  - limiter: `@limiter.limit("15 per minute")`
+  - Body: `{name, entity_type}`
+- **GET** `/pkb/entities/<entity_id>/claims` → `pkb_entity_claims_route()` (login_required, rate_limited)
+  - limiter: `@limiter.limit("30 per minute")`
+- **GET** `/pkb/claims/<claim_id>/entities` → `pkb_get_claim_entities()` (login_required, rate_limited)
+  - limiter: `@limiter.limit("30 per minute")`
+- **POST** `/pkb/claims/<claim_id>/entities` → `pkb_link_entity_to_claim()` (login_required, rate_limited)
+  - limiter: `@limiter.limit("15 per minute")`
+  - Body: `{entity_id, role}`
+- **DELETE** `/pkb/claims/<claim_id>/entities/<entity_id>` → `pkb_unlink_entity_from_claim()` (login_required, rate_limited)
+  - limiter: `@limiter.limit("15 per minute")`
 - **GET** `/proxy` → `proxy()` (route L2121, def L2123) (login_required)
 - **GET** `/proxy_shared` → `proxy_shared()` (route L2128, def L2129)
 - **POST** `/run_code_once` → `run_code()` (route L5325, def L5328) (login_required, rate_limited)

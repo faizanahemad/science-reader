@@ -54,12 +54,12 @@ PKB v0 is a SQLite-backed personal knowledge base designed for integration with 
 **v0.5.1 Updates:**
 - Schema v4: Added `claim_types_catalog` and `context_domains_catalog` tables for dynamic types/domains
 - New `TypeCatalogCRUD` and `DomainCatalogCRUD` in `crud/catalog.py`
-- Expandable entity cards in Entities tab with linked claims and "Add Memory" button
-- Expandable tag cards in Tags tab with linked claims
-- Expandable context cards in Contexts tab with "Attach Memory" and "Remove from Context" buttons
+- Expandable entity cards in Entities tab with linked claims, "Add Memory" button, search panel with link/unlink checkboxes, per-claim unlink button
+- Expandable tag cards in Tags tab with linked claims, search panel with link/unlink checkboxes, per-claim unlink button
+- Expandable context cards in Contexts tab with search panel, link/unlink checkboxes, per-claim unlink button
 - Context multi-select dropdown in Create/Edit Memory modal
 - Multi-select Type/Domain dropdowns populated from DB with inline "Add New" capability
-- New endpoints: `GET /pkb/entities/<id>/claims`, `GET /pkb/tags/<id>/claims`, `GET /pkb/claims/<id>/contexts`, `PUT /pkb/claims/<id>/contexts`, `GET/POST /pkb/types`, `GET/POST /pkb/domains`
+- New endpoints: `GET /pkb/entities/<id>/claims`, `GET /pkb/tags/<id>/claims`, `GET /pkb/claims/<id>/contexts`, `PUT /pkb/claims/<id>/contexts`, `GET/POST /pkb/types`, `GET/POST /pkb/domains`, `POST /pkb/tags`, `GET/POST /pkb/claims/<id>/tags`, `DELETE /pkb/claims/<id>/tags/<tid>`, `POST /pkb/entities`, `GET/POST/DELETE /pkb/claims/<id>/entities[/<eid>]`
 - Shared `bindClaimCardActions()` helper for reusable claim action buttons across all views
 - Updated `StructuredAPI` with `type_catalog` and `domain_catalog` instances
 
@@ -929,7 +929,17 @@ def clear_conversation_pinned_claims(conversation_id: str):
 | `/pkb/claims/bulk` | POST | Add multiple claims | Bulk add via `add_claims_bulk()` |
 | `/pkb/search` | POST | Search claims | Hybrid/FTS/embedding strategy |
 | `/pkb/entities` | GET | List entities | For dropdown/autocomplete |
+| `/pkb/entities` | POST | Create entity | `{name, entity_type}` |
+| `/pkb/entities/<id>/claims` | GET | Claims linked to entity | For entity expandable cards |
+| `/pkb/claims/<id>/entities` | GET | Entities linked to claim | For edit modal |
+| `/pkb/claims/<id>/entities` | POST | Link entity to claim | `{entity_id, role}` |
+| `/pkb/claims/<id>/entities/<eid>` | DELETE | Unlink entity from claim | |
 | `/pkb/tags` | GET | List tags | For dropdown/autocomplete |
+| `/pkb/tags` | POST | Create tag | `{name, parent_tag_id?}` |
+| `/pkb/tags/<id>/claims` | GET | Claims linked to tag | For tag expandable cards |
+| `/pkb/claims/<id>/tags` | GET | Tags linked to claim | For edit modal |
+| `/pkb/claims/<id>/tags` | POST | Link tag to claim | `{tag_id}` |
+| `/pkb/claims/<id>/tags/<tid>` | DELETE | Unlink tag from claim | |
 | `/pkb/conflicts` | GET | List open conflicts | For conflict resolution UI |
 | `/pkb/conflicts/<id>/resolve` | POST | Resolve conflict | Optional winning claim |
 | `/pkb/propose_updates` | POST | Propose memory updates | ConversationDistiller integration |
@@ -1094,6 +1104,14 @@ var PKBManager = (function() {
         // Entities/Tags
         listEntities: function() {...},
         listTags: function() {...},
+        createEntity: function(data) {...},
+        createTag: function(data) {...},
+        getClaimEntities: function(claimId) {...},
+        linkEntityToClaim: function(claimId, entityId, role) {...},
+        unlinkEntityFromClaim: function(claimId, entityId) {...},
+        getClaimTags: function(claimId) {...},
+        linkTagToClaim: function(claimId, tagId) {...},
+        unlinkTagFromClaim: function(claimId, tagId) {...},
         
         // Memory Updates (Conversation)
         checkMemoryUpdates: function(summary, userMsg, assistantMsg) {...},

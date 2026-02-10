@@ -865,7 +865,17 @@ def clear_conversation_pinned_claims(conversation_id: str):
 | `/pkb/claims/bulk` | POST | Add multiple claims | Bulk add via `add_claims_bulk()` |
 | `/pkb/search` | POST | Search claims | Hybrid/FTS/embedding strategy |
 | `/pkb/entities` | GET | List entities | For dropdown/autocomplete |
+| `/pkb/entities` | POST | Create entity | `{name, entity_type}` |
+| `/pkb/entities/<id>/claims` | GET | Claims linked to entity | For entity expandable cards |
+| `/pkb/claims/<id>/entities` | GET | Entities linked to claim | For edit modal |
+| `/pkb/claims/<id>/entities` | POST | Link entity to claim | `{entity_id, role}` |
+| `/pkb/claims/<id>/entities/<eid>` | DELETE | Unlink entity from claim | |
 | `/pkb/tags` | GET | List tags | For dropdown/autocomplete |
+| `/pkb/tags` | POST | Create tag | `{name, parent_tag_id?}` |
+| `/pkb/tags/<id>/claims` | GET | Claims linked to tag | For tag expandable cards |
+| `/pkb/claims/<id>/tags` | GET | Tags linked to claim | For edit modal |
+| `/pkb/claims/<id>/tags` | POST | Link tag to claim | `{tag_id}` |
+| `/pkb/claims/<id>/tags/<tid>` | DELETE | Unlink tag from claim | |
 | `/pkb/conflicts` | GET | List open conflicts | For conflict resolution UI |
 | `/pkb/conflicts/<id>/resolve` | POST | Resolve conflict | Optional winning claim |
 | `/pkb/propose_updates` | POST | Propose memory updates | ConversationDistiller integration |
@@ -1023,6 +1033,14 @@ var PKBManager = (function() {
         // Entities/Tags
         listEntities: function() {...},
         listTags: function() {...},
+        createEntity: function(data) {...},
+        createTag: function(data) {...},
+        getClaimEntities: function(claimId) {...},
+        linkEntityToClaim: function(claimId, entityId, role) {...},
+        unlinkEntityFromClaim: function(claimId, entityId) {...},
+        getClaimTags: function(claimId) {...},
+        linkTagToClaim: function(claimId, tagId) {...},
+        unlinkTagFromClaim: function(claimId, tagId) {...},
         
         // Memory Updates (Conversation)
         checkMemoryUpdates: function(summary, userMsg, assistantMsg) {...},

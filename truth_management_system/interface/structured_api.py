@@ -30,7 +30,14 @@ from ..crud import (
     TypeCatalogCRUD,
     DomainCatalogCRUD,
 )
-from ..crud.links import link_claim_entity, unlink_claim_entity, get_claim_entities
+from ..crud.links import (
+    link_claim_entity,
+    unlink_claim_entity,
+    get_claim_entities,
+    link_claim_tag,
+    unlink_claim_tag,
+    get_claim_tags,
+)
 from ..search import HybridSearchStrategy, SearchFilters, SearchResult
 from ..search.notes_search import NotesSearchStrategy
 from ..llm_helpers import LLMHelpers
@@ -1903,4 +1910,102 @@ class StructuredAPI:
             logger.error(f"Failed to get claim entities: {e}")
             return ActionResult(
                 success=False, action="get", object_type="claim_entity", errors=[str(e)]
+            )
+
+    # =========================================================================
+    # Tag Linking
+    # =========================================================================
+
+    def link_tag_to_claim(self, claim_id: str, tag_id: str) -> ActionResult:
+        """
+        Link a tag to a claim.
+
+        Two-way: the claim gets the tag and the tag's claims list includes
+        the claim (both via the ``claim_tags`` join table).
+
+        Args:
+            claim_id: ID of the claim.
+            tag_id: ID of the tag.
+
+        Returns:
+            ActionResult indicating success/failure.
+        """
+        try:
+            success = link_claim_tag(self.db, claim_id, tag_id)
+            if success:
+                return ActionResult(
+                    success=True,
+                    action="link",
+                    object_type="claim_tag",
+                    data={"claim_id": claim_id, "tag_id": tag_id},
+                )
+            return ActionResult(
+                success=False,
+                action="link",
+                object_type="claim_tag",
+                errors=["Failed to link tag to claim (may already exist)"],
+            )
+        except Exception as e:
+            logger.error(f"Failed to link tag to claim: {e}")
+            return ActionResult(
+                success=False,
+                action="link",
+                object_type="claim_tag",
+                errors=[str(e)],
+            )
+
+    def unlink_tag_from_claim(self, claim_id: str, tag_id: str) -> ActionResult:
+        """
+        Unlink a tag from a claim.
+
+        Args:
+            claim_id: ID of the claim.
+            tag_id: ID of the tag.
+
+        Returns:
+            ActionResult indicating success/failure.
+        """
+        try:
+            success = unlink_claim_tag(self.db, claim_id, tag_id)
+            if success:
+                return ActionResult(
+                    success=True,
+                    action="unlink",
+                    object_type="claim_tag",
+                    data={"claim_id": claim_id, "tag_id": tag_id},
+                )
+            return ActionResult(
+                success=False,
+                action="unlink",
+                object_type="claim_tag",
+                errors=["Link not found"],
+            )
+        except Exception as e:
+            logger.error(f"Failed to unlink tag from claim: {e}")
+            return ActionResult(
+                success=False,
+                action="unlink",
+                object_type="claim_tag",
+                errors=[str(e)],
+            )
+
+    def get_claim_tags_list(self, claim_id: str) -> ActionResult:
+        """
+        Get all tags linked to a claim.
+
+        Args:
+            claim_id: ID of the claim.
+
+        Returns:
+            ActionResult with list of Tag objects.
+        """
+        try:
+            tags = get_claim_tags(self.db, claim_id)
+            return ActionResult(
+                success=True, action="get", object_type="claim_tag", data=tags
+            )
+        except Exception as e:
+            logger.error(f"Failed to get claim tags: {e}")
+            return ActionResult(
+                success=False, action="get", object_type="claim_tag", errors=[str(e)]
             )

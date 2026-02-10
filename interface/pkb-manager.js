@@ -766,6 +766,12 @@ var PKBManager = (function() {
      *
      * @param {string} entityId - UUID of the entity.
      */
+    /**
+     * Toggle the expanded claims panel under an entity card.
+     * When expanded, shows linked claims AND a search panel to add more.
+     *
+     * @param {string} entityId - UUID of the entity.
+     */
     function toggleEntityClaims(entityId) {
         var $collapse = $('#entity-claims-' + entityId);
         var isOpen = $collapse.hasClass('show');
@@ -782,46 +788,238 @@ var PKBManager = (function() {
         $collapse.collapse('show');
         $chev.removeClass('bi-chevron-down').addClass('bi-chevron-up');
         
-        // If already cached just render
-        if (_entityClaimsCache[entityId]) {
-            renderEntityClaimsList(entityId, _entityClaimsCache[entityId]);
-            return;
-        }
+        loadEntityClaimsPanel(entityId);
+    }
+    
+    /**
+     * Load and render the full entity claims panel: linked claims + search-to-add.
+     * Mirrors the context claims panel pattern (loadContextClaimsPanel).
+     *
+     * @param {string} entityId - UUID of the entity.
+     */
+    function loadEntityClaimsPanel(entityId) {
+        var $c = $('.pkb-entity-claims-container[data-entity-id="' + entityId + '"]');
+        $c.html('<div class="text-center text-muted py-2"><div class="spinner-border spinner-border-sm" role="status"></div> Loading...</div>');
         
-        // Fetch claims for this entity
+        // Fetch claims linked to this entity
         $.ajax({
             url: '/pkb/entities/' + entityId + '/claims',
             method: 'GET',
             dataType: 'json'
         }).done(function(resp) {
-            var claims = resp.claims || [];
-            _entityClaimsCache[entityId] = claims;
-            renderEntityClaimsList(entityId, claims);
+            var linkedClaims = resp.claims || [];
+            var linkedIds = {};
+            linkedClaims.forEach(function(c) { linkedIds[c.claim_id] = true; });
+            
+            var html = '';
+            
+            // --- Linked claims ---
+            html += '<div class="mb-2"><strong><i class="bi bi-link-45deg"></i> Linked Memories (' + linkedClaims.length + ')</strong></div>';
+            if (linkedClaims.length > 0) {
+                html += '<div class="list-group list-group-flush mb-3 pkb-ent-linked-claims">';
+                linkedClaims.forEach(function(claim) {
+                    html += renderEntityLinkedClaimRow(claim, entityId);
+                });
+                html += '</div>';
+            } else {
+                html += '<div class="text-center text-muted py-2 mb-3"><small>No memories linked yet.</small></div>';
+            }
+            
+            // --- Search-to-add section ---
+            html += '<div class="border-top pt-2">';
+            html += '<strong><i class="bi bi-plus-circle"></i> Add Memories</strong>';
+            html += '<div class="input-group input-group-sm mt-1 mb-1">';
+            html += '<input type="text" class="form-control pkb-ent-search-input" data-entity-id="' + entityId + '" placeholder="Search by text, #number, @friendly_id...">';
+            html += '<div class="input-group-append">';
+            html += '<button class="btn btn-outline-primary pkb-ent-search-btn" data-entity-id="' + entityId + '" type="button"><i class="bi bi-search"></i></button>';
+            html += '</div></div>';
+            html += '<div class="form-row mb-2">';
+            html += '<div class="col"><select class="form-control form-control-sm pkb-ent-filter-type" data-entity-id="' + entityId + '">';
+            html += '<option value="">All Types</option><option value="fact">Fact</option><option value="preference">Preference</option>';
+            html += '<option value="decision">Decision</option><option value="task">Task</option><option value="reminder">Reminder</option>';
+            html += '<option value="habit">Habit</option><option value="memory">Memory</option><option value="observation">Observation</option>';
+            html += '</select></div>';
+            html += '<div class="col"><select class="form-control form-control-sm pkb-ent-filter-domain" data-entity-id="' + entityId + '">';
+            html += '<option value="">All Domains</option><option value="personal">Personal</option><option value="health">Health</option>';
+            html += '<option value="work">Work</option><option value="relationships">Relationships</option>';
+            html += '<option value="learning">Learning</option><option value="life_ops">Life Ops</option><option value="finance">Finance</option>';
+            html += '</select></div></div>';
+            html += '<div class="pkb-ent-search-results" data-entity-id="' + entityId + '" style="max-height:250px;overflow-y:auto;"></div>';
+            html += '</div>';
+            
+            $c.html(html);
+            
+            // Bind unlink handlers
+            $c.find('.pkb-ent-unlink-claim').on('click', function() {
+                var claimId = $(this).data('claim-id');
+                unlinkEntityFromClaim(claimId, entityId).done(function() {
+                    showToast('Removed from entity', 'success');
+                    loadEntityClaimsPanel(entityId);
+                }).fail(function() {
+                    showToast('Failed to remove', 'error');
+                });
+            });
+            
+            // Bind standard claim actions on linked claims
+            bindClaimCardActions($c.find('.pkb-ent-linked-claims'), function() {
+                loadEntityClaimsPanel(entityId);
+            });
+            
+            // Bind search
+            $c.find('.pkb-ent-search-btn').on('click', function() {
+                performEntitySearch(entityId, linkedIds);
+            });
+            $c.find('.pkb-ent-search-input').on('keypress', function(e) {
+                if (e.which === 13) performEntitySearch(entityId, linkedIds);
+            });
+            $c.find('.pkb-ent-filter-type, .pkb-ent-filter-domain').on('change', function() {
+                performEntitySearch(entityId, linkedIds);
+            });
+            
         }).fail(function() {
-            var $c = $('.pkb-entity-claims-container[data-entity-id="' + entityId + '"]');
             $c.html('<div class="text-center text-muted py-2">Failed to load memories.</div>');
         });
     }
     
     /**
-     * Render claim cards inside an expanded entity container and bind handlers.
+     * Render a single linked claim row inside an entity panel with an unlink button.
      *
-     * @param {string} entityId - UUID of the entity.
-     * @param {Array} claims - Array of claim objects.
+     * @param {Object} claim - Claim object.
+     * @param {string} entityId - Entity UUID.
+     * @returns {string} HTML string.
      */
-    function renderEntityClaimsList(entityId, claims) {
-        var $c = $('.pkb-entity-claims-container[data-entity-id="' + entityId + '"]');
-        if (!claims || claims.length === 0) {
-            $c.html('<div class="text-center text-muted py-2"><small>No memories linked to this entity.</small></div>');
+    function renderEntityLinkedClaimRow(claim, entityId) {
+        var numBadge = claim.claim_number ? '<span class="badge badge-dark text-monospace mr-1">#' + claim.claim_number + '</span>' : '';
+        var fidBadge = claim.friendly_id ? '<span class="badge badge-light text-monospace mr-1">@' + escapeHtml(claim.friendly_id) + '</span>' : '';
+        
+        return '<div class="list-group-item py-1 px-2 d-flex justify-content-between align-items-center" data-claim-id="' + claim.claim_id + '">' +
+            '<div class="flex-grow-1">' +
+                '<small>' + escapeHtml(claim.statement) + '</small><br>' +
+                '<small class="text-muted">' + numBadge + fidBadge + renderClaimTypeBadge(claim.claim_type) + '</small>' +
+            '</div>' +
+            '<div class="btn-group btn-group-sm">' +
+                '<button class="btn btn-outline-danger btn-sm pkb-ent-unlink-claim" data-claim-id="' + claim.claim_id + '" data-entity-id="' + entityId + '" title="Remove from entity">' +
+                    '<i class="bi bi-x-lg"></i>' +
+                '</button>' +
+            '</div>' +
+        '</div>';
+    }
+    
+    /**
+     * Perform search within the entity attach panel.
+     * Routes ID-like queries to friendly-id lookup, text to hybrid search.
+     *
+     * @param {string} entityId - Entity UUID.
+     * @param {Object} linkedIds - Map of already-linked claim IDs.
+     */
+    function performEntitySearch(entityId, linkedIds) {
+        var $input = $('.pkb-ent-search-input[data-entity-id="' + entityId + '"]');
+        var $results = $('.pkb-ent-search-results[data-entity-id="' + entityId + '"]');
+        var query = $input.val().trim();
+        var filterType = $('.pkb-ent-filter-type[data-entity-id="' + entityId + '"]').val();
+        var filterDomain = $('.pkb-ent-filter-domain[data-entity-id="' + entityId + '"]').val();
+        
+        $results.html('<div class="text-center py-2"><div class="spinner-border spinner-border-sm" role="status"></div></div>');
+        
+        var idQuery = query.replace(/^[@#]/, '');
+        var isIdLookup = /^(claim_)?\d+$/.test(idQuery) ||
+                         /^[a-zA-Z0-9_-]{2,}$/.test(idQuery) && (query.startsWith('@') || query.startsWith('#'));
+        
+        if (isIdLookup && query) {
+            $.ajax({
+                url: '/pkb/claims/by-friendly-id/' + encodeURIComponent(idQuery),
+                method: 'GET',
+                dataType: 'json'
+            }).done(function(resp) {
+                if (resp.claim) {
+                    renderEntitySearchResults(entityId, [resp.claim], linkedIds, $results);
+                } else {
+                    doEntityTextSearch(query, filterType, filterDomain, entityId, linkedIds, $results);
+                }
+            }).fail(function() {
+                doEntityTextSearch(query, filterType, filterDomain, entityId, linkedIds, $results);
+            });
             return;
         }
-        var html = '<div class="list-group list-group-flush">' + claims.map(renderClaimCard).join('') + '</div>';
-        $c.html(html);
-        bindClaimCardActions($c, function() {
-            // After delete, invalidate cache and re-fetch
-            delete _entityClaimsCache[entityId];
-            toggleEntityClaims(entityId); // collapse
-            toggleEntityClaims(entityId); // re-expand with fresh data
+        doEntityTextSearch(query, filterType, filterDomain, entityId, linkedIds, $results);
+    }
+    
+    /**
+     * Execute a text-based search for the entity attach panel.
+     */
+    function doEntityTextSearch(query, filterType, filterDomain, entityId, linkedIds, $results) {
+        var filters = { status: 'active' };
+        if (filterType) filters.claim_type = filterType;
+        if (filterDomain) filters.context_domain = filterDomain;
+        listClaims(filters, 30, 0, query || undefined).done(function(resp) {
+            renderEntitySearchResults(entityId, resp.claims || [], linkedIds, $results);
+        }).fail(function() {
+            $results.html('<div class="text-muted small py-2">Search failed.</div>');
+        });
+    }
+    
+    /**
+     * Render search results for the entity attach panel with link/unlink checkboxes.
+     *
+     * @param {string} entityId - Entity UUID.
+     * @param {Array} claims - Claims to render.
+     * @param {Object} linkedIds - Map of already-linked claim IDs.
+     * @param {jQuery} $container - Results container.
+     */
+    function renderEntitySearchResults(entityId, claims, linkedIds, $container) {
+        if (!claims || claims.length === 0) {
+            $container.html('<div class="text-muted small py-2">No results found.</div>');
+            return;
+        }
+        
+        var html = '<div class="list-group list-group-flush">';
+        claims.forEach(function(claim) {
+            var isLinked = linkedIds[claim.claim_id] === true;
+            var numBadge = claim.claim_number ? '#' + claim.claim_number + ' ' : '';
+            var fidBadge = claim.friendly_id ? '@' + escapeHtml(claim.friendly_id) + ' ' : '';
+            
+            html += '<div class="list-group-item py-1 px-2 d-flex align-items-center pkb-ent-search-row">' +
+                '<div class="form-check mr-2">' +
+                    '<input type="checkbox" class="form-check-input pkb-ent-link-checkbox" ' +
+                        'data-claim-id="' + claim.claim_id + '" data-entity-id="' + entityId + '" ' +
+                        (isLinked ? 'checked' : '') + '>' +
+                '</div>' +
+                '<div class="flex-grow-1">' +
+                    '<small>' + escapeHtml(claim.statement) + '</small><br>' +
+                    '<small class="text-muted">' + numBadge + fidBadge + renderClaimTypeBadge(claim.claim_type) +
+                    ' <span class="badge badge-outline-secondary">' + claim.context_domain + '</span></small>' +
+                '</div>' +
+            '</div>';
+        });
+        html += '</div>';
+        $container.html(html);
+        
+        // Bind checkbox change: link or unlink
+        $container.find('.pkb-ent-link-checkbox').on('change', function() {
+            var claimId = $(this).data('claim-id');
+            var entId = $(this).data('entity-id');
+            var isChecked = $(this).is(':checked');
+            var $cb = $(this);
+            
+            if (isChecked) {
+                linkEntityToClaim(claimId, entId, 'mentioned').done(function() {
+                    linkedIds[claimId] = true;
+                    showToast('Linked!', 'success');
+                    loadEntityClaimsPanel(entId);
+                }).fail(function() {
+                    $cb.prop('checked', false);
+                    showToast('Failed to link', 'error');
+                });
+            } else {
+                unlinkEntityFromClaim(claimId, entId).done(function() {
+                    delete linkedIds[claimId];
+                    showToast('Unlinked!', 'success');
+                    loadEntityClaimsPanel(entId);
+                }).fail(function() {
+                    $cb.prop('checked', true);
+                    showToast('Failed to unlink', 'error');
+                });
+            }
         });
     }
     
@@ -900,6 +1098,12 @@ var PKBManager = (function() {
      *
      * @param {string} tagId - UUID of the tag.
      */
+    /**
+     * Toggle expanded claims panel under a tag card.
+     * When expanded, shows linked claims AND a search panel to add more.
+     *
+     * @param {string} tagId - UUID of the tag.
+     */
     function toggleTagClaims(tagId) {
         var $collapse = $('#tag-claims-' + tagId);
         var isOpen = $collapse.hasClass('show');
@@ -914,43 +1118,237 @@ var PKBManager = (function() {
         $collapse.collapse('show');
         $chev.removeClass('bi-chevron-down').addClass('bi-chevron-up');
         
-        if (_tagClaimsCache[tagId]) {
-            renderTagClaimsList(tagId, _tagClaimsCache[tagId]);
-            return;
-        }
+        loadTagClaimsPanel(tagId);
+    }
+    
+    /**
+     * Load and render the full tag claims panel: linked claims + search-to-add.
+     * Mirrors the context claims panel pattern (loadContextClaimsPanel).
+     *
+     * @param {string} tagId - UUID of the tag.
+     */
+    function loadTagClaimsPanel(tagId) {
+        var $c = $('.pkb-tag-claims-container[data-tag-id="' + tagId + '"]');
+        $c.html('<div class="text-center text-muted py-2"><div class="spinner-border spinner-border-sm" role="status"></div> Loading...</div>');
         
+        // Fetch claims linked to this tag
         $.ajax({
             url: '/pkb/tags/' + tagId + '/claims',
             method: 'GET',
             dataType: 'json'
         }).done(function(resp) {
-            var claims = resp.claims || [];
-            _tagClaimsCache[tagId] = claims;
-            renderTagClaimsList(tagId, claims);
+            var linkedClaims = resp.claims || [];
+            var linkedIds = {};
+            linkedClaims.forEach(function(c) { linkedIds[c.claim_id] = true; });
+            
+            var html = '';
+            
+            // --- Linked claims ---
+            html += '<div class="mb-2"><strong><i class="bi bi-link-45deg"></i> Linked Memories (' + linkedClaims.length + ')</strong></div>';
+            if (linkedClaims.length > 0) {
+                html += '<div class="list-group list-group-flush mb-3 pkb-tag-linked-claims">';
+                linkedClaims.forEach(function(claim) {
+                    html += renderTagLinkedClaimRow(claim, tagId);
+                });
+                html += '</div>';
+            } else {
+                html += '<div class="text-center text-muted py-2 mb-3"><small>No memories linked yet.</small></div>';
+            }
+            
+            // --- Search-to-add section ---
+            html += '<div class="border-top pt-2">';
+            html += '<strong><i class="bi bi-plus-circle"></i> Add Memories</strong>';
+            html += '<div class="input-group input-group-sm mt-1 mb-1">';
+            html += '<input type="text" class="form-control pkb-tag-search-input" data-tag-id="' + tagId + '" placeholder="Search by text, #number, @friendly_id...">';
+            html += '<div class="input-group-append">';
+            html += '<button class="btn btn-outline-primary pkb-tag-search-btn" data-tag-id="' + tagId + '" type="button"><i class="bi bi-search"></i></button>';
+            html += '</div></div>';
+            html += '<div class="form-row mb-2">';
+            html += '<div class="col"><select class="form-control form-control-sm pkb-tag-filter-type" data-tag-id="' + tagId + '">';
+            html += '<option value="">All Types</option><option value="fact">Fact</option><option value="preference">Preference</option>';
+            html += '<option value="decision">Decision</option><option value="task">Task</option><option value="reminder">Reminder</option>';
+            html += '<option value="habit">Habit</option><option value="memory">Memory</option><option value="observation">Observation</option>';
+            html += '</select></div>';
+            html += '<div class="col"><select class="form-control form-control-sm pkb-tag-filter-domain" data-tag-id="' + tagId + '">';
+            html += '<option value="">All Domains</option><option value="personal">Personal</option><option value="health">Health</option>';
+            html += '<option value="work">Work</option><option value="relationships">Relationships</option>';
+            html += '<option value="learning">Learning</option><option value="life_ops">Life Ops</option><option value="finance">Finance</option>';
+            html += '</select></div></div>';
+            html += '<div class="pkb-tag-search-results" data-tag-id="' + tagId + '" style="max-height:250px;overflow-y:auto;"></div>';
+            html += '</div>';
+            
+            $c.html(html);
+            
+            // Bind unlink handlers
+            $c.find('.pkb-tag-unlink-claim').on('click', function() {
+                var claimId = $(this).data('claim-id');
+                unlinkTagFromClaim(claimId, tagId).done(function() {
+                    showToast('Removed from tag', 'success');
+                    loadTagClaimsPanel(tagId);
+                }).fail(function() {
+                    showToast('Failed to remove', 'error');
+                });
+            });
+            
+            // Bind standard claim actions on linked claims
+            bindClaimCardActions($c.find('.pkb-tag-linked-claims'), function() {
+                loadTagClaimsPanel(tagId);
+            });
+            
+            // Bind search
+            $c.find('.pkb-tag-search-btn').on('click', function() {
+                performTagSearch(tagId, linkedIds);
+            });
+            $c.find('.pkb-tag-search-input').on('keypress', function(e) {
+                if (e.which === 13) performTagSearch(tagId, linkedIds);
+            });
+            $c.find('.pkb-tag-filter-type, .pkb-tag-filter-domain').on('change', function() {
+                performTagSearch(tagId, linkedIds);
+            });
+            
         }).fail(function() {
-            var $c = $('.pkb-tag-claims-container[data-tag-id="' + tagId + '"]');
             $c.html('<div class="text-center text-muted py-2">Failed to load memories.</div>');
         });
     }
     
     /**
-     * Render claim cards inside an expanded tag container and bind handlers.
+     * Render a single linked claim row inside a tag panel with an unlink button.
      *
-     * @param {string} tagId - UUID of the tag.
-     * @param {Array} claims - Array of claim objects.
+     * @param {Object} claim - Claim object.
+     * @param {string} tagId - Tag UUID.
+     * @returns {string} HTML string.
      */
-    function renderTagClaimsList(tagId, claims) {
-        var $c = $('.pkb-tag-claims-container[data-tag-id="' + tagId + '"]');
-        if (!claims || claims.length === 0) {
-            $c.html('<div class="text-center text-muted py-2"><small>No memories with this tag.</small></div>');
+    function renderTagLinkedClaimRow(claim, tagId) {
+        var numBadge = claim.claim_number ? '<span class="badge badge-dark text-monospace mr-1">#' + claim.claim_number + '</span>' : '';
+        var fidBadge = claim.friendly_id ? '<span class="badge badge-light text-monospace mr-1">@' + escapeHtml(claim.friendly_id) + '</span>' : '';
+        
+        return '<div class="list-group-item py-1 px-2 d-flex justify-content-between align-items-center" data-claim-id="' + claim.claim_id + '">' +
+            '<div class="flex-grow-1">' +
+                '<small>' + escapeHtml(claim.statement) + '</small><br>' +
+                '<small class="text-muted">' + numBadge + fidBadge + renderClaimTypeBadge(claim.claim_type) + '</small>' +
+            '</div>' +
+            '<div class="btn-group btn-group-sm">' +
+                '<button class="btn btn-outline-danger btn-sm pkb-tag-unlink-claim" data-claim-id="' + claim.claim_id + '" data-tag-id="' + tagId + '" title="Remove from tag">' +
+                    '<i class="bi bi-x-lg"></i>' +
+                '</button>' +
+            '</div>' +
+        '</div>';
+    }
+    
+    /**
+     * Perform search within the tag attach panel.
+     *
+     * @param {string} tagId - Tag UUID.
+     * @param {Object} linkedIds - Map of already-linked claim IDs.
+     */
+    function performTagSearch(tagId, linkedIds) {
+        var $input = $('.pkb-tag-search-input[data-tag-id="' + tagId + '"]');
+        var $results = $('.pkb-tag-search-results[data-tag-id="' + tagId + '"]');
+        var query = $input.val().trim();
+        var filterType = $('.pkb-tag-filter-type[data-tag-id="' + tagId + '"]').val();
+        var filterDomain = $('.pkb-tag-filter-domain[data-tag-id="' + tagId + '"]').val();
+        
+        $results.html('<div class="text-center py-2"><div class="spinner-border spinner-border-sm" role="status"></div></div>');
+        
+        var idQuery = query.replace(/^[@#]/, '');
+        var isIdLookup = /^(claim_)?\d+$/.test(idQuery) ||
+                         /^[a-zA-Z0-9_-]{2,}$/.test(idQuery) && (query.startsWith('@') || query.startsWith('#'));
+        
+        if (isIdLookup && query) {
+            $.ajax({
+                url: '/pkb/claims/by-friendly-id/' + encodeURIComponent(idQuery),
+                method: 'GET',
+                dataType: 'json'
+            }).done(function(resp) {
+                if (resp.claim) {
+                    renderTagSearchResults(tagId, [resp.claim], linkedIds, $results);
+                } else {
+                    doTagTextSearch(query, filterType, filterDomain, tagId, linkedIds, $results);
+                }
+            }).fail(function() {
+                doTagTextSearch(query, filterType, filterDomain, tagId, linkedIds, $results);
+            });
             return;
         }
-        var html = '<div class="list-group list-group-flush">' + claims.map(renderClaimCard).join('') + '</div>';
-        $c.html(html);
-        bindClaimCardActions($c, function() {
-            delete _tagClaimsCache[tagId];
-            toggleTagClaims(tagId);
-            toggleTagClaims(tagId);
+        doTagTextSearch(query, filterType, filterDomain, tagId, linkedIds, $results);
+    }
+    
+    /**
+     * Execute a text-based search for the tag attach panel.
+     */
+    function doTagTextSearch(query, filterType, filterDomain, tagId, linkedIds, $results) {
+        var filters = { status: 'active' };
+        if (filterType) filters.claim_type = filterType;
+        if (filterDomain) filters.context_domain = filterDomain;
+        listClaims(filters, 30, 0, query || undefined).done(function(resp) {
+            renderTagSearchResults(tagId, resp.claims || [], linkedIds, $results);
+        }).fail(function() {
+            $results.html('<div class="text-muted small py-2">Search failed.</div>');
+        });
+    }
+    
+    /**
+     * Render search results for the tag attach panel with link/unlink checkboxes.
+     *
+     * @param {string} tagId - Tag UUID.
+     * @param {Array} claims - Claims to render.
+     * @param {Object} linkedIds - Map of already-linked claim IDs.
+     * @param {jQuery} $container - Results container.
+     */
+    function renderTagSearchResults(tagId, claims, linkedIds, $container) {
+        if (!claims || claims.length === 0) {
+            $container.html('<div class="text-muted small py-2">No results found.</div>');
+            return;
+        }
+        
+        var html = '<div class="list-group list-group-flush">';
+        claims.forEach(function(claim) {
+            var isLinked = linkedIds[claim.claim_id] === true;
+            var numBadge = claim.claim_number ? '#' + claim.claim_number + ' ' : '';
+            var fidBadge = claim.friendly_id ? '@' + escapeHtml(claim.friendly_id) + ' ' : '';
+            
+            html += '<div class="list-group-item py-1 px-2 d-flex align-items-center pkb-tag-search-row">' +
+                '<div class="form-check mr-2">' +
+                    '<input type="checkbox" class="form-check-input pkb-tag-link-checkbox" ' +
+                        'data-claim-id="' + claim.claim_id + '" data-tag-id="' + tagId + '" ' +
+                        (isLinked ? 'checked' : '') + '>' +
+                '</div>' +
+                '<div class="flex-grow-1">' +
+                    '<small>' + escapeHtml(claim.statement) + '</small><br>' +
+                    '<small class="text-muted">' + numBadge + fidBadge + renderClaimTypeBadge(claim.claim_type) +
+                    ' <span class="badge badge-outline-secondary">' + claim.context_domain + '</span></small>' +
+                '</div>' +
+            '</div>';
+        });
+        html += '</div>';
+        $container.html(html);
+        
+        // Bind checkbox change: link or unlink
+        $container.find('.pkb-tag-link-checkbox').on('change', function() {
+            var claimId = $(this).data('claim-id');
+            var tId = $(this).data('tag-id');
+            var isChecked = $(this).is(':checked');
+            var $cb = $(this);
+            
+            if (isChecked) {
+                linkTagToClaim(claimId, tId).done(function() {
+                    linkedIds[claimId] = true;
+                    showToast('Linked!', 'success');
+                    loadTagClaimsPanel(tId);
+                }).fail(function() {
+                    $cb.prop('checked', false);
+                    showToast('Failed to link', 'error');
+                });
+            } else {
+                unlinkTagFromClaim(claimId, tId).done(function() {
+                    delete linkedIds[claimId];
+                    showToast('Unlinked!', 'success');
+                    loadTagClaimsPanel(tId);
+                }).fail(function() {
+                    $cb.prop('checked', true);
+                    showToast('Failed to unlink', 'error');
+                });
+            }
         });
     }
     
@@ -1314,6 +1712,66 @@ var PKBManager = (function() {
         }).fail(function(err) {
             console.error('Failed to fetch claim:', err);
             showToast('Failed to load memory for editing.', 'error');
+        });
+    }
+    
+    /**
+     * Call the backend to analyze the statement and auto-populate
+     * type, domain, tags, and possible questions fields in the modal.
+     */
+    function autofillClaimFields() {
+        var statement = $('#pkb-claim-statement').val().trim();
+        if (!statement) {
+            showToast('Please enter something to remember first.', 'warning');
+            return;
+        }
+        
+        var $btn = $('#pkb-autofill-btn');
+        var originalHtml = $btn.html();
+        $btn.prop('disabled', true).html('<i class="bi bi-hourglass-split"></i> Analyzing...');
+        
+        $.ajax({
+            url: '/pkb/analyze_statement',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ statement: statement }),
+            dataType: 'json'
+        }).done(function(response) {
+            if (!response.success || !response.analysis) {
+                showToast('Analysis failed. Please fill fields manually.', 'warning');
+                return;
+            }
+            var a = response.analysis;
+            
+            if (a.claim_type) {
+                populateTypesDropdown([a.claim_type]);
+            }
+            if (a.context_domain) {
+                populateDomainsDropdown([a.context_domain]);
+            }
+            if (a.friendly_id && !$('#pkb-claim-friendly-id').val().trim()) {
+                $('#pkb-claim-friendly-id').val(a.friendly_id);
+            }
+            if (a.tags && a.tags.length > 0) {
+                var existingTags = $('#pkb-claim-tags').val().trim();
+                var newTags = a.tags.join(', ');
+                $('#pkb-claim-tags').val(existingTags ? existingTags + ', ' + newTags : newTags);
+            }
+            if (a.possible_questions && a.possible_questions.length > 0) {
+                var existingQ = $('#pkb-claim-questions').val().trim();
+                var newQ = a.possible_questions.join('\n');
+                $('#pkb-claim-questions').val(existingQ ? existingQ + '\n' + newQ : newQ);
+            }
+            
+            showToast('Fields auto-filled.', 'success');
+        }).fail(function(err) {
+            var msg = 'Auto-fill failed.';
+            if (err.responseJSON && err.responseJSON.error) {
+                msg = err.responseJSON.error;
+            }
+            showToast(msg, 'error');
+        }).always(function() {
+            $btn.prop('disabled', false).html(originalHtml);
         });
     }
     
@@ -2133,6 +2591,11 @@ var PKBManager = (function() {
             saveClaim();
         });
         
+        // Auto-fill button: analyze statement and populate modal fields via LLM
+        $(document).on('click', '#pkb-autofill-btn', function() {
+            autofillClaimFields();
+        });
+        
         // Search button and enter key
         $(document).on('click', '#pkb-search-btn', function() {
             performSearch();
@@ -2848,6 +3311,69 @@ var PKBManager = (function() {
     }
     
     // ===========================================================================
+    // Tag Linking (new)
+    // ===========================================================================
+    
+    /**
+     * Create a new tag.
+     * @param {Object} data - { name: string, parent_tag_id?: string }
+     * @returns {jQuery.Deferred}
+     */
+    function createTag(data) {
+        return $.ajax({
+            url: '/pkb/tags',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(data),
+            dataType: 'json'
+        });
+    }
+    
+    /**
+     * Get tags linked to a claim.
+     * @param {string} claimId
+     * @returns {jQuery.Deferred}
+     */
+    function getClaimTags(claimId) {
+        return $.ajax({
+            url: '/pkb/claims/' + claimId + '/tags',
+            method: 'GET',
+            dataType: 'json'
+        });
+    }
+    
+    /**
+     * Link a tag to a claim.
+     * Two-way: the claim gets the tag and the tag's claims list includes the claim.
+     * @param {string} claimId
+     * @param {string} tagId
+     * @returns {jQuery.Deferred}
+     */
+    function linkTagToClaim(claimId, tagId) {
+        return $.ajax({
+            url: '/pkb/claims/' + claimId + '/tags',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ tag_id: tagId }),
+            dataType: 'json'
+        });
+    }
+    
+    /**
+     * Unlink a tag from a claim.
+     * @param {string} claimId
+     * @param {string} tagId
+     * @returns {jQuery.Deferred}
+     */
+    function unlinkTagFromClaim(claimId, tagId) {
+        return $.ajax({
+            url: '/pkb/claims/' + claimId + '/tags/' + tagId,
+            method: 'DELETE',
+            dataType: 'json'
+        });
+    }
+    
+    // ===========================================================================
     // Autocomplete (v0.5)
     // ===========================================================================
     
@@ -2992,6 +3518,12 @@ var PKBManager = (function() {
         getClaimEntities: getClaimEntities,
         linkEntityToClaim: linkEntityToClaim,
         unlinkEntityFromClaim: unlinkEntityFromClaim,
+        
+        // Tag Management
+        createTag: createTag,
+        getClaimTags: getClaimTags,
+        linkTagToClaim: linkTagToClaim,
+        unlinkTagFromClaim: unlinkTagFromClaim,
         
         // Autocomplete & Friendly ID (v0.5)
         searchAutocomplete: searchAutocomplete,

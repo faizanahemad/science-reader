@@ -64,6 +64,7 @@ High-level technical documentation covering:
 
 In-depth technical documentation including:
 - **Architecture Overview**: System layers, component interactions
+- **Auto-Fill / Statement Analysis (v0.7+)**: Shared LLM-powered single-call extraction for the Add Memory modal "Auto-fill" button and text ingestion enrichment
 - **Module Structure**: Detailed file-by-file responsibilities
 - **Data Flow Patterns**: Complete flows for add, search, memory update, attachment
 - **Integration Patterns**: Flask server, Conversation.py, frontend integration
@@ -90,6 +91,7 @@ Complete API documentation including:
 - Claims, Notes, Entities, Tags, Conflicts APIs
 - Search API with filters and strategies
 - Bulk operations (add_claims_bulk, text ingestion)
+- Statement analysis / auto-fill (`POST /pkb/analyze_statement`)
 - Conversation distillation
 - Natural language orchestration
 - Data type reference (claim types, domains, statuses)

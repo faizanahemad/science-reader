@@ -28,6 +28,68 @@
 
 ---
 
+## Auto-Fill / Statement Analysis (v0.7+)
+
+### Overview
+
+A shared LLM-powered analysis method that extracts all claim metadata (type, domain, tags, entities, possible_questions) from a statement in a **single LLM call**. Used by:
+
+1. **Add Memory modal "Auto-fill" button** — uses `VERY_CHEAP_LLM[0]` (fast, low-cost) for interactive UI
+2. **Text Ingestion enrichment** — uses `CHEAP_LLM[0]` (slightly better model) to enrich parsed candidates
+
+### New Endpoint: `POST /pkb/analyze_statement`
+
+| Field | Value |
+|-------|-------|
+| Rate limit | 20/min |
+| Auth | `@login_required` |
+
+**Request:** `{"statement": "I prefer morning workouts"}`
+
+**Response:**
+```json
+{"success": true, "analysis": {
+    "claim_type": "preference",
+    "context_domain": "health",
+    "tags": ["morning_exercise", "fitness", "routine"],
+    "entities": [{"type": "topic", "name": "morning workouts", "role": "object"}],
+    "possible_questions": ["Do I prefer morning or evening workouts?", "What is my exercise routine preference?"],
+    "confidence": 0.9
+}}
+```
+
+### UI: Auto-fill Button
+
+A small `<i class="bi bi-magic"></i> Auto-fill` link button sits below `#pkb-claim-statement` textarea (ID: `#pkb-autofill-btn`). On click:
+
+1. `autofillClaimFields()` in `pkb-manager.js` reads the statement
+2. Calls `POST /pkb/analyze_statement`
+3. Populates Type, Domain, Tags, and Possible Questions fields
+4. Shows loading spinner during the LLM call
+
+### Text Ingestion Enrichment
+
+After `_parse_text_with_llm()` extracts candidates, `_enrich_candidates()` runs `analyze_claim_statement()` on each candidate (max 20) to populate tags, entities, and possible_questions. These are then passed through to `_execute_proposal()` → `add_claim()`.
+
+### Backend: Shared Method
+
+`LLMHelpers.analyze_claim_statement(statement, model=None)` → `ClaimAnalysisResult`
+
+The `ClaimAnalysisResult` dataclass: `claim_type`, `context_domain`, `tags`, `entities`, `possible_questions`, `confidence`.
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `truth_management_system/llm_helpers.py` | `ClaimAnalysisResult` dataclass, `analyze_claim_statement()` method |
+| `truth_management_system/__init__.py` | Export `ClaimAnalysisResult` |
+| `truth_management_system/interface/text_ingestion.py` | `IngestCandidate` gains `tags`, `possible_questions`, `entities` fields; `_enrich_candidates()` method; `_execute_proposal()` passes enriched fields |
+| `endpoints/pkb.py` | `POST /pkb/analyze_statement` route; ingest proposal serialization includes tags/questions/entities |
+| `interface/interface.html` | `#pkb-autofill-btn` button below statement textarea |
+| `interface/pkb-manager.js` | `autofillClaimFields()` function; click handler in `init()` |
+
+---
+
 ## v0.6 Addendum
 
 This section documents all features added in v0.6 (schema versions 5 and 6), building on the v0.5 foundation.
@@ -271,6 +333,10 @@ This section documents all features added in v0.5.0 and v0.5.1. For full design 
 |--------|----------|-------------|
 | GET | `/pkb/entities/<id>/claims` | Claims linked to an entity |
 | GET | `/pkb/tags/<id>/claims` | Claims linked to a tag |
+| POST | `/pkb/tags` | Create a new tag |
+| GET | `/pkb/claims/<id>/tags` | Tags linked to a claim |
+| POST | `/pkb/claims/<id>/tags` | Link a tag to a claim |
+| DELETE | `/pkb/claims/<id>/tags/<tid>` | Unlink a tag from a claim |
 | GET | `/pkb/claims/<id>/contexts` | Contexts a claim belongs to |
 | PUT | `/pkb/claims/<id>/contexts` | Set claim's contexts (diff-based) |
 | GET/POST | `/pkb/types` | List/add claim types |
@@ -289,13 +355,15 @@ Claims and contexts have `friendly_id` fields (alphanumeric + underscores/hyphen
 
 ### Frontend: Expandable Views (v0.5.1)
 
-**Pattern:** Entity, tag, and context cards are rendered as Bootstrap cards with collapsible bodies. On first expand, claims are lazy-loaded via AJAX and cached. All expanded claim lists use `renderClaimCard()` + `bindClaimCardActions()` for consistent Pin/Use/Edit/Delete controls.
+**Pattern:** Entity, tag, and context cards are rendered as Bootstrap cards with collapsible bodies. On first expand, claims are lazy-loaded via AJAX and cached. All expanded views now show two sections: **Linked Memories** (with unlink buttons) and **Add Memories** (search panel with type/domain filters and link/unlink checkboxes).
 
-| View | Data Source | Cache Variable | Extra Controls |
-|------|-------------|---------------|----------------|
-| Entity | `GET /pkb/entities/<id>/claims` | `_entityClaimsCache` | "Add Memory" button (auto-links new claim) |
-| Tag | `GET /pkb/tags/<id>/claims` | `_tagClaimsCache` | — |
-| Context | `GET /pkb/contexts/<id>` | `_contextClaimsCache` | "Attach Memory" (prompt), "Remove from Context" per claim |
+| View | Data Source | Extra Controls |
+|------|-------------|----------------|
+| Entity | `GET /pkb/entities/<id>/claims` | "Add Memory" button (opens add modal with entity link), search panel with link/unlink checkboxes, per-claim unlink button |
+| Tag | `GET /pkb/tags/<id>/claims` | Search panel with link/unlink checkboxes, per-claim unlink button |
+| Context | `GET /pkb/contexts/<id>` | "Attach Memory" (prompt), search panel with link/unlink checkboxes, per-claim unlink button |
+
+All three views use the same architectural pattern: `toggle*Claims()` -> `load*ClaimsPanel()` (AJAX fetch + render linked claims + search-to-add panel) -> `perform*Search()` -> `render*SearchResults()` (checkboxes that call link/unlink endpoints). CSS class prefixes: `pkb-ent-` (entity), `pkb-tag-` (tag), `pkb-ctx-` (context).
 
 ### Frontend: Claim Edit Modal Enhancements (v0.5.1)
 
@@ -319,6 +387,16 @@ api = StructuredAPI(db, keys, config, user_email="user@example.com")
 api.contexts        # ContextCRUD instance
 api.type_catalog    # TypeCatalogCRUD instance
 api.domain_catalog  # DomainCatalogCRUD instance
+
+# Tag linking methods (two-way: claim gets the tag, tag's claims list includes the claim)
+api.link_tag_to_claim(claim_id, tag_id)      # -> ActionResult
+api.unlink_tag_from_claim(claim_id, tag_id)  # -> ActionResult
+api.get_claim_tags_list(claim_id)            # -> ActionResult with list of Tag objects
+
+# Entity linking methods (existing, listed for reference)
+api.link_entity_to_claim(claim_id, entity_id, role)  # -> ActionResult
+api.unlink_entity_from_claim(claim_id, entity_id)    # -> ActionResult
+api.get_claim_entities_list(claim_id)                 # -> ActionResult with list of (Entity, role)
 ```
 
 ---

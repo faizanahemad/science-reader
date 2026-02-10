@@ -348,6 +348,9 @@ Workspaces support unlimited hierarchical nesting via `parent_workspace_id`. See
 #### Conversation integration
 - `POST /pkb/relevant_context`
 
+#### Statement analysis
+- `POST /pkb/analyze_statement` (LLM auto-fill: extracts claim_type, context_domain, tags, entities, possible_questions, friendly_id)
+
 Responses are JSON objects; shapes vary per endpoint (claims, entities, tags, conflicts, etc.).
 
 ---

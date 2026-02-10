@@ -318,6 +318,7 @@ The backend resolver (`resolve_reference()`) uses suffix-based routing for fast 
   - `GET/POST/PUT/DELETE /pkb/contexts[...]`
   - `POST /pkb/search`
   - `POST /pkb/relevant_context`
+  - `POST /pkb/analyze_statement` (LLM-powered auto-fill: extracts claim_type, context_domain, tags, entities, possible_questions, friendly_id from a statement in one call; used by the "Auto-fill" button in the Add/Edit Memory modal and by text ingestion enrichment)
   - `GET /pkb/autocomplete?prefix=...` (powers `@` autocomplete in chat input; returns memories, contexts, entities, tags, domains)
   - pinning endpoints (`/pkb/*/pin`, `/pkb/pinned`, conversation pinning routes)
 - Main chat uses PKB context automatically if available (part of `send_message` execution).
@@ -332,7 +333,9 @@ The backend resolver (`resolve_reference()`) uses suffix-based routing for fast 
 
 **Key files**
 - `truth_management_system/` -- core module (models, CRUD, search, LLM helpers)
+- `truth_management_system/llm_helpers.py` -- `LLMHelpers` class, `analyze_claim_statement()` (shared single-call extraction for auto-fill and text ingestion enrichment), `ClaimAnalysisResult` dataclass
 - `truth_management_system/interface/structured_api.py` -- StructuredAPI facade, `resolve_reference()` (suffix-based routing), `autocomplete()` (all 5 categories)
+- `truth_management_system/interface/text_ingestion.py` -- `TextIngestionDistiller`, `_enrich_candidates()` (post-parse enrichment with tags/entities/questions)
 - `truth_management_system/crud/entities.py` -- `get_by_friendly_id()`, `resolve_claims()`, `search_friendly_ids()`
 - `truth_management_system/crud/tags.py` -- `get_by_friendly_id()`, `resolve_claims()` (recursive CTE), `search_friendly_ids()`
 - `truth_management_system/utils.py` -- `generate_entity_friendly_id()`, `generate_tag_friendly_id()`, `generate_context_friendly_id()`, `domain_to_friendly_id()`
@@ -567,6 +570,7 @@ and avoids loading everything for every request.
   - per-message actions: doubt clearing, TTS, edit/delete, show/hide, edit as artefact, save to memory, table of contents
 - PKB screen:
   - claims CRUD
+  - auto-fill button (LLM extracts type, domain, tags, questions, friendly_id from statement)
   - pinned claims
   - search
   - conflict resolution

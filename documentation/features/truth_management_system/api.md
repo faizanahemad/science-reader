@@ -363,6 +363,20 @@ claims = api.claims.get_by_tag(
 )
 ```
 
+### Link/Unlink Tags to Claims
+
+```python
+# Link a tag to a claim (two-way: claim gets the tag, tag's claims list includes the claim)
+result = api.link_tag_to_claim(claim_id="claim-uuid...", tag_id="tag-uuid...")
+
+# Unlink a tag from a claim
+result = api.unlink_tag_from_claim(claim_id="claim-uuid...", tag_id="tag-uuid...")
+
+# Get all tags for a claim
+result = api.get_claim_tags_list(claim_id="claim-uuid...")
+# result.data -> list of Tag objects
+```
+
 ---
 
 ## Conflicts API
@@ -904,7 +918,17 @@ All operations are automatically scoped to the authenticated user's data.
 | DELETE | `/pkb/conversation/<conv_id>/pinned` | Clear conversation pins | 30/min |
 | POST | `/pkb/search` | Search `{query, strategy, k, filters}` | 20/min |
 | GET | `/pkb/entities` | List entities for user | 30/min |
+| POST | `/pkb/entities` | Create entity `{name, entity_type}` | 15/min |
+| GET | `/pkb/entities/<id>/claims` | Claims linked to an entity | 30/min |
+| GET | `/pkb/claims/<id>/entities` | Entities linked to a claim | 30/min |
+| POST | `/pkb/claims/<id>/entities` | Link entity to claim `{entity_id, role}` | 15/min |
+| DELETE | `/pkb/claims/<id>/entities/<eid>` | Unlink entity from claim | 15/min |
 | GET | `/pkb/tags` | List tags for user | 30/min |
+| POST | `/pkb/tags` | Create tag `{name, parent_tag_id?}` | 15/min |
+| GET | `/pkb/tags/<id>/claims` | Claims linked to a tag | 30/min |
+| GET | `/pkb/claims/<id>/tags` | Tags linked to a claim | 30/min |
+| POST | `/pkb/claims/<id>/tags` | Link tag to claim `{tag_id}` | 15/min |
+| DELETE | `/pkb/claims/<id>/tags/<tid>` | Unlink tag from claim | 15/min |
 | GET | `/pkb/conflicts` | List open conflicts | 30/min |
 | POST | `/pkb/conflicts/<id>/resolve` | Resolve `{winning_claim_id?, resolution_notes}` | 15/min |
 | POST | `/pkb/propose_updates` | Extract from chat `{conversation_summary, user_message, assistant_message}` | 10/min |
@@ -912,6 +936,7 @@ All operations are automatically scoped to the authenticated user's data.
 | POST | `/pkb/ingest_text` | AI text parsing `{text, default_claim_type, default_domain, use_llm}` | 5/min |
 | POST | `/pkb/execute_ingest` | Execute `{plan_id, approved: [{index, statement?, ...}]}` | 10/min |
 | POST | `/pkb/relevant_context` | Get context `{query, conversation_summary, k}` | 60/min |
+| POST | `/pkb/analyze_statement` | Analyze statement, extract type/domain/tags/questions `{statement}` | 20/min |
 
 **Plan Storage Note:** `/pkb/propose_updates` and `/pkb/ingest_text` store plans in server memory (`_memory_update_plans`, `_text_ingestion_plans`). Plans are lost on server restart. The frontend should execute plans promptly after receiving them.
 
@@ -955,6 +980,18 @@ fetch('/pkb/conversation/conv-456/pin', {
   body: JSON.stringify({claim_id: "abc-123", pin: true})
 });
 // Response: {success: true}
+
+// Analyze statement (auto-fill)
+fetch('/pkb/analyze_statement', {
+  method: 'POST',
+  headers: {'Content-Type': 'application/json'},
+  body: JSON.stringify({statement: "I prefer morning workouts over evening ones"})
+});
+// Response: {success: true, analysis: {claim_type: "preference", context_domain: "health",
+//   tags: ["morning_exercise", "fitness", "routine"],
+//   entities: [{type: "topic", name: "morning workouts", role: "object"}],
+//   possible_questions: ["Do I prefer morning or evening workouts?", ...],
+//   confidence: 0.9, friendly_id: "prefer_morning_workouts_a3f2"}}
 ```
 
 ### Frontend (pkb-manager.js)
@@ -1232,6 +1269,12 @@ PKBManager.updatePendingAttachmentsIndicator();  // Update UI chips
 // Modal (Add/Edit Memory)
 PKBManager.openAddClaimModal();              // Open blank Add Memory modal
 PKBManager.openAddClaimModalWithText(text);  // Open Add Memory modal with statement pre-filled (used by message triple-dots "Save to Memory")
+
+// Tag Linking
+PKBManager.createTag({name: "my_tag"});      // POST /pkb/tags
+PKBManager.getClaimTags(claimId);            // GET /pkb/claims/{id}/tags
+PKBManager.linkTagToClaim(claimId, tagId);   // POST /pkb/claims/{id}/tags
+PKBManager.unlinkTagFromClaim(claimId, tagId); // DELETE /pkb/claims/{id}/tags/{tid}
 ```
 
 ### @memory and @friendly_id References

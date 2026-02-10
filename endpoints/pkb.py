@@ -477,6 +477,91 @@ def pkb_add_claims_bulk_route():
         )
 
 
+@pkb_bp.route("/pkb/analyze_statement", methods=["POST"])
+@limiter.limit("20 per minute")
+@login_required
+def pkb_analyze_statement_route():
+    """Analyze a claim statement and return auto-populated fields.
+
+    Uses a cheap/fast LLM to extract claim_type, context_domain, tags,
+    entities, and possible_questions in a single call.  Shared backend
+    logic with text-ingestion enrichment (which uses an expensive model).
+
+    Request body:
+        {"statement": "I prefer morning workouts"}
+
+    Response:
+        {"success": true, "analysis": {
+            "claim_type": "preference",
+            "context_domain": "health",
+            "tags": ["morning_exercise", "fitness"],
+            "entities": [{"type": "topic", "name": "morning workouts", "role": "object"}],
+            "possible_questions": ["Do I prefer morning or evening workouts?", ...]
+        }}
+    """
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        data = request.get_json()
+        statement = (data.get("statement") or "").strip()
+        if not statement:
+            return json_error(
+                "Missing or empty 'statement' field",
+                status=400,
+                code="bad_request",
+            )
+
+        keys = keyParser(session)
+        if not keys.get("OPENROUTER_API_KEY"):
+            return json_error(
+                "API key required for statement analysis",
+                status=400,
+                code="api_key_required",
+            )
+
+        from truth_management_system.llm_helpers import LLMHelpers, ClaimAnalysisResult
+        from truth_management_system.config import PKBConfig
+
+        db, config = get_pkb_db()
+        llm = LLMHelpers(keys, config)
+
+        from common import CHEAP_LLM
+
+        cheap_model = CHEAP_LLM[0] if CHEAP_LLM else config.llm_model
+
+        analysis = llm.analyze_claim_statement(statement, model=cheap_model)
+
+        from truth_management_system.utils import generate_friendly_id
+
+        friendly_id = generate_friendly_id(statement)
+
+        return jsonify(
+            {
+                "success": True,
+                "analysis": {
+                    "claim_type": analysis.claim_type,
+                    "context_domain": analysis.context_domain,
+                    "tags": analysis.tags,
+                    "entities": analysis.entities,
+                    "possible_questions": analysis.possible_questions,
+                    "confidence": analysis.confidence,
+                    "friendly_id": friendly_id,
+                },
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error in pkb_analyze_statement: {e}")
+        traceback.print_exc()
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
+
+
 @pkb_bp.route("/pkb/claims/<claim_id>", methods=["GET"])
 @limiter.limit("30 per minute")
 @login_required
@@ -1029,6 +1114,165 @@ def pkb_tag_claims_route(tag_id):
         )
 
 
+@pkb_bp.route("/pkb/tags", methods=["POST"])
+@limiter.limit("15 per minute")
+@login_required
+def pkb_create_tag_route():
+    """Create a new tag.
+
+    Body:
+        name (str, required): Tag name.
+        parent_tag_id (str, optional): Parent tag UUID for nesting.
+    """
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
+
+        data = request.get_json()
+        name = (data.get("name") or "").strip()
+        if not name:
+            return json_error(
+                "Missing required field: name", status=400, code="bad_request"
+            )
+
+        parent_tag_id = data.get("parent_tag_id")
+        result = api.add_tag(name, parent_tag_id=parent_tag_id)
+        if result.success:
+            return jsonify({"success": True, "tag": serialize_tag(result.data)})
+        return json_error("; ".join(result.errors), status=400, code="bad_request")
+    except Exception as e:
+        logger.error(f"Error creating tag: {e}")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
+
+
+# =============================================================================
+# === Claim-Tag Linking Endpoints ===
+# =============================================================================
+
+
+@pkb_bp.route("/pkb/claims/<claim_id>/tags", methods=["GET"])
+@limiter.limit("30 per minute")
+@login_required
+def pkb_get_claim_tags_route(claim_id):
+    """Get all tags linked to a claim.
+
+    Returns serialized tags so the frontend can show which tags a claim has
+    and pre-check checkboxes in the tag linking panel.
+    """
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
+
+        result = api.get_claim_tags_list(claim_id)
+        if result.success:
+            return jsonify(
+                {
+                    "success": True,
+                    "tags": [serialize_tag(t) for t in result.data],
+                    "count": len(result.data),
+                }
+            )
+        return json_error("; ".join(result.errors), status=400, code="bad_request")
+    except Exception as e:
+        logger.error(f"Error getting tags for claim: {e}")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
+
+
+@pkb_bp.route("/pkb/claims/<claim_id>/tags", methods=["POST"])
+@limiter.limit("15 per minute")
+@login_required
+def pkb_link_tag_to_claim(claim_id):
+    """Link a tag to a claim.
+
+    Body:
+        tag_id (str, required): UUID of the tag to link.
+    """
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        data = request.get_json()
+        tag_id = data.get("tag_id")
+        if not tag_id:
+            return json_error(
+                "Missing required field: tag_id", status=400, code="bad_request"
+            )
+
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
+
+        result = api.link_tag_to_claim(claim_id, tag_id)
+        if result.success:
+            return jsonify({"success": True})
+        return json_error("; ".join(result.errors), status=400, code="bad_request")
+    except Exception as e:
+        logger.error(f"Error linking tag to claim: {e}")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
+
+
+@pkb_bp.route("/pkb/claims/<claim_id>/tags/<tag_id>", methods=["DELETE"])
+@limiter.limit("15 per minute")
+@login_required
+def pkb_unlink_tag_from_claim(claim_id, tag_id):
+    """Unlink a tag from a claim."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
+
+        result = api.unlink_tag_from_claim(claim_id, tag_id)
+        if result.success:
+            return jsonify({"success": True})
+        return json_error("; ".join(result.errors), status=404, code="not_found")
+    except Exception as e:
+        logger.error(f"Error unlinking tag from claim: {e}")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
+
+
 @pkb_bp.route("/pkb/conflicts", methods=["GET"])
 @limiter.limit("20 per minute")
 @login_required
@@ -1269,6 +1513,12 @@ def pkb_ingest_text_route():
                     if proposal.existing_claim
                     else None,
                     "similarity_score": proposal.similarity_score,
+                    "tags": getattr(proposal.candidate, "tags", []) or [],
+                    "possible_questions": getattr(
+                        proposal.candidate, "possible_questions", []
+                    )
+                    or [],
+                    "entities": getattr(proposal.candidate, "entities", []) or [],
                 }
             )
 

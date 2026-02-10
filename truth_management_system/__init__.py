@@ -6,13 +6,13 @@ personal facts, preferences, decisions, and memories.
 
 Quick Start:
     from truth_management_system import PKBConfig, get_database, StructuredAPI
-    
+
     # Initialize
     config = PKBConfig(db_path="./my_kb.sqlite")
     db = get_database(config)
     keys = {"OPENROUTER_API_KEY": "sk-or-v1-..."}
     api = StructuredAPI(db, keys, config)
-    
+
     # Add a claim
     result = api.add_claim(
         statement="I prefer morning workouts",
@@ -20,10 +20,10 @@ Quick Start:
         context_domain="health",
         auto_extract=True
     )
-    
+
     # Search
     results = api.search("what are my workout preferences?")
-    
+
     # Natural language commands
     from truth_management_system.interface import TextOrchestrator
     orchestrator = TextOrchestrator(api, keys)
@@ -121,7 +121,7 @@ from .interface import (
 )
 
 # LLM helpers
-from .llm_helpers import LLMHelpers, ExtractionResult
+from .llm_helpers import LLMHelpers, ExtractionResult, ClaimAnalysisResult
 
 # Utility functions
 from .utils import (
@@ -140,7 +140,6 @@ from .utils import (
 __all__ = [
     # Version
     "__version__",
-    
     # Config and database
     "PKBConfig",
     "load_config",
@@ -148,7 +147,6 @@ __all__ = [
     "PKBDatabase",
     "get_database",
     "get_memory_database",
-    
     # Models
     "Claim",
     "Note",
@@ -164,7 +162,6 @@ __all__ = [
     "ENTITY_COLUMNS",
     "TAG_COLUMNS",
     "CONTEXT_COLUMNS",
-    
     # Constants
     "ClaimType",
     "ClaimStatus",
@@ -180,7 +177,6 @@ __all__ = [
     "ALL_CONFLICT_STATUSES",
     "ALL_CONTEXT_DOMAINS",
     "FRIENDLY_ID_REGEX",
-    
     # CRUD
     "ClaimCRUD",
     "NoteCRUD",
@@ -188,7 +184,6 @@ __all__ = [
     "TagCRUD",
     "ConflictCRUD",
     "ContextCRUD",
-    
     # Search
     "SearchStrategy",
     "SearchFilters",
@@ -199,7 +194,6 @@ __all__ = [
     "MapReduceSearchStrategy",
     "HybridSearchStrategy",
     "NotesSearchStrategy",
-    
     # Interface
     "StructuredAPI",
     "ActionResult",
@@ -214,11 +208,10 @@ __all__ = [
     "IngestCandidate",
     "IngestProposal",
     "IngestExecutionResult",
-    
     # LLM
     "LLMHelpers",
     "ExtractionResult",
-    
+    "ClaimAnalysisResult",
     # Utils
     "generate_uuid",
     "generate_friendly_id",
@@ -234,21 +227,19 @@ __all__ = [
 
 
 def create_pkb(
-    db_path: str = "~/.pkb/kb.sqlite",
-    api_key: str = None,
-    **config_kwargs
+    db_path: str = "~/.pkb/kb.sqlite", api_key: str = None, **config_kwargs
 ) -> tuple:
     """
     Convenience function to create a fully initialized PKB.
-    
+
     Args:
         db_path: Path to SQLite database.
         api_key: OpenRouter API key for LLM features.
         **config_kwargs: Additional PKBConfig options.
-        
+
     Returns:
         Tuple of (api, db, config) for the initialized PKB.
-        
+
     Example:
         api, db, config = create_pkb("./my_kb.sqlite", api_key="sk-or-v1-...")
         api.add_claim(statement="Test", claim_type="fact", context_domain="personal")
@@ -257,5 +248,5 @@ def create_pkb(
     db = get_database(config)
     keys = {"OPENROUTER_API_KEY": api_key} if api_key else {}
     api = StructuredAPI(db, keys, config)
-    
+
     return api, db, config

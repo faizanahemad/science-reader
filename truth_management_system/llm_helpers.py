@@ -14,7 +14,7 @@ All functions use code_common/call_llm.py for LLM calls.
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Tuple, Any
 
 import numpy as np
@@ -45,6 +45,33 @@ class ExtractionResult:
     spo: Dict[str, Optional[str]]
     claim_type: str
     keywords: List[str]
+
+
+@dataclass
+class ClaimAnalysisResult:
+    """
+    Result of a single-call LLM analysis for a claim statement.
+
+    Extracts all fields needed to populate the Add Memory modal in one
+    LLM call instead of multiple separate calls.  Used by both the
+    "Auto-fill" button in the UI (cheap model) and the text-ingestion
+    enrichment pipeline (expensive model).
+
+    Attributes:
+        claim_type: Classified claim type (fact, preference, decision, etc.).
+        context_domain: Inferred domain (personal, health, work, etc.).
+        tags: Suggested tags (1-2 word each, underscore-separated).
+        entities: Extracted entities with type, name, and role.
+        possible_questions: Self-sufficient questions this claim answers.
+        confidence: Confidence score for the extraction (0.0-1.0).
+    """
+
+    claim_type: str = "fact"
+    context_domain: str = "personal"
+    tags: List[str] = field(default_factory=list)
+    entities: List[Dict[str, str]] = field(default_factory=list)
+    possible_questions: List[str] = field(default_factory=list)
+    confidence: float = 0.8
 
 
 class LLMHelpers:
@@ -551,3 +578,175 @@ Questions:"""
             claim_type=self.classify_claim_type(statement),
             keywords=self._get_keywords(statement),
         )
+
+    def analyze_claim_statement(
+        self, statement: str, model: str = None
+    ) -> ClaimAnalysisResult:
+        """
+        Analyze a claim statement in a single LLM call to extract all fields.
+
+        This is the shared analysis method used by both the Add Memory modal
+        "Auto-fill" button (with a cheap/fast model) and the text-ingestion
+        enrichment pipeline (with an expensive model).
+
+        Unlike extract_single() which makes 4-5 separate LLM calls,
+        this method uses one combined prompt to extract claim_type,
+        context_domain, tags, entities, and possible_questions together.
+
+        Args:
+            statement: The claim/memory text to analyze.
+            model: LLM model to use. If None, uses self.config.llm_model.
+
+        Returns:
+            ClaimAnalysisResult with all extracted fields.
+        """
+        if not statement or not statement.strip():
+            return ClaimAnalysisResult()
+
+        try:
+            from code_common.call_llm import call_llm
+        except ImportError:
+            logger.error("code_common.call_llm not available for analysis")
+            return ClaimAnalysisResult()
+
+        model = model or self.config.llm_model
+
+        prompt = f"""Analyze this personal memory/fact and extract structured metadata.
+
+MEMORY: "{statement}"
+
+Extract ALL of the following in a single JSON response:
+
+1. "claim_type": One of: fact, preference, decision, task, reminder, habit, memory, observation
+   - fact: stable assertions ("My home city is Bengaluru")
+   - preference: likes/dislikes ("I prefer morning workouts")
+   - decision: commitments ("I decided to avoid processed foods")
+   - task: actionable items ("Need to buy medication")
+   - reminder: future prompts ("Remind me to call mom Friday")
+   - habit: recurring targets ("Sleep by 11pm")
+   - memory: episodic experiences ("I enjoyed that restaurant last week")
+   - observation: low-commitment notes ("Noticed knee pain after running")
+
+2. "context_domain": One of: personal, health, work, relationships, learning, life_ops, finance
+   - personal: general personal facts
+   - health: medical, fitness, diet
+   - work: professional, career
+   - relationships: family, friends, social
+   - learning: education, skills
+   - life_ops: daily logistics, routines
+   - finance: financial matters
+
+3. "tags": 3-5 short tags (1-2 words each, lowercase, underscores for spaces). Specific but reusable.
+
+4. "entities": People, places, organizations, or topics mentioned. Each with:
+   - "type": person, org, place, topic, project, system, other
+   - "name": entity name
+   - "role": subject, object, mentioned, about_person
+
+5. "possible_questions": 2-4 natural questions someone might ask that this memory would answer.
+   CRITICAL: Each question MUST be self-sufficient — include specific subjects/entities from the memory.
+   BAD: "Am I allergic to anything?" (too vague)
+   GOOD: "Do I have a peanut allergy?" (mentions peanuts specifically)
+
+IMPORTANT: Return ONLY valid JSON, no extra text. Example:
+{{
+  "claim_type": "preference",
+  "context_domain": "health",
+  "tags": ["morning_exercise", "fitness", "routine"],
+  "entities": [{{"type": "topic", "name": "morning workouts", "role": "object"}}],
+  "possible_questions": ["Do I prefer morning or evening workouts?", "What is my exercise routine preference?"]
+}}
+
+Response:"""
+
+        try:
+            response = call_llm(self.keys, model, prompt, temperature=0.0)
+            response_text = response.strip()
+
+            try:
+                parsed = json.loads(response_text)
+            except json.JSONDecodeError:
+                import re
+
+                json_match = re.search(r"\{.*\}", response_text, re.DOTALL)
+                if json_match:
+                    parsed = json.loads(json_match.group())
+                else:
+                    logger.warning(
+                        f"No JSON found in analysis response: {response_text[:200]}"
+                    )
+                    return ClaimAnalysisResult()
+
+            if not isinstance(parsed, dict):
+                return ClaimAnalysisResult()
+
+            valid_types = {
+                "fact",
+                "preference",
+                "decision",
+                "task",
+                "reminder",
+                "habit",
+                "memory",
+                "observation",
+            }
+            claim_type = parsed.get("claim_type", "fact")
+            if claim_type not in valid_types:
+                claim_type = "fact"
+
+            valid_domains = {
+                "personal",
+                "health",
+                "work",
+                "relationships",
+                "learning",
+                "life_ops",
+                "finance",
+            }
+            context_domain = parsed.get("context_domain", "personal")
+            if context_domain not in valid_domains:
+                context_domain = "personal"
+
+            raw_tags = parsed.get("tags", [])
+            tags = []
+            tags = []
+            if isinstance(raw_tags, list):
+                tags = [
+                    str(t).lower().strip().replace(" ", "_")
+                    for t in raw_tags[:5]
+                    if t and str(t).strip()
+                ]
+
+            raw_entities = parsed.get("entities", [])
+            entities = []
+            entities = []
+            if isinstance(raw_entities, list):
+                for e in raw_entities:
+                    if isinstance(e, dict) and e.get("name"):
+                        entities.append(
+                            {
+                                "type": e.get("type", "other"),
+                                "name": e.get("name", ""),
+                                "role": e.get("role", "mentioned"),
+                            }
+                        )
+
+            raw_questions = parsed.get("possible_questions", [])
+            questions = []
+            if isinstance(raw_questions, list):
+                questions = [
+                    str(q).strip() for q in raw_questions[:4] if q and str(q).strip()
+                ]
+
+            return ClaimAnalysisResult(
+                claim_type=claim_type,
+                context_domain=context_domain,
+                tags=tags,
+                entities=entities,
+                possible_questions=questions,
+                confidence=0.9,
+            )
+
+        except Exception as e:
+            logger.error(f"Claim analysis failed: {e}")
+            return ClaimAnalysisResult()

@@ -885,6 +885,16 @@ REST endpoints at `/pkb/*` require authentication. All use JSON content-type.
 | POST | `/pkb/claims/bulk` | Bulk add `{claims: [...], auto_extract}` |
 | POST | `/pkb/search` | Search `{query, strategy, k, filters}` |
 | GET | `/pkb/entities`, `/pkb/tags` | List entities/tags for user |
+| POST | `/pkb/entities` | Create entity `{name, entity_type}` |
+| POST | `/pkb/tags` | Create tag `{name, parent_tag_id?}` |
+| GET | `/pkb/entities/<id>/claims` | Claims linked to an entity |
+| GET | `/pkb/tags/<id>/claims` | Claims linked to a tag |
+| GET | `/pkb/claims/<id>/entities` | Entities linked to a claim |
+| POST | `/pkb/claims/<id>/entities` | Link entity `{entity_id, role}` |
+| DELETE | `/pkb/claims/<id>/entities/<eid>` | Unlink entity from claim |
+| GET | `/pkb/claims/<id>/tags` | Tags linked to a claim |
+| POST | `/pkb/claims/<id>/tags` | Link tag `{tag_id}` |
+| DELETE | `/pkb/claims/<id>/tags/<tid>` | Unlink tag from claim |
 | GET | `/pkb/conflicts` | List open conflicts |
 | POST | `/pkb/conflicts/<id>/resolve` | Resolve `{winning_claim_id?, resolution_notes}` |
 | POST | `/pkb/ingest_text` | AI text parsing `{text, default_claim_type, default_domain, use_llm}` |
@@ -1008,6 +1018,7 @@ api.get_claims_by_ids([...])       # Batch fetch
 // Conversation: pinToConversation(convId,claimId,true), getConversationPinned(convId)
 // Use Now: addToNextMessage(id), getPendingAttachments(), clearPendingAttachments()
 // Modal: openAddClaimModal(), openAddClaimModalWithText(text)  // "Save to Memory" from message triple-dots
+// Tag Linking: createTag({name}), getClaimTags(id), linkTagToClaim(claimId,tagId), unlinkTagFromClaim(claimId,tagId)
 ```
 
 ### @memory References
