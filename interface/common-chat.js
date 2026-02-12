@@ -63,12 +63,12 @@ var ConversationManager = {
         });
     },
 
-    statelessConversation: function (conversationId) {
+    statelessConversation: function (conversationId, suppressModal) {
         return $.ajax({
             url: '/make_conversation_stateless/' + conversationId,
             type: 'DELETE',
             success: function (result) {
-                // show a small modal that conversation is now stateless and will be deleted on next reload
+                if (suppressModal) return;
                 if (currentDomain['domain'] === 'assistant' || currentDomain['domain'] === 'finance') {
                     $('#stateless-conversation-modal').modal('show');
                 }

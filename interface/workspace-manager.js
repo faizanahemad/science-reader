@@ -18,6 +18,8 @@ var WorkspaceManager = {
     _mobileConversationInterceptorInstalled: false,
     _jsTreeReady: false,
     _pendingHighlight: null,
+    _pendingHighlightCollapse: false,
+    _suppressExpandPersist: false,
 
     get defaultWorkspaceId() {
         var email = (typeof userDetails !== 'undefined' && userDetails.email) ? userDetails.email : 'unknown';
@@ -110,12 +112,14 @@ var WorkspaceManager = {
     setupToolbarHandlers: function () {
         var self = this;
         $('#add-new-workspace').off('click').on('click', function () {
-            // Toolbar folder+ always creates a top-level workspace
             self.showCreateWorkspaceModal(null);
         });
         $('#add-new-chat').off('click').on('click', function () {
             var targetWs = self.getSelectedWorkspaceId() || self.defaultWorkspaceId;
             self.createConversationInWorkspace(targetWs);
+        });
+        $('#new-temp-chat').off('click').on('click', function () {
+            self.createTemporaryConversation();
         });
     },
 
@@ -190,7 +194,7 @@ var WorkspaceManager = {
                 var conversationId = getConversationIdFromUrl();
                 if (conversationId) {
                     ConversationManager.setActiveConversation(conversationId);
-                    WorkspaceManager.highlightActiveConversation(conversationId);
+                    WorkspaceManager.highlightActiveConversation(conversationId, true);
                 } else if (conversations.length > 0) {
                     var resumeId = null;
                     try {
@@ -202,7 +206,7 @@ var WorkspaceManager = {
                     var resumeExists = !!resumeId && conversations.some(function (c) { return String(c.conversation_id) === String(resumeId); });
                     var targetId = resumeExists ? resumeId : conversations[0].conversation_id;
                     ConversationManager.setActiveConversation(targetId);
-                    WorkspaceManager.highlightActiveConversation(targetId);
+                    WorkspaceManager.highlightActiveConversation(targetId, true);
                 }
             } else {
                 var currentActive = ConversationManager.getActiveConversation();
@@ -300,7 +304,7 @@ var WorkspaceManager = {
                 parent: parentNodeId,
                 text: displayName + (convCount > 0 ? ' (' + convCount + ')' : ''),
                 type: 'workspace',
-                state: { opened: ws.expanded },
+                state: { opened: false },
                 li_attr: { 'data-workspace-id': ws.workspace_id, 'data-color': ws.color },
                 a_attr: { title: displayName }
             });
@@ -380,7 +384,19 @@ var WorkspaceManager = {
                 select_node: false,
                 items: function () { return {}; }  // empty — we build items in showNodeContextMenu
             },
-            plugins: ['types', 'wholerow', 'contextmenu']
+            sort: function (a, b) {
+                // Folders (workspaces) first, then conversations.
+                // Within same type, preserve original order (by node text alphabetically as tiebreaker).
+                var nodeA = this.get_node(a);
+                var nodeB = this.get_node(b);
+                var typeA = (nodeA && nodeA.type === 'workspace') ? 0 : 1;
+                var typeB = (nodeB && nodeB.type === 'workspace') ? 0 : 1;
+                if (typeA !== typeB) return typeA - typeB;
+                // Same type — keep original data order (don't re-sort conversations alphabetically;
+                // they are already sorted by last_updated descending from the server).
+                return 0;
+            },
+            plugins: ['types', 'wholerow', 'contextmenu', 'sort']
         });
 
         // ---- jsTree events ----
@@ -392,8 +408,10 @@ var WorkspaceManager = {
             // Process any highlight that was queued before the tree was ready
             if (self._pendingHighlight) {
                 var cid = self._pendingHighlight;
+                var collapse = self._pendingHighlightCollapse;
                 self._pendingHighlight = null;
-                self.highlightActiveConversation(cid);
+                self._pendingHighlightCollapse = false;
+                self.highlightActiveConversation(cid, collapse);
             }
         });
 
@@ -405,15 +423,27 @@ var WorkspaceManager = {
             self.addTripleDotButtons();
         });
 
-        // Node selection → open conversation or select workspace
         container.off('select_node.jstree').on('select_node.jstree', function (e, data) {
             var nodeId = data.node.id;
+            if (nodeId.indexOf('ws_') === 0) {
+                // Workspace click: toggle expand/collapse, then deselect
+                // so the next click will fire select_node again.
+                var tree = $('#workspaces-container').jstree(true);
+                if (tree) {
+                    tree.toggle_node(data.node);
+                    tree.deselect_node(data.node, true);
+                }
+                var currentActive = (ConversationManager.getActiveConversation && ConversationManager.getActiveConversation()) || null;
+                if (currentActive && tree) {
+                    tree.select_node('cv_' + currentActive, true);
+                }
+                return;
+            }
             if (nodeId.indexOf('cv_') === 0) {
                 var conversationId = nodeId.substring(3);
                 var currentActive = (ConversationManager.getActiveConversation && ConversationManager.getActiveConversation()) || null;
                 if (currentActive && String(currentActive) === String(conversationId)) return;
 
-                // Close sidebar on mobile
                 try {
                     if (window.matchMedia && window.matchMedia('(max-width: 768px)').matches) {
                         var sidebar = $('#chat-assistant-sidebar');
@@ -430,8 +460,8 @@ var WorkspaceManager = {
             }
         });
 
-        // Persist expand/collapse state to server
         container.off('open_node.jstree').on('open_node.jstree', function (e, data) {
+            if (self._suppressExpandPersist) return;
             var nodeId = data.node.id;
             if (nodeId.indexOf('ws_') === 0) {
                 var wsId = nodeId.substring(3);
@@ -463,6 +493,7 @@ var WorkspaceManager = {
         });
 
         container.off('close_node.jstree').on('close_node.jstree', function (e, data) {
+            if (self._suppressExpandPersist) return;
             var nodeId = data.node.id;
             if (nodeId.indexOf('ws_') === 0) {
                 var wsId = nodeId.substring(3);
@@ -925,40 +956,78 @@ var WorkspaceManager = {
         });
     },
 
+    createTemporaryConversation: function () {
+        var self = this;
+        var wsId = this.defaultWorkspaceId;
+        $.ajax({
+            url: '/create_conversation/' + currentDomain['domain'] + '/' + wsId,
+            type: 'POST',
+            success: function (conversation) {
+                var convId = conversation.conversation_id;
+                $('#linkInput').val('');
+                $('#searchInput').val('');
+                self.loadConversationsWithWorkspaces(false).done(function () {
+                    ConversationManager.setActiveConversation(convId);
+                    self.highlightActiveConversation(convId);
+                    // Mark stateless AFTER tree reload so the list API doesn't
+                    // delete the conversation during the reload's GET call.
+                    ConversationManager.statelessConversation(convId, true);
+                });
+            }
+        });
+    },
+
     // ---------------------------------------------------------------
     // Highlighting
     // ---------------------------------------------------------------
-    highlightActiveConversation: function (conversationId) {
-        // If tree isn't ready yet, queue for later
+    /**
+     * Highlight the active conversation in the tree.
+     *
+     * @param {string} conversationId - The conversation to highlight.
+     * @param {boolean} [collapseOthers=false] - When true, collapse all workspaces
+     *     first and only open the active conversation's ancestor chain.  This is
+     *     used on initial page load / deep-link so the user sees a clean tree.
+     *     When false (default for user-initiated clicks), we only ensure the
+     *     ancestor chain is open without disturbing any other manually-opened
+     *     workspaces.
+     */
+    highlightActiveConversation: function (conversationId, collapseOthers) {
         if (!this._jsTreeReady) {
             this._pendingHighlight = conversationId;
+            this._pendingHighlightCollapse = !!collapseOthers;
             return;
         }
 
         var tree = $('#workspaces-container').jstree(true);
         if (!tree) {
             this._pendingHighlight = conversationId;
+            this._pendingHighlightCollapse = !!collapseOthers;
             return;
         }
 
-        // Deselect everything, then select the conversation node
         tree.deselect_all(true);
         var nodeId = 'cv_' + conversationId;
         var node = tree.get_node(nodeId);
         if (node) {
-            // Open all parent nodes first so the conversation is visible
             var parentIds = [];
             var current = node;
             while (current && current.parent && current.parent !== '#') {
                 parentIds.push(current.parent);
                 current = tree.get_node(current.parent);
             }
-            // Open from root down
-            parentIds.reverse();
-            parentIds.forEach(function (pid) { tree.open_node(pid, false, false); });
 
-            // Select after parents are opened
-            tree.select_node(nodeId, true);  // suppress event
+            if (collapseOthers) {
+                this._suppressExpandPersist = true;
+                tree.close_all(null, 0);
+                this._suppressExpandPersist = false;
+            }
+
+            parentIds.reverse();
+            this._suppressExpandPersist = true;
+            parentIds.forEach(function (pid) { tree.open_node(pid, false, false); });
+            this._suppressExpandPersist = false;
+
+            tree.select_node(nodeId, true);
         }
     },
 

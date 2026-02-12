@@ -279,6 +279,41 @@ Removed elements:
 - Old `#workspaces-container` with custom workspace section structure.
 - Old "Chats" header with button group and tip text.
 
+#### Top-right chat bar layout (responsive)
+
+The top-right bar above the chat area is a single `<div class="row d-flex align-items-center flex-nowrap">` containing three columns with different responsive visibility:
+
+| Column | Content | Mobile (< md) | Desktop (≥ md) |
+|--------|---------|---------------|----------------|
+| 1 | `#toggleChatDocsView` button (▼/▲) | visible | hidden (`d-md-none`) |
+| 2 | `#chat-doc-view` div (download, share, add-doc buttons) | hidden by default, toggled by col 1 (`d-none d-md-flex`) | visible |
+| 3 | `#new-temp-chat` button | **always visible** (`ml-auto` pushes to far right) | **always visible** |
+
+Previously, `#toggleChatDocsView` and `#chat-doc-view` were separate rows, and `#new-temp-chat` was inside `#chat-doc-view`. This meant on mobile, creating a temporary chat required two taps (open the toggle, then tap the button). The restructure extracts `#new-temp-chat` into its own always-visible column so it's a single tap on both mobile and desktop.
+
+```html
+<div class="row d-flex align-items-center flex-nowrap">
+    <div class="d-md-none mr-2">
+        <button id="toggleChatDocsView" class="btn btn-secondary btn-xs rounded-pill">▼</button>
+    </div>
+    <div id="chat-doc-view" class="d-none d-md-flex align-items-center flex-wrap">
+        <button id="get-chat-transcript" ...></button>
+        <button id="share-chat" ...></button>
+        <button id="add-document-button-chat" ...></button>
+    </div>
+    <div class="ml-auto">
+        <button id="new-temp-chat" type="button" class="btn btn-outline-secondary btn-sm mb-1"
+                title="New Temporary Chat (deleted on page reload)">
+            <i class="fa fa-eye-slash">&nbsp;</i>
+        </button>
+    </div>
+</div>
+```
+
+The `#toggleChatDocsView` click handler (in `chat.js`) toggles `d-none` on `#chat-doc-view`. On desktop, `d-md-flex` overrides `d-none` at the md breakpoint so the toggle has no effect — and the button itself is hidden anyway. On mobile, toggling `d-none` shows/hides the download/share/add-doc buttons.
+
+Uses `btn-outline-secondary` to visually distinguish from primary action buttons. The `fa-eye-slash` icon matches the existing "Toggle Stateless" context menu item. Click handler is wired in `WorkspaceManager.setupToolbarHandlers()`.
+
 ## Frontend — JavaScript
 
 ### File: `interface/workspace-manager.js`
@@ -294,7 +329,9 @@ Removed elements:
 | `_mobileConversationInterceptorInstalled` | Boolean | Guard to prevent double-installation of mobile interceptor |
 | `_jsTreeReady` | Boolean | Set to `true` after `ready.jstree` fires |
 | `_pendingHighlight` | String/null | Conversation ID queued for highlighting before tree is ready |
+| `_pendingHighlightCollapse` | Boolean | Whether the pending highlight should collapse all other workspaces (used for page load) |
 | `defaultWorkspaceId` | String (getter) | Computed: `"default_" + userDetails.email + "_" + currentDomain.domain` |
+| `_suppressExpandPersist` | Boolean | Guard flag — when true, `open_node`/`close_node` handlers skip AJAX persist calls. Used during programmatic collapse/expand in `highlightActiveConversation()` |
 
 #### Workspace data object shape (in `workspacesMap`)
 
@@ -327,6 +364,7 @@ Guard checks: skip if button element, skip if modifier keys held, skip if alread
 
 - `#add-new-workspace` → `showCreateWorkspaceModal(null)`. Always creates top-level workspace. Sub-workspace creation is only available via context menu.
 - `#add-new-chat` → `createConversationInWorkspace(getSelectedWorkspaceId() || defaultWorkspaceId)`. Creates conversation in the currently selected workspace, or default if none selected.
+- `#new-temp-chat` → `createTemporaryConversation()`. Creates a new conversation in the default workspace and immediately marks it stateless. The button is in its own always-visible column in the top-right chat bar (not inside `#chat-doc-view`), accessible with a single tap on both mobile and desktop.
 
 #### `getSelectedWorkspaceId() -> string|null`
 
@@ -371,7 +409,7 @@ Iterative BFS using a stack. Returns an object where keys are workspace IDs that
 
 #### `buildJsTreeData(convByWs) -> array`
 
-Produces a flat array of node objects for jsTree's `core.data` option (jsTree builds the tree from parent pointers).
+Produces a flat array of node objects for jsTree's `core.data` option (jsTree builds the tree from parent pointers). All workspace nodes start with `state: { opened: false }` — the tree renders fully collapsed, and `highlightActiveConversation()` selectively opens the active conversation's ancestor path.
 
 Workspace nodes:
 ```javascript
@@ -380,7 +418,7 @@ Workspace nodes:
     parent: ws.parent_workspace_id ? ('ws_' + ws.parent_workspace_id) : '#',
     text: displayName + ' (N)',   // N = conversation count, omitted if 0
     type: 'workspace',
-    state: { opened: ws.expanded },
+    state: { opened: false },
     li_attr: { 'data-workspace-id': workspace_id, 'data-color': ws.color },
     a_attr: { title: displayName }
 }
@@ -417,7 +455,8 @@ Conversation nodes:
    - `types.workspace`: icon `fa fa-folder`, `li_attr: { class: 'ws-node' }`
    - `types.conversation`: icon `fa fa-comment-o`, `li_attr: { class: 'conv-node' }`, `max_depth: 0` (cannot have children)
    - `contextmenu`: plugin is loaded (so `$.vakata.context` is available) but with `items: function () { return {}; }` to prevent jsTree's built-in right-click from showing anything. We handle context menus ourselves.
-   - `plugins: ['types', 'wholerow', 'contextmenu']`
+   - `sort`: custom comparator that places workspace-type children before conversation-type children within each parent. Same-type nodes preserve their original data order (conversations remain sorted by `last_updated` descending from the server).
+   - `plugins: ['types', 'wholerow', 'contextmenu', 'sort']`
 
 4. Event bindings (all use `.off().on()` to prevent duplicate handlers):
 
@@ -425,16 +464,16 @@ Conversation nodes:
 
    **`redraw.jstree`**, **`after_open.jstree`**: Re-adds triple-dot buttons (jsTree re-renders DOM on these events).
 
-   **`select_node.jstree`**: When a conversation node is selected (ID starts with `cv_`), calls `ConversationManager.setActiveConversation(conversationId)`. Also closes the sidebar on mobile (≤768px). Does nothing if the same conversation is already active.
+   **`select_node.jstree`**: When a workspace node is selected (ID starts with `ws_`), toggles expand/collapse on that workspace node via `tree.toggle_node()`, then immediately deselects the workspace node (so the next click fires `select_node` again — jsTree ignores clicks on already-selected nodes). After deselecting the workspace, re-selects the active conversation node (if any) to maintain its highlight. When a conversation node is selected (ID starts with `cv_`), calls `ConversationManager.setActiveConversation(conversationId)`. Also closes the sidebar on mobile (≤768px). Does nothing if the same conversation is already active.
 
-   **`open_node.jstree`**: For workspace nodes, sends `PUT /update_workspace/{id}` with `{ expanded: true }`.
+   **`open_node.jstree`**: For workspace nodes, sends `PUT /update_workspace/{id}` with `{ expanded: true }`. Suppressed during programmatic collapse/expand operations (via `_suppressExpandPersist` flag) to avoid unnecessary AJAX calls when `highlightActiveConversation` performs `close_all` + selective `open_node`.
 
    **`contextmenu.ws`** (custom namespace): Bound on the container div itself. On any right-click within the tree:
    - Finds closest `.jstree-node` `<li>` from `e.target`.
    - Calls `e.preventDefault()`, `e.stopPropagation()`, `e.stopImmediatePropagation()`.
    - Calls `showNodeContextMenu(nodeId, e.pageX, e.pageY)`.
 
-   **`close_node.jstree`**: For workspace nodes, sends `PUT /update_workspace/{id}` with `{ expanded: false }`.
+   **`close_node.jstree`**: For workspace nodes, sends `PUT /update_workspace/{id}` with `{ expanded: false }`. Suppressed during programmatic collapse/expand operations (via `_suppressExpandPersist` flag).
 
 #### `addTripleDotButtons()`
 
@@ -521,20 +560,30 @@ All make AJAX calls and call `loadConversationsWithWorkspaces(false)` on success
 | `moveConversationToWorkspace(convId, targetWsId)` | PUT | `/move_conversation_to_workspace/{convId}` | `{ workspace_id }` |
 | `moveWorkspaceToParent(wsId, parentWsId)` | PUT | `/move_workspace/{wsId}` | `{ parent_workspace_id }` |
 | `createConversationInWorkspace(wsId)` | POST | `/create_conversation/{domain}/{wsId}` | none |
+| `createTemporaryConversation()` | POST + DELETE | `/create_conversation/{domain}/{defaultWsId}` then `/make_conversation_stateless/{convId}` | none |
 
 Special behaviors:
 - `deleteWorkspace`: shows `confirm()` dialog first. Blocked for default workspace with `alert()`.
 - `createConversationInWorkspace`: on success, clears `#linkInput` and `#searchInput`, reloads with `autoselect=true`, then highlights the new conversation.
+- `createTemporaryConversation`: creates a conversation in the default workspace, then marks it stateless via `ConversationManager.statelessConversation(convId, true)` (with `suppressModal=true` to skip the stateless confirmation modal, since the user explicitly chose to start a temporary chat). The ordering is critical: (1) create conversation, (2) reload tree with `autoselect=false`, (3) set active + highlight, (4) THEN mark stateless. If stateless is set before the tree reload, `GET /list_conversation_by_user` deletes the conversation during its stateless cleanup pass. Triggered by the `#new-temp-chat` button (`fa-eye-slash` icon, `btn-outline-secondary`) in an always-visible column in the top-right chat bar (visible on both mobile and desktop).
 - `moveConversationToWorkspace`: on success, preserves current active conversation and re-highlights it after 100ms delay (to wait for tree rebuild).
 
-#### `highlightActiveConversation(conversationId)`
+#### `highlightActiveConversation(conversationId, collapseOthers)`
 
-1. If `_jsTreeReady` is false or tree instance not available, queues the ID in `_pendingHighlight` and returns.
+1. If `_jsTreeReady` is false or tree instance not available, queues the ID in `_pendingHighlight` and `collapseOthers` in `_pendingHighlightCollapse`, then returns.
 2. Deselects all nodes: `tree.deselect_all(true)` (suppress event).
 3. Gets the node `cv_{conversationId}`.
 4. Collects all parent node IDs by walking up `node.parent` until reaching `#` (root).
-5. Reverses the parent list (root first) and opens each: `tree.open_node(pid, false, false)`.
-6. Selects the conversation node: `tree.select_node(nodeId, true)` (suppress event to prevent re-triggering `select_node.jstree`).
+5. **If `collapseOthers` is true** (page load / deep link only): collapses all workspace nodes via `tree.close_all(null, 0)` (instant, no animation) under `_suppressExpandPersist = true`. This ensures only the active conversation's ancestor path is visible on initial load.
+6. **If `collapseOthers` is false** (default, user-initiated navigation): skips the collapse step entirely, preserving whatever workspaces the user has manually opened.
+7. Reverses the parent list (root first) and opens each ancestor: `tree.open_node(pid, false, false)`. Also runs under `_suppressExpandPersist = true`.
+8. Selects the conversation node: `tree.select_node(nodeId, true)` (suppress event to prevent re-triggering `select_node.jstree`).
+
+The `collapseOthers` parameter separates two distinct use cases:
+- **Page load** (`collapseOthers=true`): Called from `loadConversationsWithWorkspaces(autoselect=true)`. Tree starts fully collapsed, then only the active conversation's ancestor path is expanded.
+- **User navigation** (`collapseOthers=false`): Called when clicking conversations, after CRUD operations, or from external code. Only ensures the target conversation's ancestors are open without disturbing any other manually-opened workspaces.
+
+This fixes a previous bug where every conversation click would collapse all workspaces (because `close_all` ran unconditionally), making manual workspace browsing impossible.
 
 #### Modal dialogs
 
@@ -671,7 +720,7 @@ Flag color picker popover styles are preserved for any remnant DOM (`.flag-color
 
 - All existing conversations and workspaces continue to work without any data migration.
 - The `parent_workspace_id` column defaults to `NULL` (SQLite default for new columns), so all existing workspaces appear at root level.
-- Deep links (`/interface/<conversation_id>`) are preserved. The `highlightActiveConversation` function opens all parent workspace nodes and selects the conversation node.
+- Deep links (`/interface/<conversation_id>`) are preserved. The `highlightActiveConversation` function (with `collapseOthers=true` on page load) collapses all workspace nodes, then opens only the active conversation's ancestor workspace chain and selects the conversation node. During normal navigation, other workspaces remain untouched.
 - Mobile sidebar close-on-select is preserved via capture-phase touch/click interceptor that detects `li.jstree-node` with `cv_` prefix IDs.
 - The `moveConversationToWorkspace` fix (using PK-only WHERE clause and INSERT fallback) makes conversation moves more robust for all existing data regardless of user_email casing.
 - Browser back/forward navigation via `window.onpopstate` is preserved.
@@ -693,6 +742,8 @@ Flag color picker popover styles are preserved for any remnant DOM (`.flag-color
 
 7. **Move-to submenus showed no hierarchy**: The "Move to..." submenus for both workspaces and conversations used space-prefix indentation which was invisible in the rendered menu. Replaced with breadcrumb-style labels via `getWorkspaceBreadcrumb()` (e.g. `General > Private > Target`).
 
+8. **Workspace open/close wonky behavior**: `highlightActiveConversation()` unconditionally called `tree.close_all()` on every invocation, including when the user clicked a conversation. This meant every conversation click collapsed all manually-opened workspaces, making folder browsing impossible. Additionally, clicking an already-selected workspace wouldn't toggle it because jsTree's `select_node` event doesn't fire on already-selected nodes. Fixed by: (a) adding a `collapseOthers` parameter to `highlightActiveConversation()` — only `true` on page load, `false` (default) for user navigation; (b) immediately deselecting workspace nodes after toggle so subsequent clicks always fire `select_node`; (c) re-selecting the active conversation after workspace toggle to maintain its highlight.
+
 ## Files Modified
 
 | File | Lines | Change summary |
@@ -700,9 +751,10 @@ Flag color picker popover styles are preserved for any remnant DOM (`.flag-color
 | `database/connection.py` | ~10 lines added | ALTER TABLE migration for `parent_workspace_id`, new index |
 | `database/workspaces.py` | ~613 total | `parent_workspace_id` in all queries/INSERTs, new functions: `_is_ancestor`, `workspaceExistsForUser`, `moveWorkspaceToParent`, `getWorkspacePath`. Modified: `moveConversationToWorkspace` (PK-based), `deleteWorkspace` (cascade), `createWorkspace` (parent param) |
 | `endpoints/workspaces.py` | ~279 total | `parent_workspace_id` in create endpoint, new endpoints: `PUT /move_workspace/<id>`, `GET /get_workspace_path/<id>`. New imports |
-| `interface/interface.html` | ~15 lines changed | jsTree CDN links, simplified sidebar HTML, removed old context menu divs |
-| `interface/workspace-manager.js` | ~1078 total (full rewrite) | jsTree init, tree data builder, triple-dot buttons, vakata context menus, pending highlight queue, CRUD methods, modal dialogs, mobile interceptor |
+| `interface/interface.html` | ~15 lines changed | jsTree CDN links, simplified sidebar HTML, removed old context menu divs, responsive top-right bar restructure (3-column layout: mobile toggle, chat-doc buttons, always-visible `#new-temp-chat`) |
+| `interface/workspace-manager.js` | ~1167 total (full rewrite) | jsTree init, tree data builder, triple-dot buttons, vakata context menus, pending highlight queue, CRUD methods, `createTemporaryConversation()`, modal dialogs, mobile interceptor |
 | `interface/workspace-styles.css` | ~296 total (full rewrite) | jsTree width containment, anchor text wrapping, triple-dot visibility, workspace color borders, flag borders, vakata dark styling with text-shadow fix |
+| `interface/common-chat.js` | ~2 lines changed | Added `suppressModal` parameter to `statelessConversation()` to skip modal when creating temporary chats |
 | `documentation/features/workspaces/README.md` | This file | Exhaustive documentation |
 | `documentation/product/behavior/chat_app_capabilities.md` | ~30 lines changed | Updated Workspaces section |
 | `documentation/README.md` | 1 line added | Added workspaces feature entry |
@@ -728,3 +780,15 @@ Flag color picker popover styles are preserved for any remnant DOM (`.flag-color
 9. **Leaf node toggle arrow**: jsTree renders a toggle arrow (`.jstree-ocl`) on all nodes including leaves. For conversation nodes this is useless and takes horizontal space. Hidden via `display: none !important` on `.jstree-leaf > .jstree-ocl`.
 
 10. **Triple-dot button placement**: The button must be inserted after the `.jstree-anchor` (not appended to the `<li>`) because jsTree `<li>` elements contain child `<ul>` elements. Appending to `<li>` would place the button after the entire subtree. Using `anchor.after(btn)` ensures it's a direct sibling of the anchor.
+
+11. **Folders-first sorting**: The `sort` plugin is configured with a custom comparator that assigns type weights (workspace=0, conversation=1) and sorts by weight. Within same type, returns 0 to preserve original data order. This is important because conversations are pre-sorted by `last_updated` descending from the server and should not be re-ordered alphabetically.
+
+12. **Workspace click toggle**: Clicking a workspace node (not just the toggle arrow) expands or collapses it via `tree.toggle_node()` in the `select_node.jstree` handler. After toggling, the workspace node is immediately deselected (`tree.deselect_node`) so that the next click will fire `select_node` again (jsTree ignores clicks on already-selected nodes). The active conversation is then re-selected to maintain its visual highlight.
+
+13. **Smart collapse on highlight**: `highlightActiveConversation(conversationId, collapseOthers)` only calls `tree.close_all()` when `collapseOthers=true` (page load). For user-initiated navigation (`collapseOthers=false`, the default), it only opens the target's ancestor chain without collapsing anything else. The `_suppressExpandPersist` flag prevents the `open_node`/`close_node` event handlers from sending AJAX calls during programmatic tree manipulation.
+
+14. **Initial tree state**: All workspace nodes start with `state: { opened: false }` regardless of their saved `expanded` state. The saved expand/collapse state is only used when the user manually opens/closes workspaces (persisted via `open_node`/`close_node` handlers). On page load, the tree is fully collapsed and `highlightActiveConversation()` opens only the active conversation's ancestor path.
+
+15. **Temporary chat stateless ordering**: `createTemporaryConversation()` must mark stateless AFTER the tree reload completes. The `GET /list_conversation_by_user` endpoint (called during tree reload) has a cleanup pass that deletes all conversations where `c.stateless == True` (lines 1159-1171 in `endpoints/conversations.py`). If stateless is set before the reload, the conversation is permanently deleted before the user can interact with it. The tree reload also uses `autoselect=false` to prevent the internal autoselect logic from trying to load a stale conversation ID from the URL or localStorage.
+
+16. **`statelessConversation` suppressModal parameter**: `ConversationManager.statelessConversation(convId, suppressModal)` accepts an optional second argument. When `true`, the `#stateless-conversation-modal` is not shown. Used by `createTemporaryConversation()` since the user explicitly chose to start a temporary chat and doesn't need the "will be deleted on refresh" warning. Existing callers (context menu "Toggle Stateless", search domain auto-stateless) omit the parameter so the modal still appears.

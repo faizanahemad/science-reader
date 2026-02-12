@@ -265,17 +265,23 @@
                         </div>
                         <div class="col-md-10" id="chat-assistant" style="height: calc(100vh - 55px) !important;">
                           <div id="mainView" class="container-fluid d-flex flex-column vh-100" style="height: calc(100vh - 55px) !important;">
-                              <div class="row d-md-none">
-                                  <button id="toggleChatDocsView" class="btn btn-secondary btn-xs rounded-pill d-md-none">
-                                    ▼
-                                  </button>
-                              </div>
-                              <div id="chat-doc-view" class="row d-none d-md-flex">
-                                  <!-- Chat Docs will be populated here -->
-                                  <button id="get-chat-transcript" type="button" class="btn btn-primary mr-2 btn-sm mb-1"><i class="fa fa-download">&nbsp;</i></button>
-                                  <button id="share-chat" type="button" class="btn btn-primary mr-2 btn-sm mb-1"><i class="fa fa-share-alt">&nbsp;</i></button>
-                                  <button id="add-document-button-chat" type="button" class="btn btn-primary mr-2 btn-sm mb-1"><i class="fa fa-plus">&nbsp; Add Doc</i></button>
-
+                              <div class="row d-flex align-items-center flex-nowrap">
+                                  <!-- Col 1: Mobile-only toggle for chat-doc-view -->
+                                  <div class="d-md-none mr-2">
+                                      <button id="toggleChatDocsView" class="btn btn-secondary btn-xs rounded-pill">
+                                        ▼
+                                      </button>
+                                  </div>
+                                  <!-- Col 2: Chat doc action buttons — hidden on mobile, toggled by Col 1 -->
+                                  <div id="chat-doc-view" class="d-none d-md-flex align-items-center flex-wrap">
+                                      <button id="get-chat-transcript" type="button" class="btn btn-primary mr-2 btn-sm mb-1"><i class="fa fa-download">&nbsp;</i></button>
+                                      <button id="share-chat" type="button" class="btn btn-primary mr-2 btn-sm mb-1"><i class="fa fa-share-alt">&nbsp;</i></button>
+                                      <button id="add-document-button-chat" type="button" class="btn btn-primary mr-2 btn-sm mb-1"><i class="fa fa-plus">&nbsp; Add Doc</i></button>
+                                  </div>
+                                  <!-- Col 3: New Temp Chat — always visible, pushed to far right -->
+                                  <div class="ml-auto">
+                                      <button id="new-temp-chat" type="button" class="btn btn-outline-secondary btn-sm mb-1" title="New Temporary Chat (deleted on page reload)"><i class="fa fa-eye-slash">&nbsp;</i></button>
+                                  </div>
                               </div>
                               <div id="chatView" class="row flex-grow-1 overflow-auto">
                                   <!-- Chat messages will be dynamically populated here -->
@@ -2875,25 +2881,6 @@ greet("World");</code></pre>
     <!-- Add before closing </body> tag -->
     <script src="interface/workspace-manager.js"></script>
 
-    <script src="https://cdn.jsdelivr.net/npm/darkmode-js@1.5.7/lib/darkmode-js.min.js"></script>
-    <script>
-      function addDarkmodeWidget() {
-        new Darkmode({
-          bottom: 'unset', // default: '32px'
-          right: '32px', // default: '32px'
-          left: 'unset', // default: 'unset'
-          time: '0.5s', // default: '0.3s'
-          mixColor: '#fff', // default: '#fff'
-          backgroundColor: '#fff',  // default: '#fff'
-          buttonColorDark: '#100f2c',  // default: '#100f2c'
-          buttonColorLight: '#fff', // default: '#fff'
-          saveInCookies: false, // default: true,
-          label: '🌓', // default: ''
-          autoMatchOsTheme: true // default: true
-        }).showWidget();
-      }
-      window.addEventListener('load', addDarkmodeWidget);
-    </script>
     <script src="interface/audio_process.js"></script>
     <script type="text/x-mathjax-config">
       MathJax.Hub.Config({

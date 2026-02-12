@@ -54,6 +54,7 @@ Conversations are organized into **hierarchical workspaces** per user and domain
 - Workspace context menu: New Conversation, New Sub-Workspace, Rename, Change Color, Move to... (with breadcrumb paths like `General > Private > Target`), Delete.
 - Conversation context menu: Copy Conversation Reference, Open in New Window, Clone, Toggle Stateless, Set Flag, Move to... (with breadcrumb paths), Delete.
 - Toolbar: file+ creates conversation in selected workspace, folder+ always creates top-level workspace.
+- **New Temporary Chat button** (`fa-eye-slash`, `btn-outline-secondary`) in the top-right chat bar: creates a conversation in the default workspace and immediately marks it stateless. The conversation works normally during the session but is permanently deleted on next page reload. No confirmation modal is shown (since the user explicitly chose temporary mode).
 - Expand/collapse state persisted to server.
 - Active conversation highlighted with auto-expand of parent workspaces.
 
@@ -477,6 +478,8 @@ The backend resolver (`resolve_reference()`) uses suffix-based routing for fast 
 **What it does**
 - Slash command: `/title ...` or `/set_title ...`
 - Temporary mode: `/temp ...` disables persistence for that interaction.
+- **Stateless conversations**: Right-click → "Toggle Stateless" marks a conversation for deletion on next page reload. The conversation works normally during the current session.
+- **New Temporary Chat button**: The `#new-temp-chat` button in the top-right chat bar creates a fresh conversation in the default workspace and immediately marks it stateless — a one-click way to start an ephemeral chat. Uses `statelessConversation(convId, suppressModal=true)` to skip the confirmation modal.
 - User-controllable system/preamble options:
   - formatting variants
   - “TTS friendly” style guide
@@ -647,4 +650,26 @@ and avoids loading everything for every request.
 - Cancellations exist for:
   - main response streaming
   - doubt clearing streaming
-- Conversation locking uses filesystem lock files; clients may see “waiting for lock” warnings in stream.
+- Conversation locking uses filesystem lock files; clients may see "waiting for lock" warnings in stream.
+
+---
+
+## Removed features
+
+### Dark mode toggle (darkmode-js)
+
+**Removed from**: `interface/interface.html`, `interface/shared.html`
+
+Previously the app loaded `darkmode-js@1.5.7` from CDN and called `new Darkmode({...}).showWidget()` on page load. This injected a floating toggle button that applied a full-page `mix-blend-mode: difference` CSS overlay to invert colors.
+
+**Why it was removed**: `mix-blend-mode: difference` is a blunt color inversion that does not work for complex dynamic apps. Specific failures in this app:
+
+- **Bootstrap components**: Hardcoded color values (`#007bff`, `#28a745`, etc.) invert to unpredictable colors. Blue buttons become orange, green badges become magenta.
+- **Stacking context conflicts**: Elements with `z-index`, `position: fixed/sticky`, `transform`, or `opacity < 1` create stacking contexts. The darkmode overlay sits at one z-level -- elements above it are not inverted, elements below are. The app has many such elements: modals, dropdowns, vakata context menus (`z-index: 99999`), the scroll-to-bottom button, the fixed chat input area. Result: inconsistent partial inversion.
+- **Dynamic content**: The overlay is static. Streamed chat messages, jsTree sidebar nodes, dynamically created modals, and toasts may or may not be affected depending on their stacking context.
+- **Form controls**: `<input>`, `<textarea>`, `<select>` have browser-native rendering that interacts unpredictably with `mix-blend-mode`. Bootstrap styling on these adds another layer of specificity conflicts.
+- **Rich rendered content**: MathJax equations, syntax-highlighted code blocks, and images all have explicit colors that invert to unreadable results.
+
+`darkmode-js` is designed for simple static pages (marketing sites, blogs, documentation) with mostly black-on-white text. It is not suitable for full-page apps with complex z-index stacks, dynamic DOM, and styled UI components.
+
+**What would work instead**: A proper CSS custom properties theme system (`var(--bg-primary)`, `var(--text-primary)`, etc.) where a dark palette is defined and swapped via a class on `<body>`. This requires every color in every component to go through CSS variables -- a significant effort not currently planned.
