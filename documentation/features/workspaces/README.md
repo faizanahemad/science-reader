@@ -332,6 +332,7 @@ Uses `btn-outline-secondary` to visually distinguish from primary action buttons
 | `_pendingHighlightCollapse` | Boolean | Whether the pending highlight should collapse all other workspaces (used for page load) |
 | `defaultWorkspaceId` | String (getter) | Computed: `"default_" + userDetails.email + "_" + currentDomain.domain` |
 | `_suppressExpandPersist` | Boolean | Guard flag — when true, `open_node`/`close_node` handlers skip AJAX persist calls. Used during programmatic collapse/expand in `highlightActiveConversation()` |
+| `_contextMenuOpenedAt` | Number | Timestamp (`Date.now()`) recorded when the context menu opens via long-press or right-click. Both the mobile conversation interceptor and the `select_node.jstree` handler check whether `Date.now() - _contextMenuOpenedAt < 800ms` to suppress navigation events that fire in the aftermath of a context menu open. Using a timestamp instead of a boolean ensures all three cascading events (`touchend`, `pointerup`, `click`) are suppressed within the window. |
 
 #### Workspace data object shape (in `workspacesMap`)
 
@@ -358,7 +359,7 @@ Installs three capture-phase event listeners on `document`: `touchend`, `pointer
 2. Hides sidebar: adds `d-none` to `#chat-assistant-sidebar`, switches `#chat-assistant` from `col-md-10` to `col-md-12`.
 3. Calls `ConversationManager.setActiveConversation(conversationId)`.
 
-Guard checks: skip if button element, skip if modifier keys held, skip if already handled (`e.__conversationItemHandled`), skip if same conversation already active. Debounce: 700ms after `touchend` before `click` is processed (prevents double-fire).
+Guard checks: skip if button element, skip if modifier keys held, skip if already handled (`e.__conversationItemHandled`), skip if same conversation already active, skip if `_contextMenuOpenedAt` is within 800ms (long-press opened the context menu — the subsequent `touchend`/`pointerup`/`click` should not navigate). Debounce: 700ms after `touchend` before `click` is processed (prevents double-fire).
 
 #### `setupToolbarHandlers()`
 
@@ -464,13 +465,15 @@ Conversation nodes:
 
    **`redraw.jstree`**, **`after_open.jstree`**: Re-adds triple-dot buttons (jsTree re-renders DOM on these events).
 
-   **`select_node.jstree`**: When a workspace node is selected (ID starts with `ws_`), toggles expand/collapse on that workspace node via `tree.toggle_node()`, then immediately deselects the workspace node (so the next click fires `select_node` again — jsTree ignores clicks on already-selected nodes). After deselecting the workspace, re-selects the active conversation node (if any) to maintain its highlight. When a conversation node is selected (ID starts with `cv_`), calls `ConversationManager.setActiveConversation(conversationId)`. Also closes the sidebar on mobile (≤768px). Does nothing if the same conversation is already active.
+   **`select_node.jstree`**: First checks if `_contextMenuOpenedAt` is within 800ms — if so, deselects the node and returns early (prevents touch context menu from also triggering navigation via jsTree's internal click-to-select). When a workspace node is selected (ID starts with `ws_`), toggles expand/collapse on that workspace node via `tree.toggle_node()`, then immediately deselects the workspace node (so the next click fires `select_node` again — jsTree ignores clicks on already-selected nodes). After deselecting the workspace, re-selects the active conversation node (if any) to maintain its highlight. When a conversation node is selected (ID starts with `cv_`), calls `ConversationManager.setActiveConversation(conversationId)`. Also closes the sidebar on mobile (≤768px). Does nothing if the same conversation is already active.
 
    **`open_node.jstree`**: For workspace nodes, sends `PUT /update_workspace/{id}` with `{ expanded: true }`. Suppressed during programmatic collapse/expand operations (via `_suppressExpandPersist` flag) to avoid unnecessary AJAX calls when `highlightActiveConversation` performs `close_all` + selective `open_node`.
 
    **`contextmenu.ws`** (custom namespace): Bound on the container div itself. On any right-click within the tree:
    - Finds closest `.jstree-node` `<li>` from `e.target`.
+   - **Touch long-press discrimination**: A `touchstart.ws` listener on the container records the timestamp of the most recent touch start. When `contextmenu` fires, if the elapsed time since `touchstart` is less than 400ms (`LONG_PRESS_MIN_MS`), the event is treated as a spurious tap-triggered contextmenu and is suppressed (returns early with `preventDefault`). On some mobile browsers and with jsTree's wholerow plugin, a normal finger tap can fire the `contextmenu` event — this guard ensures only genuine long-presses (≥400ms) open the menu. Desktop right-clicks are unaffected (no `touchstart` timestamp is set).
    - Calls `e.preventDefault()`, `e.stopPropagation()`, `e.stopImmediatePropagation()`.
+   - Sets `_contextMenuOpenedAt = Date.now()` so the mobile interceptor and `select_node.jstree` handler suppress navigation for 800ms after menu open.
    - Calls `showNodeContextMenu(nodeId, e.pageX, e.pageY)`.
 
    **`close_node.jstree`**: For workspace nodes, sends `PUT /update_workspace/{id}` with `{ expanded: false }`. Suppressed during programmatic collapse/expand operations (via `_suppressExpandPersist` flag).
@@ -514,8 +517,9 @@ Converts our menu item format to vakata's expected format. Key logic:
 | `changeColor` | Change Color | `fa-palette` | `showWorkspaceColorModal(wsId)` | never |
 | `moveTo` | Move to... | `fa-folder-open` | submenu via `buildWorkspaceMoveSubmenu(wsId)` | default workspace |
 | `deleteWs` | Delete | `fa-trash` | `deleteWorkspace(wsId)` | default workspace |
+| `closeMenu` | Close | `fa-times` | `$.vakata.context.hide()` | never |
 
-Separators: before `rename` and before `deleteWs`.
+Separators: before `rename`, before `deleteWs`, and before `closeMenu`.
 
 **`buildConversationContextMenu(node)`** — items for conversation nodes:
 
@@ -528,8 +532,9 @@ Separators: before `rename` and before `deleteWs`.
 | `flag` | Set Flag | `fa-flag` | submenu via `buildFlagSubmenu(convId)` |
 | `moveTo` | Move to... | `fa-folder-open` | submenu via `buildConversationMoveSubmenu(convId)` |
 | `deleteConv` | Delete | `fa-trash` | `DELETE /delete_conversation/{convId}` then reload |
+| `closeMenu` | Close | `fa-times` | `$.vakata.context.hide()` |
 
-Separators: after `copyConvRef`, before `clone`, and before `deleteConv`.
+Separators: after `copyConvRef`, before `clone`, before `deleteConv`, and before `closeMenu`.
 
 The `copyConvRef` item reads `node.li_attr['data-conversation-friendly-id']` which is populated from `conv.conversation_friendly_id` in `buildJsTreeData()`. See [Cross-Conversation Message References](../cross_conversation_references/README.md) for details.
 
@@ -705,9 +710,15 @@ Container:
 Menu items (`li > a`):
 - `font-size: 0.82rem; color: #e0e0e0; font-weight: 400; letter-spacing: 0.01em`
 - `text-shadow: none !important` — **critical fix**. Vakata's default CSS has `text-shadow: 1px 1px 0 white` which causes a blurry "double vision" effect on dark backgrounds.
+- `background-color: transparent !important; box-shadow: none !important` — overrides vakata's default light-theme base styles (`color: black`, `background-color: #e8eff7`)
+- `line-height: 2em; white-space: nowrap; border-radius: 2px` — overrides vakata's default `line-height: 2.4em`
 - `-webkit-font-smoothing: antialiased`
 
-Hover: `background: #094771; color: #fff`.
+Hover — three selectors needed for full specificity coverage:
+- `.vakata-context li > a:hover` — standard CSS hover
+- `.vakata-context li > a.vakata-context-hover` — vakata applies class on `<a>` element
+- `.vakata-context .vakata-context-hover > a` — vakata also applies class on `<li>` element (this selector was missing initially, causing the default light-blue `background-color: #e8eff7` and `box-shadow: 0 0 2px #0a6aa1` to bleed through)
+- All three: `background: #094771; background-color: #094771; color: #fff; box-shadow: none; text-shadow: none`
 Icons: `color: #888`, hover `color: #fff`.
 Separators: `border-top: 1px solid #454545; margin: 2px 0`.
 Disabled: `color: #666; cursor: default; no hover highlight`.
@@ -743,6 +754,12 @@ Flag color picker popover styles are preserved for any remnant DOM (`.flag-color
 7. **Move-to submenus showed no hierarchy**: The "Move to..." submenus for both workspaces and conversations used space-prefix indentation which was invisible in the rendered menu. Replaced with breadcrumb-style labels via `getWorkspaceBreadcrumb()` (e.g. `General > Private > Target`).
 
 8. **Workspace open/close wonky behavior**: `highlightActiveConversation()` unconditionally called `tree.close_all()` on every invocation, including when the user clicked a conversation. This meant every conversation click collapsed all manually-opened workspaces, making folder browsing impossible. Additionally, clicking an already-selected workspace wouldn't toggle it because jsTree's `select_node` event doesn't fire on already-selected nodes. Fixed by: (a) adding a `collapseOthers` parameter to `highlightActiveConversation()` — only `true` on page load, `false` (default) for user navigation; (b) immediately deselecting workspace nodes after toggle so subsequent clicks always fire `select_node`; (c) re-selecting the active conversation after workspace toggle to maintain its highlight.
+
+9. **Touch tap opening context menu on mobile**: On some mobile browsers, a normal finger tap on a jsTree node fires the `contextmenu` event (especially with the wholerow plugin). This caused the context menu to appear on every tap, not just long-press. Fixed by tracking `touchstart` timestamps via a `touchstart.ws` listener on the container, and checking elapsed time in the `contextmenu.ws` handler. If elapsed time is less than 400ms (`LONG_PRESS_MIN_MS`), the event is treated as a tap and suppressed. Genuine long-presses (≥400ms, typically ≥500ms on most browsers) still open the menu. Desktop right-clicks are unaffected since no `touchstart` timestamp is recorded.
+
+10. **Long-press context menu also navigating to conversation on mobile**: After fixing bug #9, a long-press correctly showed the context menu but the subsequent events when the finger lifts (`touchend`, `pointerup`, `click`) were caught by the mobile conversation interceptor and jsTree's `select_node.jstree` handler, which navigated to the long-pressed conversation. An initial boolean flag (`_contextMenuJustOpened`) failed because it was consumed by the first event handler (`touchend`) while `pointerup` still fired and navigated. Fixed by using a **timestamp** (`_contextMenuOpenedAt = Date.now()`) instead. Both the mobile interceptor and `select_node.jstree` now check `Date.now() - _contextMenuOpenedAt < 800` — all cascading events within the 800ms window are suppressed.
+
+11. **Vakata hover highlight showing light-theme colors**: The vakata context menu's default CSS uses the selector `.vakata-context .vakata-context-hover > a` (hover class on the `<li>` parent) to apply `background-color: #e8eff7` (light blue), `box-shadow: 0 0 2px #0a6aa1`, and `text-shadow: 1px 1px 0 white`. Our dark-theme overrides initially only targeted `.vakata-context li > a.vakata-context-hover` (class on the `<a>` element) and `.vakata-context li > a:hover`. The default's `<li>`-class selector was not covered, so the light-blue background and box shadow bled through. Fixed by adding `.vakata-context .vakata-context-hover > a` to the hover rule, and adding `background-color: transparent !important; box-shadow: none !important` to the base `li > a` rule to kill the default's base styles. Same pattern applied for icon color on hover (`.vakata-context .vakata-context-hover > a > i`).
 
 ## Files Modified
 
@@ -792,3 +809,9 @@ Flag color picker popover styles are preserved for any remnant DOM (`.flag-color
 15. **Temporary chat stateless ordering**: `createTemporaryConversation()` must mark stateless AFTER the tree reload completes. The `GET /list_conversation_by_user` endpoint (called during tree reload) has a cleanup pass that deletes all conversations where `c.stateless == True` (lines 1159-1171 in `endpoints/conversations.py`). If stateless is set before the reload, the conversation is permanently deleted before the user can interact with it. The tree reload also uses `autoselect=false` to prevent the internal autoselect logic from trying to load a stale conversation ID from the URL or localStorage.
 
 16. **`statelessConversation` suppressModal parameter**: `ConversationManager.statelessConversation(convId, suppressModal)` accepts an optional second argument. When `true`, the `#stateless-conversation-modal` is not shown. Used by `createTemporaryConversation()` since the user explicitly chose to start a temporary chat and doesn't need the "will be deleted on refresh" warning. Existing callers (context menu "Toggle Stateless", search domain auto-stateless) omit the parameter so the modal still appears.
+
+17. **Touch interaction coordination between context menu and navigation**: On touch devices, a long-press triggers two sequential events: (1) `contextmenu` (during the press, after ~500ms), and (2) `touchend`/`pointerup`/`click` (when the finger lifts). These are handled by three independent systems — the `contextmenu.ws` handler (shows the menu), the mobile conversation interceptor (navigates to conversations), and jsTree's `select_node.jstree` (also navigates). Without coordination, a long-press would both show the menu AND navigate. A boolean flag approach fails because the mobile interceptor registers the same handler for `touchend`, `pointerup`, and `click` — the flag gets consumed by the first event, but the second sails through. The fix uses a **timestamp** (`_contextMenuOpenedAt = Date.now()`): all three navigation paths check `Date.now() - _contextMenuOpenedAt < 800` and suppress if within the window. Additionally, short taps on some mobile browsers spuriously fire `contextmenu` — the `touchstart.ws` timestamp + 400ms threshold (`LONG_PRESS_MIN_MS`) filters these out. The overall touch interaction matrix: (a) short tap → navigate only, no menu; (b) long-press → menu only, no navigation; (c) desktop right-click → menu only (mobile interceptor only runs at ≤768px width).
+
+18. **Vakata CSS selector specificity**: Vakata's default stylesheet applies hover styles via two different selector patterns — `.vakata-context li > a.vakata-context-hover` (class on the `<a>`) and `.vakata-context .vakata-context-hover > a` (class on the `<li>`). Both must be overridden to fully replace the light-theme hover. Similarly, the base `li > a` rule must explicitly set `background-color: transparent` and `box-shadow: none` because vakata's defaults set these to light-theme values. When adding new vakata style overrides, always check both selector patterns.
+
+19. **Close menu item**: Both workspace and conversation context menus include a "Close" item (`fa-times`) as the last entry (with a separator before it). This calls `$.vakata.context.hide()`. It is defined once in `_closeMenuItem()` and referenced by both menu builders. This is especially useful on touch devices where dismissing the menu by tapping elsewhere may be less intuitive.

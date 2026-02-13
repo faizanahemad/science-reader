@@ -230,13 +230,21 @@
     text-shadow: none !important;
     -webkit-font-smoothing: antialiased !important;
     -moz-osx-font-smoothing: grayscale !important;
+    line-height: 2em !important;
+    white-space: nowrap !important;
+    border-radius: 2px !important;
+    background-color: transparent !important;
+    box-shadow: none !important;
 }
 
 .vakata-context li > a:hover,
-.vakata-context li > a.vakata-context-hover {
+.vakata-context li > a.vakata-context-hover,
+.vakata-context .vakata-context-hover > a {
     background: #094771 !important;
+    background-color: #094771 !important;
     color: #fff !important;
     box-shadow: none !important;
+    text-shadow: none !important;
 }
 
 .vakata-context li > a > i {
@@ -244,7 +252,8 @@
     color: #888 !important;
 }
 
-.vakata-context li > a.vakata-context-hover > i {
+.vakata-context li > a.vakata-context-hover > i,
+.vakata-context .vakata-context-hover > a > i {
     color: #fff !important;
 }
 

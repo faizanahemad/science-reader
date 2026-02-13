@@ -20,6 +20,7 @@ var WorkspaceManager = {
     _pendingHighlight: null,
     _pendingHighlightCollapse: false,
     _suppressExpandPersist: false,
+    _contextMenuOpenedAt: 0,
 
     get defaultWorkspaceId() {
         var email = (typeof userDetails !== 'undefined' && userDetails.email) ? userDetails.email : 'unknown';
@@ -70,6 +71,12 @@ var WorkspaceManager = {
                 if (!isMobileWidth()) return;
                 if (e.type === 'touchend') lastTouchTs = Date.now();
                 if (e.type === 'click' && (Date.now() - lastTouchTs) < CLICK_AFTER_TOUCH_MS) return;
+
+                // Long-press opened context menu — don't navigate on the subsequent touchend/click
+                if (WorkspaceManager._contextMenuOpenedAt > 0 &&
+                    (Date.now() - WorkspaceManager._contextMenuOpenedAt) < 800) {
+                    return;
+                }
 
                 var target = e.target;
                 if (!target || !target.closest) return;
@@ -424,6 +431,13 @@ var WorkspaceManager = {
         });
 
         container.off('select_node.jstree').on('select_node.jstree', function (e, data) {
+            // Suppress selection triggered by touch events right after context menu opened
+            if (self._contextMenuOpenedAt > 0 &&
+                (Date.now() - self._contextMenuOpenedAt) < 800) {
+                var tree = $('#workspaces-container').jstree(true);
+                if (tree) tree.deselect_node(data.node, true);
+                return;
+            }
             var nodeId = data.node.id;
             if (nodeId.indexOf('ws_') === 0) {
                 // Workspace click: toggle expand/collapse, then deselect
@@ -474,6 +488,14 @@ var WorkspaceManager = {
             }
         });
 
+        // Mobile tap fires 'contextmenu' on some browsers — track touchstart
+        // time so we can reject taps (< 400 ms) and only show menu on long-press.
+        var _lastTouchStartTs = 0;
+        var LONG_PRESS_MIN_MS = 400;
+        container.off('touchstart.ws').on('touchstart.ws', function () {
+            _lastTouchStartTs = Date.now();
+        });
+
         // Right-click handler — catch contextmenu on any element inside the tree.
         // Bind on the container itself to catch clicks on <li>, ocl, anchor, wholerow etc.
         container.off('contextmenu.ws').on('contextmenu.ws', function (e) {
@@ -482,12 +504,23 @@ var WorkspaceManager = {
             var $node = $target.closest('.jstree-node');
             if (!$node.length) return;
 
+            // Reject short touch (tap) — only long-press should open menu
+            if (_lastTouchStartTs > 0) {
+                var elapsed = Date.now() - _lastTouchStartTs;
+                _lastTouchStartTs = 0;
+                if (elapsed < LONG_PRESS_MIN_MS) {
+                    e.preventDefault();
+                    return;
+                }
+            }
+
             e.preventDefault();
             e.stopPropagation();
             e.stopImmediatePropagation();
 
             var nodeId = $node.attr('id');
             if (nodeId) {
+                self._contextMenuOpenedAt = Date.now();
                 self.showNodeContextMenu(nodeId, e.pageX, e.pageY);
             }
         });
@@ -649,6 +682,15 @@ var WorkspaceManager = {
         return {};
     },
 
+    _closeMenuItem: function () {
+        return {
+            separator_before: true,
+            label: 'Close',
+            icon: 'fa fa-times',
+            action: function () { $.vakata.context.hide(); }
+        };
+    },
+
     buildWorkspaceContextMenu: function (node) {
         var self = this;
         var wsId = node.id.substring(3);
@@ -689,7 +731,8 @@ var WorkspaceManager = {
                 icon: 'fa fa-trash',
                 _disabled: isDefault,
                 action: function () { self.deleteWorkspace(wsId); }
-            }
+            },
+            closeMenu: self._closeMenuItem()
         };
         return items;
     },
@@ -772,7 +815,8 @@ var WorkspaceManager = {
                         }
                     });
                 }
-            }
+            },
+            closeMenu: self._closeMenuItem()
         };
         return items;
     },

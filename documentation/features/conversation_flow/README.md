@@ -149,7 +149,7 @@ jsTree initializes asynchronously. `highlightActiveConversation(conversationId)`
 
 ### Mobile sidebar behavior
 
-A capture-phase event interceptor (`installMobileConversationInterceptor`) listens for `touchend`/`pointerup`/`click` on `document`. On mobile widths (<=768px), tapping a conversation node hides the sidebar (`#chat-assistant-sidebar` gets `d-none`) and expands the chat area before calling `ConversationManager.setActiveConversation()`.
+A capture-phase event interceptor (`installMobileConversationInterceptor`) listens for `touchend`/`pointerup`/`click` on `document`. On mobile widths (<=768px), tapping a conversation node hides the sidebar (`#chat-assistant-sidebar` gets `d-none`) and expands the chat area before calling `ConversationManager.setActiveConversation()`. The interceptor checks `WorkspaceManager._contextMenuOpenedAt` — if the context menu was opened within the last 800ms (set when a long-press or right-click triggers the context menu), the handler skips navigation. This prevents a long-press from both showing the menu and switching conversations. A timestamp is used instead of a boolean because the same handler fires for three events in sequence (`touchend` → `pointerup` → `click`); a boolean would be consumed by the first and the second would navigate. The jsTree `select_node.jstree` handler has the same 800ms guard.
 
 ### Context menus (conversation management from sidebar)
 
