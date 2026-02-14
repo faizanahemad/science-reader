@@ -18,6 +18,13 @@
 
 **Current buttons:** `attach-page-btn`, `attach-screenshot-btn`, `attach-scrollshot-btn`, `multi-tab-btn`, `voice-btn`
 
+**Additional page-context-bar actions (added separately):** `view-content-btn` (eye icon — opens content viewer modal to inspect/copy extracted text with pagination), `remove-page-context` (close icon).
+
+**Related features (implemented separately, not part of this plan):**
+- **Inner scroll container detection**: The scrollshot button (`attach-scrollshot-btn`) now uses a capture context protocol (`INIT_CAPTURE_CONTEXT`) that detects inner scrollable elements in web apps like Office Word Online, Google Docs, Notion, etc. instead of only scrolling the window.
+- **Pipelined capture + OCR**: OCR requests fire per screenshot during capture rather than waiting for all screenshots to complete. Reduces total OCR time by 40-60%.
+- **Content viewer**: Clicking the page-context title or the eye icon opens a paginated viewer showing extracted/OCR text with copy-to-clipboard.
+
 **Add after `attach-page-btn` (line 278):**
 ```html
 <button id="refresh-page-btn" class="action-btn" title="Refresh content (replace)" disabled>

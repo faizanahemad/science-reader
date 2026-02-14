@@ -320,6 +320,10 @@ await API.sendMessageStreaming(conversation.conversation_id,
 **Full-page OCR capture notes:**
 - Before capture starts, the worker scrolls to the top if the page is not already at `scrollY=0`.
 - Capture uses an overlap step to avoid missing content between screenshots.
+- The worker uses the **capture context protocol** (`INIT_CAPTURE_CONTEXT` / `SCROLL_CONTEXT_TO`) to detect whether the scroll target is the window or an inner element (e.g., Office Word Online's `.WACViewPanel`, Google Docs' `#kix-appview`, Notion's `.notion-scroller`). If the content script doesn't support the new protocol, it falls back to legacy `GET_PAGE_METRICS` / `SCROLL_TO` (window-only scrolling).
+- Detection pipeline in the content script: (1) known host-specific selectors, (2) window scrollability check, (3) heuristic viewport-point sampling with scoring, (4) scrollTop probe for custom-scrollbar elements, (5) minimal window fallback.
+- Step size and overlap use the scroll target's `clientHeight` (visible area of the inner container), not `window.innerHeight`, so inner panels shorter than the viewport are handled correctly.
+- Metrics are re-checked every 5 frames during capture to handle virtualized content where `scrollHeight` grows as you scroll.
 
 **Context Menu Items Created:**
 
@@ -343,6 +347,7 @@ await API.sendMessageStreaming(conversation.conversation_id,
 | `GET_TAB_INFO` | `handleGetTabInfo()` | `{ tabId, url, title }` |
 | `GET_ALL_TABS` | `handleGetAllTabs()` | `{ tabs: array }` |
 | `CAPTURE_SCREENSHOT` | `handleCaptureScreenshot()` | `{ screenshot: dataURL }` |
+| `CAPTURE_FULLPAGE_SCREENSHOTS` | `handleCaptureFullPageScreenshots()` | `{ screenshots[], url, title, meta }` |
 | `AUTH_STATE_CHANGED` | `broadcastAuthState()` | `{ success: true }` |
 
 **Internal Functions:**
@@ -452,7 +457,8 @@ import { MODELS, MESSAGE_TYPES } from '../shared/constants.js';
 - **Header + panels**: `toggle-sidebar` (toggle sidebar), `new-chat-btn` (new chat), `settings-btn` (open settings), `sidebar` (sidebar), `sidebar-overlay` (overlay), `close-sidebar` (close sidebar), `settings-panel` (settings), `close-settings` (close settings)
 - **Conversation list**: `conversation-list` (list), `conversation-empty` (empty state), `sidebar-new-chat` (new chat shortcut)
 - **Settings controls**: `model-select`, `prompt-select`, `agent-select`, `workflow-select`, `workflow-new`, `workflow-save`, `workflow-delete`, `workflow-name`, `workflow-steps`, `workflow-add-step`, `history-length-slider`, `history-value`, `auto-include-page`, `settings-user-email`, `logout-btn`
-- **Chat**: `page-context-bar` (attached page indicator), `page-context-title` (title), `page-context-badge` (source count), `remove-page-context` (detach), `chat-container` (scroll container), `welcome-screen`, `messages-container`, `streaming-indicator`
+- **Chat**: `page-context-bar` (attached page indicator), `page-context-title` (title, clickable to open content viewer), `page-context-badge` (source count), `view-content-btn` (eye icon, opens content viewer), `remove-page-context` (detach), `chat-container` (scroll container), `welcome-screen`, `messages-container`, `streaming-indicator`
+- **Content Viewer**: `content-viewer-modal` (fullscreen modal), `content-viewer-title` (dynamic title based on content type), `content-viewer-pagination` (prev/next/all page controls), `cv-prev-page`, `cv-next-page`, `cv-show-all`, `cv-page-indicator`, `content-viewer-text` (pre element with monospace text), `content-viewer-screenshot` (screenshot image display), `cv-char-count` (character count), `cv-copy-page` (copy current page), `cv-copy-all` (copy all pages)
 - **Input**: `attach-page-btn` (attach page), `refresh-page-btn` (refresh/replace), `append-page-btn` (append/merge), `multi-tab-btn` (multi-tab), `voice-btn` (voice placeholder), `message-input` (textarea), `send-btn` (send), `stop-btn-container`, `stop-btn`
 - **Attachments**: drag/drop images into the input area to include them in the next LLM call (`images[]` in `/ext/chat/<id>`).
 - **Workflow UI**: settings panel includes workflow select + inline editor (step title + prompt, add/remove, save/delete).
@@ -503,6 +509,8 @@ const state = {
 - **Input**: `handleInputChange(): ()→void` (resize + button state); `handleInputKeydown(e): (Event)→void` (Enter send, Shift+Enter newline); `updateSendButton(): ()→void` (enable/disable)
 - **Send/Streaming**: `sendMessage(): async ()→void` (send w/ streaming); `stopStreaming(): ()→void` (cancel); `updateConversationInList(preview): (string)→void` (update preview/title)
 - **Page Context**: `attachPageContent(): async ()→void` (attach); `refreshPageContent(): async ()→void` (replace); `appendPageContent(): async ()→void` (merge); `removePageContext(): ()→void` (detach); `setPageContextBadge(text): ()→void` (source count); `updatePageContextButtons(): ()→void` (enable/disable/active state)
+- **Screenshot/OCR**: `attachScreenshotFromPage(): async ()→void` (single viewport screenshot); `attachScrollingScreenshotFromPage(): async ()→void` (full-page scrollshot + OCR); `captureFullPageScreenshots(options): async (object)→object|null` (batch capture via service worker); `captureAndOcrPipelined(extractResponse, options): async (object, object)→object|null` (sidepanel-driven capture loop firing OCR per screenshot in parallel); `buildOcrPageContext(extractResponse): async (object)→object|null` (tries pipelined then batch); `buildPageContextFromResponse(response, options): async (object, object)→object|null` (text/OCR/screenshot fallback); `getCachedOcr(url): (string)→object|null`; `setCachedOcr(url, entry): (string, object)→void`; `clearOcrCache(): ()→void`
+- **Content Viewer**: `showContentViewer(): ()→void` (open viewer modal with current pageContext data); `renderContentViewerPage(): ()→void` (render current page or all-pages view); `cvGoToPage(delta): (number)→void` (prev/next pagination); `cvToggleAll(): ()→void` (toggle paginated vs all-pages); `cvCopyToClipboard(text): (string)→void` (copy with toast); `closeContentViewer(): ()→void` (hide modal)
 - **Multi-Tab**: `showTabModal(): async ()→void` (open selector); `handleTabSelection(): async ()→void` (extract + combine); `truncateUrl(url): (string)→string` (shorten for display); `updateTabSelectionCount(): ()→void` (confirm label); `updateMultiTabIndicator(): ()→void` (tooltip)
 - **Quick Suggestions**: `handleQuickSuggestion(action): async (string)→void` (handle suggestion buttons)
 - **Runtime**: `handleRuntimeMessage(msg, sender, respond): (object, object, function)→void` (incoming messages)
@@ -560,12 +568,12 @@ const state = {
 - **Modal**: `injectModalStyles(): ()→void` (inject modal CSS); `showModal(title): (string)→void` (show loading modal); `updateModalContent(content): (string)→void` (update modal HTML); `closeModal(): ()→void` (remove modal); `copyModalContent(): ()→void` (copy); `continueInChat(): ()→void` (open sidepanel)
 - **Quick actions**: `handleQuickAction(action, text): async (string, string)→void` (process action)
 
-**Message Listener (compact):** `EXTRACT_PAGE → { title, url, content, meta, length }`; `GET_SELECTION → { text, hasSelection }`; `QUICK_ACTION → { success:true }` (calls `handleQuickAction`); `SHOW_MODAL → { success:true }`; `HIDE_MODAL → { success:true }`
+**Message Listener (compact):** `EXTRACT_PAGE -> { title, url, content, meta, length }`; `GET_SELECTION -> { text, hasSelection }`; `GET_PAGE_METRICS -> { scrollHeight, viewportHeight, ... }` (legacy); `SCROLL_TO -> { scrollY }` (legacy); `INIT_CAPTURE_CONTEXT -> { ok, contextId, target, metrics, page }` (detects inner scroll container); `SCROLL_CONTEXT_TO -> { ok, scrollTop }` (scrolls detected container); `GET_CONTEXT_METRICS -> { ok, metrics }` (re-reads scroll dimensions); `RELEASE_CAPTURE_CONTEXT -> { ok }` (cleanup); `QUICK_ACTION -> { success:true }` (calls `handleQuickAction`); `SHOW_MODAL -> { success:true }`; `HIDE_MODAL -> { success:true }`
 
 **Content Extraction Logic:**
 1. Check for user selection (>100 chars) - use that preferentially
 2. Detect site and use site-specific extractor (Google Docs, Reddit, etc.)
-3. For canvas-based apps, set `needsScreenshot: true` flag
+3. For canvas-based apps, set `needsScreenshot: true` flag. Google Docs detection uses a 500-char threshold on "meaningful" text (filters out toolbar/chrome text like menu items, page indicators, font names via regex) to avoid false positives where UI chrome text exceeds the threshold.
 4. Fall back to generic extraction:
    - Try selectors: `article`, `[role="main"]`, `main`, `.post-content`, etc.
    - Fall back to `document.body`
@@ -579,7 +587,15 @@ const state = {
 - Click opens sidepanel via `chrome.runtime.sendMessage`
 - Styled in `injectModalStyles()` function
 
-**Canvas Pages (OCR flow):** If `extractPageContent()` flags `needsScreenshot`, the sidepanel requests **full-page scroll screenshots** (with overlap), sends them to `POST /ext/ocr`, and uses the combined OCR text as page context. Results are cached in-memory and cleared on new chat.
+**Canvas Pages (OCR flow):** If `extractPageContent()` flags `needsScreenshot`, the sidepanel requests **full-page scroll screenshots** (with overlap), sends them to `POST /ext/ocr` (default model: `google/gemini-2.5-flash-lite`, configurable via `EXT_OCR_MODEL`), and uses the combined OCR text as page context. Results are cached in-memory and cleared on new chat.
+
+**OCR Context Persistence:** Once OCR content is attached (via scrollshot or auto-detection), it is preserved across subsequent chat messages and not overwritten by DOM re-extraction. Guards in `attachPageContent()`, `handleQuickSuggestion('summarize')`, and `handleRuntimeMessage(ADD_TO_CHAT)` check `state.pageContext.isOcr` before overwriting. OCR context is only replaced when the user explicitly clicks: remove (X button), refresh content, another screenshot/scrollshot, or multi-tab.
+
+**Inner Scroll Container Support:** The capture context protocol detects when the scrollable area is an inner element (not the window). This handles apps like Office Word Online (`.WACViewPanel`), Google Docs (`#kix-appview`), Notion (`.notion-scroller`), Confluence, Slack, Airtable, Overleaf, and any app with a fixed shell + scrollable main panel. Detection uses a 5-stage pipeline: known host-specific selectors, window check, heuristic viewport-point sampling with area/scroll/center scoring, scrollTop probe for custom-scrollbar elements, and a minimal window fallback. The service worker falls back to legacy window scrolling if the content script doesn't support the new protocol.
+
+**Pipelined Capture + OCR:** The sidepanel can drive the capture loop directly (via `chrome.tabs.captureVisibleTab` and `chrome.tabs.sendMessage`) instead of delegating to the service worker. This enables firing individual `POST /ext/ocr` requests for each screenshot immediately as it's captured, so OCR runs in parallel with ongoing screenshot capture. For a 10-page document, this can cut total time by 40-60% compared to the batch approach (capture all, then OCR all). Falls back to the batch approach if the pipelined path fails. Progress is shown in the page context bar (e.g., "Capturing 3/8 (OCR running in parallel)...").
+
+**Content Viewer:** Users can view, paginate, and copy extracted content by clicking the page context title or the eye icon in the page-context-bar. The viewer modal shows: (1) For multi-page OCR: paginated text with prev/next/all controls and per-page character count, (2) For single screenshots: the screenshot image plus any OCR text, (3) For multi-tab/multi-source: each source as a separate page, (4) For regular extraction: full text dump. Copy Page copies current page text; Copy All copies all pages with `--- Page N ---` dividers. The viewer uses monospace text with word-wrap for faithful rendering of extracted content.
 
 ---
 

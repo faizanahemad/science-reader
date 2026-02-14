@@ -92,6 +92,10 @@ extension/
 - **Conversations**: Create, list, delete conversations
 - **Settings**: Model, prompt, history length, auto-include page
 - **Page Integration**: Extract page content, refresh/append context for SPAs, and include in messages
+- **Screenshot & OCR**: Viewport screenshots, full-page scrolling screenshots with vision-LLM OCR
+- **Inner Scroll Detection**: Automatically detects inner scrollable containers (Office Word Online, Google Docs, Notion, Confluence, Slack, Overleaf, etc.) for correct full-page capture in web apps with fixed shells
+- **Pipelined OCR**: Fires OCR per screenshot as it's captured (40-60% faster than batch)
+- **Content Viewer**: Paginated viewer for extracted/OCR text with per-page navigation and copy-to-clipboard
 - **Context Menu**: Right-click actions (explain, summarize, etc)
 - **Quick Actions**: Summarize page, ask about selection
 - **Markdown**: Rendered responses with syntax highlighting

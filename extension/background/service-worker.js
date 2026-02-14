@@ -443,8 +443,13 @@ async function ensureExtractorInjected(tabId) {
 }
 
 /**
- * Capture full-page screenshots by scrolling the page and grabbing visible frames.
- * @param {Object} message - Capture options.
+ * Capture full-page screenshots by detecting the scroll container (window or inner element),
+ * scrolling it step-by-step with overlap, and grabbing visible frames.
+ *
+ * Uses INIT_CAPTURE_CONTEXT / SCROLL_CONTEXT_TO for inner scroll support.
+ * Falls back to legacy GET_PAGE_METRICS / SCROLL_TO if the content script is outdated.
+ *
+ * @param {Object} message - Capture options (overlapRatio, delayMs, tabId).
  * @param {Object} sender - Message sender.
  * @param {Function} sendResponse - Response callback.
  */
@@ -475,12 +480,49 @@ async function handleCaptureFullPageScreenshots(message, sender, sendResponse) {
 
         await ensureExtractorInjected(tab.id);
 
-        const metrics = await chrome.tabs.sendMessage(tab.id, { type: MESSAGE_TYPES.GET_PAGE_METRICS });
-        const viewportHeight = Math.max(1, metrics.viewportHeight || 1);
-        const scrollHeight = Math.max(viewportHeight, metrics.scrollHeight || viewportHeight);
-        const maxScrollTop = Math.max(0, scrollHeight - viewportHeight);
-        const overlapPx = Math.max(0, Math.round(viewportHeight * overlapRatio));
-        const step = Math.max(100, viewportHeight - overlapPx);
+        // Try new capture context protocol (supports inner scroll containers)
+        let useContextProtocol = false;
+        let contextId = null;
+        let scrollHeight, clientHeight, maxScrollTop, originalScrollTop;
+        let targetKind = 'window';
+        let targetDescription = 'legacy';
+
+        try {
+            const ctxResult = await chrome.tabs.sendMessage(tab.id, {
+                type: MESSAGE_TYPES.INIT_CAPTURE_CONTEXT,
+                options: {}
+            });
+
+            if (ctxResult && ctxResult.ok) {
+                useContextProtocol = true;
+                contextId = ctxResult.contextId;
+                scrollHeight = ctxResult.metrics.scrollHeight;
+                clientHeight = ctxResult.metrics.clientHeight;
+                maxScrollTop = ctxResult.metrics.maxScrollTop;
+                originalScrollTop = ctxResult.metrics.scrollTop;
+                targetKind = ctxResult.target.kind;
+                targetDescription = ctxResult.target.description;
+                console.log(`[AI Assistant] Capture context: ${targetKind} (${targetDescription}), ` +
+                    `scrollHeight=${scrollHeight}, clientHeight=${clientHeight}`);
+            } else if (ctxResult && !ctxResult.ok) {
+                console.log(`[AI Assistant] Capture context failed: ${ctxResult.reason}. ` +
+                    `Falling back to legacy scroll.`);
+            }
+        } catch (ctxErr) {
+            console.log('[AI Assistant] INIT_CAPTURE_CONTEXT not supported, using legacy:', ctxErr.message);
+        }
+
+        // Fallback to legacy protocol
+        if (!useContextProtocol) {
+            const metrics = await chrome.tabs.sendMessage(tab.id, { type: MESSAGE_TYPES.GET_PAGE_METRICS });
+            clientHeight = Math.max(1, metrics.viewportHeight || 1);
+            scrollHeight = Math.max(clientHeight, metrics.scrollHeight || clientHeight);
+            maxScrollTop = Math.max(0, scrollHeight - clientHeight);
+            originalScrollTop = metrics.scrollY || 0;
+        }
+
+        const overlapPx = Math.max(0, Math.round(clientHeight * overlapRatio));
+        const step = Math.max(100, clientHeight - overlapPx);
 
         const positions = [];
         for (let y = 0; y <= maxScrollTop; y += step) {
@@ -490,25 +532,65 @@ async function handleCaptureFullPageScreenshots(message, sender, sendResponse) {
             positions.push(maxScrollTop);
         }
 
-        const originalScrollY = metrics.scrollY || 0;
-
-        if (originalScrollY > 0) {
-            await chrome.tabs.sendMessage(tab.id, { type: MESSAGE_TYPES.SCROLL_TO, y: 0 });
+        // Scroll to top before capture
+        if (originalScrollTop > 0) {
+            if (useContextProtocol) {
+                await chrome.tabs.sendMessage(tab.id, {
+                    type: MESSAGE_TYPES.SCROLL_CONTEXT_TO,
+                    contextId,
+                    top: 0
+                });
+            } else {
+                await chrome.tabs.sendMessage(tab.id, { type: MESSAGE_TYPES.SCROLL_TO, y: 0 });
+            }
             await new Promise(resolve => setTimeout(resolve, delayMs));
         }
 
         const screenshots = [];
         for (let i = 0; i < positions.length; i += 1) {
             const y = positions[i];
-            await chrome.tabs.sendMessage(tab.id, { type: MESSAGE_TYPES.SCROLL_TO, y });
+
+            if (useContextProtocol) {
+                await chrome.tabs.sendMessage(tab.id, {
+                    type: MESSAGE_TYPES.SCROLL_CONTEXT_TO,
+                    contextId,
+                    top: y
+                });
+            } else {
+                await chrome.tabs.sendMessage(tab.id, { type: MESSAGE_TYPES.SCROLL_TO, y });
+            }
             await new Promise(resolve => setTimeout(resolve, delayMs));
+
+            // Re-check metrics mid-capture for virtualized content (every 5 frames)
+            if (useContextProtocol && i > 0 && i % 5 === 0) {
+                try {
+                    const refreshed = await chrome.tabs.sendMessage(tab.id, {
+                        type: MESSAGE_TYPES.GET_CONTEXT_METRICS,
+                        contextId
+                    });
+                    if (refreshed?.ok && refreshed.metrics.maxScrollTop > maxScrollTop) {
+                        maxScrollTop = refreshed.metrics.maxScrollTop;
+                        scrollHeight = refreshed.metrics.scrollHeight;
+                        // Extend positions if content grew
+                        const lastPos = positions[positions.length - 1];
+                        if (lastPos < maxScrollTop) {
+                            for (let ny = lastPos + step; ny <= maxScrollTop; ny += step) {
+                                positions.push(ny);
+                            }
+                            if (positions[positions.length - 1] !== maxScrollTop) {
+                                positions.push(maxScrollTop);
+                            }
+                        }
+                    }
+                } catch (_) { /* non-critical */ }
+            }
+
             try {
                 const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
                 screenshots.push(dataUrl);
             } catch (e) {
                 const msg = e?.message || String(e);
                 if (msg.includes('MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND')) {
-                    // Backoff and retry once
                     await new Promise(resolve => setTimeout(resolve, 1200));
                     const retryUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
                     screenshots.push(retryUrl);
@@ -518,7 +600,20 @@ async function handleCaptureFullPageScreenshots(message, sender, sendResponse) {
             }
         }
 
-        await chrome.tabs.sendMessage(tab.id, { type: MESSAGE_TYPES.SCROLL_TO, y: originalScrollY });
+        // Restore original scroll position
+        if (useContextProtocol) {
+            await chrome.tabs.sendMessage(tab.id, {
+                type: MESSAGE_TYPES.SCROLL_CONTEXT_TO,
+                contextId,
+                top: originalScrollTop
+            });
+            await chrome.tabs.sendMessage(tab.id, {
+                type: MESSAGE_TYPES.RELEASE_CAPTURE_CONTEXT,
+                contextId
+            });
+        } else {
+            await chrome.tabs.sendMessage(tab.id, { type: MESSAGE_TYPES.SCROLL_TO, y: originalScrollTop });
+        }
 
         sendResponse({
             screenshots,
@@ -526,10 +621,13 @@ async function handleCaptureFullPageScreenshots(message, sender, sendResponse) {
             title: tab.title,
             meta: {
                 scrollHeight,
-                viewportHeight,
+                clientHeight,
+                viewportHeight: clientHeight,
                 step,
                 overlapPx,
-                total: screenshots.length
+                total: screenshots.length,
+                targetKind,
+                targetDescription
             }
         });
     } catch (e) {

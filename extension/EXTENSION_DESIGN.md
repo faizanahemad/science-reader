@@ -52,7 +52,10 @@ Build a Chrome extension that provides AI-powered assistance for web browsing, i
 - Custom scripts (Tampermonkey-like)
 - Right-click context menu augmentation
 - STT for input fields
-- Screenshot capture
+- Screenshot capture (viewport + full-page scrolling with OCR)
+- Inner scroll container detection for web apps (Office Word Online, Google Docs, Notion, etc.)
+- Pipelined capture + OCR for faster full-page content extraction
+- Content viewer with pagination and copy-to-clipboard for extracted/OCR content
 - Temporary conversations (default)
 
 ### 1.4 Phase 2 Scope (Future)
@@ -648,10 +651,14 @@ PUT /ext/settings
 | FR-PAGE-02a | User can refresh page context | Existing context replaced with latest extraction |
 | FR-PAGE-02b | User can append page context | Existing context merged with new extraction |
 | FR-PAGE-03 | User can capture viewport screenshot | Screenshot captured and attached |
+| FR-PAGE-03a | Full-page scrolling screenshot with OCR | Scroll + capture + OCR text extracted |
+| FR-PAGE-03b | Inner scroll container detection | Detects inner scrollable elements (Office Word Online, Notion, etc.) instead of only window scroll |
+| FR-PAGE-03c | Pipelined capture + OCR | OCR starts per screenshot during capture, not after all screenshots complete |
 | FR-PAGE-04 | User can select text to include | Selected text used as context |
 | FR-PAGE-05 | User can read multiple tabs | Tab selector, content from multiple tabs |
 | FR-PAGE-06 | One-click page summarization | Summary generated and displayed |
 | FR-PAGE-07 | Custom scripts run on matching pages | Scripts execute automatically |
+| FR-PAGE-08 | User can view extracted content | Paginated viewer with copy-to-clipboard for OCR/extracted text |
 
 ### 7.5 Context Menu
 
@@ -705,6 +712,7 @@ PUT /ext/settings
 | NFR-PERF-03 | LLM response start | < 2s to first token |
 | NFR-PERF-04 | Extension memory usage | < 50MB idle, < 100MB active |
 | NFR-PERF-05 | Extension load time | < 1s to interactive |
+| NFR-PERF-06 | Full-page OCR (pipelined) | 40-60% faster than batch via parallel capture+OCR |
 
 ### 8.2 Security
 

@@ -149,6 +149,22 @@ const closeTabModalBtn = document.getElementById('close-tab-modal');
 const cancelTabModalBtn = document.getElementById('cancel-tab-modal');
 const confirmTabModalBtn = document.getElementById('confirm-tab-modal');
 
+// Content Viewer Modal
+const contentViewerModal = document.getElementById('content-viewer-modal');
+const contentViewerTitle = document.getElementById('content-viewer-title');
+const contentViewerPagination = document.getElementById('content-viewer-pagination');
+const contentViewerText = document.getElementById('content-viewer-text');
+const contentViewerScreenshot = document.getElementById('content-viewer-screenshot');
+const cvPrevPage = document.getElementById('cv-prev-page');
+const cvNextPage = document.getElementById('cv-next-page');
+const cvShowAll = document.getElementById('cv-show-all');
+const cvPageIndicator = document.getElementById('cv-page-indicator');
+const cvCharCount = document.getElementById('cv-char-count');
+const cvCopyPage = document.getElementById('cv-copy-page');
+const cvCopyAll = document.getElementById('cv-copy-all');
+const closeContentViewerBtn = document.getElementById('close-content-viewer');
+const viewContentBtn = document.getElementById('view-content-btn');
+
 // Quick suggestions
 const suggestionBtns = document.querySelectorAll('.suggestion-btn');
 
@@ -377,6 +393,7 @@ function setupEventListeners() {
     attachScreenshotBtn?.addEventListener('click', attachScreenshotFromPage);
     attachScrollshotBtn?.addEventListener('click', attachScrollingScreenshotFromPage);
     removePageContextBtn.addEventListener('click', removePageContext);
+    pageContextTitle.addEventListener('click', showContentViewer);
     
     // Multi-tab
     multiTabBtn.addEventListener('click', showTabModal);
@@ -1846,7 +1863,180 @@ async function captureFullPageScreenshots(options = {}) {
 }
 
 /**
+ * Pipelined capture + OCR: captures screenshots one at a time and fires OCR
+ * requests immediately for each, so OCR runs in parallel with ongoing capture.
+ *
+ * The sidepanel drives the scroll+capture loop directly (using chrome.tabs APIs)
+ * instead of delegating to the service worker, enabling per-screenshot OCR dispatch.
+ *
+ * Falls back to the batch approach (captureFullPageScreenshots + ocrScreenshots)
+ * if the pipelined approach fails at any stage.
+ *
+ * @param {Object} extractResponse - { url, title } from page extraction.
+ * @param {Object} options - { overlapRatio, delayMs, onProgress }
+ * @returns {Promise<{text: string, pages: Array, meta: Object}|null>}
+ */
+async function captureAndOcrPipelined(extractResponse, options = {}) {
+    const overlapRatio = options.overlapRatio ?? 0.1;
+    const delayMs = options.delayMs ?? 1000;
+    const onProgress = options.onProgress || function() {};
+
+    let tab;
+    try {
+        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        tab = tabs[0];
+    } catch (_) {
+        return null;
+    }
+    if (!tab?.id) return null;
+
+    let contextId = null;
+    let ctxResult;
+    try {
+        ctxResult = await chrome.tabs.sendMessage(tab.id, {
+            type: MESSAGE_TYPES.INIT_CAPTURE_CONTEXT,
+            options: {}
+        });
+    } catch (err) {
+        console.warn('[Sidepanel] Pipelined capture: INIT_CAPTURE_CONTEXT failed:', err.message);
+        return null;
+    }
+
+    if (!ctxResult?.ok) {
+        console.warn('[Sidepanel] Pipelined capture: no scroll target:', ctxResult?.reason);
+        return null;
+    }
+
+    contextId = ctxResult.contextId;
+    const { scrollHeight, clientHeight, maxScrollTop, scrollTop: originalScrollTop } = ctxResult.metrics;
+    const targetKind = ctxResult.target.kind;
+
+    const overlapPx = Math.max(0, Math.round(clientHeight * overlapRatio));
+    const step = Math.max(100, clientHeight - overlapPx);
+
+    const positions = [];
+    for (let y = 0; y <= maxScrollTop; y += step) {
+        positions.push(y);
+    }
+    if (positions.length === 0 || positions[positions.length - 1] !== maxScrollTop) {
+        positions.push(maxScrollTop);
+    }
+
+    onProgress({ phase: 'starting', total: positions.length, captured: 0, ocrDone: 0 });
+
+    // Scroll to top
+    if (originalScrollTop > 0) {
+        await chrome.tabs.sendMessage(tab.id, {
+            type: MESSAGE_TYPES.SCROLL_CONTEXT_TO,
+            contextId,
+            top: 0
+        });
+        await new Promise(r => setTimeout(r, delayMs));
+    }
+
+    const ocrPromises = [];
+    let capturedCount = 0;
+
+    for (let i = 0; i < positions.length; i++) {
+        const y = positions[i];
+
+        await chrome.tabs.sendMessage(tab.id, {
+            type: MESSAGE_TYPES.SCROLL_CONTEXT_TO,
+            contextId,
+            top: y
+        });
+        await new Promise(r => setTimeout(r, delayMs));
+
+        let dataUrl;
+        try {
+            dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+        } catch (captureErr) {
+            const msg = captureErr?.message || '';
+            if (msg.includes('MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND')) {
+                await new Promise(r => setTimeout(r, 1200));
+                try {
+                    dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+                } catch (_) {
+                    console.warn('[Sidepanel] Pipelined capture: screenshot failed at position', y);
+                    continue;
+                }
+            } else {
+                console.warn('[Sidepanel] Pipelined capture: screenshot failed at position', y, captureErr.message);
+                continue;
+            }
+        }
+
+        capturedCount++;
+        const pageIndex = i;
+
+        // Fire OCR immediately — don't await
+        const ocrPromise = API.ocrScreenshots([dataUrl], {
+            url: extractResponse.url,
+            title: extractResponse.title
+        }).then(function(result) {
+            return { index: pageIndex, text: result?.text || '' };
+        }).catch(function(err) {
+            console.warn('[Sidepanel] OCR failed for page', pageIndex, err.message);
+            return { index: pageIndex, text: '' };
+        });
+        ocrPromises.push(ocrPromise);
+
+        onProgress({
+            phase: 'capturing',
+            total: positions.length,
+            captured: capturedCount,
+            ocrDone: 0
+        });
+    }
+
+    // Restore scroll position + release context
+    try {
+        await chrome.tabs.sendMessage(tab.id, {
+            type: MESSAGE_TYPES.SCROLL_CONTEXT_TO,
+            contextId,
+            top: originalScrollTop
+        });
+        await chrome.tabs.sendMessage(tab.id, {
+            type: MESSAGE_TYPES.RELEASE_CAPTURE_CONTEXT,
+            contextId
+        });
+    } catch (_) { /* best effort */ }
+
+    onProgress({ phase: 'ocr-waiting', total: positions.length, captured: capturedCount, ocrDone: 0 });
+
+    // Wait for all OCR results
+    const ocrResults = await Promise.all(ocrPromises);
+    ocrResults.sort(function(a, b) { return a.index - b.index; });
+
+    const combinedText = ocrResults
+        .filter(function(r) { return r.text; })
+        .map(function(r) { return r.text; })
+        .join('\n\n--- PAGE ---\n\n');
+
+    const pages = ocrResults.map(function(r) {
+        return { index: r.index, text: r.text };
+    });
+
+    onProgress({ phase: 'done', total: positions.length, captured: capturedCount, ocrDone: pages.length });
+
+    return {
+        text: combinedText,
+        pages: pages,
+        meta: {
+            scrollHeight,
+            clientHeight,
+            step,
+            overlapPx,
+            total: capturedCount,
+            targetKind
+        }
+    };
+}
+
+/**
  * Attempt OCR-based page context for canvas-rendered apps.
+ * Tries pipelined capture+OCR first (faster), falls back to batch approach.
+ *
  * @param {Object} extractResponse - Response from EXTRACT_PAGE.
  * @returns {Promise<Object|null>} Page context if OCR succeeded.
  */
@@ -1859,10 +2049,50 @@ async function buildOcrPageContext(extractResponse) {
             content: cached.text,
             isOcr: true,
             ocrCached: true,
-            ocrPages: cached.pages?.length || 0
+            ocrPages: cached.pages?.length || 0,
+            ocrPagesData: cached.pages || []
         };
     }
 
+    // Try pipelined approach: capture + OCR in parallel
+    try {
+        pageContextTitle.textContent = '🧾 Capturing & OCR (pipelined)...';
+        pageContextBar.classList.remove('hidden');
+
+        const pipelinedResult = await captureAndOcrPipelined(extractResponse, {
+            onProgress: function(p) {
+                if (p.phase === 'capturing') {
+                    pageContextTitle.textContent =
+                        '🧾 Capturing ' + p.captured + '/' + p.total + ' (OCR running in parallel)...';
+                } else if (p.phase === 'ocr-waiting') {
+                    pageContextTitle.textContent =
+                        '🧾 All ' + p.captured + ' captured, finishing OCR...';
+                }
+            }
+        });
+
+        if (pipelinedResult?.text) {
+            setCachedOcr(extractResponse.url, {
+                text: pipelinedResult.text,
+                pages: pipelinedResult.pages,
+                createdAt: Date.now()
+            });
+
+            return {
+                url: extractResponse.url,
+                title: extractResponse.title,
+                content: pipelinedResult.text,
+                isOcr: true,
+                ocrCached: false,
+                ocrPages: pipelinedResult.pages?.length || 0,
+                ocrPagesData: pipelinedResult.pages || []
+            };
+        }
+    } catch (pipelineErr) {
+        console.warn('[Sidepanel] Pipelined capture+OCR failed, falling back to batch:', pipelineErr.message);
+    }
+
+    // Fallback: batch capture then batch OCR
     const capture = await captureFullPageScreenshots();
     if (!capture?.screenshots?.length) {
         return null;
@@ -1891,7 +2121,8 @@ async function buildOcrPageContext(extractResponse) {
         content: ocrResult.text,
         isOcr: true,
         ocrCached: false,
-        ocrPages: ocrResult.pages?.length || 0
+        ocrPages: ocrResult.pages?.length || 0,
+        ocrPagesData: ocrResult.pages || []
     };
 }
 
@@ -1949,6 +2180,12 @@ async function attachPageContent() {
     // If we already have multi-tab context, don't overwrite it
     if (state.pageContext?.isMultiTab) {
         console.log('[Sidepanel] attachPageContent skipped - multi-tab context exists');
+        return;
+    }
+
+    // If we already have OCR content, don't overwrite with DOM extraction
+    if (state.pageContext?.isOcr && state.pageContext?.content) {
+        console.log('[Sidepanel] attachPageContent skipped - OCR context exists');
         return;
     }
     
@@ -2115,6 +2352,180 @@ function removePageContext() {
     setPageContextBadge('');
     updateMultiTabIndicator();
     updatePageContextButtons();
+}
+
+// ==================== Content Viewer ====================
+
+const cvState = {
+    pages: [],
+    currentPage: 0,
+    showingAll: false,
+    fullText: '',
+    screenshotDataUrl: null
+};
+
+function showContentViewer() {
+    if (!state.pageContext) return;
+
+    const ctx = state.pageContext;
+    cvState.fullText = ctx.content || '';
+    cvState.screenshotDataUrl = ctx.screenshot || null;
+    cvState.currentPage = 0;
+    cvState.showingAll = false;
+
+    // Determine pages
+    if (ctx.ocrPagesData && ctx.ocrPagesData.length > 0) {
+        cvState.pages = ctx.ocrPagesData.map(function(p, i) {
+            return { index: p.index ?? i, text: p.text || '' };
+        });
+    } else if (ctx.sources && ctx.sources.length > 1) {
+        cvState.pages = ctx.sources.map(function(s, i) {
+            return { index: i, text: '## ' + (s.title || 'Source ' + (i + 1)) + '\nURL: ' + (s.url || '') + '\n\n' + (s.content || '') };
+        });
+    } else if (cvState.fullText) {
+        cvState.pages = [{ index: 0, text: cvState.fullText }];
+    } else {
+        cvState.pages = [];
+    }
+
+    contentViewerTitle.textContent = ctx.isOcr ? 'OCR Extracted Content'
+        : ctx.isScreenshot ? 'Screenshot Content'
+        : ctx.isMultiTab ? 'Multi-Tab Content'
+        : 'Extracted Content';
+
+    // Screenshot display
+    if (cvState.screenshotDataUrl) {
+        contentViewerScreenshot.innerHTML = '<img src="' + cvState.screenshotDataUrl + '" alt="Screenshot">'
+            + '<div class="cv-screenshot-label">Viewport screenshot</div>';
+        contentViewerScreenshot.classList.remove('hidden');
+    } else {
+        contentViewerScreenshot.innerHTML = '';
+        contentViewerScreenshot.classList.add('hidden');
+    }
+
+    // Pagination
+    if (cvState.pages.length > 1) {
+        contentViewerPagination.classList.remove('hidden');
+        cvShowAll.textContent = 'All';
+    } else {
+        contentViewerPagination.classList.add('hidden');
+    }
+
+    renderContentViewerPage();
+    contentViewerModal.classList.remove('hidden');
+}
+
+function renderContentViewerPage() {
+    if (cvState.pages.length === 0) {
+        contentViewerText.textContent = '(No content extracted)';
+        cvCharCount.textContent = '0 chars';
+        cvPrevPage.disabled = true;
+        cvNextPage.disabled = true;
+        return;
+    }
+
+    if (cvState.showingAll) {
+        var allText = cvState.pages.map(function(p, i) {
+            return cvState.pages.length > 1
+                ? '--- Page ' + (i + 1) + ' ---\n\n' + p.text
+                : p.text;
+        }).join('\n\n');
+        contentViewerText.textContent = allText;
+        cvCharCount.textContent = allText.length.toLocaleString() + ' chars (all pages)';
+        cvPageIndicator.textContent = 'All ' + cvState.pages.length + ' pages';
+        cvShowAll.textContent = 'Paginate';
+        cvPrevPage.disabled = true;
+        cvNextPage.disabled = true;
+        cvCopyPage.textContent = 'Copy All';
+    } else {
+        var page = cvState.pages[cvState.currentPage];
+        contentViewerText.textContent = page.text;
+        cvCharCount.textContent = page.text.length.toLocaleString() + ' chars';
+        cvPageIndicator.textContent = 'Page ' + (cvState.currentPage + 1) + ' / ' + cvState.pages.length;
+        cvShowAll.textContent = 'All';
+        cvPrevPage.disabled = cvState.currentPage === 0;
+        cvNextPage.disabled = cvState.currentPage >= cvState.pages.length - 1;
+        cvCopyPage.textContent = cvState.pages.length > 1 ? 'Copy Page' : 'Copy';
+    }
+}
+
+function cvGoToPage(delta) {
+    var next = cvState.currentPage + delta;
+    if (next >= 0 && next < cvState.pages.length) {
+        cvState.currentPage = next;
+        cvState.showingAll = false;
+        renderContentViewerPage();
+        contentViewerText.scrollTop = 0;
+    }
+}
+
+function cvToggleAll() {
+    cvState.showingAll = !cvState.showingAll;
+    if (!cvState.showingAll) {
+        cvState.currentPage = 0;
+    }
+    renderContentViewerPage();
+    contentViewerText.scrollTop = 0;
+}
+
+function cvCopyToClipboard(text) {
+    navigator.clipboard.writeText(text).then(function() {
+        var toast = document.createElement('div');
+        toast.className = 'cv-copy-toast';
+        toast.textContent = 'Copied!';
+        contentViewerModal.querySelector('.modal-content').appendChild(toast);
+        setTimeout(function() { toast.remove(); }, 1500);
+    }).catch(function(err) {
+        console.error('[Sidepanel] Copy failed:', err);
+    });
+}
+
+function closeContentViewer() {
+    contentViewerModal.classList.add('hidden');
+}
+
+// Wire up content viewer events
+if (viewContentBtn) {
+    viewContentBtn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        showContentViewer();
+    });
+}
+
+if (closeContentViewerBtn) {
+    closeContentViewerBtn.addEventListener('click', closeContentViewer);
+}
+
+if (contentViewerModal) {
+    contentViewerModal.addEventListener('click', function(e) {
+        if (e.target === contentViewerModal) closeContentViewer();
+    });
+}
+
+if (cvPrevPage) cvPrevPage.addEventListener('click', function() { cvGoToPage(-1); });
+if (cvNextPage) cvNextPage.addEventListener('click', function() { cvGoToPage(1); });
+if (cvShowAll) cvShowAll.addEventListener('click', cvToggleAll);
+
+if (cvCopyPage) {
+    cvCopyPage.addEventListener('click', function() {
+        if (cvState.showingAll || cvState.pages.length <= 1) {
+            cvCopyToClipboard(cvState.fullText || contentViewerText.textContent);
+        } else {
+            var page = cvState.pages[cvState.currentPage];
+            cvCopyToClipboard(page ? page.text : '');
+        }
+    });
+}
+
+if (cvCopyAll) {
+    cvCopyAll.addEventListener('click', function() {
+        var allText = cvState.pages.map(function(p, i) {
+            return cvState.pages.length > 1
+                ? '--- Page ' + (i + 1) + ' ---\n\n' + p.text
+                : p.text;
+        }).join('\n\n');
+        cvCopyToClipboard(allText || cvState.fullText);
+    });
 }
 
 // ==================== Multi-Tab ====================
@@ -2349,10 +2760,11 @@ async function handleQuickSuggestion(action) {
     
     switch (action) {
         case 'summarize':
-            await attachPageContent();
+            if (!state.pageContext || !state.pageContext.content) {
+                await attachPageContent();
+            }
             messageInput.value = 'Please summarize this page.';
             handleInputChange();
-            // Auto-send after a brief moment for page content to attach
             setTimeout(() => {
                 sendMessage();
             }, 100);
@@ -2376,7 +2788,7 @@ async function handleRuntimeMessage(message, sender, sendResponse) {
     switch (message.type) {
         case MESSAGE_TYPES.ADD_TO_CHAT:
             // Set page context first if provided, but don't overwrite multi-tab context
-            if (message.pageUrl && message.pageTitle && !state.pageContext?.isMultiTab) {
+            if (message.pageUrl && message.pageTitle && !state.pageContext?.isMultiTab && !state.pageContext?.isOcr) {
                 // First extract actual page content
                 try {
                     const response = await chrome.runtime.sendMessage({ type: MESSAGE_TYPES.EXTRACT_PAGE });
@@ -2403,8 +2815,9 @@ async function handleRuntimeMessage(message, sender, sendResponse) {
                 pageContextTitle.textContent = state.pageContext.title;
                 pageContextBar.classList.remove('hidden');
                 attachPageBtn.classList.add('active');
-            } else if (state.pageContext?.isMultiTab) {
-                console.log('[Sidepanel] ADD_TO_CHAT skipped page context - multi-tab exists');
+            } else if (state.pageContext?.isMultiTab || state.pageContext?.isOcr) {
+                console.log('[Sidepanel] ADD_TO_CHAT skipped page context - existing context preserved:', 
+                    state.pageContext.isMultiTab ? 'multi-tab' : 'OCR');
             }
             
             // Set message text

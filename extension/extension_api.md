@@ -165,8 +165,13 @@ Common HTTP codes: `400` bad request • `401` unauthorized • `404` not found 
 - **Request**: `{ "images": [ "data:image/png;base64,...", ... ], "url": string|null, "title": string|null, "model": string|null }`
 - **Response**: `{ "text": string, "pages": [ { "index": number, "text": string }, ... ] }`
 - **Errors**: `400` images required/too many, `503` LLM unavailable
+- **Default model**: `google/gemini-2.5-flash-lite` (configurable via `EXT_OCR_MODEL` env var). Chosen for low latency and cost on clean typed text (web page screenshots). Override per-request via the `model` field.
 
 **OCR output structure:** The OCR prompt requests both raw text and document structure (headings, sections, tables, lists, form fields) in reading order.
+
+**Pipelined usage:** The sidepanel can call this endpoint with a single image (`images: [dataUrl]`) per screenshot as each is captured, rather than batching all screenshots into one request. This enables OCR to run in parallel with ongoing screenshot capture, reducing total time by 40-60% for multi-page documents. The server handles single-image requests efficiently via the same ThreadPoolExecutor path.
+
+**Content viewer integration:** OCR results (`pages` array) are stored in the sidepanel's `pageContext.ocrPagesData` and surfaced in the content viewer modal with per-page pagination and copy-to-clipboard.
 
 ### GET `/ext/agents`
 - **Response**: `{ "agents": [ string, ... ] }` (filtered by `EXTENSION_AGENT_ALLOWLIST`)
