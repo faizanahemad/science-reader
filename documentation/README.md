@@ -17,7 +17,7 @@ If you are new to the codebase, start with:
 - `product/behavior/`: product behavior notes and context
 
 ## Features
-- `features/extension/`: Chrome extension design + implementation docs
+- `features/extension/`: Chrome extension design + implementation docs; includes `multi_tab_scroll_capture.md` — 4-mode capture (Auto/DOM/OCR/Full OCR) with deferred OCR, tab restoration, on-page toast overlays, doc-app URL auto-detection (16 patterns), content script pre-injection, and context preservation bug fix
 - `features/pwa/`: PWA/service-worker notes
 - `features/conversation_artefacts/`: conversation-scoped artefacts (files + LLM edit flow)
 - `features/conversation_flow/`: chat message send + streaming render pipeline (includes notes on conversation-level + Doc Index model overrides, chat settings management and persistence, PKB `@` autocomplete UX, and suffix-based reference resolution for all PKB object types)

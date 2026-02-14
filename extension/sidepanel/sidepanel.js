@@ -32,7 +32,8 @@ const state = {
         workflowId: '',
         historyLength: 10,
         autoIncludePage: true,  // Enabled by default
-        apiBaseUrl: ''
+        apiBaseUrl: '',
+        multiTabCaptureMode: 'auto'  // 'simple' | 'scroll' | 'auto'
     },
     abortController: null,
     availableModels: [], // Fetched from server
@@ -42,8 +43,33 @@ const state = {
         active: false,
         pendingScript: null, // Holds the generated script before saving
         pageContext: null    // Page context for script generation
-    }
+    },
+    multiTabCaptureAborted: false
 };
+
+const DOC_APP_URL_PATTERNS = [
+    /docs\.google\.com\/document/,
+    /docs\.google\.com\/spreadsheets/,
+    /docs\.google\.com\/presentation/,
+    /word\.cloud\.microsoft/,
+    /onedrive\.live\.com\/edit/,
+    /sharepoint\.com.*\.aspx/,
+    /quip\.com\//,
+    /notion\.so\//,
+    /notion\.site\//,
+    /coda\.io\/d\//,
+    /airtable\.com\//,
+    /overleaf\.com\/project/,
+    /confluence\..*\/wiki/,
+    /dropboxpaper\.com/,
+    /docs\.zoho\.com/,
+    /paper\.dropbox\.com/,
+];
+
+function isDocAppUrl(url) {
+    if (!url) return false;
+    return DOC_APP_URL_PATTERNS.some(function(pattern) { return pattern.test(url); });
+}
 
 // Script creation intent patterns
 const SCRIPT_INTENT_PATTERNS = [
@@ -104,6 +130,7 @@ const workflowAddStepBtn = document.getElementById('workflow-add-step');
 const historyLengthSlider = document.getElementById('history-length-slider');
 const historyValue = document.getElementById('history-value');
 const autoIncludePageCheckbox = document.getElementById('auto-include-page');
+const multiTabCaptureModeSelect = document.getElementById('multi-tab-capture-mode');
 const settingsUserEmail = document.getElementById('settings-user-email');
 const logoutBtn = document.getElementById('logout-btn');
 
@@ -148,6 +175,9 @@ const tabList = document.getElementById('tab-list');
 const closeTabModalBtn = document.getElementById('close-tab-modal');
 const cancelTabModalBtn = document.getElementById('cancel-tab-modal');
 const confirmTabModalBtn = document.getElementById('confirm-tab-modal');
+const tabCaptureProgress = document.getElementById('tab-capture-progress');
+const tabProgressList = document.getElementById('tab-progress-list');
+const abortTabCaptureBtn = document.getElementById('abort-tab-capture');
 
 // Content Viewer Modal
 const contentViewerModal = document.getElementById('content-viewer-modal');
@@ -376,6 +406,11 @@ function setupEventListeners() {
         state.settings.autoIncludePage = autoIncludePageCheckbox.checked;
         saveSettings();
     });
+
+    multiTabCaptureModeSelect?.addEventListener('change', () => {
+        state.settings.multiTabCaptureMode = multiTabCaptureModeSelect.value;
+        saveSettings();
+    });
     
     // New chat
     newChatBtn.addEventListener('click', createNewConversation);
@@ -400,6 +435,9 @@ function setupEventListeners() {
     closeTabModalBtn.addEventListener('click', () => tabModal.classList.add('hidden'));
     cancelTabModalBtn.addEventListener('click', () => tabModal.classList.add('hidden'));
     confirmTabModalBtn.addEventListener('click', handleTabSelection);
+    abortTabCaptureBtn?.addEventListener('click', () => {
+        state.multiTabCaptureAborted = true;
+    });
     
     // Voice (placeholder)
     voiceBtn.addEventListener('click', () => {
@@ -627,6 +665,9 @@ async function loadSettings() {
     historyValue.textContent = state.settings.historyLength;
     // Default to true if not explicitly set to false
     autoIncludePageCheckbox.checked = state.settings.autoIncludePage !== false;
+    if (multiTabCaptureModeSelect) {
+        multiTabCaptureModeSelect.value = state.settings.multiTabCaptureMode || 'auto';
+    }
 }
 
 async function saveSettings() {
@@ -637,7 +678,8 @@ async function saveSettings() {
         defaultWorkflowId: state.settings.workflowId,
         historyLength: state.settings.historyLength,
         apiBaseUrl: state.settings.apiBaseUrl,
-        autoIncludePage: state.settings.autoIncludePage
+        autoIncludePage: state.settings.autoIncludePage,
+        multiTabCaptureMode: state.settings.multiTabCaptureMode
     });
 }
 
@@ -1145,9 +1187,42 @@ async function sendMessage() {
     
     // Ensure we have a conversation
     if (!state.currentConversation) {
+        // Save existing pageContext before createNewConversation() which calls
+        // removePageContext(). This preserves multi-tab/OCR context that was set
+        // by handleTabSelection() before the user's first message in a session.
+        const savedPageContext = state.pageContext;
+        const savedMultiTabContexts = state.multiTabContexts ? [...state.multiTabContexts] : [];
+        const savedSelectedTabIds = state.selectedTabIds ? [...state.selectedTabIds] : [];
+        
         const created = await createNewConversation();
         if (!created || !state.currentConversation) {
             return;
+        }
+        
+        // Restore preserved context if it existed before createNewConversation wiped it
+        if (savedPageContext) {
+            console.log('[Sidepanel] Restoring pageContext after auto-creating conversation:',
+                'isMultiTab=' + !!savedPageContext.isMultiTab,
+                'isOcr=' + !!savedPageContext.isOcr,
+                'len=' + (savedPageContext.content || '').length);
+            state.pageContext = savedPageContext;
+            state.multiTabContexts = savedMultiTabContexts;
+            state.selectedTabIds = savedSelectedTabIds;
+            // Restore UI indicators
+            const prefix = savedPageContext.isMultiTab
+                ? ('📑 ' + (savedPageContext.tabCount || savedMultiTabContexts.length) + ' tab' + ((savedPageContext.tabCount || savedMultiTabContexts.length) > 1 ? 's' : '') + ' attached' + (savedPageContext.isOcr ? ' (OCR)' : ''))
+                : savedPageContext.isOcr
+                    ? ('🧾 ' + (savedPageContext.title || 'Page content'))
+                    : (savedPageContext.title || 'Page content');
+            pageContextTitle.textContent = prefix;
+            pageContextBar.classList.remove('hidden');
+            attachPageBtn.classList.add('active');
+            if (savedPageContext.isMultiTab) {
+                multiTabBtn.classList.add('active');
+                updateMultiTabIndicator();
+                setPageContextBadge(savedMultiTabContexts.length + ' tabs');
+            }
+            updatePageContextButtons();
         }
     }
     
@@ -1348,9 +1423,17 @@ function detectScriptIntent(text) {
 async function handleScriptGeneration(description) {
     console.log('[Sidepanel] Starting script generation:', description);
     
-    // Ensure we have a conversation
+    // Ensure we have a conversation (preserve pageContext across auto-creation)
     if (!state.currentConversation) {
+        const savedCtx = state.pageContext;
+        const savedMulti = state.multiTabContexts ? [...state.multiTabContexts] : [];
+        const savedTabs = state.selectedTabIds ? [...state.selectedTabIds] : [];
         await createNewConversation();
+        if (savedCtx) {
+            state.pageContext = savedCtx;
+            state.multiTabContexts = savedMulti;
+            state.selectedTabIds = savedTabs;
+        }
     }
     
     // Add user message to UI
@@ -1883,8 +1966,12 @@ async function captureAndOcrPipelined(extractResponse, options = {}) {
 
     let tab;
     try {
-        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-        tab = tabs[0];
+        if (options.targetTabId) {
+            tab = await chrome.tabs.get(options.targetTabId);
+        } else {
+            const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+            tab = tabs[0];
+        }
     } catch (_) {
         return null;
     }
@@ -2003,6 +2090,16 @@ async function captureAndOcrPipelined(extractResponse, options = {}) {
     } catch (_) { /* best effort */ }
 
     onProgress({ phase: 'ocr-waiting', total: positions.length, captured: capturedCount, ocrDone: 0 });
+
+    if (options.deferOcr) {
+        return {
+            deferred: true,
+            ocrPromises: ocrPromises,
+            capturedCount: capturedCount,
+            total: positions.length,
+            meta: { scrollHeight, clientHeight, step, overlapPx, total: capturedCount, targetKind }
+        };
+    }
 
     // Wait for all OCR results
     const ocrResults = await Promise.all(ocrPromises);
@@ -2124,6 +2221,102 @@ async function buildOcrPageContext(extractResponse) {
         ocrPages: ocrResult.pages?.length || 0,
         ocrPagesData: ocrResult.pages || []
     };
+}
+
+/**
+ * Run scroll+screenshot+OCR on a tab that is already active.
+ *
+ * When options.deferOcr is true, returns immediately after screenshots finish
+ * with { deferred: true, ocrPromises, ... }. The caller can switch tabs back
+ * and await the promises later. When false (default), waits for OCR and returns
+ * the final text.
+ *
+ * @param {number} tabId - The tab to capture (must already be active).
+ * @param {Object} tabInfo - { url, title } for OCR context headers.
+ * @param {Function} onProgress - Progress callback.
+ * @param {Object} [options] - { deferOcr: boolean }
+ * @returns {Promise<Object|null>}
+ */
+async function captureTabWithScrollOcr(tabId, tabInfo, onProgress, options) {
+    onProgress = onProgress || function() {};
+    options = options || {};
+    console.log('[Sidepanel] captureTabWithScrollOcr starting for tab', tabId, tabInfo.title, 'deferOcr=' + !!options.deferOcr);
+
+    var pipelinedResult = null;
+    try {
+        pipelinedResult = await captureAndOcrPipelined(
+            { url: tabInfo.url, title: tabInfo.title },
+            {
+                targetTabId: tabId,
+                deferOcr: !!options.deferOcr,
+                onProgress: onProgress
+            }
+        );
+        console.log('[Sidepanel] captureTabWithScrollOcr pipelined result:', pipelinedResult ? (pipelinedResult.deferred ? 'deferred, ' + pipelinedResult.capturedCount + ' screenshots' : 'text length=' + (pipelinedResult.text || '').length) : 'null');
+    } catch (err) {
+        console.warn('[Sidepanel] captureTabWithScrollOcr pipelined failed for tab', tabId, err.message);
+    }
+
+    if (pipelinedResult?.deferred) {
+        return pipelinedResult;
+    }
+
+    if (pipelinedResult?.text) {
+        setCachedOcr(tabInfo.url, {
+            text: pipelinedResult.text,
+            pages: pipelinedResult.pages,
+            createdAt: Date.now()
+        });
+        return {
+            content: pipelinedResult.text,
+            pages: pipelinedResult.pages || [],
+            isOcr: true,
+            ocrPages: pipelinedResult.pages?.length || 0,
+            ocrPagesData: pipelinedResult.pages || []
+        };
+    }
+
+    if (options.deferOcr) {
+        try {
+            var tab = await chrome.tabs.get(tabId);
+            var dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+            var ocrPromise = API.ocrScreenshots([dataUrl], {
+                url: tabInfo.url,
+                title: tabInfo.title
+            }).then(function(result) {
+                return { index: 0, text: result?.text || '' };
+            }).catch(function(err) {
+                console.warn('[Sidepanel] Fallback OCR failed for tab', tabId, err.message);
+                return { index: 0, text: '' };
+            });
+            return { deferred: true, ocrPromises: [ocrPromise], capturedCount: 1, total: 1 };
+        } catch (fallbackErr) {
+            console.warn('[Sidepanel] captureTabWithScrollOcr fallback screenshot failed for tab', tabId, fallbackErr.message);
+            return null;
+        }
+    }
+
+    try {
+        var tab = await chrome.tabs.get(tabId);
+        var dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+        var ocrResult = await API.ocrScreenshots([dataUrl], {
+            url: tabInfo.url,
+            title: tabInfo.title
+        });
+        if (ocrResult?.text) {
+            return {
+                content: ocrResult.text,
+                pages: [{ index: 0, text: ocrResult.text }],
+                isOcr: true,
+                ocrPages: 1,
+                ocrPagesData: [{ index: 0, text: ocrResult.text }]
+            };
+        }
+    } catch (fallbackErr) {
+        console.warn('[Sidepanel] captureTabWithScrollOcr fallback failed for tab', tabId, fallbackErr.message);
+    }
+
+    return null;
 }
 
 /**
@@ -2374,7 +2567,12 @@ function showContentViewer() {
     cvState.showingAll = false;
 
     // Determine pages
-    if (ctx.ocrPagesData && ctx.ocrPagesData.length > 0) {
+    if (ctx.isMultiTab && state.multiTabContexts.length > 0) {
+        cvState.pages = state.multiTabContexts.map(function(mc, i) {
+            var header = '## Tab: ' + (mc.title || 'Tab ' + (i + 1)) + '\nURL: ' + (mc.url || '') + '\n\n';
+            return { index: i, text: header + (mc.content || '') };
+        });
+    } else if (ctx.ocrPagesData && ctx.ocrPagesData.length > 0) {
         cvState.pages = ctx.ocrPagesData.map(function(p, i) {
             return { index: p.index ?? i, text: p.text || '' };
         });
@@ -2388,7 +2586,8 @@ function showContentViewer() {
         cvState.pages = [];
     }
 
-    contentViewerTitle.textContent = ctx.isOcr ? 'OCR Extracted Content'
+    contentViewerTitle.textContent = (ctx.isMultiTab && ctx.isOcr) ? 'Multi-Tab Content (OCR)'
+        : ctx.isOcr ? 'OCR Extracted Content'
         : ctx.isScreenshot ? 'Screenshot Content'
         : ctx.isMultiTab ? 'Multi-Tab Content'
         : 'Extracted Content';
@@ -2555,14 +2754,22 @@ async function showTabModal() {
                 const faviconHtml = tab.favIconUrl 
                     ? `<img class="tab-favicon" src="${tab.favIconUrl}" data-fallback="true">`
                     : `<span class="tab-favicon-placeholder">🌐</span>`;
+                const globalMode = state.settings.multiTabCaptureMode || 'auto';
+                const defaultMode = isDocAppUrl(tabUrl) && globalMode === 'auto' ? 'scroll' : globalMode;
                 return `
-                <li data-id="${tab.tabId}" class="${isRestricted ? 'restricted' : ''}">
+                <li data-id="${tab.tabId}" data-url="${escapeHtml(tabUrl)}" class="${isRestricted ? 'restricted' : ''}">
                     <input type="checkbox" class="tab-checkbox" ${isSelected ? 'checked' : ''} ${isRestricted ? 'disabled' : ''}>
                     ${faviconHtml}
                     <div class="tab-info">
                         <div class="tab-title">${escapeHtml(tab.title || 'Untitled')}${tab.active ? ' (current)' : ''}</div>
                         <div class="tab-url">${escapeHtml(truncateUrl(tabUrl))}</div>
                     </div>
+                    <select class="tab-capture-mode" ${isRestricted ? 'disabled' : ''}>
+                        <option value="auto" ${defaultMode === 'auto' ? 'selected' : ''}>🔄 Auto</option>
+                        <option value="simple" ${defaultMode === 'simple' ? 'selected' : ''}>📄 DOM</option>
+                        <option value="ocr" ${defaultMode === 'ocr' ? 'selected' : ''}>📷 OCR</option>
+                        <option value="scroll" ${defaultMode === 'scroll' ? 'selected' : ''}>📸 Full OCR</option>
+                    </select>
                 </li>
             `}).join('');
             
@@ -2630,14 +2837,15 @@ async function handleTabSelection() {
     
     const selectedTabs = selectedLis.map(li => ({
         tabId: parseInt(li.dataset.id),
-        title: li.querySelector('.tab-title')?.textContent?.replace(' (current)', '') || 'Untitled'
+        title: li.querySelector('.tab-title')?.textContent?.replace(' (current)', '') || 'Untitled',
+        url: li.dataset.url || '',
+        captureMode: li.querySelector('.tab-capture-mode')?.value || 'auto'
     }));
     
     console.log('[Sidepanel] Selected tabs:', selectedTabs);
-    tabModal.classList.add('hidden');
     
     if (selectedTabs.length === 0) {
-        // Clear multi-tab context
+        tabModal.classList.add('hidden');
         state.selectedTabIds = [];
         state.multiTabContexts = [];
         multiTabBtn.classList.remove('active');
@@ -2646,98 +2854,443 @@ async function handleTabSelection() {
         updatePageContextButtons();
         return;
     }
-    
-    // Show loading state
+
+    // --- Phase 0: Show progress UI inside the tab modal ---
+    state.multiTabCaptureAborted = false;
+    tabList.classList.add('hidden');
+    tabCaptureProgress.classList.remove('hidden');
+    confirmTabModalBtn.classList.add('hidden');
+    cancelTabModalBtn.classList.add('hidden');
+    abortTabCaptureBtn?.classList.remove('hidden');
+
+    var progressItems = selectedTabs.map(function(t) {
+        return { tabId: t.tabId, title: t.title, status: 'pending', detail: '' };
+    });
+
+    function renderProgress() {
+        tabProgressList.innerHTML = progressItems.map(function(item) {
+            var icon = '⏳';
+            var cls = '';
+            if (item.status === 'done') { icon = '✅'; cls = 'done'; }
+            else if (item.status === 'active') { icon = '📷'; cls = 'active'; }
+            else if (item.status === 'error') { icon = '❌'; cls = 'error'; }
+            else if (item.status === 'skipped') { icon = '⏭️'; cls = ''; }
+            return '<li class="' + cls + '">' +
+                '<span class="progress-icon">' + icon + '</span>' +
+                '<span class="progress-label">' + escapeHtml(item.title) + '</span>' +
+                '<span class="progress-detail">' + escapeHtml(item.detail || '') + '</span>' +
+                '</li>';
+        }).join('');
+    }
+
+    function setTabProgress(tabId, status, detail) {
+        var item = progressItems.find(function(p) { return p.tabId === tabId; });
+        if (item) {
+            item.status = status;
+            if (detail !== undefined) item.detail = detail;
+        }
+        renderProgress();
+    }
+
+    renderProgress();
+
     multiTabBtn.disabled = true;
-    multiTabBtn.innerHTML = `
-        <svg class="spin" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="10" stroke-dasharray="31.4" stroke-dashoffset="10"></circle>
-        </svg>
-    `;
-    
-    // Extract content from all selected tabs
-    console.log('[Sidepanel] Starting extraction from', selectedTabs.length, 'tabs');
-    const contexts = [];
-    for (const tab of selectedTabs) {
-        try {
-            console.log('[Sidepanel] Extracting from tab:', tab.tabId, tab.title);
-            const response = await chrome.runtime.sendMessage({ 
-                type: MESSAGE_TYPES.EXTRACT_FROM_TAB, 
-                tabId: tab.tabId 
+    multiTabBtn.innerHTML = '<svg class="spin" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" stroke-dasharray="31.4" stroke-dashoffset="10"></circle></svg>';
+
+    // --- Phase 1: DOM extraction for all tabs (parallel, with retry) ---
+    var domResults = {};
+    var domPromises = selectedTabs.map(function(tab) {
+        setTabProgress(tab.tabId, 'active', 'Extracting DOM...');
+        return chrome.runtime.sendMessage({
+            type: MESSAGE_TYPES.EXTRACT_FROM_TAB,
+            tabId: tab.tabId
+        }).then(function(response) {
+            if (!response || (!response.content && !response.error)) {
+                throw new Error('Empty response from service worker');
+            }
+            domResults[tab.tabId] = response;
+            if (tab.captureMode === 'simple') {
+                setTabProgress(tab.tabId, 'done', 'DOM');
+            } else {
+                setTabProgress(tab.tabId, 'pending', 'DOM done');
+            }
+        }).catch(function(err) {
+            console.warn('[Sidepanel] DOM extraction failed for tab', tab.tabId, ':', err.message, '- retrying...');
+            return new Promise(function(resolve) { setTimeout(resolve, 500); }).then(function() {
+                return chrome.runtime.sendMessage({
+                    type: MESSAGE_TYPES.EXTRACT_FROM_TAB,
+                    tabId: tab.tabId
+                });
+            }).then(function(response) {
+                domResults[tab.tabId] = response || { error: 'Empty response on retry' };
+                if (response && !response.error) {
+                    if (tab.captureMode === 'simple') {
+                        setTabProgress(tab.tabId, 'done', 'DOM (retry)');
+                    } else {
+                        setTabProgress(tab.tabId, 'pending', 'DOM done (retry)');
+                    }
+                } else {
+                    if (tab.captureMode === 'simple') {
+                        setTabProgress(tab.tabId, 'error', 'DOM failed');
+                    }
+                }
+            }).catch(function(retryErr) {
+                console.warn('[Sidepanel] DOM extraction retry also failed for tab', tab.tabId, retryErr.message);
+                domResults[tab.tabId] = { error: retryErr.message };
+                if (tab.captureMode === 'simple') {
+                    setTabProgress(tab.tabId, 'error', 'DOM failed');
+                }
             });
-            console.log('[Sidepanel] Extraction response for tab', tab.tabId, ':', response?.content?.length || 0, 'chars');
-            
-            if (response && !response.error) {
+        });
+    });
+    await Promise.all(domPromises);
+
+    // --- Phase 2: Determine which tabs need scroll/ocr capture ---
+    var scrollTabs = [];
+    var ocrTabs = [];
+    var simpleTabs = [];
+    var AUTO_CONTENT_THRESHOLD = 500;
+
+    for (var i = 0; i < selectedTabs.length; i++) {
+        var tab = selectedTabs[i];
+        var domResponse = domResults[tab.tabId];
+        var mode = tab.captureMode;
+
+        if (mode === 'scroll') {
+            scrollTabs.push(tab);
+        } else if (mode === 'ocr') {
+            ocrTabs.push(tab);
+        } else if (mode === 'simple') {
+            simpleTabs.push(tab);
+        } else {
+            var content = domResponse?.content || '';
+            var needsOcr = domResponse?.needsScreenshot ||
+                           content.length < AUTO_CONTENT_THRESHOLD ||
+                           isDocAppUrl(tab.url);
+            if (needsOcr) {
+                scrollTabs.push(tab);
+                setTabProgress(tab.tabId, 'pending', 'Needs OCR');
+            } else {
+                simpleTabs.push(tab);
+                setTabProgress(tab.tabId, 'done', 'DOM (' + content.length + ' chars)');
+            }
+        }
+    }
+
+    console.log('[Sidepanel] Simple tabs:', simpleTabs.length, 'OCR tabs:', ocrTabs.length, 'Scroll tabs:', scrollTabs.length);
+
+    // --- Phase 3: Capture tabs that need screenshots (sequential, deferred OCR) ---
+    // Screenshots need the tab active; OCR is just API calls and doesn't.
+    // So: capture screenshots from all capture tabs → restore original tab → await OCR.
+    var captureTabs = [];
+    ocrTabs.forEach(function(t) { captureTabs.push({ tab: t, mode: 'ocr' }); });
+    scrollTabs.forEach(function(t) { captureTabs.push({ tab: t, mode: 'scroll' }); });
+
+    var scrollResults = {};
+    var originalTabId = null;
+    var deferredOcrWork = [];
+
+    try {
+        var activeTabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        originalTabId = activeTabs[0]?.id || null;
+        console.log('[Sidepanel] Saved original tab for restore:', originalTabId);
+    } catch (queryErr) {
+        console.warn('[Sidepanel] Could not query active tab:', queryErr.message);
+    }
+
+    if (captureTabs.length > 0 && !state.multiTabCaptureAborted) {
+        try {
+            for (var si = 0; si < captureTabs.length; si++) {
+                if (state.multiTabCaptureAborted) {
+                    for (var ri = si; ri < captureTabs.length; ri++) {
+                        setTabProgress(captureTabs[ri].tab.tabId, 'skipped', 'Cancelled');
+                    }
+                    break;
+                }
+
+                var sTab = captureTabs[si].tab;
+                var captureMode = captureTabs[si].mode;
+                setTabProgress(sTab.tabId, 'active', 'Switching tab...');
+
+                try {
+                    await chrome.tabs.get(sTab.tabId);
+                } catch (_) {
+                    setTabProgress(sTab.tabId, 'error', 'Tab closed');
+                    continue;
+                }
+
+                try {
+                    await chrome.tabs.update(sTab.tabId, { active: true });
+                    await new Promise(function(resolve) { setTimeout(resolve, 600); });
+
+                    try {
+                        await chrome.tabs.sendMessage(sTab.tabId, { type: 'PING' });
+                    } catch (_) {
+                        console.log('[Sidepanel] Content script not ready on tab', sTab.tabId, '- injecting...');
+                        try {
+                            await chrome.scripting.executeScript({
+                                target: { tabId: sTab.tabId },
+                                files: ['content_scripts/extractor.js']
+                            });
+                            await new Promise(function(resolve) { setTimeout(resolve, 300); });
+                        } catch (injectErr) {
+                            console.warn('[Sidepanel] Failed to inject content script:', injectErr.message);
+                        }
+                    }
+
+                    try {
+                        await chrome.scripting.executeScript({
+                            target: { tabId: sTab.tabId },
+                            func: function(title, mode) {
+                                var existing = document.getElementById('__ai_capture_toast');
+                                if (existing) existing.remove();
+                                var el = document.createElement('div');
+                                el.id = '__ai_capture_toast';
+                                el.textContent = '\uD83D\uDCF7 AI Assistant ' + (mode === 'scroll' ? 'scroll-capturing' : 'capturing') + ': ' + title;
+                                el.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);z-index:2147483647;background:rgba(30,30,30,0.95);color:#fff;padding:10px 20px;border-radius:10px;font-size:13px;font-family:system-ui,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,0.4);pointer-events:none;transition:opacity 0.3s;';
+                                document.body.appendChild(el);
+                            },
+                            args: [sTab.title, captureMode]
+                        });
+                    } catch (toastErr) {
+                        console.warn('[Sidepanel] Could not show capture toast:', toastErr.message);
+                    }
+
+                    if (captureMode === 'ocr') {
+                        setTabProgress(sTab.tabId, 'active', 'Taking screenshot...');
+                        var tab = await chrome.tabs.get(sTab.tabId);
+                        var dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+
+                        var ocrPromise = API.ocrScreenshots([dataUrl], {
+                            url: sTab.url,
+                            title: sTab.title
+                        }).then(function(result) {
+                            return { index: 0, text: result?.text || '' };
+                        }).catch(function(err) {
+                            console.warn('[Sidepanel] Single OCR failed for tab', sTab.tabId, err.message);
+                            return { index: 0, text: '' };
+                        });
+                        deferredOcrWork.push({
+                            tabId: sTab.tabId,
+                            url: sTab.url,
+                            title: sTab.title,
+                            ocrPromises: [ocrPromise],
+                            capturedCount: 1
+                        });
+                        setTabProgress(sTab.tabId, 'active', '1 screenshot, OCR pending...');
+                    } else {
+                        setTabProgress(sTab.tabId, 'active', 'Capturing screenshots...');
+
+                        var captureResult = await captureTabWithScrollOcr(
+                            sTab.tabId,
+                            { url: sTab.url, title: sTab.title },
+                            function(p) {
+                                if (p.phase === 'capturing') {
+                                    setTabProgress(sTab.tabId, 'active', 'Screenshot ' + p.captured + '/' + p.total);
+                                    try {
+                                        chrome.scripting.executeScript({
+                                            target: { tabId: sTab.tabId },
+                                            func: function(msg) {
+                                                var el = document.getElementById('__ai_capture_toast');
+                                                if (el) el.textContent = '\uD83D\uDCF7 ' + msg;
+                                            },
+                                            args: ['Capturing screenshot ' + p.captured + '/' + p.total + '...']
+                                        });
+                                    } catch (_) {}
+                                } else if (p.phase === 'ocr-waiting') {
+                                    setTabProgress(sTab.tabId, 'active', 'Screenshots done, OCR pending...');
+                                }
+                            },
+                            { deferOcr: true }
+                        );
+
+                        if (captureResult?.deferred) {
+                            deferredOcrWork.push({
+                                tabId: sTab.tabId,
+                                url: sTab.url,
+                                title: sTab.title,
+                                ocrPromises: captureResult.ocrPromises,
+                                capturedCount: captureResult.capturedCount
+                            });
+                            setTabProgress(sTab.tabId, 'active', captureResult.capturedCount + ' screenshots, OCR pending...');
+                        } else if (captureResult) {
+                            scrollResults[sTab.tabId] = captureResult;
+                            setTabProgress(sTab.tabId, 'done', 'OCR (' + (captureResult.content?.length || 0) + ' chars)');
+                        } else {
+                            setTabProgress(sTab.tabId, 'error', 'Capture failed');
+                        }
+                    }
+
+                    try {
+                        await chrome.scripting.executeScript({
+                            target: { tabId: sTab.tabId },
+                            func: function() {
+                                var el = document.getElementById('__ai_capture_toast');
+                                if (el) el.remove();
+                            }
+                        });
+                    } catch (_) {}
+                } catch (captureErr) {
+                    console.error('[Sidepanel] Scroll capture error for tab', sTab.tabId, captureErr);
+                    setTabProgress(sTab.tabId, 'error', captureErr.message?.substring(0, 40) || 'Capture failed');
+                }
+            }
+        } finally {
+            if (originalTabId) {
+                console.log('[Sidepanel] Restoring original tab:', originalTabId);
+                try {
+                    await chrome.tabs.update(originalTabId, { active: true });
+                    console.log('[Sidepanel] Original tab restored successfully');
+                } catch (restoreErr) {
+                    console.error('[Sidepanel] Failed to restore original tab:', restoreErr);
+                }
+            }
+        }
+    }
+
+    // --- Phase 3b: Await deferred OCR (runs after tab is restored) ---
+    if (deferredOcrWork.length > 0) {
+        console.log('[Sidepanel] Awaiting deferred OCR for', deferredOcrWork.length, 'tabs');
+        for (var di = 0; di < deferredOcrWork.length; di++) {
+            var work = deferredOcrWork[di];
+            setTabProgress(work.tabId, 'active', 'Running OCR (' + work.capturedCount + ' pages)...');
+            try {
+                var ocrResults = await Promise.all(work.ocrPromises);
+                ocrResults.sort(function(a, b) { return a.index - b.index; });
+                var combinedOcrText = ocrResults
+                    .filter(function(r) { return r.text; })
+                    .map(function(r) { return r.text; })
+                    .join('\n\n--- PAGE ---\n\n');
+                var pages = ocrResults.map(function(r) { return { index: r.index, text: r.text }; });
+
+                if (combinedOcrText) {
+                    setCachedOcr(work.url, { text: combinedOcrText, pages: pages, createdAt: Date.now() });
+                    scrollResults[work.tabId] = {
+                        content: combinedOcrText,
+                        pages: pages,
+                        isOcr: true,
+                        ocrPages: pages.length,
+                        ocrPagesData: pages
+                    };
+                    setTabProgress(work.tabId, 'done', 'OCR (' + combinedOcrText.length + ' chars)');
+                } else {
+                    setTabProgress(work.tabId, 'error', 'OCR returned empty');
+                }
+            } catch (ocrErr) {
+                console.error('[Sidepanel] Deferred OCR failed for tab', work.tabId, ocrErr);
+                setTabProgress(work.tabId, 'error', 'OCR failed');
+            }
+        }
+    }
+
+    // --- Phase 4: Assemble all results ---
+    var captureTabIds = {};
+    scrollTabs.forEach(function(t) { captureTabIds[t.tabId] = true; });
+    ocrTabs.forEach(function(t) { captureTabIds[t.tabId] = true; });
+
+    var contexts = [];
+    for (var ci = 0; ci < selectedTabs.length; ci++) {
+        var ctab = selectedTabs[ci];
+        var domResp = domResults[ctab.tabId];
+        var scrollRes = scrollResults[ctab.tabId];
+        var wasCaptureTab = captureTabIds[ctab.tabId];
+
+        if (scrollRes) {
+            contexts.push({
+                tabId: ctab.tabId,
+                url: ctab.url,
+                title: ctab.title,
+                content: scrollRes.content || '',
+                length: scrollRes.content?.length || 0,
+                isOcr: true,
+                ocrPagesData: scrollRes.ocrPagesData || scrollRes.pages || []
+            });
+        } else if (wasCaptureTab) {
+            var domContent = domResp?.content || '';
+            if (domContent.length > 100) {
+                console.warn('[Sidepanel] Scroll capture failed for tab', ctab.tabId, ', using DOM fallback (' + domContent.length + ' chars)');
                 contexts.push({
-                    tabId: tab.tabId,
-                    url: response.url,
-                    title: response.title || tab.title,
-                    content: response.content || '',
-                    length: response.length || 0
+                    tabId: ctab.tabId,
+                    url: domResp?.url || ctab.url,
+                    title: domResp?.title || ctab.title,
+                    content: domContent,
+                    length: domContent.length,
+                    ocrFailed: true
                 });
             } else {
-                console.warn('[Sidepanel] Extraction error for tab', tab.tabId, ':', response?.error);
                 contexts.push({
-                    tabId: tab.tabId,
-                    url: response?.url || '',
-                    title: tab.title,
-                    content: `[Could not extract: ${response?.error || 'unknown error'}]`,
+                    tabId: ctab.tabId,
+                    url: ctab.url,
+                    title: ctab.title,
+                    content: '[OCR capture failed for this tab. The page may use canvas rendering that could not be captured.]',
                     length: 0,
                     error: true
                 });
             }
-        } catch (e) {
-            console.error(`[Sidepanel] Failed to extract from tab ${tab.tabId}:`, e);
+        } else if (domResp && !domResp.error) {
             contexts.push({
-                tabId: tab.tabId,
-                url: '',
-                title: tab.title,
-                content: '[Extraction failed]',
+                tabId: ctab.tabId,
+                url: domResp.url || ctab.url,
+                title: domResp.title || ctab.title,
+                content: domResp.content || '',
+                length: domResp.length || 0
+            });
+        } else {
+            var errMsg = domResp?.error || 'extraction failed';
+            contexts.push({
+                tabId: ctab.tabId,
+                url: ctab.url,
+                title: ctab.title,
+                content: '[Could not extract: ' + errMsg + ']',
                 length: 0,
                 error: true
             });
         }
     }
+
     console.log('[Sidepanel] Extraction complete. Contexts:', contexts.length);
-    
-    state.selectedTabIds = selectedTabs.map(t => t.tabId);
+    contexts.forEach(function(c, i) {
+        console.log('[Sidepanel] Tab', i, ':', c.title, '| isOcr:', !!c.isOcr, '| content length:', (c.content || '').length, '| error:', !!c.error);
+    });
+
+    state.selectedTabIds = selectedTabs.map(function(t) { return t.tabId; });
     state.multiTabContexts = contexts;
-    
-    // Restore button
+
+    // --- Restore UI ---
     multiTabBtn.disabled = false;
-    multiTabBtn.innerHTML = `
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="3" width="18" height="18" rx="2"></rect>
-            <path d="M3 9h18M9 3v18"></path>
-        </svg>
-    `;
+    multiTabBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M3 9h18M9 3v18"></path></svg>';
     multiTabBtn.classList.add('active');
-    
+
+    tabList.classList.remove('hidden');
+    tabCaptureProgress.classList.add('hidden');
+    confirmTabModalBtn.classList.remove('hidden');
+    cancelTabModalBtn.classList.remove('hidden');
+    abortTabCaptureBtn?.classList.add('hidden');
+    tabModal.classList.add('hidden');
+
     updateMultiTabIndicator();
-    
-    // Also update pageContext with combined content for backwards compatibility
+
     if (contexts.length > 0) {
-        const combinedContent = contexts.map(c => 
-            `## Tab: ${c.title}\nURL: ${c.url}\n\n${c.content}`
-        ).join('\n\n---\n\n');
-        
-        console.log('[Sidepanel] Combined content length:', combinedContent.length);
-        console.log('[Sidepanel] First 500 chars of combined:', combinedContent.substring(0, 500));
-        
+        var hasOcr = contexts.some(function(c) { return c.isOcr; });
+        var combinedContent = contexts.map(function(c) {
+            return '## Tab: ' + c.title + '\nURL: ' + c.url + '\n\n' + c.content;
+        }).join('\n\n---\n\n');
+
         state.pageContext = {
             url: contexts.length === 1 ? contexts[0].url : 'Multiple tabs',
-            title: contexts.length === 1 ? contexts[0].title : `${contexts.length} tabs`,
+            title: contexts.length === 1 ? contexts[0].title : contexts.length + ' tabs',
             content: combinedContent,
             isMultiTab: true,
+            isOcr: hasOcr,
             tabCount: contexts.length
         };
-        
-        console.log('[Sidepanel] pageContext set with', contexts.length, 'tabs, isMultiTab:', state.pageContext.isMultiTab);
-        
-        pageContextTitle.textContent = `📑 ${contexts.length} tab${contexts.length > 1 ? 's' : ''} attached`;
+
+        console.log('[Sidepanel] Combined pageContext: tabs=' + contexts.length + ', hasOcr=' + hasOcr + ', totalLength=' + combinedContent.length);
+
+        pageContextTitle.textContent = '📑 ' + contexts.length + ' tab' + (contexts.length > 1 ? 's' : '') + ' attached' + (hasOcr ? ' (OCR)' : '');
         pageContextBar.classList.remove('hidden');
         attachPageBtn.classList.add('active');
-        setPageContextBadge(`${contexts.length} tabs`);
+        setPageContextBadge(contexts.length + ' tabs');
         updatePageContextButtons();
     }
 }
@@ -2755,7 +3308,15 @@ function updateMultiTabIndicator() {
 
 async function handleQuickSuggestion(action) {
     if (!state.currentConversation) {
+        const savedCtx = state.pageContext;
+        const savedMulti = state.multiTabContexts ? [...state.multiTabContexts] : [];
+        const savedTabs = state.selectedTabIds ? [...state.selectedTabIds] : [];
         await createNewConversation();
+        if (savedCtx) {
+            state.pageContext = savedCtx;
+            state.multiTabContexts = savedMulti;
+            state.selectedTabIds = savedTabs;
+        }
     }
     
     switch (action) {

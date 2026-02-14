@@ -96,6 +96,7 @@ extension/
 - **Inner Scroll Detection**: Automatically detects inner scrollable containers (Office Word Online, Google Docs, Notion, Confluence, Slack, Overleaf, etc.) for correct full-page capture in web apps with fixed shells
 - **Pipelined OCR**: Fires OCR per screenshot as it's captured (40-60% faster than batch)
 - **Content Viewer**: Paginated viewer for extracted/OCR text with per-page navigation and copy-to-clipboard
+- **Multi-Tab Scroll Capture**: Capture content from other tabs using scroll+screenshot+OCR for document apps (Google Docs, Word Online, Notion, etc.) with 4 per-tab capture modes (Auto/DOM/OCR/Full OCR), auto-detection of document apps via URL patterns, deferred OCR with immediate tab restoration, on-page toast overlays during capture, and content script pre-injection for reliability
 - **Context Menu**: Right-click actions (explain, summarize, etc)
 - **Quick Actions**: Summarize page, ask about selection
 - **Markdown**: Rendered responses with syntax highlighting
@@ -332,5 +333,5 @@ For issues or questions:
 
 ---
 
-**Version**: 1.4  
-**Last Updated**: December 30, 2024
+**Version**: 1.5  
+**Last Updated**: February 15, 2026

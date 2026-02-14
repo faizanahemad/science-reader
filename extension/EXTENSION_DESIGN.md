@@ -56,6 +56,11 @@ Build a Chrome extension that provides AI-powered assistance for web browsing, i
 - Inner scroll container detection for web apps (Office Word Online, Google Docs, Notion, etc.)
 - Pipelined capture + OCR for faster full-page content extraction
 - Content viewer with pagination and copy-to-clipboard for extracted/OCR content
+- Multi-tab scroll capture with per-tab capture mode (Auto/DOM/OCR/Full OCR) and auto-detection of document apps
+- Deferred OCR architecture: screenshots captured while tab is active, original tab restored immediately, OCR API calls run in background
+- On-page toast overlay during cross-tab capture showing progress
+- Content script pre-injection (PING test + explicit injection) for first-load reliability
+- Automatic multi-tab context preservation across conversation creation (save/restore pattern)
 - Temporary conversations (default)
 
 ### 1.4 Phase 2 Scope (Future)
@@ -659,6 +664,10 @@ PUT /ext/settings
 | FR-PAGE-06 | One-click page summarization | Summary generated and displayed |
 | FR-PAGE-07 | Custom scripts run on matching pages | Scripts execute automatically |
 | FR-PAGE-08 | User can view extracted content | Paginated viewer with copy-to-clipboard for OCR/extracted text |
+| FR-PAGE-09 | Multi-tab scroll capture | User can select per-tab capture mode (Auto/DOM/OCR/Full OCR) in tab modal; scroll-capture activates each tab sequentially; auto-mode detects doc apps via URL patterns; deferred OCR runs after tab restoration |
+| FR-PAGE-10 | Multi-tab capture mode setting | Global setting (auto/simple/ocr/scroll) with per-tab override in selection modal |
+| FR-PAGE-11 | Deferred OCR & tab restoration | Screenshots captured while target tab is active; original tab restored via try/finally before OCR API calls; on-page toast overlay on captured tabs shows progress; content script pre-injected if not ready |
+| FR-PAGE-12 | Multi-tab context preservation | Multi-tab pageContext survives automatic conversation creation on first message via save/restore pattern at 3 implicit createNewConversation call sites |
 
 ### 7.5 Context Menu
 

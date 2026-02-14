@@ -1,7 +1,7 @@
 # Chrome Extension Implementation Documentation
 
-**Version:** 1.4  
-**Last Updated:** December 31, 2025  
+**Version:** 1.5  
+**Last Updated:** February 15, 2026  
 **Purpose:** Technical reference for extension UI implementation, file structure, backend integration, and custom scripts system.
 
 ---
@@ -462,7 +462,7 @@ import { MODELS, MESSAGE_TYPES } from '../shared/constants.js';
 - **Input**: `attach-page-btn` (attach page), `refresh-page-btn` (refresh/replace), `append-page-btn` (append/merge), `multi-tab-btn` (multi-tab), `voice-btn` (voice placeholder), `message-input` (textarea), `send-btn` (send), `stop-btn-container`, `stop-btn`
 - **Attachments**: drag/drop images into the input area to include them in the next LLM call (`images[]` in `/ext/chat/<id>`).
 - **Workflow UI**: settings panel includes workflow select + inline editor (step title + prompt, add/remove, save/delete).
-- **Multi-tab modal**: `tab-modal` (modal), `tab-list` (tab list), `close-tab-modal` (close), `cancel-tab-modal` (cancel), `confirm-tab-modal` (confirm)
+- **Multi-tab modal**: `tab-modal` (modal), `tab-list` (tab list with per-tab capture mode dropdown: 🔄 Auto / 📄 DOM / 📷 OCR / 📸 Full OCR), `tab-capture-progress` (progress view shown during capture), `tab-progress-list` (per-tab status list), `close-tab-modal` (close), `cancel-tab-modal` (cancel), `abort-tab-capture` (stop capture, btn-danger style), `confirm-tab-modal` (confirm)
 
 ---
 
@@ -487,14 +487,26 @@ const state = {
     pageContext: null,            // Attached page content (single, appended, or multi-tab)
     multiTabContexts: [],         // Array of {tabId, url, title, content} for multi-tab
     selectedTabIds: [],           // Tab IDs currently selected in modal
+    ocrCache: {},                 // In-memory OCR cache by URL
+    pendingImages: [],            // User-attached images for next message
     settings: {                   // User settings
         model: 'google/gemini-2.5-flash',
         promptName: 'preamble_short',
+        agentName: 'None',
+        workflowId: '',
         historyLength: 10,
-        autoIncludePage: true     // Auto-include page content (default: true)
+        autoIncludePage: true,    // Auto-include page content (default: true)
+        multiTabCaptureMode: 'auto'  // 'auto' | 'simple' | 'ocr' | 'scroll'
     },
     abortController: null,        // For cancelling requests
-    availableModels: []           // Fetched from server at runtime
+    availableModels: [],          // Fetched from server at runtime
+    workflows: [],
+    scriptMode: {                 // Script creation mode
+        active: false,
+        pendingScript: null,
+        pageContext: null
+    },
+    multiTabCaptureAborted: false // Abort flag for multi-tab capture
 };
 ```
 
@@ -509,9 +521,9 @@ const state = {
 - **Input**: `handleInputChange(): ()→void` (resize + button state); `handleInputKeydown(e): (Event)→void` (Enter send, Shift+Enter newline); `updateSendButton(): ()→void` (enable/disable)
 - **Send/Streaming**: `sendMessage(): async ()→void` (send w/ streaming); `stopStreaming(): ()→void` (cancel); `updateConversationInList(preview): (string)→void` (update preview/title)
 - **Page Context**: `attachPageContent(): async ()→void` (attach); `refreshPageContent(): async ()→void` (replace); `appendPageContent(): async ()→void` (merge); `removePageContext(): ()→void` (detach); `setPageContextBadge(text): ()→void` (source count); `updatePageContextButtons(): ()→void` (enable/disable/active state)
-- **Screenshot/OCR**: `attachScreenshotFromPage(): async ()→void` (single viewport screenshot); `attachScrollingScreenshotFromPage(): async ()→void` (full-page scrollshot + OCR); `captureFullPageScreenshots(options): async (object)→object|null` (batch capture via service worker); `captureAndOcrPipelined(extractResponse, options): async (object, object)→object|null` (sidepanel-driven capture loop firing OCR per screenshot in parallel); `buildOcrPageContext(extractResponse): async (object)→object|null` (tries pipelined then batch); `buildPageContextFromResponse(response, options): async (object, object)→object|null` (text/OCR/screenshot fallback); `getCachedOcr(url): (string)→object|null`; `setCachedOcr(url, entry): (string, object)→void`; `clearOcrCache(): ()→void`
+- **Screenshot/OCR**: `attachScreenshotFromPage(): async ()→void` (single viewport screenshot); `attachScrollingScreenshotFromPage(): async ()→void` (full-page scrollshot + OCR); `captureFullPageScreenshots(options): async (object)→object|null` (batch capture via service worker); `captureAndOcrPipelined(extractResponse, options): async (object, object)→object|null` (sidepanel-driven capture loop firing OCR per screenshot in parallel; accepts `options.targetTabId` to target a specific tab instead of the current active tab); `captureTabWithScrollOcr(tabId, tabInfo, onProgress): async (number, object, function)→object|null` (activate a tab, run scroll+screenshot+OCR, return extracted content; used by multi-tab scroll capture); `buildOcrPageContext(extractResponse): async (object)→object|null` (tries pipelined then batch); `buildPageContextFromResponse(response, options): async (object, object)→object|null` (text/OCR/screenshot fallback); `getCachedOcr(url): (string)→object|null`; `setCachedOcr(url, entry): (string, object)→void`; `clearOcrCache(): ()→void`
 - **Content Viewer**: `showContentViewer(): ()→void` (open viewer modal with current pageContext data); `renderContentViewerPage(): ()→void` (render current page or all-pages view); `cvGoToPage(delta): (number)→void` (prev/next pagination); `cvToggleAll(): ()→void` (toggle paginated vs all-pages); `cvCopyToClipboard(text): (string)→void` (copy with toast); `closeContentViewer(): ()→void` (hide modal)
-- **Multi-Tab**: `showTabModal(): async ()→void` (open selector); `handleTabSelection(): async ()→void` (extract + combine); `truncateUrl(url): (string)→string` (shorten for display); `updateTabSelectionCount(): ()→void` (confirm label); `updateMultiTabIndicator(): ()→void` (tooltip)
+- **Multi-Tab**: `showTabModal(): async ()→void` (open selector with per-tab capture mode dropdowns; auto-defaults doc-app URLs to scroll mode); `handleTabSelection(): async ()→void` (4-phase pipeline: parallel DOM extraction → auto-mode fallback detection → sequential scroll-capture with tab activation and deferred OCR → result assembly; shows progress in-modal; restores original tab via try/finally before awaiting deferred OCR); `captureTabWithScrollOcr(tabId, tabInfo, onProgress, options): async (number, object, function, object)→object|null` (scroll-capture a specific tab with deferOcr option; returns deferred OCR promises when deferOcr=true so caller can await them after tab restoration); `isDocAppUrl(url): (string)→boolean` (check URL against DOC_APP_URL_PATTERNS — 16 patterns covering Google Docs, Word Online, Quip, Notion, SharePoint, Confluence, Overleaf, etc.); `truncateUrl(url): (string)→string` (shorten for display); `updateTabSelectionCount(): ()→void` (confirm label); `updateMultiTabIndicator(): ()→void` (tooltip)
 - **Quick Suggestions**: `handleQuickSuggestion(action): async (string)→void` (handle suggestion buttons)
 - **Runtime**: `handleRuntimeMessage(msg, sender, respond): (object, object, function)→void` (incoming messages)
 - **Utilities**: `escapeHtml(text): (string)→string`; `formatTime(timestamp): (string)→string`; `formatTimeAgo(timestamp): (string)→string`
@@ -523,13 +535,13 @@ const state = {
 - `sidebarNewChatBtn: click → createNewConversation`; `newChatBtn: click → createNewConversation`
 - `settingsBtn: click → toggleSettings(true)`; `closeSettingsBtn: click → toggleSettings(false)`
 - `logoutBtn: click → handleLogout`
-- `modelSelect: change → update settings + save`; `promptSelect: change → update settings + save`; `historyLengthSlider: input → update settings + save`; `autoIncludePageCheckbox: change → update settings + save`
+- `modelSelect: change → update settings + save`; `promptSelect: change → update settings + save`; `historyLengthSlider: input → update settings + save`; `autoIncludePageCheckbox: change → update settings + save`; `multiTabCaptureModeSelect: change → update settings + save`; `multiTabCaptureModeSelect: change → update settings + save`
 - `messageInput: input → handleInputChange`; `messageInput: keydown → handleInputKeydown`
 - `sendBtn: click → sendMessage`; `stopBtn: click → stopStreaming`
 - `attachPageBtn: click → attachPageContent`; `refreshPageBtn: click → refreshPageContent`; `appendPageBtn: click → appendPageContent`; `removePageContextBtn: click → removePageContext`
 - `multiTabBtn: click → showTabModal`; `voiceBtn: click → placeholder alert`
 - `suggestionBtns: click → handleQuickSuggestion`; `conversationList: click → handleConversationClick`
-- `closeTabModalBtn: click → hide modal`; `cancelTabModalBtn: click → hide modal`; `confirmTabModalBtn: click → handleTabSelection`
+- `closeTabModalBtn: click → hide modal`; `cancelTabModalBtn: click → hide modal`; `confirmTabModalBtn: click → handleTabSelection`; `abortTabCaptureBtn: click → set multiTabCaptureAborted flag`; `abortTabCaptureBtn: click → set multiTabCaptureAborted flag`
 - `chrome.runtime.onMessage: message → handleRuntimeMessage`
 
 ---
@@ -596,6 +608,10 @@ const state = {
 **Pipelined Capture + OCR:** The sidepanel can drive the capture loop directly (via `chrome.tabs.captureVisibleTab` and `chrome.tabs.sendMessage`) instead of delegating to the service worker. This enables firing individual `POST /ext/ocr` requests for each screenshot immediately as it's captured, so OCR runs in parallel with ongoing screenshot capture. For a 10-page document, this can cut total time by 40-60% compared to the batch approach (capture all, then OCR all). Falls back to the batch approach if the pipelined path fails. Progress is shown in the page context bar (e.g., "Capturing 3/8 (OCR running in parallel)...").
 
 **Content Viewer:** Users can view, paginate, and copy extracted content by clicking the page context title or the eye icon in the page-context-bar. The viewer modal shows: (1) For multi-page OCR: paginated text with prev/next/all controls and per-page character count, (2) For single screenshots: the screenshot image plus any OCR text, (3) For multi-tab/multi-source: each source as a separate page, (4) For regular extraction: full text dump. Copy Page copies current page text; Copy All copies all pages with `--- Page N ---` dividers. The viewer uses monospace text with word-wrap for faithful rendering of extracted content.
+
+**Multi-Tab Scroll Capture:** The multi-tab reader supports four capture modes per tab: `auto` (try DOM first, fall back to Full OCR for document apps or content < 500 chars), `simple` (DOM extraction only), `ocr` (single viewport screenshot + OCR), and `scroll` (scroll+multiple screenshots+pipelined OCR). A global setting `multiTabCaptureMode` (in Settings panel) sets the default; per-tab dropdowns in the tab selection modal allow overrides with labels: 🔄 Auto, 📄 DOM, 📷 OCR, 📸 Full OCR. Known document app URLs (Google Docs, Word Online, Quip, Notion, SharePoint, Confluence, Overleaf, etc. — 16 patterns in `DOC_APP_URL_PATTERNS`) auto-default to scroll mode when global is `auto`. Since `chrome.tabs.captureVisibleTab()` requires the tab to be active, scroll-capture temporarily activates each target tab (`chrome.tabs.update(tabId, {active:true})`), runs the pipelined capture, collects deferred OCR promises, then restores the original tab via `try/finally` before awaiting OCR (which is just API calls and doesn't need the tab active). An on-page toast overlay is injected via `chrome.scripting.executeScript` on each captured tab to show progress (e.g., "📷 Capturing screenshot 3/8..."). Content scripts are pre-injected via PING test + explicit injection for first-load reliability. Progress is shown in the tab modal with per-tab status icons (⏳ pending, 📷 active, ✅ done, ❌ error, ⏭️ skipped) and a cancel button. The `handleTabSelection()` function implements a 4-phase pipeline: Phase 1 (parallel DOM extraction for all tabs with retry), Phase 2 (auto-mode fallback detection based on content length, `needsScreenshot` flag, and URL patterns), Phase 3 (sequential screenshot capture with tab activation, deferred OCR collection, then tab restoration via try/finally), Phase 3b (await all deferred OCR after original tab is restored), Phase 4 (result assembly). The content viewer paginates multi-tab results by tab, showing tab title and URL header per page.
+
+**Multi-Tab Context Preservation (Bug Fix):** On first extension load (no conversation exists), `sendMessage()` auto-creates a conversation which calls `removePageContext()`, wiping multi-tab context. Fixed with a save/restore pattern at 3 implicit `createNewConversation()` call sites: `sendMessage()`, `handleScriptGeneration()`, and `handleQuickSuggestion()`. Before calling `createNewConversation()`, the code saves `state.pageContext`, `state.multiTabContexts`, and `state.selectedTabIds`, then restores them after. The user-initiated "New Chat" button correctly continues to clear context. Debug log line: `[Sidepanel] Restoring pageContext after auto-creating conversation`.
 
 ---
 
@@ -1034,11 +1050,15 @@ const state = {
     messages: array,                      // Current conversation messages
     isStreaming: boolean,                 // Response in progress
     pageContext: object | null,           // Attached page content
+    multiTabContexts: array,             // Per-tab extraction results [{tabId, url, title, content, isOcr}]
+    selectedTabIds: array,               // Tab IDs selected in multi-tab modal
+    multiTabCaptureAborted: boolean,     // Cancellation flag for multi-tab scroll capture
     settings: {
         model: string,                    // Default: 'google/gemini-2.5-flash'
         promptName: string,               // Default: 'Short'
         historyLength: number,            // Default: 10
-        autoIncludePage: boolean          // Default: false
+        autoIncludePage: boolean,         // Default: false
+        multiTabCaptureMode: string       // Default: 'auto'. Values: 'auto'|'simple'|'scroll'
     },
     abortController: AbortController | null,
     availableModels: array                // Fetched from server via /ext/models

@@ -1431,6 +1431,79 @@ input[type="range"]::-webkit-slider-thumb {
     font-size: 11px;
 }
 
+.tab-list .tab-capture-mode {
+    flex-shrink: 0;
+    font-size: 11px;
+    padding: 2px 4px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: var(--bg-secondary);
+    color: var(--text-primary);
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    min-width: 70px;
+    text-align: center;
+}
+
+.tab-list .tab-capture-mode:focus {
+    outline: 1px solid var(--accent);
+}
+
+.tab-list li.restricted .tab-capture-mode {
+    opacity: 0.4;
+    pointer-events: none;
+}
+
+.tab-capture-progress {
+    padding: 8px 0;
+}
+
+.tab-progress-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.tab-progress-list li {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 6px 12px;
+    font-size: 12px;
+    color: var(--text-secondary);
+}
+
+.tab-progress-list li .progress-icon {
+    flex-shrink: 0;
+    width: 18px;
+    text-align: center;
+}
+
+.tab-progress-list li .progress-label {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.tab-progress-list li .progress-detail {
+    flex-shrink: 0;
+    font-size: 11px;
+    color: var(--text-muted);
+}
+
+.tab-progress-list li.done { color: var(--text-primary); }
+.tab-progress-list li.active { color: var(--accent); }
+.tab-progress-list li.error { color: var(--error, #e55); }
+
+.btn-danger {
+    background: var(--error, #e55);
+    color: #fff;
+    border: none;
+}
+
 /* Spin animation for loading */
 @keyframes spin {
     from { transform: rotate(0deg); }

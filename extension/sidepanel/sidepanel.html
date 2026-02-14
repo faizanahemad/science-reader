@@ -169,6 +169,17 @@
                     </label>
                 </div>
 
+                <div class="setting-group">
+                    <label for="multi-tab-capture-mode">Multi-tab capture mode</label>
+                    <select id="multi-tab-capture-mode" class="select">
+                        <option value="auto">Auto (detect doc apps)</option>
+                        <option value="simple">Simple (DOM only)</option>
+                        <option value="ocr">OCR (single screenshot)</option>
+                        <option value="scroll">Full OCR (scroll + screenshots)</option>
+                    </select>
+                    <div class="setting-help">How other tabs are captured. Auto tries DOM first, falls back to scroll+OCR for document apps.</div>
+                </div>
+
                 <div class="setting-divider"></div>
 
                 <!-- Custom Scripts -->
@@ -375,9 +386,13 @@
                 <ul id="tab-list" class="tab-list">
                     <!-- Populated by JS -->
                 </ul>
+                <div id="tab-capture-progress" class="tab-capture-progress hidden">
+                    <ul id="tab-progress-list" class="tab-progress-list"></ul>
+                </div>
             </div>
             <div class="modal-footer">
                 <button class="btn btn-secondary" id="cancel-tab-modal">Cancel</button>
+                <button class="btn btn-danger hidden" id="abort-tab-capture">Stop Capture</button>
                 <button class="btn btn-primary" id="confirm-tab-modal">Add Selected</button>
             </div>
         </div>

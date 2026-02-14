@@ -53,20 +53,24 @@ Changes from the initial v1.0 plan based on deep code investigation:
 
 ### v2.2 → v2.3 Changes (git diff analysis of recent extension changes)
 
-Analysis of 12 modified files (~2301 insertions) from recent user commits. Changes are **overwhelmingly client-side** with minimal backend impact:
+Analysis of 11 modified extension files (~1438 lines added). Changes are **overwhelmingly client-side** (6 of 7 features are purely browser-side). Only Task 4.3 (OCR) required a plan correction.
 
-24. **OCR model default changed (Task 4.3 correction)**: Extension server now defaults to `google/gemini-2.5-flash-lite` (was `openai/gpt-4o`) for OCR vision model. OCR max workers increased from 4 to 8. Task 4.3 updated.
-25. **Extension server formatting only**: `extension_server.py` diff is ~2000 lines but almost entirely Black-style code formatting (single→double quotes, trailing commas, line breaks). **No new endpoints, no API changes, no logic changes** besides the OCR model default.
-26. **New client-side features documented (no plan impact)**: Three major features added entirely in client-side extension code (content script + service worker + sidepanel JS/HTML/CSS):
-    - **Inner scroll container detection** (`extractor.js`, +609 lines): Capture context system detects inner scrollable elements (Office Word Online, Google Docs, Notion, Confluence, Slack, Overleaf, etc.) with 5-stage detection pipeline. Uses `INIT_CAPTURE_CONTEXT`/`SCROLL_CONTEXT_TO` message protocol between sidepanel/service-worker and content script. **Purely intra-extension messaging — zero backend dependency.**
-    - **Pipelined capture + OCR** (`sidepanel.js`, +173 lines): `captureAndOcrPipelined()` drives capture loop from sidepanel, fires individual `/ext/ocr` requests per screenshot in parallel (40-60% faster than batch). **Already supported by existing OCR endpoint** (single-image requests via same ThreadPoolExecutor path).
-    - **Content Viewer** (`sidepanel.js` +174 lines, `sidepanel.html` +46 lines, `sidepanel.css` +138 lines): Paginated modal viewer for extracted/OCR text with per-page navigation, copy-to-clipboard. **Purely client-side UI.**
-27. **OCR context preservation**: Guards added in `attachPageContent()`, `handleQuickSuggestion('summarize')`, and `handleRuntimeMessage(ADD_TO_CHAT)` to prevent DOM re-extraction from overwriting OCR content. **Client-side only.**
-28. **Google Docs extraction improved** (`extractor.js`): Meaningful text threshold changed from 100 to 500 chars with regex filtering for UI chrome text (toolbar, menu items). **Client-side only.**
-29. **4 new message types** (`constants.js`): `INIT_CAPTURE_CONTEXT`, `SCROLL_CONTEXT_TO`, `GET_CONTEXT_METRICS`, `RELEASE_CAPTURE_CONTEXT` — intra-extension message types (sidepanel ↔ content script), not API endpoints.
-30. **5 extension doc files updated**: `EXTENSION_DESIGN.md`, `README.md`, `REFRESH_APPEND_CONTENT_CONTEXT.md`, `extension_api.md`, `extension_implementation.md` — all document the new client-side features. Will need further updates when backend unification lands (covered by Task 6.2).
+**7 features shipped in the extension (pre-unification):**
 
-**Plan impact summary**: Only Task 4.3 (Port OCR) needed correction (model default + max workers). All other changes are client-side and do not affect the backend unification plan. The pipelined OCR pattern (single-image requests) is already supported by the OCR endpoint architecture.
+| # | Feature | Plan Impact | Files | Lines |
+|---|---------|-------------|-------|-------|
+| 1 | **Inner Scroll Container Detection** — scrolling screenshots now detect and scroll inner elements (not just the window) for web apps like Office Word Online, Google Docs, Notion, etc. 5-stage detection pipeline, known selectors for 15+ apps, capture context management, scroll settle logic, 4 new intra-extension message handlers. | None — purely client-side messaging (`INIT_CAPTURE_CONTEXT`/`SCROLL_CONTEXT_TO`/`GET_CONTEXT_METRICS`/`RELEASE_CAPTURE_CONTEXT` between sidepanel↔content script). Zero backend dependency. | `extractor.js` (+640), `service-worker.js` (+132), `constants.js` (+6) | +778 |
+| 2 | **Pipelined Capture + OCR** — OCR fires per-screenshot during capture instead of waiting for all. ~40-60% faster. `captureAndOcrPipelined()`, updated `buildOcrPageContext()` to try pipelined first. | **Minimal** — calls `/ext/ocr` with single images (already supported by same ThreadPoolExecutor endpoint path). No API changes. | `sidepanel.js` | +420 (shared) |
+| 3 | **Content Viewer Modal** — paginated viewer to inspect/copy extracted content from the page-context-bar. Eye icon button, per-page navigation, copy-to-clipboard, `ocrPagesData` stored in `pageContext`. | None — purely client-side UI. | `sidepanel.html` (+58), `sidepanel.css` (+141), `sidepanel.js` | +199+ |
+| 4 | **Google Docs Extraction Fix** — DOM extractor falsely passed 100-char threshold on toolbar text, bypassing OCR. Threshold raised to 500 chars, chrome-pattern regex filters out toolbar/UI text. | None — client-side content script logic. | `extractor.js` | (included in #1) |
+| 5 | **OCR Context Preservation** — OCR content was silently overwritten by DOM re-extraction on summarize/attach/context-menu actions. `isOcr` guards added to `attachPageContent()`, `handleQuickSuggestion('summarize')`, `handleRuntimeMessage(ADD_TO_CHAT)`. | None — client-side guards. Note: Task 5.3 (enriched responses) should preserve this behavior when wiring up the unified backend. | `sidepanel.js` | (included in #2) |
+| 6 | **OCR Model Switch** — `openai/gpt-4o` → `google/gemini-2.5-flash-lite` for faster, cheaper OCR on web page screenshots. Max workers 4 → 8. | **Task 4.3 corrected** — ported OCR endpoint must use `gemini-2.5-flash-lite` as default, 8 workers. | `extension_server.py` (+1 functional) | +1 |
+| 7 | **Documentation Updates** — all 6 features documented across 5 extension doc files. | Task 6.2 will need to update these again post-unification. | 5 doc files | +40 |
+
+24. **Task 4.3 corrected**: OCR default model updated to `google/gemini-2.5-flash-lite`, max workers to 8. Pipelined single-image OCR pattern documented as supported use case.
+25. **`extension_server.py` formatting only**: The file shows ~2000 lines of diff but this is almost entirely Black-style code formatting (single→double quotes, trailing commas, line breaks). No new endpoints, no API changes, no logic changes besides item #6 above.
+26. **No plan task changes needed for features 1-5**: All are client-side and will continue working unchanged when the backend switches from port 5001 to 5000, as long as the ported `/ext/ocr` endpoint (Task 4.3) maintains the same request/response contract.
+27. **Task 5.3 note**: When implementing enriched responses, preserve the `isOcr` guards in sidepanel.js that prevent DOM re-extraction from overwriting OCR context (feature #5).
 
 ## 1. Problem Statement
 
