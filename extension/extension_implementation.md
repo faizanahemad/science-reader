@@ -488,7 +488,7 @@ const state = {
     multiTabContexts: [],         // Array of {tabId, url, title, content} for multi-tab
     selectedTabIds: [],           // Tab IDs currently selected in modal
     ocrCache: {},                 // In-memory OCR cache by URL
-    pendingImages: [],            // User-attached images for next message
+    pendingImages: [],            // User-attached images and PDFs for next message [{id, name, dataUrl, type?, size?, file?}]
     settings: {                   // User settings
         model: 'google/gemini-2.5-flash',
         promptName: 'preamble_short',
@@ -527,6 +527,7 @@ const state = {
 - **Quick Suggestions**: `handleQuickSuggestion(action): async (string)→void` (handle suggestion buttons)
 - **Runtime**: `handleRuntimeMessage(msg, sender, respond): (object, object, function)→void` (incoming messages)
 - **Utilities**: `escapeHtml(text): (string)→string`; `formatTime(timestamp): (string)→string`; `formatTimeAgo(timestamp): (string)→string`
+- **File Attachments**: `addAttachmentFiles(files): (FileList|array)→void` (accept images and PDFs into `state.pendingImages`; renamed from `addImageFiles`); `handleAttachmentDrop(e): (DragEvent)→void` (panel-wide drop handler, renamed from `handleImageDrop`); `renderImageAttachments(): ()→void` (render thumbnails for images + styled badges for PDFs); `generateThumbnail(dataUrl, maxSize): async (string, number)→string|null` (Canvas-based 100x100 JPEG at 60% quality); `buildDisplayAttachments(pendingImages): async (array)→array` (build `display_attachments` payload for server); `uploadPendingPdfs(conversationId): async (string)→void` (upload PDF files via `API.uploadDoc()` before chat send)
 
 **Event Listeners (compact):**
 
@@ -552,7 +553,7 @@ const state = {
 
 **CSS Variables (compact):** `--bg-primary:#0a0e14; --bg-secondary:#0d1219; --bg-tertiary:#151c25; --bg-elevated:#1a2332; --bg-hover:#1e2a3a; --text-primary:#e6edf3; --text-secondary:#9ca6b3; --text-muted:#6b7785; --accent:#00d4ff; --accent-hover:#33ddff; --accent-glow:rgba(0, 212, 255, 0.15); --accent-dim:rgba(0, 212, 255, 0.3); --user-bg:linear-gradient(135deg, #1e3a5f 0%, #1a2f4a 100%); --user-border:#2563eb; --assistant-bg:var(--bg-tertiary); --assistant-border:#374151; --header-height:52px; --input-area-height:120px; --sidebar-width:280px;`
 
-**Key Classes (compact):** `.view` (full-height view), `.header` (fixed header), `.sidebar` (slide-in list), `.sidebar.open` (visible), `.sidebar-overlay` (dim overlay), `.settings-panel` (slide-in settings), `.settings-panel.open` (visible), `.main-content` (chat container), `.chat-container` (scroll area), `.welcome-screen` (empty state), `.messages-container` (message list), `.message` (wrapper), `.message.user` (right-aligned user), `.message.assistant` (left-aligned assistant), `.message-content` (body), `.streaming-indicator` (typing dots), `.input-area` (fixed input), `.input-wrapper` (textarea wrapper), `.action-btn` (input action buttons), `.send-btn` (send), `.page-context-bar` (attached page indicator), `.modal` (overlay), `.modal-content` (modal box), `.quick-suggestions` (welcome buttons), `.suggestion-btn` (suggestion button), `.code-block-header` (code header + copy)
+**Key Classes (compact):** `.view` (full-height view), `.header` (fixed header), `.sidebar` (slide-in list), `.sidebar.open` (visible), `.sidebar-overlay` (dim overlay), `.settings-panel` (slide-in settings), `.settings-panel.open` (visible), `.main-content` (chat container), `.chat-container` (scroll area), `.welcome-screen` (empty state), `.messages-container` (message list), `.message` (wrapper), `.message.user` (right-aligned user), `.message.assistant` (left-aligned assistant), `.message-content` (body), `.streaming-indicator` (typing dots), `.input-area` (fixed input), `.input-wrapper` (textarea wrapper), `.action-btn` (input action buttons), `.send-btn` (send), `.page-context-bar` (attached page indicator), `.modal` (overlay), `.modal-content` (modal box), `.quick-suggestions` (welcome buttons), `.suggestion-btn` (suggestion button), `.code-block-header` (code header + copy), `.pdf-attachment` (PDF item in pending preview), `.pdf-badge` (PDF icon + name badge), `.panel-drag-over` (panel-wide drag highlight outline), `.message-pdf-badge` (PDF badge in rendered messages)
 
 **Animations (compact):** `fadeIn` (0.3s, message appearance), `bounce` (1.4s, typing dots), `spin` (1s, loading spinners)
 
@@ -962,6 +963,7 @@ CREATE INDEX idx_ext_script_script_type ON CustomScripts(script_type);
 | **Conversations** | `/ext/conversations/<id>/save` | POST | sidepanel.js |
 | **Chat** | `/ext/chat/<id>` | POST | sidepanel.js |
 | **Chat** | `/ext/chat/quick` | POST | extractor.js |
+| **Documents** | `/ext/upload_doc/<id>` | POST | sidepanel.js (PDF upload) |
 | **Settings** | `/ext/settings` | GET | popup.js |
 | **Settings** | `/ext/settings` | PUT | popup.js, sidepanel.js |
 | **Models** | `/ext/models` | GET | (Available) |
@@ -1053,6 +1055,7 @@ const state = {
     multiTabContexts: array,             // Per-tab extraction results [{tabId, url, title, content, isOcr}]
     selectedTabIds: array,               // Tab IDs selected in multi-tab modal
     multiTabCaptureAborted: boolean,     // Cancellation flag for multi-tab scroll capture
+    pendingImages: array,                 // Pending images + PDFs [{id, name, dataUrl, type?, size?, file?}]
     settings: {
         model: string,                    // Default: 'google/gemini-2.5-flash'
         promptName: string,               // Default: 'Short'
@@ -1326,6 +1329,18 @@ To add a new method to the `aiAssistant` API:
 ---
 
 ## Appendix D: Changelog
+
+### Version 1.5 (February 15, 2026)
+
+**File Attachment Preview & Persistence (compact):**
+- **PDF drag-and-drop**: `addImageFiles` renamed to `addAttachmentFiles`; accepts `image/*` and `application/pdf`; PDFs rendered as styled badges in preview area.
+- **Panel-wide drag feedback**: `dragCounter`-based `dragenter`/`dragleave` on `mainView`; `.panel-drag-over` CSS class with dashed outline; drop anywhere on panel accepted.
+- **Persistent display_attachments**: New `display_attachments TEXT` column on `ExtensionMessages` table (ALTER TABLE migration with silent catch). `add_message()` and `get_messages()` updated. `renderMessage()` prefers `msg.display_attachments` from DB, falls back to `msg.images` for live messages.
+- **Thumbnail generation**: `generateThumbnail()` — Canvas 100x100 JPEG at 60% quality (~2-5KB). `buildDisplayAttachments()` builds payload from `state.pendingImages`.
+- **PDF upload endpoint**: New `POST /ext/upload_doc/<conversation_id>` — pdfplumber text extraction, stored as system message (128K char limit). `uploadPendingPdfs()` calls `API.uploadDoc()`.
+- **API changes**: `sendMessage()` and `sendMessageStreaming()` in `api.js` now include `display_attachments` in request body. New `uploadDoc()` method added.
+- **CSS**: `.pdf-attachment`, `.pdf-badge`, `.panel-drag-over`, `.message-pdf-badge` styles in `sidepanel.css`.
+- **Files modified**: `sidepanel.js`, `sidepanel.css`, `api.js`, `extension.py`, `extension_server.py`.
 
 ### Version 1.4 (December 30, 2024)
 

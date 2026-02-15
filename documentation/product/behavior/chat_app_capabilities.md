@@ -220,6 +220,57 @@ Server-side injection:
 
 ---
 
+### 4b) Global Documents — index once, use everywhere
+
+**What it does**
+- Provides a user-scoped document library that lives outside any single conversation.
+- A document is uploaded and indexed once (via file or URL) and then available across every conversation the user opens.
+- Reference syntax is identical in spirit to conversation docs but uses the `#gdoc_N` / `#global_doc_N` prefix, or quoted display names:
+
+| Syntax | Effect |
+|--------|--------|
+| `#gdoc_1` or `#global_doc_1` | RAG-grounded answer from global doc 1 |
+| `"my doc name"` | Reference by display name (case-insensitive match) |
+| `#gdoc_all` or `#global_doc_all` | Query all global docs |
+| `#summary_gdoc_1` | Force summary of global doc 1 |
+| `#dense_summary_gdoc_1` | Force dense summary of global doc 1 |
+| `#full_gdoc_1` | Retrieve raw full text of global doc 1 |
+
+- Conversation docs (`#doc_N`) and global docs (`#gdoc_N` / `"name"`) can be mixed freely in one message.
+- Users can **promote** a conversation-scoped document to global in one click (globe icon on the doc button). The doc is moved (not copied) — no re-indexing required.
+
+**API**
+- `POST /global_docs/upload` — upload a file or provide a URL; the server indexes via `create_immediate_document_index()` and creates a DB row. UI supports drag-and-drop with XHR progress (0-70% upload, 70-99% indexing).
+- `GET /global_docs/list` — returns 1-indexed array of global docs for the current user (ordered by `created_at ASC`). Each entry includes `display_name` shown as a badge in the UI.
+- `GET /global_docs/info/<doc_id>` — detailed info including DocIndex metadata (type, filetype, visibility).
+- `GET /global_docs/download/<doc_id>` — download source file, with DocIndex fallback when DB `doc_source` is stale (e.g. after promote). Falls back to redirect for URL-based docs.
+- `GET /global_docs/serve?file=<doc_id>` — query-param wrapper for the PDF viewer. Used by `showPDF()` in the UI to render global docs with the same full-height viewer as conversation docs.
+- `DELETE /global_docs/<doc_id>` — delete DB row and remove filesystem storage.
+- `POST /global_docs/promote/<conversation_id>/<doc_id>` — copy doc storage to global directory, verify load, register in DB, remove from conversation. Uses copy-verify-delete for safety.
+
+**Persistence**
+- **Database**: `GlobalDocuments` table in `users.db` with composite PK `(doc_id, user_email)`. Stores `display_name`, `doc_source`, `doc_storage`, cached `title`/`short_summary`, and timestamps.
+- **Filesystem**: `storage/global_docs/{user_email_md5_hash}/{doc_id}/` — identical layout to conversation docs (`{doc_id}.index`, `indices/`, `raw_data/`, `static_data/`, `review_data/`, `_paper_details/`, `locks/`).
+- Numbering is positional (1-based by `created_at`). Deleting a doc renumbers subsequent ones, matching conversation doc behavior.
+
+**Key files**
+- `database/global_docs.py` — DB CRUD helpers (`add_global_doc`, `list_global_docs`, `get_global_doc`, `delete_global_doc`, `update_global_doc_metadata`).
+- `endpoints/global_docs.py` — Flask Blueprint (`global_docs_bp`) with 7 routes (upload, list, info, download, serve, delete, promote).
+- `Conversation.py` — `get_global_documents_for_query()` method with quoted display-name matching + 7 reply-flow integration points (parsing, quoted-name detection, all-docs check, summary pattern, full-text pattern, async launch, merge).
+- `endpoints/conversations.py` — injects `_user_email` and `_global_docs_dir` into the query dict for `Conversation.reply()`.
+- `endpoints/state.py` — `global_docs_dir` field on `AppState`.
+- `interface/global-docs-manager.js` — `GlobalDocsManager` class (drag-and-drop upload with XHR progress, file type validation, list, delete, view, promote).
+- `interface/interface.html` — Global Docs button (globe icon), management modal with drag-and-drop drop area.
+- `interface/common-chat.js` — promote button on conversation doc buttons.
+- `endpoints/static_routes.py` — `_is_missing_local_path()` guard on proxy routes (prevents crash on non-existent local file paths).
+
+**Differentiator from conversation docs**
+- Conversation docs are scoped to a single conversation and re-indexed each time. Global docs are indexed once and reusable across all conversations.
+- Global docs are user-scoped (keyed by email hash), not conversation-scoped.
+- The promote feature provides a migration path: start with a conversation doc, realize you need it elsewhere, promote it with one click.
+
+---
+
 ### 5) Web search + “research augmentation”
 
 **What it does**

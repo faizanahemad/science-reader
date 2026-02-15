@@ -37,9 +37,15 @@ def upload_doc_to_conversation_route(conversation_id: str):
         try:
             pdf_file.save(os.path.join(state.pdfs_dir, pdf_file.filename))
             full_pdf_path = os.path.join(state.pdfs_dir, pdf_file.filename)
-            conversation.add_uploaded_document(full_pdf_path)
+            doc_index = conversation.add_message_attached_document(full_pdf_path)
             conversation.save_local()
-            return jsonify({"status": "Indexing started"})
+            result = {"status": "Indexing started"}
+            if doc_index and hasattr(doc_index, "get_short_info"):
+                info = doc_index.get_short_info()
+                result["doc_id"] = info.get("doc_id", "")
+                result["source"] = info.get("source", "")
+                result["title"] = info.get("title", pdf_file.filename)
+            return jsonify(result)
         except Exception as e:
             traceback.print_exc()
             return json_error(str(e), status=400, code="bad_request")
@@ -55,9 +61,15 @@ def upload_doc_to_conversation_route(conversation_id: str):
 
     if pdf_url:
         try:
-            conversation.add_uploaded_document(pdf_url)
+            doc_index = conversation.add_message_attached_document(pdf_url)
             conversation.save_local()
-            return jsonify({"status": "Indexing started"})
+            result = {"status": "Indexing started"}
+            if doc_index and hasattr(doc_index, "get_short_info"):
+                info = doc_index.get_short_info()
+                result["doc_id"] = info.get("doc_id", "")
+                result["source"] = info.get("source", "")
+                result["title"] = info.get("title", "")
+            return jsonify(result)
         except Exception as e:
             traceback.print_exc()
             return json_error(str(e), status=400, code="bad_request")
@@ -65,7 +77,45 @@ def upload_doc_to_conversation_route(conversation_id: str):
     return json_error("No pdf_url or pdf_file provided", status=400, code="bad_request")
 
 
-@documents_bp.route("/delete_document_from_conversation/<conversation_id>/<document_id>", methods=["DELETE"])
+@documents_bp.route(
+    "/promote_message_doc/<conversation_id>/<document_id>",
+    methods=["POST"],
+)
+@limiter.limit("20 per minute")
+@login_required
+def promote_message_doc_route(conversation_id: str, document_id: str):
+    state, keys = get_state_and_keys()
+    conversation = attach_keys(state.conversation_cache[conversation_id], keys)
+    if document_id:
+        try:
+            promoted = conversation.promote_message_attached_document(document_id)
+            if promoted is None:
+                return json_error(
+                    "Document not found in message attachments",
+                    status=404,
+                    code="not_found",
+                )
+            info = (
+                promoted.get_short_info() if hasattr(promoted, "get_short_info") else {}
+            )
+            return jsonify(
+                {
+                    "status": "Document promoted to conversation",
+                    "doc_id": info.get("doc_id", ""),
+                    "source": info.get("source", ""),
+                    "title": info.get("title", ""),
+                }
+            )
+        except Exception as e:
+            traceback.print_exc()
+            return json_error(str(e), status=400, code="bad_request")
+    return json_error("No document_id provided", status=400, code="bad_request")
+
+
+@documents_bp.route(
+    "/delete_document_from_conversation/<conversation_id>/<document_id>",
+    methods=["DELETE"],
+)
 @limiter.limit("100 per minute")
 @login_required
 def delete_document_from_conversation_route(conversation_id: str, document_id: str):
@@ -85,7 +135,9 @@ def delete_document_from_conversation_route(conversation_id: str, document_id: s
     return json_error("No doc_id provided", status=400, code="bad_request")
 
 
-@documents_bp.route("/list_documents_by_conversation/<conversation_id>", methods=["GET"])
+@documents_bp.route(
+    "/list_documents_by_conversation/<conversation_id>", methods=["GET"]
+)
 @limiter.limit("30 per minute")
 @login_required
 def list_documents_by_conversation_route(conversation_id: str):
@@ -100,10 +152,14 @@ def list_documents_by_conversation_route(conversation_id: str):
         docs = [d.get_short_info() for d in docs]
         return jsonify(docs)
 
-    return json_error("Conversation not found", status=404, code="conversation_not_found")
+    return json_error(
+        "Conversation not found", status=404, code="conversation_not_found"
+    )
 
 
-@documents_bp.route("/download_doc_from_conversation/<conversation_id>/<doc_id>", methods=["GET"])
+@documents_bp.route(
+    "/download_doc_from_conversation/<conversation_id>/<doc_id>", methods=["GET"]
+)
 @limiter.limit("30 per minute")
 @login_required
 def download_doc_from_conversation_route(conversation_id: str, doc_id: str):
@@ -123,6 +179,6 @@ def download_doc_from_conversation_route(conversation_id: str, doc_id: str):
             return redirect(doc.doc_source)
         return json_error("Document not found", status=404, code="document_not_found")
 
-    return json_error("Conversation not found", status=404, code="conversation_not_found")
-
-
+    return json_error(
+        "Conversation not found", status=404, code="conversation_not_found"
+    )

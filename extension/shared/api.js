@@ -406,6 +406,21 @@ export const API = {
 
     // ==================== Chat Methods ====================
 
+    async uploadDoc(conversationId, formData) {
+        const token = await Storage.getToken();
+        const apiBase = await getApiBaseUrl();
+        const response = await fetch(`${apiBase}/ext/upload_doc/${conversationId}`, {
+            method: 'POST',
+            headers: { 'Authorization': `Bearer ${token}` },
+            body: formData
+        });
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.error || `Upload failed: ${response.status}`);
+        }
+        return response.json();
+    },
+
     /**
      * Send a message (non-streaming)
      * @param {string} conversationId
@@ -437,18 +452,19 @@ export const API = {
                 detail_level: data.detail_level,
                 workflow_id: data.workflow_id,
                 images: data.images,
+                display_attachments: data.display_attachments,
                 stream: false
             })
         });
     },
 
     /**
-     * Send a message with streaming response
-     * @param {string} conversationId
-     * @param {Object} data - Message data
-     * @param {Object} callbacks - {onChunk, onDone, onError}
-     * @returns {Promise<void>}
-     */
+      * Send a message with streaming response
+      * @param {string} conversationId
+      * @param {Object} data - Message data
+      * @param {Object} callbacks - {onChunk, onDone, onError}
+      * @returns {Promise<void>}
+      */
     async sendMessageStreaming(conversationId, data, callbacks) {
         // Build page context with screenshot and multi-tab info
         const pageContext = data.pageContext ? {
@@ -471,7 +487,8 @@ export const API = {
             agent: data.agent,
             detail_level: data.detail_level,
             workflow_id: data.workflow_id,
-            images: data.images
+            images: data.images,
+            display_attachments: data.display_attachments
         }, callbacks);
     },
 

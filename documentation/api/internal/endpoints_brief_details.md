@@ -361,6 +361,7 @@ Source file: `/Users/ahemf/Documents/Backup_2025/Research/chatgpt-iterative/serv
   - limiter: `@limiter.limit("50 per minute")`
   - Server injects `query["_users_dir"]` and `query["_conversation_loader"]` for cross-conversation reference resolution.
   - Streaming `message_ids` chunk now includes `user_message_short_hash` and `response_message_short_hash` (6-char base36 hashes).
+  - Accepts optional `display_attachments` JSON array in request body. Stored in user message dict for persistent UI rendering (not sent to LLM). Each item: `{type, name, thumbnail, doc_id?, source?}`.
 - **POST** `/set_flag/<conversation_id>/<flag>` → `set_flag()` (route L2410, def L2413) (login_required, rate_limited)
   - limiter: `@limiter.limit("100 per minute")`
 - **POST** `/set_memory_pad/<conversation_id>` → `set_memory_pad()` (route L3591, def L3594) (login_required, rate_limited)
@@ -385,5 +386,6 @@ Source file: `/Users/ahemf/Documents/Backup_2025/Research/chatgpt-iterative/serv
   - limiter: `@limiter.limit("500 per minute")`
 - **POST** `/upload_doc_to_conversation/<conversation_id>` → `upload_doc_to_conversation()` (route L2141, def L2144) (login_required, rate_limited)
   - limiter: `@limiter.limit("10 per minute")`
+  - Response now includes `doc_id`, `source`, and `title` fields (in addition to status) so the UI can enrich attachment metadata for persistent rendering and context menu actions.
 
 

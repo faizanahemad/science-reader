@@ -19,6 +19,7 @@ The HTTP API is split into one Flask Blueprint per logical domain:
 - `endpoints/pkb.py`: Personal Knowledge Base API (`/pkb/*`) + plan execution
 - `endpoints/static_routes.py`: UI/static assets, session/lock utilities, proxy routes
 - `endpoints/code_runner.py`: one-off code execution
+- `endpoints/global_docs.py`: global document CRUD + promote + serve (user-scoped docs referenced via `#gdoc_N` or `"display name"`)
 
 Shared helpers:
 
@@ -48,7 +49,7 @@ important for any `before_app_request` hooks (auth first).
 and “module globals” drifting over time.
 
 `AppState` typically holds:
-- **Filesystem dirs**: `users_dir`, `conversation_folder`, `pdfs_dir`, `locks_dir`, etc.
+- **Filesystem dirs**: `users_dir`, `conversation_folder`, `pdfs_dir`, `locks_dir`, `global_docs_dir`, etc.
 - **Caches**: `conversation_cache` (conversation objects loaded on demand)
 - **In-memory registries**: PKB pinned claims store, cancellation registries, etc.
 - **Optional extension refs** (if needed): cache / limiter handles
@@ -113,6 +114,7 @@ DB modules (moved out of `server.py`):
 - `database/doubts.py`: doubt tables + queries
 - `database/users.py`: user details/preferences tables + queries
 - `database/sections.py`: section hidden-details tables + queries
+- `database/global_docs.py`: global documents table + CRUD queries (`add_global_doc`, `list_global_docs`, `get_global_doc`, `delete_global_doc`, `update_global_doc_metadata`)
 
 PKB DB:
 - `endpoints/pkb.py` uses a separate sqlite file: `pkb.sqlite` under `AppState.users_dir`

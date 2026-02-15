@@ -101,6 +101,7 @@ extension/
 - **Quick Actions**: Summarize page, ask about selection
 - **Markdown**: Rendered responses with syntax highlighting
 - **Streaming**: Real-time response display as it's generated
+- **File Attachments**: Drag-and-drop images and PDFs anywhere on the side panel; preview thumbnails (images) and styled badges (PDFs) above the input; persistent attachment rendering in sent messages via `display_attachments` DB column; PDF text extraction via pdfplumber (`/ext/upload_doc`) stored as system message
 
 ### ✅ Implemented (Phase 2) - Custom Scripts
 

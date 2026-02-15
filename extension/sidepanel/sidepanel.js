@@ -449,21 +449,62 @@ function setupEventListeners() {
         btn.addEventListener('click', () => handleQuickSuggestion(btn.dataset.action));
     });
 
-    // Image drag-and-drop (input + whole panel)
-    const dragTargets = [inputWrapper, mainView].filter(Boolean);
-    dragTargets.forEach((target) => {
-        target.addEventListener('dragover', (e) => {
+    // File drag-and-drop (images + PDFs) with panel-wide visual feedback
+    let dragCounter = 0;
+    if (mainView) {
+        mainView.addEventListener('dragenter', (e) => {
             e.preventDefault();
+            dragCounter++;
+            mainView.classList.add('panel-drag-over');
             inputWrapper?.classList.add('drag-over');
         });
-        target.addEventListener('dragleave', () => {
-            inputWrapper?.classList.remove('drag-over');
+        mainView.addEventListener('dragleave', () => {
+            dragCounter--;
+            if (dragCounter <= 0) {
+                dragCounter = 0;
+                mainView.classList.remove('panel-drag-over');
+                inputWrapper?.classList.remove('drag-over');
+            }
         });
-        target.addEventListener('drop', handleImageDrop);
-    });
+        mainView.addEventListener('dragover', (e) => {
+            e.preventDefault();
+        });
+        mainView.addEventListener('drop', (e) => {
+            dragCounter = 0;
+            mainView.classList.remove('panel-drag-over');
+            inputWrapper?.classList.remove('drag-over');
+            handleAttachmentDrop(e);
+        });
+    }
     
     // Conversation list delegation
     conversationList.addEventListener('click', handleConversationClick);
+
+    // Attachment click delegation — re-attach for current turn
+    messagesContainer.addEventListener('click', function(e) {
+        const el = e.target.closest('.msg-att-clickable');
+        if (!el) return;
+        try {
+            const att = JSON.parse(decodeURIComponent(el.dataset.att));
+            if (att.type === 'image' && att.thumbnail) {
+                const thumbnail = att.thumbnail;
+                if (!thumbnail.id) {
+                    thumbnail.id = `reattached-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+                }
+                state.pendingImages.push(thumbnail);
+            } else if (att.type === 'pdf' && att.name) {
+                state.pendingImages.push({
+                    id: `reattached-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+                    type: 'pdf', 
+                    name: att.name, 
+                    dataUrl: att.thumbnail || null
+                });
+            }
+            renderImageAttachments();
+        } catch(err) {
+            console.error('[AI Assistant] Failed to re-attach:', err);
+        }
+    });
 }
 
 // ==================== Login ====================
@@ -1040,12 +1081,32 @@ function renderMessage(msg) {
         content = escapeHtml(content).replace(/\n/g, '<br>');
     }
 
-    const images = Array.isArray(msg.images) ? msg.images : [];
-    const imagesHtml = images.length > 0
-        ? `<div class="message-images">${images.map((src) => `
-            <img class="message-image" src="${src}" alt="Attached image">
-        `).join('')}</div>`
-        : '';
+    // Render attachments: prefer display_attachments (persisted), fall back to live images
+    const attachments = Array.isArray(msg.display_attachments) ? msg.display_attachments : [];
+    const liveImages = Array.isArray(msg.images) ? msg.images : [];
+    
+    let attachmentsHtml = '';
+    if (attachments.length > 0) {
+        attachmentsHtml = `<div class="message-images">${attachments.map((att, idx) => {
+            const attData = encodeURIComponent(JSON.stringify(att));
+            if (att.type === 'image' && att.thumbnail) {
+                return `<img class="message-image msg-att-clickable" src="${att.thumbnail}" alt="${escapeHtml(att.name || 'Image')}" title="Click: attach for current turn" data-att="${attData}">`;
+            } else if (att.type === 'pdf') {
+                return `<div class="message-pdf-badge msg-att-clickable" title="Click: attach for current turn" data-att="${attData}">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                    </svg>
+                    <span>${escapeHtml(att.name || 'PDF')}</span>
+                </div>`;
+            }
+            return '';
+        }).join('')}</div>`;
+    } else if (liveImages.length > 0) {
+        attachmentsHtml = `<div class="message-images">${liveImages.map((src) =>
+            `<img class="message-image" src="${src}" alt="Attached image">`
+        ).join('')}</div>`;
+    }
     
     return `
         <div class="message ${msg.role}" data-id="${msg.message_id}">
@@ -1054,7 +1115,7 @@ function renderMessage(msg) {
                 <span>${roleName}</span>
                 <span class="message-time">${formatTime(msg.created_at)}</span>
             </div>
-            <div class="message-content">${content}${imagesHtml}</div>
+            <div class="message-content">${content}${attachmentsHtml}</div>
         </div>
     `;
 }
@@ -1174,9 +1235,9 @@ function updatePageContextButtons() {
 
 async function sendMessage() {
     const text = messageInput.value.trim();
-    const imagesToSend = state.pendingImages.map((img) => img.dataUrl);
-    const hasImages = imagesToSend.length > 0;
-    if ((!text && !hasImages) || state.isStreaming) return;
+    const imagesToSend = state.pendingImages.filter(att => att.type !== 'pdf').map((img) => img.dataUrl);
+    const hasAttachments = state.pendingImages.length > 0;
+    if ((!text && !hasAttachments) || state.isStreaming) return;
     
     // Check for script creation intent
     if (text && detectScriptIntent(text)) {
@@ -1193,6 +1254,7 @@ async function sendMessage() {
         const savedPageContext = state.pageContext;
         const savedMultiTabContexts = state.multiTabContexts ? [...state.multiTabContexts] : [];
         const savedSelectedTabIds = state.selectedTabIds ? [...state.selectedTabIds] : [];
+        const savedPendingImages = [...state.pendingImages];
         
         const created = await createNewConversation();
         if (!created || !state.currentConversation) {
@@ -1223,6 +1285,11 @@ async function sendMessage() {
                 setPageContextBadge(savedMultiTabContexts.length + ' tabs');
             }
             updatePageContextButtons();
+        }
+        if (savedPendingImages.length > 0) {
+            state.pendingImages = savedPendingImages;
+            console.log('[DEBUG] createNewConversation: Restored pendingImages after conversation create:', state.pendingImages.map(att => ({name: att.name, type: att.type, hasFile: !!att.file})));
+            renderImageAttachments();
         }
     }
     
@@ -1264,13 +1331,18 @@ async function sendMessage() {
         });
     }
     
+    // Build display_attachments for persistence (small thumbnails, not full images)
+    const displayAttachments = await buildDisplayAttachments(state.pendingImages);
+    console.log('[DEBUG] sendMessage: Built displayAttachments:', displayAttachments);
+    
     // Add user message to UI
     const userMessage = {
         message_id: 'temp-user-' + Date.now(),
         role: 'user',
-        content: text || '[Image attached]',
+        content: text || '[Attachment]',
         created_at: new Date().toISOString(),
-        images: imagesToSend
+        images: imagesToSend,
+        display_attachments: displayAttachments
     };
     state.messages.push(userMessage);
     
@@ -1337,6 +1409,8 @@ async function sendMessage() {
         const workflowId = state.settings.workflowId || '';
         const agentToUse = workflowId ? 'PromptWorkflowAgent' : state.settings.agentName;
 
+        await uploadPendingPdfs(state.currentConversation.conversation_id);
+
         await API.sendMessageStreaming(
             state.currentConversation.conversation_id,
             {
@@ -1345,7 +1419,8 @@ async function sendMessage() {
                 model: state.settings.model,
                 agent: agentToUse,
                 workflow_id: workflowId || null,
-                images: imagesToSend
+                images: imagesToSend,
+                display_attachments: displayAttachments
             },
             {
                 onChunk: (chunk) => {
@@ -1747,6 +1822,52 @@ function clearOcrCache() {
 /**
  * Clear pending image attachments for the next message.
  */
+function generateThumbnail(dataUrl, maxSize = 100) {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const scale = Math.min(maxSize / img.width, maxSize / img.height, 1);
+            canvas.width = img.width * scale;
+            canvas.height = img.height * scale;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            resolve(canvas.toDataURL('image/jpeg', 0.6));
+        };
+        img.onerror = () => resolve(null);
+        img.src = dataUrl;
+    });
+}
+
+async function buildDisplayAttachments(pendingItems) {
+    const result = [];
+    for (const att of pendingItems) {
+        if (att.type === 'pdf') {
+            result.push({ type: 'pdf', name: att.name, thumbnail: null });
+        } else {
+            const thumbnail = att.dataUrl ? await generateThumbnail(att.dataUrl) : null;
+            result.push({ type: 'image', name: att.name, thumbnail });
+        }
+    }
+    return result.length > 0 ? result : null;
+}
+
+async function uploadPendingPdfs(conversationId) {
+    const pdfs = state.pendingImages.filter(att => att.type === 'pdf' && att.file);
+    console.log('[DEBUG] uploadPendingPdfs: Found', pdfs.length, 'PDFs to upload. Full pendingImages:', state.pendingImages);
+    for (const pdf of pdfs) {
+        try {
+            console.log('[DEBUG] uploadPendingPdfs: Uploading PDF:', pdf.name, 'file object:', pdf.file);
+            const formData = new FormData();
+            formData.append('pdf_file', pdf.file);
+            const result = await API.uploadDoc(conversationId, formData);
+            console.log('[DEBUG] uploadPendingPdfs: Upload success for', pdf.name, 'Result:', result);
+        } catch (err) {
+            console.error('[Sidepanel] PDF upload failed:', pdf.name, err);
+        }
+    }
+}
+
 function clearImageAttachments() {
     state.pendingImages = [];
     renderImageAttachments();
@@ -1765,12 +1886,28 @@ function renderImageAttachments() {
     }
 
     imageAttachmentsEl.classList.remove('hidden');
-    imageAttachmentsEl.innerHTML = state.pendingImages.map((img) => `
-        <div class="image-attachment" data-id="${img.id}">
-            <img src="${img.dataUrl}" alt="${img.name || 'attachment'}">
-            <button class="remove-btn" aria-label="Remove image">×</button>
-        </div>
-    `).join('');
+    imageAttachmentsEl.innerHTML = state.pendingImages.map((att) => {
+        if (att.type === 'pdf') {
+            return `
+                <div class="image-attachment pdf-attachment" data-id="${att.id}">
+                    <div class="pdf-badge">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="16" y1="13" x2="8" y2="13"></line>
+                            <line x1="16" y1="17" x2="8" y2="17"></line>
+                        </svg>
+                        <span class="pdf-name" title="${att.name || 'PDF'}">${att.name || 'PDF'}</span>
+                    </div>
+                    <button class="remove-btn" aria-label="Remove attachment">\u00d7</button>
+                </div>`;
+        }
+        return `
+            <div class="image-attachment" data-id="${att.id}">
+                <img src="${att.dataUrl}" alt="${att.name || 'attachment'}">
+                <button class="remove-btn" aria-label="Remove image">\u00d7</button>
+            </div>`;
+    }).join('');
 
     imageAttachmentsEl.querySelectorAll('.remove-btn').forEach((btn) => {
         btn.addEventListener('click', () => {
@@ -1785,29 +1922,42 @@ function renderImageAttachments() {
 }
 
 /**
- * Add image file(s) to pending attachments.
+ * Add file(s) to pending attachments (images and PDFs).
  * @param {FileList|File[]} files - Files dropped by the user.
  */
-async function addImageFiles(files) {
+async function addAttachmentFiles(files) {
     const maxAttachments = 5;
     const list = Array.from(files || []);
     for (const file of list) {
-        if (!file.type.startsWith('image/')) continue;
+        const isImage = file.type.startsWith('image/');
+        const isPdf = file.type === 'application/pdf';
+        if (!isImage && !isPdf) continue;
         if (state.pendingImages.length >= maxAttachments) {
-            alert(`You can attach up to ${maxAttachments} images per message.`);
+            alert(`You can attach up to ${maxAttachments} files per message.`);
             break;
         }
-        const dataUrl = await new Promise((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result);
-            reader.onerror = () => reject(reader.error);
-            reader.readAsDataURL(file);
-        });
-        state.pendingImages.push({
-            id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-            name: file.name,
-            dataUrl
-        });
+        if (isImage) {
+            const dataUrl = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(reader.result);
+                reader.onerror = () => reject(reader.error);
+                reader.readAsDataURL(file);
+            });
+            state.pendingImages.push({
+                id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+                name: file.name,
+                type: 'image',
+                dataUrl
+            });
+        } else if (isPdf) {
+            state.pendingImages.push({
+                id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+                name: file.name,
+                type: 'pdf',
+                dataUrl: null,
+                file: file
+            });
+        }
     }
     renderImageAttachments();
     updateSendButton();
@@ -1817,12 +1967,12 @@ async function addImageFiles(files) {
  * Handle drag-and-drop images into the input area.
  * @param {DragEvent} e - Drop event.
  */
-function handleImageDrop(e) {
+function handleAttachmentDrop(e) {
     e.preventDefault();
     inputWrapper?.classList.remove('drag-over');
     const files = e.dataTransfer?.files || [];
-    addImageFiles(files).catch((err) => {
-        console.error('[Sidepanel] Failed to add images:', err);
+    addAttachmentFiles(files).catch((err) => {
+        console.error('[Sidepanel] Failed to add attachments:', err);
     });
 }
 

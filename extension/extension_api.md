@@ -44,6 +44,7 @@
 | Custom Scripts | POST | `/ext/scripts/<script_id>/toggle` |
 | Custom Scripts | POST | `/ext/scripts/generate` |
 | Custom Scripts | POST | `/ext/scripts/validate` |
+| Documents | POST | `/ext/upload_doc/<conversation_id>` |
 
 ## Common Error Format
 
@@ -110,7 +111,8 @@ Common HTTP codes: `400` bad request • `401` unauthorized • `404` not found 
 - **Response**: `{ "conversation": object, "deleted_temporary": number }`
 
 ### GET `/ext/conversations/<conversation_id>`
-- **Response**: `{ "conversation": { "conversation_id": string, "title": string, "messages": [ { "message_id": string, "role": string, "content": string, "page_context": object|null, "created_at": string }, ... ], ... } }`
+- **Response**: `{ "conversation": { "conversation_id": string, "title": string, "messages": [ { "message_id": string, "role": string, "content": string, "page_context": object|null, "display_attachments": array|null, "created_at": string }, ... ], ... } }`
+- **Note**: `display_attachments` is a JSON array of `{ type: "image"|"pdf", name: string, thumbnail: string|null }` objects stored alongside each message for persistent UI rendering. Null for messages without attachments.
 - **Errors**: `404` not found
 
 ### PUT `/ext/conversations/<conversation_id>`
@@ -129,7 +131,8 @@ Common HTTP codes: `400` bad request • `401` unauthorized • `404` not found 
 ## Chat
 
 ### POST `/ext/chat/<conversation_id>`
-- **Request**: `{ "message": string, "page_context": { "url": string, "title": string, "content": string, "isMultiTab"?: bool, "tabCount"?: number, "sources"?: array, "mergeType"?: "single"|"refreshed"|"appended", "lastRefreshed"?: number }|null, "images": string[]|null, "model": string, "stream": bool, "agent": string|null, "detail_level": number|null, "workflow_id": string|null }`
+- **Request**: `{ "message": string, "page_context": { "url": string, "title": string, "content": string, "isMultiTab"?: bool, "tabCount"?: number, "sources"?: array, "mergeType"?: "single"|"refreshed"|"appended", "lastRefreshed"?: number }|null, "images": string[]|null, "display_attachments": array|null, "model": string, "stream": bool, "agent": string|null, "detail_level": number|null, "workflow_id": string|null }`
+- **Note**: `display_attachments` is an optional array of `{ type: "image"|"pdf", name: string, thumbnail: string|null }` objects. When provided, stored in the user message for persistent UI rendering (not sent to LLM context). Generate thumbnails client-side (Canvas 100x100 JPEG at 60% quality).
 - **Response (non-streaming)**: `{ "response": string, "message_id": string, "user_message_id": string }`
 - **Response (streaming)**: Server-Sent Events with `data: {"chunk": "..."}` and final `data: {"done": true, "message_id": "..."}`.
 - **Errors**: `400` message required, `404` conversation not found, `503` LLM unavailable
@@ -238,6 +241,17 @@ Scripts execute via a sandboxed extension page for CSP safety:
 - **No direct DOM access** in user scripts (`document`, `querySelector`, etc.).
 - Use `aiAssistant.dom.*` instead (content script performs DOM interactions safely).
 - Common helpers: `click`, `setValue` (dispatches `input`/`change`), `type({ clearFirst, delayMs })`, `hide`, `remove`.
+
+## Documents
+
+### POST `/ext/upload_doc/<conversation_id>`
+- **Auth**: required
+- **Content-Type**: `multipart/form-data`
+- **Request**: Form field `pdf_file` (PDF file)
+- **Response**: `{ "status": "ok", "filename": string, "pages": number, "chars": number }`
+- **Errors**: `400` no pdf_file provided or no text extractable, `404` conversation not found
+- **Behavior**: Extracts text from PDF using pdfplumber (server-side). Text is truncated at 128,000 characters if longer. The extracted content is stored as a system message in the conversation so the LLM can reference it in subsequent replies.
+- **Usage**: Called by `sidepanel.js` `uploadPendingPdfs()` when user sends a message with PDF attachments. The upload happens before or alongside the chat message send.
 
 ## Example Flow (Compact)
 

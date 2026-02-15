@@ -1366,6 +1366,8 @@ def send_message(conversation_id: str):
 
     # Inject cross-conversation reference resolution dependencies
     query["_users_dir"] = state.users_dir
+    query["_user_email"] = email
+    query["_global_docs_dir"] = state.global_docs_dir
     query["_conversation_loader"] = lambda cid: state.conversation_cache[cid]
 
     from queue import Queue

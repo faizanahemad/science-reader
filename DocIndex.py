@@ -2101,6 +2101,365 @@ class ImmediateDocIndex(DocIndex):
     pass
 
 
+class FastDocIndex(DocIndex):
+    """Lightweight document index using BM25 keyword search instead of FAISS embeddings.
+
+    Purpose
+    -------
+    Provides a fast indexing path for documents attached to messages via drag-drop.
+    Skips the expensive operations in the full ``DocIndex`` constructor (FAISS embedding
+    creation, LLM-generated titles/summaries) and instead builds only a BM25 keyword
+    index over text chunks.  This reduces upload latency from 15-45 seconds to 1-3 seconds.
+
+    The document can later be "promoted" to a full ``ImmediateDocIndex`` (with FAISS
+    embeddings and LLM summaries) when the user explicitly adds it to the conversation
+    via the "Add to Conversation" context menu.
+
+    Parameters
+    ----------
+    doc_source : str
+        Path to the local file or remote URL.
+    doc_filetype : str
+        File type identifier (e.g. ``"pdf"``, ``"html"``, ``"md"``).
+    doc_type : str
+        Document category (e.g. ``"scientific_article"``).
+    doc_text : str
+        Full extracted text content of the document.
+    chunk_size : int
+        Number of words per chunk used during text splitting.
+    chunks : list of str
+        Pre-split text chunks for BM25 indexing.
+    storage : str
+        Parent directory where the document folder will be created.
+    keys : dict
+        API keys dict (stored but not used for any API calls during init).
+
+    Attributes
+    ----------
+    _is_fast_index : bool
+        Always ``True``; marker to distinguish from full ``DocIndex`` instances.
+    _bm25_index : BM25Okapi or None
+        BM25 index built from tokenized chunks.
+    _bm25_chunks : list of str
+        Raw chunk strings aligned with the BM25 index for retrieval.
+    """
+
+    def __init__(
+        self,
+        doc_source,
+        doc_filetype,
+        doc_type,
+        doc_text,
+        chunk_size,
+        chunks,
+        storage,
+        keys,
+    ):
+        # ---- Deterministic doc ID (same hash as full DocIndex for same source) ----
+        self.doc_id = str(mmh3.hash(doc_source + doc_filetype + doc_type, signed=False))
+
+        self._visible = False
+        self._chunk_size = chunk_size
+        self.result_cutoff = 4
+        self.version = 0
+        self.last_access_time = time.time()
+        self.is_local = os.path.exists(doc_source)
+        self._is_fast_index = True
+        self.init_complete = True
+
+        # ---- Copy file into storage if needed (mirrors base DocIndex behaviour) ----
+        if self.is_local and os.path.dirname(
+            os.path.expanduser(doc_source)
+        ) != os.path.expanduser(storage):
+            try:
+                shutil.move(doc_source, storage)
+            except shutil.Error:
+                shutil.copy(doc_source, storage)
+            doc_source = os.path.join(storage, os.path.basename(doc_source))
+
+        self.doc_source = doc_source
+        self.doc_filetype = doc_filetype
+        self.doc_type = doc_type
+
+        # ---- Title from filename (no LLM call) ----
+        if self.is_local:
+            self._title = os.path.splitext(os.path.basename(doc_source))[0]
+        else:
+            self._title = doc_source.rstrip("/").split("/")[-1]
+
+        # ---- Summary from first 500 chars of text (no LLM call) ----
+        self._short_summary = doc_text[:500].strip() if doc_text else ""
+
+        # ---- Storage folder ----
+        folder = os.path.join(storage, f"{self.doc_id}")
+        os.makedirs(folder, exist_ok=True)
+        self._storage = folder
+        self.store_separate = ["raw_data", "static_data"]
+
+        # ---- Text metrics ----
+        self._text_len = get_gpt4_word_count(doc_text) if doc_text else 0
+        self._brief_summary = self._title + "\n" + self._short_summary
+        self._brief_summary_len = get_gpt3_word_count(self._brief_summary)
+
+        # ---- No FAISS indices ----
+        self._raw_index = None
+        self._raw_index_small = None
+
+        # ---- BM25 index over chunks ----
+        from rank_bm25 import BM25Okapi
+
+        self._bm25_chunks = list(chunks) if chunks else []
+        if len(self._bm25_chunks) > 0:
+            tokenized = [c.lower().split() for c in self._bm25_chunks]
+            self._bm25_index = BM25Okapi(tokenized)
+        else:
+            self._bm25_index = None
+
+        # ---- Persist raw data and static data ----
+        self.set_doc_data("raw_data", None, dict(chunks=self._bm25_chunks))
+        self.set_doc_data(
+            "static_data",
+            None,
+            dict(
+                doc_source=doc_source,
+                doc_filetype=doc_filetype,
+                doc_type=doc_type,
+                doc_text=doc_text,
+            ),
+        )
+
+        self.set_api_keys(keys)
+        self.save_local()
+
+    # ---- Properties (override base to avoid LLM fallback calls) ----------------
+
+    @property
+    def title(self):
+        return self._title
+
+    @property
+    def short_summary(self):
+        return self._short_summary
+
+    def set_api_keys(self, api_keys: dict):
+        assert isinstance(api_keys, dict)
+        setattr(self, "api_keys", api_keys)
+
+    # ---- BM25 search -----------------------------------------------------------
+
+    def bm25_search(self, query, top_k=10):
+        """Search document chunks using BM25 keyword matching.
+
+        Parameters
+        ----------
+        query : str
+            The search query text.
+        top_k : int, optional
+            Maximum number of chunks to return (default 10).
+
+        Returns
+        -------
+        list of str
+            Top matching chunks sorted by descending BM25 score.
+            Only chunks with score > 0 are returned.
+        """
+        if self._bm25_index is None or not self._bm25_chunks:
+            return []
+        tokenized_query = query.lower().split()
+        scores = self._bm25_index.get_scores(tokenized_query)
+        top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[
+            :top_k
+        ]
+        return [self._bm25_chunks[i] for i in top_indices if scores[i] > 0]
+
+    # ---- Override semantic search to use BM25 instead of FAISS -----------------
+
+    def semantic_search_document(self, query, token_limit=4096 * 4):
+        """BM25-based document search (replaces FAISS semantic search).
+
+        For small documents whose full text fits within ``token_limit``, returns
+        the complete text.  For larger documents, uses BM25 keyword matching to
+        retrieve the most relevant chunks.
+
+        Parameters
+        ----------
+        query : str
+            The search query.
+        token_limit : int, optional
+            Maximum word budget for returned text (default 16384).
+
+        Returns
+        -------
+        str
+            Brief summary plus either full text or BM25-selected fragments.
+        """
+        doc_text = self.get_doc_data("static_data", "doc_text")
+        if self._text_len < token_limit and doc_text:
+            return self._brief_summary + "\n---\n" + doc_text
+
+        chunk_budget = max(self.result_cutoff, token_limit // max(self._chunk_size, 1))
+        results = self.bm25_search(query, top_k=chunk_budget)
+        if not results:
+            if doc_text:
+                return chunk_text_words(
+                    self._brief_summary + "\n---\n" + doc_text,
+                    chunk_size=token_limit,
+                    chunk_overlap=0,
+                )[0]
+            return self._brief_summary
+
+        raw_text = "\n---\n".join(
+            [f"Doc fragment {ix + 1}:\n{chunk}\n" for ix, chunk in enumerate(results)]
+        )
+        return self._brief_summary + "\n---\n" + raw_text
+
+    def semantic_search_document_small(self, query, token_limit=4096):
+        """BM25-based search with smaller token budget.
+
+        Parameters
+        ----------
+        query : str
+            The search query.
+        token_limit : int, optional
+            Maximum word budget (default 4096).
+
+        Returns
+        -------
+        str
+            Brief summary plus BM25-selected fragments.
+        """
+        return self.semantic_search_document(query, token_limit=token_limit)
+
+
+class FastImageDocIndex(DocIndex):
+    """Lightweight image document index that stores the image without LLM processing.
+
+    Purpose
+    -------
+    Provides a fast path for image attachments in drag-drop message flows.  Unlike
+    ``ImageDocIndex``, this class does NOT run OCR or vision-model captioning during
+    construction.  It simply stores the image file and exposes ``llm_image_source``
+    so that vision-capable models can see the image during the reply turn.
+
+    The image can later be "promoted" to a full ``ImageDocIndex`` (with OCR, deep
+    captioning, and FAISS embeddings) when the user adds it to the conversation.
+
+    Parameters
+    ----------
+    doc_source : str
+        Path to the local image file.
+    doc_filetype : str
+        Image type identifier (e.g. ``"jpg"``, ``"png"``).
+    doc_type : str
+        Always ``"image"`` for image documents.
+    storage : str
+        Parent directory where the document folder will be created.
+    keys : dict
+        API keys dict (stored but not used during init).
+
+    Attributes
+    ----------
+    _is_fast_index : bool
+        Always ``True``; marker to distinguish from full index instances.
+    _llm_image_source : str
+        Path to the original image for vision-model consumption.
+    """
+
+    def __init__(self, doc_source, doc_filetype, doc_type, storage, keys):
+        self.doc_id = str(mmh3.hash(doc_source + doc_filetype + doc_type, signed=False))
+
+        self._visible = False
+        self._chunk_size = 0
+        self.result_cutoff = 4
+        self.version = 0
+        self.last_access_time = time.time()
+        self.is_local = os.path.exists(doc_source)
+        self._is_fast_index = True
+        self.init_complete = True
+
+        # ---- Copy image to storage if needed ----
+        if self.is_local and os.path.dirname(
+            os.path.expanduser(doc_source)
+        ) != os.path.expanduser(storage):
+            try:
+                shutil.move(doc_source, storage)
+            except shutil.Error:
+                shutil.copy(doc_source, storage)
+            doc_source = os.path.join(storage, os.path.basename(doc_source))
+
+        self.doc_source = doc_source
+        self._llm_image_source = doc_source
+        self.doc_filetype = doc_filetype
+        self.doc_type = doc_type
+
+        # ---- Title from filename ----
+        self._title = (
+            os.path.splitext(os.path.basename(doc_source))[0]
+            if self.is_local
+            else "image"
+        )
+        self._short_summary = "Image attachment"
+
+        # ---- Storage folder ----
+        folder = os.path.join(storage, f"{self.doc_id}")
+        os.makedirs(folder, exist_ok=True)
+        self._storage = folder
+        self.store_separate = ["static_data"]
+
+        # ---- No text, no indices ----
+        self._text_len = 0
+        self._brief_summary = self._title + "\n" + self._short_summary
+        self._brief_summary_len = get_gpt3_word_count(self._brief_summary)
+        self._raw_index = None
+        self._raw_index_small = None
+        self._bm25_index = None
+        self._bm25_chunks = []
+
+        # ---- Persist ----
+        self.set_doc_data(
+            "static_data",
+            None,
+            dict(
+                doc_source=doc_source,
+                doc_filetype=doc_filetype,
+                doc_type=doc_type,
+                doc_text="",
+            ),
+        )
+
+        self.set_api_keys(keys)
+        self.save_local()
+
+    @property
+    def llm_image_source(self):
+        """Path to the original image file for vision-capable LLM calls."""
+        return self._llm_image_source
+
+    @property
+    def title(self):
+        return self._title
+
+    @property
+    def short_summary(self):
+        return self._short_summary
+
+    def set_api_keys(self, api_keys: dict):
+        assert isinstance(api_keys, dict)
+        setattr(self, "api_keys", api_keys)
+
+    def semantic_search_document(self, query, token_limit=4096 * 4):
+        """Return image reference for vision models (no text content available)."""
+        return f"Image: {self._title}. Use vision model to analyze."
+
+    def semantic_search_document_small(self, query, token_limit=4096):
+        """Return image reference for vision models (no text content available)."""
+        return self.semantic_search_document(query, token_limit=token_limit)
+
+    def bm25_search(self, query, top_k=10):
+        """No-op: images have no text chunks to search."""
+        return []
+
+
 class ImageDocIndex(DocIndex):
     def __init__(
         self,
@@ -2698,6 +3057,237 @@ def create_immediate_document_index(pdf_url, folder, keys) -> DocIndex:
         raise e
 
     return doc_index
+
+
+def create_fast_document_index(pdf_url, folder, keys) -> DocIndex:
+    """Create a lightweight document index with BM25 search (no FAISS embeddings).
+
+    Performs the same text extraction and chunking as ``create_immediate_document_index``
+    but skips FAISS embedding creation, LLM-generated summaries, and other expensive
+    operations.  Returns a ``FastDocIndex`` (for text documents) or ``FastImageDocIndex``
+    (for images) that can later be promoted to a full index.
+
+    Parameters
+    ----------
+    pdf_url : str
+        Local file path or remote URL of the document.
+    folder : str
+        Parent storage directory for the resulting index.
+    keys : dict
+        API keys dict (used for text extraction loaders, NOT for embeddings/LLM).
+
+    Returns
+    -------
+    DocIndex
+        A ``FastDocIndex`` or ``FastImageDocIndex`` instance, saved to disk.
+    """
+    from langchain_community.document_loaders import UnstructuredMarkdownLoader
+    from langchain_community.document_loaders import JSONLoader
+    from langchain_community.document_loaders import UnstructuredHTMLLoader
+    from langchain_community.document_loaders.csv_loader import CSVLoader
+    from langchain_community.document_loaders.tsv import UnstructuredTSVLoader
+    from langchain_community.document_loaders import UnstructuredWordDocumentLoader
+    from langchain_community.document_loaders import TextLoader
+    import pandas as pd
+
+    is_image = False
+    pdf_url = pdf_url.strip()
+    lower_pdf_url = pdf_url.lower()
+
+    # ---- Detect local vs remote ----
+    is_remote = (
+        pdf_url.startswith("http")
+        or pdf_url.startswith("ftp")
+        or pdf_url.startswith("s3")
+        or pdf_url.startswith("gs")
+        or pdf_url.startswith("azure")
+        or pdf_url.startswith("https")
+        or pdf_url.startswith("www.")
+    )
+    assert is_remote or os.path.exists(pdf_url), f"File {pdf_url} does not exist"
+    if is_remote:
+        pdf_url = convert_to_pdf_link_if_needed(pdf_url)
+        is_pdf = is_pdf_link(pdf_url)
+    else:
+        is_pdf = lower_pdf_url.endswith(".pdf")
+
+    logger.info(
+        f"Creating fast doc index for {pdf_url}, is_remote = {is_remote}, is_pdf = {is_pdf}"
+    )
+
+    # ---- File type detection (same logic as create_immediate_document_index) ----
+    if is_pdf:
+        filetype = "pdf"
+    elif lower_pdf_url.endswith(".docx"):
+        filetype = "word"
+    elif lower_pdf_url.endswith(".html"):
+        filetype = "html"
+    elif lower_pdf_url.endswith(".md"):
+        filetype = "md"
+    elif lower_pdf_url.endswith(".json"):
+        filetype = "json"
+    elif lower_pdf_url.endswith(".csv"):
+        filetype = "csv"
+    elif lower_pdf_url.endswith(".txt"):
+        filetype = "txt"
+    elif lower_pdf_url.endswith(".jpg"):
+        filetype = "jpg"
+    elif lower_pdf_url.endswith(".png"):
+        filetype = "png"
+    elif lower_pdf_url.endswith(".jpeg"):
+        filetype = "jpeg"
+    elif lower_pdf_url.endswith(".bmp"):
+        filetype = "bmp"
+    elif lower_pdf_url.endswith(".svg"):
+        filetype = "svg"
+    elif _is_audio_file(pdf_url):
+        filetype = "audio"
+    else:
+        filetype = "pdf"
+
+    # ---- Image fast path: no text extraction, no LLM ----
+    if filetype in ("jpg", "jpeg", "png", "bmp", "svg"):
+        is_image = True
+        valid_filetypes = [
+            "pdf",
+            "html",
+            "word",
+            "docx",
+            "jpeg",
+            "md",
+            "jpg",
+            "png",
+            "csv",
+            "xls",
+            "xlsx",
+            "bmp",
+            "svg",
+            "parquet",
+        ]
+        ft = filetype if filetype in valid_filetypes else "pdf"
+        try:
+            doc_index = FastImageDocIndex(pdf_url, ft, "image", folder, keys)
+            doc_index._visible = True
+            return doc_index
+        except Exception as e:
+            logger.error(f"Error creating fast image doc index for {pdf_url}")
+            raise e
+
+    # ---- Text extraction (same loaders as create_immediate_document_index) ----
+    if is_pdf:
+        doc_text = PDFReaderTool(keys)(pdf_url)
+    elif pdf_url.endswith(".docx"):
+        doc_text = UnstructuredWordDocumentLoader(pdf_url).load()[0].page_content
+    elif is_remote and not (
+        pdf_url.endswith(".md")
+        or pdf_url.endswith(".json")
+        or pdf_url.endswith(".csv")
+        or pdf_url.endswith(".txt")
+    ):
+        html = fetch_html(pdf_url, keys["zenrows"], keys["brightdataUrl"])
+        html_file = os.path.join(folder, "temp_fast.html")
+        with open(html_file, "w") as f:
+            f.write(html)
+        doc_text = UnstructuredHTMLLoader(html_file).load()[0].page_content
+        try:
+            os.remove(html_file)
+        except OSError:
+            pass
+    elif pdf_url.endswith(".html"):
+        doc_text = UnstructuredHTMLLoader(pdf_url).load()[0].page_content
+    elif pdf_url.endswith(".md"):
+        doc_text = UnstructuredMarkdownLoader(pdf_url).load()[0].page_content
+    elif _is_audio_file(pdf_url):
+        if is_remote:
+            raise ValueError(
+                "Remote audio URLs are not supported. Please upload the audio file directly."
+            )
+        doc_text, pdf_url = _transcribe_audio_document(pdf_url, keys)
+    elif pdf_url.endswith(".json"):
+        doc_text = JSONLoader(pdf_url).load()[0].page_content
+    elif pdf_url.endswith(".csv"):
+        df = pd.read_csv(pdf_url, engine="python")
+        doc_text = df.sample(min(len(df), 10)).to_markdown()
+    elif pdf_url.endswith(".tsv"):
+        df = pd.read_csv(pdf_url, sep="\t")
+        doc_text = df.sample(min(len(df), 10)).to_markdown()
+    elif pdf_url.endswith(".parquet"):
+        df = pd.read_parquet(pdf_url)
+        doc_text = df.sample(min(len(df), 10)).to_markdown()
+    elif pdf_url.endswith(".xlsx") or pdf_url.endswith(".xls"):
+        df = pd.read_excel(pdf_url, engine="openpyxl")
+        doc_text = df.to_markdown()
+    elif pdf_url.endswith(".jsonlines") or pdf_url.endswith(".jsonl"):
+        df = pd.read_json(pdf_url, lines=True)
+        doc_text = df.sample(min(len(df), 10)).to_markdown()
+    elif pdf_url.endswith(".txt"):
+        doc_text = TextLoader(pdf_url).load()[0].page_content
+    else:
+        raise Exception(f"Could not find a suitable loader for the given url {pdf_url}")
+
+    # ---- Clean text ----
+    doc_text = (
+        doc_text.replace("<|endoftext|>", "\n")
+        .replace("endoftext", "end_of_text")
+        .replace("<|endoftext|>", "")
+    )
+
+    # ---- Chunking (same sizing logic as create_immediate_document_index) ----
+    doc_text_len = len(doc_text.split())
+    if doc_text_len < 16000:
+        chunk_size = LARGE_CHUNK_LEN // 8
+    elif doc_text_len < 128_000:
+        chunk_size = LARGE_CHUNK_LEN // 4
+    else:
+        chunk_size = LARGE_CHUNK_LEN // 2
+    chunk_overlap = min(chunk_size // 2, 128)
+    chunk_size = max(chunk_size, chunk_overlap * 2)
+
+    chunks = chunk_text_words(
+        doc_text, chunk_size=chunk_size, chunk_overlap=chunk_overlap
+    )
+
+    # ---- Create FastDocIndex (BM25 only, no FAISS/LLM) ----
+    valid_filetypes = [
+        "pdf",
+        "html",
+        "word",
+        "docx",
+        "jpeg",
+        "md",
+        "jpg",
+        "png",
+        "csv",
+        "xls",
+        "xlsx",
+        "bmp",
+        "svg",
+        "parquet",
+    ]
+    ft = filetype if filetype in valid_filetypes else "pdf"
+    try:
+        doc_index = FastDocIndex(
+            pdf_url,
+            ft,
+            "scientific_article",
+            doc_text,
+            chunk_size,
+            chunks,
+            folder,
+            keys,
+        )
+        doc_index._visible = True
+        return doc_index
+    except Exception as e:
+        doc_id = str(mmh3.hash(pdf_url + ft + "scientific_article", signed=False))
+        try:
+            cleanup_folder = os.path.join(folder, f"{doc_id}")
+            if os.path.exists(cleanup_folder):
+                shutil.rmtree(cleanup_folder)
+        except Exception:
+            pass
+        logger.error(f"Error creating fast doc index for {pdf_url}")
+        raise e
 
 
 # =============================================================================

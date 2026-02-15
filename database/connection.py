@@ -138,6 +138,20 @@ def create_tables(*, users_dir: str, logger: Optional[logging.Logger] = None) ->
                                     PRIMARY KEY (conversation_id, section_id)
                                 ); """
 
+    # Global documents table (index-once, use-everywhere)
+    sql_create_global_documents_table = """CREATE TABLE IF NOT EXISTS GlobalDocuments (
+                                    doc_id          TEXT NOT NULL,
+                                    user_email      TEXT NOT NULL,
+                                    display_name    TEXT,
+                                    doc_source      TEXT NOT NULL,
+                                    doc_storage     TEXT NOT NULL,
+                                    title           TEXT,
+                                    short_summary   TEXT,
+                                    created_at      TEXT NOT NULL,
+                                    updated_at      TEXT NOT NULL,
+                                    PRIMARY KEY (doc_id, user_email)
+                                ); """
+
     conn = create_connection(database)
 
     # create tables
@@ -148,6 +162,7 @@ def create_tables(*, users_dir: str, logger: Optional[logging.Logger] = None) ->
         create_table(conn, sql_create_workspace_metadata_table)
         create_table(conn, sql_create_doubts_clearing_table)
         create_table(conn, sql_create_section_hidden_details_table)
+        create_table(conn, sql_create_global_documents_table)
     else:
         raise RuntimeError("Error! cannot create the database connection.")
 
@@ -241,5 +256,13 @@ def create_tables(*, users_dir: str, logger: Optional[logging.Logger] = None) ->
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_UserDetails_email ON UserDetails (user_email)"
     )
+
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_GlobalDocuments_user_email ON GlobalDocuments (user_email)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_GlobalDocuments_created_at ON GlobalDocuments (user_email, created_at)"
+    )
+
     conn.commit()
     conn.close()

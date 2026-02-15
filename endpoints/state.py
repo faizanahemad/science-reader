@@ -34,6 +34,8 @@ class AppState:
         Directory used by Flask-Caching filesystem backend.
     conversation_folder:
         Directory where conversation artifacts are stored.
+    global_docs_dir:
+        Directory where global document storage lives.
     login_not_needed:
         Whether auth is bypassed.
     conversation_cache:
@@ -52,6 +54,7 @@ class AppState:
     locks_dir: str
     cache_dir: str
     conversation_folder: str
+    global_docs_dir: str
     login_not_needed: bool
 
     conversation_cache: Any
@@ -72,6 +75,7 @@ def init_state(
     locks_dir: str,
     cache_dir: str,
     conversation_folder: str,
+    global_docs_dir: str,
     login_not_needed: bool,
     conversation_cache: Any,
     pinned_claims: Any,
@@ -92,6 +96,7 @@ def init_state(
         locks_dir=locks_dir,
         cache_dir=cache_dir,
         conversation_folder=conversation_folder,
+        global_docs_dir=global_docs_dir,
         login_not_needed=login_not_needed,
         conversation_cache=conversation_cache,
         pinned_claims=pinned_claims,
@@ -112,7 +117,7 @@ def get_state() -> AppState:
     """
 
     if _state is None:
-        raise RuntimeError("AppState not initialized. Call init_state(...) during app startup.")
+        raise RuntimeError(
+            "AppState not initialized. Call init_state(...) during app startup."
+        )
     return _state
-
-

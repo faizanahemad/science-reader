@@ -4,6 +4,190 @@ var currentHintStreamingController = null;
 var currentSolutionStreamingController = null;
 var currentDoubtStreamingController = null;
 
+var pendingAttachments = [];
+
+function generateThumbnailForMainUI(dataUrl, maxSize) {
+    maxSize = maxSize || 100;
+    return new Promise(function(resolve) {
+        var img = new Image();
+        img.onload = function() {
+            var canvas = document.createElement('canvas');
+            var scale = Math.min(maxSize / img.width, maxSize / img.height, 1);
+            canvas.width = img.width * scale;
+            canvas.height = img.height * scale;
+            var ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            resolve(canvas.toDataURL('image/jpeg', 0.6));
+        };
+        img.onerror = function() { resolve(null); };
+        img.src = dataUrl;
+    });
+}
+
+function addFileToAttachmentPreview(file) {
+    var isImage = file.type && file.type.startsWith('image/');
+    var attId = Date.now() + '-' + Math.random().toString(16).slice(2);
+
+    if (isImage) {
+        var reader = new FileReader();
+        reader.onload = function() {
+            generateThumbnailForMainUI(reader.result).then(function(thumbnail) {
+                pendingAttachments.push({
+                    id: attId,
+                    name: file.name,
+                    type: 'image',
+                    thumbnail: thumbnail,
+                    doc_id: null,
+                    source: null
+                });
+                renderAttachmentPreviews();
+            });
+        };
+        reader.readAsDataURL(file);
+    } else {
+        pendingAttachments.push({
+            id: attId,
+            name: file.name,
+            type: 'file',
+            thumbnail: null,
+            doc_id: null,
+            source: null
+        });
+        renderAttachmentPreviews();
+    }
+    return attId;
+}
+
+function enrichAttachmentWithDocInfo(attId, docId, source, title) {
+    for (var i = 0; i < pendingAttachments.length; i++) {
+        if (pendingAttachments[i].id === attId) {
+            pendingAttachments[i].doc_id = docId;
+            pendingAttachments[i].source = source;
+            if (title) pendingAttachments[i].name = title;
+            break;
+        }
+    }
+}
+
+function renderAttachmentPreviews() {
+    var container = $('#attachment-preview');
+    if (pendingAttachments.length === 0) {
+        container.hide().empty();
+        return;
+    }
+    container.show();
+    var html = pendingAttachments.map(function(att) {
+        if (att.type === 'image' && att.thumbnail) {
+            return '<div class="att-preview" data-id="' + att.id + '">' +
+                '<img src="' + att.thumbnail + '" alt="' + (att.name || 'Image') + '">' +
+                '<button class="att-remove-btn" title="Remove">&times;</button></div>';
+        } else {
+            var ext = (att.name || '').split('.').pop().toUpperCase() || 'FILE';
+            return '<div class="att-preview att-file" data-id="' + att.id + '">' +
+                '<i class="fa fa-file-o"></i> <span class="att-file-name" title="' + (att.name || '') + '">' + ext + '</span>' +
+                '<button class="att-remove-btn" title="Remove">&times;</button></div>';
+        }
+    }).join('');
+    container.html(html);
+
+    container.find('.att-remove-btn').off('click').on('click', function() {
+        var id = $(this).closest('.att-preview').data('id');
+        pendingAttachments = pendingAttachments.filter(function(a) { return a.id !== String(id); });
+        renderAttachmentPreviews();
+    });
+}
+
+function clearAttachmentPreviews() {
+    pendingAttachments = [];
+    renderAttachmentPreviews();
+}
+
+function getDisplayAttachmentsPayload() {
+    if (pendingAttachments.length === 0) return null;
+    return pendingAttachments.map(function(a) {
+        return { type: a.type, name: a.name, thumbnail: a.thumbnail, doc_id: a.doc_id || null, source: a.source || null };
+    });
+}
+
+function showAttachmentContextMenu(event, att, conversationId) {
+    $('.att-context-menu').remove();
+    var isPdf = (att.name || '').toLowerCase().endsWith('.pdf');
+    var hasDocId = !!att.doc_id;
+    var hasSource = !!att.source;
+    var items = [];
+
+    if (isPdf && hasSource) {
+        items.push('<div class="att-ctx-item" data-action="preview"><i class="fa fa-eye"></i> Preview</div>');
+    }
+    if (hasDocId) {
+        items.push('<div class="att-ctx-item" data-action="download"><i class="fa fa-download"></i> Download</div>');
+    }
+    if (hasDocId) {
+        items.push('<div class="att-ctx-item" data-action="add-to-conv"><i class="fa fa-plus-circle"></i> Add to Conversation</div>');
+    }
+    items.push('<div class="att-ctx-item" data-action="attach-turn"><i class="fa fa-paperclip"></i> Attach for current turn</div>');
+    if (items.length === 0) {
+        items.push('<div class="att-ctx-item att-ctx-disabled"><i class="fa fa-info-circle"></i> No actions available</div>');
+    }
+
+    var $menu = $('<div class="att-context-menu">' + items.join('') + '</div>');
+    $('body').append($menu);
+
+    var x = event.pageX, y = event.pageY;
+    if (x + $menu.outerWidth() > $(window).width()) x = $(window).width() - $menu.outerWidth() - 10;
+    if (y + $menu.outerHeight() > $(window).height() + $(window).scrollTop()) y = y - $menu.outerHeight();
+    $menu.css({ left: x, top: y });
+
+    $menu.find('[data-action="preview"]').on('click', function() {
+        $menu.remove();
+        showPDF(att.source, "chat-pdf-content", "/proxy_shared");
+        $("#chat-pdf-content").removeClass('d-none');
+        ChatManager.shownDoc = att.source;
+    });
+    $menu.find('[data-action="download"]').on('click', function() {
+        $menu.remove();
+        window.open('/download_doc_from_conversation/' + conversationId + '/' + att.doc_id, '_blank');
+    });
+    $menu.find('[data-action="add-to-conv"]').on('click', function() {
+        $menu.remove();
+        var $btn = $(this);
+        showToast('Promoting document to conversation (this may take a moment)...', 'info');
+        $.ajax({
+            url: '/promote_message_doc/' + conversationId + '/' + att.doc_id,
+            method: 'POST',
+            contentType: 'application/json',
+            success: function(resp) {
+                showToast('Document promoted to conversation: ' + (resp.title || att.name), 'success');
+                ChatManager.listDocuments(conversationId);
+            },
+            error: function(xhr) {
+                var msg = 'Failed to promote document.';
+                try { msg = JSON.parse(xhr.responseText).error || msg; } catch(e) {}
+                showToast(msg, 'danger');
+            }
+        });
+    });
+    $menu.find('[data-action="attach-turn"]').on('click', function() {
+        $menu.remove();
+        var newId = 'reattach_' + Date.now();
+        var entry = {
+            id: newId,
+            file: null,
+            name: att.name || 'attachment',
+            type: att.type || 'pdf',
+            thumbnail: att.thumbnail || null,
+            doc_id: att.doc_id || null,
+            source: att.source || null,
+            title: att.name || ''
+        };
+        pendingAttachments.push(entry);
+        renderAttachmentPreviews();
+        showToast('Attached for current turn: ' + entry.name, 'info');
+    });
+
+    $(document).one('click', function() { $menu.remove(); });
+}
+
 var ConversationManager = {
     activeConversationId: null,
     activeConversationFriendlyId: '',
@@ -1922,7 +2106,7 @@ var ChatManager = {
             doc_modal.modal('hide');
         }
 
-        function uploadFile_internal(file) {
+        function uploadFile_internal(file, attId) {
             let xhr = new XMLHttpRequest();
             var formData = new FormData();
             formData.append('pdf_file', file);
@@ -1954,11 +2138,12 @@ var ChatManager = {
                 
                 if (xhr.status == 200) {
                     let response = JSON.parse(xhr.responseText);
-                    // Handle success
-                    success(response); // Make sure to define this function
+                    if (attId && response.doc_id) {
+                        enrichAttachmentWithDocInfo(attId, response.doc_id, response.source, response.title);
+                    }
+                    success(response);
                 } else {
-                    // Handle failure
-                    failure(xhr.response); // Make sure to define this function
+                    failure(xhr.response);
                 }
 
                 clearInterval(intrvl);
@@ -1975,9 +2160,9 @@ var ChatManager = {
             xhr.send(formData);
         }
 
-        function uploadFile(file) {
+        function uploadFile(file, attId) {
             if (isValidFileType(file)) {
-                uploadFile_internal(file);  // Call the file upload function
+                uploadFile_internal(file, attId);  // Call the file upload function
             } else {
                 console.log(`Invalid file type ${file.type}.`)
                 console.log(`Invalid file type ${getFileType(file, ()=>{})}.`)
@@ -2017,7 +2202,8 @@ var ChatManager = {
         $('#chat-file-upload').off().on('change', function (e) {
             var file = e.target.files[0]; // Get the selected file
             if (file) {
-                uploadFile(file); // Call the file upload function
+                var attId = addFileToAttachmentPreview(file);
+                uploadFile(file, attId); // Call the file upload function
             }
         });
 
@@ -2105,10 +2291,12 @@ var ChatManager = {
 
         $(document).off('drop').on('drop', function (event) {
             event.preventDefault();
+            $(this).css('background-color', 'transparent');
             var files = event.originalEvent.dataTransfer.files;
             for (var i = 0; i < files.length; i++) {
                 var file = files[i];
-                uploadFile(file);  // Call the file upload function
+                var attId = addFileToAttachmentPreview(file);
+                uploadFile(file, attId);
             }
         });  
     },
@@ -2180,6 +2368,33 @@ var ChatManager = {
                         alert("Error deleting the document.");
                     });
             });
+
+            var promoteButton = $('<i></i>')
+                .addClass('fa fa-globe')
+                .attr('aria-hidden', 'true')
+                .attr('aria-label', 'Promote to Global Document');
+
+            var promoteDiv = $('<div></div>')
+                .addClass('btn p-0 btn-sm btn-outline-info ml-1')
+                .append(promoteButton);
+
+            promoteDiv.click(function (event) {
+                event.stopPropagation();
+                if (confirm('Promote this document to a Global Document? It will be removed from this conversation and available across all conversations.')) {
+                    GlobalDocsManager.promote(conversation_id, doc.doc_id)
+                        .done(function () {
+                            ChatManager.listDocuments(conversation_id).done(function (documents) {
+                                ChatManager.renderDocuments(conversation_id, documents);
+                            });
+                            if (typeof showToast === 'function') showToast('Document promoted to Global Documents.');
+                        })
+                        .fail(function () {
+                            alert('Error promoting document.');
+                        });
+                }
+            });
+
+            docButton.append(promoteDiv);
             docButton.append(downloadDiv);
             docButton.append(deleteDiv);
             // Create a container for each pair of document and delete buttons
@@ -2321,6 +2536,28 @@ var ChatManager = {
             textElem.html(message.text.replace(/\n/g, '  \n'))
 
             cardBody.append(textElem);
+            
+            if (message.display_attachments && message.display_attachments.length > 0) {
+                var $attachContainer = $('<div class="message-attachments"></div>');
+                message.display_attachments.forEach(function(att) {
+                    var $el;
+                    if (att.type === 'image' && att.thumbnail) {
+                        $el = $('<img class="msg-att-thumb">').attr('src', att.thumbnail).attr('alt', att.name || 'Image').attr('title', att.name || 'Image');
+                    } else {
+                        var isPdf = (att.name || '').toLowerCase().endsWith('.pdf');
+                        var iconClass = isPdf ? 'fa fa-file-pdf-o' : 'fa fa-file-o';
+                        $el = $('<span class="msg-att-badge"><i class="' + iconClass + '"></i> ' + (att.name || 'File') + '</span>');
+                    }
+                    $el.addClass('msg-att-clickable');
+                    $el.on('click', function(e) {
+                        e.stopPropagation();
+                        showAttachmentContextMenu(e, att, conversationId);
+                    });
+                    $attachContainer.append($el);
+                });
+                cardBody.append($attachContainer);
+            }
+            
             messageElement.append(cardHeader);
             messageElement.append(cardBody);
 
@@ -2635,10 +2872,12 @@ var ChatManager = {
 
 
     sendMessage: function (conversationId, messageText, checkboxes, links, search, attached_claim_ids, referenced_claim_ids, referenced_friendly_ids) {
-        // Render user's message immediately
+        // Render user's message immediately (include display_attachments for inline preview)
+        var displayAtts = getDisplayAttachmentsPayload();
         var userMessage = {
             sender: 'user',
-            text: messageText
+            text: messageText,
+            display_attachments: displayAtts
         };
         history_message_ids = checkboxes['history_message_ids'] || []
 
@@ -2651,6 +2890,10 @@ var ChatManager = {
             'links': links,
             'search': search
         };
+        
+        if (displayAtts) {
+            requestBody['display_attachments'] = displayAtts;
+        }
         
         // Include attached claim IDs if provided (Deliberate Memory Attachment)
         if (attached_claim_ids && attached_claim_ids.length > 0) {
@@ -2666,6 +2909,8 @@ var ChatManager = {
         if (referenced_friendly_ids && referenced_friendly_ids.length > 0) {
             requestBody['referenced_friendly_ids'] = referenced_friendly_ids;
         }
+
+        clearAttachmentPreviews();
 
         // Use Fetch API to make request
         let response = fetch('/send_message/' + conversationId, {

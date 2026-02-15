@@ -83,6 +83,14 @@ def cached_get_file(file_url: str):
         cache.set(file_url, file_data)
         return
 
+    # Local path that doesn't exist — don't attempt requests.get() on it
+    if file_url and (
+        file_url.startswith("/") or (len(file_url) > 1 and file_url[1] == ":")
+    ):
+        logger.error(f"cached_get_file: local file not found: {file_url}")
+        yield b""
+        return
+
     file_data = []
     try:
         headers = {
@@ -315,6 +323,15 @@ def interface_combined_route(path: str):
         return "File not found", 404
 
 
+def _is_missing_local_path(file_url):
+    """Return True if file_url looks like a local filesystem path that doesn't exist."""
+    if not file_url:
+        return False
+    return (
+        file_url.startswith("/") or (len(file_url) > 1 and file_url[1] == ":")
+    ) and not os.path.exists(file_url)
+
+
 @static_bp.route("/proxy", methods=["GET"])
 @login_required
 def proxy_route():
@@ -322,6 +339,8 @@ def proxy_route():
     logger.debug(
         f"Proxying file {file_url}, exists on disk = {os.path.exists(file_url or '')}"
     )
+    if _is_missing_local_path(file_url):
+        return Response("File not found on disk", status=404)
     return Response(
         stream_with_context(cached_get_file(file_url)), mimetype="application/pdf"
     )
@@ -333,6 +352,8 @@ def proxy_shared_route():
     logger.debug(
         f"Proxying file {file_url}, exists on disk = {os.path.exists(file_url or '')}"
     )
+    if _is_missing_local_path(file_url):
+        return Response("File not found on disk", status=404)
     return Response(
         stream_with_context(cached_get_file(file_url)), mimetype="application/pdf"
     )

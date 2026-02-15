@@ -7,40 +7,6 @@ This file is guidance for agentic coding assistants working in this repo.
 - Cursor rule: activate conda env with `conda activate science-reader` before running Python.
 - Project is primarily Python (Flask backend + agents) with a browser UI in `interface/`.
 
-## Build / Lint / Test Commands
-
-There is no centralized build or lint command configured (no `pyproject.toml`, `setup.cfg`, or `package.json`).
-Use the existing test entry points below.
-
-### Core Python Tests (Truth Management System)
-
-- Run all TMS tests:
-  - `python -m pytest truth_management_system/tests/ -v`
-- Run a single TMS test file:
-  - `python -m pytest truth_management_system/tests/test_crud.py -v`
-- Run a single TMS test case/test:
-  - `python -m pytest truth_management_system/tests/test_crud.py::TestClaimCRUD::test_add_claim -v`
-
-Notes:
-- Some integration tests use external keys and may skip if missing.
-- `truth_management_system/tests/test_integration.py` also supports a standalone runner
-  (see the file for details) to avoid pytest collection issues with numpy/sandbox.
-
-### Prompt Library Tests
-
-- `python -m pytest prompt_lib/test_wrapped_manager.py -v`
-
-### Extension Server Integration Tests
-
-- Recommended auto-start:
-  - `cd extension/tests && ./run_tests.sh`
-  - or `python extension/tests/run_integration_tests.py`
-
-### Ad hoc files in repo root
-
-- Some standalone tests exist (e.g., `test_slide_agents.py`, `test_serp.py`).
-  Run them with `python -m pytest <file> -v` if needed.
-
 ## Code Style Guidelines
 
 Follow existing patterns in the file you touch. Do not reformat unrelated code.
@@ -104,7 +70,7 @@ Follow existing patterns in the file you touch. Do not reformat unrelated code.
 - UI: `interface/interface.html`, `interface/*.js`.
 - PKB module: `truth_management_system/`.
 - Extension: `extension/` + `extension_server.py`.
-- Documentation in markdown files within same module and in documentation folder.
+- Documentation in markdown files within same module and in documentation folder with entry point as documentation/README.md.
 - Feature documentation in documentation/features
 - Planning documents go into documentation/planning/plans and have extension as `.plan.md`.
 
@@ -115,8 +81,6 @@ Follow existing patterns in the file you touch. Do not reformat unrelated code.
 - First write down the requirements, describe clearly what are the goals and what we are trying to achieve, what has been asked to do and then think carefully how you will solve it and also write down your plan of solution and break it into tasks and sub-tasks which are granular. Then finally write down code. 
 - Plan strategically, break it into logical small steps, make multiple tasks, and build in an incremental way such that errors or logical mistakes in later tasks don't leave earlier task work unusable. Also note down alternatives and possible challenges that might be revealed while reading the code more deeply so anyone using the plan will be able to carefully execute it while still having autonomy to make decisions for any risks.
 - Plans should have granular milestones and atomic tasks for ease of correctly implementing by a junior dev.
-
-
 
 ### Coding guidelines
 - Work hard, read code, read files and code mentioned in chat, and read documentation and indexes and plans as needed, but basically hard work beats shortcuts, so read more.
@@ -130,5 +94,10 @@ Follow existing patterns in the file you touch. Do not reformat unrelated code.
 - Update docs when you add or change behavior. Docs are usually markdown files which are within the same module or within documentation folder.
 - When creating or updating documentation, add UI details if applicable, add api details, function details, feature details, add implementation notes and files modified as well so that later we can use this to further enhance the feature.
 - Write in markdown format but don't make any diagrams. Our docs are intended to be friendly to LLM agents and software agents, diagrams are not friendly to agents.
-- Apply small patches or edits sequentially. Even when writing an entire new file, first touch and create the file and then write in chunks and maybe write outlines and then fill the file if possible.
+- Keep previously added comments and documentation, if they are incorrect then edit and correct them.
+- Apply small patches or edits sequentially. When writing an entire new file, first touch and create the file, then put the outline, then write in chunks and then fill the file gradually.
 - Please write in small parts or chunks. Writing very large chunks is error-prone.
+- Use git status and git diff on tracked files to help know what has changed in repo after you have lost context due to summarization or compaction.
+- For file tree browsing and knowing what files exist you can use `tree` command.
+- For reading large readme, code file (python or js and other languages) or markdown files proceed in 3 steps - 1. `wc -l filename`, if file longer than 50 lines then 2. get an outline structure of the file by grepping for headers (`#`, `##`, `####`, `#####`) and other relevant markdown patterns then 3. Read the exact lines. In case outline parsing doesn't work then try calling a sub-agent or LLM with your query and ask it to give you outline of the document, also information from the doc about your query and tentative line numbers where you can look at.
+- If files already exist, use edit tool and edit the file. Small edits is better then delete and rewrite.

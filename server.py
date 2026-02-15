@@ -201,6 +201,7 @@ def create_app(argv: Optional[list[str]] = None) -> Flask:
     locks_dir = os.path.join(folder, "locks")
     conversation_folder = os.path.join(os.getcwd(), folder, "conversations")
     docs_folder = os.path.join(os.getcwd(), folder, "documents")
+    global_docs_dir = os.path.join(os.getcwd(), folder, "global_docs")
 
     os.makedirs(cache_dir, exist_ok=True)
     os.makedirs(users_dir, exist_ok=True)
@@ -208,6 +209,7 @@ def create_app(argv: Optional[list[str]] = None) -> Flask:
     os.makedirs(locks_dir, exist_ok=True)
     os.makedirs(conversation_folder, exist_ok=True)
     os.makedirs(docs_folder, exist_ok=True)
+    os.makedirs(global_docs_dir, exist_ok=True)
 
     # Clear locks on startup
     for file in os.listdir(locks_dir):
@@ -235,6 +237,7 @@ def create_app(argv: Optional[list[str]] = None) -> Flask:
         locks_dir=locks_dir,
         cache_dir=cache_dir,
         conversation_folder=conversation_folder,
+        global_docs_dir=global_docs_dir,
         login_not_needed=login_not_needed,
         conversation_cache=conversation_cache,
         pinned_claims=pinned_claims,

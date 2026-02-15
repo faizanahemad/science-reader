@@ -155,6 +155,54 @@ It’s intentionally brief: endpoint purpose + request/response shape “at a gl
 
 ---
 
+## Global Documents (`endpoints/global_docs.py`)
+
+User-scoped documents that can be referenced from any conversation via `#gdoc_N` / `#global_doc_N` syntax or by display name in quotes (e.g., `"my doc name"`). Indexed once and stored outside any conversation.
+
+#### `POST /global_docs/upload`
+- **Purpose**: upload and index a new global document. Supports file upload (multipart) or URL (JSON). The UI provides drag-and-drop with XHR progress tracking.
+- **Request** (multipart form):
+  - `pdf_file` — the document file. Accepted types: PDF, Word, HTML, Markdown, plain text, images, CSV, Excel, JSON, audio (same as conversation doc upload).
+  - `display_name` (optional) — user-friendly label. Can be used to reference the doc in conversations via `"display name"` syntax.
+- **Request** (JSON, alternative):
+  - `{ "pdf_url": "https://...", "display_name": "optional name" }`
+- **Response (JSON)**: `{ "status": "ok", "doc_id": "<doc_id>" }`
+- **Errors**: 400 if no `pdf_file` or `pdf_url` provided; 400 on indexing failure.
+
+#### `GET /global_docs/list`
+- **Purpose**: list all global docs for the logged-in user.
+- **Response (JSON)**: array of objects, each containing:
+  - `index` (1-based positional number), `doc_id`, `display_name`, `title`, `short_summary`, `source`, `doc_source`, `created_at`.
+- **Note**: ordering is by `created_at ASC`. Positional `index` renumbers on deletion.
+
+#### `GET /global_docs/info/<doc_id>`
+- **Purpose**: detailed metadata for a single global doc.
+- **Response (JSON)**: object with `doc_id`, `display_name`, `title`, `short_summary`, `source`, `created_at`, plus optional `doc_type`, `doc_filetype`, `visible` (loaded from DocIndex if available).
+- **Errors**: 404 if doc not found.
+
+#### `GET /global_docs/download/<doc_id>`
+- **Purpose**: download the original source file or redirect to the source URL. Includes DocIndex fallback — if the DB `doc_source` path doesn't exist on disk (common after promote), loads the DocIndex from `doc_storage` and serves from its actual `doc_source`.
+- **Response**: file download (if source exists on disk or via DocIndex fallback) or HTTP redirect to source URL.
+- **Errors**: 404 if doc not found or source unavailable.
+
+#### `GET /global_docs/serve`
+- **Purpose**: query-param wrapper around the download endpoint, designed for use with the `showPDF()` JS function. `showPDF` constructs URLs as `url?file=<value>`, so this endpoint reads `doc_id` from the `file` query parameter.
+- **Query params**: `file` — the `doc_id` of the global document.
+- **Response**: same as `GET /global_docs/download/<doc_id>`.
+- **Errors**: 400 if `file` param missing; same as download for doc-not-found.
+
+#### `DELETE /global_docs/<doc_id>`
+- **Purpose**: delete a global document (DB row + filesystem storage).
+- **Response (JSON)**: `{ "status": "ok" }`
+- **Errors**: 404 if doc not found.
+
+#### `POST /global_docs/promote/<conversation_id>/<doc_id>`
+- **Purpose**: promote a conversation-scoped document to a global document. Copies the DocIndex storage to the global directory, verifies the copy loads correctly, registers in the DB, then removes from the conversation. Uses a copy-verify-delete strategy for safety.
+- **Response (JSON)**: `{ "status": "ok", "doc_id": "<doc_id>" }`
+- **Errors**: 404 if conversation or document not found; 500 if copy verification fails.
+
+---
+
 ## Doubts + temporary LLM (`endpoints/doubts.py`)
 
 #### `POST /clear_doubt/<conversation_id>/<message_id>` (streaming)

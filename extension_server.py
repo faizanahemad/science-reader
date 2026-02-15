@@ -459,13 +459,34 @@ def build_agent_prompt_from_history(
                 f"Content:\n{content}"
             )
     if history:
+        # System messages (uploaded docs) go into a reference section, not conversation history
+        doc_parts = [
+            msg["content"]
+            for msg in history
+            if msg.get("role") == "system" and msg.get("content")
+        ]
+        logger.info(
+            f"[DEBUG] build_agent_prompt_from_history: Extracted {len(doc_parts)} document parts from history"
+        )
+        if doc_parts:
+            parts.append("Reference Documents:\n" + "\n\n---\n\n".join(doc_parts))
+            logger.info(
+                f"[DEBUG] build_agent_prompt_from_history: Added Reference Documents section, total chars={len(parts[-1])}"
+            )
         history_lines = []
         for msg in history:
             role = msg.get("role", "user")
+            if role == "system":
+                continue
             content = msg.get("content", "")
             history_lines.append(f"{role.title()}: {content}")
-        parts.append("Conversation History:\n" + "\n".join(history_lines))
-    return "\n\n".join(parts).strip()
+        if history_lines:
+            parts.append("Conversation History:\n" + "\n".join(history_lines))
+    final_prompt = "\n\n".join(parts).strip()
+    logger.info(
+        f"[DEBUG] build_agent_prompt_from_history: Final agent prompt length={len(final_prompt)}, sections={len(parts)}"
+    )
+    return final_prompt
 
 
 def validate_workflow_steps(steps: Any) -> Optional[str]:
@@ -1565,6 +1586,7 @@ def ext_chat(conversation_id):
 
         message = data.get("message", "").strip()
         images = data.get("images") or []
+        display_attachments = data.get("display_attachments")
         if not message and not images:
             return jsonify({"error": "Message required"}), 400
         if not message and images:
@@ -1583,7 +1605,9 @@ def ext_chat(conversation_id):
             return jsonify({"error": "Conversation not found"}), 404
 
         # Add user message
-        user_msg = conv.add_message("user", message, page_context)
+        user_msg = conv.add_message(
+            "user", message, page_context, display_attachments=display_attachments
+        )
 
         # Determine model (used for both LLM and agents)
         model = model_override or conv.model or DEFAULT_MODEL
@@ -1760,7 +1784,27 @@ Please use the above page content to answer my questions. Base your response on 
                 messages.append({"role": "user", "content": page_context_msg})
                 messages.append({"role": "assistant", "content": assistant_ack})
 
-        messages.extend(conv.get_history_for_llm())
+        history = conv.get_history_for_llm()
+        logger.info(
+            f"[DEBUG] ext_chat: Retrieved history from get_history_for_llm(), message count={len(history)}, roles={[m['role'] for m in history]}"
+        )
+        # Merge any system messages (e.g. uploaded PDF text) into the main system
+        # prompt so they appear at the start. Many models ignore or mishandle
+        # system messages mid-conversation.
+        doc_system_parts = [m["content"] for m in history if m["role"] == "system"]
+        logger.info(
+            f"[DEBUG] ext_chat: Extracted {len(doc_system_parts)} system messages from history"
+        )
+        if doc_system_parts:
+            full_system += "\n\n" + "\n\n".join(doc_system_parts)
+            messages[0]["content"] = full_system
+            logger.info(
+                f"[DEBUG] ext_chat: Merged system messages into main prompt, final system prompt length={len(full_system)}"
+            )
+        messages.extend([m for m in history if m["role"] != "system"])
+        logger.info(
+            f"[DEBUG] ext_chat: Final messages list for LLM, count={len(messages)}"
+        )
 
         if images:
             if not isinstance(images, list):
@@ -1922,6 +1966,97 @@ Please use the above page content to answer my questions. Base your response on 
 
     except Exception as e:
         logger.error(f"Chat error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/ext/upload_doc/<conversation_id>", methods=["POST"])
+@require_ext_auth
+def ext_upload_doc(conversation_id):
+    """
+    Upload a PDF document to an extension conversation.
+
+    Extracts text content from the PDF and stores it as a system message
+    in the conversation so the LLM can reference it in future replies.
+
+    Accepts multipart/form-data with a 'pdf_file' field.
+
+    Returns:
+        {"status": "ok", "filename": "...", "pages": N, "chars": N}
+    """
+    try:
+        email = request.ext_user_email
+        pdf_file = request.files.get("pdf_file")
+        logger.info(
+            f"[DEBUG] ext_upload_doc: Received request from {email}, conversation_id={conversation_id}, file={'present' if pdf_file else 'MISSING'}"
+        )
+        if not pdf_file:
+            return jsonify({"error": "No pdf_file provided"}), 400
+
+        logger.info(
+            f"[DEBUG] ext_upload_doc: PDF file details - filename={pdf_file.filename}, content_type={pdf_file.content_type}"
+        )
+
+        db = get_extension_db()
+        conv = ExtensionConversation.load(conversation_id, email, db)
+        if not conv:
+            logger.error(
+                f"[DEBUG] ext_upload_doc: Conversation {conversation_id} not found for user {email}"
+            )
+            return jsonify({"error": "Conversation not found"}), 404
+
+        import pdfplumber
+        import io
+
+        pdf_bytes = pdf_file.read()
+        logger.info(
+            f"[DEBUG] ext_upload_doc: Read {len(pdf_bytes)} bytes from PDF file"
+        )
+        pages_text = []
+        with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
+            logger.info(
+                f"[DEBUG] ext_upload_doc: PDF opened, page count={len(pdf.pages)}"
+            )
+            for page in pdf.pages:
+                text = page.extract_text()
+                if text:
+                    pages_text.append(text)
+
+        if not pages_text:
+            logger.error(
+                f"[DEBUG] ext_upload_doc: Could not extract any text from PDF {pdf_file.filename}"
+            )
+            return jsonify({"error": "Could not extract text from PDF"}), 400
+
+        full_text = "\n\n---\n\n".join(pages_text)
+        logger.info(
+            f"[DEBUG] ext_upload_doc: Extracted {len(pages_text)} pages, {len(full_text)} chars total"
+        )
+        max_chars = 128000
+        if len(full_text) > max_chars:
+            full_text = full_text[:max_chars] + "\n\n[... truncated ...]"
+            logger.info(f"[DEBUG] ext_upload_doc: Truncated text to {max_chars} chars")
+
+        doc_content = (
+            f"[Document uploaded: {pdf_file.filename}]\n"
+            f"[Pages: {len(pages_text)}]\n\n"
+            f"{full_text}"
+        )
+        conv.add_message("system", doc_content)
+        logger.info(
+            f"[DEBUG] ext_upload_doc: System message added to conversation {conversation_id}, content length={len(doc_content)}"
+        )
+
+        return jsonify(
+            {
+                "status": "ok",
+                "filename": pdf_file.filename,
+                "pages": len(pages_text),
+                "chars": len(full_text),
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Error uploading doc: {e}")
         return jsonify({"error": str(e)}), 500
 
 

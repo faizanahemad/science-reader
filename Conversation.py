@@ -97,8 +97,11 @@ from DocIndex import (
     DocIndex,
     DocFAISS,
     create_immediate_document_index,
+    create_fast_document_index,
     create_index_faiss,
     ImageDocIndex,
+    FastDocIndex,
+    FastImageDocIndex,
 )
 
 
@@ -1121,6 +1124,7 @@ Compact list of bullet points:
             "memory",
             "messages",
             "uploaded_documents_list",
+            "message_attached_documents_list",
             "artefacts",
             "artefact_message_links",
             "conversation_settings",
@@ -1647,6 +1651,166 @@ Compact list of bullet points:
             ]
         )
         self.doc_infos = doc_infos
+
+    def add_message_attached_document(self, pdf_url):
+        """Create a fast-indexed document for a message attachment (no FAISS/LLM).
+
+        Uses ``create_fast_document_index`` to build a lightweight BM25-only index.
+        The document is stored in ``message_attached_documents_list`` (separate from
+        promoted conversation docs in ``uploaded_documents_list``).  The returned
+        ``FastDocIndex`` or ``FastImageDocIndex`` can be read during reply turns
+        and later promoted to a full index via ``promote_message_attached_document``.
+
+        Parameters
+        ----------
+        pdf_url : str
+            Local file path or remote URL of the document.
+
+        Returns
+        -------
+        DocIndex or None
+            The created ``FastDocIndex``/``FastImageDocIndex``, or ``None`` if the
+            document was already attached.
+        """
+        storage = self.documents_path
+        keys = self.get_api_keys()
+        keys["mathpixKey"] = None
+        keys["mathpixId"] = None
+
+        # ---- Deduplicate against both lists ----
+        previous_msg_docs = self.get_field("message_attached_documents_list")
+        previous_msg_docs = previous_msg_docs if previous_msg_docs is not None else []
+        previous_uploaded_docs = self.get_field("uploaded_documents_list")
+        previous_uploaded_docs = (
+            previous_uploaded_docs if previous_uploaded_docs is not None else []
+        )
+
+        all_existing_urls = [d[2] for d in previous_msg_docs] + [
+            d[2] for d in previous_uploaded_docs
+        ]
+        if pdf_url in all_existing_urls:
+            return None
+
+        doc_index = create_fast_document_index(pdf_url, storage, keys)
+        doc_index._visible = False
+        doc_index.save_local()
+        doc_id = doc_index.doc_id
+        doc_storage = doc_index._storage
+        all_msg_docs = previous_msg_docs + [(doc_id, doc_storage, pdf_url)]
+        self.set_field("message_attached_documents_list", all_msg_docs, overwrite=True)
+
+        # ---- Rebuild doc_infos from combined list ----
+        all_docs = self.get_uploaded_documents(readonly=True) + [doc_index]
+        for prev_msg_doc in previous_msg_docs:
+            loaded = DocIndex.load_local(prev_msg_doc[1])
+            if loaded is not None:
+                all_docs.append(loaded)
+        doc_infos = "\n".join(
+            [
+                f"#doc_{i + 1}: ({d.title})[{d.doc_source}]"
+                for i, d in enumerate(all_docs)
+            ]
+        )
+        self.doc_infos = doc_infos
+        return doc_index
+
+    def get_message_attached_documents(self, doc_id=None, readonly=False):
+        """Load message-attached documents (FastDocIndex instances, not yet promoted).
+
+        Parameters
+        ----------
+        doc_id : str, optional
+            Filter to a specific document by ID.
+        readonly : bool, optional
+            If False (default), sets API keys on loaded docs.
+
+        Returns
+        -------
+        list of DocIndex
+            Loaded ``FastDocIndex``/``FastImageDocIndex`` instances.
+        """
+        try:
+            doc_list = self.get_field("message_attached_documents_list")
+        except ValueError:
+            doc_list = None
+            self.set_field("message_attached_documents_list", [])
+        if doc_list is not None:
+            docs = [
+                DocIndex.load_local(doc_storage)
+                for _doc_id, doc_storage, _pdf_url in doc_list
+            ]
+        else:
+            docs = []
+        if doc_id is not None:
+            docs = [d for d in docs if d is not None and d.doc_id == doc_id]
+        docs = [d for d in docs if d is not None]
+        if not readonly:
+            keys = self.get_api_keys()
+            for d in docs:
+                d.set_api_keys(keys)
+        return docs
+
+    def promote_message_attached_document(self, doc_id):
+        """Promote a message-attached doc to a full conversation document.
+
+        Removes the document from ``message_attached_documents_list``, creates a full
+        ``ImmediateDocIndex`` or ``ImageDocIndex`` (with FAISS embeddings and LLM
+        summaries), and adds it to ``uploaded_documents_list``.
+
+        Parameters
+        ----------
+        doc_id : str
+            The ``doc_id`` of the document to promote.
+
+        Returns
+        -------
+        DocIndex or None
+            The promoted full ``DocIndex``, or ``None`` if the doc_id was not found.
+        """
+        msg_docs = self.get_field("message_attached_documents_list")
+        msg_docs = msg_docs if msg_docs is not None else []
+        target = None
+        for entry in msg_docs:
+            if entry[0] == doc_id:
+                target = entry
+                break
+        if target is None:
+            return None
+
+        _doc_id, _doc_storage, pdf_url = target
+
+        # ---- Remove from message_attached list ----
+        remaining = [d for d in msg_docs if d[0] != doc_id]
+        self.set_field("message_attached_documents_list", remaining, overwrite=True)
+
+        # ---- Create full index (this is the slow path — FAISS + LLM) ----
+        storage = self.documents_path
+        keys = self.get_api_keys()
+        keys["mathpixKey"] = None
+        keys["mathpixId"] = None
+        full_doc_index = create_immediate_document_index(pdf_url, storage, keys)
+        full_doc_index._visible = False
+        full_doc_index.save_local()
+
+        # ---- Add to uploaded_documents_list (same logic as add_uploaded_document) ----
+        previous_docs = self.get_field("uploaded_documents_list")
+        previous_docs = previous_docs if previous_docs is not None else []
+        all_docs = previous_docs + [
+            (full_doc_index.doc_id, full_doc_index._storage, pdf_url)
+        ]
+        self.set_field("uploaded_documents_list", all_docs, overwrite=True)
+
+        # ---- Rebuild doc_infos ----
+        current_documents = self.get_uploaded_documents()
+        doc_infos = "\n".join(
+            [
+                f"#doc_{i + 1}: ({d.title})[{d.doc_source}]"
+                for i, d in enumerate(current_documents)
+            ]
+        )
+        self.doc_infos = doc_infos
+        self.save_local()
+        return full_doc_index
 
     @staticmethod
     def load_local(folder):
@@ -3331,7 +3495,40 @@ Give 4 suggestions.
         persist_or_not=True,
         past_message_ids=None,
         users_dir=None,
+        display_attachments=None,
     ):
+        """Persist the current user-assistant turn to conversation storage.
+
+        Saves the user message, the assistant response, an auto-generated summary
+        of the conversation so far, and optionally any file attachment metadata.
+        Called from ``reply()`` at the end of each turn (7 call sites covering
+        different code paths like single-link, single-doc, web-search, etc.).
+
+        Parameters
+        ----------
+        query : str or dict
+            The user's query text (or the full query dict when called from reply()).
+        response : str
+            The assistant's full response text.
+        config : dict
+            Model/prompt configuration for this turn.
+        previous_messages_text : str
+            Concatenated text of prior turns for summary generation.
+        previous_summary : str
+            Existing conversation summary to extend.
+        new_docs : list
+            Newly uploaded documents in this turn.
+        persist_or_not : bool, optional
+            If False, skip persistence entirely (default True).
+        past_message_ids : dict or None, optional
+            Pre-generated message IDs for user and assistant messages.
+        users_dir : str or None, optional
+            Override for the users directory path.
+        display_attachments : list or None, optional
+            JSON-serialisable list of attachment metadata for UI rendering.
+            Each item: ``{type, name, thumbnail, doc_id?, source?}``.
+            Stored in the user message dict but **not** sent to LLM context.
+        """
         self.clear_cancellation()
         if not persist_or_not:
             return
@@ -3439,15 +3636,18 @@ Your response will be in below xml style format:
                 previous_summary,
             )
             message_ids = self.get_message_ids(query, response)
+            user_msg_dict = {
+                "message_id": message_ids["user_message_id"],
+                "text": query,
+                "show_hide": "show",
+                "sender": "user",
+                "user_id": self.user_id,
+                "conversation_id": self.conversation_id,
+            }
+            if display_attachments:
+                user_msg_dict["display_attachments"] = display_attachments
             preserved_messages = [
-                {
-                    "message_id": message_ids["user_message_id"],
-                    "text": query,
-                    "show_hide": "show",
-                    "sender": "user",
-                    "user_id": self.user_id,
-                    "conversation_id": self.conversation_id,
-                },
+                user_msg_dict,
                 {
                     "message_id": message_ids["response_message_id"],
                     "text": response_to_store,
@@ -4426,19 +4626,19 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         attached_docs_data_names = []
         doc_names_and_docs = list(zip(attached_docs_names, attached_docs))
         if len(attached_docs) > 0:
-            # assert that all elements of attached docs are greater than equal to 1.
+            # Load docs from both uploaded and message-attached lists (combined numbering)
             uploaded_documents = self.get_uploaded_documents()
+            msg_attached_documents = self.get_message_attached_documents()
+            all_documents = uploaded_documents + msg_attached_documents
             filtered_docs_by_actual = [
-                (n, d)
-                for n, d in doc_names_and_docs
-                if len(uploaded_documents) >= d >= 1
+                (n, d) for n, d in doc_names_and_docs if len(all_documents) >= d >= 1
             ]
             if len(filtered_docs_by_actual) > 0:
                 attached_docs_names, attached_docs = zip(*filtered_docs_by_actual)
             else:
                 attached_docs_names, attached_docs = [], []
             attached_docs: List[DocIndex] = [
-                uploaded_documents[d - 1] for d in attached_docs
+                all_documents[d - 1] for d in attached_docs
             ]
             attached_docs_readable = []
             attached_docs_readable_names = []
@@ -4492,6 +4692,162 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
                             else ""
                         ),
                     )
+        query["messageText"] = restore_code_blocks(messageText, code_blocks)
+        return (
+            query,
+            attached_docs,
+            attached_docs_names,
+            (attached_docs_readable, attached_docs_readable_names),
+            (attached_docs_data, attached_docs_data_names),
+        )
+
+    def get_global_documents_for_query(
+        self, query, user_email, users_dir, replace_reference=True
+    ):
+        """Parse #gdoc_N, #global_doc_N, and quoted display-name references from
+        message text and resolve them to DocIndex objects from the global docs DB.
+
+        Quoted display-name syntax: ``"my doc name"`` (case-insensitive match
+        against the display_name column).  This allows users to reference global
+        docs by their human-readable name instead of index.
+
+        Returns the same tuple shape as get_uploaded_documents_for_query so results
+        can be merged seamlessly in the reply flow.
+        """
+        messageText = query["messageText"]
+        messageText, code_blocks = extract_code_blocks(messageText)
+
+        gdoc_refs = re.findall(r"#(?:gdoc|global_doc)_(\d+)", messageText)
+        gdoc_refs = list(set(gdoc_refs))
+        gdoc_indices = [int(r) for r in gdoc_refs]
+        gdoc_ref_names = [f"#gdoc_{r}" for r in gdoc_refs]
+
+        # --- Quoted display_name references ---
+        # Match "some name" (straight quotes) and \u201csome name\u201d (curly quotes).
+        # Exclude code blocks (already stripped above).
+        quoted_names = re.findall(r'["\u201c]([^"\u201d]+)["\u201d]', messageText)
+        quoted_names = [q.strip() for q in quoted_names if q.strip()]
+
+        name_matched_indices = []
+        name_matched_ref_names = []
+
+        if quoted_names:
+            from database.global_docs import list_global_docs as _list_global_docs_q
+
+            all_gdocs_for_names = _list_global_docs_q(
+                users_dir=users_dir, user_email=user_email
+            )
+            name_to_idx = {}
+            for idx_0, row in enumerate(all_gdocs_for_names):
+                dn = (row.get("display_name") or "").strip().lower()
+                if dn:
+                    name_to_idx[dn] = idx_0 + 1  # 1-based
+
+            for qname in quoted_names:
+                matched_idx = name_to_idx.get(qname.lower())
+                if matched_idx is not None and matched_idx not in gdoc_indices:
+                    name_matched_indices.append(matched_idx)
+                    # Use the original quoted text as the ref name for replacement
+                    name_matched_ref_names.append(f'"{qname}"')
+                    gdoc_indices.append(matched_idx)
+                    gdoc_ref_names.append(f"#gdoc_{matched_idx}")
+
+        attached_docs = []
+        attached_docs_names = []
+        attached_docs_readable = []
+        attached_docs_readable_names = []
+        attached_docs_data = []
+        attached_docs_data_names = []
+
+        if len(gdoc_indices) > 0:
+            from database.global_docs import list_global_docs as _list_global_docs
+
+            all_gdocs = _list_global_docs(users_dir=users_dir, user_email=user_email)
+
+            valid_pairs = [
+                (n, idx)
+                for n, idx in zip(gdoc_ref_names, gdoc_indices)
+                if 1 <= idx <= len(all_gdocs)
+            ]
+            if len(valid_pairs) > 0:
+                gdoc_ref_names, gdoc_indices = zip(*valid_pairs)
+            else:
+                gdoc_ref_names, gdoc_indices = [], []
+
+            loaded_docs: List[DocIndex] = []
+            for idx in gdoc_indices:
+                gdoc_row = all_gdocs[idx - 1]
+                try:
+                    doc = DocIndex.load_local(gdoc_row["doc_storage"])
+                    if doc is not None:
+                        keys = self.get_api_keys()
+                        doc.set_api_keys(keys)
+                        doc.set_model_overrides(
+                            self.get_conversation_settings().get("model_overrides", {})
+                        )
+                        loaded_docs.append(doc)
+                    else:
+                        loaded_docs.append(None)
+                except Exception:
+                    loaded_docs.append(None)
+
+            for name, doc in zip(gdoc_ref_names, loaded_docs):
+                if doc is None:
+                    continue
+                if (
+                    (doc.is_local and os.path.getsize(doc.doc_source) < 100 * 1024)
+                    or doc.doc_source.endswith(".pdf")
+                    or doc.doc_source.endswith(".jpeg")
+                    or doc.doc_source.endswith(".jpg")
+                    or doc.doc_source.endswith(".png")
+                    or doc.doc_source.endswith(".bmp")
+                    or doc.doc_source.endswith(".svg")
+                    or doc.doc_source.endswith(".html")
+                ):
+                    attached_docs_readable.append(doc)
+                    attached_docs_readable_names.append(name)
+                elif doc.is_local and (
+                    doc.doc_source.endswith(".csv")
+                    or doc.doc_source.endswith(".parquet")
+                    or doc.doc_source.endswith(".tsv")
+                    or doc.doc_source.endswith(".xlsx")
+                    or doc.doc_source.endswith(".xls")
+                    or doc.doc_source.endswith(".jsonl")
+                    or doc.doc_source.endswith(".jsonlines")
+                    or doc.doc_source.endswith(".json")
+                ):
+                    attached_docs_data.append(doc)
+                    attached_docs_data_names.append(name)
+                else:
+                    attached_docs_readable.append(doc)
+                    attached_docs_readable_names.append(name)
+
+            attached_docs = attached_docs_readable + attached_docs_data
+            attached_docs_names = list(attached_docs_readable_names) + list(
+                attached_docs_data_names
+            )
+
+            if replace_reference:
+                doc_infos = [d.title for d in attached_docs]
+                doc_infos_data = [d.title for d in attached_docs_data]
+                for i, name in enumerate(attached_docs_names):
+                    doc = attached_docs[i]
+                    doc_title = doc_infos[i]
+                    messageText = messageText.replace(
+                        name,
+                        f"{name} (Title of {name} '{doc_title}')\n"
+                        + (
+                            f"data file: {doc.doc_source}\n"
+                            if doc_title in doc_infos_data
+                            else ""
+                        ),
+                    )
+                # Also replace quoted display-name references with their #gdoc_N equivalents
+                for q_name, q_idx in zip(name_matched_ref_names, name_matched_indices):
+                    gdoc_tag = f"#gdoc_{q_idx}"
+                    if q_name in messageText:
+                        messageText = messageText.replace(q_name, gdoc_tag)
+
         query["messageText"] = restore_code_blocks(messageText, code_blocks)
         return (
             query,
@@ -5459,6 +5815,17 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             or "#all_doc" in query["messageText"]
         )
 
+        attached_gdocs = re.findall(r"#(?:gdoc|global_doc)_\d+", query["messageText"])
+        all_gdocs_referenced = (
+            "#gdoc_all" in query["messageText"]
+            or "#global_doc_all" in query["messageText"]
+        )
+        # Detect quoted strings that may be global doc display-name references
+        _quoted_gdoc_candidates = re.findall(
+            r'["\u201c]([^"\u201d]+)["\u201d]', query["messageText"]
+        )
+        _has_quoted_gdoc_refs = len(_quoted_gdoc_candidates) > 0
+
         # if any of the patterns are present in query['messageText'], then set links to [], don't process links
         if (
             "<no_links_processing>" in query["messageText"]
@@ -5492,7 +5859,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         if "No Links" in preambles:
             links = []
 
-        pattern = r"(#dense_summary_doc_\d+|#summary_doc_\d+|#summarise_doc_\d+|#summarize_doc_\d+|#dense_summarise_doc_\d+|#dense_summarize_doc_\d+)"
+        pattern = r"(#dense_summary_(?:doc|gdoc|global_doc)_\d+|#summary_(?:doc|gdoc|global_doc)_\d+|#summarise_(?:doc|gdoc|global_doc)_\d+|#summarize_(?:doc|gdoc|global_doc)_\d+|#dense_summarise_(?:doc|gdoc|global_doc)_\d+|#dense_summarize_(?:doc|gdoc|global_doc)_\d+)"
         attached_docs_for_summary = re.findall(pattern, query["messageText"])
         attached_docs_for_summary = (
             " ".join(attached_docs_for_summary)
@@ -5552,10 +5919,24 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             .replace("dense_summarize_", "")
         )
         yield {"text": "", "status": "Attached docs for summary if present got ..."}
-        attached_docs_for_summary_future = get_async_future(
-            self.get_uploaded_documents_for_query,
-            {"messageText": attached_docs_for_summary},
+        is_gdoc_summary = (
+            "gdoc" in attached_docs_for_summary
+            or "global_doc" in attached_docs_for_summary
         )
+        if is_gdoc_summary:
+            _gdoc_user_email = query.get("_user_email", "")
+            _gdoc_users_dir = query.get("_users_dir", "")
+            attached_docs_for_summary_future = get_async_future(
+                self.get_global_documents_for_query,
+                {"messageText": attached_docs_for_summary},
+                _gdoc_user_email,
+                _gdoc_users_dir,
+            )
+        else:
+            attached_docs_for_summary_future = get_async_future(
+                self.get_uploaded_documents_for_query,
+                {"messageText": attached_docs_for_summary},
+            )
         _, attached_docs, doc_names, (_, _), (_, _) = (
             attached_docs_for_summary_future.result()
         )
@@ -5594,6 +5975,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 persist_or_not,
                 past_message_ids,
                 users_dir=users_dir,
+                display_attachments=query.get("display_attachments"),
             )
             # Process reward evaluation after summary streaming completes
             _collect_reward_output(block=True)
@@ -5630,7 +6012,8 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             "status": "Getting attached docs for full text if present ...",
         }
         attached_docs_for_full = re.findall(
-            r"(#full_doc_\d+|#raw_doc_\d+|#content_doc_\d+)", query["messageText"]
+            r"(#full_(?:doc|gdoc|global_doc)_\d+|#raw_(?:doc|gdoc|global_doc)_\d+|#content_(?:doc|gdoc|global_doc)_\d+)",
+            query["messageText"],
         )
         attached_docs_for_full = (
             " ".join(attached_docs_for_full) if len(attached_docs_for_full) > 0 else ""
@@ -5641,15 +6024,29 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 "Attached docs for full text should be the only docs in the message text."
             )
 
+            is_gdoc_full = (
+                "gdoc" in attached_docs_for_full
+                or "global_doc" in attached_docs_for_full
+            )
             attached_docs_for_full = (
                 attached_docs_for_full.replace("full_", "")
                 .replace("raw_", "")
                 .replace("content_", "")
             )
-            attached_docs_for_full_future = get_async_future(
-                self.get_uploaded_documents_for_query,
-                {"messageText": attached_docs_for_full},
-            )
+            if is_gdoc_full:
+                _gdoc_user_email = query.get("_user_email", "")
+                _gdoc_users_dir = query.get("_users_dir", "")
+                attached_docs_for_full_future = get_async_future(
+                    self.get_global_documents_for_query,
+                    {"messageText": attached_docs_for_full},
+                    _gdoc_user_email,
+                    _gdoc_users_dir,
+                )
+            else:
+                attached_docs_for_full_future = get_async_future(
+                    self.get_uploaded_documents_for_query,
+                    {"messageText": attached_docs_for_full},
+                )
             _, attached_docs, doc_names, (_, _), (_, _) = (
                 attached_docs_for_full_future.result()
             )
@@ -5688,6 +6085,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     persist_or_not,
                     past_message_ids,
                     users_dir=users_dir,
+                    display_attachments=query.get("display_attachments"),
                 )
                 message_ids = self.get_message_ids(query["messageText"], answer)
                 # Process reward evaluation before saving message
@@ -5806,6 +6204,47 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 or len(links) <= 2,
             )
 
+        # --- Inject doc references from display_attachments (drag-drop files) ---
+        # When a user drag-drops a file onto the message input, it gets uploaded as
+        # a conversation document and the display_attachments payload carries its
+        # doc_id. However the message text won't contain #doc_N references, so the
+        # existing document-reading pipeline would skip it. Here we map each
+        # display_attachment doc_id to its #doc_N index and append the reference to
+        # the message text so the LLM reads the document content in its reply.
+        # We save the original text so the persisted user message stays clean.
+        _user_text_before_da_injection = query["messageText"]
+        _da_list = query.get("display_attachments") if isinstance(query, dict) else None
+        if _da_list and not all_docs_referenced:
+            try:
+                _uploaded_docs_list = self.get_field("uploaded_documents_list") or []
+                _msg_attached_docs_list = (
+                    self.get_field("message_attached_documents_list") or []
+                )
+                _combined_docs_list = _uploaded_docs_list + _msg_attached_docs_list
+                _docid_to_idx = {
+                    doc_tuple[0]: idx + 1
+                    for idx, doc_tuple in enumerate(_combined_docs_list)
+                }
+                _existing_text = query["messageText"]
+                _refs_to_add = []
+                for _att in _da_list:
+                    _att_doc_id = _att.get("doc_id") if isinstance(_att, dict) else None
+                    if _att_doc_id and _att_doc_id in _docid_to_idx:
+                        _ref = "#doc_{}".format(_docid_to_idx[_att_doc_id])
+                        if _ref not in _existing_text:
+                            _refs_to_add.append(_ref)
+                if _refs_to_add:
+                    query["messageText"] = _existing_text + " " + " ".join(_refs_to_add)
+                    logger.info(
+                        "[Conversation] [reply] Injected doc refs from display_attachments: %s",
+                        _refs_to_add,
+                    )
+            except Exception as _da_err:
+                logger.warning(
+                    "[Conversation] [reply] Failed to inject display_attachment doc refs: %s",
+                    _da_err,
+                )
+
         prior_chat_summary_future = None
         if all_docs_referenced:
             all_docs = self.get_uploaded_documents()
@@ -5818,6 +6257,39 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             attached_docs_future = get_async_future(
                 self.get_uploaded_documents_for_query, query
             )
+
+        gdocs_future = None
+        _gdoc_user_email = query.get("_user_email", "")
+        _gdoc_users_dir = query.get("_users_dir", "")
+        if (
+            _gdoc_user_email
+            and _gdoc_users_dir
+            and (
+                all_gdocs_referenced or len(attached_gdocs) > 0 or _has_quoted_gdoc_refs
+            )
+        ):
+            if all_gdocs_referenced:
+                from database.global_docs import list_global_docs as _list_gdocs
+
+                all_gdoc_rows = _list_gdocs(
+                    users_dir=_gdoc_users_dir, user_email=_gdoc_user_email
+                )
+                all_gdoc_ids = " ".join(
+                    ["#gdoc_{}".format(idx + 1) for idx in range(len(all_gdoc_rows))]
+                )
+                gdocs_future = get_async_future(
+                    self.get_global_documents_for_query,
+                    {"messageText": all_gdoc_ids},
+                    _gdoc_user_email,
+                    _gdoc_users_dir,
+                )
+            else:
+                gdocs_future = get_async_future(
+                    self.get_global_documents_for_query,
+                    query,
+                    _gdoc_user_email,
+                    _gdoc_users_dir,
+                )
 
         user_query = query["messageText"]
         use_memory_pad = False
@@ -5839,7 +6311,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         )
         message_config["googleScholar"] = google_scholar
         message_config["searches"] = searches
-        original_user_query = user_query
+        original_user_query = _user_text_before_da_injection
 
         message_config["perform_web_search"] = perform_web_search
         perform_web_search = perform_web_search and FILLER_MODEL not in model_name
@@ -6349,6 +6821,33 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 (attached_docs_readable, attached_docs_readable_names),
                 (attached_docs_data, attached_docs_data_names),
             ) = attached_docs_future.result()
+
+        if gdocs_future is not None:
+            try:
+                (
+                    query_from_gdocs,
+                    gdoc_attached,
+                    gdoc_names,
+                    (gdoc_readable, gdoc_readable_names),
+                    (gdoc_data, gdoc_data_names),
+                ) = gdocs_future.result()
+                if not all_docs_referenced and not all_gdocs_referenced:
+                    query = query_from_gdocs
+                attached_docs_readable = list(attached_docs_readable) + list(
+                    gdoc_readable
+                )
+                attached_docs_readable_names = list(
+                    attached_docs_readable_names
+                ) + list(gdoc_readable_names)
+                attached_docs_data = list(attached_docs_data) + list(gdoc_data)
+                attached_docs_data_names = list(attached_docs_data_names) + list(
+                    gdoc_data_names
+                )
+                attached_docs = list(attached_docs) + list(gdoc_attached)
+                attached_docs_names = list(attached_docs_names) + list(gdoc_names)
+            except Exception as e:
+                logger.warning(f"Failed to resolve global doc references: {e}")
+
         attached_docs, attached_docs_names = (
             attached_docs_readable,
             attached_docs_readable_names,
@@ -6893,6 +7392,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     persist_or_not,
                     past_message_ids,
                     users_dir=users_dir,
+                    display_attachments=query.get("display_attachments"),
                 )
                 return
 
@@ -6935,6 +7435,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 persist_or_not,
                 past_message_ids,
                 users_dir=users_dir,
+                display_attachments=query.get("display_attachments"),
             )
             message_ids = self.get_message_ids(query["messageText"], answer)
             yield {
@@ -6988,6 +7489,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 persist_or_not,
                 past_message_ids,
                 users_dir=users_dir,
+                display_attachments=query.get("display_attachments"),
             )
             message_ids = self.get_message_ids(query["messageText"], answer)
             yield {
@@ -7020,6 +7522,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 persist_or_not,
                 past_message_ids,
                 users_dir=users_dir,
+                display_attachments=query.get("display_attachments"),
             )
             message_ids = self.get_message_ids(query["messageText"], answer)
             yield {
@@ -8195,6 +8698,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             persist_or_not,
             past_message_ids,
             users_dir=users_dir,
+            display_attachments=query.get("display_attachments"),
         )
         message_ids = self.get_message_ids(query["messageText"], answer)
         yield {

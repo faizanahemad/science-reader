@@ -18,6 +18,7 @@ If you are new to the codebase, start with:
 
 ## Features
 - `features/extension/`: Chrome extension design + implementation docs; includes `multi_tab_scroll_capture.md` — 4-mode capture (Auto/DOM/OCR/Full OCR) with deferred OCR, tab restoration, on-page toast overlays, doc-app URL auto-detection (16 patterns), content script pre-injection, and context preservation bug fix
+- `features/file_attachments/`: File attachment preview and persistence system — drag-and-drop images/PDFs in both extension and main UI, preview thumbnails above message input, persistent attachment rendering in messages, context menu (Preview/Download/Add to Conversation/Attach for current turn), FastDocIndex architecture (BM25 keyword search, 1-3s upload vs 15-45s), promotion to full ImmediateDocIndex, two document lists (message-attached vs uploaded), combined `#doc_N` numbering, LLM reads attached docs in reply, extension PDF text extraction via pdfplumber with system message merging into LLM prompt
 - `features/pwa/`: PWA/service-worker notes
 - `features/conversation_artefacts/`: conversation-scoped artefacts (files + LLM edit flow)
 - `features/conversation_flow/`: chat message send + streaming render pipeline (includes notes on conversation-level + Doc Index model overrides, chat settings management and persistence, PKB `@` autocomplete UX, and suffix-based reference resolution for all PKB object types)
@@ -33,6 +34,7 @@ If you are new to the codebase, start with:
 - `features/scroll_preservation/`: scroll position preservation during DOM changes — CSS scroll anchoring, JavaScript anchor-based restore, card spacing
 - `features/rendering_performance/`: rendering speed optimizations — MathJax priority for last card, deferred MathJax, immediate callbacks for showMore/buttons
 - `features/math_streaming_reflow_fix/`: math equation reflow prevention during streaming — display math breakpoint detection (`\\[...\\]` and `$$`), math-aware render gating, min-height stabilization, over-indented list normalization; includes backend `ensure_display_math_newlines()` and frontend `isInsideDisplayMath()`, `normalizeOverIndentedLists()`
+- `features/global_docs/`: Global Documents — index once, use everywhere. `#gdoc_N` / `#global_doc_N` / `"display name"` reference syntax, user-scoped global doc library, CRUD via UI modal with drag-and-drop upload and XHR progress, promote conversation docs to global, 7 REST endpoints (`/global_docs/*` including `/serve` for PDF viewer), DB table `GlobalDocuments`, storage at `storage/global_docs/{user_hash}/`, reply flow integration in Conversation.py with quoted display-name matching, full-height PDF viewing via `showPDF()` reuse, DocIndex fallback in download for stale source paths
 
 ## APIs
 - `api/internal/`: internal API docs and route summaries
