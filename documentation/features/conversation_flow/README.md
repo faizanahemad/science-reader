@@ -141,7 +141,7 @@ Before any chat message can be sent, a conversation must be selected in the side
 - **Resume from localStorage**: On page load without a deep link, the UI reads `lastActiveConversationId:{email}:{domain}` from localStorage and resumes that conversation.
 - **Auto-select first**: Falls back to the first conversation in the sorted list.
 - **After CRUD** (create, move, delete): `loadConversationsWithWorkspaces(false)` refreshes the tree without auto-selecting, then re-highlights the current active conversation.
-- **New Temporary Chat** (`#new-temp-chat` button in an always-visible column in the top-right chat bar, accessible on both mobile and desktop): `createTemporaryConversation()` creates a conversation in the default workspace, reloads the tree with `autoselect=false`, sets the new conversation active, then marks it stateless. The stateless marking must happen after the tree reload because `GET /list_conversation_by_user` deletes all stateless conversations during its cleanup pass. The confirmation modal is suppressed via `statelessConversation(convId, true)`.
+- **New Temporary Chat** (`#new-temp-chat` button in an always-visible column in the top-right chat bar, accessible on both mobile and desktop): `createTemporaryConversation()` sends a single `POST /create_temporary_conversation/{domain}` request. The server atomically cleans up old stateless conversations, creates a new conversation in the default workspace, marks it stateless, and returns the full conversation + workspace lists. The UI renders the tree from the response via `_processAndRenderData()`, then sets the new conversation active and highlights it. No separate `statelessConversation()` call is needed.
 
 ### Highlight timing
 

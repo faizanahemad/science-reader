@@ -152,6 +152,8 @@ todos:
 
 # Custom Scripts System
 
+> **NOTE**: `extension_server.py` referenced in this document has been deprecated. The Chrome extension now uses `server.py` (port 5000). See `documentation/features/extension/` for current architecture.
+
 - Complete Implementation Plan
 
 ## 1. Goals and Objectives

@@ -1,5 +1,7 @@
 # SQLite Migration, Auth Adoption & Lock Improvement Plan
 
+> **NOTE**: `extension_server.py` referenced in this document has been deprecated. The Chrome extension now uses `server.py` (port 5000). See `documentation/features/extension/` for current architecture.
+
 **Version**: 1.0
 **Created**: 2026-02-15
 **Status**: Draft

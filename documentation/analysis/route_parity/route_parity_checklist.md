@@ -19,6 +19,7 @@ Goal: as we extract routes from server.py into endpoints/* blueprints, tick each
 - [ ] `POST` `/collapse_workspaces`
 - [ ] `POST` `/create_conversation/<domain>/`
 - [ ] `POST` `/create_conversation/<domain>/<workspace_id>`
+- [ ] `POST` `/create_temporary_conversation/<domain>`
 - [ ] `POST` `/create_prompt`
 - [ ] `POST` `/create_workspace/<domain>/<workspace_name>`
 - [ ] `DELETE` `/delete_conversation/<conversation_id>`

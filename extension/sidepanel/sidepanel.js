@@ -12,6 +12,9 @@
 import { API, AuthError } from '../shared/api.js';
 import { Storage } from '../shared/storage.js';
 import { MODELS, MESSAGE_TYPES } from '../shared/constants.js';
+import { WorkspaceTree } from './workspace-tree.js';
+
+window.API = API;
 
 // ==================== State ====================
 
@@ -24,6 +27,10 @@ const state = {
     multiTabContexts: [],  // Array of {tabId, url, title, content} for multi-tab reading
     selectedTabIds: [],     // Tab IDs selected in the modal
     ocrCache: {},           // In-memory OCR cache by URL
+    pendingImages: [],      // User-attached images for next message
+    voiceRecorder: null,
+    voiceChunks: [],
+    isRecording: false,
     pendingImages: [],      // User-attached images for next message
     settings: {
         model: 'google/gemini-2.5-flash',
@@ -46,6 +53,62 @@ const state = {
     },
     multiTabCaptureAborted: false
 };
+
+// ==================== Main Backend Adapters ====================
+
+function adaptConversationList(metadataList) {
+    if (!Array.isArray(metadataList)) return [];
+    return metadataList.map(function(meta) {
+        return {
+            conversation_id: meta.conversation_id,
+            title: meta.title || 'New Chat',
+            is_temporary: false,
+            updated_at: meta.last_updated,
+            workspace_id: meta.workspace_id,
+            workspace_name: meta.workspace_name,
+            domain: meta.domain,
+        };
+    });
+}
+
+function adaptMessageList(messages) {
+    if (!Array.isArray(messages)) return [];
+    return messages.map(function(msg) {
+        return {
+            message_id: msg.message_id,
+            role: msg.sender === 'model' ? 'assistant' : msg.sender,
+            content: msg.text,
+            created_at: '',
+        };
+    });
+}
+
+async function getOrCreateExtensionWorkspace() {
+    var domain = await Storage.getDomain();
+    var cacheKey = 'ext_workspace_' + domain;
+
+    if (state[cacheKey]) return state[cacheKey];
+
+    try {
+        var workspaces = await API.listWorkspaces(domain);
+        var existing = workspaces.find(function(ws) {
+            return ws.workspace_name === 'Browser Extension';
+        });
+        if (existing) {
+            state[cacheKey] = existing.workspace_id;
+            return existing.workspace_id;
+        }
+
+        var created = await API.createWorkspace(domain, 'Browser Extension', {
+            color: '#6f42c1',
+        });
+        state[cacheKey] = created.workspace_id;
+        return created.workspace_id;
+    } catch (error) {
+        console.error('[Sidepanel] Failed to get/create extension workspace:', error);
+        return null;
+    }
+}
 
 const DOC_APP_URL_PATTERNS = [
     /docs\.google\.com\/document/,
@@ -103,13 +166,13 @@ const loginError = document.getElementById('login-error');
 // Header
 const toggleSidebarBtn = document.getElementById('toggle-sidebar');
 const newChatBtn = document.getElementById('new-chat-btn');
+const quickChatBtn = document.getElementById('quick-chat-btn');
 const settingsBtn = document.getElementById('settings-btn');
 
 // Sidebar
 const sidebar = document.getElementById('sidebar');
 const sidebarOverlay = document.getElementById('sidebar-overlay');
 const closeSidebarBtn = document.getElementById('close-sidebar');
-const conversationList = document.getElementById('conversation-list');
 const conversationEmpty = document.getElementById('conversation-empty');
 const sidebarNewChatBtn = document.getElementById('sidebar-new-chat');
 
@@ -273,22 +336,28 @@ async function initialize() {
 }
 
 async function initializeMainView() {
-    // Load user info
-    const userInfo = await Storage.getUserInfo();
+    var userInfo = await Storage.getUserInfo();
     if (userInfo) {
         settingsUserEmail.textContent = userInfo.email;
     }
     
-    // Load settings
     await loadSettings();
+
+    WorkspaceTree.init();
+    DocsPanel.init();
+    ClaimsPanel.init();
+    var domain = await Storage.getDomain();
+    var treeResult = await WorkspaceTree.loadTree(domain);
+    if (treeResult) {
+        state.conversations = adaptConversationList(treeResult.conversations);
+    }
     
-    // Load conversations
-    await loadConversations();
-    
-    // Check for current conversation
-    const currentId = await Storage.getCurrentConversation();
-    if (currentId && state.conversations.find(c => c.conversation_id === currentId)) {
+    var currentId = await Storage.getCurrentConversation();
+    if (currentId && state.conversations.find(function(c) { return c.conversation_id === currentId; })) {
         await selectConversation(currentId);
+        WorkspaceTree.highlightConversation(currentId);
+    } else if (currentId) {
+        await Storage.setCurrentConversation(null);
     }
     
     showView('main');
@@ -325,9 +394,35 @@ function setupEventListeners() {
     });
     
     // Settings
-    settingsBtn.addEventListener('click', () => toggleSettings(true));
+    settingsBtn.addEventListener('click', () => {
+        DocsPanel.hide();
+        ClaimsPanel.hide();
+        toggleSettings(true);
+    });
     closeSettingsBtn.addEventListener('click', () => toggleSettings(false));
     logoutBtn.addEventListener('click', handleLogout);
+
+    // Docs panel
+    document.getElementById('docs-btn').addEventListener('click', function() {
+        var isOpen = !document.getElementById('docs-panel').classList.contains('hidden');
+        toggleSettings(false);
+        ClaimsPanel.hide();
+        if (!isOpen) { DocsPanel.show(); } else { DocsPanel.hide(); }
+    });
+    document.getElementById('docs-panel-close').addEventListener('click', function() {
+        DocsPanel.hide();
+    });
+
+    // Claims panel
+    document.getElementById('claims-btn').addEventListener('click', function() {
+        var isOpen = !document.getElementById('claims-panel').classList.contains('hidden');
+        toggleSettings(false);
+        DocsPanel.hide();
+        if (!isOpen) { ClaimsPanel.show(); } else { ClaimsPanel.hide(); }
+    });
+    document.getElementById('claims-panel-close').addEventListener('click', function() {
+        ClaimsPanel.hide();
+    });
 
     // Custom Scripts (Settings)
     scriptsCreateFromPageBtn?.addEventListener('click', async () => {
@@ -413,7 +508,10 @@ function setupEventListeners() {
     });
     
     // New chat
-    newChatBtn.addEventListener('click', createNewConversation);
+    newChatBtn.addEventListener('click', function() {
+        createPermanentConversation();
+    });
+    quickChatBtn?.addEventListener('click', createNewConversation);
     
     // Input
     messageInput.addEventListener('input', handleInputChange);
@@ -439,10 +537,8 @@ function setupEventListeners() {
         state.multiTabCaptureAborted = true;
     });
     
-    // Voice (placeholder)
-    voiceBtn.addEventListener('click', () => {
-        alert('Voice input coming soon!');
-    });
+    // Voice recording
+    voiceBtn.addEventListener('click', toggleVoiceRecording);
     
     // Quick suggestions
     suggestionBtns.forEach(btn => {
@@ -477,8 +573,96 @@ function setupEventListeners() {
         });
     }
     
-    // Conversation list delegation
-    conversationList.addEventListener('click', handleConversationClick);
+    // WorkspaceTree custom events
+    document.addEventListener('conversation-selected', function(e) {
+        var convId = e.detail.conversationId;
+        selectConversation(convId);
+        toggleSidebar(false);
+    });
+
+    document.addEventListener('tree-new-chat', function(e) {
+        var detail = e.detail;
+        if (detail.temporary) {
+            createNewConversation();
+        } else {
+            createPermanentConversation(detail.workspaceId);
+        }
+    });
+
+    document.addEventListener('tree-save-conversation', function(e) {
+        saveConversation(e.detail.conversationId);
+    });
+
+    document.addEventListener('tree-delete-conversation', function(e) {
+        deleteConversation(e.detail.conversationId);
+    });
+
+    document.addEventListener('tree-clone-conversation', async function(e) {
+        var convId = e.detail.conversationId;
+        try {
+            var result = await API.cloneConversation(convId);
+            await WorkspaceTree.refreshTree();
+            showToast('Conversation cloned', 'success');
+            if (result.conversation_id) {
+                selectConversation(result.conversation_id);
+            }
+        } catch (err) {
+            showToast('Clone failed: ' + err.message, 'error');
+        }
+    });
+
+    document.addEventListener('tree-toggle-stateless', async function(e) {
+        var convId = e.detail.conversationId;
+        try {
+            await API.makeConversationStateless(convId);
+            showToast('Conversation set to stateless', 'info');
+        } catch (err) {
+            try {
+                await API.saveConversation(convId);
+                showToast('Conversation set to stateful', 'info');
+            } catch (err2) {
+                showToast('Toggle failed: ' + err2.message, 'error');
+            }
+        }
+    });
+
+    document.addEventListener('tree-set-flag', async function(e) {
+        var convId = e.detail.conversationId;
+        var flag = e.detail.flag;
+        try {
+            await API.setFlag(convId, flag);
+            await WorkspaceTree.refreshTree();
+            showToast('Flag set to ' + flag, 'info');
+        } catch (err) {
+            showToast('Set flag failed: ' + err.message, 'error');
+        }
+    });
+
+    document.addEventListener('tree-move-conversation', async function(e) {
+        var convId = e.detail.conversationId;
+        var targetWsId = e.detail.targetWorkspaceId;
+        try {
+            console.log('[Sidepanel] Moving conversation', convId, 'to workspace', targetWsId);
+            var result = await API.moveConversationToWorkspace(convId, targetWsId);
+            console.log('[Sidepanel] Move response:', result);
+            var treeResult = await WorkspaceTree.refreshTree();
+            if (treeResult) {
+                state.conversations = adaptConversationList(treeResult.conversations);
+            }
+            if (state.currentConversation) {
+                WorkspaceTree.highlightConversation(state.currentConversation.conversation_id);
+            }
+            WorkspaceTree.openWorkspace(targetWsId);
+            showToast('Conversation moved', 'success');
+        } catch (err) {
+            console.error('[Sidepanel] Move failed:', err);
+            showToast('Move failed: ' + err.message, 'error');
+        }
+    });
+
+    document.addEventListener('tree-toast', function(e) {
+        showToast(e.detail.message, e.detail.type || 'info');
+    });
 
     // Attachment click delegation — re-attach for current turn
     messagesContainer.addEventListener('click', function(e) {
@@ -503,6 +687,78 @@ function setupEventListeners() {
             renderImageAttachments();
         } catch(err) {
             console.error('[AI Assistant] Failed to re-attach:', err);
+        }
+    });
+
+    // Attachment context menu — right-click on rendered attachments
+    var _attMenuTarget = null;
+
+    messagesContainer.addEventListener('contextmenu', function(e) {
+        var clickable = e.target.closest('.msg-att-clickable');
+        if (!clickable) return;
+        e.preventDefault();
+
+        var attData;
+        try {
+            attData = JSON.parse(decodeURIComponent(clickable.getAttribute('data-att') || '{}'));
+        } catch (err) { return; }
+        if (!attData.doc_id) return;
+
+        _attMenuTarget = {
+            doc_id: attData.doc_id,
+            source: attData.source,
+            name: attData.name,
+            type: attData.type,
+            conversationId: state.currentConversation ? state.currentConversation.conversation_id : null
+        };
+
+        var menu = document.getElementById('attachment-context-menu');
+        menu.style.left = e.clientX + 'px';
+        menu.style.top = e.clientY + 'px';
+        menu.classList.remove('hidden');
+    });
+
+    document.addEventListener('click', function() {
+        document.getElementById('attachment-context-menu').classList.add('hidden');
+    });
+
+    document.getElementById('attachment-context-menu').addEventListener('click', async function(e) {
+        var item = e.target.closest('.att-menu-item');
+        var action = item ? item.getAttribute('data-action') : null;
+        if (!action || !_attMenuTarget) return;
+
+        var menu = document.getElementById('attachment-context-menu');
+        menu.classList.add('hidden');
+        var convId = _attMenuTarget.conversationId;
+        var docId = _attMenuTarget.doc_id;
+
+        try {
+            switch (action) {
+                case 'download':
+                    var url = await API.downloadDocUrl(convId, docId);
+                    window.open(url, '_blank');
+                    break;
+                case 'promote-conv':
+                    showToast('Promoting document... (may take 15-45s)', 'info');
+                    await API.promoteMessageDoc(convId, docId);
+                    showToast('Document promoted to conversation', 'success');
+                    if (typeof DocsPanel !== 'undefined') DocsPanel.loadConversationDocs();
+                    break;
+                case 'promote-global':
+                    showToast('Promoting to global... (may take 15-45s)', 'info');
+                    await API.promoteToGlobal(convId, docId);
+                    showToast('Document promoted to global library', 'success');
+                    if (typeof DocsPanel !== 'undefined') DocsPanel.loadGlobalDocs();
+                    break;
+                case 'delete':
+                    if (!confirm('Delete this document?')) return;
+                    await API.deleteDocument(convId, docId);
+                    showToast('Document deleted', 'info');
+                    if (typeof DocsPanel !== 'undefined') DocsPanel.loadConversationDocs();
+                    break;
+            }
+        } catch (err) {
+            showToast('Action failed: ' + err.message, 'error');
         }
     });
 }
@@ -728,53 +984,14 @@ async function saveSettings() {
 
 async function loadConversations() {
     try {
-        const data = await API.getConversations({ limit: 50 });
-        state.conversations = data.conversations || [];
-        renderConversationList();
+        var data = await API.getConversations();
+        state.conversations = adaptConversationList(data);
     } catch (error) {
         console.error('[Sidepanel] Failed to load conversations:', error);
         state.conversations = [];
-        renderConversationList();
     }
 }
 
-function renderConversationList() {
-    if (state.conversations.length === 0) {
-        conversationList.classList.add('hidden');
-        conversationEmpty.classList.remove('hidden');
-        return;
-    }
-    
-    conversationList.classList.remove('hidden');
-    conversationEmpty.classList.add('hidden');
-    
-    conversationList.innerHTML = state.conversations.map(conv => `
-        <li data-id="${conv.conversation_id}" class="${conv.conversation_id === state.currentConversation?.conversation_id ? 'active' : ''}">
-            <span class="conv-icon">${conv.is_temporary ? '💭' : '💬'}</span>
-            <div class="conv-info">
-                <div class="conv-title">${escapeHtml(conv.title || 'New Chat')}</div>
-                <div class="conv-time">${formatTimeAgo(conv.updated_at)}</div>
-            </div>
-            <div class="conv-actions">
-                ${conv.is_temporary ? `
-                    <button class="icon-btn-small conv-save" data-action="save" title="Save conversation">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
-                            <polyline points="17 21 17 13 7 13 7 21"></polyline>
-                            <polyline points="7 3 7 8 15 8"></polyline>
-                        </svg>
-                    </button>
-                ` : ''}
-                <button class="icon-btn-small conv-delete" data-action="delete" title="Delete">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <polyline points="3 6 5 6 21 6"></polyline>
-                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                    </svg>
-                </button>
-            </div>
-        </li>
-    `).join('');
-}
 
 // ==================== Workflows ====================
 
@@ -917,47 +1134,37 @@ async function deleteWorkflowFromForm() {
     }
 }
 
-async function handleConversationClick(e) {
-    const li = e.target.closest('li');
-    if (!li) return;
-    
-    const convId = li.dataset.id;
-    const deleteBtn = e.target.closest('[data-action="delete"]');
-    const saveBtn = e.target.closest('[data-action="save"]');
-    
-    if (deleteBtn) {
-        e.stopPropagation();
-        await deleteConversation(convId);
-    } else if (saveBtn) {
-        e.stopPropagation();
-        await saveConversation(convId);
-    } else {
-        await selectConversation(convId);
-        toggleSidebar(false);
-    }
-}
-
 async function selectConversation(convId) {
     try {
-        const data = await API.getConversation(convId);
-        state.currentConversation = data.conversation;
-        state.messages = data.conversation.messages || [];
+        var messages = await API.getConversationMessages(convId);
+        state.messages = adaptMessageList(messages);
+
+        var convMeta = state.conversations.find(function(c) {
+            return c.conversation_id === convId;
+        });
+        state.currentConversation = convMeta || {
+            conversation_id: convId,
+            title: 'Chat',
+            is_temporary: false,
+            updated_at: ''
+        };
         
         // Update UI
-        renderConversationList();
         renderMessages();
         
         // Save as current
         await Storage.setCurrentConversation(convId);
         await Storage.addRecentConversation({
             id: convId,
-            title: data.conversation.title,
-            updatedAt: data.conversation.updated_at
+            title: state.currentConversation.title,
+            updatedAt: state.currentConversation.updated_at
         });
         
         // Hide welcome, show messages
         welcomeScreen.classList.add('hidden');
         messagesContainer.classList.remove('hidden');
+
+        DocsPanel.setConversation(convId);
         
     } catch (error) {
         console.error('[Sidepanel] Failed to load conversation:', error);
@@ -968,20 +1175,28 @@ async function createNewConversation() {
     try {
         clearOcrCache();
         clearImageAttachments();
-        const data = await API.createConversation({
-            title: 'New Chat',
-            is_temporary: true,
-            model: state.settings.model,
-            prompt_name: state.settings.promptName,
-            history_length: state.settings.historyLength
+        var workspaceId = WorkspaceTree.getSelectedWorkspaceId() || await getOrCreateExtensionWorkspace();
+        var data = await API.createConversation({
+            workspace_id: workspaceId,
         });
         
-        state.currentConversation = data.conversation;
+        var conv = data.conversation;
+        state.currentConversation = {
+            conversation_id: conv.conversation_id,
+            title: conv.title || 'New Chat',
+            is_temporary: true,
+            updated_at: conv.last_updated,
+        };
         state.messages = [];
         
-        // Add to list
-        state.conversations.unshift(data.conversation);
-        renderConversationList();
+        state.conversations = adaptConversationList(data.conversations);
+        var newInList = state.conversations.find(function(c) {
+            return c.conversation_id === conv.conversation_id;
+        });
+        if (newInList) newInList.is_temporary = true;
+
+        WorkspaceTree.addConversationNode(state.currentConversation, workspaceId);
+        WorkspaceTree.highlightConversation(conv.conversation_id);
         
         // Reset UI
         welcomeScreen.classList.remove('hidden');
@@ -991,12 +1206,54 @@ async function createNewConversation() {
         messageInput.value = '';
         updateSendButton();
         
-        await Storage.setCurrentConversation(data.conversation.conversation_id);
+        await Storage.setCurrentConversation(conv.conversation_id);
+        DocsPanel.setConversation(conv.conversation_id);
         return true;
     } catch (error) {
         console.error('[Sidepanel] Failed to create conversation:', error);
-        alert(`Failed to start chat: ${error.message || error}`);
+        alert('Failed to start chat: ' + (error.message || error));
         state.currentConversation = null;
+        return false;
+    }
+}
+
+async function createPermanentConversation(workspaceId) {
+    try {
+        clearOcrCache();
+        clearImageAttachments();
+        if (!workspaceId) {
+            workspaceId = WorkspaceTree.getSelectedWorkspaceId() || await getOrCreateExtensionWorkspace();
+        }
+        var data = await API.createPermanentConversation({
+            workspace_id: workspaceId,
+        });
+
+        var conv = data.conversation || data;
+        var convId = conv.conversation_id;
+        state.currentConversation = {
+            conversation_id: convId,
+            title: conv.title || 'New Chat',
+            is_temporary: false,
+            updated_at: conv.last_updated || new Date().toISOString(),
+        };
+        state.messages = [];
+
+        WorkspaceTree.addConversationNode(state.currentConversation, workspaceId);
+        WorkspaceTree.highlightConversation(convId);
+
+        welcomeScreen.classList.remove('hidden');
+        messagesContainer.classList.add('hidden');
+        messagesContainer.innerHTML = '';
+        removePageContext();
+        messageInput.value = '';
+        updateSendButton();
+
+        await Storage.setCurrentConversation(convId);
+        await loadConversations();
+        return true;
+    } catch (error) {
+        console.error('[Sidepanel] Failed to create permanent conversation:', error);
+        alert('Failed to start chat: ' + (error.message || error));
         return false;
     }
 }
@@ -1007,9 +1264,8 @@ async function deleteConversation(convId) {
     try {
         await API.deleteConversation(convId);
         
-        // Remove from list
         state.conversations = state.conversations.filter(c => c.conversation_id !== convId);
-        renderConversationList();
+        WorkspaceTree.removeConversationNode(convId);
         
         // If was current, reset
         if (state.currentConversation?.conversation_id === convId) {
@@ -1027,22 +1283,17 @@ async function deleteConversation(convId) {
 
 async function saveConversation(convId) {
     try {
-        const result = await API.saveConversation(convId);
+        await API.saveConversation(convId);
         
-        // Update in local state
-        const conv = state.conversations.find(c => c.conversation_id === convId);
+        var conv = state.conversations.find(function(c) { return c.conversation_id === convId; });
         if (conv) {
             conv.is_temporary = false;
         }
         
-        // Update current conversation if it's the one being saved
         if (state.currentConversation?.conversation_id === convId) {
             state.currentConversation.is_temporary = false;
         }
         
-        renderConversationList();
-        
-        // Show brief feedback
         console.log('[Sidepanel] Conversation saved:', convId);
     } catch (error) {
         console.error('[Sidepanel] Failed to save conversation:', error);
@@ -1064,8 +1315,8 @@ function renderMessages() {
     
     messagesContainer.innerHTML = state.messages.map(msg => renderMessage(msg)).join('');
     
-    // Syntax highlighting and copy buttons
     processCodeBlocks(messagesContainer);
+    renderMath(messagesContainer);
 }
 
 function renderMessage(msg) {
@@ -1176,6 +1427,29 @@ function processCodeBlocks(container) {
     });
 }
 
+/**
+ * Render math expressions using KaTeX auto-render.
+ * Supports $$...$$, $...$, \[...\], \(...\) delimiters.
+ * @param {HTMLElement} container - Element to scan for math.
+ */
+function renderMath(container) {
+    if (!container || !window.renderMathInElement) return;
+    try {
+        window.renderMathInElement(container, {
+            delimiters: [
+                { left: '$$', right: '$$', display: true },
+                { left: '\\[', right: '\\]', display: true },
+                { left: '$', right: '$', display: false },
+                { left: '\\(', right: '\\)', display: false }
+            ],
+            throwOnError: false,
+            ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code']
+        });
+    } catch (e) {
+        console.warn('[Sidepanel] KaTeX rendering failed:', e);
+    }
+}
+
 // ==================== Input Handling ====================
 
 function handleInputChange() {
@@ -1235,7 +1509,10 @@ function updatePageContextButtons() {
 
 async function sendMessage() {
     const text = messageInput.value.trim();
-    const imagesToSend = state.pendingImages.filter(att => att.type !== 'pdf').map((img) => img.dataUrl);
+    const imagesToSend = state.pendingImages
+        .filter(att => att.type === 'image' || att.type !== 'pdf')
+        .map((img) => img.dataUrl)
+        .filter(Boolean);
     const hasAttachments = state.pendingImages.length > 0;
     if ((!text && !hasAttachments) || state.isStreaming) return;
     
@@ -1409,7 +1686,7 @@ async function sendMessage() {
         const workflowId = state.settings.workflowId || '';
         const agentToUse = workflowId ? 'PromptWorkflowAgent' : state.settings.agentName;
 
-        await uploadPendingPdfs(state.currentConversation.conversation_id);
+        await uploadPendingFiles(state.currentConversation.conversation_id);
 
         await API.sendMessageStreaming(
             state.currentConversation.conversation_id,
@@ -1420,7 +1697,7 @@ async function sendMessage() {
                 agent: agentToUse,
                 workflow_id: workflowId || null,
                 images: imagesToSend,
-                display_attachments: displayAttachments
+                historyLength: state.settings.historyLength,
             },
             {
                 onChunk: (chunk) => {
@@ -1431,25 +1708,22 @@ async function sendMessage() {
                         assistantEl.textContent = assistantMessage.content;
                     }
                 },
-                onDone: (data) => {
-                    // Update message ID if provided
-                    if (data?.message_id) {
-                        assistantMessage.message_id = data.message_id;
+                onMessageIds: (ids) => {
+                    if (ids.response_message_id) {
+                        assistantMessage.message_id = ids.response_message_id;
                     }
-                    
-                    // Process code blocks (highlight + copy buttons)
+                },
+                onDone: () => {
                     processCodeBlocks(assistantEl);
-                    
-                    // Update conversation in list
+                    renderMath(assistantEl);
                     updateConversationInList(text || '[Image attached]');
-
-                    // Clear image attachments after successful send
                     clearImageAttachments();
                 },
                 onError: (error) => {
                     console.error('[Sidepanel] Streaming error:', error);
                     assistantEl.innerHTML = `<div class="error-message">Error: ${error.message}</div>`;
-                }
+                },
+                signal: state.abortController.signal,
             }
         );
     } catch (error) {
@@ -1791,22 +2065,19 @@ function attachScriptButtonHandlers(container, script) {
 function updateConversationInList(messagePreview) {
     if (!state.currentConversation) return;
     
-    // Update title if it's still "New Chat"
-    if (state.currentConversation.title === 'New Chat') {
-        const newTitle = messagePreview.substring(0, 50) + (messagePreview.length > 50 ? '...' : '');
+    if (state.currentConversation.title === 'New Chat' || !state.currentConversation.title) {
+        var newTitle = messagePreview.substring(0, 50) + (messagePreview.length > 50 ? '...' : '');
         state.currentConversation.title = newTitle;
         
-        // Update in conversations list
-        const conv = state.conversations.find(c => c.conversation_id === state.currentConversation.conversation_id);
+        var conv = state.conversations.find(function(c) {
+            return c.conversation_id === state.currentConversation.conversation_id;
+        });
         if (conv) {
             conv.title = newTitle;
             conv.updated_at = new Date().toISOString();
         }
         
-        renderConversationList();
-        
-        // Update on server
-        API.updateConversation(state.currentConversation.conversation_id, { title: newTitle }).catch(console.error);
+        WorkspaceTree.updateConversationTitle(state.currentConversation.conversation_id, newTitle);
     }
 }
 
@@ -1843,27 +2114,40 @@ async function buildDisplayAttachments(pendingItems) {
     const result = [];
     for (const att of pendingItems) {
         if (att.type === 'pdf') {
-            result.push({ type: 'pdf', name: att.name, thumbnail: null });
+            result.push({
+                type: 'pdf', name: att.name, thumbnail: null,
+                doc_id: att.doc_id || null, source: att.source || null
+            });
         } else {
             const thumbnail = att.dataUrl ? await generateThumbnail(att.dataUrl) : null;
-            result.push({ type: 'image', name: att.name, thumbnail });
+            result.push({
+                type: 'image', name: att.name, thumbnail,
+                doc_id: att.doc_id || null, source: att.source || null
+            });
         }
     }
     return result.length > 0 ? result : null;
 }
 
-async function uploadPendingPdfs(conversationId) {
-    const pdfs = state.pendingImages.filter(att => att.type === 'pdf' && att.file);
-    console.log('[DEBUG] uploadPendingPdfs: Found', pdfs.length, 'PDFs to upload. Full pendingImages:', state.pendingImages);
-    for (const pdf of pdfs) {
+async function uploadPendingFiles(conversationId) {
+    for (const att of state.pendingImages) {
+        if (!att.file) continue;
         try {
-            console.log('[DEBUG] uploadPendingPdfs: Uploading PDF:', pdf.name, 'file object:', pdf.file);
-            const formData = new FormData();
-            formData.append('pdf_file', pdf.file);
-            const result = await API.uploadDoc(conversationId, formData);
-            console.log('[DEBUG] uploadPendingPdfs: Upload success for', pdf.name, 'Result:', result);
+            var result;
+            if (att.type === 'pdf') {
+                const formData = new FormData();
+                formData.append('pdf_file', att.file);
+                result = await API.uploadDoc(conversationId, formData);
+            } else if (att.type === 'image' && att.file) {
+                result = await API.uploadImage(conversationId, att.file);
+            }
+            if (result) {
+                att.doc_id = result.doc_id || null;
+                att.source = result.source || null;
+                att.title = result.title || att.name;
+            }
         } catch (err) {
-            console.error('[Sidepanel] PDF upload failed:', pdf.name, err);
+            console.error('[Sidepanel] File upload failed:', att.name, err);
         }
     }
 }
@@ -1947,7 +2231,8 @@ async function addAttachmentFiles(files) {
                 id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
                 name: file.name,
                 type: 'image',
-                dataUrl
+                dataUrl,
+                file: file
             });
         } else if (isPdf) {
             state.pendingImages.push({
@@ -2517,6 +2802,105 @@ async function buildPageContextFromResponse(response, options = {}) {
         title: response.title,
         content: response.content
     };
+}
+
+// ==================== Voice Recording ====================
+
+function showToast(message, type, duration) {
+    var toast = document.createElement('div');
+    toast.textContent = message;
+    toast.style.cssText = 'position:fixed;bottom:60px;left:50%;transform:translateX(-50%);padding:8px 16px;border-radius:6px;font-size:13px;z-index:9999;color:#fff;max-width:80%;text-align:center;'
+        + (type === 'error' ? 'background:#dc3545;' : type === 'warning' ? 'background:#fd7e14;' : 'background:#28a745;');
+    document.body.appendChild(toast);
+    setTimeout(function() { toast.remove(); }, duration || 3000);
+}
+
+function toggleVoiceRecording() {
+    if (state.isRecording) {
+        stopVoiceRecording();
+    } else {
+        startVoiceRecording();
+    }
+}
+
+async function startVoiceRecording() {
+    try {
+        var stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        state.voiceChunks = [];
+        state.voiceRecorder = new MediaRecorder(stream);
+
+        state.voiceRecorder.ondataavailable = function(event) {
+            if (event.data.size > 0) {
+                state.voiceChunks.push(event.data);
+            }
+        };
+
+        state.voiceRecorder.onstop = function() {
+            stream.getTracks().forEach(function(track) { track.stop(); });
+            var audioBlob = new Blob(state.voiceChunks, { type: 'audio/webm' });
+            sendAudioForTranscription(audioBlob);
+        };
+
+        state.voiceRecorder.start();
+        state.isRecording = true;
+        voiceBtn.classList.add('recording');
+        voiceBtn.title = 'Stop recording';
+        console.log('[Sidepanel] Voice recording started');
+    } catch (err) {
+        console.error('[Sidepanel] Microphone access error:', err);
+        
+        let message = 'Microphone access denied. ';
+        if (err.name === 'NotAllowedError') {
+            message += 'Click the camera/mic icon in the address bar and allow microphone access for this extension.';
+        } else if (err.name === 'NotFoundError') {
+            message += 'No microphone found. Please connect a microphone and try again.';
+        } else if (err.name === 'NotReadableError') {
+            message += 'Microphone is already in use by another application.';
+        } else {
+            message += 'Please check your browser and system permissions.';
+        }
+        
+        showToast(message, 'error', 8000);
+    }
+}
+
+function stopVoiceRecording() {
+    if (state.voiceRecorder && state.voiceRecorder.state !== 'inactive') {
+        state.voiceRecorder.stop();
+    }
+    state.isRecording = false;
+    voiceBtn.classList.remove('recording');
+    voiceBtn.title = 'Voice input';
+}
+
+async function sendAudioForTranscription(audioBlob) {
+    voiceBtn.disabled = true;
+    voiceBtn.title = 'Transcribing...';
+
+    try {
+        var result = await API.transcribeAudio(audioBlob);
+        var text = (result.transcription || '').trim();
+        if (text) {
+            var input = messageInput;
+            var start = input.selectionStart || 0;
+            var before = input.value.substring(0, start);
+            var after = input.value.substring(input.selectionEnd || start);
+            var separator = before.length > 0 && !before.endsWith(' ') ? ' ' : '';
+            input.value = before + separator + text + after;
+            input.selectionStart = input.selectionEnd = start + separator.length + text.length;
+            input.focus();
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            console.log('[Sidepanel] Transcription inserted:', text.length, 'chars');
+        } else {
+            showToast('No speech detected. Try again.', 'warning');
+        }
+    } catch (err) {
+        console.error('[Sidepanel] Transcription failed:', err);
+        showToast('Transcription failed: ' + err.message, 'error');
+    } finally {
+        voiceBtn.disabled = false;
+        voiceBtn.title = 'Voice input';
+    }
 }
 
 async function attachPageContent() {
@@ -3180,7 +3564,7 @@ async function handleTabSelection() {
                         try {
                             await chrome.scripting.executeScript({
                                 target: { tabId: sTab.tabId },
-                                files: ['content_scripts/extractor.js']
+                                files: ['content_scripts/extractor-core.js']
                             });
                             await new Promise(function(resolve) { setTimeout(resolve, 300); });
                         } catch (injectErr) {
@@ -3548,8 +3932,36 @@ async function handleRuntimeMessage(message, sender, sendResponse) {
             
         case 'TAB_CHANGED':
         case 'TAB_UPDATED':
-            // Could refresh page context indicator
             break;
+
+        case MESSAGE_TYPES.DOMAIN_CHANGED:
+            await handleDomainChanged(message.domain);
+            break;
+    }
+}
+
+async function handleDomainChanged(newDomain) {
+    console.log('[Sidepanel] Domain changed to:', newDomain);
+    state.currentConversation = null;
+    state.conversations = [];
+    state.messages = [];
+    removePageContext();
+
+    welcomeScreen.classList.remove('hidden');
+    messagesContainer.classList.add('hidden');
+    messagesContainer.innerHTML = '';
+    messageInput.value = '';
+    updateSendButton();
+
+    Object.keys(state).forEach(function(key) {
+        if (key.startsWith('ext_workspace_')) {
+            delete state[key];
+        }
+    });
+
+    var treeResult = await WorkspaceTree.loadTree(newDomain);
+    if (treeResult) {
+        state.conversations = adaptConversationList(treeResult.conversations);
     }
 }
 

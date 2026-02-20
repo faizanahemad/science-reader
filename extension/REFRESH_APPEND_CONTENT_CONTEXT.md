@@ -253,7 +253,7 @@ updatePageContextButtons();
 
 | File | Reason |
 |------|--------|
-| `extension_server.py` | Already handles `page_context.content` as string (lines 1486-1644) |
+| `Conversation.py` | Handles `page_context.content` as string via `reply()` method |
 | `extension.py` | Stores `page_context` as JSON, no schema changes |
 | `extractor.js` | Stateless, reuse `EXTRACT_PAGE` message |
 | `service-worker.js` | Just routes messages |

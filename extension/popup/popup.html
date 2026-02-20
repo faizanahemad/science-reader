@@ -48,7 +48,7 @@
                 <div class="form-help">Used for all extension API calls.</div>
                 <div class="server-presets">
                     <button type="button" class="btn btn-secondary btn-small server-preset-btn" data-url="https://assist-chat.site">Use Hosted</button>
-                    <button type="button" class="btn btn-secondary btn-small server-preset-btn" data-url="http://localhost:5001">Use Local</button>
+                    <button type="button" class="btn btn-secondary btn-small server-preset-btn" data-url="http://localhost:5000">Use Local</button>
                 </div>
             </div>
             <button type="submit" class="btn btn-primary" id="login-btn">
@@ -133,6 +133,24 @@
 
         <div class="settings-content">
             <div class="setting-group">
+                <label for="domain-select">Domain</label>
+                <select id="domain-select" class="select">
+                    <option value="assistant">Assistant</option>
+                    <option value="search">Search</option>
+                    <option value="finchat">FinChat</option>
+                </select>
+                <div class="setting-help">Changing domain reloads conversations in the sidepanel.</div>
+            </div>
+
+            <div class="setting-group">
+                <label for="workspace-select">Workspace</label>
+                <select id="workspace-select" class="select">
+                    <option value="">Loading...</option>
+                </select>
+                <div class="setting-help">Default workspace for new conversations.</div>
+            </div>
+
+            <div class="setting-group">
                 <label for="default-model">Default Model</label>
                 <select id="default-model" class="select">
                     <!-- Populated by JS -->
@@ -152,7 +170,7 @@
                 <div class="setting-help">Controls which backend the extension uses.</div>
                 <div class="server-presets">
                     <button type="button" class="btn btn-secondary btn-small server-preset-btn" data-url="https://assist-chat.site">Use Hosted</button>
-                    <button type="button" class="btn btn-secondary btn-small server-preset-btn" data-url="http://localhost:5001">Use Local</button>
+                    <button type="button" class="btn btn-secondary btn-small server-preset-btn" data-url="http://localhost:5000">Use Local</button>
                 </div>
             </div>
 

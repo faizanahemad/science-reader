@@ -5,7 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Assistant</title>
     <link rel="stylesheet" href="sidepanel.css">
+    <link rel="stylesheet" href="workspace-tree.css">
     <link rel="stylesheet" href="../lib/highlight.min.css">
+    <link rel="stylesheet" href="../lib/jstree-themes/default-dark/style.min.css">
+    <link rel="stylesheet" href="../lib/katex.min.css">
 </head>
 <body>
     <!-- Login View -->
@@ -32,7 +35,7 @@
                     <div class="form-help">Used for all extension API calls (e.g., https://assist-chat.site).</div>
                     <div class="server-presets">
                         <button type="button" class="btn btn-secondary btn-small server-preset-btn" data-url="https://assist-chat.site">Use Hosted</button>
-                        <button type="button" class="btn btn-secondary btn-small server-preset-btn" data-url="http://localhost:5001">Use Local</button>
+                        <button type="button" class="btn btn-secondary btn-small server-preset-btn" data-url="http://localhost:5000">Use Local</button>
                     </div>
                 </div>
                 <button type="submit" class="btn btn-primary btn-full" id="login-btn">
@@ -58,16 +61,33 @@
                 <h1 class="app-title">AI Assistant</h1>
             </div>
             <div class="header-right">
-                <button id="new-chat-btn" class="icon-btn" title="New chat">
+                <button id="new-chat-btn" class="icon-btn" title="New permanent chat">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <line x1="12" y1="5" x2="12" y2="19"></line>
                         <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                </button>
+                <button id="quick-chat-btn" class="icon-btn" title="Quick temporary chat">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
                     </svg>
                 </button>
                 <button id="settings-btn" class="icon-btn" title="Settings">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <circle cx="12" cy="12" r="3"></circle>
                         <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                    </svg>
+                </button>
+                <button id="docs-btn" class="icon-btn" title="Documents">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                        <polyline points="14 2 14 8 20 8"></polyline>
+                    </svg>
+                </button>
+                <button id="claims-btn" class="icon-btn" title="Claims / Memories">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 2a7 7 0 0 1 7 7c0 3-2 5.5-4 7.5L12 20l-3-3.5C7 14.5 5 12 5 9a7 7 0 0 1 7-7z"></path>
+                        <circle cx="12" cy="9" r="2.5"></circle>
                     </svg>
                 </button>
             </div>
@@ -84,9 +104,7 @@
                     </svg>
                 </button>
             </div>
-            <ul id="conversation-list" class="conversation-list">
-                <!-- Populated by JS -->
-            </ul>
+            <div id="workspace-tree" class="workspace-tree"></div>
             <div id="conversation-empty" class="empty-state hidden">
                 <p>No conversations yet</p>
                 <button class="btn btn-secondary btn-small" id="sidebar-new-chat">Start a new chat</button>
@@ -129,7 +147,7 @@
                     <div class="setting-help">Controls which backend the extension talks to.</div>
                     <div class="server-presets">
                         <button type="button" class="btn btn-secondary btn-small server-preset-btn" data-url="https://assist-chat.site">Use Hosted</button>
-                        <button type="button" class="btn btn-secondary btn-small server-preset-btn" data-url="http://localhost:5001">Use Local</button>
+                        <button type="button" class="btn btn-secondary btn-small server-preset-btn" data-url="http://localhost:5000">Use Local</button>
                     </div>
                 </div>
 
@@ -229,6 +247,99 @@
                     <button id="logout-btn" class="btn btn-secondary btn-small">Logout</button>
                 </div>
             </div>
+        </div>
+
+        <!-- Docs Panel (overlay) -->
+        <div id="docs-panel" class="overlay-panel hidden">
+            <div class="panel-header">
+                <h3>Documents</h3>
+                <button id="docs-panel-close" class="close-btn">&times;</button>
+            </div>
+            <div class="panel-body">
+                <div class="collapsible-section" id="conv-docs-section">
+                    <div class="section-header" data-toggle="conv-docs-list">
+                        <span class="collapse-arrow">&#9656;</span>
+                        <span>Conversation Documents</span>
+                        <span class="doc-count" id="conv-doc-count">(0)</span>
+                    </div>
+                    <div class="section-body hidden" id="conv-docs-list">
+                        <div class="doc-upload-row">
+                            <input type="file" id="conv-doc-upload" accept=".pdf,.doc,.docx,.html,.md,.csv,.xlsx,.json" hidden>
+                            <button id="conv-doc-upload-btn" class="upload-btn">+ Upload</button>
+                        </div>
+                        <div id="conv-docs-items" class="doc-items"></div>
+                    </div>
+                </div>
+                <div class="collapsible-section" id="global-docs-section">
+                    <div class="section-header" data-toggle="global-docs-list">
+                        <span class="collapse-arrow">&#9656;</span>
+                        <span>Global Documents</span>
+                        <span class="doc-count" id="global-doc-count">(0)</span>
+                    </div>
+                    <div class="section-body hidden" id="global-docs-list">
+                        <div class="doc-upload-row">
+                            <input type="file" id="global-doc-upload" accept=".pdf,.doc,.docx,.html,.md,.csv,.xlsx,.json" hidden>
+                            <button id="global-doc-upload-btn" class="upload-btn">+ Upload</button>
+                        </div>
+                        <div id="global-docs-items" class="doc-items"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Claims Panel (overlay) -->
+        <div id="claims-panel" class="overlay-panel hidden">
+            <div class="panel-header">
+                <h3>Claims / Memories</h3>
+                <button id="claims-panel-close" class="close-btn">&times;</button>
+            </div>
+            <div class="panel-body">
+                <div class="claims-search-row">
+                    <input type="text" id="claims-search" placeholder="Search claims..." class="claims-search-input">
+                </div>
+                <div class="claims-filter-row">
+                    <select id="claims-filter-type" class="claims-filter">
+                        <option value="">All Types</option>
+                        <option value="fact">Fact</option>
+                        <option value="preference">Preference</option>
+                        <option value="decision">Decision</option>
+                        <option value="task">Task</option>
+                        <option value="reminder">Reminder</option>
+                        <option value="habit">Habit</option>
+                        <option value="memory">Memory</option>
+                        <option value="observation">Observation</option>
+                    </select>
+                    <select id="claims-filter-domain" class="claims-filter">
+                        <option value="">All Domains</option>
+                        <option value="personal">Personal</option>
+                        <option value="health">Health</option>
+                        <option value="work">Work</option>
+                        <option value="relationships">Relationships</option>
+                        <option value="learning">Learning</option>
+                        <option value="life_ops">Life Ops</option>
+                        <option value="finance">Finance</option>
+                    </select>
+                    <select id="claims-filter-status" class="claims-filter">
+                        <option value="">All Status</option>
+                        <option value="active">Active</option>
+                        <option value="contested">Contested</option>
+                        <option value="historical">Historical</option>
+                    </select>
+                </div>
+                <div id="claims-list" class="claims-list"></div>
+                <div id="claims-load-more" class="claims-load-more hidden">
+                    <button id="claims-load-more-btn" class="load-more-btn">Load more...</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Attachment Context Menu -->
+        <div id="attachment-context-menu" class="att-context-menu hidden">
+            <div class="att-menu-item" data-action="download">&#11015; Download</div>
+            <div class="att-menu-item" data-action="promote-conv">&#128204; Promote to Conversation</div>
+            <div class="att-menu-item" data-action="promote-global">&#127760; Promote to Global</div>
+            <div class="att-menu-divider"></div>
+            <div class="att-menu-item att-menu-danger" data-action="delete">&#128465; Delete</div>
         </div>
 
         <!-- Main Content Area -->
@@ -437,8 +548,14 @@
     </div>
 
     <!-- Scripts -->
+    <script src="../lib/jquery.min.js"></script>
+    <script src="../lib/jstree.min.js"></script>
+    <script src="../lib/katex.min.js"></script>
+    <script src="../lib/katex-auto-render.min.js"></script>
     <script src="../lib/marked.min.js"></script>
     <script src="../lib/highlight.min.js"></script>
+    <script src="docs-panel.js"></script>
+    <script src="claims-panel.js"></script>
     <script type="module" src="sidepanel.js"></script>
 </body>
 </html>

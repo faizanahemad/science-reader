@@ -1,6 +1,6 @@
 # Chrome Extension Implementation Guide
 
-This document provides quick setup instructions for the Chrome Extension. The full design and architecture details are in `EXTENSION_DESIGN.md`.
+This document provides quick setup instructions for the Chrome Extension. For detailed architecture, see `documentation/features/extension/extension_implementation.md`.
 
 ## Quick Start
 
@@ -15,17 +15,17 @@ curl -o lib/highlight.min.css https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/s
 
 ### 2. Backend Setup
 
-The extension requires the `extension_server.py` backend running:
+The extension connects to the main `server.py` backend (port 5000):
 
 ```bash
 # Activate environment
 conda activate science-reader
 
-# Start the extension server (runs on port 5001)
-python extension_server.py --port 5001 --debug
+# Start the main server (runs on port 5000)
+python server.py
 ```
 
-The server provides all LLM and data APIs that the extension UI consumes.
+The server provides all LLM, conversation, workspace, and data APIs that the extension UI consumes. The legacy `extension_server.py` (port 5001) is deprecated.
 
 ### 3. Load Extension in Chrome
 
@@ -80,7 +80,7 @@ extension/
 ├── assets/
 │   ├── icons/                    # Extension icons (16x16, 32x32, etc)
 │   └── styles/                   # Common styles (if needed)
-└── tests/                        # Integration tests (for backend)
+└── lib/                          # Third-party libraries (see above)
 ```
 
 ## Key Features
@@ -195,7 +195,7 @@ Instead, always use `aiAssistant.dom.*` methods (they run inside the content scr
 
 ### Data Flow
 
-`User Action (Extension UI) → Content Script / Service Worker → extension_server.py API → LLM API → Streaming Response → Extension UI (render markdown + syntax highlighting)`
+`User Action (Extension UI) → Content Script / Service Worker → server.py API (port 5000) → LLM API → Streaming Response → Extension UI (render markdown + syntax highlighting)`
 
 ### Authentication
 
@@ -206,7 +206,7 @@ Instead, always use `aiAssistant.dom.*` methods (they run inside the content scr
 
 ### Storage
 
-- **Conversations**: Stored in extension_server.py SQLite database
+- **Conversations**: Stored via main server filesystem-based Conversation.py system (unified with web UI)
 - **Settings**: Stored in chrome.storage.local (synced to server on change)
 - **Auth Token**: Stored in chrome.storage.local
 - **Recent Conversations**: Cache in chrome.storage.local for quick access
@@ -215,7 +215,7 @@ Instead, always use `aiAssistant.dom.*` methods (they run inside the content scr
 
 ### API Base URL
 
-Set **Server URL** in the extension UI (login screen or Settings). The value is stored in `chrome.storage` and used by all extension API calls. Defaults to `http://localhost:5001` if not set. Quick presets are available in the UI: **Use Hosted** and **Use Local**.
+Set **Server URL** in the extension UI (login screen or Settings). The value is stored in `chrome.storage` and used by all extension API calls. Defaults to `http://localhost:5000` if not set. Quick presets are available in the UI: **Use Hosted** and **Use Local**.
 
 ### Available Models
 
@@ -261,8 +261,8 @@ The code already has console.log statements prefixed with `[AI Assistant]`. Filt
 
 ### "Cannot GET /ext/health"
 
-- Check that `extension_server.py` is running on port 5001
-- Verify API_BASE in `shared/constants.js` is correct
+- Check that `server.py` is running on port 5000
+- Verify API_BASE in `shared/constants.js` is correct (should be `http://localhost:5000`)
 
 ### "Token expired or invalid"
 
@@ -276,7 +276,7 @@ The code already has console.log statements prefixed with `[AI Assistant]`. Filt
 
 ### Settings not saving
 
-- Check that `extension_server.py` is accessible
+- Check that `server.py` is running on port 5000
 - Verify user is authenticated
 
 ## Development Tips
@@ -298,7 +298,7 @@ The code already has console.log statements prefixed with `[AI Assistant]`. Filt
 
 ### Adding New API Methods
 
-1. Add endpoint to `extension_server.py`
+1. Add endpoint to `server.py` or appropriate `endpoints/*.py` file
 2. Add method to `API` object in `shared/api.js`
 3. Import and use in appropriate component
 
@@ -321,18 +321,20 @@ The code already has console.log statements prefixed with `[AI Assistant]`. Filt
 
 For issues or questions:
 
-1. Check `EXTENSION_DESIGN.md` for architectural details
+1. Check `documentation/features/extension/extension_implementation.md` for architectural details
 2. Review `extension_api.md` for API reference
 3. Check browser console for errors
-4. Review `extension_server.py` logs
+4. Review `server.py` logs
 
 ## Next Steps
 
-1. ✅ Complete Phase 1 (current)
-2. 📋 Phase 2: Custom scripts and automation
-3. 🎯 Phase 3: Workflow orchestration and MCP tools
+1. ✅ Complete Phase 1 (basic chat)
+2. ✅ Phase 2: Custom scripts and automation
+3. ✅ Phase 3 (M1-M6): Backend unification + workspace UI + KaTeX + docs/claims panels
+4. ✅ M7: Legacy code cleanup (deprecate extension_server.py)
+5. 🎯 Phase 4: Workflow orchestration and MCP tools
 
 ---
 
-**Version**: 1.5  
-**Last Updated**: February 15, 2026
+**Version**: 1.7  
+**Last Updated**: February 17, 2026

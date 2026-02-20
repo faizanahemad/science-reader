@@ -15,7 +15,7 @@
     // Configuration
     // ==========================================================================
 
-    const API_BASE = 'http://localhost:5001';
+    const API_BASE = 'http://localhost:5000';
     
     const ICONS = {
         clipboard: '📋',
@@ -40,16 +40,14 @@
     let currentScript = null;
     let actions = [];
     let editingActionIndex = -1;
-    let authToken = null;
 
     // ==========================================================================
     // Initialization
     // ==========================================================================
 
     document.addEventListener('DOMContentLoaded', async () => {
-        // Get auth token
-        authToken = await getAuthToken();
-        if (!authToken) {
+        const isAuth = await checkAuth();
+        if (!isAuth) {
             showError('Not authenticated. Please log in first.');
             return;
         }
@@ -80,12 +78,17 @@
     /**
      * Get auth token from chrome.storage
      */
-    async function getAuthToken() {
-        return new Promise((resolve) => {
-            chrome.storage.local.get(['auth_token'], (result) => {
-                resolve(result.auth_token || null);
+    async function checkAuth() {
+        try {
+            const resp = await fetch(`${API_BASE}/ext/auth/verify`, {
+                credentials: 'include'
             });
-        });
+            if (!resp.ok) return false;
+            const data = await resp.json();
+            return data.valid === true;
+        } catch {
+            return false;
+        }
     }
 
     /**
@@ -242,8 +245,9 @@ window.__scriptHandlers = handlers;`;
         try {
             const response = await fetch(`${API_BASE}/ext/scripts/${scriptId}`, {
                 headers: {
-                    'Authorization': `Bearer ${authToken}`
-                }
+                    'Content-Type': 'application/json'
+                },
+                credentials: 'include'
             });
 
             if (!response.ok) {
@@ -328,9 +332,9 @@ window.__scriptHandlers = handlers;`;
                 response = await fetch(`${API_BASE}/ext/scripts/${currentScript.script_id}`, {
                     method: 'PUT',
                     headers: {
-                        'Authorization': `Bearer ${authToken}`,
                         'Content-Type': 'application/json'
                     },
+                    credentials: 'include',
                     body: JSON.stringify(scriptData)
                 });
             } else {
@@ -338,9 +342,9 @@ window.__scriptHandlers = handlers;`;
                 response = await fetch(`${API_BASE}/ext/scripts`, {
                     method: 'POST',
                     headers: {
-                        'Authorization': `Bearer ${authToken}`,
                         'Content-Type': 'application/json'
                     },
+                    credentials: 'include',
                     body: JSON.stringify(scriptData)
                 });
             }

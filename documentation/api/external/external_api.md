@@ -119,6 +119,13 @@ It’s intentionally brief: endpoint purpose + request/response shape “at a gl
 - `PUT /make_conversation_stateful/<conversation_id>`
 - `DELETE /make_conversation_stateless/<conversation_id>`
 
+#### `POST /create_temporary_conversation/<domain>`
+- **Purpose**: Atomically create a temporary (stateless) conversation and return the full workspace + conversation list. Replaces the old 3-call pattern (create + list + make_stateless).
+- **Request (JSON)**: `{ "workspace_id": "<optional target workspace ID>" }`. Omit to use the user's default workspace.
+- **Response (JSON)**: `{ "conversation": {metadata}, "conversations": [{metadata}, ...], "workspaces": [{workspace}, ...] }`. The `conversation` field is the newly created temporary conversation. `conversations` is the full domain conversation list (post-cleanup). `workspaces` is the full workspace list.
+- **Server ordering**: (1) clean up old stateless/orphaned conversations, (2) create new conversation, (3) mark it stateless, (4) build fresh lists.
+- **Rate limit**: 500/min. **Auth**: login_required.
+
 **Responses**: JSON objects with `message` and/or metadata.
 
 #### Memory pad

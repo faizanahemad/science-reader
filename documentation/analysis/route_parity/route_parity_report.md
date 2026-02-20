@@ -32,6 +32,7 @@
 - **POST** `/collapse_workspaces` → `workspaces.collapse_workspaces`
 - **POST** `/create_conversation/<domain>/` → `conversations.create_conversation`
 - **POST** `/create_conversation/<domain>/<workspace_id>` → `conversations.create_conversation`
+- **POST** `/create_temporary_conversation/<domain>` → `conversations.create_temporary_conversation`
 - **POST** `/create_prompt` → `prompts.create_prompt_route`
 - **POST** `/create_workspace/<domain>/<workspace_name>` → `workspaces.create_workspace`
 - **DELETE** `/delete_conversation/<conversation_id>` → `conversations.delete_conversation`

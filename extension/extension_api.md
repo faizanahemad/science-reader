@@ -1,6 +1,6 @@
 # Extension Server API Reference (Compact)
 
-**Base URL:** `http://localhost:5001` • **Content-Type:** `application/json` • **Auth:** `Authorization: Bearer <token>` (all endpoints except `/ext/health` and `/ext/auth/login`)
+**Base URL:** `http://localhost:5000` • **Content-Type:** `application/json` • **Auth:** `Authorization: Bearer <token>` (all endpoints except `/ext/health` and `/ext/auth/login`)
 
 ## Endpoint Index
 
@@ -71,7 +71,7 @@ Common HTTP codes: `400` bad request • `401` unauthorized • `404` not found 
 
 ## Prompts (Read-Only)
 
-**Extension prompt allowlist:** `/ext/prompts` only returns prompts listed in `EXTENSION_PROMPT_ALLOWLIST` in `extension_server.py`. If the allowlist is empty, all prompts from `prompts.json` are exposed. Requests for non-allowlisted prompts return `404`.
+**Extension prompt allowlist:** `/ext/prompts` only returns prompts listed in `EXTENSION_PROMPT_ALLOWLIST` in `endpoints/ext_bridge.py`. If the allowlist is empty, all prompts from `prompts.json` are exposed. Requests for non-allowlisted prompts return `404`.
 
 **Where prompt content comes from:** The server loads `prompts.json` into `prompt_manager` (via `prompt_lib`). During `/ext/chat/<conversation_id>`, the server resolves the conversation’s `prompt_name` to actual prompt text using `prompt_manager[prompt_name]`. The allowlist only filters/validates names—it does not store prompt content.
 

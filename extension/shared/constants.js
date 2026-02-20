@@ -6,7 +6,7 @@
  */
 
 // API Configuration
-export const API_BASE = 'http://localhost:5001';
+export const API_BASE = 'http://localhost:5000';
 
 // Available LLM Models - fetched from server, this is fallback
 // Names shown in UI use short format (part after /)
@@ -28,6 +28,35 @@ export const QUICK_ACTIONS = [
     { id: 'translate', name: 'Translate', icon: '🌐', description: 'Translate the text' }
 ];
 
+// Available domains — matches main backend (interface/common.js:12)
+export const DOMAINS = ['assistant', 'search', 'finchat'];
+
+// Prompt allowlist — only these prompts are shown in the extension UI.
+export const EXTENSION_PROMPT_ALLOWLIST = [
+    'base_system',
+    'preamble_short',
+    'relationship_prompt',
+    'short_coding_interview_prompt',
+    'more_related_questions_prompt',
+    'default',
+    'manager_assist_agent_prompt',
+    'manager_assist_agent_short_prompt',
+    'manager_to_manager_framework_prompt',
+];
+
+// Agent allowlist — only these agents are available in the extension.
+export const EXTENSION_AGENT_ALLOWLIST = [
+    'None',
+    'NStepCodeAgent',
+    'PerplexitySearch',
+    'JinaSearchAgent',
+    'InterleavedWebSearchAgent',
+    'WebSearch',
+    'MultiSourceSearch',
+    'PromptWorkflowAgent',
+    'ManagerAssistAgent',
+];
+
 // Default Settings
 export const DEFAULT_SETTINGS = {
     defaultModel: 'google/gemini-2.5-flash',
@@ -38,7 +67,8 @@ export const DEFAULT_SETTINGS = {
     apiBaseUrl: API_BASE,
     autoSave: false,
     autoIncludePage: true, // Auto-include page content with every message
-    theme: 'system' // 'light', 'dark', or 'system'
+    theme: 'system', // 'light', 'dark', or 'system'
+    domain: 'assistant' // Active domain: 'assistant', 'search', 'finchat'
 };
 
 // Storage Keys
@@ -47,7 +77,8 @@ export const STORAGE_KEYS = {
     USER_INFO: 'userInfo',
     SETTINGS: 'settings',
     CURRENT_CONVERSATION: 'currentConversation',
-    RECENT_CONVERSATIONS: 'recentConversations'
+    RECENT_CONVERSATIONS: 'recentConversations',
+    DOMAIN: 'activeDomain'
 };
 
 // Message Types for chrome.runtime messaging
@@ -81,7 +112,11 @@ export const MESSAGE_TYPES = {
     // Tab info
     GET_TAB_INFO: 'GET_TAB_INFO',
     GET_ALL_TABS: 'GET_ALL_TABS',
-    EXTRACT_FROM_TAB: 'EXTRACT_FROM_TAB'
+    EXTRACT_FROM_TAB: 'EXTRACT_FROM_TAB',
+
+    // Domain/workspace changes (popup → sidepanel via service worker)
+    DOMAIN_CHANGED: 'DOMAIN_CHANGED',
+    WORKSPACE_CHANGED: 'WORKSPACE_CHANGED'
 };
 
 // UI Constants

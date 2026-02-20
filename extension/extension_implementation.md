@@ -61,11 +61,11 @@
                            │ HTTPS API Calls
                            ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                    extension_server.py (Port 5001)                   │
-│  - Authentication (JWT)                                              │
-│  - Conversations CRUD                                                │
-│  - LLM Chat (streaming)                                              │
-│  - Prompts & Memories (read-only)                                    │
+│                    server.py (Port 5000) — Unified Backend              │
+│  - Authentication (Session + JWT)                                       │
+│  - Conversations CRUD (Conversation.py pipeline)                        │
+│  - LLM Chat (streaming)                                                 │
+│  - Prompts, Memories/PKB, Documents, Workspaces                         │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -135,14 +135,7 @@ extension/
 │   └── styles/
 │       └── common.css               # Shared CSS variables
 │
-├── tests/                           # Backend API tests
-│   ├── test_extension_api.py
-│   ├── run_integration_tests.py
-│   └── run_tests.sh
-│
-├── EXTENSION_DESIGN.md              # High-level design document
 ├── extension_api.md                 # Backend API reference
-├── reuse_or_build.md               # Analysis of code reuse
 ├── README.md                        # Quick start guide
 ├── extension_implementation.md      # This file
 └── generate_icons.py                # Icon generation script
@@ -160,7 +153,7 @@ extension/
 
 | Export | Type | Description |
 |--------|------|-------------|
-| `API_BASE` | string | Backend URL (`http://localhost:5001`) |
+| `API_BASE` | string | Backend URL (`http://localhost:5000`) |
 | `MODELS` | array | Fallback LLM models (fetched from server at runtime) |
 | `QUICK_ACTIONS` | array | Context menu actions (explain, summarize, etc) |
 | `DEFAULT_SETTINGS` | object | Default user settings |
@@ -217,7 +210,7 @@ await Storage.setSettings({ historyLength: 20 });
 
 ### 3.3 `shared/api.js`
 
-**Purpose:** API client for communicating with `extension_server.py`.
+**Purpose:** API client for communicating with the backend (`server.py`, port 5000).
 
 **Exports:**
 
@@ -996,16 +989,16 @@ When page content is attached, the server injects it as a **separate user messag
 
 ### 9.5 System Prompt Resolution + Context Injection
 
-**Prompt list scope:** `/ext/prompts` is filtered by `EXTENSION_PROMPT_ALLOWLIST` in `extension_server.py` (empty list = allow all prompts from `prompts.json`).
+**Prompt list scope:** `/ext/prompts` is filtered by `EXTENSION_PROMPT_ALLOWLIST` in `endpoints/ext_bridge.py` (empty list = allow all prompts from `prompts.json`).
 
 **Selection + usage order (compact):**
 1. **Prompt selection:** Sidepanel settings (`prompt-select`) sends `prompt_name` for conversation creation/updates.
-2. **System prompt assembly:** `extension_server.py` resolves `prompt_name` from allowlist + prompt library; PKB memory snippets are appended to the system prompt text.
+2. **System prompt assembly:** `server.py` resolves `prompt_name` from allowlist + prompt library; PKB memory snippets are appended to the system prompt text.
 3. **Context injection (messages):** system message → page context user message (+ assistant ack) → conversation history → current user message.
 
 ### 9.6 Agent Support (Allowlisted)
 
-**Agent list scope:** `/ext/agents` is filtered by `EXTENSION_AGENT_ALLOWLIST` in `extension_server.py` (based on `interface.html` Agent dropdown).
+**Agent list scope:** `/ext/agents` is filtered by `EXTENSION_AGENT_ALLOWLIST` in `endpoints/ext_bridge.py` (based on `interface.html` Agent dropdown).
 
 **Usage (backend-ready):** `POST /ext/chat/<conversation_id>` accepts optional `agent` + `detail_level`. If provided and allowlisted, the server instantiates that agent and runs it instead of the default LLM call.
 
@@ -1236,7 +1229,7 @@ shared/storage.js
 
 ### Adding a New API Method
 
-1. Add endpoint to `extension_server.py`
+1. Add endpoint to `server.py` or appropriate `endpoints/*.py` file
 2. Add method to `API` object in `shared/api.js`
 3. Import and call from appropriate component
 
@@ -1262,12 +1255,12 @@ shared/storage.js
 
 ### Adding a New LLM Model
 
-1. Add model ID to `AVAILABLE_MODELS` list in `extension_server.py`
+1. Add model ID to `AVAILABLE_MODELS` list in `endpoints/ext_bridge.py`
 2. Models are fetched dynamically at runtime via `GET /ext/models`
 3. UI displays short name (part after `/` in model ID)
 4. No frontend changes needed - models auto-populate from server
 
-**Current Models (in `extension_server.py`):**
+**Current Models (in `endpoints/ext_bridge.py`):**
 ```python
 AVAILABLE_MODELS = [
     "google/gemini-2.5-flash",
@@ -1340,7 +1333,7 @@ To add a new method to the `aiAssistant` API:
 - **PDF upload endpoint**: New `POST /ext/upload_doc/<conversation_id>` — pdfplumber text extraction, stored as system message (128K char limit). `uploadPendingPdfs()` calls `API.uploadDoc()`.
 - **API changes**: `sendMessage()` and `sendMessageStreaming()` in `api.js` now include `display_attachments` in request body. New `uploadDoc()` method added.
 - **CSS**: `.pdf-attachment`, `.pdf-badge`, `.panel-drag-over`, `.message-pdf-badge` styles in `sidepanel.css`.
-- **Files modified**: `sidepanel.js`, `sidepanel.css`, `api.js`, `extension.py`, `extension_server.py`.
+- **Files modified**: `sidepanel.js`, `sidepanel.css`, `api.js`, `extension.py`, `extension_server.py` (all now deprecated — extension uses `server.py` unified backend).
 
 ### Version 1.4 (December 30, 2024)
 

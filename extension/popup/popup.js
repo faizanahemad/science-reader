@@ -10,7 +10,7 @@
 
 import { API } from '../shared/api.js';
 import { Storage } from '../shared/storage.js';
-import { MODELS, MESSAGE_TYPES } from '../shared/constants.js';
+import { MODELS, MESSAGE_TYPES, DOMAINS } from '../shared/constants.js';
 
 // ==================== DOM Elements ====================
 
@@ -41,6 +41,8 @@ const settingsBtn = document.getElementById('settings-btn');
 
 // Settings elements
 const backToMainBtn = document.getElementById('back-to-main');
+const domainSelect = document.getElementById('domain-select');
+const workspaceSelect = document.getElementById('workspace-select');
 const defaultModelSelect = document.getElementById('default-model');
 const defaultPromptSelect = document.getElementById('default-prompt');
 const serverUrlSettingsInput = document.getElementById('server-url-settings');
@@ -349,6 +351,15 @@ saveSettingsBtn.addEventListener('click', async () => {
 // ==================== Settings Loading ====================
 
 async function loadSettings() {
+    // Load current domain
+    const currentDomain = await Storage.getDomain();
+    if (domainSelect) {
+        domainSelect.value = currentDomain;
+    }
+
+    // Load workspaces for current domain
+    await loadWorkspacesForDomain(currentDomain);
+
     // Fetch models from server
     try {
         const modelsData = await API.getModels();
@@ -397,6 +408,60 @@ async function loadSettings() {
     historyLengthValue.textContent = settings.historyLength;
     autoSaveCheckbox.checked = settings.autoSave;
     themeSelect.value = settings.theme;
+}
+
+// ==================== Domain & Workspace ====================
+
+async function loadWorkspacesForDomain(domain) {
+    if (!workspaceSelect) return;
+    workspaceSelect.innerHTML = '<option value="">Loading...</option>';
+
+    try {
+        var workspaces = await API.listWorkspaces(domain);
+        var browserExtWs = workspaces.find(function(ws) {
+            return ws.workspace_name === 'Browser Extension';
+        });
+
+        if (!browserExtWs) {
+            var created = await API.createWorkspace(domain, 'Browser Extension', {
+                color: '#9b59b6'
+            });
+            browserExtWs = { workspace_id: created.workspace_id, workspace_name: 'Browser Extension' };
+            workspaces.push(browserExtWs);
+        }
+
+        workspaceSelect.innerHTML = workspaces.map(function(ws) {
+            return '<option value="' + ws.workspace_id + '">' + escapeHtml(ws.workspace_name) + '</option>';
+        }).join('');
+
+        var savedWsId = await Storage.get('activeWorkspaceId');
+        if (savedWsId && workspaces.some(function(ws) { return ws.workspace_id === savedWsId; })) {
+            workspaceSelect.value = savedWsId;
+        } else {
+            workspaceSelect.value = browserExtWs.workspace_id;
+        }
+    } catch (e) {
+        console.warn('[Popup] Failed to load workspaces:', e);
+        workspaceSelect.innerHTML = '<option value="">Failed to load</option>';
+    }
+}
+
+if (domainSelect) {
+    domainSelect.addEventListener('change', async function() {
+        var newDomain = domainSelect.value;
+        await Storage.setDomain(newDomain);
+        await loadWorkspacesForDomain(newDomain);
+        chrome.runtime.sendMessage({
+            type: MESSAGE_TYPES.DOMAIN_CHANGED,
+            domain: newDomain
+        }).catch(function() {});
+    });
+}
+
+if (workspaceSelect) {
+    workspaceSelect.addEventListener('change', async function() {
+        await Storage.set('activeWorkspaceId', workspaceSelect.value);
+    });
 }
 
 // ==================== Utility Functions ====================

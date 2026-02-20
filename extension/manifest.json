@@ -15,6 +15,7 @@
   
   "host_permissions": [
     "<all_urls>",
+    "http://localhost:5000/*",
     "http://localhost:5001/*",
     "https://your-server-domain.com/*"
   ],
@@ -45,12 +46,12 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["content_scripts/extractor.js"],
+      "js": ["content_scripts/extractor-core.js", "content_scripts/extractor-ui.js"],
       "run_at": "document_idle"
     },
     {
       "matches": ["<all_urls>"],
-      "js": ["content_scripts/script_runner.js", "content_scripts/script_ui.js"],
+      "js": ["content_scripts/script-runner-core.js", "content_scripts/script_ui.js"],
       "run_at": "document_idle"
     }
   ],

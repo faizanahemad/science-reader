@@ -5,7 +5,7 @@
  * Handles authentication headers, error handling, and streaming responses.
  */
 
-import { API_BASE, TIMEOUTS } from './constants.js';
+import { API_BASE, TIMEOUTS, EXTENSION_PROMPT_ALLOWLIST, EXTENSION_AGENT_ALLOWLIST } from './constants.js';
 import { Storage } from './storage.js';
 
 /**
@@ -28,6 +28,15 @@ async function getApiBaseUrl() {
     return normalized || API_BASE;
 }
 
+function _processJsonLineChunk(parsed, onChunk, onStatus, onMessageIds) {
+    var text = parsed.text || '';
+    var status = parsed.status || '';
+
+    if (text && onChunk) onChunk(text);
+    if (status && onStatus) onStatus(status);
+    if (parsed.message_ids && onMessageIds) onMessageIds(parsed.message_ids);
+}
+
 /**
  * Main API object with methods for all endpoints
  */
@@ -41,13 +50,11 @@ export const API = {
      * @throws {Error} - For other errors
      */
     async call(endpoint, options = {}) {
-        const token = await Storage.getToken();
         const apiBase = await getApiBaseUrl();
         const { timeoutMs, ...fetchOptions } = options;
         
         const headers = {
             'Content-Type': 'application/json',
-            ...(token && { 'Authorization': `Bearer ${token}` }),
             ...fetchOptions.headers
         };
 
@@ -58,6 +65,7 @@ export const API = {
             const response = await fetch(`${apiBase}${endpoint}`, {
                 ...fetchOptions,
                 headers,
+                credentials: 'include',
                 signal: controller.signal
             });
 
@@ -65,7 +73,7 @@ export const API = {
 
             if (response.status === 401) {
                 await Storage.clearAuth();
-                throw new AuthError('Token expired or invalid');
+                throw new AuthError('Session expired or invalid');
             }
 
             if (!response.ok) {
@@ -84,31 +92,35 @@ export const API = {
     },
 
     /**
-     * Make a streaming API call
+     * Stream a response using newline-delimited JSON (main backend format).
+     * Each line is a JSON object: {"text": "...", "status": "...", "message_ids": {...}}
+     *
      * @param {string} endpoint - API endpoint
      * @param {Object} body - Request body
-     * @param {Function} onChunk - Callback for each chunk
-     * @param {Function} onDone - Callback when streaming completes
-     * @param {Function} onError - Callback for errors
+     * @param {Object} callbacks
+     * @param {Function} callbacks.onChunk - Called with non-empty text from each chunk
+     * @param {Function} [callbacks.onStatus] - Called with status string updates
+     * @param {Function} [callbacks.onMessageIds] - Called with message_ids dict when present
+     * @param {Function} [callbacks.onDone] - Called when streaming completes
+     * @param {Function} [callbacks.onError] - Called on errors
+     * @param {AbortSignal} [callbacks.signal] - AbortController signal for cancellation
      * @returns {Promise<void>}
      */
-    async stream(endpoint, body, { onChunk, onDone, onError }) {
-        const token = await Storage.getToken();
+    async streamJsonLines(endpoint, body, { onChunk, onStatus, onMessageIds, onDone, onError, signal }) {
         const apiBase = await getApiBaseUrl();
 
         try {
             const response = await fetch(`${apiBase}${endpoint}`, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    ...(token && { 'Authorization': `Bearer ${token}` })
-                },
-                body: JSON.stringify({ ...body, stream: true })
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify(body),
+                signal: signal || undefined,
             });
 
             if (response.status === 401) {
                 await Storage.clearAuth();
-                throw new AuthError('Token expired or invalid');
+                throw new AuthError('Session expired or invalid');
             }
 
             if (!response.ok) {
@@ -122,38 +134,41 @@ export const API = {
 
             while (true) {
                 const { value, done } = await reader.read();
-                
+
                 if (done) {
+                    if (buffer.trim()) {
+                        try {
+                            const parsed = JSON.parse(buffer.trim());
+                            _processJsonLineChunk(parsed, onChunk, onStatus, onMessageIds);
+                        } catch (e) { /* incomplete trailing data */ }
+                    }
                     if (onDone) onDone();
                     break;
                 }
 
                 buffer += decoder.decode(value, { stream: true });
 
-                // Parse Server-Sent Events format
-                const lines = buffer.split('\n');
-                buffer = lines.pop() || ''; // Keep incomplete line in buffer
+                let boundary = buffer.indexOf('\n');
+                while (boundary !== -1) {
+                    const line = buffer.slice(0, boundary).trim();
+                    buffer = buffer.slice(boundary + 1);
 
-                for (const line of lines) {
-                    if (line.startsWith('data: ')) {
+                    if (line) {
                         try {
-                            const data = JSON.parse(line.slice(6));
-                            if (data.chunk && onChunk) {
-                                onChunk(data.chunk);
-                            }
-                            if (data.done && onDone) {
-                                onDone(data);
-                            }
-                            if (data.error && onError) {
-                                onError(new Error(data.error));
-                            }
+                            const parsed = JSON.parse(line);
+                            _processJsonLineChunk(parsed, onChunk, onStatus, onMessageIds);
                         } catch (e) {
-                            console.warn('Failed to parse SSE data:', line);
+                            console.warn('[API] Failed to parse JSON line:', line.slice(0, 100));
                         }
                     }
+                    boundary = buffer.indexOf('\n');
                 }
             }
         } catch (error) {
+            if (error.name === 'AbortError') {
+                if (onDone) onDone();
+                return;
+            }
             if (onError) onError(error);
             else throw error;
         }
@@ -173,8 +188,6 @@ export const API = {
             body: JSON.stringify({ email, password })
         });
         
-        // Store token and user info
-        await Storage.setToken(result.token);
         await Storage.setUserInfo({ email: result.email, name: result.name });
         
         return result;
@@ -208,28 +221,36 @@ export const API = {
     // ==================== Prompts Methods ====================
 
     /**
-     * Get all available prompts
+     * Get prompts from main backend, filtered by extension allowlist.
+     * Calls /get_prompts directly and applies client-side filtering.
      * @returns {Promise<{prompts: Array}>}
      */
     async getPrompts() {
-        return this.call('/ext/prompts');
+        var allPrompts = await this.call('/get_prompts');
+        // Main backend returns a flat array, not {prompts: [...]}
+        var arr = Array.isArray(allPrompts) ? allPrompts : (allPrompts.prompts || []);
+        var allowSet = new Set(EXTENSION_PROMPT_ALLOWLIST);
+        var filtered = allowSet.size > 0
+            ? arr.filter(function(p) { return allowSet.has(p.name); })
+            : arr;
+        return { prompts: filtered };
     },
 
     /**
-     * Get a specific prompt by name
+     * Get a specific prompt by name from main backend.
      * @param {string} name - Prompt name
      * @returns {Promise<Object>}
      */
     async getPrompt(name) {
-        return this.call(`/ext/prompts/${encodeURIComponent(name)}`);
+        return this.call('/get_prompt_by_name/' + encodeURIComponent(name));
     },
 
     /**
-     * Get available agents for the extension.
+     * Get available agents for the extension (client-side allowlist).
      * @returns {Promise<{agents: Array}>}
      */
     async getAgents() {
-        return this.call('/ext/agents');
+        return { agents: EXTENSION_AGENT_ALLOWLIST.slice().sort() };
     },
 
     // ==================== Workflow Methods ====================
@@ -297,123 +318,132 @@ export const API = {
         });
     },
 
+    /**
+     * Transcribe audio to text via server-side Whisper/AssemblyAI.
+     * Uses FormData (not JSON) so we must bypass this.call() which
+     * sets Content-Type: application/json.
+     * @param {Blob} audioBlob - Audio blob (webm/mp3/etc)
+     * @returns {Promise<{transcription: string}>}
+     */
+    async transcribeAudio(audioBlob) {
+        const apiBase = await getApiBaseUrl();
+        const formData = new FormData();
+        formData.append('audio', audioBlob, 'recording.webm');
+
+        const response = await fetch(`${apiBase}/transcribe`, {
+            method: 'POST',
+            body: formData,
+            credentials: 'include'
+        });
+
+        if (response.status === 401) {
+            await Storage.clearAuth();
+            throw new AuthError('Session expired or invalid');
+        }
+
+        if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            throw new Error(error.error || `HTTP ${response.status}`);
+        }
+
+        return response.json();
+    },
+
     // ==================== Memories Methods ====================
 
     /**
-     * List user's memories
-     * @param {Object} params - Query parameters
+     * List user's memories (PKB claims) via main backend /pkb/claims.
+     * @param {Object} params - Query parameters (limit, offset, status, claim_type)
      * @returns {Promise<{memories: Array, total: number}>}
      */
     async getMemories(params = {}) {
-        const query = new URLSearchParams(params).toString();
-        return this.call(`/ext/memories${query ? '?' + query : ''}`);
+        var query = new URLSearchParams(params).toString();
+        var result = await this.call('/pkb/claims' + (query ? '?' + query : ''));
+        // Main backend returns {claims: [...], count: N}
+        return { memories: result.claims || [], total: result.count || 0 };
     },
 
     /**
-     * Search memories
+     * Search memories via main backend /pkb/claims?query=...
      * @param {string} query - Search query
      * @param {number} k - Number of results
      * @returns {Promise<{results: Array}>}
      */
     async searchMemories(query, k = 10) {
-        return this.call('/ext/memories/search', {
-            method: 'POST',
-            body: JSON.stringify({ query, k })
-        });
+        var result = await this.call('/pkb/claims?query=' + encodeURIComponent(query) + '&limit=' + k);
+        // Adapt: main backend returns {claims: [...]}; wrap each as {claim, score}
+        var claims = result.claims || [];
+        return { results: claims.map(function(c) { return { claim: c, score: 1.0 }; }) };
     },
 
     /**
-     * Get pinned memories
+     * Get pinned memories (not directly supported — returns empty for now).
      * @returns {Promise<{memories: Array}>}
      */
     async getPinnedMemories() {
-        return this.call('/ext/memories/pinned');
+        return { memories: [] };
     },
 
     // ==================== Conversations Methods ====================
 
-    /**
-     * List conversations
-     * @param {Object} params - Query parameters (limit, offset, include_temporary)
-     * @returns {Promise<{conversations: Array, total: number}>}
-     */
-    async getConversations(params = { limit: 50 }) {
-        const query = new URLSearchParams(params).toString();
-        return this.call(`/ext/conversations?${query}`);
+    async getConversations() {
+        var domain = await Storage.getDomain();
+        return this.call('/list_conversation_by_user/' + domain);
     },
 
-    /**
-     * Create a new conversation
-     * @param {Object} data - Conversation data
-     * @returns {Promise<{conversation: Object}>}
-     */
     async createConversation(data = {}) {
-        return this.call('/ext/conversations', {
+        var domain = await Storage.getDomain();
+        return this.call('/create_temporary_conversation/' + domain, {
             method: 'POST',
-            body: JSON.stringify({
-                title: data.title || 'New Chat',
-                is_temporary: data.is_temporary !== false,
-                model: data.model,
-                prompt_name: data.prompt_name,
-                history_length: data.history_length
-            })
+            body: JSON.stringify({ workspace_id: data.workspace_id || null })
         });
     },
 
-    /**
-     * Get a conversation with messages
-     * @param {string} id - Conversation ID
-     * @returns {Promise<{conversation: Object}>}
-     */
-    async getConversation(id) {
-        return this.call(`/ext/conversations/${id}`);
+    async createPermanentConversation(data = {}) {
+        var domain = await Storage.getDomain();
+        var workspaceId = data.workspace_id || null;
+        var endpoint = '/create_conversation/' + domain;
+        if (workspaceId) {
+            endpoint += '/' + encodeURIComponent(workspaceId);
+        }
+        return this.call(endpoint, { method: 'POST' });
     },
 
-    /**
-     * Update conversation metadata
-     * @param {string} id - Conversation ID
-     * @param {Object} data - Fields to update
-     * @returns {Promise<{conversation: Object}>}
-     */
-    async updateConversation(id, data) {
-        return this.call(`/ext/conversations/${id}`, {
-            method: 'PUT',
-            body: JSON.stringify(data)
-        });
+    async getConversationMessages(id) {
+        return this.call('/list_messages_by_conversation/' + id);
     },
 
-    /**
-     * Delete a conversation
-     * @param {string} id - Conversation ID
-     * @returns {Promise<void>}
-     */
+    async getConversationDetails(id) {
+        return this.call('/get_conversation_details/' + id);
+    },
+
     async deleteConversation(id) {
-        return this.call(`/ext/conversations/${id}`, {
-            method: 'DELETE'
-        });
+        return this.call('/delete_conversation/' + id, { method: 'DELETE' });
     },
 
-    /**
-     * Save a conversation (mark as non-temporary)
-     * @param {string} id - Conversation ID
-     * @returns {Promise<{conversation: Object, message: string}>}
-     */
     async saveConversation(id) {
-        return this.call(`/ext/conversations/${id}/save`, {
-            method: 'POST'
-        });
+        return this.call('/make_conversation_stateful/' + id, { method: 'PUT' });
     },
 
     // ==================== Chat Methods ====================
 
+    /**
+     * Upload a document (PDF) to a conversation via main backend's FastDocIndex endpoint.
+     * Creates BM25 keyword index (1-3s). Returns {status, doc_id, source, title}.
+     * @param {string} conversationId
+     * @param {FormData} formData - Must contain 'pdf_file' field
+     * @returns {Promise<{status: string, doc_id: string, source: string, title: string}>}
+     */
     async uploadDoc(conversationId, formData) {
-        const token = await Storage.getToken();
         const apiBase = await getApiBaseUrl();
-        const response = await fetch(`${apiBase}/ext/upload_doc/${conversationId}`, {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${token}` },
-            body: formData
-        });
+        const response = await fetch(
+            `${apiBase}/upload_doc_to_conversation/${conversationId}`,
+            { method: 'POST', credentials: 'include', body: formData }
+        );
+        if (response.status === 401) {
+            await Storage.clearAuth();
+            throw new AuthError('Session expired or invalid');
+        }
         if (!response.ok) {
             const err = await response.json().catch(() => ({}));
             throw new Error(err.error || `Upload failed: ${response.status}`);
@@ -422,99 +452,196 @@ export const API = {
     },
 
     /**
-     * Send a message (non-streaming)
+     * Upload an image to a conversation via main backend (creates FastImageDocIndex).
+     * Same endpoint as uploadDoc — backend auto-detects file type.
      * @param {string} conversationId
-     * @param {Object} data - Message data
-     * @returns {Promise<{response: string, message_id: string}>}
+     * @param {File} imageFile - Image file to upload
+     * @returns {Promise<{status: string, doc_id: string, source: string, title: string}>}
      */
-    async sendMessage(conversationId, data) {
-        // Build page context with screenshot and multi-tab info
-        const pageContext = data.pageContext ? {
-            url: data.pageContext.url,
-            title: data.pageContext.title,
-            content: data.pageContext.content,
-            screenshot: data.pageContext.screenshot,
-            isScreenshot: data.pageContext.isScreenshot,
-            isMultiTab: data.pageContext.isMultiTab,
-            tabCount: data.pageContext.tabCount,
-            sources: data.pageContext.sources,
-            mergeType: data.pageContext.mergeType,
-            lastRefreshed: data.pageContext.lastRefreshed
-        } : null;
-        
-        return this.call(`/ext/chat/${conversationId}`, {
-            method: 'POST',
-            body: JSON.stringify({
-                message: data.message,
-                page_context: pageContext,
-                model: data.model,
-                agent: data.agent,
-                detail_level: data.detail_level,
-                workflow_id: data.workflow_id,
-                images: data.images,
-                display_attachments: data.display_attachments,
-                stream: false
-            })
-        });
+    async uploadImage(conversationId, imageFile) {
+        const apiBase = await getApiBaseUrl();
+        const formData = new FormData();
+        formData.append('pdf_file', imageFile);  // Same field name — backend auto-detects file type
+        const response = await fetch(
+            `${apiBase}/upload_doc_to_conversation/${conversationId}`,
+            { method: 'POST', credentials: 'include', body: formData }
+        );
+        if (response.status === 401) {
+            await Storage.clearAuth();
+            throw new AuthError('Session expired or invalid');
+        }
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.error || `Image upload failed: ${response.status}`);
+        }
+        return response.json();
     },
 
     /**
-      * Send a message with streaming response
-      * @param {string} conversationId
-      * @param {Object} data - Message data
-      * @param {Object} callbacks - {onChunk, onDone, onError}
-      * @returns {Promise<void>}
-      */
-    async sendMessageStreaming(conversationId, data, callbacks) {
-        // Build page context with screenshot and multi-tab info
-        const pageContext = data.pageContext ? {
-            url: data.pageContext.url,
-            title: data.pageContext.title,
-            content: data.pageContext.content,
-            screenshot: data.pageContext.screenshot,
-            isScreenshot: data.pageContext.isScreenshot,
-            isMultiTab: data.pageContext.isMultiTab,
-            tabCount: data.pageContext.tabCount,
-            sources: data.pageContext.sources,
-            mergeType: data.pageContext.mergeType,
-            lastRefreshed: data.pageContext.lastRefreshed
-        } : null;
-        
-        return this.stream(`/ext/chat/${conversationId}`, {
-            message: data.message,
-            page_context: pageContext,
-            model: data.model,
-            agent: data.agent,
-            detail_level: data.detail_level,
-            workflow_id: data.workflow_id,
-            images: data.images,
-            display_attachments: data.display_attachments
-        }, callbacks);
-    },
-
-    /**
-     * Add a message without LLM response
+     * Send a message with streaming response via main backend /send_message endpoint.
+     * Transforms extension payload to main backend format and streams newline-delimited JSON.
+     *
      * @param {string} conversationId
-     * @param {Object} data - {role, content, page_context}
-     * @returns {Promise<{message: Object}>}
-     */
-    async addMessage(conversationId, data) {
-        return this.call(`/ext/chat/${conversationId}/message`, {
-            method: 'POST',
-            body: JSON.stringify(data)
-        });
-    },
-
-    /**
-     * Delete a message
-     * @param {string} conversationId
-     * @param {string} messageId
+     * @param {Object} data - {message, pageContext, model, agent, workflow_id, images, historyLength}
+     * @param {Object} callbacks - {onChunk, onStatus, onMessageIds, onDone, onError, signal}
      * @returns {Promise<void>}
      */
-    async deleteMessage(conversationId, messageId) {
-        return this.call(`/ext/chat/${conversationId}/messages/${messageId}`, {
+    async sendMessageStreaming(conversationId, data, callbacks) {
+        var agentField = data.agent || 'None';
+        if (data.workflow_id) agentField = 'PromptWorkflowAgent';
+
+        var pageContext = data.pageContext ? {
+            url: data.pageContext.url,
+            title: data.pageContext.title,
+            content: data.pageContext.content,
+            screenshot: data.pageContext.screenshot,
+            isScreenshot: data.pageContext.isScreenshot,
+            isMultiTab: data.pageContext.isMultiTab,
+            tabCount: data.pageContext.tabCount,
+            sources: data.pageContext.sources,
+            mergeType: data.pageContext.mergeType,
+            lastRefreshed: data.pageContext.lastRefreshed
+        } : null;
+
+        var payload = {
+            messageText: data.message,
+            checkboxes: {
+                main_model: data.model || 'google/gemini-2.5-flash',
+                field: agentField,
+                persist_or_not: true,
+                provide_detailed_answers: 2,
+                use_pkb: true,
+                enable_previous_messages: String(data.historyLength || 10),
+                perform_web_search: false,
+                googleScholar: false,
+                ppt_answer: false,
+                preamble_options: []
+            },
+            search: [],
+            links: [],
+            source: 'extension',
+            page_context: pageContext,
+            images: data.images || [],
+        };
+
+        if (data.workflow_id) {
+            payload.checkboxes.workflow_id = data.workflow_id;
+        }
+
+        return this.streamJsonLines(
+            '/send_message/' + conversationId,
+            payload,
+            callbacks
+        );
+    },
+
+    // ==================== Workspace Methods ====================
+
+    async listWorkspaces(domain) {
+        return this.call('/list_workspaces/' + domain);
+    },
+
+    async createWorkspace(domain, name, options = {}) {
+        return this.call(
+            '/create_workspace/' + encodeURIComponent(domain) + '/' + encodeURIComponent(name),
+            {
+                method: 'POST',
+                body: JSON.stringify({
+                    workspace_color: options.color || '#6f42c1',
+                    parent_workspace_id: options.parentId || null,
+                })
+            }
+        );
+    },
+
+    // ==================== Document Methods (Conversation-Scoped) ====================
+
+    async listDocuments(conversationId) {
+        return this.call('/list_documents_by_conversation/' + conversationId);
+    },
+
+    async deleteDocument(conversationId, docId) {
+        return this.call('/delete_document_from_conversation/' + conversationId + '/' + docId, {
             method: 'DELETE'
         });
+    },
+
+    async downloadDocUrl(conversationId, docId) {
+        const apiBase = await getApiBaseUrl();
+        return `${apiBase}/download_doc_from_conversation/${conversationId}/${docId}`;
+    },
+
+    async promoteMessageDoc(conversationId, docId) {
+        return this.call('/promote_message_doc/' + conversationId + '/' + docId, {
+            method: 'POST',
+            timeoutMs: 60000
+        });
+    },
+
+    // ==================== Global Document Methods ====================
+
+    async listGlobalDocs() {
+        return this.call('/global_docs/list');
+    },
+
+    async uploadGlobalDoc(formData) {
+        const apiBase = await getApiBaseUrl();
+        const response = await fetch(`${apiBase}/global_docs/upload`, {
+            method: 'POST', credentials: 'include', body: formData
+        });
+        if (response.status === 401) {
+            await Storage.clearAuth();
+            throw new AuthError('Session expired or invalid');
+        }
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.error || `Upload failed: ${response.status}`);
+        }
+        return response.json();
+    },
+
+    async deleteGlobalDoc(docId) {
+        return this.call('/global_docs/' + docId, { method: 'DELETE' });
+    },
+
+    async downloadGlobalDocUrl(docId) {
+        const apiBase = await getApiBaseUrl();
+        return `${apiBase}/global_docs/download/${docId}`;
+    },
+
+    async promoteToGlobal(conversationId, docId) {
+        return this.call('/global_docs/promote/' + conversationId + '/' + docId, {
+            method: 'POST',
+            timeoutMs: 60000
+        });
+    },
+
+    // ==================== Conversation Action Methods ====================
+
+    async cloneConversation(conversationId) {
+        return this.call('/clone_conversation/' + conversationId, { method: 'POST' });
+    },
+
+    async makeConversationStateless(conversationId) {
+        return this.call('/make_conversation_stateless/' + conversationId, { method: 'DELETE' });
+    },
+
+    async setFlag(conversationId, flag) {
+        return this.call('/set_flag/' + conversationId + '/' + flag, { method: 'POST' });
+    },
+
+    async moveConversationToWorkspace(conversationId, targetWorkspaceId) {
+        return this.call('/move_conversation_to_workspace/' + encodeURIComponent(conversationId), {
+            method: 'PUT',
+            body: JSON.stringify({ workspace_id: targetWorkspaceId })
+        });
+    },
+
+    // ==================== PKB Claims Methods ====================
+
+    async getClaims(params = {}) {
+        var query = new URLSearchParams(params).toString();
+        return this.call('/pkb/claims' + (query ? '?' + query : ''));
     },
 
     // ==================== Settings Methods ====================
@@ -582,19 +709,32 @@ export const API = {
     // ==================== Utility Methods ====================
 
     /**
-     * Get available models
-     * @returns {Promise<{models: Array}>}
+     * Get available models from main backend /model_catalog.
+     * Adapts response to {models: [{id, name, provider}], default: str}.
+     * @returns {Promise<{models: Array, default: string}>}
      */
     async getModels() {
-        return this.call('/ext/models');
+        var result = await this.call('/model_catalog');
+        // Main backend returns {models: ["model/name", ...], defaults: {...}}
+        var modelIds = result.models || [];
+        var models = modelIds.map(function(id) {
+            var parts = id.split('/');
+            return {
+                id: id,
+                name: parts.length > 1 ? parts.slice(1).join('/') : id,
+                provider: parts.length > 1 ? parts[0].charAt(0).toUpperCase() + parts[0].slice(1) : 'Unknown'
+            };
+        });
+        return { models: models, default: models.length > 0 ? models[0].id : 'google/gemini-2.5-flash' };
     },
 
     /**
-     * Health check
-     * @returns {Promise<{status: string, services: Object}>}
+     * Health check — uses auth verify as a proxy.
+     * @returns {Promise<{status: string}>}
      */
     async healthCheck() {
-        return this.call('/ext/health');
+        var result = await this.verifyAuth();
+        return { status: result.valid ? 'healthy' : 'unhealthy' };
     }
 };
 

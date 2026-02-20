@@ -159,7 +159,7 @@ def create_app(argv: Optional[list[str]] = None) -> Flask:
     app.config.update(
         SESSION_COOKIE_SECURE=True,
         SESSION_COOKIE_HTTPONLY=True,
-        SESSION_COOKIE_SAMESITE="Lax",
+        SESSION_COOKIE_SAMESITE="None",
         SESSION_REFRESH_EACH_REQUEST=True,
         SESSION_COOKIE_NAME="session_id",
         SESSION_COOKIE_PATH="/",
@@ -179,9 +179,113 @@ def create_app(argv: Optional[list[str]] = None) -> Flask:
     limiter.init_app(app)
 
     Session(app)
+
+    _ext_cors_origins = [
+        r"chrome-extension://[a-z]{32}",
+        r"chrome-extension://[a-zA-Z]{32}",
+        r"http://localhost:\d+",
+        r"http://127\.0\.0\.1:\d+",
+    ]
+
     CORS(
         app,
         resources={
+            r"/ext/*": {
+                "origins": _ext_cors_origins,
+                "supports_credentials": True,
+                "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+                "allow_headers": ["Content-Type", "X-Requested-With"],
+            },
+            r"/login": {
+                "origins": _ext_cors_origins,
+                "supports_credentials": True,
+                "methods": ["POST", "OPTIONS"],
+                "allow_headers": ["Content-Type"],
+            },
+            r"/transcribe": {
+                "origins": _ext_cors_origins,
+                "supports_credentials": True,
+                "methods": ["POST", "OPTIONS"],
+                "allow_headers": ["Content-Type"],
+            },
+            r"/send_message/*": {
+                "origins": _ext_cors_origins,
+                "supports_credentials": True,
+                "methods": ["POST", "OPTIONS"],
+                "allow_headers": ["Content-Type"],
+            },
+            r"/create_temporary_conversation/*": {
+                "origins": _ext_cors_origins,
+                "supports_credentials": True,
+                "methods": ["POST", "OPTIONS"],
+                "allow_headers": ["Content-Type"],
+            },
+            r"/list_conversation_by_user/*": {
+                "origins": _ext_cors_origins,
+                "supports_credentials": True,
+                "methods": ["GET", "OPTIONS"],
+                "allow_headers": ["Content-Type"],
+            },
+            r"/list_messages_by_conversation/*": {
+                "origins": _ext_cors_origins,
+                "supports_credentials": True,
+                "methods": ["GET", "OPTIONS"],
+                "allow_headers": ["Content-Type"],
+            },
+            r"/get_conversation_details/*": {
+                "origins": _ext_cors_origins,
+                "supports_credentials": True,
+                "methods": ["GET", "OPTIONS"],
+                "allow_headers": ["Content-Type"],
+            },
+            r"/delete_conversation/*": {
+                "origins": _ext_cors_origins,
+                "supports_credentials": True,
+                "methods": ["DELETE", "OPTIONS"],
+                "allow_headers": ["Content-Type"],
+            },
+            r"/make_conversation_stateful/*": {
+                "origins": _ext_cors_origins,
+                "supports_credentials": True,
+                "methods": ["PUT", "OPTIONS"],
+                "allow_headers": ["Content-Type"],
+            },
+            r"/list_workspaces/*": {
+                "origins": _ext_cors_origins,
+                "supports_credentials": True,
+                "methods": ["GET", "OPTIONS"],
+                "allow_headers": ["Content-Type"],
+            },
+            r"/create_workspace/*": {
+                "origins": _ext_cors_origins,
+                "supports_credentials": True,
+                "methods": ["POST", "OPTIONS"],
+                "allow_headers": ["Content-Type"],
+            },
+            r"/model_catalog": {
+                "origins": _ext_cors_origins,
+                "supports_credentials": True,
+                "methods": ["GET", "OPTIONS"],
+                "allow_headers": ["Content-Type"],
+            },
+            r"/get_prompts": {
+                "origins": _ext_cors_origins,
+                "supports_credentials": True,
+                "methods": ["GET", "OPTIONS"],
+                "allow_headers": ["Content-Type"],
+            },
+            r"/get_prompt_by_name/*": {
+                "origins": _ext_cors_origins,
+                "supports_credentials": True,
+                "methods": ["GET", "OPTIONS"],
+                "allow_headers": ["Content-Type"],
+            },
+            r"/pkb/*": {
+                "origins": _ext_cors_origins,
+                "supports_credentials": True,
+                "methods": ["GET", "POST", "OPTIONS"],
+                "allow_headers": ["Content-Type"],
+            },
             r"/get_conversation_output_docs/*": {
                 "origins": [
                     "https://laingsimon.github.io",
@@ -189,7 +293,7 @@ def create_app(argv: Optional[list[str]] = None) -> Flask:
                     "https://draw.io/",
                     "https://www.draw.io/",
                 ]
-            }
+            },
         },
     )
 

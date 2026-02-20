@@ -1,6 +1,8 @@
 # Extension Server Integration Tests
 
-This directory contains integration tests for the Extension Server API.
+> **⚠️ DEPRECATED**: These tests targeted the deprecated `extension_server.py` (port 5001). The test files in `extension/tests/` have been deleted as part of M7 cleanup. The Chrome extension now uses `server.py` (port 5000). See `documentation/features/extension/` for current architecture. New integration tests should target the main server endpoints (`/ext/*` routes in `endpoints/ext_*.py`).
+
+This directory contained integration tests for the Extension Server API.
 
 ## Quick Start
 

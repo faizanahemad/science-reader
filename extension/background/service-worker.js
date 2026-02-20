@@ -10,6 +10,7 @@
 
 import { QUICK_ACTIONS, MESSAGE_TYPES, API_BASE } from '../shared/constants.js';
 import { Storage } from '../shared/storage.js';
+import { captureFullPage } from './full-page-capture.js';
 
 // Ensure the toolbar icon opens the sidepanel (best-effort; may fail on older Chrome)
 chrome.sidePanel?.setPanelBehavior?.({ openPanelOnActionClick: true }).catch(() => {});
@@ -112,7 +113,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
             try {
                 await chrome.scripting.executeScript({
                     target: { tabId: tab.id },
-                    files: ['content_scripts/extractor.js']
+                    files: ['content_scripts/extractor-core.js']
                 });
                 // Retry the message
                 await chrome.tabs.sendMessage(tab.id, {
@@ -197,6 +198,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         case 'OPEN_SCRIPT_EDITOR':
             handleOpenScriptEditor(message, sendResponse);
             return true;
+
+        case MESSAGE_TYPES.DOMAIN_CHANGED:
+            chrome.runtime.sendMessage(message).catch(function() {});
+            sendResponse({ success: true });
+            break;
 
         default:
             console.log('[AI Assistant] Unknown message type:', message.type);
@@ -379,7 +385,7 @@ async function handleExtractFromTab(message, sendResponse) {
             try {
                 await chrome.scripting.executeScript({
                     target: { tabId: tabId },
-                    files: ['content_scripts/extractor.js']
+                    files: ['content_scripts/extractor-core.js']
                 });
                 
                 // Wait a bit for script to initialize
@@ -436,7 +442,7 @@ async function ensureExtractorInjected(tabId) {
     } catch (_) {
         await chrome.scripting.executeScript({
             target: { tabId },
-            files: ['content_scripts/extractor.js']
+            files: ['content_scripts/extractor-core.js']
         });
         await new Promise(resolve => setTimeout(resolve, 150));
     }
@@ -456,9 +462,7 @@ async function ensureExtractorInjected(tabId) {
 async function handleCaptureFullPageScreenshots(message, sender, sendResponse) {
     try {
         const tabId = message.tabId || sender.tab?.id;
-        const overlapRatio = Number.isFinite(message?.overlapRatio) ? message.overlapRatio : 0.1;
-        const delayMs = Number.isFinite(message?.delayMs) ? message.delayMs : 1000;
-
+        
         let tab;
         if (tabId) {
             tab = await chrome.tabs.get(tabId);
@@ -472,164 +476,21 @@ async function handleCaptureFullPageScreenshots(message, sender, sendResponse) {
             return;
         }
 
-        if (tab.url?.startsWith('chrome://') || tab.url?.startsWith('chrome-extension://') ||
-            tab.url?.startsWith('about:') || tab.url?.startsWith('edge://')) {
-            sendResponse({ error: 'Cannot capture screenshots on restricted URLs' });
-            return;
-        }
-
         await ensureExtractorInjected(tab.id);
 
-        // Try new capture context protocol (supports inner scroll containers)
-        let useContextProtocol = false;
-        let contextId = null;
-        let scrollHeight, clientHeight, maxScrollTop, originalScrollTop;
-        let targetKind = 'window';
-        let targetDescription = 'legacy';
+        const captureApi = {
+            captureVisibleTab: (windowId) => chrome.tabs.captureVisibleTab(windowId, { format: 'png' }),
+            sendMessage: (tabId, message) => chrome.tabs.sendMessage(tabId, message),
+            getTab: (tabId) => chrome.tabs.get(tabId)
+        };
 
-        try {
-            const ctxResult = await chrome.tabs.sendMessage(tab.id, {
-                type: MESSAGE_TYPES.INIT_CAPTURE_CONTEXT,
-                options: {}
-            });
+        const options = {
+            overlapRatio: Number.isFinite(message?.overlapRatio) ? message.overlapRatio : 0.1,
+            delayMs: Number.isFinite(message?.delayMs) ? message.delayMs : 1000
+        };
 
-            if (ctxResult && ctxResult.ok) {
-                useContextProtocol = true;
-                contextId = ctxResult.contextId;
-                scrollHeight = ctxResult.metrics.scrollHeight;
-                clientHeight = ctxResult.metrics.clientHeight;
-                maxScrollTop = ctxResult.metrics.maxScrollTop;
-                originalScrollTop = ctxResult.metrics.scrollTop;
-                targetKind = ctxResult.target.kind;
-                targetDescription = ctxResult.target.description;
-                console.log(`[AI Assistant] Capture context: ${targetKind} (${targetDescription}), ` +
-                    `scrollHeight=${scrollHeight}, clientHeight=${clientHeight}`);
-            } else if (ctxResult && !ctxResult.ok) {
-                console.log(`[AI Assistant] Capture context failed: ${ctxResult.reason}. ` +
-                    `Falling back to legacy scroll.`);
-            }
-        } catch (ctxErr) {
-            console.log('[AI Assistant] INIT_CAPTURE_CONTEXT not supported, using legacy:', ctxErr.message);
-        }
-
-        // Fallback to legacy protocol
-        if (!useContextProtocol) {
-            const metrics = await chrome.tabs.sendMessage(tab.id, { type: MESSAGE_TYPES.GET_PAGE_METRICS });
-            clientHeight = Math.max(1, metrics.viewportHeight || 1);
-            scrollHeight = Math.max(clientHeight, metrics.scrollHeight || clientHeight);
-            maxScrollTop = Math.max(0, scrollHeight - clientHeight);
-            originalScrollTop = metrics.scrollY || 0;
-        }
-
-        const overlapPx = Math.max(0, Math.round(clientHeight * overlapRatio));
-        const step = Math.max(100, clientHeight - overlapPx);
-
-        const positions = [];
-        for (let y = 0; y <= maxScrollTop; y += step) {
-            positions.push(y);
-        }
-        if (positions.length === 0 || positions[positions.length - 1] !== maxScrollTop) {
-            positions.push(maxScrollTop);
-        }
-
-        // Scroll to top before capture
-        if (originalScrollTop > 0) {
-            if (useContextProtocol) {
-                await chrome.tabs.sendMessage(tab.id, {
-                    type: MESSAGE_TYPES.SCROLL_CONTEXT_TO,
-                    contextId,
-                    top: 0
-                });
-            } else {
-                await chrome.tabs.sendMessage(tab.id, { type: MESSAGE_TYPES.SCROLL_TO, y: 0 });
-            }
-            await new Promise(resolve => setTimeout(resolve, delayMs));
-        }
-
-        const screenshots = [];
-        for (let i = 0; i < positions.length; i += 1) {
-            const y = positions[i];
-
-            if (useContextProtocol) {
-                await chrome.tabs.sendMessage(tab.id, {
-                    type: MESSAGE_TYPES.SCROLL_CONTEXT_TO,
-                    contextId,
-                    top: y
-                });
-            } else {
-                await chrome.tabs.sendMessage(tab.id, { type: MESSAGE_TYPES.SCROLL_TO, y });
-            }
-            await new Promise(resolve => setTimeout(resolve, delayMs));
-
-            // Re-check metrics mid-capture for virtualized content (every 5 frames)
-            if (useContextProtocol && i > 0 && i % 5 === 0) {
-                try {
-                    const refreshed = await chrome.tabs.sendMessage(tab.id, {
-                        type: MESSAGE_TYPES.GET_CONTEXT_METRICS,
-                        contextId
-                    });
-                    if (refreshed?.ok && refreshed.metrics.maxScrollTop > maxScrollTop) {
-                        maxScrollTop = refreshed.metrics.maxScrollTop;
-                        scrollHeight = refreshed.metrics.scrollHeight;
-                        // Extend positions if content grew
-                        const lastPos = positions[positions.length - 1];
-                        if (lastPos < maxScrollTop) {
-                            for (let ny = lastPos + step; ny <= maxScrollTop; ny += step) {
-                                positions.push(ny);
-                            }
-                            if (positions[positions.length - 1] !== maxScrollTop) {
-                                positions.push(maxScrollTop);
-                            }
-                        }
-                    }
-                } catch (_) { /* non-critical */ }
-            }
-
-            try {
-                const dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
-                screenshots.push(dataUrl);
-            } catch (e) {
-                const msg = e?.message || String(e);
-                if (msg.includes('MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND')) {
-                    await new Promise(resolve => setTimeout(resolve, 1200));
-                    const retryUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
-                    screenshots.push(retryUrl);
-                } else {
-                    throw e;
-                }
-            }
-        }
-
-        // Restore original scroll position
-        if (useContextProtocol) {
-            await chrome.tabs.sendMessage(tab.id, {
-                type: MESSAGE_TYPES.SCROLL_CONTEXT_TO,
-                contextId,
-                top: originalScrollTop
-            });
-            await chrome.tabs.sendMessage(tab.id, {
-                type: MESSAGE_TYPES.RELEASE_CAPTURE_CONTEXT,
-                contextId
-            });
-        } else {
-            await chrome.tabs.sendMessage(tab.id, { type: MESSAGE_TYPES.SCROLL_TO, y: originalScrollTop });
-        }
-
-        sendResponse({
-            screenshots,
-            url: tab.url,
-            title: tab.title,
-            meta: {
-                scrollHeight,
-                clientHeight,
-                viewportHeight: clientHeight,
-                step,
-                overlapPx,
-                total: screenshots.length,
-                targetKind,
-                targetDescription
-            }
-        });
+        const result = await captureFullPage(tab.id, captureApi, options);
+        sendResponse(result);
     } catch (e) {
         console.error('[AI Assistant] Failed full-page capture:', e);
         sendResponse({ error: e.message || String(e) });
@@ -655,9 +516,9 @@ function broadcastAuthState(isAuthenticated) {
  */
 async function handleGetScriptsForUrl(message, sendResponse) {
     try {
-        const token = await Storage.getToken();
-        if (!token) {
-            console.log('[AI Assistant] No auth token for scripts, returning empty');
+        const isAuth = await Storage.isAuthenticated();
+        if (!isAuth) {
+            console.log('[AI Assistant] Not authenticated for scripts, returning empty');
             sendResponse({ scripts: [] });
             return;
         }
@@ -666,9 +527,9 @@ async function handleGetScriptsForUrl(message, sendResponse) {
         const url = encodeURIComponent(message.url);
         const response = await fetch(`${apiBase}/ext/scripts/for-url?url=${url}`, {
             headers: {
-                'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json'
-            }
+            },
+            credentials: 'include'
         });
 
         if (!response.ok) {
@@ -695,24 +556,23 @@ async function handleGetScriptsForUrl(message, sendResponse) {
  */
 async function handleScriptLlmRequest(message, sendResponse) {
     try {
-        const token = await Storage.getToken();
-        if (!token) {
+        const isAuth = await Storage.isAuthenticated();
+        if (!isAuth) {
             sendResponse({ error: 'Not authenticated' });
             return;
         }
 
         const apiBase = await getApiBaseUrl();
-        // Create a temporary conversation for the LLM request
         const createResponse = await fetch(`${apiBase}/ext/conversations`, {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json'
             },
+            credentials: 'include',
             body: JSON.stringify({
                 title: 'Script LLM Request',
                 is_temporary: true,
-                delete_temporary: false // Don't delete other temp convos
+                delete_temporary: false
             })
         });
 
@@ -723,13 +583,12 @@ async function handleScriptLlmRequest(message, sendResponse) {
         const convData = await createResponse.json();
         const conversationId = convData.conversation.conversation_id;
 
-        // Send the chat message
         const chatResponse = await fetch(`${apiBase}/ext/chat/${conversationId}`, {
             method: 'POST',
             headers: {
-                'Authorization': `Bearer ${token}`,
                 'Content-Type': 'application/json'
             },
+            credentials: 'include',
             body: JSON.stringify({
                 message: message.prompt,
                 stream: false

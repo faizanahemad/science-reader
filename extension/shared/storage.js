@@ -55,30 +55,16 @@ export const Storage = {
     },
 
     // ==================== Auth Token Methods ====================
+    // No-ops: session cookies replace JWT tokens. Methods kept for compatibility.
 
-    /**
-     * Get the stored auth token
-     * @returns {Promise<string|null>}
-     */
     async getToken() {
-        return this.get(STORAGE_KEYS.AUTH_TOKEN);
+        return null;
     },
 
-    /**
-     * Store the auth token
-     * @param {string} token - JWT token
-     * @returns {Promise<void>}
-     */
-    async setToken(token) {
-        return this.set(STORAGE_KEYS.AUTH_TOKEN, token);
+    async setToken(_token) {
     },
 
-    /**
-     * Remove the auth token (logout)
-     * @returns {Promise<void>}
-     */
     async clearToken() {
-        return this.remove(STORAGE_KEYS.AUTH_TOKEN);
     },
 
     // ==================== User Info Methods ====================
@@ -149,6 +135,14 @@ export const Storage = {
 
     // ==================== Conversation Methods ====================
 
+    async getDomain() {
+        return (await this.get(STORAGE_KEYS.DOMAIN)) || DEFAULT_SETTINGS.domain;
+    },
+
+    async setDomain(domain) {
+        return this.set(STORAGE_KEYS.DOMAIN, domain);
+    },
+
     /**
      * Get the current active conversation ID
      * @returns {Promise<string|null>}
@@ -199,16 +193,11 @@ export const Storage = {
      * @returns {Promise<boolean>}
      */
     async isAuthenticated() {
-        const token = await this.getToken();
-        return !!token;
+        const userInfo = await this.getUserInfo();
+        return !!(userInfo && userInfo.email);
     },
 
-    /**
-     * Clear all auth-related data (full logout)
-     * @returns {Promise<void>}
-     */
     async clearAuth() {
-        await this.clearToken();
         await this.clearUserInfo();
         await this.remove(STORAGE_KEYS.CURRENT_CONVERSATION);
     }

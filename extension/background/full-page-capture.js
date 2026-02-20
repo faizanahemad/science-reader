@@ -1,0 +1,1 @@
+../../extension-shared/full-page-capture.js

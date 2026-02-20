@@ -42,6 +42,11 @@ def register_blueprints(app: Flask) -> None:
     from .code_runner import code_runner_bp
     from .artefacts import artefacts_bp
     from .global_docs import global_docs_bp
+    from .ext_auth import ext_auth_bp
+    from .ext_page_context import ext_page_bp
+    from .ext_scripts import ext_scripts_bp
+    from .ext_workflows import ext_workflows_bp
+    from .ext_settings import ext_settings_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(static_bp)
@@ -57,3 +62,8 @@ def register_blueprints(app: Flask) -> None:
     app.register_blueprint(code_runner_bp)
     app.register_blueprint(artefacts_bp)
     app.register_blueprint(global_docs_bp)
+    app.register_blueprint(ext_auth_bp)
+    app.register_blueprint(ext_page_bp)
+    app.register_blueprint(ext_scripts_bp)
+    app.register_blueprint(ext_workflows_bp)
+    app.register_blueprint(ext_settings_bp)

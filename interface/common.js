@@ -1945,12 +1945,12 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
  */
 window.addScrollToTopButton = function(cardElem, buttonText = '↑ Top', buttonClass = '') {
     var $cardElem = (cardElem && cardElem.jquery) ? cardElem : $(cardElem);
-    console.log('[addScrollToTopButton] Called with:', {
-        cardElem: $cardElem,
-        cardExists: $cardElem && $cardElem.length > 0,
-        buttonText: buttonText,
-        buttonClass: buttonClass
-    });
+    // console.log('[addScrollToTopButton] Called with:', {
+    //     cardElem: $cardElem,
+    //     cardExists: $cardElem && $cardElem.length > 0,
+    //     buttonText: buttonText,
+    //     buttonClass: buttonClass
+    // });
     
     if (!$cardElem || $cardElem.length === 0) {
         console.warn('[addScrollToTopButton] Card element not found, skipping');
@@ -1959,11 +1959,11 @@ window.addScrollToTopButton = function(cardElem, buttonText = '↑ Top', buttonC
     
     // Check if button already exists to avoid duplicates
     if ($cardElem.find('.scroll-to-top-btn').length > 0) {
-        console.log('[addScrollToTopButton] Button already exists, skipping');
+        // console.log('[addScrollToTopButton] Button already exists, skipping');
         return $cardElem.find('.scroll-to-top-btn').first();
     }
     
-    console.log('[addScrollToTopButton] Creating button...');
+    // console.log('[addScrollToTopButton] Creating button...');
     // Create the scroll-to-top button
     let scrollTopBtn = $('<button>')
         .addClass('btn btn-sm scroll-to-top-btn ' + buttonClass)
@@ -2067,25 +2067,25 @@ window.addScrollToTopButton = function(cardElem, buttonText = '↑ Top', buttonC
     
     // Ensure the card has relative positioning for absolute button positioning
     const currentPosition = $cardElem.css('position');
-    console.log('[addScrollToTopButton] Card current position:', currentPosition);
+    // console.log('[addScrollToTopButton] Card current position:', currentPosition);
     if (currentPosition === 'static') {
-        console.log('[addScrollToTopButton] Setting position to relative');
+        // console.log('[addScrollToTopButton] Setting position to relative');
         $cardElem.css('position', 'relative');
     }
     
     // Add the button to the card
-    console.log('[addScrollToTopButton] Appending button to card...');
+    // console.log('[addScrollToTopButton] Appending button to card...');
     $cardElem.append(scrollTopBtn);
     
     // Verify button was added
     const buttonAdded = $cardElem.find('.scroll-to-top-btn').length > 0;
-    console.log('[addScrollToTopButton] Button added successfully:', buttonAdded);
+    // console.log('[addScrollToTopButton] Button added successfully:', buttonAdded);
     
     if (!buttonAdded) {
         console.error('[addScrollToTopButton] Failed to add button!');
-        console.log('[addScrollToTopButton] Card still exists:', $cardElem.length > 0);
-        console.log('[addScrollToTopButton] Card parent:', $cardElem.parent().length > 0);
-        console.log('[addScrollToTopButton] Card is attached to DOM:', $.contains(document, $cardElem[0]));
+        // console.log('[addScrollToTopButton] Card still exists:', $cardElem.length > 0);
+        // console.log('[addScrollToTopButton] Card parent:', $cardElem.parent().length > 0);
+        // console.log('[addScrollToTopButton] Card is attached to DOM:', $.contains(document, $cardElem[0]));
     }
     
     // Return the button element in case further customization is needed

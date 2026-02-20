@@ -152,6 +152,35 @@ def create_tables(*, users_dir: str, logger: Optional[logging.Logger] = None) ->
                                     PRIMARY KEY (doc_id, user_email)
                                 ); """
 
+    # Extension custom scripts table (Tampermonkey-like user scripts).
+    sql_create_custom_scripts_table = """CREATE TABLE IF NOT EXISTS CustomScripts (
+                                    script_id TEXT PRIMARY KEY,
+                                    user_email TEXT NOT NULL,
+                                    name TEXT NOT NULL,
+                                    description TEXT,
+                                    script_type TEXT DEFAULT 'functional',
+                                    match_patterns TEXT NOT NULL,
+                                    match_type TEXT DEFAULT 'glob',
+                                    code TEXT NOT NULL,
+                                    actions TEXT,
+                                    enabled INTEGER DEFAULT 1,
+                                    version INTEGER DEFAULT 1,
+                                    conversation_id TEXT,
+                                    created_with_llm INTEGER DEFAULT 1,
+                                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                                ); """
+
+    # Extension workflows table (multi-step prompt workflows).
+    sql_create_extension_workflows_table = """CREATE TABLE IF NOT EXISTS ExtensionWorkflows (
+                                    workflow_id TEXT PRIMARY KEY,
+                                    user_email TEXT NOT NULL,
+                                    name TEXT NOT NULL,
+                                    steps_json TEXT NOT NULL,
+                                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                                ); """
+
     conn = create_connection(database)
 
     # create tables
@@ -163,6 +192,8 @@ def create_tables(*, users_dir: str, logger: Optional[logging.Logger] = None) ->
         create_table(conn, sql_create_doubts_clearing_table)
         create_table(conn, sql_create_section_hidden_details_table)
         create_table(conn, sql_create_global_documents_table)
+        create_table(conn, sql_create_custom_scripts_table)
+        create_table(conn, sql_create_extension_workflows_table)
     else:
         raise RuntimeError("Error! cannot create the database connection.")
 
@@ -262,6 +293,19 @@ def create_tables(*, users_dir: str, logger: Optional[logging.Logger] = None) ->
     )
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_GlobalDocuments_created_at ON GlobalDocuments (user_email, created_at)"
+    )
+
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_CustomScripts_user ON CustomScripts (user_email)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_CustomScripts_enabled ON CustomScripts (user_email, enabled)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_CustomScripts_type ON CustomScripts (script_type)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_ExtensionWorkflows_user ON ExtensionWorkflows (user_email)"
     )
 
     conn.commit()

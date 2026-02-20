@@ -59,7 +59,19 @@ class VoiceTranscription {
             this.animateRecordingStart();
         } catch (err) {
             console.error("Error accessing microphone:", err);
-            this.showErrorMessage("Failed to access microphone. Please check your permissions and try again.");
+            
+            let message = 'Failed to access microphone. ';
+            if (err.name === 'NotAllowedError') {
+                message += 'Click the camera/mic icon in the address bar and allow microphone access.';
+            } else if (err.name === 'NotFoundError') {
+                message += 'No microphone found. Please connect a microphone and try again.';
+            } else if (err.name === 'NotReadableError') {
+                message += 'Microphone is already in use by another application.';
+            } else {
+                message += 'Please check your browser and system permissions.';
+            }
+            
+            this.showErrorMessage(message);
         }
     }
     

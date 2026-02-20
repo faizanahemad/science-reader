@@ -45,6 +45,8 @@ todos:
 
 # Custom Scripts System for Extension
 
+> **NOTE**: `extension_server.py` referenced in this document has been deprecated. The Chrome extension now uses `server.py` (port 5000). See `documentation/features/extension/` for current architecture.
+
 ## 1. Two Script Creation Modes
 
 ### Mode 1: Chat-Driven Creation (Sidepanel)

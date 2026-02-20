@@ -381,20 +381,26 @@ Main data loading function. Called on init and after every CRUD operation.
 1. Fires two parallel AJAX requests:
    - `GET /list_workspaces/{domain}` → workspace metadata array
    - `GET /list_conversation_by_user/{domain}` → conversation metadata array
-2. Sorts conversations by `last_updated` descending.
-3. Builds `workspacesMap` from workspace data, adding `parent_workspace_id` field.
-4. Ensures default workspace exists in the map (client-side fallback).
-5. Groups conversations by `workspace_id` (conversations without a workspace go to default).
-6. Calls `renderTree(convByWs)`.
-7. Auto-selection logic (when `autoselect=true`):
+2. Delegates to `_processAndRenderData(workspaces, conversations)` for steps 2-6.
+3. Auto-selection logic (when `autoselect=true`):
    - If URL contains a conversation ID (`getConversationIdFromUrl()`), selects that conversation.
    - Otherwise, tries to resume from `localStorage` key `lastActiveConversationId:{email}:{domain}`.
    - Falls back to first conversation in sorted list.
-8. When `autoselect=false`: re-highlights the current active conversation if any.
-9. Sets up `window.onpopstate` handler for browser back/forward.
-10. For "search" domain: auto-stateless the selected conversation.
+4. When `autoselect=false`: re-highlights the current active conversation if any.
+5. Sets up `window.onpopstate` handler for browser back/forward.
+6. For "search" domain: auto-stateless the selected conversation.
 
 Returns the `$.when()` promise for chaining.
+
+#### `_processAndRenderData(workspaces, conversations)`
+
+Extracted data processing and tree rendering logic, reusable by both `loadConversationsWithWorkspaces` (from two separate GET responses) and `createTemporaryConversation` (from the combined `POST /create_temporary_conversation` response).
+
+1. Sorts conversations by `last_updated` descending.
+2. Builds `workspacesMap` from workspace data, adding `parent_workspace_id` field.
+3. Ensures default workspace exists in the map (client-side fallback).
+4. Groups conversations by `workspace_id` (conversations without a workspace go to default).
+5. Calls `renderTree(convByWs)`.
 
 #### `getWorkspaceDisplayName(workspace) -> string`
 
@@ -565,12 +571,12 @@ All make AJAX calls and call `loadConversationsWithWorkspaces(false)` on success
 | `moveConversationToWorkspace(convId, targetWsId)` | PUT | `/move_conversation_to_workspace/{convId}` | `{ workspace_id }` |
 | `moveWorkspaceToParent(wsId, parentWsId)` | PUT | `/move_workspace/{wsId}` | `{ parent_workspace_id }` |
 | `createConversationInWorkspace(wsId)` | POST | `/create_conversation/{domain}/{wsId}` | none |
-| `createTemporaryConversation()` | POST + DELETE | `/create_conversation/{domain}/{defaultWsId}` then `/make_conversation_stateless/{convId}` | none |
+| `createTemporaryConversation()` | POST | `/create_temporary_conversation/{domain}` | `{ workspace_id }` |
 
 Special behaviors:
 - `deleteWorkspace`: shows `confirm()` dialog first. Blocked for default workspace with `alert()`.
 - `createConversationInWorkspace`: on success, clears `#linkInput` and `#searchInput`, reloads with `autoselect=true`, then highlights the new conversation.
-- `createTemporaryConversation`: creates a conversation in the default workspace, then marks it stateless via `ConversationManager.statelessConversation(convId, true)` (with `suppressModal=true` to skip the stateless confirmation modal, since the user explicitly chose to start a temporary chat). The ordering is critical: (1) create conversation, (2) reload tree with `autoselect=false`, (3) set active + highlight, (4) THEN mark stateless. If stateless is set before the tree reload, `GET /list_conversation_by_user` deletes the conversation during its stateless cleanup pass. Triggered by the `#new-temp-chat` button (`fa-eye-slash` icon, `btn-outline-secondary`) in an always-visible column in the top-right chat bar (visible on both mobile and desktop).
+- `createTemporaryConversation`: sends a single `POST /create_temporary_conversation/{domain}` with `{ workspace_id: defaultWorkspaceId }`. The server atomically: (1) cleans up old stateless conversations, (2) creates a new conversation in the default workspace, (3) marks it stateless, (4) builds fresh conversation + workspace lists. Returns `{ conversation, conversations, workspaces }`. The UI calls `_processAndRenderData(response.workspaces, response.conversations)` to render the tree, then `setActiveConversation` and `highlightActiveConversation`. No separate `statelessConversation()` call is needed — the server handles everything in one request. Triggered by the `#new-temp-chat` button (`fa-eye-slash` icon, `btn-outline-secondary`) in an always-visible column in the top-right chat bar (visible on both mobile and desktop).
 - `moveConversationToWorkspace`: on success, preserves current active conversation and re-highlights it after 100ms delay (to wait for tree rebuild).
 
 #### `highlightActiveConversation(conversationId, collapseOthers)`
@@ -768,6 +774,7 @@ Flag color picker popover styles are preserved for any remnant DOM (`.flag-color
 | `database/connection.py` | ~10 lines added | ALTER TABLE migration for `parent_workspace_id`, new index |
 | `database/workspaces.py` | ~613 total | `parent_workspace_id` in all queries/INSERTs, new functions: `_is_ancestor`, `workspaceExistsForUser`, `moveWorkspaceToParent`, `getWorkspacePath`. Modified: `moveConversationToWorkspace` (PK-based), `deleteWorkspace` (cascade), `createWorkspace` (parent param) |
 | `endpoints/workspaces.py` | ~279 total | `parent_workspace_id` in create endpoint, new endpoints: `PUT /move_workspace/<id>`, `GET /get_workspace_path/<id>`. New imports |
+| `endpoints/conversations.py` | ~140 lines added | New endpoint: `POST /create_temporary_conversation/<domain>` — atomic temp conversation creation with cleanup, stateless marking, and full list return |
 | `interface/interface.html` | ~15 lines changed | jsTree CDN links, simplified sidebar HTML, removed old context menu divs, responsive top-right bar restructure (3-column layout: mobile toggle, chat-doc buttons, always-visible `#new-temp-chat`) |
 | `interface/workspace-manager.js` | ~1167 total (full rewrite) | jsTree init, tree data builder, triple-dot buttons, vakata context menus, pending highlight queue, CRUD methods, `createTemporaryConversation()`, modal dialogs, mobile interceptor |
 | `interface/workspace-styles.css` | ~296 total (full rewrite) | jsTree width containment, anchor text wrapping, triple-dot visibility, workspace color borders, flag borders, vakata dark styling with text-shadow fix |
@@ -806,9 +813,9 @@ Flag color picker popover styles are preserved for any remnant DOM (`.flag-color
 
 14. **Initial tree state**: All workspace nodes start with `state: { opened: false }` regardless of their saved `expanded` state. The saved expand/collapse state is only used when the user manually opens/closes workspaces (persisted via `open_node`/`close_node` handlers). On page load, the tree is fully collapsed and `highlightActiveConversation()` opens only the active conversation's ancestor path.
 
-15. **Temporary chat stateless ordering**: `createTemporaryConversation()` must mark stateless AFTER the tree reload completes. The `GET /list_conversation_by_user` endpoint (called during tree reload) has a cleanup pass that deletes all conversations where `c.stateless == True` (lines 1159-1171 in `endpoints/conversations.py`). If stateless is set before the reload, the conversation is permanently deleted before the user can interact with it. The tree reload also uses `autoselect=false` to prevent the internal autoselect logic from trying to load a stale conversation ID from the URL or localStorage.
+15. **Temporary chat atomic endpoint**: `createTemporaryConversation()` uses `POST /create_temporary_conversation/{domain}` which atomically handles cleanup of old stateless conversations, creation, stateless marking, and list building in a single server request. The server ordering is: (1) clean up old stateless/orphaned conversations, (2) create new conversation, (3) mark it stateless, (4) build fresh conversation + workspace lists (the new stateless conversation is included because cleanup already ran in step 1). The response contains `{ conversation, conversations, workspaces }` which the UI passes directly to `_processAndRenderData()`. This replaces the previous 3-call dance (`POST /create_conversation` → `GET /list_conversation_by_user` → `DELETE /make_conversation_stateless`) which had a critical ordering dependency: the stateless marking had to happen AFTER the list call because `list_conversation_by_user` deletes all stateless conversations during its cleanup pass. The atomic endpoint eliminates this client-side ordering risk entirely.
 
-16. **`statelessConversation` suppressModal parameter**: `ConversationManager.statelessConversation(convId, suppressModal)` accepts an optional second argument. When `true`, the `#stateless-conversation-modal` is not shown. Used by `createTemporaryConversation()` since the user explicitly chose to start a temporary chat and doesn't need the "will be deleted on refresh" warning. Existing callers (context menu "Toggle Stateless", search domain auto-stateless) omit the parameter so the modal still appears.
+16. **`statelessConversation` suppressModal parameter**: `ConversationManager.statelessConversation(convId, suppressModal)` accepts an optional second argument. When `true`, the `#stateless-conversation-modal` is not shown. Used by the context menu "Toggle Stateless" action (without suppress) and search domain auto-stateless (without suppress). The `createTemporaryConversation()` flow no longer calls this function at all — the server marks the conversation stateless atomically.
 
 17. **Touch interaction coordination between context menu and navigation**: On touch devices, a long-press triggers two sequential events: (1) `contextmenu` (during the press, after ~500ms), and (2) `touchend`/`pointerup`/`click` (when the finger lifts). These are handled by three independent systems — the `contextmenu.ws` handler (shows the menu), the mobile conversation interceptor (navigates to conversations), and jsTree's `select_node.jstree` (also navigates). Without coordination, a long-press would both show the menu AND navigate. A boolean flag approach fails because the mobile interceptor registers the same handler for `touchend`, `pointerup`, and `click` — the flag gets consumed by the first event, but the second sails through. The fix uses a **timestamp** (`_contextMenuOpenedAt = Date.now()`): all three navigation paths check `Date.now() - _contextMenuOpenedAt < 800` and suppress if within the window. Additionally, short taps on some mobile browsers spuriously fire `contextmenu` — the `touchstart.ws` timestamp + 400ms threshold (`LONG_PRESS_MIN_MS`) filters these out. The overall touch interaction matrix: (a) short tap → navigate only, no menu; (b) long-press → menu only, no navigation; (c) desktop right-click → menu only (mobile interceptor only runs at ≤768px width).
 

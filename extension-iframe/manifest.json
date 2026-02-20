@@ -1,0 +1,77 @@
+{
+    "manifest_version": 3,
+    "name": "AI Assistant Sidepanel",
+    "version": "1.0.0",
+    "description": "View AI Assistant in a browser sidepanel with page extraction capabilities",
+    "permissions": [
+        "sidePanel",
+        "storage",
+        "scripting",
+        "tabs",
+        "activeTab"
+    ],
+    "host_permissions": [
+        "<all_urls>"
+    ],
+    "externally_connectable": {
+        "matches": [
+            "http://localhost:5000/*",
+            "http://127.0.0.1:5000/*",
+            "https://assist-chat.site/*"
+        ]
+    },
+    "content_scripts": [
+        {
+            "matches": ["<all_urls>"],
+            "js": ["content_scripts/floating-btn.js"],
+            "run_at": "document_end"
+        },
+        {
+            "matches": [
+                "http://localhost:5000/*",
+                "http://127.0.0.1:5000/*",
+                "https://assist-chat.site/*"
+            ],
+            "js": ["content_scripts/id-advertiser.js"],
+            "run_at": "document_start",
+            "all_frames": true
+        }
+    ],
+    "action": {
+        "default_icon": {
+            "16": "assets/icons/icon16.png",
+            "32": "assets/icons/icon32.png",
+            "48": "assets/icons/icon48.png",
+            "128": "assets/icons/icon128.png"
+        },
+        "default_title": "AI Assistant - Open Sidepanel"
+    },
+    "side_panel": {
+        "default_path": "sidepanel/sidepanel.html"
+    },
+    "background": {
+        "service_worker": "background/service-worker.js",
+        "type": "module"
+    },
+    "web_accessible_resources": [{
+        "resources": [
+            "content_scripts/extractor-core.js",
+            "content_scripts/script-runner-core.js",
+            "sandbox/sandbox.html",
+            "sandbox/sandbox.js"
+        ],
+        "matches": ["<all_urls>"]
+    }],
+    "sandbox": {
+        "pages": ["sandbox/sandbox.html"]
+    },
+    "content_security_policy": {
+        "extension_pages": "script-src 'self'; object-src 'self'; frame-src http://localhost:* https://* http://*"
+    },
+    "icons": {
+        "16": "assets/icons/icon16.png",
+        "32": "assets/icons/icon32.png",
+        "48": "assets/icons/icon48.png",
+        "128": "assets/icons/icon128.png"
+    }
+}

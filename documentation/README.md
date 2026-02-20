@@ -17,7 +17,7 @@ If you are new to the codebase, start with:
 - `product/behavior/`: product behavior notes and context
 
 ## Features
-- `features/extension/`: Chrome extension design + implementation docs; includes `multi_tab_scroll_capture.md` — 4-mode capture (Auto/DOM/OCR/Full OCR) with deferred OCR, tab restoration, on-page toast overlays, doc-app URL auto-detection (16 patterns), content script pre-injection, and context preservation bug fix
+- `features/extension/`: Chrome extension docs — `extension_design_overview.md` (architecture, features, conversation flow), `extension_implementation.md` (file-by-file code reference), `extension_api.md` (endpoint reference), `README.md` (quick start), `multi_tab_scroll_capture.md` (4-mode capture with deferred OCR, tab restoration, 16 URL patterns). Backend unified with `server.py` (M1-M7 complete).
 - `features/file_attachments/`: File attachment preview and persistence system — drag-and-drop images/PDFs in both extension and main UI, preview thumbnails above message input, persistent attachment rendering in messages, context menu (Preview/Download/Add to Conversation/Attach for current turn), FastDocIndex architecture (BM25 keyword search, 1-3s upload vs 15-45s), promotion to full ImmediateDocIndex, two document lists (message-attached vs uploaded), combined `#doc_N` numbering, LLM reads attached docs in reply, extension PDF text extraction via pdfplumber with system message merging into LLM prompt
 - `features/pwa/`: PWA/service-worker notes
 - `features/conversation_artefacts/`: conversation-scoped artefacts (files + LLM edit flow)

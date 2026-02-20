@@ -148,7 +148,6 @@ The user-initiated "New Chat" button correctly clears context (no save/restore t
 | `extension/sidepanel/sidepanel.js` | New state fields (`ocrCache`, `multiTabCaptureAborted`, `multiTabCaptureMode`); `DOC_APP_URL_PATTERNS` constant (16 patterns); `isDocAppUrl()` helper; `captureTabWithScrollOcr()` function with `deferOcr` option; complete rewrite of `handleTabSelection()` with 4-phase pipeline; `showTabModal()` with per-tab capture mode dropdowns; save/restore pattern at 3 `createNewConversation()` call sites |
 | `extension/sidepanel/sidepanel.html` | Multi-tab capture mode dropdown in settings; per-tab capture mode `<select>` in tab modal; progress view (`tab-capture-progress`, `tab-progress-list`); abort button (`abort-tab-capture`, `btn-danger`) |
 | `extension/sidepanel/sidepanel.css` | `.tab-capture-mode` dropdown styles; `.tab-capture-progress`, `.tab-progress-list` progress view; `.btn-danger` style; `.spin` animation; per-status classes (`.done`, `.active`, `.error`) |
-| `extension/EXTENSION_DESIGN.md` | FR-PAGE-09/10 updated, FR-PAGE-11/12 added |
 | `extension/extension_implementation.md` | State object updated, new functions documented, Multi-Tab section expanded |
 | `extension/README.md` | Feature bullet updated with 4 modes and deferred OCR |
 | `documentation/planning/plans/multi-tab-scroll-capture.plan.md` | Bug fix documented, status updated to implemented |

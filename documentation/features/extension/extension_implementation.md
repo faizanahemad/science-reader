@@ -1,7 +1,7 @@
 # Chrome Extension Implementation Documentation
 
-**Version:** 1.4  
-**Last Updated:** December 31, 2025  
+**Version:** 1.7  
+**Last Updated:** February 17, 2026  
 **Purpose:** Technical reference for extension UI implementation, file structure, backend integration, and custom scripts system.
 
 ---
@@ -61,11 +61,11 @@
                            │ HTTPS API Calls
                            ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│                    extension_server.py (Port 5001)                   │
-│  - Authentication (JWT)                                              │
-│  - Conversations CRUD                                                │
-│  - LLM Chat (streaming)                                              │
-│  - Prompts & Memories (read-only)                                    │
+│                    server.py (Port 5000) — Unified Backend              │
+│  - Authentication (Session + JWT)                                       │
+│  - Conversations CRUD (Conversation.py pipeline)                        │
+│  - LLM Chat (streaming)                                                 │
+│  - Prompts, Memories/PKB, Documents, Workspaces                         │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -103,7 +103,11 @@ extension/
 ├── sidepanel/                       # Main chat interface (full height)
 │   ├── sidepanel.html               # Chat UI structure
 │   ├── sidepanel.js                 # Chat logic, streaming, script creation
-│   └── sidepanel.css                # Comprehensive styling
+│   ├── sidepanel.css                # Comprehensive styling
+│   ├── workspace-tree.js            # jsTree workspace sidebar module (M5)
+│   ├── workspace-tree.css           # jsTree dark theme overrides (M5)
+│   ├── docs-panel.js                # Document management panel module (M6)
+│   └── claims-panel.js              # PKB claims viewer panel module (M6)
 │
 ├── content_scripts/                 # Injected into web pages
 │   ├── extractor.js                 # Page extraction, quick action modal
@@ -124,7 +128,19 @@ extension/
 ├── lib/                             # Third-party libraries
 │   ├── marked.min.js                # Markdown parser
 │   ├── highlight.min.js             # Syntax highlighter
-│   └── highlight.min.css            # Syntax theme
+│   ├── highlight.min.css            # Syntax theme
+│   ├── jquery.min.js                # jQuery 3.5.1 (required by jsTree) (M5)
+│   ├── jstree.min.js                # jsTree 3.3.17 workspace tree (M5)
+│   ├── jstree-themes/               # jsTree theme assets (M5)
+│   │   └── default-dark/
+│   │       ├── style.min.css        # jsTree dark theme CSS
+│   │       ├── 32px.png             # Tree icon sprite
+│   │       ├── 40px.png             # Tree icon sprite (hi-DPI)
+│   │       └── throbber.gif         # Loading indicator
+│   ├── katex.min.js                 # KaTeX math rendering (M5)
+│   ├── katex.min.css                # KaTeX styles (M5)
+│   ├── katex-auto-render.min.js     # KaTeX auto-render extension (M5)
+│   └── fonts/                       # KaTeX woff2 font files (20 files) (M5)
 │
 ├── assets/
 │   ├── icons/                       # Extension icons (16, 32, 48, 128 px)
@@ -135,14 +151,7 @@ extension/
 │   └── styles/
 │       └── common.css               # Shared CSS variables
 │
-├── tests/                           # Backend API tests
-│   ├── test_extension_api.py
-│   ├── run_integration_tests.py
-│   └── run_tests.sh
-│
-├── EXTENSION_DESIGN.md              # High-level design document
 ├── extension_api.md                 # Backend API reference
-├── reuse_or_build.md               # Analysis of code reuse
 ├── README.md                        # Quick start guide
 ├── extension_implementation.md      # This file
 └── generate_icons.py                # Icon generation script
@@ -160,12 +169,12 @@ extension/
 
 | Export | Type | Description |
 |--------|------|-------------|
-| `API_BASE` | string | Backend URL (`http://localhost:5001`) |
+| `API_BASE` | string | Backend URL (`http://localhost:5000`) |
 | `MODELS` | array | Fallback LLM models (fetched from server at runtime) |
 | `QUICK_ACTIONS` | array | Context menu actions (explain, summarize, etc) |
 | `DEFAULT_SETTINGS` | object | Default user settings |
 | `STORAGE_KEYS` | object | Chrome storage key names |
-| `MESSAGE_TYPES` | object | Message type constants for runtime messaging |
+| `MESSAGE_TYPES` | object | Message type constants for runtime messaging (includes `DOMAIN_CHANGED` for M5 cross-component domain sync) |
 | `UI` | object | UI dimension constants |
 | `TIMEOUTS` | object | Timeout values for API calls |
 
@@ -215,7 +224,7 @@ await Storage.setSettings({ historyLength: 20 });
 
 ### 3.3 `shared/api.js`
 
-**Purpose:** API client for communicating with `extension_server.py`.
+**Purpose:** API client for communicating with the backend (`server.py`, port 5000).
 
 **Exports:**
 
@@ -252,6 +261,28 @@ await Storage.setSettings({ historyLength: 20 });
 | **Settings** | `updateSettings(settings)` | `async (object) → object` | Update server settings |
 | **Utility** | `getModels()` | `async () → object` | List available models |
 | **Utility** | `healthCheck()` | `async () → object` | Server health check |
+
+**Document Management Methods (M6):**
+
+| Category | Method | Signature | Purpose |
+|----------|--------|-----------|---------|
+| **Conv Docs** | `uploadImage()` | `async (conversationId, imageFile) → object` | Upload image → FastImageDocIndex |
+| **Conv Docs** | `listDocuments()` | `async (conversationId) → array` | List conversation docs |
+| **Conv Docs** | `deleteDocument()` | `async (conversationId, docId) → object` | Delete conversation doc |
+| **Conv Docs** | `downloadDocUrl()` | `async (conversationId, docId) → string` | Get download URL |
+| **Conv Docs** | `promoteMessageDoc()` | `async (conversationId, docId) → object` | Promote to full DocIndex (15-45s) |
+| **Global Docs** | `listGlobalDocs()` | `async () → array` | List global docs |
+| **Global Docs** | `uploadGlobalDoc()` | `async (formData) → object` | Upload global doc |
+| **Global Docs** | `deleteGlobalDoc()` | `async (docId) → object` | Delete global doc |
+| **Global Docs** | `downloadGlobalDocUrl()` | `async (docId) → string` | Get download URL |
+| **Global Docs** | `promoteToGlobal()` | `async (conversationId, docId) → object` | Promote to global library |
+| **Context Menu** | `cloneConversation()` | `async (conversationId) → object` | Clone conversation |
+| **Context Menu** | `makeConversationStateless()` | `async (conversationId) → object` | Make stateless |
+| **Context Menu** | `setFlag()` | `async (conversationId, flag) → object` | Set flag color |
+| **Context Menu** | `moveConversationToWorkspace()` | `async (conversationId, targetWsId) → object` | Move to workspace |
+| **PKB** | `getClaims()` | `async (params) → {claims, count}` | List/search claims with filters |
+
+**Note (M6):** `uploadDoc()` endpoint changed from `/ext/upload_doc/<id>` (broken) to `/upload_doc_to_conversation/<id>` (main backend FastDocIndex). Response shape changed from `{status, filename, pages, chars}` to `{status, doc_id, source, title}`.
 
 **Streaming Callbacks:**
 ```javascript
@@ -328,6 +359,7 @@ await API.sendMessageStreaming(conversation.conversation_id,
 | `GET_ALL_TABS` | `handleGetAllTabs()` | `{ tabs: array }` |
 | `CAPTURE_SCREENSHOT` | `handleCaptureScreenshot()` | `{ screenshot: dataURL }` |
 | `AUTH_STATE_CHANGED` | `broadcastAuthState()` | `{ success: true }` |
+| `DOMAIN_CHANGED` | Relays to all views | `{ domain: string }` — broadcasts domain change from popup to sidepanel (M5) |
 
 **Internal Functions:**
 
@@ -354,7 +386,7 @@ await API.sendMessageStreaming(conversation.conversation_id,
 - **Login**: `login-form` (form), `email` (input), `password` (input), `login-btn` (submit), `login-error` (error display)
 - **Main actions**: `open-sidepanel` (open sidepanel), `summarize-page` (summarize current page), `ask-selection` (ask about selection)
 - **Recents + user**: `recent-list` (recent conversations), `recent-empty` (empty state), `user-email` (logged-in email), `logout-btn` (logout)
-- **Settings**: `settings-btn` (open settings), `back-to-main` (close settings), `default-model` (model select), `default-prompt` (prompt select), `history-length` (history slider), `history-length-value` (slider label), `auto-save` (toggle), `theme` (theme select), `save-settings` (save settings)
+- **Settings**: `settings-btn` (open settings), `back-to-main` (close settings), `default-model` (model select), `default-prompt` (prompt select), `history-length` (history slider), `history-length-value` (slider label), `auto-save` (toggle), `theme` (theme select), `settings-domain` (domain select — M5), `settings-workspace` (workspace select — M5), `save-settings` (save settings)
 
 ---
 
@@ -378,7 +410,8 @@ import { MODELS, MESSAGE_TYPES } from '../shared/constants.js';
 | `showMainView()` | `async () → void` | Load and show main view |
 | `loadRecentConversations()` | `async () → void` | Fetch and render recent |
 | `handleLogin(e)` | `async (Event) → void` | Form submit handler |
-| `loadSettings()` | `async () → void` | Populate settings dropdowns |
+| `loadSettings()` | `async () → void` | Populate settings dropdowns (includes domain + workspace — M5) |
+| `loadWorkspacesForDomain(domain)` | `async (string) → void` | Fetch workspaces for domain, auto-create "Browser Extension" if missing, populate workspace dropdown (M5) |
 | `escapeHtml(text)` | `(string) → string` | Sanitize HTML |
 | `formatTimeAgo(timestamp)` | `(string) → string` | Relative time display |
 
@@ -396,6 +429,8 @@ import { MODELS, MESSAGE_TYPES } from '../shared/constants.js';
 | `backToMainBtn` | click | Shows main view |
 | `historyLengthInput` | input | Updates value display |
 | `saveSettingsBtn` | click | Saves settings |
+| `settingsDomain` | change | Sends `DOMAIN_CHANGED` message, reloads workspaces (M5) |
+| `settingsWorkspace` | change | Saves selected workspace_id to Storage (M5) |
 
 ---
 
@@ -433,12 +468,15 @@ import { MODELS, MESSAGE_TYPES } from '../shared/constants.js';
 
 - **Top-level views**: `login-view`, `main-view`
 - **Login**: `login-form` (form), `email` (input), `password` (input), `login-error` (error display)
-- **Header + panels**: `toggle-sidebar` (toggle sidebar), `new-chat-btn` (new chat), `settings-btn` (open settings), `sidebar` (sidebar), `sidebar-overlay` (overlay), `close-sidebar` (close sidebar), `settings-panel` (settings), `close-settings` (close settings)
-- **Conversation list**: `conversation-list` (list), `conversation-empty` (empty state), `sidebar-new-chat` (new chat shortcut)
+- **Header + panels**: `toggle-sidebar` (toggle sidebar), `new-chat-btn` (new permanent chat — M5), `quick-chat-btn` (new temporary chat — M5), `docs-btn` (docs panel toggle — M6), `claims-btn` (claims panel toggle — M6), `settings-btn` (open settings), `sidebar` (sidebar), `sidebar-overlay` (overlay), `close-sidebar` (close sidebar), `settings-panel` (settings), `close-settings` (close settings)
+- **Conversation list**: `workspace-tree` (jsTree container — M5), `conversation-list` (hidden fallback), `conversation-empty` (empty state), `sidebar-new-chat` (new chat shortcut)
 - **Settings controls**: `model-select`, `prompt-select`, `history-length-slider`, `history-value`, `auto-include-page`, `settings-user-email`, `logout-btn`
 - **Chat**: `page-context-bar` (attached page indicator), `page-context-title` (title), `remove-page-context` (detach), `chat-container` (scroll container), `welcome-screen`, `messages-container`, `streaming-indicator`
 - **Input**: `attach-page-btn` (attach page), `multi-tab-btn` (multi-tab), `voice-btn` (voice placeholder), `message-input` (textarea), `send-btn` (send), `stop-btn-container`, `stop-btn`
 - **Multi-tab modal**: `tab-modal` (modal), `tab-list` (tab list), `close-tab-modal` (close), `cancel-tab-modal` (cancel), `confirm-tab-modal` (confirm)
+- **Docs panel (M6)**: `docs-panel` (overlay), `docs-panel-close` (close btn), `conv-docs-section`, `conv-docs-list`, `conv-doc-count`, `conv-doc-upload`, `conv-doc-upload-btn`, `conv-docs-items`, `global-docs-section`, `global-docs-list`, `global-doc-count`, `global-doc-upload`, `global-doc-upload-btn`, `global-docs-items`
+- **Claims panel (M6)**: `claims-panel` (overlay), `claims-panel-close` (close btn), `claims-search`, `claims-filter-type`, `claims-filter-domain`, `claims-filter-status`, `claims-list`, `claims-load-more`, `claims-load-more-btn`
+- **Attachment context menu (M6)**: `attachment-context-menu` (fixed-position menu with data-action items: download, promote-conv, promote-global, delete)
 
 ---
 
@@ -476,12 +514,12 @@ const state = {
 
 **Functions (compact):**
 
-- **Initialization**: `initialize(): async ()→void` (entry point, checks auth); `initializeMainView(): async ()→void` (load conversations + settings); `showView(viewName): (string)→void` (switch login/main views); `setupEventListeners(): ()→void` (attach handlers)
+- **Initialization**: `initialize(): async ()→void` (entry point, checks auth); `initializeMainView(): async ()→void` (init WorkspaceTree + load settings — M5); `showView(viewName): (string)→void` (switch login/main views); `setupEventListeners(): ()→void` (attach handlers)
 - **Authentication**: `handleLogin(e): async (Event)→void` (login form); `handleLogout(): async ()→void` (logout)
 - **Sidebar**: `toggleSidebar(open): (boolean)→void` (show/hide sidebar); `toggleSettings(open): (boolean)→void` (show/hide settings)
 - **Settings**: `loadSettings(): async ()→void` (fetch models, populate settings); `saveSettings(): async ()→void` (save to storage + server)
-- **Conversations**: `loadConversations(): async ()→void` (fetch list); `renderConversationList(): ()→void` (render list); `handleConversationClick(e): async (Event)→void` (delegated click handling); `selectConversation(id): async (string)→void` (load + display); `createNewConversation(): async ()→void` (create; deletes temp); `deleteConversation(id): async (string)→void` (delete); `saveConversation(id): async (string)→void` (mark non-temporary)
-- **Messages**: `renderMessages(): ()→void` (render all); `renderMessage(msg): (object)→string` (render one); `addCopyButtons(): ()→void` (copy buttons for code blocks); `scrollToBottom(): ()→void` (scroll)
+- **Conversations**: `loadConversations(): async ()→void` (fetch list); `renderConversationList(): ()→void` (render list); `handleConversationClick(e): async (Event)→void` (delegated click handling); `selectConversation(id): async (string)→void` (load + display); `createNewConversation(): async ()→void` (create temp; deletes temp); `createPermanentConversation(): async ()→void` (create permanent in selected workspace — M5); `deleteConversation(id): async (string)→void` (delete); `saveConversation(id): async (string)→void` (mark non-temporary)
+- **Messages**: `renderMessages(): ()→void` (render all + call renderMath — M5); `renderMessage(msg): (object)→string` (render one); `addCopyButtons(): ()→void` (copy buttons for code blocks); `scrollToBottom(): ()→void` (scroll); `renderMath(element): (HTMLElement)→void` (KaTeX math rendering — M5)
 - **Input**: `handleInputChange(): ()→void` (resize + button state); `handleInputKeydown(e): (Event)→void` (Enter send, Shift+Enter newline); `updateSendButton(): ()→void` (enable/disable)
 - **Send/Streaming**: `sendMessage(): async ()→void` (send w/ streaming); `stopStreaming(): ()→void` (cancel); `updateConversationInList(preview): (string)→void` (update preview/title)
 - **Page Context**: `attachPageContent(): async ()→void` (attach current page); `removePageContext(): ()→void` (detach)
@@ -494,7 +532,8 @@ const state = {
 
 - `loginForm: submit → handleLogin`
 - `toggleSidebarBtn: click → toggleSidebar(true)`; `closeSidebarBtn: click → toggleSidebar(false)`; `sidebarOverlay: click → toggleSidebar(false)`
-- `sidebarNewChatBtn: click → createNewConversation`; `newChatBtn: click → createNewConversation`
+- `sidebarNewChatBtn: click → createNewConversation`; `newChatBtn: click → createPermanentConversation (M5)`; `quickChatBtn: click → createNewConversation (M5)`
+- `docsBtn: click → DocsPanel.toggle() (M6)`; `claimsBtn: click → ClaimsPanel.toggle() (M6)`
 - `settingsBtn: click → toggleSettings(true)`; `closeSettingsBtn: click → toggleSettings(false)`
 - `logoutBtn: click → handleLogout`
 - `modelSelect: change → update settings + save`; `promptSelect: change → update settings + save`; `historyLengthSlider: input → update settings + save`; `autoIncludePageCheckbox: change → update settings + save`
@@ -505,6 +544,15 @@ const state = {
 - `suggestionBtns: click → handleQuickSuggestion`; `conversationList: click → handleConversationClick`
 - `closeTabModalBtn: click → hide modal`; `cancelTabModalBtn: click → hide modal`; `confirmTabModalBtn: click → handleTabSelection`
 - `chrome.runtime.onMessage: message → handleRuntimeMessage`
+- **M6 DOM CustomEvent listeners**: `tree-clone-conversation → API.cloneConversation()`; `tree-toggle-stateless → API.makeConversationStateless() or saveConversation()`; `tree-set-flag → API.setFlag()`; `tree-move-conversation → API.moveConversationToWorkspace()`; `tree-toast → showToast()`
+- **M6 attachment context menu**: `messagesContainer: contextmenu → show attachment-context-menu`; `attachment-context-menu: click → handle download/promote-conv/promote-global/delete`
+
+**M6 changes to existing functions:**
+- `uploadPendingPdfs()` renamed to `uploadPendingFiles()` — uploads both PDFs and images via FastDocIndex endpoint
+- `buildDisplayAttachments()` now includes `doc_id` and `source` fields in each attachment object
+- `addAttachmentFiles()` stores `file` File object for images (not just dataUrl) for FastImageDocIndex upload
+- `sendMessage()` calls `uploadPendingFiles()` instead of `uploadPendingPdfs()`
+- `DocsPanel.init()` and `ClaimsPanel.init()` called during startup
 
 ---
 
@@ -517,6 +565,50 @@ const state = {
 **Key Classes (compact):** `.view` (full-height view), `.header` (fixed header), `.sidebar` (slide-in list), `.sidebar.open` (visible), `.sidebar-overlay` (dim overlay), `.settings-panel` (slide-in settings), `.settings-panel.open` (visible), `.main-content` (chat container), `.chat-container` (scroll area), `.welcome-screen` (empty state), `.messages-container` (message list), `.message` (wrapper), `.message.user` (right-aligned user), `.message.assistant` (left-aligned assistant), `.message-content` (body), `.streaming-indicator` (typing dots), `.input-area` (fixed input), `.input-wrapper` (textarea wrapper), `.action-btn` (input action buttons), `.send-btn` (send), `.page-context-bar` (attached page indicator), `.modal` (overlay), `.modal-content` (modal box), `.quick-suggestions` (welcome buttons), `.suggestion-btn` (suggestion button), `.code-block-header` (code header + copy)
 
 **Animations (compact):** `fadeIn` (0.3s, message appearance), `bounce` (1.4s, typing dots), `spin` (1s, loading spinners)
+
+### 6.4 `sidepanel/docs-panel.js` (M6 — IMPLEMENTED, 188 lines)
+
+**Purpose:** Document management overlay panel with two collapsible sections (Conversation Docs + Global Docs). Reusable `_renderDocItems()` renderer for both sections. IIFE module pattern — defines `DocsPanel` global accessed by `sidepanel.js` via `window.API` export.
+
+**Loading:** Plain `<script src="docs-panel.js">` tag loaded before `sidepanel.js` module. Defines `var DocsPanel` global. Calls `API.*` methods at runtime (user interaction), not at parse time, so `window.API` is available by then.
+
+**Public API:**
+
+| Method | Signature | Purpose |
+|--------|-----------|---------|
+| `init()` | `() → void` | Wire collapsible headers, upload buttons |
+| `show()` | `() → void` | Show panel, load both doc lists |
+| `hide()` | `() → void` | Hide panel |
+| `toggle()` | `() → void` | Toggle visibility |
+| `setConversation(id)` | `(string) → void` | Set active conversation ID, reload conv docs if panel visible |
+| `loadConversationDocs()` | `async () → void` | Fetch and render conversation docs via `API.listDocuments()` |
+| `loadGlobalDocs()` | `async () → void` | Fetch and render global docs via `API.listGlobalDocs()` |
+
+**DOM IDs managed:** `docs-panel`, `conv-docs-section`, `conv-docs-list`, `conv-doc-count`, `conv-doc-upload`, `conv-doc-upload-btn`, `conv-docs-items`, `global-docs-section`, `global-docs-list`, `global-doc-count`, `global-doc-upload`, `global-doc-upload-btn`, `global-docs-items`
+
+**Key CSS classes:** `.overlay-panel`, `.collapsible-section`, `.section-header`, `.collapse-arrow`, `.section-body`, `.doc-item`, `.doc-info`, `.doc-title`, `.doc-ref`, `.doc-actions`, `.doc-action-btn`, `.upload-btn`, `.doc-empty`, `.doc-count`
+
+### 6.5 `sidepanel/claims-panel.js` (M6 — IMPLEMENTED, 136 lines)
+
+**Purpose:** Read-only PKB claims viewer overlay panel with search (debounced 300ms), three filter dropdowns (type, domain, status), paginated results. IIFE module pattern — defines `ClaimsPanel` global.
+
+**Loading:** Same pattern as docs-panel.js. Plain `<script>` tag, defines `var ClaimsPanel` global.
+
+**Public API:**
+
+| Method | Signature | Purpose |
+|--------|-----------|---------|
+| `init()` | `() → void` | Wire search input, filter dropdowns, load-more button |
+| `show()` | `() → void` | Show panel, load claims if empty |
+| `hide()` | `() → void` | Hide panel |
+| `toggle()` | `() → void` | Toggle visibility |
+| `loadClaims()` | `async () → void` | Fetch and render claims via `API.getClaims()` |
+
+**DOM IDs managed:** `claims-panel`, `claims-search`, `claims-filter-type`, `claims-filter-domain`, `claims-filter-status`, `claims-list`, `claims-load-more`, `claims-load-more-btn`
+
+**Key CSS classes:** `.claims-search-row`, `.claims-search-input`, `.claims-filter-row`, `.claims-filter`, `.claims-list`, `.claim-card`, `.claim-statement`, `.claim-meta`, `.claim-badge`, `.claim-type-*` (8 type colors), `.claim-domain`, `.claim-status-*`, `.claim-ref`, `.claim-num`, `.claims-empty`, `.load-more-btn`
+
+**Claim type badge colors:** fact=#1a472a, preference=#3b1f5e, decision=#1e3a5f, task=#5c3d1e, reminder=#5c1e1e, habit=#1e4d4d, memory=#4a3728, observation=#3d3d1e
 
 ---
 
@@ -969,6 +1061,7 @@ When page content is attached, the server injects it as a **separate user messag
 | `settings` | object | User preferences |
 | `currentConversation` | string | Active conversation ID |
 | `recentConversations` | array | Last 5 accessed conversations |
+| `domain` | string | Active domain: `assistant`, `search`, or `finchat` (M5) |
 
 ### 11.2 Sidepanel State
 
@@ -1013,6 +1106,7 @@ const state = {
 |------|-------|-------------------|
 | `popup/popup.css` | Popup only | Own set |
 | `sidepanel/sidepanel.css` | Sidepanel only | Own set (similar) |
+| `sidepanel/workspace-tree.css` | jsTree overrides | Dark theme, tree nodes (M5) |
 | `content_scripts/modal.css` | Page-injected modal | Inline in extractor.js |
 | `assets/styles/common.css` | Shared reference | `--ai-*` prefixed |
 
@@ -1058,6 +1152,14 @@ const state = {
 | `AUTH_STATE_CHANGED` | Any → All | `{ isAuthenticated }` |
 | `TAB_CHANGED` | SW → Sidepanel | `{ tabId, url, title }` |
 | `TAB_UPDATED` | SW → Sidepanel | `{ tabId, url, title }` |
+| **Domain/Workspace Messages (M5)** |
+| `DOMAIN_CHANGED` | Popup → SW → Sidepanel | `{ domain: string }` — triggers tree reload + conversation clear |
+| **M6 Context Menu Events (DOM CustomEvent, not chrome.runtime)** |
+| `tree-clone-conversation` | document (tree → sidepanel.js) | `{ conversationId: string }` — clone via main backend |
+| `tree-toggle-stateless` | document (tree → sidepanel.js) | `{ conversationId: string }` — toggle stateful/stateless |
+| `tree-set-flag` | document (tree → sidepanel.js) | `{ conversationId: string, flag: string }` — set flag color |
+| `tree-move-conversation` | document (tree → sidepanel.js) | `{ conversationId: string, targetWorkspaceId: string }` — move to workspace |
+| `tree-toast` | document (tree → sidepanel.js) | `{ message: string, type: string }` — show toast notification |
 | **Custom Scripts Messages** |
 | `GET_SCRIPTS_FOR_URL` | SW → API | `{ url }` → `{ scripts: [...] }` |
 | `EXECUTE_SCRIPT_ACTION` | Any → CS | `{ scriptId, handlerName }` → `{ success, result }` |
@@ -1136,10 +1238,21 @@ manifest.json
     │       ├── lib/highlight.min.css
     │       ├── lib/marked.min.js
     │       ├── lib/highlight.min.js
+    │       ├── lib/jquery.min.js              (M5)
+    │       ├── lib/jstree.min.js              (M5)
+    │       ├── lib/jstree-themes/default-dark/style.min.css (M5)
+    │       ├── lib/katex.min.css              (M5)
+    │       ├── lib/katex.min.js               (M5)
+    │       ├── lib/katex-auto-render.min.js   (M5)
+    │       ├── sidepanel/workspace-tree.css   (M5)
+    │       ├── sidepanel/workspace-tree.js    (M5)
+    │       ├── sidepanel/docs-panel.js        (M6, plain <script>, defines DocsPanel global)
+    │       ├── sidepanel/claims-panel.js       (M6, plain <script>, defines ClaimsPanel global)
     │       └── sidepanel/sidepanel.js
     │               └── imports: shared/api.js
     │                            shared/storage.js
     │                            shared/constants.js
+    │                    exports: window.API (for IIFE panel scripts)
     │
     └── content_scripts/extractor.js
             └── (no imports, self-contained)
@@ -1158,9 +1271,9 @@ shared/storage.js
 
 ### Adding a New API Method
 
-1. Add endpoint to `extension_server.py`
+1. Add endpoint to `server.py` or appropriate `endpoints/*.py` blueprint
 2. Add method to `API` object in `shared/api.js`
-3. Import and call from appropriate component
+3. Import and call from appropriate component (or use `window.API` global from IIFE scripts)
 
 ### Adding a New Message Type
 
@@ -1184,12 +1297,12 @@ shared/storage.js
 
 ### Adding a New LLM Model
 
-1. Add model ID to `AVAILABLE_MODELS` list in `extension_server.py`
+1. Add model ID to the model catalog or `AVAILABLE_MODELS` list in `endpoints/ext_bridge.py`
 2. Models are fetched dynamically at runtime via `GET /ext/models`
 3. UI displays short name (part after `/` in model ID)
 4. No frontend changes needed - models auto-populate from server
 
-**Current Models (in `extension_server.py`):**
+**Current Models (in `endpoints/ext_bridge.py`):**
 ```python
 AVAILABLE_MODELS = [
     "google/gemini-2.5-flash",
@@ -1251,6 +1364,124 @@ To add a new method to the `aiAssistant` API:
 ---
 
 ## Appendix D: Changelog
+
+### Version 1.5 (February 16, 2026) — Backend Unification M5
+
+**jsTree Workspace Sidebar (compact):**
+- **New file**: `sidepanel/workspace-tree.js` (~370 lines) — revealing module pattern (IIFE). Public API: `init(container, callbacks)`, `loadTree(domain)`, `addConversationNode()`, `removeNode()`, `updateNodeText()`, `selectNode()`, `destroy()`. Uses jsTree 3.3.17 with plugins: `types`, `wholerow`, `contextmenu`, `sort`. Dark theme with emoji icons (📁 workspace, 💬 conversation). Context menu: New Chat, Quick Chat, Save (temp conversations), Delete. Dispatches CustomEvents on container element (`workspace-tree:select`, `workspace-tree:new-chat`, `workspace-tree:quick-chat`, `workspace-tree:save`, `workspace-tree:delete`).
+- **New file**: `sidepanel/workspace-tree.css` (~100 lines) — dark background (#1a1a2e), hover (#2d2d4a), selected (#0d7377), custom scrollbar, responsive tree nodes, context menu dark theme, workspace folders bold.
+- **New libraries**: `lib/jquery.min.js` (jQuery 3.5.1), `lib/jstree.min.js` (jsTree 3.3.17), `lib/jstree-themes/default-dark/` (CSS + PNG sprites + throbber GIF).
+- **HTML changes**: `sidepanel.html` replaced `<ul id="conversationList">` with `<div id="workspaceTree">`, added jQuery/jsTree/workspace-tree script tags.
+
+**KaTeX Math Rendering (compact):**
+- **New function**: `renderMath(element)` in `sidepanel.js` — calls `renderMathInElement()` with delimiters `$$...$$`, `$...$`, `\[...\]`, `\(...\)`. Called after streaming completion (`onDone`) and for historical messages in `renderMessages()`.
+- **New libraries**: `lib/katex.min.js`, `lib/katex.min.css`, `lib/katex-auto-render.min.js`, `lib/fonts/` (20 KaTeX woff2 files).
+- **CSS overrides**: `.katex` color `#e0e0e0`, `.katex-display` overflow auto (scrollable display math).
+
+**Dual Conversation Buttons (compact):**
+- **Header change**: Single `newChatBtn` replaced with two buttons: `newChatBtn` ("+ New Chat" — permanent) and `quickChatBtn` ("⚡ Quick Chat" — temporary). Wrapped in `<div class="chat-buttons">` with flex layout.
+- **New function**: `createPermanentConversation()` in `sidepanel.js` — calls `API.createPermanentConversation(domain, workspaceId)`, adds node to WorkspaceTree.
+- **New API method**: `createPermanentConversation(domain, workspaceId)` in `api.js` — calls `POST /create_conversation/<domain>/<workspaceId>`.
+
+**Domain/Workspace Settings in Popup (compact):**
+- **Popup UI**: Domain dropdown (`assistant`/`search`/`finchat`) and Workspace dropdown added to `popup.html` settings view, between "Default Prompt" and "Server URL".
+- **Popup logic**: `loadWorkspacesForDomain(domain)` in `popup.js` — calls `API.listWorkspaces(domain)`, auto-creates "Browser Extension" workspace if missing, populates dropdown.
+- **Message flow**: Domain change → `chrome.runtime.sendMessage({type: 'DOMAIN_CHANGED', domain})` → service-worker relays → sidepanel clears conversation + calls `WorkspaceTree.loadTree(newDomain)`.
+- **New constant**: `DOMAIN_CHANGED` added to `MESSAGE_TYPES` in `constants.js`.
+
+**MV3 CSP Note**: All libraries bundled locally in `extension/lib/` due to Chrome MV3 `extension_pages` CSP blocking external CDN scripts (`script-src 'self'` only).
+
+---
+
+### Version 1.7 (February 17, 2026) — Backend Unification M7: Cleanup (IMPLEMENTED)
+
+**Deprecation notice**:
+- Added startup deprecation banner to `extension_server.py` — logs 6-line warning block directing users to `server.py` (port 5000).
+
+**Obsolete files deleted**:
+- `extension/EXTENSION_DESIGN.md` (59K) — Pre-unification design doc, superseded by this document (`documentation/features/extension/extension_implementation.md`).
+- `extension/reuse_or_build.md` (21K) — Pre-unification decision analysis, no longer relevant.
+- `extension/tests/` (entire directory) — Integration tests targeting deprecated `extension_server.py:5001`. Includes `__init__.py`, `README.md`, `run_integration_tests.py`, `run_tests.sh`, `test_extension_api.py`.
+
+**Living documentation updated** (9 files):
+- `AGENTS.md` — Removed `extension_server.py --port 5001` entry point, updated file structure.
+- `extension/README.md` — Rewrote setup, architecture, troubleshooting to reference `server.py:5000`. Removed all `extension_server.py` and port 5001 mentions.
+- `extension/extension_api.md` — Replaced `EXTENSION_PROMPT_ALLOWLIST in extension_server.py` reference.
+- `extension/extension_implementation.md` — Updated architecture diagram, API client description, prompt/agent allowlist refs, model list refs.
+- `extension/REFRESH_APPEND_CONTENT_CONTEXT.md` — Replaced `extension_server.py` reference.
+- `documentation/features/extension/extension_implementation.md` — Cleaned up remaining legacy refs.
+- `documentation/features/file_attachments/file_attachment_preview_system.md` — Updated server logs, endpoint refs.
+- `documentation/dev/tests/extension_tests_README.md` — Noted tests targeted deprecated server.
+
+**Deprecation headers added** (10 planning docs):
+- One-line `> ⚠️ DEPRECATED` banner added to top of 10 historical planning documents that reference `extension_server.py`. Content not rewritten — these are point-in-time artifacts.
+
+**Files NOT deleted** (kept for backward compat):
+- `extension_server.py` (2,932 lines) — Still runnable with deprecation notice. Deletion deferred to after live Chrome validation.
+- `extension.py` (2,265 lines) — Only imported by `extension_server.py`.
+
+---
+
+### Version 1.6 (February 17, 2026) — Backend Unification M6 (IMPLEMENTED)
+
+**File Upload Fix (compact):**
+- **Breaking change**: `uploadDoc()` in `api.js` changed endpoint from `/ext/upload_doc/<id>` (broken — only exists on extension_server.py) to `/upload_doc_to_conversation/<id>` (main backend FastDocIndex). Response shape changed from `{status, filename, pages, chars}` to `{status, doc_id, source, title}`. Added 401 auth error handling matching other API methods.
+- **New method**: `uploadImage()` in `api.js` — uploads images via same endpoint (field name `pdf_file`, backend auto-detects file type), creates FastImageDocIndex.
+- **Renamed function**: `uploadPendingPdfs()` → `uploadPendingFiles()` in `sidepanel.js` — now uploads both PDFs and images, stores `doc_id`/`source`/`title` back onto each attachment object after upload.
+- **display_attachments enhanced**: `buildDisplayAttachments()` now includes `doc_id` and `source` fields per attachment for document tracking and promotion.
+- **Image File objects stored**: `addAttachmentFiles()` now stores the raw `File` object (`file: file`) for images alongside `dataUrl` for FastImageDocIndex upload.
+- **imagesToSend filter improved**: Filter chain in `sendMessage()` updated to `.filter(Boolean)` after `.map(img => img.dataUrl)` to handle any null dataUrls.
+
+**Document Management Panel (compact):**
+- **New file**: `sidepanel/docs-panel.js` (188 lines) — DocsPanel IIFE module. Two collapsible sections (Conversation Docs + Global Docs) sharing reusable `_renderDocItems()` renderer. Each section: list, upload (file picker), download (new tab), remove (with confirmation). Auto-refreshes conversation section on conversation change via `setConversation(id)`.
+- **HTML**: `docs-panel` overlay div with `conv-docs-section` and `global-docs-section` collapsible blocks, each with upload input + button, doc items container.
+- **Button**: `docs-btn` SVG icon button in header-right div (document icon), matching existing icon button style.
+- **API methods used**: `listDocuments()`, `deleteDocument()`, `downloadDocUrl()`, `uploadDoc()`, `listGlobalDocs()`, `uploadGlobalDoc()`, `deleteGlobalDoc()`, `downloadGlobalDocUrl()`.
+
+**PKB Claims Panel (compact):**
+- **New file**: `sidepanel/claims-panel.js` (136 lines) — ClaimsPanel IIFE module. Read-only: search (debounced 300ms), three filter dropdowns (type/domain/status), paginated claim cards with "Load more". Each card: statement, type badge (colored per type), domain badge, status badge (if not active), @friendly_id, #claim_number.
+- **HTML**: `claims-panel` overlay div with search input, filter row (3 selects), claims-list container, load-more button.
+- **Button**: `claims-btn` SVG icon button in header-right div (pin/brain icon), matching existing icon button style.
+- **API method used**: `getClaims(params)` — calls `GET /pkb/claims` with query/filter params.
+- **Type badge colors**: fact=#1a472a, preference=#3b1f5e, decision=#1e3a5f, task=#5c3d1e, reminder=#5c1e1e, habit=#1e4d4d, memory=#4a3728, observation=#3d3d1e.
+
+**Conversation Context Menu Expansion (compact):**
+- **Modified**: `workspace-tree.js` `_contextMenuItems()` expanded from 2 items to 8 items matching main UI's `buildConversationContextMenu()`.
+- **New items**: Copy Reference (clipboard, disabled if no friendly_id), Open in New Window (resolves dynamic `Storage.getApiBaseUrl()` for `/interface/<id>`), Clone, Toggle Stateless, Set Flag (submenu: 7 colors via `_buildFlagSubmenu`), Move to... (flat workspace submenu via `_buildMoveSubmenu`), Save, Delete.
+- **New helper methods**: `_buildFlagSubmenu(convId)`, `_buildMoveSubmenu(convId)`. `_workspaces` array stored during `loadTree()`.
+- **New import**: `API_BASE` from `shared/constants.js` (fallback for Open in New Window URL).
+- **New tree node data**: `data-conversation-friendly-id` attribute on conversation nodes (both in `_buildTreeData` and `addConversationNode`).
+- **Event handlers in sidepanel.js**: 5 new DOM CustomEvent listeners (`tree-clone-conversation`, `tree-toggle-stateless`, `tree-set-flag`, `tree-move-conversation`, `tree-toast`). Clone handler calls `selectConversation()` to open the cloned conversation.
+- **API methods used**: `cloneConversation()`, `makeConversationStateless()`, `saveConversation()` (existing), `setFlag()`, `moveConversationToWorkspace()`.
+
+**Attachment Context Menu (compact):**
+- **HTML**: `attachment-context-menu` fixed-position div with 4 data-action items: download, promote-conv, promote-global, delete. Divider before delete.
+- **Handler**: Delegated `contextmenu` listener on `messagesContainer` for `.msg-att-clickable` elements with `doc_id`. Stores target in `_attMenuTarget` closure variable.
+- **Long-running operations**: `promoteMessageDoc` (15-45s) and `promoteToGlobal` show toast feedback before and after. Uses `typeof DocsPanel !== 'undefined'` guard before refreshing panel lists.
+- **API methods used**: `downloadDocUrl()`, `promoteMessageDoc()` (60s timeout), `promoteToGlobal()` (60s timeout), `deleteDocument()`.
+- **Close behavior**: `document.addEventListener('click')` hides menu on any click outside.
+
+**Wiring & Integration (compact):**
+- **`window.API = API`**: Added in `sidepanel.js` after ES module import so IIFE panel scripts can access API methods. This was not in the original plan — discovered during implementation that plain `<script>` tags cannot access ES module imports.
+- **Script tags**: `docs-panel.js` and `claims-panel.js` added as plain `<script>` tags before `<script type="module" src="sidepanel.js">` in `sidepanel.html`. They define globals (`DocsPanel`, `ClaimsPanel`) that the module script initializes.
+- **Panel init**: `DocsPanel.init()` and `ClaimsPanel.init()` called right after `WorkspaceTree.init()` in the main initialization function.
+- **Panel coordination**: Only one overlay panel visible at a time. Opening Docs closes Claims + Settings. Opening Claims closes Docs + Settings. Opening Settings closes both panels.
+- **Conversation change hook**: `DocsPanel.setConversation(convId)` called in both `selectConversation()` and `createNewConversation()` to keep docs panel in sync.
+
+**Implementation deviations from plan:**
+- Plan estimated docs-panel.js at ~250-300 lines; actual is 188 lines (leaner IIFE, no unnecessary abstractions).
+- Plan estimated claims-panel.js at ~200-250 lines; actual is 136 lines (same reason).
+- Plan showed text buttons ("📄 Docs", "🧠 Claims") in an action-bar div; implementation uses SVG icon buttons in existing header-right div matching the UI pattern.
+- Plan used hardcoded `API_BASE` for "Open in New Window"; implementation uses `Storage.getApiBaseUrl()` for correct hosted/local backend resolution.
+- Plan referenced `loadConversation()` function; actual function is `selectConversation()`.
+- Plan did not anticipate `window.API` global export need for IIFE modules accessing ES module imports.
+
+**Files created**: `docs-panel.js` (188 lines), `claims-panel.js` (136 lines)
+**Files modified**: `api.js` (616→742 lines, +15 methods), `workspace-tree.js` (302→393 lines, context menu expansion + imports), `sidepanel.html` (458→565 lines, buttons + panels + context menu markup + script tags), `sidepanel.js` (3880→4059 lines, panel init, 6 event listeners, upload changes, `window.API` export), `sidepanel.css` (1990→2093 lines, overlay-panel, doc-item, claim-card, att-context-menu styles)
+**Zero new server code**: All 16 endpoints pre-existing on main backend.
+**CSS sections added**: Overlay Panels, Collapsible Sections, Doc Items, Claims Panel (search/filter/cards/badges), Attachment Context Menu.
+
+---
 
 ### Version 1.4 (December 30, 2024)
 

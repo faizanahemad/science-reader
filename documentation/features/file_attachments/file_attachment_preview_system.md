@@ -190,7 +190,7 @@ The `doc_infos` property (string of `#doc_N: (Title)[source]` mappings shown to 
 | File | Changes |
 |------|---------|
 | `extension.py` | `display_attachments TEXT` column migration; `add_message()` and `get_messages()` updated; `get_conversation()` SELECT includes `display_attachments`; `get_history_for_llm()` always includes system messages regardless of history_length |
-| `extension_server.py` | Extracts `display_attachments` from request; `POST /ext/upload_doc/<conversation_id>` endpoint with pdfplumber; `ext_chat()` merges system messages into system prompt; `build_agent_prompt_from_history()` puts uploaded docs in "Reference Documents" section |
+| `extension_server.py` (**DEPRECATED**) | Legacy: extracted `display_attachments` from request; `POST /ext/upload_doc/<conversation_id>` endpoint with pdfplumber; `ext_chat()` merges system messages into system prompt. **Now handled by**: `server.py` via `/upload_doc_to_conversation/<id>` (FastDocIndex), `Conversation.py` reply pipeline |
 | `extension/shared/api.js` | `display_attachments` in `sendMessage()` and `sendMessageStreaming()`; `uploadDoc()` method |
 | `extension/sidepanel/sidepanel.js` | `addAttachmentFiles()` (accepts PDF); `generateThumbnail()`, `buildDisplayAttachments()`, `uploadPendingPdfs()`; panel-wide drag feedback; `renderMessage()` with clickable `msg-att-clickable` attachments and `data-att` JSON; attachment click delegation for re-attach; `pendingImages` save/restore around `createNewConversation()` |
 | `extension/sidepanel/sidepanel.css` | `.pdf-attachment`, `.pdf-badge`, `.panel-drag-over`, `.message-pdf-badge`, `.msg-att-clickable` styles |
@@ -301,7 +301,7 @@ Rendered attachments (images and PDF badges) in extension messages have `msg-att
 - **Root cause:** Many models ignore system messages mid-conversation. Additionally, the agent path in `build_agent_prompt_from_history()` put PDF text as `System: [content]` in flat conversation history, which agents did not recognize as reference material.
 - **Fix (direct LLM path):** System messages from history merged into the initial system prompt.
 - **Fix (agent path):** Uploaded doc content placed in dedicated "Reference Documents" section, separate from conversation history.
-- **File:** `extension_server.py`
+- **File:** `extension_server.py` (**DEPRECATED** — now handled by `Conversation.py` reply pipeline on `server.py`)
 
 ### Extension: PDF upload API call failure
 - **Root cause:** `uploadDoc()` method in `api.js` used `this.getToken()` and `this.baseUrl`, but `API` is a plain object literal, not a class instance. `this.getToken` was undefined, causing "TypeError: this.getToken is not a function".
@@ -335,9 +335,11 @@ For investigating extension PDF attachment issues, debug logging has been added 
 
 All browser console logs are prefixed with `[DEBUG]` for easy filtering.
 
-### Server Logs (extension_server.py, extension.py)
+### Server Logs (DEPRECATED — extension_server.py, extension.py)
 
-- **`ext_upload_doc` (lines 1964-2019)**: 
+> **Note**: The following log references are from the deprecated `extension_server.py`. After backend unification (M1-M7), file uploads go through `server.py` → `/upload_doc_to_conversation/<id>` → FastDocIndex. Server-side logging is now in `endpoints/documents.py` and `Conversation.py`.
+
+- **`ext_upload_doc` (lines 1964-2019)** (DEPRECATED): 
   - Line 1966: Request received with user email, conversation ID, and file presence
   - Line 1970: PDF file details (filename, content_type)
   - Line 1980: Bytes read from uploaded file
@@ -355,13 +357,13 @@ All browser console logs are prefixed with `[DEBUG]` for easy filtering.
 - **`add_message` (extension.py lines 2042-2064)**:
   - Line 2062: Message added to conversation with role, content length, and message ID
 
-- **`ext_chat` (extension_server.py lines 1777-1794)**:
+- **`ext_chat` (extension_server.py lines 1777-1794)** (DEPRECATED):
   - Line 1778: History retrieved from `get_history_for_llm()` with message count and role list
   - Line 1785: System message extraction count
   - Line 1788: Merged system prompt final length (after merging PDF text)
   - Line 1793: Final message list count sent to LLM
 
-- **`build_agent_prompt_from_history` (extension_server.py lines 461-485)**:
+- **`build_agent_prompt_from_history` (extension_server.py lines 461-485)** (DEPRECATED):
   - Line 470: Document parts extracted from system messages
   - Line 473: Reference Documents section added with character count
   - Line 483: Final agent prompt length and section count
@@ -386,7 +388,7 @@ WHERE conversation_id = ? AND display_attachments IS NOT NULL;
 ### Debugging Workflow
 
 1. **Browser console**: Filter for `[DEBUG]` to see attachment upload flow
-2. **Extension server logs**: Check `extension_server.py` output for PDF text extraction and prompt construction
+2. **Server logs**: Check `server.py` output (via `endpoints/documents.py` and `Conversation.py`) for PDF upload and prompt construction. Legacy `extension_server.py` logs are deprecated.
 3. **Database**: Query `ExtensionMessages` table to verify system message persistence
 4. **LLM prompt inspection**: Review final `messages` list in server logs before `call_llm()` to confirm PDF text is present
 

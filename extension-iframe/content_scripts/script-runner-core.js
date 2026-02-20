@@ -1,0 +1,1 @@
+../../extension-shared/script-runner-core.js

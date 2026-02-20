@@ -184,6 +184,9 @@ Source file: `/Users/ahemf/Documents/Backup_2025/Research/chatgpt-iterative/serv
   - limiter: `@limiter.limit("500 per minute")`
 - **POST** `/create_conversation/<domain>/<workspace_id>` → `create_conversation()` (route L2496, def L2499) (login_required, rate_limited)
   - limiter: `@limiter.limit("500 per minute")`
+- **POST** `/create_temporary_conversation/<domain>` → `create_temporary_conversation()` (endpoints/conversations.py) (login_required, rate_limited)
+  - limiter: `@limiter.limit("500 per minute")`
+  - Atomic: cleanup old stateless + create + mark stateless + return full lists
 - **POST** `/create_prompt` → `create_prompt()` (route L5456, def L5459) (login_required, rate_limited)
   - limiter: `@limiter.limit("20 per minute")`
 - **POST** `/create_workspace/<domain>/<workspace_name>` → `create_workspace()` (route L2506, def L2509) (login_required, rate_limited)

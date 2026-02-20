@@ -1,0 +1,1 @@
+../../extension-shared/extractor-core.js

@@ -1,6 +1,6 @@
 # Chrome Extension Implementation Guide
 
-This document provides quick setup instructions for the Chrome Extension. The full design and architecture details are in `EXTENSION_DESIGN.md`.
+This document provides quick setup instructions for the Chrome Extension. For design and architecture details, see `extension_design_overview.md`. For file-by-file code reference, see `extension_implementation.md`.
 
 ## Quick Start
 
@@ -15,17 +15,17 @@ curl -o lib/highlight.min.css https://cdn.jsdelivr.net/npm/highlight.js@11.9.0/s
 
 ### 2. Backend Setup
 
-The extension requires the `extension_server.py` backend running:
+The extension connects to the main `server.py` backend (port 5000) after unification (M1+):
 
 ```bash
 # Activate environment
 conda activate science-reader
 
-# Start the extension server (runs on port 5001)
-python extension_server.py --port 5001 --debug
+# Start the main server (runs on port 5000)
+python server.py
 ```
 
-The server provides all LLM and data APIs that the extension UI consumes.
+The server provides all LLM, conversation, workspace, and data APIs that the extension UI consumes. The legacy `extension_server.py` (port 5001) is no longer needed for M1-M6 functionality.
 
 ### 3. Load Extension in Chrome
 
@@ -51,9 +51,13 @@ extension/
 │   ├── popup.js                  # Event handlers
 │   └── popup.css                 # Styling
 ├── sidepanel/                     # Main chat interface (full height)
-│   ├── sidepanel.html            # Chat UI with conversation list
-│   ├── sidepanel.js              # Conversation handling + script creation
-│   └── sidepanel.css             # Styling
+│   ├── sidepanel.html            # Chat UI with workspace tree + dual buttons
+│   ├── sidepanel.js              # Conversation handling + script creation + KaTeX
+│   ├── sidepanel.css             # Styling + KaTeX dark theme overrides
+│   ├── workspace-tree.js         # jsTree workspace sidebar module (M5)
+│   ├── workspace-tree.css        # jsTree dark theme overrides (M5)
+│   ├── docs-panel.js             # Document management overlay panel (M6)
+│   └── claims-panel.js           # PKB claims viewer overlay panel (M6)
 ├── background/
 │   └── service-worker.js         # Context menus, message passing, script coordination
 ├── content_scripts/
@@ -73,10 +77,18 @@ extension/
 │   ├── constants.js              # API config, models, message types
 │   ├── storage.js                # Chrome storage wrapper
 │   └── api.js                    # API client (including script methods)
-├── lib/                          # Third-party libraries
+├── lib/                          # Third-party libraries (bundled locally — MV3 CSP)
 │   ├── marked.min.js             # Markdown parser
 │   ├── highlight.min.js          # Syntax highlighter
-│   └── highlight.min.css         # Syntax highlighting theme
+│   ├── highlight.min.css         # Syntax highlighting theme
+│   ├── jquery.min.js             # jQuery 3.5.1 (required by jsTree) (M5)
+│   ├── jstree.min.js             # jsTree 3.3.17 (M5)
+│   ├── jstree-themes/            # jsTree theme assets (M5)
+│   │   └── default-dark/         # CSS + PNG sprites + throbber
+│   ├── katex.min.js              # KaTeX math rendering (M5)
+│   ├── katex.min.css             # KaTeX styles (M5)
+│   ├── katex-auto-render.min.js  # KaTeX auto-render extension (M5)
+│   └── fonts/                    # KaTeX woff2 font files (20 files) (M5)
 ├── assets/
 │   ├── icons/                    # Extension icons (16x16, 32x32, etc)
 │   └── styles/                   # Common styles (if needed)
@@ -109,7 +121,24 @@ extension/
 - **Injected Buttons**: Actions can be injected into page DOM
 - **Script Editor**: CodeMirror-based editor with syntax highlighting
 
-### 🚀 Phase 3 (Future)
+### ✅ Implemented (Phase 3) - Backend Unification (M1-M6)
+
+- **Unified Backend**: Extension connects to main `server.py` (port 5000) instead of separate `extension_server.py`
+- **Session Auth**: Uses main backend's session/JWT auth (same credentials as web UI)
+- **Full Conversation Pipeline**: Extension uses `Conversation.py` pipeline (PKB, agents, math, TLDR)
+- **Workspace Sidebar**: jsTree-based hierarchical workspace tree matching main UI (M5)
+- **Domain/Workspace Settings**: Domain + workspace selectors in popup Settings panel (M5)
+- **Dual Chat Buttons**: "New Chat" (permanent) + "Quick Chat" (temporary) conversation creation (M5)
+- **KaTeX Math Rendering**: LaTeX math expressions rendered in LLM responses (M5)
+- **Page Context & OCR**: Page content extraction with pipelined OCR (migrated to main backend)
+- **Scripts & Workflows**: Extension-specific scripts/workflows stored in main `users.db` (M4)
+- **File Attachments**: PDF + image upload via FastDocIndex/FastImageDocIndex on main backend (M6)
+- **Document Management Panel**: Conversation docs + global docs overlay panel with upload/download/remove (M6)
+- **PKB Claims Panel**: Read-only claims/memories viewer with search, type/domain/status filters (M6)
+- **Full Context Menu**: 8-item conversation context menu (copy ref, open in new window, clone, stateless, flag, move, save, delete) (M6)
+- **Attachment Context Menu**: Right-click on rendered attachments for download, promote, delete (M6)
+
+### 🚀 Phase 4 (Future)
 
 - Browser automation
 - MCP tools integration
@@ -189,7 +218,7 @@ Instead, always use `aiAssistant.dom.*` methods (they run inside the content scr
 
 ### Data Flow
 
-`User Action (Extension UI) → Content Script / Service Worker → extension_server.py API → LLM API → Streaming Response → Extension UI (render markdown + syntax highlighting)`
+`User Action (Extension UI) → Content Script / Service Worker → server.py API (port 5000) → Conversation.py Pipeline → LLM API → Streaming Response → Extension UI (render markdown + syntax highlighting + KaTeX math)`
 
 ### Authentication
 
@@ -200,9 +229,11 @@ Instead, always use `aiAssistant.dom.*` methods (they run inside the content scr
 
 ### Storage
 
-- **Conversations**: Stored in extension_server.py SQLite database
-- **Settings**: Stored in chrome.storage.local (synced to server on change)
+- **Conversations**: Stored via main server filesystem-based Conversation.py system (unified with web UI)
+- **Scripts/Workflows**: Stored in `users.db` tables (`ExtensionScripts`, `ExtensionWorkflows`)
+- **Settings**: Stored in chrome.storage.local (synced to server via `user_preferences.extension`)
 - **Auth Token**: Stored in chrome.storage.local
+- **Domain**: Stored in chrome.storage.local (`assistant`, `search`, or `finchat`)
 - **Recent Conversations**: Cache in chrome.storage.local for quick access
 
 ## Configuration
@@ -212,7 +243,7 @@ Instead, always use `aiAssistant.dom.*` methods (they run inside the content scr
 Edit `shared/constants.js`:
 
 ```javascript
-export const API_BASE = 'http://localhost:5001';  // Change to your server
+export const API_BASE = 'http://localhost:5000';  // Main server (unified backend)
 ```
 
 ### Available Models
@@ -259,8 +290,8 @@ The code already has console.log statements prefixed with `[AI Assistant]`. Filt
 
 ### "Cannot GET /ext/health"
 
-- Check that `extension_server.py` is running on port 5001
-- Verify API_BASE in `shared/constants.js` is correct
+- Check that `server.py` is running on port 5000
+- Verify API_BASE in `shared/constants.js` is correct (should be `http://localhost:5000`)
 
 ### "Token expired or invalid"
 
@@ -274,7 +305,7 @@ The code already has console.log statements prefixed with `[AI Assistant]`. Filt
 
 ### Settings not saving
 
-- Check that `extension_server.py` is accessible
+- Check that `server.py` is accessible on port 5000
 - Verify user is authenticated
 
 ## Development Tips
@@ -282,10 +313,12 @@ The code already has console.log statements prefixed with `[AI Assistant]`. Filt
 ### Testing Flow
 
 1. **Login**: Use popup to login
-2. **Create chat**: Click "New Chat" in sidepanel
-3. **Send message**: Type and press Enter (Shift+Enter for newline)
-4. **Test page context**: Click "Include page" button
-5. **Quick actions**: Right-click text on page
+2. **Domain/Workspace**: Open popup Settings → select domain and workspace
+3. **Create chat**: Click "New Chat" (permanent) or "Quick Chat" (temporary) in sidepanel
+4. **Send message**: Type and press Enter (Shift+Enter for newline)
+5. **Test page context**: Click "Include page" button
+6. **Quick actions**: Right-click text on page
+7. **Math rendering**: Send a message asking for math — verify KaTeX renders
 
 ### Making Changes
 
@@ -296,7 +329,7 @@ The code already has console.log statements prefixed with `[AI Assistant]`. Filt
 
 ### Adding New API Methods
 
-1. Add endpoint to `extension_server.py`
+1. Add endpoint to `server.py` or appropriate `endpoints/*.py` file
 2. Add method to `API` object in `shared/api.js`
 3. Import and use in appropriate component
 
@@ -319,18 +352,22 @@ The code already has console.log statements prefixed with `[AI Assistant]`. Filt
 
 For issues or questions:
 
-1. Check `EXTENSION_DESIGN.md` for architectural details
+1. Check `extension_design_overview.md` for architecture and conversation flow
+2. Check `extension_implementation.md` for file-by-file code reference
 2. Review `extension_api.md` for API reference
 3. Check browser console for errors
-4. Review `extension_server.py` logs
+4. Review `server.py` logs
 
 ## Next Steps
 
-1. ✅ Complete Phase 1 (current)
-2. 📋 Phase 2: Custom scripts and automation
-3. 🎯 Phase 3: Workflow orchestration and MCP tools
+1. ✅ Complete Phase 1 (basic chat)
+2. ✅ Phase 2: Custom scripts and automation
+3. ✅ Phase 3 (M1-M5): Backend unification + workspace UI + KaTeX
+4. ✅ M6: File attachments, docs panel, claims panel, full context menu
+5. ✅ M7: Legacy code cleanup (deprecate extension_server.py, update all docs)
+6. 🎯 Phase 4: Workflow orchestration and MCP tools
 
 ---
 
-**Version**: 1.4  
-**Last Updated**: December 30, 2024
+**Version**: 1.7  
+**Last Updated**: February 17, 2026

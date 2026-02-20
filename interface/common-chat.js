@@ -2910,6 +2910,19 @@ var ChatManager = {
             requestBody['referenced_friendly_ids'] = referenced_friendly_ids;
         }
 
+        if (typeof PageContextManager !== 'undefined' && PageContextManager.hasContext()) {
+            requestBody['page_context'] = PageContextManager.getPageContextForPayload();
+        }
+
+        if (typeof WorkflowManager !== 'undefined') {
+            var workflowId = WorkflowManager.getSelectedWorkflowId();
+            if (workflowId) {
+                requestBody['checkboxes'] = requestBody['checkboxes'] || {};
+                requestBody['checkboxes']['workflow_id'] = workflowId;
+                requestBody['checkboxes']['field'] = 'PromptWorkflowAgent';
+            }
+        }
+
         clearAttachmentPreviews();
 
         // Use Fetch API to make request

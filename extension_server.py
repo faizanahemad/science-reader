@@ -75,6 +75,16 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "extension-server-secret-key")
 
+# =============================================================================
+# DEPRECATION NOTICE
+# =============================================================================
+logger.warning("=" * 60)
+logger.warning("DEPRECATED: extension_server.py is deprecated.")
+logger.warning("The Chrome extension now uses server.py (port 5000).")
+logger.warning("This server will be removed in a future release.")
+logger.warning("See documentation/features/extension/ for current architecture.")
+logger.warning("=" * 60)
+
 # Enable CORS for Chrome extension
 CORS(
     app,

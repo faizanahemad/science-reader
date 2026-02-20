@@ -5509,6 +5509,16 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             query.get("_conversation_loader", None) if isinstance(query, dict) else None
         )
 
+        # Extract page context from extension (browser page content, screenshots, multi-tab)
+        # This is set by the Chrome extension when the user attaches page content
+        # via the attach-page, refresh, append, screenshot, scrollshot, or multi-tab buttons.
+        page_context = (
+            query.get("page_context", None) if isinstance(query, dict) else None
+        )
+        # Extract inline images from extension (viewport screenshots, user-attached images)
+        # These are base64 data URLs sent alongside the message for vision LLM processing.
+        query_images = query.get("images", []) if isinstance(query, dict) else []
+
         # Start PKB context retrieval in parallel (if PKB is available and use_pkb is enabled)
         pkb_context_future = None
         pkb_k = None
@@ -7788,6 +7798,18 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             f"[PKB-REPLY] Building prompt. permanent_instructions len={len(permanent_instructions)}, memory_pad len={len(memory_pad)}, coding_rules len={len(coding_rules)}, user_info_text len={len(user_info_text)}"
         )
 
+        # Build page context text for extension page content / screenshots / OCR
+        page_context_text = (
+            build_page_context_text(page_context) if page_context else ""
+        )
+        if page_context_text:
+            time_logger.info(
+                f"[PAGE-CONTEXT] Injecting page context: {len(page_context_text)} chars, "
+                f"isMultiTab={page_context.get('isMultiTab', False) if page_context else False}, "
+                f"isOcr={page_context.get('isOcr', False) if page_context else False}, "
+                f"isScreenshot={page_context.get('isScreenshot', False) if page_context else False}"
+            )
+
         prompt = prompts.chat_slow_reply_prompt.format(
             query=query["messageText"],
             summary_text=summary_text,
@@ -7797,7 +7819,8 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             permanent_instructions=permanent_instructions
             + memory_pad
             + coding_rules
-            + user_info_text,
+            + user_info_text
+            + page_context_text,
             doc_answer=doc_answer,
             web_text=web_text,
             link_result_text=link_result_text,
@@ -7854,6 +7877,33 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         images = [
             d.llm_image_source for d in attached_docs if isinstance(d, ImageDocIndex)
         ]
+
+        # Merge inline images from extension query (base64 data URLs for viewport
+        # screenshots and user-attached images).  Max 5 inline images enforced.
+        if query_images and isinstance(query_images, list):
+            valid_query_images = [
+                img for img in query_images if isinstance(img, str) and img.strip()
+            ][:5]  # Cap at 5 inline images
+            if valid_query_images:
+                images.extend(valid_query_images)
+                time_logger.info(
+                    f"[PAGE-CONTEXT] Merged {len(valid_query_images)} inline images from query"
+                )
+
+        # If page_context has a screenshot (canvas app), add it to images for
+        # vision LLM processing.  This handles the case where isScreenshot=True
+        # and the screenshot is provided as a base64 data URL.
+        if (
+            page_context
+            and page_context.get("isScreenshot")
+            and page_context.get("screenshot")
+        ):
+            screenshot_data = page_context["screenshot"]
+            if isinstance(screenshot_data, str) and screenshot_data.strip():
+                images.append(screenshot_data)
+                time_logger.info(
+                    "[PAGE-CONTEXT] Added page_context screenshot to images for vision processing"
+                )
         ensemble = (
             (checkboxes["ensemble"] if "ensemble" in checkboxes else False)
             or (isinstance(model_name, (list, tuple)) and len(set(model_name)) > 1)
@@ -9671,6 +9721,118 @@ class TemporaryConversation(Conversation):
 
     def add_to_memory_pad_from_response(self, *args, **kwargs):
         pass
+
+
+def build_page_context_text(page_context: dict) -> str:
+    """
+    Build formatted page context text for LLM prompt injection.
+
+    The Chrome extension captures web page content in several modes and sends
+    it as a ``page_context`` dict in the query payload.  This function converts
+    that dict into a human-readable text block that is appended to the LLM's
+    ``permanent_instructions``.
+
+    Three content modes are handled:
+
+    1. **Screenshot-only** (``isScreenshot=True``): The page uses canvas
+       rendering (e.g. Google Docs) and only a visual screenshot is available.
+       The actual image is passed separately via the ``images`` list; this
+       function returns a brief note for the LLM.
+    2. **Multi-tab** (``isMultiTab=True``): Content extracted from multiple
+       browser tabs, combined with source separators.
+    3. **Single page** (default): Extracted text with URL and title metadata.
+
+    Content size limits (matching extension_server.py):
+    - Single page: 64 000 chars
+    - Multi-tab: 128 000 chars
+
+    Parameters
+    ----------
+    page_context : dict
+        The ``page_context`` object from the extension, containing keys like
+        ``url``, ``title``, ``content``, ``screenshot``, ``isScreenshot``,
+        ``isMultiTab``, ``tabCount``, ``isOcr``.
+
+    Returns
+    -------
+    str
+        Formatted text block to inject into the prompt, or empty string if
+        no usable content is present.
+    """
+    if not page_context or not isinstance(page_context, dict):
+        return ""
+
+    url = page_context.get("url", "")
+    title = page_context.get("title", "")
+    content = page_context.get("content", "")
+    is_screenshot = page_context.get("isScreenshot", False)
+    is_multi_tab = page_context.get("isMultiTab", False)
+    is_ocr = page_context.get("isOcr", False)
+    tab_count = page_context.get("tabCount", 1)
+
+    # Case 1: Screenshot-only (canvas apps like Google Docs)
+    # The actual image is handled separately via images array.
+    if is_screenshot and not content:
+        return (
+            "\n[Browser Page Context - Screenshot]\n"
+            f"URL: {url}\n"
+            f"Title: {title}\n\n"
+            "A screenshot of this page has been attached as an image. "
+            "Please analyze the screenshot to understand the page content.\n"
+            "[End Browser Page Context]\n"
+        )
+
+    if not content:
+        return ""
+
+    # Case 2: Multi-tab content
+    if is_multi_tab and tab_count and tab_count > 1:
+        max_size = 128000
+        if len(content) > max_size:
+            # Proportional truncation per tab section
+            tab_sections = content.split("\n\n---\n\n")
+            chars_per_tab = max_size // max(tab_count, 1)
+            truncated = []
+            for section in tab_sections:
+                if len(section) > chars_per_tab:
+                    truncated.append(
+                        section[:chars_per_tab] + "\n\n[... content truncated ...]"
+                    )
+                else:
+                    truncated.append(section)
+            content = "\n\n---\n\n".join(truncated)
+
+        return (
+            f"\n[Browser Page Context - {tab_count} tabs]\n"
+            f"The user is viewing content from {tab_count} browser tabs.\n"
+            f"Each tab's content is separated by headers showing the tab title and URL.\n\n"
+            f"{content}\n\n"
+            f"Use the content from all {tab_count} tabs above to ground your response.\n"
+            f"[End Browser Page Context]\n"
+        )
+
+    # Case 3: Single page text (may be OCR-extracted)
+    max_size = 64000
+    if len(content) > max_size:
+        content = content[:max_size] + "\n\n[Content truncated...]"
+
+    ocr_note = ""
+    if is_ocr:
+        ocr_note = (
+            "\nNote: This content was extracted via OCR from screenshots, "
+            "so there may be minor transcription errors.\n"
+        )
+
+    return (
+        "\n[Browser Page Context]\n"
+        f"URL: {url}\n"
+        f"Title: {title}\n"
+        f"{ocr_note}\n"
+        f"Page Content:\n"
+        f"{content}\n\n"
+        "Use the above page content to ground your response.\n"
+        "[End Browser Page Context]\n"
+    )
 
 
 def format_llm_inputs(

@@ -226,7 +226,7 @@ function testParseMessageForCheckBoxes() {
 }
 
 // Call the test function
-testParseMessageForCheckBoxes(); 
+// testParseMessageForCheckBoxes(); 
 
 
 function testParseMessageForCheckBoxesV2() {
@@ -269,7 +269,7 @@ function testParseMessageForCheckBoxesV2() {
 }
 
 // Invoke the testing function
-testParseMessageForCheckBoxesV2();
+// testParseMessageForCheckBoxesV2();
 
 function comprehensiveTestParseMessageForCheckBoxes() {
     const testCases = [
@@ -308,7 +308,7 @@ function comprehensiveTestParseMessageForCheckBoxes() {
     console.log("Comprehensive testing completed.");
 }
 
-comprehensiveTestParseMessageForCheckBoxes();
+// comprehensiveTestParseMessageForCheckBoxes();
 
 
 function comprehensiveTestParseMessageForCheckBoxesV2() {
@@ -347,7 +347,7 @@ function comprehensiveTestParseMessageForCheckBoxesV2() {
     console.log("Comprehensive testing completed.");
 }
 
-comprehensiveTestParseMessageForCheckBoxesV2();
+// comprehensiveTestParseMessageForCheckBoxesV2();
 
 
 // ===========================================================================
@@ -554,4 +554,4 @@ function testParseMemoryReferences() {
     console.log("Memory reference parsing tests completed. " + (failures > 0 ? failures + " FAILURES" : "All passed."));
 }
 
-testParseMemoryReferences();
+// testParseMemoryReferences();

@@ -530,7 +530,7 @@ The backend resolver (`resolve_reference()`) uses suffix-based routing for fast 
 - Slash command: `/title ...` or `/set_title ...`
 - Temporary mode: `/temp ...` disables persistence for that interaction.
 - **Stateless conversations**: Right-click → "Toggle Stateless" marks a conversation for deletion on next page reload. The conversation works normally during the current session.
-- **New Temporary Chat button**: The `#new-temp-chat` button in the top-right chat bar creates a fresh conversation in the default workspace and immediately marks it stateless — a one-click way to start an ephemeral chat. Uses `statelessConversation(convId, suppressModal=true)` to skip the confirmation modal.
+- **New Temporary Chat button**: The `#new-temp-chat` button in the top-right chat bar creates a fresh conversation in the default workspace and marks it stateless in a single atomic server request (`POST /create_temporary_conversation/{domain}`). The server handles cleanup of old stateless conversations, creation, stateless marking, and list building in one call. The conversation is deleted on next page reload.
 - User-controllable system/preamble options:
   - formatting variants
   - “TTS friendly” style guide
@@ -580,6 +580,48 @@ Conversations are persisted to the filesystem (not only SQLite):
 
 This design supports fast local reads, incremental field updates (messages/memory),
 and avoids loading everything for every request.
+
+---
+
+## Chrome Extension (Sidepanel Client)
+
+The Chrome extension provides an AI assistant sidepanel integrated into the browser. It connects to the **same unified backend** (`server.py`, port 5000) as the web UI, using the full `Conversation.py` pipeline. JWT authentication, real-time streaming, workspace-aware. Built with vanilla JS, jQuery (jsTree), and KaTeX (math rendering).
+
+**Documentation**: `documentation/features/extension/extension_design_overview.md` (architecture + conversation flow), `extension_implementation.md` (file-by-file reference), `extension_api.md` (endpoint reference).
+
+### Extension-specific capabilities
+
+| Capability | Details |
+|-----------|---------|
+| **Sidepanel Chat** | Full-height sidepanel with message streaming, markdown (marked.js), syntax highlighting (highlight.js), KaTeX math rendering. Same conversation pipeline as web UI (PKB, agents, TLDR, math formatting). |
+| **Page Context Grounding** | "Include page" button extracts current tab content (site-specific extractors for 16 apps: Google Docs, Gmail, Sheets, Twitter/X, Reddit, GitHub, YouTube, Wikipedia, Stack Overflow, LinkedIn, Medium/Substack, Notion, Quip, Overleaf, Confluence, Slack). Content injected as grounding messages in LLM prompt (64K char limit single page, 128K multi-tab). |
+| **Multi-Tab Scroll Capture** | Capture content from other tabs using scroll+screenshot+OCR. 4 per-tab capture modes: Auto, DOM, OCR, Full OCR. Auto-detects document apps via URL patterns. Deferred OCR with immediate tab restoration. On-page toast overlays during capture. |
+| **Screenshots + OCR** | Viewport screenshots, full-page scrolling screenshots. Vision-LLM OCR (gemini-2.5-flash-lite, 8 workers). Inner scroll container auto-detection for web apps with fixed shells (Office Word Online, Google Docs, Notion, etc.). Pipelined OCR (40-60% faster than batch). |
+| **Voice Input** | MediaRecorder + `/transcribe` endpoint. Recording state UI indicator. |
+| **Workspace Sidebar** | jsTree-based hierarchical workspace tree matching main UI. Workspace folders with color indicators. Expand/collapse. Domain switching (assistant/search/finchat). "Browser Extension" workspace auto-created per domain. |
+| **Conversation Management** | "New Chat" (permanent) + "Quick Chat" (temporary) buttons. 8-item right-click context menu: Copy Reference, Open in New Window, Clone, Toggle Stateless, Set Flag (7 colors), Move to Workspace, Save, Delete. |
+| **File Attachments** | Drag-and-drop PDF/images anywhere on sidepanel. FastDocIndex upload (BM25, 1-3s). Preview thumbnails (images) and styled badges (PDFs) above input. Persistent rendering in sent messages. |
+| **Document Management Panel** | Overlay panel with two collapsible sections: conversation docs + global docs. Upload, download, remove operations. Accessible via toolbar button. |
+| **PKB Claims Panel** | Read-only overlay panel with debounced text search, type/domain/status filter dropdowns, paginated "Load more". Color-coded claim type badges. |
+| **Attachment Context Menu** | Right-click on rendered message attachments: Download, Promote to Conversation Doc, Promote to Global Doc, Delete. |
+| **Custom Scripts** | Tampermonkey-like scripts created via chat (LLM sees page structure, iterative refinement) or direct CodeMirror editor. `aiAssistant` API: dom (22 methods), clipboard, llm (ask/stream), ui (toast/modal), storage. Action exposure: floating toolbar, injected DOM buttons, command palette (Ctrl+Shift+K), context menu. Sandboxed execution. |
+| **Quick Actions** | Right-click context menu on page text: Explain, Summarize, Translate, etc. Opens modal overlay on page with LLM response. |
+| **Settings** | Model, prompt, history length, auto-include page, domain, workspace. Stored in `chrome.storage.local` + synced to server via `/ext/settings`. Configurable backend URL (localhost:5000 vs production). |
+
+### Extension backend endpoints
+
+The extension uses two categories of endpoints:
+
+1. **Main backend endpoints** (shared with web UI) — conversations, workspaces, documents, global docs, claims/PKB, send_message, model catalog, prompts, transcribe. CORS configured for `chrome-extension://*` origin.
+
+2. **Extension-specific endpoints** (`/ext/*` prefix) — auth (login/logout/verify), scripts CRUD (9 endpoints), workflows CRUD (5 endpoints), OCR, settings, chat quick action. Implemented in `endpoints/ext_*.py`.
+
+### Extension architecture constraints
+
+- **Chrome MV3 CSP**: `script-src 'self'` — all libraries bundled locally in `extension/lib/` (jQuery, jsTree, KaTeX, marked.js, highlight.js). No CDN references.
+- **IIFE modules**: Panel scripts (DocsPanel, ClaimsPanel) use IIFE pattern loaded as plain `<script>` before ES module `sidepanel.js`. Access API via `window.API` global.
+- **Storage**: Auth token + settings in `chrome.storage.local`. Conversations stored server-side via `Conversation.py` filesystem storage (same as web UI).
+- **Streaming**: Newline-delimited JSON parsing via `streamJsonLines()` — reads `{"status":"...", "content":"...", "type":"..."}` lines from `/send_message/<id>`.
 
 ---
 

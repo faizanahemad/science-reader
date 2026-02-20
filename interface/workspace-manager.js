@@ -156,45 +156,12 @@ var WorkspaceManager = {
         var workspacesRequest = $.ajax({ url: '/list_workspaces/' + currentDomain['domain'], type: 'GET' });
         var conversationsRequest = $.ajax({ url: '/list_conversation_by_user/' + currentDomain['domain'], type: 'GET' });
 
-        $.when(workspacesRequest, conversationsRequest).done(function (workspacesData, conversationsData) {
+        var combined = $.when(workspacesRequest, conversationsRequest);
+
+        combined.done(function (workspacesData, conversationsData) {
             var workspaces = workspacesData[0];
             var conversations = conversationsData[0];
-            conversations.sort(function (a, b) { return new Date(b.last_updated) - new Date(a.last_updated); });
-            WorkspaceManager.conversations = conversations;
-
-            var workspacesMap = {};
-            workspaces.forEach(function (ws) {
-                workspacesMap[ws.workspace_id] = {
-                    workspace_id: ws.workspace_id,
-                    name: ws.workspace_name,
-                    color: ws.workspace_color || 'primary',
-                    is_default: ws.workspace_id === WorkspaceManager.defaultWorkspaceId,
-                    expanded: ws.expanded === true || ws.expanded === 'true' || ws.expanded === 1,
-                    parent_workspace_id: ws.parent_workspace_id || null
-                };
-            });
-
-            if (!workspacesMap[WorkspaceManager.defaultWorkspaceId]) {
-                workspacesMap[WorkspaceManager.defaultWorkspaceId] = {
-                    workspace_id: WorkspaceManager.defaultWorkspaceId,
-                    name: 'General',
-                    color: 'primary',
-                    is_default: true,
-                    expanded: true,
-                    parent_workspace_id: null
-                };
-            }
-
-            // Group conversations by workspace
-            var convByWs = {};
-            Object.keys(workspacesMap).forEach(function (id) { convByWs[id] = []; });
-            conversations.forEach(function (c) {
-                var wsId = c.workspace_id || WorkspaceManager.defaultWorkspaceId;
-                if (convByWs[wsId]) convByWs[wsId].push(c);
-            });
-
-            WorkspaceManager.workspaces = workspacesMap;
-            WorkspaceManager.renderTree(convByWs);
+            WorkspaceManager._processAndRenderData(workspaces, conversations);
 
             // Auto-selection logic (same as before)
             if (autoselect) {
@@ -247,7 +214,45 @@ var WorkspaceManager = {
             console.error('Failed to load workspaces or conversations');
         });
 
-        return $.when(workspacesRequest, conversationsRequest);
+        return combined;
+    },
+
+    _processAndRenderData: function (workspaces, conversations) {
+        conversations.sort(function (a, b) { return new Date(b.last_updated) - new Date(a.last_updated); });
+        this.conversations = conversations;
+
+        var workspacesMap = {};
+        workspaces.forEach(function (ws) {
+            workspacesMap[ws.workspace_id] = {
+                workspace_id: ws.workspace_id,
+                name: ws.workspace_name,
+                color: ws.workspace_color || 'primary',
+                is_default: ws.workspace_id === WorkspaceManager.defaultWorkspaceId,
+                expanded: ws.expanded === true || ws.expanded === 'true' || ws.expanded === 1,
+                parent_workspace_id: ws.parent_workspace_id || null
+            };
+        });
+
+        if (!workspacesMap[this.defaultWorkspaceId]) {
+            workspacesMap[this.defaultWorkspaceId] = {
+                workspace_id: this.defaultWorkspaceId,
+                name: 'General',
+                color: 'primary',
+                is_default: true,
+                expanded: true,
+                parent_workspace_id: null
+            };
+        }
+
+        var convByWs = {};
+        Object.keys(workspacesMap).forEach(function (id) { convByWs[id] = []; });
+        conversations.forEach(function (c) {
+            var wsId = c.workspace_id || WorkspaceManager.defaultWorkspaceId;
+            if (convByWs[wsId]) convByWs[wsId].push(c);
+        });
+
+        this.workspaces = workspacesMap;
+        this.renderTree(convByWs);
     },
 
     // ---------------------------------------------------------------
@@ -1004,19 +1009,17 @@ var WorkspaceManager = {
         var self = this;
         var wsId = this.defaultWorkspaceId;
         $.ajax({
-            url: '/create_conversation/' + currentDomain['domain'] + '/' + wsId,
+            url: '/create_temporary_conversation/' + currentDomain['domain'],
             type: 'POST',
-            success: function (conversation) {
-                var convId = conversation.conversation_id;
+            contentType: 'application/json',
+            data: JSON.stringify({ workspace_id: wsId }),
+            success: function (response) {
+                var convId = response.conversation.conversation_id;
                 $('#linkInput').val('');
                 $('#searchInput').val('');
-                self.loadConversationsWithWorkspaces(false).done(function () {
-                    ConversationManager.setActiveConversation(convId);
-                    self.highlightActiveConversation(convId);
-                    // Mark stateless AFTER tree reload so the list API doesn't
-                    // delete the conversation during the reload's GET call.
-                    ConversationManager.statelessConversation(convId, true);
-                });
+                self._processAndRenderData(response.workspaces, response.conversations);
+                ConversationManager.setActiveConversation(convId);
+                self.highlightActiveConversation(convId);
             }
         });
     },

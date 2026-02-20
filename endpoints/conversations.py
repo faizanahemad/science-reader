@@ -44,7 +44,7 @@ from database.conversations import (
     removeUserFromConversation,
 )
 from database.users import getUserFromUserDetailsTable
-from database.workspaces import getWorkspaceForConversation
+from database.workspaces import getWorkspaceForConversation, load_workspaces_for_user
 from endpoints.auth import login_required
 from endpoints.request_context import attach_keys, get_conversation_with_keys
 from endpoints.responses import json_error
@@ -1300,6 +1300,144 @@ def create_conversation(domain: str, workspace_id: str | None = None):
     return jsonify(data)
 
 
+@conversations_bp.route("/create_temporary_conversation/<domain>", methods=["POST"])
+@limiter.limit("500 per minute")
+@login_required
+def create_temporary_conversation(domain: str):
+    """
+    Atomically create a temporary (stateless) conversation and return
+    the full workspace + conversation list in a single response.
+
+    This replaces the old three-call dance:
+        POST /create_conversation  →  GET /list_conversation_by_user  →  DELETE /make_conversation_stateless
+
+    Ordering (critical for correctness):
+        1. Clean up old stateless/orphaned conversations
+        2. Create new conversation in specified workspace
+        3. Mark it stateless
+        4. Build fresh conversation + workspace lists
+           (the new stateless conversation is included because
+           cleanup already ran — it won't be deleted again until
+           the next ``list_conversation_by_user`` call)
+
+    Request JSON body
+    -----------------
+    workspace_id : str, optional
+        Target workspace for the new conversation.  When omitted the
+        conversation is placed in the user's default workspace.
+
+    Returns
+    -------
+    JSON object with keys:
+        conversation  : dict  – metadata of the newly created conversation
+        conversations : list  – full conversation list for the domain
+        workspaces    : list  – full workspace list for the domain
+    """
+    domain = domain.strip().lower()
+    email, _name, _loggedin = get_session_identity()
+    keys = keyParser(session)
+    state = get_state()
+
+    body = request.get_json(silent=True) or {}
+    workspace_id = body.get("workspace_id")
+
+    # ------------------------------------------------------------------
+    # Phase 1: Clean up old stateless and orphaned conversations
+    # ------------------------------------------------------------------
+    conv_db = getCoversationsForUser(email, domain, users_dir=state.users_dir)
+    conversation_ids = [c[1] for c in conv_db]
+    cached_conversations = [state.conversation_cache[cid] for cid in conversation_ids]
+
+    stale_ids: list[str] = []
+
+    for conv in cached_conversations:
+        if conv is not None and conv.stateless:
+            stale_ids.append(conv.conversation_id)
+            removeUserFromConversation(
+                email, conv.conversation_id, users_dir=state.users_dir
+            )
+            del state.conversation_cache[conv.conversation_id]
+            deleteConversationForUser(
+                email, conv.conversation_id, users_dir=state.users_dir
+            )
+            conv.delete_conversation()
+
+    for cid, conv in zip(conversation_ids, cached_conversations):
+        if conv is None:
+            stale_ids.append(cid)
+            removeUserFromConversation(email, cid, users_dir=state.users_dir)
+            del state.conversation_cache[cid]
+            deleteConversationForUser(email, cid, users_dir=state.users_dir)
+
+    if stale_ids:
+        cleanup_deleted_conversations(
+            stale_ids, users_dir=state.users_dir, logger=logger
+        )
+
+    # ------------------------------------------------------------------
+    # Phase 2: Create new conversation and mark stateless
+    # ------------------------------------------------------------------
+    new_conversation = _create_conversation_simple(domain, workspace_id)
+    new_conversation.make_stateless()
+
+    # Place in cache so subsequent accesses don't re-load from disk
+    state.conversation_cache[new_conversation.conversation_id] = new_conversation
+
+    new_conv_metadata = new_conversation.get_metadata()
+    ws_info = getWorkspaceForConversation(
+        users_dir=state.users_dir,
+        conversation_id=new_conversation.conversation_id,
+    )
+    new_conv_metadata["workspace_id"] = (
+        ws_info["workspace_id"] if ws_info else workspace_id
+    )
+    new_conv_metadata["workspace_name"] = ws_info["workspace_name"] if ws_info else ""
+    new_conv_metadata["domain"] = domain
+
+    # ------------------------------------------------------------------
+    # Phase 3: Build fresh conversation list
+    # ------------------------------------------------------------------
+    conv_db_fresh = getCoversationsForUser(email, domain, users_dir=state.users_dir)
+    fresh_ids = [c[1] for c in conv_db_fresh]
+    fresh_convs = [state.conversation_cache[cid] for cid in fresh_ids]
+    fresh_ws_map = {
+        c[1]: {"workspace_id": c[4], "workspace_name": c[5]}
+        for c in conv_db_fresh
+        if c[4] is not None
+    }
+
+    valid_convs = [c for c in fresh_convs if c is not None and c.domain == domain]
+    valid_convs = [set_keys_on_docs(c, keys) for c in valid_convs]
+
+    conv_list: list[dict] = []
+    for conv in valid_convs:
+        meta = conv.get_metadata()
+        if conv.conversation_id in fresh_ws_map:
+            meta["workspace_id"] = fresh_ws_map[conv.conversation_id]["workspace_id"]
+            meta["workspace_name"] = fresh_ws_map[conv.conversation_id][
+                "workspace_name"
+            ]
+        meta["domain"] = conv.domain
+        conv_list.append(meta)
+
+    conv_list.sort(key=lambda x: x.get("last_updated", ""), reverse=True)
+
+    # ------------------------------------------------------------------
+    # Phase 4: Workspace list
+    # ------------------------------------------------------------------
+    workspaces = load_workspaces_for_user(
+        users_dir=state.users_dir, user_email=email, domain=domain
+    )
+
+    return jsonify(
+        {
+            "conversation": new_conv_metadata,
+            "conversations": conv_list,
+            "workspaces": workspaces,
+        }
+    )
+
+
 @conversations_bp.route("/shared_chat/<conversation_id>", methods=["GET"])
 @limiter.limit("100 per minute")
 def shared_chat(conversation_id: str):
@@ -1352,6 +1490,23 @@ def send_message(conversation_id: str):
     )
 
     query = request.json
+
+    # Detect extension source and apply sensible defaults.
+    # The extension sends a simplified payload compared to the web UI; many
+    # checkboxes/search/links fields may be missing.  Setting defaults here
+    # prevents KeyError in Conversation.reply().
+    if isinstance(query, dict) and query.get("source") == "extension":
+        checkboxes = query.setdefault("checkboxes", {})
+        checkboxes.setdefault("persist_or_not", True)
+        checkboxes.setdefault("provide_detailed_answers", 2)
+        checkboxes.setdefault("use_pkb", True)
+        checkboxes.setdefault("enable_previous_messages", "10")
+        checkboxes.setdefault("perform_web_search", False)
+        checkboxes.setdefault("googleScholar", False)
+        checkboxes.setdefault("ppt_answer", False)
+        checkboxes.setdefault("preamble_options", [])
+        query.setdefault("search", [])
+        query.setdefault("links", [])
 
     logger.warning(
         "[send_message] received request | conv=%s | t=%.2fs",
