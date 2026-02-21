@@ -245,6 +245,48 @@ var ExtensionBridge = (function() {
          */
         captureFullPageWithOcr: function(tabId, options) {
             return _sendMessage('CAPTURE_FULL_PAGE_WITH_OCR', { tabId: tabId, options: options }, 300000);
+        },
+
+        /**
+         * Store a result in the extension's extraction cache (e.g., OCR text after
+         * client-side processing). Fire-and-forget — caller need not await.
+         * @param {string} url  - Page URL.
+         * @param {string} mode - Extraction mode ('dom', 'ocr', 'full-ocr').
+         * @param {Object} data - Result data ({ content, title, tabId, ... }).
+         * @returns {Promise<Object>} { success, key, cacheSize }.
+         */
+        cacheStore: function(url, mode, data) {
+            return _sendMessage('CACHE_STORE', { url: url, mode: mode, data: data }, 5000);
+        },
+
+        /**
+         * Check the extension cache for multiple url+mode pairs in one round-trip.
+         * @param {Array} entries - Array of { url, mode }.
+         * @returns {Promise<Object>} { results: [{ url, mode, hit, data? }] }.
+         */
+        cacheBatchLookup: function(entries) {
+            return _sendMessage('CACHE_BATCH_LOOKUP', { entries: entries }, 5000);
+        },
+
+        /**
+         * Invalidate cache entries for a URL. If mode is provided, invalidates only
+         * that url+mode entry; otherwise invalidates all modes for the URL.
+         * @param {string} url  - Page URL.
+         * @param {string} [mode] - Optional extraction mode.
+         * @returns {Promise<Object>} { success, removed }.
+         */
+        cacheInvalidate: function(url, mode) {
+            var payload = { url: url };
+            if (mode) payload.mode = mode;
+            return _sendMessage('CACHE_INVALIDATE', payload, 5000);
+        },
+
+        /**
+         * Clear the entire extraction cache.
+         * @returns {Promise<Object>} { success, removed }.
+         */
+        cacheClear: function() {
+            return _sendMessage('CACHE_CLEAR', {}, 5000);
         }
     };
 })();

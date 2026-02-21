@@ -169,14 +169,42 @@ var PageContextManager = (function() {
             }
             var $btn = $(this);
             $btn.find('i').addClass('fa-spin');
-            ExtensionBridge.extractCurrentPage().then(function(data) {
-                PageContextManager.setSingleContext(data);
-                if (typeof showToast === 'function') showToast('Page context refreshed', 'success');
-            }).catch(function(err) {
-                if (typeof showToast === 'function') showToast('Refresh failed: ' + (err.message || err), 'danger');
-            }).finally(function() {
-                $btn.find('i').removeClass('fa-spin');
-            });
+
+            if (_context && _context.isMultiTab && _context.sources && _context.sources.length > 0) {
+                // Multi-tab: invalidate cache for all sources, then re-extract each by tabId in parallel
+                var sources = _context.sources;
+                sources.forEach(function(src) {
+                    if (src.url) ExtensionBridge.cacheInvalidate(src.url).catch(function() {});
+                });
+                var promises = sources.map(function(src) {
+                    return ExtensionBridge.extractTab(src.tabId).catch(function(err) {
+                        console.warn('[PageCtxMgr] page-context-refresh: extractTab failed for', src.url, err);
+                        // Return the stale source content so we don't drop the tab entirely
+                        return { tabId: src.tabId, url: src.url, title: src.title, content: src.content };
+                    });
+                });
+                Promise.all(promises).then(function(results) {
+                    PageContextManager.setMultiTabContext(results);
+                    if (typeof showToast === 'function') showToast('All tabs refreshed (' + results.length + ')', 'success');
+                }).catch(function(err) {
+                    if (typeof showToast === 'function') showToast('Refresh failed: ' + (err.message || err), 'danger');
+                }).finally(function() {
+                    $btn.find('i').removeClass('fa-spin');
+                });
+            } else {
+                // Single page: invalidate cache and re-extract current page
+                if (_context && _context.url) {
+                    ExtensionBridge.cacheInvalidate(_context.url).catch(function() {});
+                }
+                ExtensionBridge.extractCurrentPage().then(function(data) {
+                    PageContextManager.setSingleContext(data);
+                    if (typeof showToast === 'function') showToast('Page context refreshed', 'success');
+                }).catch(function(err) {
+                    if (typeof showToast === 'function') showToast('Refresh failed: ' + (err.message || err), 'danger');
+                }).finally(function() {
+                    $btn.find('i').removeClass('fa-spin');
+                });
+            }
         });
 
         $('#ext-extract-page').on('click', function() {
@@ -184,7 +212,8 @@ var PageContextManager = (function() {
             $btn.prop('disabled', true).find('i').removeClass('fa-globe').addClass('fa-spinner fa-spin');
             ExtensionBridge.extractCurrentPage().then(function(data) {
                 PageContextManager.setSingleContext(data);
-                if (typeof showToast === 'function') showToast('Page content extracted', 'success');
+                var msg = data.cached ? 'Page content extracted (cached)' : 'Page content extracted';
+                if (typeof showToast === 'function') showToast(msg, 'success');
             }).catch(function(err) {
                 if (typeof showToast === 'function') showToast('Extraction failed: ' + (err.message || err), 'danger');
             }).finally(function() {
@@ -199,6 +228,14 @@ var PageContextManager = (function() {
             }
             var $btn = $(this);
             $btn.prop('disabled', true).find('i').addClass('fa-spin');
+            // Invalidate cache before re-extracting so refresh always fetches fresh content
+            if (_context && _context.url) {
+                ExtensionBridge.cacheInvalidate(_context.url).catch(function() {});
+            } else if (_context && _context.isMultiTab && _context.sources) {
+                _context.sources.forEach(function(src) {
+                    if (src.url) ExtensionBridge.cacheInvalidate(src.url).catch(function() {});
+                });
+            }
             ExtensionBridge.extractCurrentPage().then(function(data) {
                 PageContextManager.setSingleContext(data);
                 if (typeof showToast === 'function') showToast('Page context refreshed', 'success');

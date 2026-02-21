@@ -112,70 +112,148 @@ var TabPickerManager = (function() {
         _cancelRequested = false;
         $('#tab-picker-capture-btn').prop('disabled', true).text('Capturing…');
         $('#tab-picker-cancel-btn').show();
-        _setProgress(0, 'Starting capture…');
+        _setProgress(0, 'Checking cache…');
 
-        var tabDescriptors = selected.map(function(t) {
-            return { tabId: t.tabId, mode: t.mode };
+        // Build batch lookup entries for extraction cache (modes already normalized)
+        var entries = selected.map(function(t) {
+            return { url: t.url, mode: t.mode };
         });
 
-        // Per-tab OCR promise tracking: { tabId → [Promise<{index, text}>] }
-        var ocrPromisesByTab = {};
-        selected.forEach(function(t) { ocrPromisesByTab[t.tabId] = []; });
-
-        var tabLookup = {};
-        selected.forEach(function(t) { tabLookup[t.tabId] = t; });
-
-        var progressHandler = function(progress) {
-            if (!progress) return;
-
-            if (progress.type === 'tab-progress') {
-                var pct = Math.round(((progress.step - 1) / progress.total) * 100);
-                var tabInfo = tabLookup[progress.tabId];
-                var tabTitle = tabInfo ? tabInfo.title : ('Tab ' + progress.step);
-                _setProgress(pct, 'Capturing: ' + tabTitle + ' (' + progress.mode + ')');
-            } else if (progress.type === 'screenshot' && progress.screenshot) {
-                var ocrP = _ocrSingleScreenshot(
-                    progress.screenshot,
-                    progress.pageUrl || '',
-                    progress.pageTitle || ''
-                ).then(function(text) {
-                    return { index: progress.pageIndex || 0, text: text };
-                });
-                if (ocrPromisesByTab[progress.tabId]) {
-                    ocrPromisesByTab[progress.tabId].push(ocrP);
+        // Attempt cache lookup; if it fails (extension unavailable, timeout), treat all as uncached
+        ExtensionBridge.cacheBatchLookup(entries).catch(function() {
+            return { results: [] };
+        }).then(function(cacheResponse) {
+            var cacheResults = (cacheResponse && cacheResponse.results) || [];
+            var cacheMap = {};
+            cacheResults.forEach(function(r) {
+                if (r.hit && r.data) {
+                    cacheMap[r.url + '::' + r.mode] = r.data;
                 }
-                if (typeof showToast === 'function') {
-                    showToast('OCR pipelining: tab ' + progress.tabId + ' screenshot ' + (progress.step || '?'), 'info');
+            });
+
+            // Partition selected tabs into cached and uncached
+            var cachedTabs = [];
+            var uncachedTabs = [];
+            selected.forEach(function(t) {
+                var key = t.url + '::' + t.mode;
+                if (cacheMap[key]) {
+                    cachedTabs.push(t);
+                } else {
+                    uncachedTabs.push(t);
                 }
-            } else if (progress.type === 'capture-progress') {
-                var tabInfo2 = tabLookup[progress.tabId];
-                var tabTitle2 = tabInfo2 ? tabInfo2.title : 'Tab';
+            });
+
+            // Build result objects from cache data for cached tabs
+            var cachedResults = cachedTabs.map(function(tab) {
+                var data = cacheMap[tab.url + '::' + tab.mode];
+                var result = {
+                    tabId: tab.tabId,
+                    url: data.url || tab.url,
+                    title: data.title || tab.title,
+                    content: data.content || '',
+                    mode: tab.mode
+                };
+                if (data.isOcr) {
+                    result.isOcr = true;
+                }
+                return result;
+            });
+
+            // Show progress for cached tabs
+            if (cachedTabs.length > 0) {
                 _setProgress(
-                    Math.round(((progress.step || 0) / (progress.total || 1)) * 100),
-                    tabTitle2 + ': ' + (progress.message || '')
+                    Math.round((cachedTabs.length / selected.length) * 50),
+                    cachedTabs.length + ' tab(s) served from cache (cached)'
                 );
+                if (typeof showToast === 'function') {
+                    showToast(cachedTabs.length + ' tab(s) served from cache', 'info');
+                }
             }
-        };
 
-        ExtensionBridge.onProgress(progressHandler);
-
-        ExtensionBridge.captureMultiTab(tabDescriptors).then(function(response) {
-            var captureResults = response.results || [];
-            _setProgress(90, 'Awaiting OCR results…');
-            _assembleResults(selected, captureResults, ocrPromisesByTab, progressHandler);
-        }).catch(function(err) {
-            ExtensionBridge.offProgress(progressHandler);
-            _capturing = false;
-            $('#tab-picker-capture-btn').prop('disabled', false).text('Capture Selected');
-            $('#tab-picker-cancel-btn').hide();
-            _setProgress(0, '');
-            if (typeof showToast === 'function') {
-                showToast('Multi-tab capture failed: ' + (err.message || err), 'danger');
+            // If all tabs cached, skip captureMultiTab entirely
+            if (uncachedTabs.length === 0) {
+                _setProgress(100, 'All tabs from cache');
+                _finishCapture(cachedResults);
+                return;
             }
+
+            // Proceed with uncached tabs only
+            _setProgress(
+                Math.round((cachedTabs.length / selected.length) * 50),
+                'Capturing ' + uncachedTabs.length + ' uncached tab(s)…'
+            );
+
+            var tabDescriptors = uncachedTabs.map(function(t) {
+                return { tabId: t.tabId, mode: t.mode };
+            });
+
+            // Per-tab OCR promise tracking only for uncached tabs
+            var ocrPromisesByTab = {};
+            uncachedTabs.forEach(function(t) { ocrPromisesByTab[t.tabId] = []; });
+
+            // Lookup includes all selected tabs for progress display safety
+            var tabLookup = {};
+            selected.forEach(function(t) { tabLookup[t.tabId] = t; });
+
+            var progressHandler = function(progress) {
+                if (!progress) return;
+
+                if (progress.type === 'tab-progress') {
+                    var pct = Math.round(((progress.step - 1) / progress.total) * 100);
+                    var tabInfo = tabLookup[progress.tabId];
+                    var tabTitle = tabInfo ? tabInfo.title : ('Tab ' + progress.step);
+                    _setProgress(pct, 'Capturing: ' + tabTitle + ' (' + progress.mode + ')');
+                } else if (progress.type === 'screenshot' && progress.screenshot) {
+                    var ocrP = _ocrSingleScreenshot(
+                        progress.screenshot,
+                        progress.pageUrl || '',
+                        progress.pageTitle || ''
+                    ).then(function(text) {
+                        return { index: progress.pageIndex || 0, text: text };
+                    });
+                    if (ocrPromisesByTab[progress.tabId]) {
+                        ocrPromisesByTab[progress.tabId].push(ocrP);
+                    }
+                    if (typeof showToast === 'function') {
+                        showToast('OCR pipelining: tab ' + progress.tabId + ' screenshot ' + (progress.step || '?'), 'info');
+                    }
+                } else if (progress.type === 'capture-progress') {
+                    var tabInfo2 = tabLookup[progress.tabId];
+                    var tabTitle2 = tabInfo2 ? tabInfo2.title : 'Tab';
+                    _setProgress(
+                        Math.round(((progress.step || 0) / (progress.total || 1)) * 100),
+                        tabTitle2 + ': ' + (progress.message || '')
+                    );
+                }
+            };
+
+            ExtensionBridge.onProgress(progressHandler);
+
+            ExtensionBridge.captureMultiTab(tabDescriptors).then(function(response) {
+                var captureResults = response.results || [];
+                _setProgress(90, 'Awaiting OCR results…');
+                _assembleResults(uncachedTabs, captureResults, ocrPromisesByTab, progressHandler, cachedResults);
+            }).catch(function(err) {
+                ExtensionBridge.offProgress(progressHandler);
+                if (cachedResults.length > 0) {
+                    if (typeof showToast === 'function') {
+                        showToast('Some tabs failed, using ' + cachedResults.length + ' cached result(s)', 'warning');
+                    }
+                    _finishCapture(cachedResults);
+                } else {
+                    _capturing = false;
+                    $('#tab-picker-capture-btn').prop('disabled', false).text('Capture Selected');
+                    $('#tab-picker-cancel-btn').hide();
+                    _setProgress(0, '');
+                    if (typeof showToast === 'function') {
+                        showToast('Multi-tab capture failed: ' + (err.message || err), 'danger');
+                    }
+                }
+            });
         });
     }
 
-    function _assembleResults(selected, captureResults, ocrPromisesByTab, progressHandler) {
+    function _assembleResults(selected, captureResults, ocrPromisesByTab, progressHandler, cachedResults) {
         var allOcrPromises = [];
         var ocrTabIds = [];
 
@@ -216,6 +294,16 @@ var TabPickerManager = (function() {
                         isOcr: true,
                         ocrPagesData: ocrData.pages
                     });
+                    // Fire-and-forget: store OCR text in extraction cache
+                    ExtensionBridge.cacheStore(tab.url, tab.mode, {
+                        content: ocrData.text,
+                        title: captureResult.title || tab.title,
+                        tabId: tab.tabId,
+                        url: captureResult.url || tab.url,
+                        wordCount: ocrData.text.split(/\s+/).length,
+                        charCount: ocrData.text.length,
+                        isOcr: true
+                    }).catch(function() {});
                 } else {
                     results.push({
                         tabId: tab.tabId,
@@ -226,11 +314,13 @@ var TabPickerManager = (function() {
                 }
             }
 
+            var mergedResults = (cachedResults || []).concat(results);
+
             ExtensionBridge.offProgress(progressHandler);
-            _finishCapture(results);
+            _finishCapture(mergedResults);
         }).catch(function() {
             ExtensionBridge.offProgress(progressHandler);
-            _finishCapture([]);
+            _finishCapture(cachedResults || []);
         });
     }
 

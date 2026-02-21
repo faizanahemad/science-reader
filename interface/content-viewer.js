@@ -23,16 +23,24 @@ var ContentViewer = (function () {
 
     /**
      * Internal state for the viewer.
-     * @property {Array}   pages       - Array of page text strings
-     * @property {number}  currentPage - Zero-based index of the current page
-     * @property {boolean} showingAll  - Whether all pages are shown at once
-     * @property {string}  fullText    - Concatenated full text across all pages
+     * @property {Array}   pages        - Array of page text strings
+     * @property {number}  currentPage  - Zero-based index of the current page
+     * @property {boolean} showingAll   - Whether all pages are shown at once
+     * @property {string}  fullText     - Concatenated full text across all pages
+     * @property {Array}   originals    - Original page text, set on build for reset
+     * @property {Array}   editedFlags  - Boolean array, true if page[i] was edited
+     * @property {Object}  _ctx         - Reference to the context object for write-back on close
+     * @property {number}  _debounceTimer - Timer id for debounced input handling
      */
     var _state = {
         pages: [],
         currentPage: 0,
         showingAll: false,
-        fullText: ''
+        fullText: '',
+        originals: [],
+        editedFlags: [],
+        _ctx: null,
+        _debounceTimer: null
     };
 
     // -------------------------------------------------------------------------
@@ -117,6 +125,15 @@ var ContentViewer = (function () {
         _state.currentPage = 0;
         _state.showingAll = false;
 
+        // Snapshot originals for reset and track edit state per page
+        _state.originals = pages.slice();
+        var flags = [];
+        for (var f = 0; f < pages.length; f++) {
+            flags.push(false);
+        }
+        _state.editedFlags = flags;
+        _state._ctx = ctx;
+
         // Build fullText for "copy all" and "show all" modes
         var parts = [];
         for (var p = 0; p < pages.length; p++) {
@@ -147,14 +164,37 @@ var ContentViewer = (function () {
             displayText = (total > 0) ? pages[idx] : '';
         }
 
-        // Text area
-        $('#cv-text').text(displayText);
+        // Save scroll position before updating value
+        var scrollTop = $('#cv-text').scrollTop();
+
+        // Text area — use .val() for textarea
+        $('#cv-text').val(displayText);
+
+        // "All" view is read-only; individual pages are editable
+        if (all) {
+            $('#cv-text').prop('readonly', true);
+        } else {
+            $('#cv-text').prop('readonly', false);
+        }
+
+        // Restore scroll position
+        $('#cv-text').scrollTop(scrollTop);
 
         // Page indicator
         if (all) {
             $('#cv-page-indicator').text('All ' + total + ' pages');
         } else {
             $('#cv-page-indicator').text('Page ' + (idx + 1) + ' / ' + total);
+        }
+
+        // Edited indicator and reset button visibility
+        var isEdited = !all && _state.editedFlags[idx];
+        if (isEdited) {
+            $('#cv-edited-indicator').removeClass('d-none');
+            $('#cv-reset-page').removeClass('d-none');
+        } else {
+            $('#cv-edited-indicator').addClass('d-none');
+            $('#cv-reset-page').addClass('d-none');
         }
 
         // Char / word count
@@ -208,6 +248,128 @@ var ContentViewer = (function () {
     function _toggleAll() {
         _state.showingAll = !_state.showingAll;
         _render();
+    }
+
+    // -------------------------------------------------------------------------
+    // Editing
+    // -------------------------------------------------------------------------
+
+    /**
+     * Handle textarea input. Saves current value to the pages array, marks
+     * the page as edited, rebuilds fullText, and updates the char/word counts.
+     * Called via debounced handler (500ms) from the textarea input event.
+     */
+    function _onInput() {
+        if (_state.showingAll) {
+            return;
+        }
+        var idx = _state.currentPage;
+        var val = $('#cv-text').val();
+
+        _state.pages[idx] = val;
+        _state.editedFlags[idx] = true;
+
+        // Rebuild fullText from all pages
+        var parts = [];
+        for (var i = 0; i < _state.pages.length; i++) {
+            parts.push(_state.pages[i]);
+        }
+        _state.fullText = parts.join('\n\n');
+
+        var chars = val ? val.length : 0;
+        var words = _countWords(val);
+        $('#cv-char-count').text(chars.toLocaleString() + ' chars | ' + words.toLocaleString() + ' words');
+
+        // Show edited indicators
+        $('#cv-edited-indicator').removeClass('d-none');
+        $('#cv-reset-page').removeClass('d-none');
+    }
+
+    /**
+     * Reset the current page to its original text, clearing the edited flag.
+     * Restores from _state.originals and re-renders.
+     */
+    function _resetCurrentPage() {
+        var idx = _state.currentPage;
+        _state.pages[idx] = _state.originals[idx];
+        _state.editedFlags[idx] = false;
+
+        // Rebuild fullText
+        var parts = [];
+        for (var i = 0; i < _state.pages.length; i++) {
+            parts.push(_state.pages[i]);
+        }
+        _state.fullText = parts.join('\n\n');
+
+        _render();
+    }
+
+    /**
+     * Write edited pages back to the context object that was passed to show().
+     * Called on modal close. Handles multi-tab sources, OCR pages, and single
+     * content cases. Strips the header lines that _buildPages prepended for
+     * multi-tab/multi-source pages before writing back to ctx.sources[].
+     */
+    function _saveEditsToContext() {
+        var ctx = _state._ctx;
+        if (!ctx) {
+            return;
+        }
+
+        // Check if any page was edited
+        var anyEdited = false;
+        for (var c = 0; c < _state.editedFlags.length; c++) {
+            if (_state.editedFlags[c]) {
+                anyEdited = true;
+                break;
+            }
+        }
+        if (!anyEdited) {
+            return;
+        }
+
+        if (ctx.sources && ctx.sources.length > 0 && (_state.pages.length === ctx.sources.length)) {
+            // Multi-tab or multi-source: strip header lines before writing back
+            for (var i = 0; i < _state.pages.length; i++) {
+                if (!_state.editedFlags[i]) {
+                    continue;
+                }
+                var pageText = _state.pages[i];
+                // Strip "## Tab: ...\nURL: ...\n\n" or "## ...\nURL: ...\n\n" header
+                var headerEnd = pageText.indexOf('\n\n');
+                if (headerEnd !== -1 && pageText.substring(0, 3) === '## ') {
+                    ctx.sources[i].content = pageText.substring(headerEnd + 2);
+                } else {
+                    ctx.sources[i].content = pageText;
+                }
+            }
+            // Rebuild merged ctx.content from all sources
+            var merged = [];
+            for (var m = 0; m < ctx.sources.length; m++) {
+                merged.push(ctx.sources[m].content || '');
+            }
+            ctx.content = merged.join('\n\n');
+        } else if (ctx.ocrPagesData && ctx.ocrPagesData.length > 0 && (_state.pages.length === ctx.ocrPagesData.length)) {
+            // OCR pages: write text back directly
+            for (var j = 0; j < _state.pages.length; j++) {
+                if (_state.editedFlags[j]) {
+                    ctx.ocrPagesData[j].text = _state.pages[j];
+                }
+            }
+            // Rebuild ctx.content from all OCR pages
+            var ocrParts = [];
+            for (var o = 0; o < ctx.ocrPagesData.length; o++) {
+                ocrParts.push(ctx.ocrPagesData[o].text || '');
+            }
+            ctx.content = ocrParts.join('\n\n');
+        } else {
+            // Single content
+            ctx.content = _state.pages[0];
+        }
+
+        var fullText = ctx.content || '';
+        ctx.charCount = fullText.length;
+        ctx.wordCount = _countWords(fullText);
     }
 
     // -------------------------------------------------------------------------
@@ -268,6 +430,21 @@ var ContentViewer = (function () {
             _toggleAll();
         });
 
+        // Debounced textarea input — saves edits to state
+        $(document).on('input', '#cv-text', function () {
+            if (_state._debounceTimer) {
+                clearTimeout(_state._debounceTimer);
+            }
+            _state._debounceTimer = setTimeout(function () {
+                _onInput();
+            }, 500);
+        });
+
+        // Reset current page to original
+        $(document).on('click', '#cv-reset-page', function () {
+            _resetCurrentPage();
+        });
+
         // Copy current page (or all if showingAll)
         $(document).on('click', '#cv-copy-page', function () {
             var text;
@@ -288,14 +465,16 @@ var ContentViewer = (function () {
             _copyToClipboard(parts.join('\n\n'));
         });
 
-        // Close button
+        // Close button — save edits back to context before hiding
         $(document).on('click', '#cv-close', function () {
+            _saveEditsToContext();
             $('#content-viewer-modal').addClass('d-none');
         });
 
         // Click on modal backdrop (not on .modal-content) → close
         $(document).on('click', '#content-viewer-modal', function (e) {
             if ($(e.target).is('#content-viewer-modal')) {
+                _saveEditsToContext();
                 $('#content-viewer-modal').addClass('d-none');
             }
         });
