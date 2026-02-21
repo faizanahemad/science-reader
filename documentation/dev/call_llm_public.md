@@ -19,6 +19,9 @@ from code_common.call_llm import (
     # Main LLM function
     call_llm,
     
+    # Vision model registry
+    VISION_CAPABLE_MODELS,
+    
     # Text embeddings
     get_query_embedding,
     get_document_embedding,
@@ -217,6 +220,22 @@ All image parameters accept:
 
 ---
 
+## Image Validation
+
+`call_llm` validates that the model supports image input when `images` is non-empty. If the model is not in `VISION_CAPABLE_MODELS`, a `ValueError` is raised.
+
+```python
+from code_common.call_llm import VISION_CAPABLE_MODELS
+
+# Check before calling if needed
+if model_name not in VISION_CAPABLE_MODELS:
+    print(f"{model_name} does not support images")
+```
+
+`VISION_CAPABLE_MODELS` is a frozenset of 39 models known to accept image input (OpenAI, Anthropic Claude, Google Gemini, Mistral, and others via OpenRouter).
+
+---
+
 ## Error Handling
 
 ```python
@@ -230,7 +249,7 @@ except Exception as e:
         result = call_llm(...)
 ```
 
-**Context window**: `call_llm` raises `AssertionError` if estimated tokens exceed 100K.
+**Context window**: `call_llm` raises `AssertionError` if estimated tokens exceed the per-model limit. Limits range from 48K tokens (unknown models) up to 900K (long-context models). Use a model from `CHEAP_LONG_CONTEXT_LLM` or `LONG_CONTEXT_LLM` for large inputs.
 
 ---
 

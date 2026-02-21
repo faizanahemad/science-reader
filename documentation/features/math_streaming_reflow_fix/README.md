@@ -196,7 +196,7 @@ var renderedText = marked.marked(normalizeOverIndentedLists(part.content), { ren
 LLM API (streaming tokens)
   │
   ▼
-stream_with_math_formatting()          [math_formatting.py]
+stream_text_with_math_formatting()  OR  stream_with_math_formatting()   [math_formatting.py]
   ├─ _find_safe_split_point()          Buffer until math delimiters complete
   ├─ process_math_formatting()         \[ → \\[,  \] → \\],  \( → \\(,  \) → \\)
   └─ ensure_display_math_newlines()    Insert \n around \\[ and \\]
@@ -229,7 +229,7 @@ renderInnerContentAsMarkdown()         [interface/common.js]
 
 | File | Functions Added/Changed | Purpose |
 |------|------------------------|---------|
-| `math_formatting.py` | `ensure_display_math_newlines()` (new), `stream_with_math_formatting()` (modified) | Newlines around display math delimiters for easier frontend detection |
+| `math_formatting.py` | `ensure_display_math_newlines()` (new), `stream_with_math_formatting()` (modified), `stream_text_with_math_formatting()` (new) | Newlines around display math delimiters for easier frontend detection; text-string variant for shim path |
 | `interface/common-chat.js` | `isInsideDisplayMath()` (new), `getTextAfterLastBreakpoint()` (improved), `renderStreamingResponse()` (modified) | Math-aware breakpoints, render gating during unclosed math |
 | `interface/common.js` | `normalizeOverIndentedLists()` (new), `renderInnerContentAsMarkdown()` (modified), `_queueMathJax()` (modified) | List normalization, min-height locking/unlocking |
 
@@ -244,6 +244,7 @@ def ensure_display_math_newlines(text: str) -> str
 def process_math_formatting(text: str) -> str
 def _find_safe_split_point(text: str, min_keep: int = 1) -> int
 def stream_with_math_formatting(response: Iterator) -> Generator[str, None, None]
+def stream_text_with_math_formatting(text_iterator: Iterator) -> Generator[str, None, None]
 ```
 
 ### Frontend (JavaScript)

@@ -76,6 +76,125 @@ if tiktoken is not None:
 else:  # pragma: no cover
     gpt4_enc = None
 
+MODEL_TOKEN_LIMITS = {
+    "cheap_long_context": 800_000,
+    "long_context": 900_000,
+    "expensive": 200_000,
+    "gemini_flash": 400_000,
+    "gemini_other": 500_000,
+    "cohere_llama_deepseek_jamba": 100_000,
+    "mistral_large_pixtral": 100_000,
+    "mistralai_other": 146_000,
+    "claude_3": 180_000,
+    "anthropic_other": 160_000,
+    "openai_prefixed": 160_000,
+    "known_cheap_expensive": 160_000,
+    "default": 48_000,
+}
+
+
+def _get_token_limit(model_name: str) -> int:
+    try:
+        from common import (
+            CHEAP_LONG_CONTEXT_LLM,
+            LONG_CONTEXT_LLM,
+            EXPENSIVE_LLM,
+            CHEAP_LLM,
+            VERY_CHEAP_LLM,
+        )
+    except ImportError:
+        return MODEL_TOKEN_LIMITS["default"]
+
+    if model_name in CHEAP_LONG_CONTEXT_LLM:
+        return MODEL_TOKEN_LIMITS["cheap_long_context"]
+    elif model_name in LONG_CONTEXT_LLM:
+        return MODEL_TOKEN_LIMITS["long_context"]
+    elif model_name in EXPENSIVE_LLM:
+        return MODEL_TOKEN_LIMITS["expensive"]
+    elif (
+        "google/gemini-flash-1.5" in model_name
+        or "google/gemini-flash-1.5-8b" in model_name
+        or "google/gemini-pro-1.5" in model_name
+    ):
+        return MODEL_TOKEN_LIMITS["gemini_flash"]
+    elif "gemini" in model_name:
+        return MODEL_TOKEN_LIMITS["gemini_other"]
+    elif (
+        "cohere/command-r-plus" in model_name
+        or "llama-3.1" in model_name
+        or "deepseek" in model_name
+        or "jamba-1-5" in model_name
+    ):
+        return MODEL_TOKEN_LIMITS["cohere_llama_deepseek_jamba"]
+    elif (
+        "mistralai/pixtral-large-2411" in model_name
+        or "mistralai/mistral-large-2411" in model_name
+    ):
+        return MODEL_TOKEN_LIMITS["mistral_large_pixtral"]
+    elif "mistralai" in model_name:
+        return MODEL_TOKEN_LIMITS["mistralai_other"]
+    elif "claude-3" in model_name:
+        return MODEL_TOKEN_LIMITS["claude_3"]
+    elif "anthropic" in model_name:
+        return MODEL_TOKEN_LIMITS["anthropic_other"]
+    elif "openai" in model_name:
+        return MODEL_TOKEN_LIMITS["openai_prefixed"]
+    elif (
+        model_name in VERY_CHEAP_LLM
+        or model_name in CHEAP_LLM
+        or model_name in EXPENSIVE_LLM
+    ):
+        return MODEL_TOKEN_LIMITS["known_cheap_expensive"]
+    else:
+        return MODEL_TOKEN_LIMITS["default"]
+
+
+VISION_CAPABLE_MODELS = frozenset(
+    {
+        "o1",
+        "gpt-4-turbo",
+        "gpt-4o",
+        "gpt-4-vision-preview",
+        "gpt-4.5-preview",
+        "gpt-5.1",
+        "gpt-5.2",
+        "minimax/minimax-01",
+        "anthropic/claude-3-haiku:beta",
+        "qwen/qvq-72b-preview",
+        "meta-llama/llama-3.2-90b-vision-instruct",
+        "anthropic/claude-3-opus:beta",
+        "anthropic/claude-3-sonnet:beta",
+        "anthropic/claude-3.5-sonnet:beta",
+        "fireworks/firellava-13b",
+        "openai/gpt-4o-mini",
+        "openai/o1",
+        "openai/o1-pro",
+        "anthropic/claude-haiku-4.5",
+        "openai/gpt-4o",
+        "anthropic/claude-sonnet-4",
+        "anthropic/claude-opus-4",
+        "anthropic/claude-opus-4.5",
+        "mistralai/pixtral-large-2411",
+        "google/gemini-pro-1.5",
+        "google/gemini-flash-1.5",
+        "liuhaotian/llava-yi-34b",
+        "openai/chatgpt-4o-latest",
+        "google/gemini-3-flash-preview",
+        "google/gemini-3-pro-preview",
+        "openai/gpt-5.2",
+        "anthropic/claude-4-opus-20250522",
+        "anthropic/claude-4-sonnet-20250522",
+        "google/gemini-2.5-pro",
+        "google/gemini-2.0-flash-001",
+        "google/gemini-2.5-flash",
+        "anthropic/claude-3.7-sonnet",
+        "anthropic/claude-3.7-sonnet:beta",
+        "anthropic/claude-sonnet-4.5",
+        "anthropic/claude-sonnet-4.6",
+        "google/gemini-3.1-pro-preview",
+    }
+)
+
 
 def get_gpt4_word_count(my_string):
     """
@@ -398,8 +517,9 @@ def _encode_image_reference(img: str) -> str:
 
     img_stripped = img.strip()
 
-    # Already a data URL - pass through
     if img_stripped.lower().startswith("data:image/"):
+        if img_stripped.lower().startswith("data:image/jpg;"):
+            img_stripped = "data:image/jpeg;" + img_stripped[len("data:image/jpg;") :]
         return img_stripped
 
     # Local file path - encode with proper MIME type
@@ -865,8 +985,10 @@ def call_llm(
                             total_text += part.get("text", "")
                         elif part.get("type") == "image_url":
                             image_count += 1
+        if image_count > 0 and model_name not in VISION_CAPABLE_MODELS:
+            raise ValueError(f"{model_name} is not supported for image input.")
         tok_count = get_gpt4_word_count(total_text) + (image_count * 1000)
-        if tok_count > 100000:
+        if tok_count > _get_token_limit(model_name):
             raise AssertionError(
                 f"Model {model_name} is selected. Please reduce the context window. "
                 f"Current context window is {tok_count} tokens."
@@ -888,6 +1010,8 @@ def call_llm(
         return streaming_solution
 
     # Simple mode: construct messages from text/images/system
+    if len(images) > 0 and model_name not in VISION_CAPABLE_MODELS:
+        raise ValueError(f"{model_name} is not supported for image input.")
     if len(images) > 0:
         encoded_images = [_encode_image_reference(img) for img in images]
         images = encoded_images
@@ -902,7 +1026,7 @@ def call_llm(
     tok_count = get_gpt4_word_count((system if system is not None else "") + text) + (
         len(images) * 1000
     )
-    if tok_count > 100000:
+    if tok_count > _get_token_limit(model_name):
         assertion_error_message = f"Model {model_name} is selected. Please reduce the context window. Current context window is {tok_count} tokens."
         raise AssertionError(assertion_error_message)
     streaming_solution = call_with_stream(

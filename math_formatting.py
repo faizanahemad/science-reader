@@ -63,11 +63,11 @@ def ensure_display_math_newlines(text: str) -> str:
     # Add newline before \\[ if preceded by a non-newline character.
     # Pattern: (non-newline char)(\\[) → (char)\n(\\[)
     # In the regex, \\\\\[ matches two literal backslashes + [
-    text = re.sub(r'([^\n])(\\\\\[)', r'\1\n\2', text)
+    text = re.sub(r"([^\n])(\\\\\[)", r"\1\n\2", text)
 
     # Add newline after \\] if followed by a non-newline character.
     # Pattern: (\\])(non-newline char) → (\\])\n(char)
-    text = re.sub(r'(\\\\\])([^\n])', r'\1\n\2', text)
+    text = re.sub(r"(\\\\\])([^\n])", r"\1\n\2", text)
 
     return text
 
@@ -179,6 +179,51 @@ def stream_with_math_formatting(response: Iterator) -> Generator[str, None, None
             buffer = remainder
 
     # Once the stream is done, process and yield the final leftover
+    if buffer:
+        final_text = process_math_formatting(buffer)
+        final_text = ensure_display_math_newlines(final_text)
+        yield final_text
+
+
+def stream_text_with_math_formatting(
+    text_iterator: Iterator,
+) -> Generator[str, None, None]:
+    """
+    A generator that wraps an iterator of plain text strings with math formatting,
+    buffering partial tokens so we don't break them across chunk boundaries.
+
+    This is the text-string counterpart to :func:`stream_with_math_formatting`,
+    which expects raw OpenAI chunk objects.  Use this when the upstream has
+    already extracted text content (e.g., when wrapping ``code_common``'s
+    ``call_chat_model`` output).
+
+    Args:
+        text_iterator: Iterator yielding plain text strings from an LLM stream.
+
+    Yields:
+        Processed text chunks with math formatting applied.
+    """
+    buffer = ""
+
+    for text_content in text_iterator:
+        time.sleep(0.005)
+
+        if not isinstance(text_content, str):
+            continue
+
+        buffer += text_content
+        split_point = _find_safe_split_point(buffer)
+
+        if split_point > 0:
+            to_process = buffer[:split_point]
+            remainder = buffer[split_point:]
+
+            processed_text = process_math_formatting(to_process)
+            processed_text = ensure_display_math_newlines(processed_text)
+            yield processed_text
+
+            buffer = remainder
+
     if buffer:
         final_text = process_math_formatting(buffer)
         final_text = ensure_display_math_newlines(final_text)

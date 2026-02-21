@@ -10082,6 +10082,12 @@ def model_name_to_canonical_name(model_name):
         or model_name == "Gemini 3 Flash Preview"
     ):
         model_name = "google/gemini-3-flash-preview"
+    elif model_name == "anthropic/claude-sonnet-4.6" or model_name == "Sonnet 4.6":
+        model_name = "anthropic/claude-sonnet-4.6"
+    elif (
+        model_name == "google/gemini-3.1-pro-preview" or model_name == "Gemini 3.1 Pro"
+    ):
+        model_name = "google/gemini-3.1-pro-preview"
     elif model_name == "anthropic/claude-sonnet-4.5" or model_name == "Sonnet 4.5":
         model_name = "anthropic/claude-sonnet-4.5"
     elif model_name == "anthropic/claude-haiku-4.5" or model_name == "Haiku 4.5":
@@ -10127,8 +10133,6 @@ def model_name_to_canonical_name(model_name):
         model_name = "openai/o4-mini-high"
     elif model_name == "o4-mini-deep-research":
         model_name = "o4-mini-deep-research"
-    elif model_name == "o3-deep-research":
-        model_name = "o3-deep-research"
     elif model_name == "openai/o3":
         model_name = "openai/o3"
 
@@ -10142,10 +10146,6 @@ def model_name_to_canonical_name(model_name):
         model_name = "gpt-4.5-preview"
     elif model_name == "Claude Sonnet 3.7 Thinking":
         model_name = "anthropic/claude-3.7-sonnet:thinking"
-    elif model_name == "o1-hard":
-        model_name = "o1-hard"
-    elif model_name == "o1-easy":
-        model_name = "o1-easy"
     elif model_name == "openai/o1":
         model_name = "openai/o1"
     elif model_name == "gpt-4-turbo":
@@ -10196,15 +10196,6 @@ def model_name_to_canonical_name(model_name):
 
     elif model_name == "Gemini 1.5":
         model_name = "google/gemini-pro-1.5"
-    elif model_name == "openai/o1-preview":
-        model_name = "openai/o1-preview"
-    elif model_name == "openai/o1-mini":
-        model_name = "openai/o1-mini"
-
-    elif model_name == "o1-preview":
-        model_name = "o1-preview"
-    elif model_name == "o1-mini":
-        model_name = "o1-mini"
     elif model_name == "minimax/minimax-01":
         model_name = "minimax/minimax-01"
     elif model_name == "qwen/qvq-72b-preview":

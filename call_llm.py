@@ -1,13 +1,12 @@
 import logging
 import os.path
 import string
-import uuid
-from datetime import datetime
-from uuid import uuid4
-import dill
+import traceback
+import time
+import random
 
-import pandas as pd
-from copy import deepcopy, copy
+from datetime import datetime
+from typing import List
 
 try:
     import ujson as json
@@ -15,336 +14,45 @@ except ImportError:
     import json
 
 from prompts import math_formatting_instructions
-from math_formatting import stream_with_math_formatting, process_math_formatting
+from math_formatting import (
+    stream_text_with_math_formatting,
+    process_math_formatting,
+    ensure_display_math_newlines,
+)
 
-import openai
-from typing import Callable, Any, List, Dict, Tuple, Optional, Union
-from langchain_community.document_loaders import MathpixPDFLoader
-from langchain_text_splitters import TokenTextSplitter
+from code_common.call_llm import (
+    call_chat_model as _cc_call_chat_model,
+    call_llm as _cc_call_llm,
+    call_with_stream,
+    get_gpt4_word_count,
+)
 
-
-pd.options.display.float_format = "{:,.2f}".format
-pd.set_option("max_colwidth", 800)
-pd.set_option("display.max_columns", 100)
-
-from common import *
+from common import (
+    checkNoneOrEmpty,
+    collapsible_wrapper,
+    EXPENSIVE_LLM,
+    CHEAP_LLM,
+)
 
 from loggers import getLoggers
 
 logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers(
     __name__, logging.INFO, logging.INFO, logging.ERROR, logging.INFO
 )
-from tenacity import (
-    retry,
-    RetryError,
-    stop_after_attempt,
-    wait_random_exponential,
-)
-
-import asyncio
-import threading
-from playwright.async_api import async_playwright
-from concurrent.futures import ThreadPoolExecutor, as_completed, wait, FIRST_COMPLETED
-from concurrent.futures import ThreadPoolExecutor
-from concurrent.futures import ProcessPoolExecutor
-import time
-import requests
-import json
-import random
-
-
-import time
-from collections import deque
-from threading import Lock
-
-gpt4_enc = tiktoken.encoding_for_model("gpt-4")
-
-# Deep research model names
-DEEP_RESEARCH_MODELS = ["o3-deep-research", "o4-mini-deep-research"]
-
-
-def normalize_image_media_type_from_extension(ext: str) -> str:
-    """
-    Normalize a file extension to a provider-safe image media type.
-
-    Why this exists
-    ---------------
-    Some providers (notably Anthropic via OpenRouter) strictly validate image media types
-    and reject common-but-nonstandard ones like ``image/jpg``. This helper ensures we only
-    emit media types that are broadly accepted: ``image/jpeg``, ``image/png``,
-    ``image/gif``, ``image/webp``.
-
-    Args
-    ----
-    ext:
-        File extension such as "jpg", "jpeg", "png", "gif", "webp". Case-insensitive.
-        A leading dot is allowed (e.g., ".jpg").
-
-    Returns
-    -------
-    str
-        A valid media type string.
-    """
-    ext_norm = (ext or "").strip().lower()
-    if ext_norm.startswith("."):
-        ext_norm = ext_norm[1:]
-
-    # Only return media types we know downstream providers accept.
-    if ext_norm in ("jpg", "jpeg"):
-        return "image/jpeg"
-    if ext_norm == "png":
-        return "image/png"
-    if ext_norm == "gif":
-        return "image/gif"
-    if ext_norm == "webp":
-        return "image/webp"
-
-    # Conservative fallback: preserve previous behavior (defaulting to png),
-    # while avoiding invalid types like image/jpg.
-    return "image/png"
-
-
-def call_openai_deep_research_model(model, text, images, temperature, system, keys):
-    """
-    Calls the OpenAI deep research models (o3-deep-research, o4-mini-deep-research)
-    using the Responses API with web search capabilities.
-    """
-    api_key = keys["openAIKey"]
-    instructions = """
-For this task search the web wide and deep with multiple search terms. Read multiple web pages and compare and contrast the information. Since we need deep information that is recent so do date sensitive searches as well.
-- Make sure to gather all the information needed to carry out the research task in a well-structured manner.
-- Perform multiple search queries and gather information from multiple sources. Also read multiple web pages concurrently.
-- Use bullet points or numbered lists if appropriate for clarity.
-- Use tables in markdown format if appropriate for clarity.
-- Give broad coverage deep analysis and in depth results with insights.
-- Make tables for comparisons and numeric facts.
-- Use markdown format for the response.
-
-Finally strive hard to give comprehensive broadly researched and well grounded, and useful information. Work hard to satisfy the curiosity of our user.
-
-"""
-
-    from openai import OpenAI
-
-    client = OpenAI(api_key=api_key, timeout=3600)  # Longer timeout for deep research
-
-    # Combine system prompt and user text for the input
-    input_text = f"{system}\n\n{instructions}\n\n{text}" if system else text
-
-    # If images are provided, we need to handle them differently
-    # For now, we'll log a warning as the Responses API may not support images directly
-    if len(images) > 0:
-        logger.warning(
-            f"[call_openai_deep_research_model]: Images provided but may not be supported by {model}"
-        )
-
-    try:
-        start_time = time.time()
-        # Create the response using the Responses API
-        response = client.responses.create(
-            model=model,
-            reasoning={
-                "summary": "auto",
-            },
-            input=input_text,
-            instructions=instructions,
-            tools=[
-                {
-                    "type": "web_search",
-                    "user_location": {"type": "approximate"},
-                    "search_context_size": "medium",
-                }
-            ],  # Enable web search for research,
-        )
-
-        # Get the output text and apply math formatting
-        output_text = response.output_text
-        end_time = time.time()
-        logger.info(
-            f"[call_openai_deep_research_model]: Time taken to get response: {end_time - start_time} seconds"
-        )
-        formatted_output = process_math_formatting(output_text)
-
-        yield formatted_output
-
-    except Exception as e:
-        logger.error(
-            f"[call_openai_deep_research_model]: Error calling {model} with error {str(e)}"
-        )
-        traceback.print_exc(limit=8)
-        raise e
-
-
-def call_chat_model_original(model, text, images, temperature, system, keys):
-    """
-    Original chat model function - renamed to avoid conflicts.
-    Calls the specified chat model with streaming. The user wants math tokens
-    replaced in-flight, so we wrap the streaming response with our
-    stream_with_math_formatting generator.
-    """
-    api_key = (
-        keys["openAIKey"]
-        if (
-            (
-                "gpt" in model
-                or "davinci" in model
-                or model == "o1-preview"
-                or model == "o1-mini"
-                or model == "o1"
-            )
-            and not model.startswith("openai/")
-        )
-        else keys["OPENROUTER_API_KEY"]
-    )
-    extras = (
-        dict(
-            base_url="https://openrouter.ai/api/v1",
-        )
-        if not (
-            "gpt" in model
-            or "davinci" in model
-            or model == "o1-preview"
-            or model == "o1-mini"
-            or model == "o1"
-        )
-        or model.startswith("openai/")
-        else dict()
-    )
-    openrouter_used = (
-        not (
-            "gpt" in model
-            or "davinci" in model
-            or model == "o1-preview"
-            or model == "o1-mini"
-            or model == "o1"
-        )
-        or model == "openai/gpt-4-32k"
-    )
-
-    if not openrouter_used and model.startswith("openai/"):
-        model = model.replace("openai/", "")
-    extras_2 = (
-        dict(stop=["</s>", "Human:", "User:", "<|eot_id|>", "<|/assistant_response|>"])
-        if "claude" in model or openrouter_used
-        else dict()
-    )
-
-    if model == "o1-hard":
-        model = "o1"
-        extras_2.update(dict(reasoning_effort="high"))
-    elif model == "o1-easy":
-        model = "o1"
-        extras_2.update(dict(reasoning_effort="low"))
-
-    from openai import OpenAI
-
-    client = OpenAI(api_key=api_key, **extras)
-
-    if len(images) > 0:
-        messages = [
-            {
-                "role": "system"
-                if not (model == "o1-preview" or model == "o1-mini")
-                else "user",
-                "content": system,
-            },
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": text},
-                    *[
-                        {"type": "image_url", "image_url": {"url": base64_image}}
-                        for base64_image in images
-                    ],
-                ],
-            },
-        ]
-    else:
-        messages = [
-            {
-                "role": "system"
-                if not (model == "o1-preview" or model == "o1-mini")
-                else "user",
-                "content": system,
-            },
-            {
-                "role": "user",
-                "content": text,
-            },
-        ]
-
-    try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=messages,
-            temperature=temperature
-            if not (model == "o1-preview" or model == "o1-mini")
-            else 1,
-            stream=True if not (model == "o1-preview" or model == "o1-mini") else False,
-            timeout=60,
-            # max_tokens=300,
-            **extras_2,
-        )
-
-        # If it's a non-streaming scenario (o1-preview or o1-mini), just yield once:
-        if model in ("o1-preview", "o1-mini"):
-            yield process_math_formatting(response.choices[0].message.content)
-        else:
-            # We wrap the streaming response in our custom generator
-            # that handles partial math tokens
-            for formatted_chunk in stream_with_math_formatting(response):
-                yield formatted_chunk
-
-            # Check if chunk is truncated for any reason
-            # (We only know after finishing the streaming loop)
-            # The last chunk we had is in the stream_with_math_formatting function
-            # But we can still do a final check if needed:
-            # (In practice, "finish_reason" might be included in the last chunk.)
-
-    except Exception as e:
-        logger.error(
-            f"[call_chat_model_original]: Error in calling chat model {model} with error {str(e)}, more info: openrouter_used = {openrouter_used}, len messages = {len(messages)}, extras = {extras}, extras_2 = {extras_2}"
-        )
-        # Save function parameters to JSON for debugging/replay
-        error_data = {
-            "model": model,
-            "text": text,
-            "images": images,
-            "temperature": temperature,
-            "system": system,
-            "keys": keys,
-            "error": str(e),
-            "timestamp": datetime.now().isoformat(),
-        }
-        with open("error.json", "w") as f:
-            json.dump(error_data, f, indent=2)
-        traceback.print_exc()
-        raise e
 
 
 def call_chat_model(model, text, images, temperature, system, keys):
     """
-    Calls the specified chat model with streaming. Routes to deep research models
-    if o3-deep-research or o4-mini-deep-research is specified.
+    Calls the specified chat model with streaming via OpenRouter.
+    Wraps the streaming response with math formatting for UI display.
     """
-    # Check if this is a deep research model and route accordingly
-    if model in DEEP_RESEARCH_MODELS:
-        logger.info(f"[call_chat_model]: Routing to deep research model: {model}")
-        for chunk in call_openai_deep_research_model(
-            model, text, images, temperature, system, keys
-        ):
-            yield chunk
-    else:
-        # Use the original chat model function for all other models
-        for chunk in call_chat_model_original(
-            model, text, images, temperature, system, keys
-        ):
-            yield chunk
+    raw_stream = _cc_call_chat_model(model, text, images, temperature, system, keys)
+    for chunk in stream_text_with_math_formatting(raw_stream):
+        yield chunk
 
 
 class CallLLm:
     def __init__(self, keys, model_name=None, use_gpt4=False, use_16k=False):
-        # "Use direct, to the point and professional writing style."
         self.keys = keys
 
         self.base_system = f"""You are a helpful assistant who provides helpful and informative answers while being realistic, sceptical and thinking critically.
@@ -364,8 +72,6 @@ Avoid writing code unless asked to or if needed explicitly.
         )
         self.use_gpt4 = use_gpt4
         self.use_16k = use_16k
-        self.gpt4_enc = gpt4_enc
-        # Normalize model name to avoid allowlist mismatches due to whitespace.
         self.model_name = (
             model_name.strip() if isinstance(model_name, str) else model_name
         )
@@ -391,273 +97,34 @@ Avoid writing code unless asked to or if needed explicitly.
         *args,
         **kwargs,
     ):
-        if len(images) > 0:
-            assert (
-                self.model_type == "openai"
-                and self.model_name
-                in [
-                    "o1",
-                    "o1-hard",
-                    "o1-easy",
-                    "gpt-4-turbo",
-                    "gpt-4o",
-                    "gpt-4-vision-preview",
-                    "gpt-4.5-preview",
-                ]
-            ) or self.model_name in [
-                "minimax/minimax-01",
-                "anthropic/claude-3-haiku:beta",
-                "qwen/qvq-72b-preview",
-                "meta-llama/llama-3.2-90b-vision-instruct",
-                "anthropic/claude-3-opus:beta",
-                "anthropic/claude-3-sonnet:beta",
-                "anthropic/claude-3.5-sonnet:beta",
-                "fireworks/firellava-13b",
-                "gpt-4-turbo",
-                "gpt-5.1",
-                "gpt-4.5-preview",
-                "openai/gpt-4o-mini",
-                "openai/o1",
-                "openai/o1-pro",
-                "anthropic/claude-haiku-4.5",
-                "openai/gpt-4o",
-                "anthropic/claude-sonnet-4",
-                "anthropic/claude-opus-4",
-                "anthropic/claude-opus-4.5",
-                "mistralai/pixtral-large-2411",
-                "google/gemini-pro-1.5",
-                "google/gemini-flash-1.5",
-                "liuhaotian/llava-yi-34b",
-                "openai/chatgpt-4o-latest",
-                "google/gemini-3-flash-preview",
-                "google/gemini-3-pro-preview",
-                "anthropic/claude-opus-4.5",
-                "openai/gpt-5.2",
-                "anthropic/claude-4-opus-20250522",
-                "anthropic/claude-4-sonnet-20250522",
-                "google/gemini-2.5-pro",
-                "google/gemini-2.0-flash-001",
-                "google/gemini-2.5-flash",
-                "anthropic/claude-3.7-sonnet",
-                "anthropic/claude-3.7-sonnet:beta",
-                "anthropic/claude-sonnet-4.5",
-            ], f"{self.model_name} is not supported for image input."
-            encoded_images = []
-            for img in images:
-                if os.path.exists(img):
-                    base64_image = encode_image(img)
-                    # Normalize file extension -> provider-safe media type (e.g., jpg -> image/jpeg)
-                    image_type = os.path.splitext(img)[1]
-                    media_type = normalize_image_media_type_from_extension(image_type)
-                    if self.model_name in ["google/gemini-pro-1.5"]:
-                        encoded_images.append(f"data:image/png;base64,{base64_image}")
-                    else:
-                        encoded_images.append(
-                            f"data:{media_type};base64,{base64_image}"
-                        )
-
-                elif len(enhanced_robust_url_extractor(img)) == 1:
-                    encoded_images.append(img)
-                elif isinstance(img, str):
-                    img_stripped = img.strip()
-                    # If caller already passed a data URL, normalize common invalid MIME types.
-                    # This avoids Anthropic/OpenRouter rejecting `image/jpg`.
-                    if img_stripped.lower().startswith("data:image/jpg;"):
-                        img_stripped = (
-                            "data:image/jpeg;" + img_stripped[len("data:image/jpg;") :]
-                        )
-                    encoded_images.append(
-                        img_stripped
-                        if img_stripped.lower().startswith("data:image/")
-                        else f"data:image/png;base64,{img_stripped}"
-                    )
-            images = encoded_images
-            system = f"{self.base_system}\nYou are an expert at reading images, reading text from images and performing OCR, image analysis, graph analysis, object detection, image recognition and text extraction from images. You are hardworking, detail oriented and you leave no stoned unturned. The attached images are referred in text as documents as '#doc_<doc_number>' like '#doc_1' etc.\n{system if system is not None else ''}"
-        if self.model_type == "openai":
-            return self.__call_openai_models(
-                text, images, temperature, stream, max_tokens, system, *args, **kwargs
-            )
-        else:
-            return self.__call_openrouter_models(
-                text, images, temperature, stream, max_tokens, system, *args, **kwargs
-            )
-
-    def __call_openrouter_models(
-        self,
-        text,
-        images=[],
-        temperature=0.7,
-        stream=False,
-        max_tokens=None,
-        system=None,
-        *args,
-        **kwargs,
-    ):
-        sys_init = self.base_system
-        system = (
-            f"{sys_init}\n{system.strip()}"
-            if system is not None and len(system.strip()) > 0
-            else (sys_init)
-        )
-        text_len = len(self.gpt4_enc.encode(text))
-        logger.debug(
-            f"CallLLM with temperature = {temperature}, stream = {stream}, token len = {text_len}"
-        )
-        tok_count = get_gpt4_word_count(system + text)
-        assertion_error_message = f"Model {self.model_name} is selected. Please reduce the context window. Current context window is {tok_count} tokens."
-        if self.model_name in CHEAP_LONG_CONTEXT_LLM:
-            assert tok_count < 800_000, assertion_error_message
-        elif self.model_name in LONG_CONTEXT_LLM:
-            assert tok_count < 900_000, assertion_error_message
-        elif self.model_name in EXPENSIVE_LLM:
-            assert tok_count < 200_000, assertion_error_message
-        elif (
-            "google/gemini-flash-1.5" in self.model_name
-            or "google/gemini-flash-1.5-8b" in self.model_name
-            or "google/gemini-pro-1.5" in self.model_name
-        ):
-            assert tok_count < 400_000, assertion_error_message
-        elif "gemini" in self.model_name:
-            assert tok_count < 500_000, assertion_error_message
-        elif (
-            "cohere/command-r-plus" in self.model_name
-            or "llama-3.1" in self.model_name
-            or "deepseek" in self.model_name
-            or "jamba-1-5" in self.model_name
-        ):
-            assert tok_count < 100_000
-        elif (
-            "mistralai/pixtral-large-2411" in self.model_name
-            or "mistralai/mistral-large-2411" in self.model_name
-        ):
-            assert tok_count < 100_000, assertion_error_message
-
-        elif "mistralai" in self.model_name:
-            assert tok_count < 146000, assertion_error_message
-        elif "claude-3" in self.model_name:
-            assert tok_count < 180_000, assertion_error_message
-        elif "anthropic" in self.model_name:
-            assert tok_count < 160_000, assertion_error_message
-        elif "openai" in self.model_name:
-            assert tok_count < 160_000, assertion_error_message
-        elif (
-            self.model_name in VERY_CHEAP_LLM
-            or self.model_name in CHEAP_LLM
-            or self.model_name in EXPENSIVE_LLM
-        ):
-            assert tok_count < 160_000, assertion_error_message
-        else:
-            assert tok_count < 48000, assertion_error_message
-        import time as _time
-
-        _call_start = _time.perf_counter()
-        time_logger.warning(
-            "[CallLLm] __call_openrouter_models calling call_with_stream | model=%s | stream=%s | t=%.3fs",
-            self.model_name,
-            stream,
-            _call_start,
-        )
-        streaming_solution = call_with_stream(
-            call_chat_model,
-            stream,
-            self.model_name,
-            text,
-            images,
-            temperature,
-            system,
-            self.keys,
-        )
-        time_logger.warning(
-            "[CallLLm] __call_openrouter_models call_with_stream returned | model=%s | dt=%.3fs",
-            self.model_name,
-            _time.perf_counter() - _call_start,
-        )
-        return streaming_solution
-
-    @retry(wait=wait_random_exponential(min=10, max=30), stop=stop_after_attempt(0))
-    def __call_openai_models(
-        self,
-        text,
-        images=[],
-        temperature=0.7,
-        stream=False,
-        max_tokens=None,
-        system=None,
-        *args,
-        **kwargs,
-    ):
         sys_init = self.base_system
         system = (
             f"{sys_init}\n{system.strip()}"
             if system is not None and len(system.strip()) > 0
             else sys_init
         )
-        text_len = len(self.gpt4_enc.encode(text))
-        logger.debug(
-            f"CallLLM with temperature = {temperature}, stream = {stream}, token len = {text_len}"
-        )
+
+        if len(images) > 0:
+            system = f"{system}\nYou are an expert at reading images, reading text from images and performing OCR, image analysis, graph analysis, object detection, image recognition and text extraction from images. You are hardworking, detail oriented and you leave no stoned unturned. The attached images are referred in text as documents as '#doc_<doc_number>' like '#doc_1' etc.\n"
+
         if self.self_hosted_model_url is not None:
             raise ValueError("Self hosted models not supported")
-        else:
-            assert self.keys["openAIKey"] is not None
 
-        model_name = self.model_name
-        # Handle deep research models
-        if model_name in DEEP_RESEARCH_MODELS:
-            # Deep research models are handled separately
-            pass
-        elif model_name == "o1-mini":
-            pass
-        elif model_name == "o1-preview":
-            pass
-        elif model_name == "gpt-4-turbo":
-            pass
-        elif model_name == "o1" or model_name == "o1-hard" or model_name == "o1-easy":
-            pass
-        elif model_name == "gpt-4.5-preview":
-            pass
-        elif model_name == "gpt-4o":
-            pass
-        elif model_name == "gpt-4o-mini":
-            pass
-        elif (
-            model_name != "gpt-4-turbo"
-            and model_name != "gpt-4o"
-            and model_name != "gpt-4o-mini"
-        ) and text_len > 12000:
-            model_name = "gpt-4o"
-        elif (
-            model_name != "gpt-4-turbo"
-            and model_name != "gpt-4o"
-            and model_name != "gpt-4-32k"
-            and model_name != "gpt-4o-mini"
-        ):
-            model_name = "gpt-4o-mini"
-        elif (
-            len(images) > 0
-            and model_name != "gpt-4-turbo"
-            and model_name != "gpt-4o-mini"
-        ):
-            model_name = "gpt-4o"
-        elif self.model_name == "gpt-4o":
-            model_name = "gpt-4o"
-        assert model_name not in ["gpt-3.5-turbo", "gpt-3.5-turbo-16k"]
-
-        try:
-            assert text_len < 98000
-        except AssertionError as e:
-            text = get_first_last_parts(text, 40000, 50000, self.gpt4_enc)
-
-        return call_with_stream(
-            call_chat_model,
-            stream,
-            model_name,
-            text,
-            images,
-            temperature,
-            system,
-            self.keys,
+        result = _cc_call_llm(
+            keys=self.keys,
+            model_name=self.model_name,
+            text=text,
+            images=images,
+            temperature=temperature,
+            stream=stream,
+            system=system,
         )
+
+        if stream:
+            return stream_text_with_math_formatting(result)
+        else:
+            formatted = process_math_formatting(result)
+            return ensure_display_math_newlines(formatted)
 
 
 class CallMultipleLLM:
@@ -1040,7 +507,7 @@ Would you like me to dive deeper into any specific area, such as the mathematics
 
 def test_error_replay(error_file: str = "error.json"):
     """
-    Reads the error.json file saved during a failed call to call_chat_model_original
+    Reads the error.json file saved during a failed call to call_chat_model
     and replays the call with the same parameters. This is useful for debugging
     errors that occurred during LLM calls.
 
@@ -1057,7 +524,7 @@ def test_error_replay(error_file: str = "error.json"):
     if not os.path.exists(error_file):
         logger.error(f"[test_error_replay]: Error file '{error_file}' not found")
         print(
-            f"Error file '{error_file}' not found. Run call_chat_model_original first to generate an error."
+            f"Error file '{error_file}' not found. Run call_chat_model first to generate an error."
         )
         return None
 
@@ -1082,9 +549,7 @@ def test_error_replay(error_file: str = "error.json"):
     # Call the function and collect the streamed response
     full_response = ""
     try:
-        for chunk in call_chat_model_original(
-            model, text, images, temperature, system, keys
-        ):
+        for chunk in call_chat_model(model, text, images, temperature, system, keys):
             print(chunk, end="", flush=True)
             full_response += chunk
         print("\n" + "-" * 50)

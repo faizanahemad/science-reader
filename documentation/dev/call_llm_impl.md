@@ -6,30 +6,73 @@ Internal documentation covering architecture, benchmarks, testing, and implement
 
 ## Architecture Overview
 
+### Two-File Split: Shim + Engine
+
+The LLM calling stack is split across two files with distinct responsibilities:
+
+| File | Role | Consumers |
+|------|------|-----------|
+| `call_llm.py` (root) | UI shim — math formatting, `base_system` prompt, `CallLLm`/`CallMultipleLLM`/`MockCallLLm` classes | `Conversation.py`, endpoints, agents, tests |
+| `code_common/call_llm.py` | Engine — API calls, image encoding, token limits, embeddings, keyword extraction | TMS (`truth_management_system/`), extension (`endpoints/ext_*.py`), and the root shim |
+
+**Root shim responsibilities (UI concerns only)**:
+- `base_system` prompt with `math_formatting_instructions`
+- Math formatting wrapper (`stream_text_with_math_formatting` / `process_math_formatting`)
+- Image-specific system prompt augmentation
+- `CallMultipleLLM` (multi-model streaming via `stream_multiple_models`)
+- `MockCallLLm` (test fixture with math-formatted mock response)
+
+**Engine responsibilities (`code_common/call_llm.py`)**:
+- All OpenRouter API calls (`call_chat_model`, `call_llm`)
+- Image validation (`VISION_CAPABLE_MODELS`) and encoding (`_encode_image_reference`)
+- Per-model token limit enforcement (`_get_token_limit`)
+- Embeddings, keyword extraction, joint embeddings
+
+All models route through OpenRouter. There is no direct OpenAI API path in the shim.
+
 ### Dependencies
 
 ```
-Required:
-  - openai          # OpenAI-compatible client
-  - requests        # HTTP requests for embeddings
-  - numpy           # Embedding arrays
-  - more_itertools  # Stream handling
+code_common/call_llm.py (engine):
+  Required:
+    - openai          # OpenAI-compatible client (pointed at OpenRouter)
+    - requests        # HTTP requests for embeddings
+    - numpy           # Embedding arrays
+    - more_itertools  # Stream handling
+  Optional:
+    - tiktoken        # Token counting (falls back to heuristic)
+    - tenacity        # RetryError handling (graceful fallback)
 
-Optional:
-  - tiktoken        # Token counting (falls back to heuristic)
-  - tenacity        # Retry handling (graceful fallback)
+call_llm.py (root shim):
+  - code_common/call_llm.py  # Engine
+  - math_formatting.py       # stream_text_with_math_formatting, process_math_formatting
+  - prompts.py               # math_formatting_instructions for base_system
+  - common.py                # checkNoneOrEmpty, collapsible_wrapper, EXPENSIVE_LLM, CHEAP_LLM
 ```
 
 ### Key Internal Functions
 
+**`code_common/call_llm.py` (engine)**:
+
 | Function | Purpose |
 |----------|---------|
-| `call_chat_model()` | Core chat API call with streaming |
-| `_encode_image_reference()` | Convert image refs to data URLs |
+| `call_chat_model()` | Core chat API call — always uses OpenRouter, yields text strings |
+| `call_llm()` | High-level entry point: image validation, encoding, token limits, stream handling |
+| `_encode_image_reference()` | Convert image refs to data URLs (local paths, URLs, base64, data URLs) |
 | `_process_images_in_messages()` | Encode images in messages array |
-| `_extract_text_from_openai_response()` | Stream chunk extraction |
+| `_extract_text_from_openai_response()` | Extract text chunks from OpenAI streaming response |
 | `call_with_stream()` | Stream/non-stream unification |
+| `_get_token_limit()` | Per-model context window limit lookup |
 | `get_openai_embedding()` | Raw embedding API call |
+
+**`call_llm.py` (root shim)**:
+
+| Function/Class | Purpose |
+|----------------|---------|
+| `call_chat_model()` | Wraps `code_common`'s `call_chat_model` with `stream_text_with_math_formatting` |
+| `CallLLm.__call__()` | Prepends `base_system`, delegates to `code_common.call_llm`, wraps result with math formatting |
+| `CallMultipleLLM` | Multi-model streaming; delegates to `stream_multiple_models` from `common.py` |
+| `MockCallLLm` | Test fixture returning hardcoded math-formatted response |
 
 ### Embedding Model
 
@@ -212,13 +255,31 @@ python code_common/benchmark_call_llm.py
 
 ## Internal Utilities
 
-### Token Counting
+### Token Counting and Per-Model Limits
 
 `get_gpt4_word_count()` estimates tokens:
 - Uses `tiktoken` if available (exact count)
 - Falls back to `len(text) // 4` heuristic
 
-Used for context-window safety checks (100K token limit).
+`_get_token_limit(model_name)` returns the per-model context window limit used by `call_llm()`. Limits are determined by model family membership (checked against `common.py` model lists with a lazy import to avoid circular deps):
+
+| Model family | Token limit |
+|---|---|
+| `CHEAP_LONG_CONTEXT_LLM` (e.g., Gemini 2.0 Flash) | 800K |
+| `LONG_CONTEXT_LLM` (e.g., Gemini 1.5 Pro) | 900K |
+| `EXPENSIVE_LLM` (e.g., GPT-4o) | 200K |
+| Google Gemini Flash 1.5 / Pro 1.5 | 400K |
+| Other Gemini models | 500K |
+| Cohere, Llama-3.1, DeepSeek, Jamba | 100K |
+| Mistral large / Pixtral large | 100K |
+| Other Mistral | 146K |
+| Claude 3 family | 180K |
+| Other Anthropic | 160K |
+| `openai/` prefixed models | 160K |
+| Other known models | 160K |
+| Unknown models (default) | 48K |
+
+`call_llm()` raises `AssertionError` if the estimated token count exceeds the model's limit.
 
 ### Stream Handling
 
@@ -228,7 +289,7 @@ Used for context-window safety checks (100K token limit).
 
 ### Math Formatting Pipeline (`math_formatting.py`)
 
-The main `call_llm.py` wraps LLM streaming responses through `stream_with_math_formatting()` before yielding chunks. This module handles math delimiter escaping and formatting for the frontend MathJax renderer.
+The root `call_llm.py` shim wraps `code_common`'s text output with math formatting before yielding to callers. This module handles math delimiter escaping and formatting for the frontend MathJax renderer.
 
 **File**: `math_formatting.py`
 
@@ -236,15 +297,26 @@ The main `call_llm.py` wraps LLM streaming responses through `stream_with_math_f
 |----------|---------|
 | `process_math_formatting(text)` | Doubles backslashes on math delimiters: `\[` → `\\[`, `\]` → `\\]`, `\(` → `\\(`, `\)` → `\\)`. This ensures MathJax sees `\[` in the DOM after markdown processing. |
 | `_find_safe_split_point(text, min_keep=1)` | Finds a safe point to split the buffer that doesn't break a math delimiter across chunks. Returns index where text can be safely split. |
-| `stream_with_math_formatting(response)` | Generator wrapping the OpenAI streaming response. Buffers tokens, finds safe split points, applies `process_math_formatting()` and `ensure_display_math_newlines()` before yielding. Includes a 5ms sleep per chunk to prevent GIL starvation. |
+| `stream_with_math_formatting(response)` | Generator wrapping a **raw OpenAI streaming response object**. Extracts text via `.model_dump()`, buffers tokens, applies `process_math_formatting()` and `ensure_display_math_newlines()`. Used for any code that has a direct OpenAI response object. |
+| `stream_text_with_math_formatting(text_iterator)` | Generator wrapping an **iterator of plain text strings** (e.g., from `code_common/call_llm.py`). Same buffering/formatting logic as `stream_with_math_formatting` but accepts already-extracted text. Used by the root shim. |
 | `ensure_display_math_newlines(text)` | Inserts `\n` before `\\[` and after `\\]` when adjacent to non-newline content. Helps the frontend's `getTextAfterLastBreakpoint()` detect display math boundaries for section splitting. Only affects display math, not inline math (`\\(`, `\\)`). |
 
-**Usage in `call_llm.py`**:
+**Usage in the root shim**:
 
 ```python
-# In call_chat_model_original():
-for formatted_chunk in stream_with_math_formatting(response):
-    yield formatted_chunk
+# In call_llm.py — call_chat_model() wraps code_common's text output:
+raw_stream = _cc_call_chat_model(model, text, images, temperature, system, keys)
+for chunk in stream_text_with_math_formatting(raw_stream):
+    yield chunk
+
+# In CallLLm.__call__() for streaming:
+result = _cc_call_llm(keys=..., model_name=..., stream=True, ...)
+return stream_text_with_math_formatting(result)
+
+# In CallLLm.__call__() for non-streaming:
+result = _cc_call_llm(keys=..., model_name=..., stream=False, ...)
+formatted = process_math_formatting(result)
+return ensure_display_math_newlines(formatted)
 ```
 
 **How the escaping works**:
@@ -258,15 +330,29 @@ for formatted_chunk in stream_with_math_formatting(response):
 
 **Testing**: Run `python math_formatting.py` for the built-in 7-test suite covering character-by-character streaming, word-by-word streaming, boundary splits, and edge cases.
 
+### Image Validation
+
+`VISION_CAPABLE_MODELS` is a `frozenset` of 39 model identifiers known to accept image input. `call_llm()` raises `ValueError` if `images` is non-empty and `model_name` is not in this set.
+
+Models in the set span: OpenAI (`gpt-4o`, `gpt-4-turbo`, `o1`, `gpt-4.5-preview`, `gpt-5.1`/`gpt-5.2`), Anthropic Claude 3/3.5/3.7/4/Haiku/Sonnet/Opus variants, Google Gemini (Flash/Pro/2.0/2.5/3.x), Mistral Pixtral, Meta Llama Vision, MiniMax, Qwen VL, Fireworks FireLLaVA, LLaVA-Yi.
+
+To check before calling:
+```python
+from code_common.call_llm import VISION_CAPABLE_MODELS
+if model not in VISION_CAPABLE_MODELS:
+    raise ValueError(f"{model} does not support images")
+```
+
 ### Image Encoding
 
-`_encode_image_reference()` handles:
-- Local paths → base64 data URLs with correct MIME type
+`_encode_image_reference()` handles all image reference types:
+- Local paths → base64 data URLs with correct MIME type (jpg/jpeg, png, webp, gif, tif/tiff)
+- `data:image/jpg;...` → normalized to `data:image/jpeg;...` (Anthropic/OpenRouter reject `image/jpg`)
 - HTTP/HTTPS URLs → pass through
 - Raw base64 → wrap as `data:image/png;base64,...`
 - Data URLs → pass through
 
-MIME type detection from extension: jpg/jpeg, png, webp, gif, tif/tiff.
+`_process_images_in_messages()` applies `_encode_image_reference()` to all `image_url` parts in an OpenAI-style messages array.
 
 ### JSON Extraction
 
@@ -287,9 +373,11 @@ MIME type detection from extension: jpg/jpeg, png, webp, gif, tif/tiff.
 
 ### LLM Error Logging
 
-On exception, `call_chat_model()` writes debug info to `error.json`:
-- Model, text, images, temperature, system
+On exception, `code_common/call_llm.py`'s `call_chat_model()` writes debug info to `error.json`:
+- Model, text, images, temperature, system, keys
 - Error message and timestamp
+
+The root shim's `test_error_replay()` reads this file and replays the call through `call_chat_model()` (which delegates to code_common) for debugging.
 
 ---
 
@@ -328,4 +416,4 @@ except Exception as e:
 
 ### Context Window Exceeded
 
-`call_llm` raises `AssertionError` if estimated tokens > 100K. Reduce input or use larger-context model.
+`call_llm` raises `AssertionError` if estimated tokens exceed the per-model limit (see Token Counting section above). For large inputs, use a model from `CHEAP_LONG_CONTEXT_LLM` or `LONG_CONTEXT_LLM` (limits up to 900K). Unknown models default to 48K.

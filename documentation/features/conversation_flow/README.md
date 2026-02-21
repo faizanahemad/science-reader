@@ -104,7 +104,7 @@ Settings are managed via the **chat-settings-modal** in `interface/interface.htm
 - Stream chunks may also include status-only updates (`text: ""`) to drive UX progress indicators.
 
 ### Math Formatting Pipeline (Backend)
-- LLM streaming responses pass through `stream_with_math_formatting()` (`math_formatting.py`) before reaching `Conversation.reply()`.
+- LLM streaming responses pass through `stream_text_with_math_formatting()` (`math_formatting.py`) before reaching `Conversation.reply()`. This function accepts plain text strings from `code_common/call_llm.py`'s streaming output, and `call_llm.py` (the UI shim) wraps `code_common`'s text chunks before yielding them up the stack.
 - This generator buffers tokens to avoid splitting math delimiters (`\[`, `\]`, `\(`, `\)`) across chunk boundaries.
 - `process_math_formatting()` doubles backslashes (`\[` → `\\[`) so that after markdown processing, MathJax sees the correct `\[` in the DOM.
 - `ensure_display_math_newlines()` inserts `\n` around display math delimiters (`\\[`, `\\]`) to help the frontend breakpoint detector split sections at math boundaries.
@@ -327,5 +327,6 @@ Location: `interface/shared.js`
 - `truth_management_system/interface/structured_api.py` (`resolve_reference` — suffix-based routing, `autocomplete` — all 5 categories)
 - `truth_management_system/crud/entities.py` (`resolve_claims` — entity → linked claims)
 - `truth_management_system/crud/tags.py` (`resolve_claims` — recursive tag → claims)
-- `math_formatting.py` (stream_with_math_formatting, process_math_formatting, ensure_display_math_newlines)
-- `call_llm.py` (CallLLm, call_chat_model — uses math_formatting for streaming)
+- `math_formatting.py` (stream_text_with_math_formatting, stream_with_math_formatting, process_math_formatting, ensure_display_math_newlines)
+- `call_llm.py` (CallLLm, CallMultipleLLM, MockCallLLm — thin shim over `code_common/call_llm.py`; applies math formatting to responses)
+- `code_common/call_llm.py` (call_llm, VISION_CAPABLE_MODELS — core LLM engine used by shim, TMS, and extension)
