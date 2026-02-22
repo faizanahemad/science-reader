@@ -126,6 +126,24 @@ try:
 except ImportError:
     PKB_AVAILABLE = False
 
+
+# =============================================================================
+# OpenCode Integration (optional — opencode_client package)
+# =============================================================================
+try:
+    from opencode_client import OpencodeClient, SSEBridge, SessionManager
+    from opencode_client.config import (
+        OPENCODE_BASE_URL,
+        OPENCODE_DEFAULT_MODEL,
+        OPENCODE_DEFAULT_PROVIDER,
+    )
+    OPENCODE_AVAILABLE = True
+except ImportError:
+    OpencodeClient = None
+    SSEBridge = None
+    SessionManager = None
+    OPENCODE_AVAILABLE = False
+
 # Global PKB database instance (shared across conversations)
 _pkb_db_instance = None
 _pkb_config_instance = None
@@ -4597,6 +4615,656 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
             time.time(),
         )
 
+    # =================================================================
+    # OpenCode integration methods
+    # =================================================================
+
+    def _get_opencode_client(self):
+        """Return a shared OpencodeClient instance, creating one if needed."""
+        if not OPENCODE_AVAILABLE:
+            raise RuntimeError("opencode_client package is not installed")
+        if not hasattr(self, '_opencode_client') or self._opencode_client is None:
+            self._opencode_client = OpencodeClient()
+        return self._opencode_client
+
+    def _get_opencode_session_manager(self):
+        """Return a SessionManager wired to this conversation's settings persistence."""
+        if not hasattr(self, '_opencode_session_manager') or self._opencode_session_manager is None:
+            client = self._get_opencode_client()
+            self._opencode_session_manager = SessionManager(
+                client=client,
+                get_settings_fn=lambda cid: self.get_conversation_settings(),
+                set_settings_fn=lambda cid, s: self.set_conversation_settings(s),
+            )
+        return self._opencode_session_manager
+
+    def _resolve_opencode_model(self, checkboxes, oc_config):
+        """Resolve the OpenCode model to use for this message.
+
+        Priority: per-message checkbox > per-conversation setting > default.
+
+        Parameters
+        ----------
+        checkboxes : dict
+            Per-message checkboxes from the UI.
+        oc_config : dict
+            Per-conversation opencode_config from conversation_settings.
+
+        Returns
+        -------
+        dict or None
+            ``{"providerID": ..., "modelID": ...}`` or None for server default.
+        """
+        model_id = checkboxes.get("opencode_model") or oc_config.get("opencode_model") or OPENCODE_DEFAULT_MODEL
+        provider_id = oc_config.get("opencode_provider") or OPENCODE_DEFAULT_PROVIDER
+        if model_id:
+            return {"providerID": provider_id, "modelID": model_id}
+        return None
+
+    def _build_opencode_system_prompt(self, userData=None):
+        """Build the system prompt for OpenCode sessions.
+
+        Includes user identity and MCP tool usage instructions so the LLM
+        knows how to call PKB and document tools with the correct user_email.
+
+        Parameters
+        ----------
+        userData : dict or None
+            User data dict containing user_email, etc.
+
+        Returns
+        -------
+        str
+            System prompt text.
+        """
+        parts = []
+        user_email = userData.get("user_email", "") if userData else ""
+        if user_email:
+            parts.append(f"You are assisting user with email: {user_email}")
+            parts.append(f"When calling PKB or document MCP tools, pass user_email='{user_email}'.")
+
+        title = self.get_title()
+        if title and title != "Start the Conversation":
+            parts.append(f"Conversation title: {title}")
+
+        parts.append("Provide detailed, well-structured responses. Use markdown formatting.")
+        return "\n".join(parts) if parts else ""
+
+    def _assemble_opencode_context(self, query, injection_level, pkb_context_future=None):
+        """Build context string to inject as a noReply message.
+
+        Parameters
+        ----------
+        query : dict
+            The user's query dict with messageText, checkboxes, etc.
+        injection_level : str
+            'minimal', 'medium', or 'full'.
+        pkb_context_future : Future or None
+            Already-started PKB retrieval future (from reply()).
+
+        Returns
+        -------
+        str or None
+            Context text to send as noReply message, or None if nothing to inject.
+        """
+        parts = []
+
+        # Always include conversation history summary
+        summary = self.running_summary
+        if summary and summary.strip():
+            parts.append(f"[CONVERSATION HISTORY SUMMARY]\n{summary}")
+
+        if injection_level in ("medium", "full"):
+            # PKB context from the already-running future
+            if pkb_context_future is not None:
+                try:
+                    pkb_result = pkb_context_future.result(timeout=30)
+                    if pkb_result and pkb_result.strip():
+                        parts.append(f"[USER'S PERSONAL KNOWLEDGE]\n{pkb_result}")
+                except Exception as e:
+                    logger.warning(f"PKB retrieval failed for OpenCode path: {e}")
+
+        if injection_level == "full":
+            # Memory pad
+            memory_pad = self.memory_pad
+            if memory_pad and str(memory_pad).strip():
+                parts.append(f"[MEMORY PAD]\n{memory_pad}")
+
+        return "\n\n---\n\n".join(parts) if parts else None
+
+    def _reply_via_opencode(self, query, userData, checkboxes, pkb_context_future=None):
+        """Route the reply through OpenCode server instead of direct LLM call.
+
+        This is the core integration point. It:
+        1. Gets or creates an OpenCode session for this conversation
+        2. Assembles context based on injection_level
+        3. Sends system prompt via the session if new
+        4. Sends context as a noReply message if available
+        5. Sends the user message via prompt_async
+        6. Streams SSE events via SSEBridge, translating to Flask format
+        7. Checks cancellation on every event
+        8. Generates TLDR if response is long enough
+        9. Persists the turn
+
+        Parameters
+        ----------
+        query : dict
+            The user's query dict with messageText, checkboxes, etc.
+        userData : dict or None
+            User data dict containing user_email, user_memory, etc.
+        checkboxes : dict
+            Per-message checkboxes from the UI.
+        pkb_context_future : Future or None
+            Already-started PKB retrieval future (from reply()).
+
+        Yields
+        ------
+        dict
+            ``{"text": ..., "status": ...}`` chunks for Flask streaming.
+        """
+        import time as _time
+        oc_start = _time.time()
+
+        yield {"text": "", "status": "Connecting to OpenCode..."}
+
+        try:
+            client = self._get_opencode_client()
+            sm = self._get_opencode_session_manager()
+        except Exception as e:
+            logger.exception("Failed to initialise OpenCode client: %s", e)
+            yield {"text": f"\n\nOpenCode connection failed: {e}", "status": "Error"}
+            return
+
+        # --- Get or create session ---
+        oc_config = self.get_conversation_settings().get("opencode_config", {})
+        try:
+            session_id = sm.get_or_create_session(
+                self.conversation_id,
+                title=self.get_title() or f"Conversation {self.conversation_id[:8]}"
+            )
+            is_new_session = session_id not in (oc_config.get("session_ids") or [])
+            yield {"text": "", "status": f"OpenCode session: {session_id[:12]}..."}
+        except Exception as e:
+            logger.exception("Failed to get/create OpenCode session: %s", e)
+            yield {"text": f"\n\nFailed to create OpenCode session: {e}", "status": "Error"}
+            return
+
+        # --- Resolve model ---
+        model_dict = self._resolve_opencode_model(checkboxes, oc_config)
+
+        # --- Build and send system prompt for new sessions ---
+        system_prompt = self._build_opencode_system_prompt(userData)
+
+        # --- Assemble and inject context ---
+        injection_level = oc_config.get("injection_level", "medium")
+        context_text = self._assemble_opencode_context(
+            query, injection_level, pkb_context_future=pkb_context_future
+        )
+        if context_text:
+            try:
+                yield {"text": "", "status": "Injecting context into OpenCode session..."}
+                client.send_context(
+                    session_id,
+                    text=context_text,
+                    system=system_prompt if system_prompt else None,
+                )
+            except Exception as e:
+                logger.warning("Failed to inject context into OpenCode session: %s", e)
+                yield {"text": "", "status": f"Context injection warning: {e}"}
+
+        # --- Send user message (async — response comes via SSE) ---
+        try:
+            user_parts = [{"type": "text", "text": query["messageText"]}]
+            # Only send system prompt if we didn't already send it with context
+            msg_system = system_prompt if (system_prompt and not context_text) else None
+            client.send_message_async(
+                session_id,
+                parts=user_parts,
+                model=model_dict,
+                system=msg_system,
+            )
+            yield {"text": "", "status": "Message sent to OpenCode, waiting for response..."}
+        except Exception as e:
+            logger.exception("Failed to send message to OpenCode: %s", e)
+            yield {"text": f"\n\nFailed to send message to OpenCode: {e}", "status": "Error"}
+            return
+
+        # --- Stream SSE events via SSEBridge ---
+        yield {"text": "<answer>\n", "status": "Generating response..."}
+        answer = "<answer>\n"
+        bridge = SSEBridge(
+            client=client,
+            session_id=session_id,
+            is_cancelled_fn=self.is_cancelled,
+        )
+
+        for chunk in bridge.stream_response():
+            text_delta = chunk.get("text", "")
+            status = chunk.get("status", "")
+            if text_delta:
+                answer += text_delta
+            yield {"text": text_delta, "status": status}
+
+        # --- Post-processing ---
+        # Apply math formatting to accumulated response
+        try:
+            from math_formatting import ensure_display_math_newlines
+            answer = ensure_display_math_newlines(answer)
+        except ImportError:
+            pass  # math_formatting not available
+        except Exception as e:
+            logger.warning("Math formatting failed in OpenCode path: %s", e)
+
+        # --- TLDR generation for long answers ---
+        answer_content = answer.replace("<answer>", "").replace("</answer>", "").strip()
+        answer_word_count = len(answer_content.split())
+        if answer_word_count > 1000 and not self.is_cancelled():
+            try:
+                yield {"text": "\n\n", "status": "Generating TLDR summary for long answer..."}
+                answer += "\n\n---\n\n"
+                answer += "<answer_tldr>\n"
+                tldr_prompt_formatted = tldr_summary_prompt.format(
+                    query=query["messageText"],
+                    summary=self.running_summary or "No previous conversation summary available.",
+                    answer=answer_content,
+                )
+                tldr_model = self.get_model_override("tldr_model", CHEAP_LONG_CONTEXT_LLM[0])
+                from call_llm import CallLLm
+                tldr_llm = CallLLm(
+                    self.get_api_keys(),
+                    model_name=tldr_model,
+                    use_gpt4=True,
+                    use_16k=True,
+                )
+                tldr_stream = tldr_llm(
+                    tldr_prompt_formatted,
+                    system=tldr_summary_prompt_system,
+                    temperature=0.3,
+                    stream=False,
+                )
+                tldr_wrapped = collapsible_wrapper(
+                    tldr_stream,
+                    header="\ud83d\udcdd TLDR Summary (Quick Read)",
+                    show_initially=False,
+                    add_close_button=True,
+                )
+                tldr_wrapped = convert_stream_to_iterable(tldr_wrapped)
+                yield {"text": tldr_wrapped, "status": "Generating TLDR summary..."}
+                answer += tldr_wrapped
+                answer += "\n</answer_tldr>\n\n"
+            except Exception as e:
+                error_logger.error(f"Error generating TLDR in OpenCode path: {e}")
+
+        # --- Close answer tag ---
+        answer += "</answer>\n"
+        yield {"text": "</answer>\n", "status": "answering ended ..."}
+
+        # --- Persist the turn ---
+        persist_or_not = checkboxes.get("persist_or_not", True)
+        past_message_ids = checkboxes.get("history_message_ids", [])
+        users_dir = query.get("_users_dir", None) if isinstance(query, dict) else None
+        summary_text = self.running_summary
+
+        yield {"text": "", "status": "saving message ..."}
+        get_async_future(
+            self.persist_current_turn,
+            query["messageText"],
+            answer,
+            dict(**checkboxes),
+            "",  # previous_messages_long (not applicable for OpenCode path)
+            summary_text,
+            {},  # new_docs
+            persist_or_not,
+            past_message_ids,
+            users_dir=users_dir,
+            display_attachments=query.get("display_attachments"),
+        )
+
+        # --- Emit message IDs ---
+        message_ids = self.get_message_ids(query["messageText"], answer)
+        yield {
+            "text": "\n\n",
+            "status": "saving answer ...",
+            "message_ids": message_ids,
+        }
+
+        # --- Stats ---
+        oc_elapsed = _time.time() - oc_start
+        time_dict = {
+            "opencode_session_id": session_id,
+            "opencode_model": model_dict.get("modelID", "default") if model_dict else "default",
+            "total_time_to_reply": oc_elapsed,
+            "answer_length_words": answer_word_count,
+            "injection_level": injection_level,
+        }
+        stats = collapsible_wrapper(
+            yaml.dump(time_dict, default_flow_style=False),
+            header="OpenCode reply stats",
+            show_initially=False,
+            add_close_button=False,
+        )
+        for chunk in stats:
+            yield {
+                "text": chunk,
+                "status": "saving answer ...",
+                "message_ids": message_ids,
+            }
+        yield {
+            "text": "\n\n",
+            "status": "saving answer ...",
+            "message_ids": message_ids,
+        }
+
+    # -----------------------------------------------------------------
+    # OpenCode slash command helpers
+    # -----------------------------------------------------------------
+
+    def _opencode_command(self, command_name):
+        """Execute a generic OpenCode slash command and yield the result.
+
+        Parameters
+        ----------
+        command_name : str
+            The command name without leading slash (e.g. 'compact', 'fork').
+
+        Yields
+        ------
+        dict
+            Response chunks.
+        """
+        yield {"text": "", "status": f"Running /{command_name}..."}
+        try:
+            client = self._get_opencode_client()
+            sm = self._get_opencode_session_manager()
+            session_id = sm.get_active_session_id(self.conversation_id)
+            if not session_id:
+                yield {"text": "No active OpenCode session. Send a message first.", "status": "Error"}
+                return
+            result = client.execute_command(session_id, command_name)
+            result_text = json.dumps(result, indent=2) if isinstance(result, dict) else str(result)
+            yield {"text": f"**/{command_name} result:**\n```json\n{result_text}\n```\n", "status": f"/{command_name} complete"}
+        except Exception as e:
+            logger.exception("OpenCode command /%s failed: %s", command_name, e)
+            yield {"text": f"\n\n/{command_name} failed: {e}", "status": "Error"}
+
+    def _opencode_abort(self):
+        """Abort the current OpenCode generation.
+
+        Yields
+        ------
+        dict
+            Response chunks.
+        """
+        yield {"text": "", "status": "Aborting OpenCode generation..."}
+        try:
+            client = self._get_opencode_client()
+            sm = self._get_opencode_session_manager()
+            session_id = sm.get_active_session_id(self.conversation_id)
+            if not session_id:
+                yield {"text": "No active OpenCode session to abort.", "status": "Done"}
+                return
+            client.abort_session(session_id)
+            yield {"text": "OpenCode generation aborted.", "status": "Aborted"}
+        except Exception as e:
+            logger.exception("OpenCode abort failed: %s", e)
+            yield {"text": f"Abort failed: {e}", "status": "Error"}
+
+    def _opencode_new_session(self):
+        """Create a new OpenCode session for this conversation.
+
+        Yields
+        ------
+        dict
+            Response chunks.
+        """
+        yield {"text": "", "status": "Creating new OpenCode session..."}
+        try:
+            sm = self._get_opencode_session_manager()
+            new_id = sm.create_new_session(
+                self.conversation_id,
+                title=self.get_title() or f"Conversation {self.conversation_id[:8]}"
+            )
+            yield {"text": f"New OpenCode session created: `{new_id}`", "status": "Session created"}
+        except Exception as e:
+            logger.exception("Failed to create new OpenCode session: %s", e)
+            yield {"text": f"Failed to create session: {e}", "status": "Error"}
+
+    def _opencode_list_sessions(self):
+        """List all OpenCode sessions for this conversation.
+
+        Yields
+        ------
+        dict
+            Response chunks.
+        """
+        yield {"text": "", "status": "Listing OpenCode sessions..."}
+        try:
+            sm = self._get_opencode_session_manager()
+            sessions = sm.list_sessions_for_conversation(self.conversation_id)
+            if not sessions:
+                yield {"text": "No OpenCode sessions for this conversation.", "status": "Done"}
+                return
+            lines = ["**OpenCode Sessions:**\n"]
+            for s in sessions:
+                active_marker = " \u2705 (active)" if s.get("is_active") else ""
+                title = s.get("title", "Untitled")
+                sid = s.get("id", "unknown")
+                lines.append(f"- `{sid[:12]}...` \u2014 {title}{active_marker}")
+            yield {"text": "\n".join(lines) + "\n", "status": "Sessions listed"}
+        except Exception as e:
+            logger.exception("Failed to list OpenCode sessions: %s", e)
+            yield {"text": f"Failed to list sessions: {e}", "status": "Error"}
+
+    def _opencode_summarize(self):
+        """Summarize the current OpenCode session.
+
+        Yields
+        ------
+        dict
+            Response chunks.
+        """
+        yield {"text": "", "status": "Summarizing OpenCode session..."}
+        try:
+            client = self._get_opencode_client()
+            sm = self._get_opencode_session_manager()
+            session_id = sm.get_active_session_id(self.conversation_id)
+            if not session_id:
+                yield {"text": "No active OpenCode session to summarize.", "status": "Error"}
+                return
+            oc_config = self.get_conversation_settings().get("opencode_config", {})
+            model_dict = self._resolve_opencode_model({}, oc_config)
+            provider_id = model_dict.get("providerID", OPENCODE_DEFAULT_PROVIDER) if model_dict else OPENCODE_DEFAULT_PROVIDER
+            model_id = model_dict.get("modelID", OPENCODE_DEFAULT_MODEL) if model_dict else OPENCODE_DEFAULT_MODEL
+            client.summarize_session(session_id, provider_id, model_id)
+            yield {"text": "OpenCode session summarized for context compaction.", "status": "Summarized"}
+        except Exception as e:
+            logger.exception("OpenCode summarize failed: %s", e)
+            yield {"text": f"Summarize failed: {e}", "status": "Error"}
+
+    def _opencode_status(self):
+        """Show the current OpenCode session status.
+
+        Yields
+        ------
+        dict
+            Response chunks.
+        """
+        yield {"text": "", "status": "Getting OpenCode status..."}
+        try:
+            client = self._get_opencode_client()
+            sm = self._get_opencode_session_manager()
+            session_id = sm.get_active_session_id(self.conversation_id)
+            health = client.health_check()
+            status_data = client.get_session_status()
+            lines = ["**OpenCode Status:**\n"]
+            lines.append(f"- Server: {health.get('version', 'unknown')}")
+            lines.append(f"- Active session: `{session_id or 'none'}`")
+            if session_id and isinstance(status_data, dict):
+                session_status = status_data.get(session_id, "unknown")
+                lines.append(f"- Session status: {session_status}")
+            yield {"text": "\n".join(lines) + "\n", "status": "Status retrieved"}
+        except Exception as e:
+            logger.exception("OpenCode status failed: %s", e)
+            yield {"text": f"Status check failed: {e}", "status": "Error"}
+
+    def _opencode_diff(self):
+        """Show file changes in the current OpenCode session.
+
+        Yields
+        ------
+        dict
+            Response chunks.
+        """
+        yield {"text": "", "status": "Getting OpenCode diff..."}
+        try:
+            client = self._get_opencode_client()
+            sm = self._get_opencode_session_manager()
+            session_id = sm.get_active_session_id(self.conversation_id)
+            if not session_id:
+                yield {"text": "No active OpenCode session.", "status": "Error"}
+                return
+            diffs = client.get_session_diff(session_id)
+            if not diffs:
+                yield {"text": "No file changes in this session.", "status": "Done"}
+                return
+            lines = ["**File Changes:**\n"]
+            for d in diffs:
+                path = d.get("path", "unknown")
+                status = d.get("status", "modified")
+                lines.append(f"- `{path}` ({status})")
+            yield {"text": "\n".join(lines) + "\n", "status": "Diff retrieved"}
+        except Exception as e:
+            logger.exception("OpenCode diff failed: %s", e)
+            yield {"text": f"Diff failed: {e}", "status": "Error"}
+
+    def _opencode_revert(self):
+        """Revert the last message in the current OpenCode session.
+
+        Yields
+        ------
+        dict
+            Response chunks.
+        """
+        yield {"text": "", "status": "Reverting last OpenCode message..."}
+        try:
+            client = self._get_opencode_client()
+            sm = self._get_opencode_session_manager()
+            session_id = sm.get_active_session_id(self.conversation_id)
+            if not session_id:
+                yield {"text": "No active OpenCode session.", "status": "Error"}
+                return
+            # Get the last message to revert
+            messages = client.get_messages(session_id, limit=1)
+            if not messages:
+                yield {"text": "No messages to revert.", "status": "Done"}
+                return
+            last_msg = messages[-1] if isinstance(messages, list) else messages
+            msg_id = last_msg.get("id", "") if isinstance(last_msg, dict) else ""
+            if msg_id:
+                client.revert_message(session_id, msg_id)
+                yield {"text": f"Reverted message `{msg_id[:12]}...`", "status": "Reverted"}
+            else:
+                yield {"text": "Could not determine last message ID.", "status": "Error"}
+        except Exception as e:
+            logger.exception("OpenCode revert failed: %s", e)
+            yield {"text": f"Revert failed: {e}", "status": "Error"}
+
+    def _opencode_mcp_status(self):
+        """Show MCP server status.
+
+        Yields
+        ------
+        dict
+            Response chunks.
+        """
+        yield {"text": "", "status": "Getting MCP status..."}
+        try:
+            client = self._get_opencode_client()
+            mcp_status = client.get_mcp_status()
+            status_text = json.dumps(mcp_status, indent=2) if isinstance(mcp_status, dict) else str(mcp_status)
+            yield {"text": f"**MCP Server Status:**\n```json\n{status_text}\n```\n", "status": "MCP status retrieved"}
+        except Exception as e:
+            logger.exception("OpenCode MCP status failed: %s", e)
+            yield {"text": f"MCP status failed: {e}", "status": "Error"}
+
+    def _opencode_models(self):
+        """Show available models from OpenCode providers.
+
+        Yields
+        ------
+        dict
+            Response chunks.
+        """
+        yield {"text": "", "status": "Getting available models..."}
+        try:
+            client = self._get_opencode_client()
+            providers = client.get_providers()
+            providers_text = json.dumps(providers, indent=2) if isinstance(providers, dict) else str(providers)
+            yield {"text": f"**Available Models:**\n```json\n{providers_text}\n```\n", "status": "Models listed"}
+        except Exception as e:
+            logger.exception("OpenCode models failed: %s", e)
+            yield {"text": f"Models listing failed: {e}", "status": "Error"}
+
+    def _opencode_help(self):
+        """Show available OpenCode slash commands.
+
+        Yields
+        ------
+        dict
+            Response chunks.
+        """
+        help_text = """**OpenCode Commands:**
+
+| Command | Description |
+| ------- | ----------- |
+| `/compact` | Compress session context to save tokens |
+| `/abort` | Stop current generation |
+| `/new` | Create new OpenCode session |
+| `/sessions` | List all sessions for this conversation |
+| `/fork` | Branch conversation from current point |
+| `/summarize` | Summarize session to reduce context |
+| `/status` | Show OpenCode session status |
+| `/diff` | Show file changes in this session |
+| `/revert` | Undo last message |
+| `/mcp` | Show MCP server status |
+| `/models` | Show available models |
+| `/help` | Show this help |
+
+Any other `/command` is passed through to OpenCode directly.
+"""
+        yield {"text": help_text, "status": "Help displayed"}
+
+    def _opencode_passthrough_command(self, msg_text):
+        """Pass an unknown slash command through to OpenCode.
+
+        Parameters
+        ----------
+        msg_text : str
+            The full message text starting with /.
+
+        Yields
+        ------
+        dict
+            Response chunks.
+        """
+        parts = msg_text.lstrip("/").split(None, 1)
+        command_name = parts[0] if parts else msg_text.lstrip("/")
+        arguments = parts[1] if len(parts) > 1 else ""
+
+        yield {"text": "", "status": f"Passing /{command_name} to OpenCode..."}
+        try:
+            client = self._get_opencode_client()
+            sm = self._get_opencode_session_manager()
+            session_id = sm.get_active_session_id(self.conversation_id)
+            if not session_id:
+                yield {"text": "No active OpenCode session. Send a message first.", "status": "Error"}
+                return
+            result = client.execute_command(session_id, command_name, arguments=arguments)
+            result_text = json.dumps(result, indent=2) if isinstance(result, dict) else str(result)
+            yield {"text": f"**/{command_name} result:**\n```json\n{result_text}\n```\n", "status": f"/{command_name} complete"}
+        except Exception as e:
+            logger.exception("OpenCode passthrough command /%s failed: %s", command_name, e)
+            yield {"text": f"\n\n/{command_name} failed: {e}", "status": "Error"}
     # Add this method to the Conversation class
     def is_cancelled(self):
         """Check if this conversation has been cancelled"""
@@ -5918,6 +6586,52 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             )
             persist_or_not = False
             yield {"text": "", "status": "Temporary mode enabled ..."}
+
+
+        # =================================================================
+        # OpenCode routing — check if this message should go via OpenCode
+        # =================================================================
+        opencode_for_this_message = checkboxes.get("opencode_enabled", False)
+        oc_config = self.get_conversation_settings().get("opencode_config", {})
+        opencode_always = oc_config.get("always_enabled", False)
+        _opencode_active = (opencode_for_this_message or opencode_always) and OPENCODE_AVAILABLE
+
+        if _opencode_active:
+            # --- OpenCode slash command routing ---
+            # Known OpenCode commands are handled by dedicated helper methods.
+            # Unknown slash commands are passed through to OpenCode.
+            # /title and /temp are already handled above (always local).
+            opencode_commands = {
+                "/compact": lambda: self._opencode_command("compact"),
+                "/abort": lambda: self._opencode_abort(),
+                "/new": lambda: self._opencode_new_session(),
+                "/sessions": lambda: self._opencode_list_sessions(),
+                "/fork": lambda: self._opencode_command("fork"),
+                "/summarize": lambda: self._opencode_summarize(),
+                "/status": lambda: self._opencode_status(),
+                "/diff": lambda: self._opencode_diff(),
+                "/revert": lambda: self._opencode_revert(),
+                "/mcp": lambda: self._opencode_mcp_status(),
+                "/models": lambda: self._opencode_models(),
+                "/help": lambda: self._opencode_help(),
+            }
+            msg_text = query["messageText"].strip()
+            cmd_word = msg_text.split()[0] if msg_text.startswith("/") else None
+
+            if cmd_word and cmd_word in opencode_commands:
+                yield from opencode_commands[cmd_word]()
+                return
+            elif cmd_word and cmd_word.startswith("/") and cmd_word not in ("/title", "/set_title", "/temp", "/temporary"):
+                # Unknown slash command — pass through to OpenCode as-is
+                yield from self._opencode_passthrough_command(msg_text)
+                return
+
+            # --- Normal message routing via OpenCode ---
+            yield from self._reply_via_opencode(
+                query, userData, checkboxes,
+                pkb_context_future=pkb_context_future
+            )
+            return
 
         yield {"text": "", "status": "Getting attached docs for summary if present ..."}
         attached_docs_for_summary = (

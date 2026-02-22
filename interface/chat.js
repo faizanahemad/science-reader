@@ -328,6 +328,87 @@ function chat_interface_readiness() {
         $('#settings-summary-model').trigger('focus');
     });
 
+    // --- OpenCode Settings Modal ---
+    $('#settings-opencode-modal-open-button').click(function() {
+        if (!ConversationManager.activeConversationId) {
+            showToast('Select a conversation first', 'warning');
+            return;
+        }
+        loadOpencodeSettings(ConversationManager.activeConversationId);
+        $('#opencode-settings-modal').modal('show');
+    });
+
+    $('#opencode-settings-save-button').click(function() {
+        var conversationId = ConversationManager.activeConversationId;
+        if (!conversationId) return;
+
+        var settings = {
+            opencode_config: {
+                always_enabled: $('#opencode-always-enabled').is(':checked'),
+                injection_level: $('#opencode-injection-level').val()
+            }
+        };
+
+        $.ajax({
+            url: '/set_conversation_settings/' + conversationId,
+            method: 'PUT',
+            contentType: 'application/json',
+            data: JSON.stringify(settings),
+            success: function() {
+                showToast('OpenCode settings saved', 'success');
+                $('#opencode-settings-modal').modal('hide');
+            },
+            error: function() {
+                showToast('Failed to save settings', 'error');
+            }
+        });
+    });
+
+    // New Session button
+    $('#opencode-new-session-button').click(function() {
+        showToast('Send /new in chat to create a new OpenCode session', 'info');
+    });
+
+    // Open Terminal from settings modal
+    $('#opencode-open-terminal-button').click(function() {
+        $('#opencode-settings-modal').modal('hide');
+        $('#opencode-terminal-modal').modal('show');
+    });
+
+    // --- OpenCode Terminal Modal ---
+    $('#settings-opencode-terminal-button').click(function() {
+        $('#chat-settings-modal').modal('hide');
+        $('#opencode-terminal-modal').modal('show');
+    });
+
+    // Lazy-load xterm.js and connect on modal show
+    $('#opencode-terminal-modal').on('shown.bs.modal', function() {
+        loadXtermScripts(function() {
+            if (!OpencodeTerminal.isInitialized()) {
+                OpencodeTerminal.init('opencode-terminal-container');
+            }
+            OpencodeTerminal.connect();
+            OpencodeTerminal.fit();
+            OpencodeTerminal.focus();
+        });
+    });
+
+    $('#opencode-terminal-modal').on('hidden.bs.modal', function() {
+        OpencodeTerminal.disconnect();
+    });
+
+    // Open terminal in new tab
+    $('#opencode-terminal-newtab').click(function() {
+        window.open('/terminal', '_blank');
+    });
+
+    // Handle resize while terminal modal is open
+    $(window).on('resize', function() {
+        if ($('#opencode-terminal-modal').hasClass('show')) {
+            OpencodeTerminal.fit();
+        }
+    });
+
     // Handle escape key
     $(document).keydown(function(e) {
         if (e.keyCode === 27 && $('#chat-settings-modal').hasClass('show')) { // ESC key
@@ -737,6 +818,55 @@ function saveConversationModelOverrides(conversationId) {
             showToast('Failed to save model overrides', 'error');
         }
     });
+}
+
+/**
+ * Load OpenCode settings for a conversation into the settings modal.
+ * Fetches current opencode_config from conversation settings endpoint.
+ *
+ * @param {string} conversationId - The conversation to load settings for
+ */
+function loadOpencodeSettings(conversationId) {
+    $.get('/get_conversation_settings/' + conversationId, function(data) {
+        var oc = (data.settings || {}).opencode_config || {};
+        $('#opencode-always-enabled').prop('checked', oc.always_enabled || false);
+        $('#opencode-injection-level').val(oc.injection_level || 'medium');
+        $('#opencode-session-id').text(oc.active_session_id || 'None');
+        $('#opencode-session-count').text((oc.session_ids || []).length);
+    });
+}
+
+/**
+ * Lazy-load xterm.js core + addons from CDN, then load opencode-terminal.js.
+ * Avoids adding load time to main page — scripts only fetched when terminal modal opens.
+ *
+ * @param {Function} callback - Called after all scripts are loaded
+ */
+function loadXtermScripts(callback) {
+    if (window.Terminal) { callback(); return; }
+    var link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = 'https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css';
+    document.head.appendChild(link);
+    var script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js';
+    script.onload = function() {
+        var fit = document.createElement('script');
+        fit.src = 'https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js';
+        fit.onload = function() {
+            var weblinks = document.createElement('script');
+            weblinks.src = 'https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.min.js';
+            weblinks.onload = function() {
+                var termjs = document.createElement('script');
+                termjs.src = '/interface/opencode-terminal.js';
+                termjs.onload = callback;
+                document.head.appendChild(termjs);
+            };
+            document.head.appendChild(weblinks);
+        };
+        document.head.appendChild(fit);
+    };
+    document.head.appendChild(script);
 }
 
 var DEFAULT_MODEL_OVERRIDES = {};

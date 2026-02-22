@@ -285,9 +285,46 @@ def set_conversation_settings(conversation_id: str):
                 code="invalid_model",
             )
 
+    # --- opencode_config (optional) ---
+    opencode_config = payload.get("opencode_config")
+    if opencode_config is not None:
+        if not isinstance(opencode_config, dict):
+            return json_error(
+                "opencode_config must be an object",
+                status=400,
+                code="invalid_settings",
+            )
+        _valid_injection = {"minimal", "medium", "full"}
+        validated_oc: dict = {}
+        validated_oc["always_enabled"] = bool(
+            opencode_config.get("always_enabled", False)
+        )
+        inj = opencode_config.get("injection_level", "medium")
+        if inj not in _valid_injection:
+            return json_error(
+                f"injection_level must be one of {_valid_injection}",
+                status=400,
+                code="invalid_settings",
+            )
+        validated_oc["injection_level"] = inj
+        sess_ids = opencode_config.get("session_ids", [])
+        if not isinstance(sess_ids, list):
+            return json_error(
+                "session_ids must be a list",
+                status=400,
+                code="invalid_settings",
+            )
+        validated_oc["session_ids"] = sess_ids
+        validated_oc["active_session_id"] = opencode_config.get(
+            "active_session_id"
+        )
+    else:
+        validated_oc = None
     existing = conversation.get_conversation_settings()
     updated = dict(existing) if isinstance(existing, dict) else {}
     updated["model_overrides"] = normalized_overrides
+    if validated_oc is not None:
+        updated["opencode_config"] = validated_oc
     conversation.set_conversation_settings(updated, overwrite=True)
     return jsonify({"conversation_id": conversation_id, "settings": updated})
 

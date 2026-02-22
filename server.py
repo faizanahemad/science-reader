@@ -21,6 +21,7 @@ import platform
 import sys
 from datetime import timedelta
 from typing import Optional
+import requests as _requests
 
 # Ensure local, sibling modules (e.g. `extensions.py`) are importable even when
 # the server is launched from outside the repo root or imported via a package
@@ -45,6 +46,40 @@ sys.setrecursionlimit(sys.getrecursionlimit() * 16)
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+# --- OpenCode integration -------------------------------------------------
+OPENCODE_AVAILABLE: bool = False
+
+try:
+    from opencode_client.config import OPENCODE_BASE_URL as _OPENCODE_BASE_URL
+except Exception:
+    _OPENCODE_BASE_URL = "http://localhost:4096"
+
+
+def _check_opencode_health() -> bool:
+    """
+    Probe the OpenCode server health endpoint.
+
+    Returns True if reachable, False otherwise.  Updates the module-level
+    ``OPENCODE_AVAILABLE`` flag so other modules can check availability at
+    import time.
+    """
+    global OPENCODE_AVAILABLE
+    health_url = f"{_OPENCODE_BASE_URL.rstrip('/')}/global/health"
+    try:
+        resp = _requests.get(health_url, timeout=3)
+        if resp.ok:
+            logger.info("OpenCode server is available at %s", _OPENCODE_BASE_URL)
+            OPENCODE_AVAILABLE = True
+            return True
+    except Exception:
+        pass
+    logger.warning(
+        "OpenCode server not available at %s — OpenCode features will be disabled",
+        _OPENCODE_BASE_URL,
+    )
+    OPENCODE_AVAILABLE = False
+    return False
 
 
 class FlaskJSONProvider(JSONProvider):
@@ -355,6 +390,7 @@ def create_app(argv: Optional[list[str]] = None) -> Flask:
     # Register all endpoint groups
     register_blueprints(app)
 
+
     return app
 
 
@@ -367,6 +403,28 @@ def main(argv: Optional[list[str]] = None) -> int:
     from endpoints.auth import cleanup_tokens
 
     cleanup_tokens()
+
+    from mcp_server import (
+        start_mcp_server,
+        start_pkb_mcp_server,
+        start_docs_mcp_server,
+        start_artefacts_mcp_server,
+        start_conversation_mcp_server,
+        start_prompts_actions_mcp_server,
+        start_code_runner_mcp_server,
+    )
+
+    start_mcp_server()
+    start_pkb_mcp_server()
+    start_docs_mcp_server()
+    start_artefacts_mcp_server()
+    start_conversation_mcp_server()
+    start_prompts_actions_mcp_server()
+    start_code_runner_mcp_server()
+
+
+    # Check OpenCode server availability (non-blocking, just logs status)
+    _check_opencode_health()
     app.run(host="0.0.0.0", port=5000, threaded=True)
     return 0
 

@@ -47,6 +47,13 @@ def register_blueprints(app: Flask) -> None:
     from .ext_scripts import ext_scripts_bp
     from .ext_workflows import ext_workflows_bp
     from .ext_settings import ext_settings_bp
+    # OpenCode terminal (WebSocket-based PTY)
+    try:
+        from .terminal import terminal_bp, sock as terminal_sock
+        app.register_blueprint(terminal_bp)
+        terminal_sock.init_app(app)
+    except ImportError:
+        pass  # endpoints/terminal.py not created yet
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(static_bp)

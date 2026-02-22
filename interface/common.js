@@ -4246,6 +4246,7 @@ function getOptions(parentElementId, type) {
         only_slides: $('#settings-only-slides').is(':checked'),
         render_close_to_source: $('#settings-render-close-to-source').is(':checked'),
         use_pkb: $('#settings-use_pkb').length ? $('#settings-use_pkb').is(':checked') : true,
+        opencode_enabled: $('#settings-enable_opencode').length ? $('#settings-enable_opencode').is(':checked') : false,
     };
     let speedValue = $("#depthSelector").length ? $("#depthSelector").val() : ($("#settings-depthSelector").val() || '2');
     values['provide_detailed_answers'] = speedValue;

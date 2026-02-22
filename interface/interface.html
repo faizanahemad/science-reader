@@ -2052,6 +2052,14 @@
                                         </div>
                                     </div>
                                     <div class="col-md-3">
+                                        <div class="form-check mb-2">
+                                            <input class="form-check-input" id="settings-enable_opencode" type="checkbox">
+                                            <label class="form-check-label" for="settings-enable_opencode">
+                                                <strong style="color:#6f42c1;">⚡ OpenCode</strong>
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
                                         <div class="form-check mb-2" style="display:none;">
                                             <input class="form-check-input" id="settings-enable_planner" type="checkbox">
                                             <label class="form-check-label" for="settings-enable_planner">Planner</label>
@@ -2176,6 +2184,16 @@
                                     <div class="col">
                                         <button class="btn btn-outline-primary btn-sm rounded-pill w-100" id="settings-model-overrides-modal-open-button">
                                             <i class="bi bi-sliders"></i> Model Overrides
+                                        </button>
+                                    </div>
+                                    <div class="col">
+                                        <button class="btn btn-outline-primary btn-sm rounded-pill w-100" id="settings-opencode-modal-open-button">
+                                            <i class="bi bi-terminal"></i> OpenCode
+                                        </button>
+                                    </div>
+                                    <div class="col">
+                                        <button class="btn btn-outline-info btn-sm rounded-pill w-100" id="settings-opencode-terminal-button" title="Open OpenCode Terminal">
+                                            <i class="bi bi-terminal"></i> Terminal
                                         </button>
                                     </div>
                                 </div>
@@ -2418,6 +2436,95 @@ greet("World");</code></pre>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
                     <button type="button" class="btn btn-primary" id="settings-model-overrides-save-button">Save Overrides</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- OpenCode Settings Modal -->
+    <div id="opencode-settings-modal" class="modal fade" tabindex="-1" aria-hidden="true" style="z-index: 1070;">
+        <div class="modal-dialog modal-md">
+            <div class="modal-content">
+                <div class="modal-header" style="background: #6f42c1; color: #fff;">
+                    <h5 class="modal-title"><i class="bi bi-terminal"></i> OpenCode Settings</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close" style="color: #fff;">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <!-- Always use OpenCode toggle -->
+                    <div class="form-group">
+                        <div class="form-check">
+                            <input class="form-check-input" id="opencode-always-enabled" type="checkbox">
+                            <label class="form-check-label" for="opencode-always-enabled">
+                                <strong>Always use OpenCode</strong>
+                            </label>
+                        </div>
+                        <small class="form-text text-muted">When enabled, all messages in this conversation will be routed through OpenCode.</small>
+                    </div>
+                    <!-- Context Injection Level -->
+                    <div class="form-group">
+                        <label for="opencode-injection-level"><strong>Context Injection Level</strong></label>
+                        <select class="form-control" id="opencode-injection-level">
+                            <option value="minimal">Minimal</option>
+                            <option value="medium" selected>Medium</option>
+                            <option value="full">Full</option>
+                        </select>
+                        <small class="form-text text-muted">Controls how much conversation context is injected into OpenCode prompts.</small>
+                    </div>
+                    <!-- Session Info -->
+                    <hr>
+                    <h6 class="text-primary mb-2"><i class="bi bi-info-circle"></i> Session Info</h6>
+                    <div class="form-group">
+                        <label><strong>Current Session ID</strong></label>
+                        <input type="text" class="form-control form-control-sm" id="opencode-session-id" readonly placeholder="No active session">
+                    </div>
+                    <div class="form-group">
+                        <label><strong>Session Count</strong></label>
+                        <input type="text" class="form-control form-control-sm" id="opencode-session-count" readonly value="0">
+                    </div>
+                    <!-- Action Buttons -->
+                    <div class="d-flex mt-3">
+                        <button class="btn btn-outline-primary btn-sm mr-2" id="opencode-new-session-button">
+                            <i class="bi bi-plus-circle"></i> New Session
+                        </button>
+                        <button class="btn btn-outline-info btn-sm" id="opencode-open-terminal-button">
+                            <i class="bi bi-terminal"></i> Open Terminal
+                        </button>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
+                    <button type="button" class="btn btn-primary" id="opencode-settings-save-button">Save Settings</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- OpenCode Terminal Modal (fullscreen) -->
+    <div id="opencode-terminal-modal" class="modal fade" tabindex="-1" role="dialog"
+         style="z-index: 1080;" data-backdrop="static" data-keyboard="false">
+        <div class="modal-dialog" role="document"
+             style="max-width: 95vw; margin: 2vh auto;">
+            <div class="modal-content" style="height: 90vh; background: #1e1e2e;">
+                <div class="modal-header py-1" style="background: #313244; border-bottom: 1px solid #45475a;">
+                    <h6 class="modal-title" style="color: #cdd6f4;">
+                        <i class="bi bi-terminal" style="color: #89b4fa;"></i> OpenCode Terminal
+                    </h6>
+                    <div>
+                        <button class="btn btn-sm btn-outline-light mr-2" id="opencode-terminal-newtab"
+                                title="Open in new tab" style="font-size: 0.75rem;">
+                            <i class="bi bi-box-arrow-up-right"></i>
+                        </button>
+                        <button type="button" class="close" data-dismiss="modal"
+                                style="color: #cdd6f4;" aria-label="Close">
+                            <span aria-hidden="true">&times;</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="modal-body p-0" style="height: calc(100% - 40px);">
+                    <div id="opencode-terminal-container"
+                         style="width: 100%; height: 100%;"></div>
                 </div>
             </div>
         </div>

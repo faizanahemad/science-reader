@@ -14,6 +14,7 @@ If you are new to the codebase, start with:
 
 ## Product
 - `product/ops/`: deployment + ops runbooks
+  - `product/ops/mcp_server_setup.md`: MCP server setup — JWT auth, token generation, OpenCode/Claude Code client config, nginx reverse proxy, troubleshooting
 - `product/behavior/`: product behavior notes and context
 
 ## Features
@@ -35,6 +36,8 @@ If you are new to the codebase, start with:
 - `features/rendering_performance/`: rendering speed optimizations — MathJax priority for last card, deferred MathJax, immediate callbacks for showMore/buttons
 - `features/math_streaming_reflow_fix/`: math equation reflow prevention during streaming — display math breakpoint detection (`\\[...\\]` and `$$`), math-aware render gating, min-height stabilization, over-indented list normalization; includes backend `ensure_display_math_newlines()` and frontend `isInsideDisplayMath()`, `normalizeOverIndentedLists()`
 - `features/global_docs/`: Global Documents — index once, use everywhere. `#gdoc_N` / `#global_doc_N` / `"display name"` reference syntax, user-scoped global doc library, CRUD via UI modal with drag-and-drop upload and XHR progress, promote conversation docs to global, 7 REST endpoints (`/global_docs/*` including `/serve` for PDF viewer), DB table `GlobalDocuments`, storage at `storage/global_docs/{user_hash}/`, reply flow integration in Conversation.py with quoted display-name matching, full-height PDF viewing via `showPDF()` reuse, DocIndex fallback in download for stale source paths
+- `features/mcp_web_search_server/`: MCP Web Search Server — exposes 3 search agents (Perplexity, Jina, Interleaved deep search) and 2 page-reader tools (`jina_read_page` via Jina Reader API, `read_link` via `download_link_data` for web pages/PDFs/images/YouTube) as MCP tools over streamable-HTTP transport for external coding assistants (OpenCode, Claude Code). JWT bearer-token auth via Starlette middleware, per-token rate limiting, daemon thread alongside Flask on port 8100, `python -m mcp_server.auth` CLI for token generation, nginx reverse proxy config. Key files: `mcp_server/__init__.py`, `mcp_server/auth.py`, `mcp_server/mcp_app.py`. Plan: `planning/plans/mcp_web_search_server.plan.md`
+- `features/opencode_integration/`: OpenCode Integration — routes chat messages through `opencode serve` for agentic capabilities (tool use, MCP, multi-step planning). SSE bridge translates OpenCode events to Flask streaming format. PKB and Documents exposed as MCP tools (ports 8101, 8102). `noReply` context injection, per-conversation OpenCode sessions, configurable injection levels (minimal/medium/full). Plan: `planning/plans/opencode_integration.plan.md`
 
 ## APIs
 - `api/internal/`: internal API docs and route summaries

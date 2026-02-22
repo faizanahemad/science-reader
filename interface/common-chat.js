@@ -3958,3 +3958,285 @@ function initializeChatControlsToggleHandler() {
         setTimeout(initAutocomplete, 500);
     });
 })();
+
+
+// =============================================================================
+// Slash Command Autocomplete (OpenCode)
+// Provides inline autocomplete for /command references in chat input.
+// Triggered after typing '/' followed by 3+ characters when OpenCode is enabled.
+// =============================================================================
+(function initSlashAutocomplete() {
+    'use strict';
+
+    var OPENCODE_COMMANDS = [
+        { command: 'compact', description: 'Compress session context to save tokens', icon: 'bi-arrows-collapse' },
+        { command: 'abort', description: 'Stop current generation', icon: 'bi-stop-circle' },
+        { command: 'new', description: 'Create new OpenCode session', icon: 'bi-plus-circle' },
+        { command: 'sessions', description: 'List all sessions for this conversation', icon: 'bi-list' },
+        { command: 'fork', description: 'Branch conversation from current point', icon: 'bi-diagram-2' },
+        { command: 'summarize', description: 'Summarize session to reduce context', icon: 'bi-file-text' },
+        { command: 'status', description: 'Show OpenCode session status', icon: 'bi-info-circle' },
+        { command: 'diff', description: 'Show file changes in this session', icon: 'bi-file-diff' },
+        { command: 'revert', description: 'Undo last message', icon: 'bi-arrow-counterclockwise' },
+        { command: 'mcp', description: 'Show MCP server status', icon: 'bi-hdd-network' },
+        { command: 'models', description: 'Show available models', icon: 'bi-cpu' },
+        { command: 'help', description: 'Show available commands', icon: 'bi-question-circle' }
+    ];
+
+    var slashState = {
+        active: false,
+        query: '',
+        slashPosition: -1,
+        selectedIndex: 0,
+        results: []
+    };
+
+    /**
+     * Initialize the slash command autocomplete widget.
+     * Creates the dropdown container and binds events to the message textarea.
+     */
+    function initAutocomplete() {
+        // Create dropdown container if it doesn't exist
+        if ($('#slash-autocomplete-dropdown').length === 0) {
+            var dropdownHtml = '<div id="slash-autocomplete-dropdown" ' +
+                'style="display:none; position:absolute; z-index:1100; ' +
+                'background:white; border:1px solid #dee2e6; border-radius:6px; ' +
+                'box-shadow:0 4px 12px rgba(0,0,0,0.15); max-height:240px; ' +
+                'overflow-y:auto; min-width:300px; max-width:500px;">' +
+                '</div>';
+            $('body').append(dropdownHtml);
+        }
+
+        var $textarea = $('#messageText');
+        if ($textarea.length === 0) return;
+
+        // Bind input event for detecting / and typing
+        $textarea.on('input.slashAutocomplete', function() {
+            handleSlashInput(this);
+        });
+
+        // Bind keydown for navigation (up/down/enter/escape/tab)
+        $textarea.on('keydown.slashAutocomplete', function(e) {
+            if (!slashState.active) return;
+
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                navigateSlashAutocomplete(1);
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                navigateSlashAutocomplete(-1);
+            } else if (e.key === 'Enter' || e.key === 'Tab') {
+                if (slashState.results.length > 0) {
+                    e.preventDefault();
+                    selectSlashItem(slashState.selectedIndex);
+                }
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                hideSlashAutocomplete();
+            }
+        });
+
+        // Hide on blur (with small delay for click handling)
+        $textarea.on('blur.slashAutocomplete', function() {
+            setTimeout(function() {
+                hideSlashAutocomplete();
+            }, 200);
+        });
+
+        // Handle clicks on autocomplete items
+        $(document).on('mousedown', '#slash-autocomplete-dropdown .slash-ac-item', function(e) {
+            e.preventDefault();
+            var index = parseInt($(this).data('index'));
+            selectSlashItem(index);
+        });
+    }
+
+    /**
+     * Handle input changes in the textarea.
+     * Detects / character and filters commands by prefix.
+     */
+    function handleSlashInput(textarea) {
+        // Only active when OpenCode is enabled
+        if (!$('#settings-enable_opencode').is(':checked')) {
+            hideSlashAutocomplete();
+            return;
+        }
+
+        var text = textarea.value;
+        var cursorPos = textarea.selectionStart;
+
+        // Find the / character before cursor
+        var textBeforeCursor = text.substring(0, cursorPos);
+        var lastSlashIndex = textBeforeCursor.lastIndexOf('/');
+
+        if (lastSlashIndex === -1) {
+            hideSlashAutocomplete();
+            return;
+        }
+
+        // Check if / is at start or preceded by whitespace (not part of a URL)
+        if (lastSlashIndex > 0 && !/\s/.test(text.charAt(lastSlashIndex - 1))) {
+            hideSlashAutocomplete();
+            return;
+        }
+
+        // Get the text between / and cursor
+        var prefix = textBeforeCursor.substring(lastSlashIndex + 1);
+
+        // Must not contain spaces (single command token)
+        if (/\s/.test(prefix)) {
+            hideSlashAutocomplete();
+            return;
+        }
+
+        // Need at least 3 characters after /
+        if (prefix.length < 3) {
+            hideSlashAutocomplete();
+            return;
+        }
+
+        // Filter commands by prefix (case-insensitive)
+        var lowerPrefix = prefix.toLowerCase();
+        var filtered = OPENCODE_COMMANDS.filter(function(cmd) {
+            return cmd.command.indexOf(lowerPrefix) === 0;
+        });
+
+        slashState.slashPosition = lastSlashIndex;
+        slashState.query = prefix;
+        slashState.results = filtered;
+        slashState.selectedIndex = 0;
+
+        if (filtered.length > 0) {
+            showSlashAutocomplete(textarea);
+        } else {
+            hideSlashAutocomplete();
+        }
+    }
+
+    /**
+     * Show the slash autocomplete dropdown positioned near the textarea.
+     */
+    function showSlashAutocomplete(textarea) {
+        var $dropdown = $('#slash-autocomplete-dropdown');
+        var $textarea = $(textarea);
+
+        // Position dropdown above the textarea (same as @ autocomplete)
+        var offset = $textarea.offset();
+
+        $dropdown.css({
+            left: offset.left + 'px',
+            bottom: ($(window).height() - offset.top + 4) + 'px',
+            top: 'auto'
+        });
+
+        // Render items
+        var html = '';
+        slashState.results.forEach(function(item, index) {
+            var isSelected = index === slashState.selectedIndex;
+            var bgClass = isSelected ? 'background-color:#e9ecef;' : '';
+
+            html += '<div class="slash-ac-item px-3 py-2" data-index="' + index + '" ' +
+                'style="cursor:pointer; border-bottom:1px solid #f0f0f0; ' + bgClass + '">' +
+                '<div class="d-flex align-items-center">' +
+                    '<i class="bi ' + item.icon + ' mr-2 text-muted"></i>' +
+                    '<div class="flex-grow-1" style="min-width:0;">' +
+                        '<div style="font-size:13px;">' +
+                            '<code>/' + escapeHtml(item.command) + '</code>' +
+                            '<span class="badge badge-purple badge-sm ml-1" style="background-color:#6f42c1; color:white;">opencode</span>' +
+                        '</div>' +
+                        '<div style="font-size:11px; color:#6c757d;">' +
+                            escapeHtml(item.description) +
+                        '</div>' +
+                    '</div>' +
+                '</div>' +
+            '</div>';
+        });
+
+        $dropdown.html(html).show();
+        slashState.active = true;
+    }
+
+    /**
+     * Hide the slash autocomplete dropdown.
+     */
+    function hideSlashAutocomplete() {
+        $('#slash-autocomplete-dropdown').hide();
+        slashState.active = false;
+        slashState.results = [];
+        slashState.selectedIndex = 0;
+    }
+
+    /**
+     * Navigate the slash autocomplete dropdown (up/down).
+     */
+    function navigateSlashAutocomplete(direction) {
+        var newIndex = slashState.selectedIndex + direction;
+        if (newIndex < 0) newIndex = slashState.results.length - 1;
+        if (newIndex >= slashState.results.length) newIndex = 0;
+
+        slashState.selectedIndex = newIndex;
+
+        // Update visual highlight
+        var $items = $('#slash-autocomplete-dropdown .slash-ac-item');
+        $items.css('background-color', '');
+        $items.eq(newIndex).css('background-color', '#e9ecef');
+
+        // Scroll into view
+        var $dropdown = $('#slash-autocomplete-dropdown');
+        var $selected = $items.eq(newIndex);
+        if ($selected.length) {
+            var itemTop = $selected.position().top;
+            var itemHeight = $selected.outerHeight();
+            var dropdownHeight = $dropdown.height();
+            var scrollTop = $dropdown.scrollTop();
+
+            if (itemTop < 0) {
+                $dropdown.scrollTop(scrollTop + itemTop);
+            } else if (itemTop + itemHeight > dropdownHeight) {
+                $dropdown.scrollTop(scrollTop + itemTop + itemHeight - dropdownHeight);
+            }
+        }
+    }
+
+    /**
+     * Select a slash autocomplete item and insert it into the textarea.
+     */
+    function selectSlashItem(index) {
+        if (index < 0 || index >= slashState.results.length) return;
+
+        var item = slashState.results[index];
+        var $textarea = $('#messageText');
+        var text = $textarea.val();
+        var slashPos = slashState.slashPosition;
+        var cursorPos = $textarea[0].selectionStart;
+
+        // Replace /prefix with /command followed by a space
+        var replacement = '/' + item.command + ' ';
+        var newText = text.substring(0, slashPos) + replacement + text.substring(cursorPos);
+
+        $textarea.val(newText);
+
+        // Set cursor position after the inserted command
+        var newCursorPos = slashPos + replacement.length;
+        $textarea[0].setSelectionRange(newCursorPos, newCursorPos);
+        $textarea.focus();
+
+        // Trigger input event to update textarea height
+        $textarea.trigger('input');
+
+        hideSlashAutocomplete();
+    }
+
+    // Helper: escape HTML (use existing or define simple version)
+    function escapeHtml(str) {
+        if (!str) return '';
+        return str.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                  .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    // Initialize when document is ready
+    $(document).ready(function() {
+        // Small delay to ensure messageText textarea exists
+        setTimeout(initAutocomplete, 600);
+    });
+})();

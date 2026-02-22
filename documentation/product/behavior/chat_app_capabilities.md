@@ -286,6 +286,44 @@ Server-side injection:
 
 ---
 
+### 5b) MCP Web Search Server (External Tool Access)
+
+**What it does**
+- Exposes 3 of the project's web search agents as MCP (Model Context Protocol) tools accessible from external coding assistants like OpenCode and Claude Code.
+- Tools: `perplexity_search` (Perplexity AI models), `jina_search` (Jina AI with full web content retrieval), `deep_search` (multi-hop iterative search with interleaved search-answer cycles).
+- Page-reader tools: `jina_read_page` (lightweight Jina Reader API for web pages), `read_link` (multi-format reader for web pages, PDFs, images, and YouTube via `download_link_data`).
+- Runs alongside the Flask server in a daemon thread on a separate port (default 8100) using streamable-HTTP transport.
+
+**Authentication**
+- JWT bearer tokens (HS256) verified via Starlette middleware.
+- Token generation CLI: `python -m mcp_server.auth --email user@example.com --days 365`.
+- Clients send a static `Authorization: Bearer <jwt>` header — no OAuth flow.
+
+**Rate limiting**
+- Per-token token-bucket rate limiting (default 10 requests/minute, configurable via `MCP_RATE_LIMIT` env var).
+
+**Configuration**
+- `MCP_JWT_SECRET` (required), `MCP_PORT` (default 8100), `MCP_RATE_LIMIT` (default 10), `MCP_ENABLED` (default true).
+- Reuses the same API keys (via `keyParser({})`) and agent classes as the Flask server.
+
+**API**
+- Not HTTP REST — uses the MCP protocol over streamable-HTTP. Clients connect via MCP client configuration (see client config examples in feature docs).
+- Health check: `GET /health` on port 8100 (no auth required).
+- Served via nginx reverse proxy at `/mcp` in production.
+
+**Startup**
+- Automatically starts from `python server.py` (no separate entry point).
+- Gracefully skips if `MCP_JWT_SECRET` is not set or `MCP_ENABLED=false`.
+- MCP server failure never affects the Flask server (isolated daemon thread).
+
+**Key files:** `mcp_server/__init__.py`, `mcp_server/auth.py`, `mcp_server/mcp_app.py`, `server.py` (3-line integration).
+**Docs:** `documentation/features/mcp_web_search_server/README.md`, `documentation/planning/plans/mcp_web_search_server.plan.md`
+
+**Differentiator**
+- Allows the same powerful search agents available in the chat UI to be invoked directly from coding tools. No other chat system exposes its search pipeline as MCP tools for developer workflows.
+
+---
+
 ### 6) Multi-model responses and formatting
 
 **What it does**

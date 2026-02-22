@@ -1,3 +1,22 @@
+"""
+Summary of Search & Information Agents
+The file agents/search_and_information_agents.py contains 7 web search agents and 4 other agents:
+Web Search Agents:
+1. WebSearchWithAgent (line 119) — Base search agent. Generates multiple queries via LLM, runs parallel web searches, combines results.
+2. LiteratureReviewAgent (line 491) — Academic/arxiv-focused search, sequential queries, outputs LaTeX + BibTeX.
+3. BroadSearchAgent (line 584) — Broader/more varied queries, disables intermediate LLM processing.
+4. PerplexitySearchAgent (line 1407) — Uses Perplexity AI models (sonar-pro, sonar, etc.) instead of traditional web search.
+5. JinaSearchAgent (line 1561) — Uses Jina AI's search/reader APIs to fetch real web content.
+6. MultiSourceSearchAgent (line 1867) — Orchestrates Web + Perplexity + Jina in parallel, merges results.
+7. InterleavedWebSearchAgent (line 2221) — Multi-hop iterative search with planner LLM, supports early-stop.
+Other Agents (non-search):
+- InstructionFollowingAgent (line 616) — Three-step instruction adherence pipeline.
+- ReflectionAgent (line 874) — Multi-model response + reflection/improvement.
+- NResponseAgent (line 1090) — Generates N parallel responses.
+- WhatIfAgent (line 1174) — Generates and answers "what-if" scenarios.
+- OpenaiDeepResearchAgent (line 1828) — Wrapper for OpenAI deep research model.
+"""
+
 import random
 import traceback
 from typing import Union, List
@@ -118,6 +137,8 @@ class WebSearchWithAgent(Agent):
         self.post_process_answer_needed = False
         self.show_intermediate_results = show_intermediate_results
         self.headless = headless
+        if self.headless:
+            self.show_intermediate_results = True
         self.combiner_prompt = f"""
 You are tasked with synthesizing information from multiple web search results to provide a comprehensive and accurate response to the user's query. Your goal is to combine these results into a coherent and informative answer.
 
@@ -229,7 +250,7 @@ Generate up to {num_queries} highly relevant query-context pairs. Write your ans
                         gscholar=self.gscholar,
                         provide_detailed_answers=self.detail_level,
                         no_llm=len(text_queries_contexts) <= 5
-                        or self.no_intermediate_llm,
+                        or self.no_intermediate_llm or self.headless,
                         timeout=self.timeout,
                     )
                     future_tuples.append((future, query, context))
@@ -250,7 +271,7 @@ Generate up to {num_queries} highly relevant query-context pairs. Write your ans
                         gscholar=self.gscholar,
                         provide_detailed_answers=self.detail_level,
                         no_llm=len(text_queries_contexts) <= 5
-                        or self.no_intermediate_llm,
+                        or self.no_intermediate_llm or self.headless,
                         timeout=self.timeout,
                     )
                     web_search_results.append(
@@ -1391,7 +1412,7 @@ class PerplexitySearchAgent(WebSearchWithAgent):
         model_name,
         detail_level=1,
         timeout=60,
-        num_queries=5,
+        num_queries=3,
         headless=False,
         no_intermediate_llm=False,
     ):

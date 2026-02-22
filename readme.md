@@ -6,26 +6,40 @@
 `sudo vi /etc/nginx/sites-available/science-reader`
 
 ```
+server {
+    listen 80;
+    server_name assist-chat.site;
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
 server {                                                                                                                                                                                 
     listen 443 ssl;
-    server_name sci-tldr.pro;
+    server_name assist-chat.site;
 
-    ssl_certificate /etc/letsencrypt/live/sci-tldr.pro/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/sci-tldr.pro/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/assist-chat.site/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/assist-chat.site/privkey.pem;
     
     client_max_body_size 100M;
 
-    location / { 
+    location / {
         proxy_pass http://localhost:5000;
-        proxy_read_timeout 300;  # Increase the read timeout (in seconds)
-        proxy_connect_timeout 300;  # Increase the connection timeout (in seconds)
-        proxy_send_timeout 300;  # Increase the send timeout (in seconds)
+        proxy_read_timeout 3600;
+        proxy_connect_timeout 300;
+        proxy_send_timeout 3600;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_buffering off;
         proxy_cache off;
     }   
+}
+
+server {
+    listen 80;
+    server_name opencode.assist-chat.site;
 }
 ```
 `sudo ls -l /etc/nginx/sites-enabled/`

@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenCode Terminal</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { background: #1e1e2e; overflow: hidden; height: 100vh; }
+        #terminal-container { width: 100vw; height: 100vh; }
+    </style>
+</head>
+<body>
+    <div id="terminal-container"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-web-links@0.11.0/lib/addon-web-links.min.js"></script>
+    <script src="/interface/opencode-terminal.js"></script>
+    <script>
+        OpencodeTerminal.init('terminal-container');
+        OpencodeTerminal.connect();
+        window.addEventListener('resize', function() { OpencodeTerminal.fit(); });
+    </script>
+</body>
+</html>
