@@ -70,6 +70,7 @@ Follow existing patterns in the file you touch. Do not reformat unrelated code.
 - PKB module: `truth_management_system/`.
 - Extension: `extension/` (connects to `server.py` on port 5000). Legacy `extension_server.py` is deprecated.
 - Documentation in markdown files within same module and in documentation folder with entry point as documentation/README.md.
+- Global documents can be listed via `docs_list_global_docs` and retrieved by `doc_storage_path` using `docs_get_full_text` or `docs_query`. If only a `doc_id` is given, list global docs first, match by `doc_id`, then use the corresponding `doc_storage_path` to access content.
 - Feature documentation in documentation/features
 - Planning documents go into documentation/planning/plans and have extension as `.plan.md`.
 

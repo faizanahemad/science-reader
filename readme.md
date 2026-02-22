@@ -1,6 +1,17 @@
 # Install GCC
 `sudo apt install build-essential`
 
+## Documentation
+
+For full documentation see [`documentation/README.md`](documentation/README.md). Key ops docs:
+
+- **[Server Restart Guide](documentation/product/ops/server_restart_guide.md)** — all 3 screen sessions, JWT extraction, deferred restart, troubleshooting
+- **[MCP Server Setup](documentation/product/ops/mcp_server_setup.md)** — 8 MCP servers (37 tools), JWT auth, OpenCode/Claude Code config, nginx
+- **[LLM Model Management](documentation/product/ops/llm_model_management.md)** — model configuration and provider setup
+- **[Chat App Capabilities](documentation/product/behavior/chat_app_capabilities.md)** — full system overview, feature map, API surface
+
+---
+
 # Ngingx config 
 (`/etc/nginx/sites-available/default`) remove the default.
 `sudo vi /etc/nginx/sites-available/science-reader`

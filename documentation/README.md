@@ -14,7 +14,10 @@ If you are new to the codebase, start with:
 
 ## Product
 - `product/ops/`: deployment + ops runbooks
-  - `product/ops/mcp_server_setup.md`: MCP server setup — JWT auth, token generation, OpenCode/Claude Code client config, nginx reverse proxy, troubleshooting
+  - `product/ops/server_restart_guide.md`: **Server restart procedures** — all 3 screen sessions (science-reader, opencode_server, extension_server), JWT extraction from `/proc`, deferred restart via nohup+sleep, full stack restart sequence, troubleshooting
+  - `product/ops/mcp_server_setup.md`: **MCP server setup** — all 8 MCP servers (7 remote on ports 8100-8106 + local pdf-reader), 37 tools, JWT auth, token generation, OpenCode/Claude Code client config, Jina timeout tuning, nginx reverse proxy, troubleshooting
+  - `product/ops/llm_model_management.md`: **LLM model management** — model configuration, provider setup, model catalog
+  - `product/ops/server_ops_and_runbook.md`: **Legacy server runbook** — original deployment notes (nginx, SSL, Docker/Gotenberg, vLLM). See `server_restart_guide.md` for current restart procedures
 - `product/behavior/`: product behavior notes and context
 
 ## Features

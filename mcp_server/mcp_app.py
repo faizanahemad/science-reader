@@ -341,7 +341,7 @@ def create_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[ASGIApp, Any]
             keys,
             model_name=model,
             detail_level=detail_level,
-            timeout=120,
+            timeout=240,
             headless=True,
         )
         return _collect_agent_output(agent, query)
@@ -380,7 +380,7 @@ def create_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[ASGIApp, Any]
             keys,
             model_name=model,
             detail_level=detail_level,
-            timeout=120,
+            timeout=240,
             interleave_steps=interleave_steps,
             sources=source_list,
             show_intermediate_results=False,
@@ -424,7 +424,7 @@ def create_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[ASGIApp, Any]
         }
 
         try:
-            response = requests.get(reader_url, headers=headers, timeout=(10, 45))
+            response = requests.get(reader_url, headers=headers, timeout=(20, 90))
             response.raise_for_status()
             data = response.json()
             content = data.get("data", {}).get("content", "")

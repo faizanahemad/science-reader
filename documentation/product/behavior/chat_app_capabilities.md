@@ -318,6 +318,7 @@ Server-side injection:
 
 **Key files:** `mcp_server/__init__.py`, `mcp_server/auth.py`, `mcp_server/mcp_app.py`, `server.py` (3-line integration).
 **Docs:** `documentation/features/mcp_web_search_server/README.md`, `documentation/planning/plans/mcp_web_search_server.plan.md`
+**Ops:** `documentation/product/ops/mcp_server_setup.md` (full 8-server architecture, all 37 tools, JWT setup, Jina timeouts, nginx), `documentation/product/ops/server_restart_guide.md` (restart procedures for all 3 screen sessions)
 
 **Differentiator**
 - Allows the same powerful search agents available in the chat UI to be invoked directly from coding tools. No other chat system exposes its search pipeline as MCP tools for developer workflows.
@@ -782,6 +783,17 @@ The extension uses two categories of endpoints:
   - main response streaming
   - doubt clearing streaming
 - Conversation locking uses filesystem lock files; clients may see "waiting for lock" warnings in stream.
+
+---
+
+## Operations and deployment
+
+For running, restarting, and maintaining the server infrastructure behind these capabilities:
+
+- **[Server Restart Guide](../ops/server_restart_guide.md)** — 3 screen sessions (science-reader, opencode_server, extension_server), JWT extraction, deferred restart pattern, full stack restart sequence
+- **[MCP Server Setup](../ops/mcp_server_setup.md)** — 8 MCP servers (37 tools), JWT auth, token generation, OpenCode/Claude Code config, Jina timeout tuning, nginx
+- **[LLM Model Management](../ops/llm_model_management.md)** — model configuration and provider setup
+- **[Legacy Server Runbook](../ops/server_ops_and_runbook.md)** — original deployment notes (nginx, SSL, Docker, vLLM)
 
 ---
 

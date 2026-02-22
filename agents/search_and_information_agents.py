@@ -121,7 +121,7 @@ class WebSearchWithAgent(Agent):
         keys,
         model_name,
         detail_level=1,
-        timeout=60,
+        timeout=120,
         gscholar=False,
         no_intermediate_llm=False,
         show_intermediate_results=False,
@@ -1411,7 +1411,7 @@ class PerplexitySearchAgent(WebSearchWithAgent):
         keys,
         model_name,
         detail_level=1,
-        timeout=60,
+        timeout=120,
         num_queries=3,
         headless=False,
         no_intermediate_llm=False,
@@ -1565,7 +1565,7 @@ class JinaSearchAgent(PerplexitySearchAgent):
         keys,
         model_name,
         detail_level=1,
-        timeout=60,
+        timeout=120,
         num_queries=5,
         headless=False,
         no_intermediate_llm=False,
@@ -1587,7 +1587,7 @@ class JinaSearchAgent(PerplexitySearchAgent):
         # Keep fewer results for low detail, more for deeper research.
         self.num_results = 5 if detail_level <= 1 else 8 if detail_level == 2 else 20
         # Tighten HTTP timeouts to avoid long hangs.
-        self.http_timeout = (10, 45)  # (connect, read) seconds
+        self.http_timeout = (20, 90)  # (connect, read) seconds
 
     def fetch_jina_search_results(self, query: str):
         """Fetch search results from Jina API"""
@@ -2270,7 +2270,7 @@ class InterleavedWebSearchAgent(Agent):
         keys,
         model_name,
         detail_level: int = 2,
-        timeout: int = 90,
+        timeout: int = 180,
         interleave_steps: int = 3,
         min_interleave_steps: int = 2,
         num_queries_per_step: int = 3,
