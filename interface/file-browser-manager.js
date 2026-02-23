@@ -242,9 +242,16 @@ var FileBrowserManager = (function () {
      * Check for unsaved changes and prompt user if dirty.
      * @returns {boolean} true if safe to proceed, false if user cancelled.
      */
-    function _confirmIfDirty() {
-        if (!state.isDirty) return true;
-        return confirm('You have unsaved changes. Discard them?');
+    /**
+     * If the editor has unsaved changes, show a confirmation dialog.
+     * Calls onProceed() when user confirms (or if not dirty).
+     * @param {function} onProceed - Called when safe to proceed.
+     */
+    function _confirmIfDirty(onProceed) {
+        if (!state.isDirty) { onProceed(); return; }
+        _showConfirmModal('Unsaved Changes', 'You have unsaved changes. Discard them?', function () {
+            onProceed();
+        }, { okText: 'Discard', okClass: 'btn-warning' });
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -317,6 +324,10 @@ var FileBrowserManager = (function () {
             });
     }
 
+    /**
+     * Rebuild the list of all known file/directory paths from the tree.
+     * Called after tree refresh. Stores sorted paths for fuzzy autocomplete.
+     */
     function _refreshPathSuggestions() {
         var paths = [];
         $('#file-browser-tree li').each(function () {
@@ -326,13 +337,252 @@ var FileBrowserManager = (function () {
         paths.sort();
         state.pathSuggestions = paths;
         state.pathSuggestionMap = {};
-        var $list = $('#file-browser-path-suggestions');
-        if (!$list.length) return;
-        $list.empty();
         paths.forEach(function (p) {
             state.pathSuggestionMap[p] = true;
-            $list.append($('<option></option>').attr('value', p));
         });
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Fuzzy matching for address bar autocomplete
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Fuzzy-match a query against a target string.
+     * All query characters must appear in order in the target (case-insensitive).
+     * Returns { score, indexes } or null if no match.
+     * Scoring: consecutive matches > word-boundary matches > mid-word.
+     * @param {string} needle - The search query.
+     * @param {string} haystack - The target string to match against.
+     * @returns {object|null} { score: number, indexes: number[] } or null.
+     */
+    function _fuzzyMatch(needle, haystack) {
+        var nLower = needle.toLowerCase();
+        var hLower = haystack.toLowerCase();
+        var nLen = nLower.length;
+        var hLen = hLower.length;
+
+        if (nLen === 0) return { score: 0, indexes: [] };
+        if (nLen > hLen) return null;
+
+        // Quick substring check — best case
+        var subIdx = hLower.indexOf(nLower);
+        if (subIdx !== -1) {
+            var idxs = [];
+            for (var si = 0; si < nLen; si++) idxs.push(subIdx + si);
+            // Bonus: substring at start of word boundary scores higher
+            var bonus = 1.5;
+            if (subIdx === 0) bonus = 2.0;
+            else if ('/\\-_. '.indexOf(hLower[subIdx - 1]) !== -1) bonus = 1.8;
+            return { score: nLen * bonus + (1 / (subIdx + 1)), indexes: idxs };
+        }
+
+        // Sequential char matching with scoring
+        var indexes = [];
+        var score = 0;
+        var hIdx = 0;
+        var lastMatchIdx = -2;
+
+        for (var ni = 0; ni < nLen; ni++) {
+            var found = false;
+            for (var hi = hIdx; hi < hLen; hi++) {
+                if (hLower[hi] === nLower[ni]) {
+                    indexes.push(hi);
+                    // Score this position
+                    if (hi === lastMatchIdx + 1) {
+                        // Consecutive match
+                        score += 1.0;
+                    } else if (hi === 0 || '/\\-_. '.indexOf(hLower[hi - 1]) !== -1) {
+                        // Word boundary match
+                        score += 0.8;
+                    } else {
+                        // Mid-word match
+                        score += 0.3;
+                        // Penalty for gap
+                        score -= (hi - lastMatchIdx - 1) * 0.005;
+                    }
+                    lastMatchIdx = hi;
+                    hIdx = hi + 1;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) return null;
+        }
+
+        // Small penalty for longer targets (prefer concise matches)
+        score -= (hLen - nLen) * 0.01;
+        return { score: score, indexes: indexes };
+    }
+
+    /**
+     * Fuzzy-match a query against a file path, boosting filename matches.
+     * Tries matching against the filename component first (1.5x boost),
+     * then falls back to full path matching.
+     * @param {string} query - The search query.
+     * @param {string} path - The full file path.
+     * @returns {object|null} { score, indexes, path } or null.
+     */
+    function _fuzzyMatchPath(query, path) {
+        var lastSlash = path.lastIndexOf('/');
+        var filename = lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
+
+        // Try filename first (boosted)
+        var fnMatch = _fuzzyMatch(query, filename);
+        if (fnMatch && fnMatch.score > 0) {
+            var offset = lastSlash + 1;
+            var adjustedIndexes = [];
+            for (var i = 0; i < fnMatch.indexes.length; i++) {
+                adjustedIndexes.push(fnMatch.indexes[i] + offset);
+            }
+            return { score: fnMatch.score * 1.5, indexes: adjustedIndexes, path: path };
+        }
+
+        // Fallback: match against full path
+        var fullMatch = _fuzzyMatch(query, path);
+        if (fullMatch) {
+            return { score: fullMatch.score, indexes: fullMatch.indexes, path: path };
+        }
+        return null;
+    }
+
+    /**
+     * HTML-escape a string for safe insertion into the DOM.
+     * @param {string} str - Raw string.
+     * @returns {string} Escaped string.
+     */
+    function _escHtml(str) {
+        return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    /**
+     * Render a file path with matched character positions highlighted.
+     * Splits into directory part and filename part for separate styling.
+     * @param {string} path - The full file path.
+     * @param {number[]} indexes - Matched character indexes to highlight.
+     * @returns {string} HTML string with matched chars wrapped in <b class="fb-match-char">.
+     */
+    function _renderHighlightedPath(path, indexes) {
+        var indexSet = {};
+        for (var k = 0; k < indexes.length; k++) indexSet[indexes[k]] = true;
+
+        var lastSlash = path.lastIndexOf('/');
+        var dir = lastSlash >= 0 ? path.substring(0, lastSlash + 1) : '';
+        var filename = lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
+
+        var html = '';
+        // Directory part (muted)
+        if (dir) {
+            html += '<span class="fb-match-dir">';
+            for (var d = 0; d < dir.length; d++) {
+                var ch = _escHtml(dir[d]);
+                if (indexSet[d]) html += '<b class="fb-match-char">' + ch + '</b>';
+                else html += ch;
+            }
+            html += '</span>';
+        }
+        // Filename part (prominent)
+        html += '<span class="fb-match-filename">';
+        for (var f = 0; f < filename.length; f++) {
+            var idx = (lastSlash >= 0 ? lastSlash + 1 : 0) + f;
+            var fc = _escHtml(filename[f]);
+            if (indexSet[idx]) html += '<b class="fb-match-char">' + fc + '</b>';
+            else html += fc;
+        }
+        html += '</span>';
+        return html;
+    }
+
+    /** Index of the currently highlighted suggestion in the dropdown (-1 = none). */
+    var _suggestionActiveIdx = -1;
+
+    /**
+     * Filter paths by fuzzy query and render the suggestion dropdown.
+     * Called on every keystroke in the address bar.
+     * @param {string} query - Current input value.
+     */
+    function _filterAndShowSuggestions(query) {
+        var $dropdown = $('#file-browser-suggestion-dropdown');
+        if (!query || query.length === 0) {
+            $dropdown.hide().empty();
+            _suggestionActiveIdx = -1;
+            return;
+        }
+
+        var results = [];
+        for (var i = 0; i < state.pathSuggestions.length; i++) {
+            var m = _fuzzyMatchPath(query, state.pathSuggestions[i]);
+            if (m) results.push(m);
+        }
+
+        // Sort by score descending
+        results.sort(function(a, b) { return b.score - a.score; });
+
+        // Limit to top 30
+        if (results.length > 30) results = results.slice(0, 30);
+
+        if (results.length === 0) {
+            $dropdown.hide().empty();
+            _suggestionActiveIdx = -1;
+            return;
+        }
+
+        var html = '';
+        for (var r = 0; r < results.length; r++) {
+            html += '<div class="fb-suggestion-item" data-path="' +
+                _escHtml(results[r].path) + '">' +
+                _renderHighlightedPath(results[r].path, results[r].indexes) +
+                '</div>';
+        }
+        $dropdown.html(html).show();
+        _suggestionActiveIdx = -1;
+    }
+
+    /**
+     * Hide the suggestion dropdown and reset active index.
+     */
+    function _hideSuggestionDropdown() {
+        $('#file-browser-suggestion-dropdown').hide().empty();
+        _suggestionActiveIdx = -1;
+    }
+
+    /**
+     * Navigate the suggestion dropdown with arrow keys and select with Enter.
+     * @param {string} key - 'ArrowDown', 'ArrowUp', or 'Enter'.
+     * @returns {boolean} true if the key was handled, false otherwise.
+     */
+    function _handleSuggestionNav(key) {
+        var $dropdown = $('#file-browser-suggestion-dropdown');
+        if ($dropdown.css('display') === 'none') return false;
+        var $items = $dropdown.find('.fb-suggestion-item');
+        if ($items.length === 0) return false;
+
+        if (key === 'ArrowDown') {
+            _suggestionActiveIdx = Math.min(_suggestionActiveIdx + 1, $items.length - 1);
+            $items.removeClass('active');
+            $($items[_suggestionActiveIdx]).addClass('active');
+            // Scroll into view
+            var el = $items[_suggestionActiveIdx];
+            if (el) el.scrollIntoView({ block: 'nearest' });
+            return true;
+        }
+        if (key === 'ArrowUp') {
+            _suggestionActiveIdx = Math.max(_suggestionActiveIdx - 1, 0);
+            $items.removeClass('active');
+            $($items[_suggestionActiveIdx]).addClass('active');
+            var elUp = $items[_suggestionActiveIdx];
+            if (elUp) elUp.scrollIntoView({ block: 'nearest' });
+            return true;
+        }
+        if (key === 'Enter' && _suggestionActiveIdx >= 0 && _suggestionActiveIdx < $items.length) {
+            var selectedPath = $($items[_suggestionActiveIdx]).attr('data-path');
+            if (selectedPath) {
+                $('#file-browser-address-bar').val(selectedPath);
+                _hideSuggestionDropdown();
+                _navigateAddressBar(selectedPath);
+            }
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -383,8 +633,13 @@ var FileBrowserManager = (function () {
      * @param {boolean} [force] - If true, skip the 2MB size guard.
      */
     function loadFile(filePath, force) {
-        if (!_confirmIfDirty()) return;
+        _confirmIfDirty(function () { _doLoadFile(filePath, force); });
+    }
 
+    /**
+     * Internal: perform the actual file loading (after dirty check passed).
+     */
+    function _doLoadFile(filePath, force) {
         var params = { path: filePath };
         if (force) params.force = 'true';
 
@@ -411,6 +666,7 @@ var FileBrowserManager = (function () {
                         '<small class="text-muted">' + _basename(filePath) + ' (' + _formatSize(resp.size) + ')</small>'
                     );
                     $('#file-browser-ai-edit-btn').prop('disabled', true);
+                    $('#file-browser-reload-btn').prop('disabled', true);
                     return;
                 }
 
@@ -434,6 +690,7 @@ var FileBrowserManager = (function () {
                         loadFile(filePath, true);
                     });
                     $('#file-browser-ai-edit-btn').prop('disabled', true);
+                    $('#file-browser-reload-btn').prop('disabled', true);
                     return;
                 }
 
@@ -471,6 +728,7 @@ var FileBrowserManager = (function () {
                 state.cmEditor.setCursor(0, 0);
                 state.cmEditor.focus();
                 $('#file-browser-ai-edit-btn').prop('disabled', false);
+                $('#file-browser-reload-btn').prop('disabled', false);
             })
             .fail(function (xhr) {
                 var msg = 'Failed to read file';
@@ -525,10 +783,66 @@ var FileBrowserManager = (function () {
      */
     function discardChanges() {
         if (!state.isDirty) return;
-        if (!confirm('Discard unsaved changes?')) return;
-        state.cmEditor.setValue(state.originalContent);
-        state.isDirty = false;
-        _updateDirtyState();
+        _showConfirmModal('Discard Changes', 'Discard all unsaved changes?', function () {
+            state.cmEditor.setValue(state.originalContent);
+            state.isDirty = false;
+            _updateDirtyState();
+        }, { okText: 'Discard', okClass: 'btn-warning' });
+    }
+
+
+    /**
+     * Reload the currently open file from disk.
+     * Prompts for confirmation if there are unsaved changes.
+     * Fetches fresh content via GET /file-browser/read and replaces editor contents.
+     */
+    function _reloadFromDisk() {
+        if (!state.currentPath) return;
+
+        if (state.isDirty) {
+            _showConfirmModal('Reload from Disk', 'You have unsaved changes. Reload from disk? All changes will be lost.', function () {
+                _doReload();
+            }, { okText: 'Reload', okClass: 'btn-warning' });
+            return;
+        }
+        _doReload();
+    }
+
+    /**
+     * Internal: perform the actual reload from server.
+     */
+    function _doReload() {
+
+        $.get('/file-browser/read', { path: state.currentPath }, function(resp) {
+            if (resp.status === 'error') {
+                showToast('Reload failed: ' + (resp.message || 'Unknown error'), 'danger');
+                return;
+            }
+            if (resp.is_binary) {
+                showToast('File is now binary \u2014 cannot display', 'warning');
+                return;
+            }
+            if (resp.too_large) {
+                showToast('File is now too large (> 2 MB)', 'warning');
+                return;
+            }
+            var cursor = state.cmEditor.getCursor();
+            var scrollInfo = state.cmEditor.getScrollInfo();
+            state.cmEditor.setValue(resp.content);
+            state.originalContent = resp.content;
+            state.isDirty = false;
+            _updateDirtyState();
+            // Restore cursor and scroll position
+            state.cmEditor.setCursor(cursor);
+            state.cmEditor.scrollTo(scrollInfo.left, scrollInfo.top);
+            showToast('Reloaded from disk', 'success');
+        }).fail(function(xhr) {
+            if (xhr.status === 404) {
+                showToast('File no longer exists on disk', 'danger');
+            } else {
+                showToast('Reload failed: ' + (xhr.statusText || 'Server error'), 'danger');
+            }
+        });
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -609,23 +923,39 @@ var FileBrowserManager = (function () {
     }
 
     /**
-     * Show the naming modal overlay for creating a new file or folder.
-     * @param {'file'|'folder'} type - Whether creating a file or folder.
+     * Show the naming modal overlay for creating a new file/folder or renaming.
+     * @param {'file'|'folder'|'rename'} type - The operation type.
      * @param {function} callback - Called with the entered name string when user confirms.
+     * @param {object} [opts] - Optional settings.
+     * @param {string} [opts.currentName] - Pre-fill value (used for rename).
+     * @param {string} [opts.dir] - Directory hint override.
      */
-    function _showNameModal(type, callback) {
-        var dir = _getTargetDir();
+    function _showNameModal(type, callback, opts) {
+        opts = opts || {};
+        var dir = opts.dir || _getTargetDir();
         var $modal = $('#file-browser-name-modal');
         var $input = $('#file-browser-name-input');
         var $title = $('#file-browser-name-modal-title');
+        var $hint = $('#file-browser-name-modal-hint');
         var $dirHint = $('#file-browser-name-modal-dir');
+        var $okBtn = $('#file-browser-name-ok-btn');
 
-        $title.text(type === 'file' ? 'New File' : 'New Folder');
-        $dirHint.text(dir === '.' ? '/ (root)' : dir);
-        $input.val('');
+        if (type === 'rename') {
+            $title.text('Rename');
+            $hint.html('In: <span id="file-browser-name-modal-dir">' + (dir === '.' ? '/ (root)' : _escHtml(dir)) + '</span>');
+            $input.val(opts.currentName || '');
+            $okBtn.text('Rename');
+        } else {
+            $title.text(type === 'file' ? 'New File' : 'New Folder');
+            $hint.html('Will be created in: <span id="file-browser-name-modal-dir">' + (dir === '.' ? '/ (root)' : _escHtml(dir)) + '</span>');
+            $input.val('');
+            $okBtn.text('Create');
+        }
         $modal.css('display', 'flex');
-        setTimeout(function () { $input.focus(); }, 50);
-
+        setTimeout(function () {
+            $input.focus();
+            if (type === 'rename') $input.select();
+        }, 50);
         // Store callback for OK button / Enter key
         $modal.data('_nameCallback', callback);
         $modal.data('_nameDir', dir);
@@ -642,7 +972,7 @@ var FileBrowserManager = (function () {
     }
 
     /**
-     * Handle OK action from naming modal — reads input, validates, fires callback.
+     * Handle OK action from naming modal \u2014 reads input, validates, fires callback.
      */
     function _nameModalConfirm() {
         var $modal = $('#file-browser-name-modal');
@@ -658,6 +988,40 @@ var FileBrowserManager = (function () {
         if (typeof callback === 'function') {
             callback(name);
         }
+    }
+
+    // \u2500\u2500\u2500 Confirm dialog (async, callback-based) \u2500\u2500\u2500
+
+    /**
+     * Show a confirmation dialog inside the file browser.
+     * Replaces native confirm() which gets blocked behind high z-index modals.
+     * @param {string} title - Dialog title.
+     * @param {string} bodyHtml - Message body (can contain HTML).
+     * @param {function} onConfirm - Called (no args) when user clicks OK.
+     * @param {object} [opts] - Optional settings.
+     * @param {string} [opts.okText] - Custom OK button text (default: 'OK').
+     * @param {string} [opts.okClass] - Custom OK button class (default: 'btn-danger').
+     */
+    function _showConfirmModal(title, bodyHtml, onConfirm, opts) {
+        opts = opts || {};
+        var $modal = $('#file-browser-confirm-modal');
+        $('#file-browser-confirm-title').text(title);
+        $('#file-browser-confirm-body').html(bodyHtml);
+        var $okBtn = $('#file-browser-confirm-ok-btn');
+        $okBtn.text(opts.okText || 'OK');
+        $okBtn.attr('class', 'btn btn-sm ' + (opts.okClass || 'btn-danger'));
+        $modal.data('_confirmCallback', onConfirm);
+        $modal.css('display', 'flex');
+        $okBtn.focus();
+    }
+
+    /**
+     * Hide the confirmation dialog and clear callback.
+     */
+    function _hideConfirmModal() {
+        var $modal = $('#file-browser-confirm-modal');
+        $modal.css('display', 'none');
+        $modal.removeData('_confirmCallback');
     }
 
     /**
@@ -728,83 +1092,81 @@ var FileBrowserManager = (function () {
         if (!state.contextTarget) return;
         var oldPath = state.contextTarget.path;
         var oldName = _basename(oldPath);
-        var newName = prompt('Rename to:', oldName);
-        if (!newName || newName === oldName) return;
-
         var dir = _parentDir(oldPath);
+        _showNameModal('rename', function (newName) {
+            if (!newName || newName === oldName) return;
         var newPath = _joinPath(dir, newName);
-
-        $.ajax({
-            url: '/file-browser/rename',
-            method: 'POST',
-            contentType: 'application/json',
-            data: JSON.stringify({ old_path: oldPath, new_path: newPath })
-        })
-        .done(function (resp) {
-            if (resp.status === 'success') {
-                showToast('Renamed to: ' + newName, 'success');
-                // If the renamed item was the currently open file, update state
-                if (state.currentPath === oldPath) {
-                    state.currentPath = newPath;
-                    $('#file-browser-address-bar').val(newPath);
+            $.ajax({
+                url: '/file-browser/rename',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ old_path: oldPath, new_path: newPath })
+            })
+            .done(function (resp) {
+                if (resp.status === 'success') {
+                    showToast('Renamed to: ' + newName, 'success');
+                    if (state.currentPath === oldPath) {
+                        state.currentPath = newPath;
+                        $('#file-browser-address-bar').val(newPath);
+                    }
+                    _refreshTree();
+                } else {
+                    showToast('Rename failed: ' + (resp.error || 'Unknown'), 'error');
                 }
-                _refreshTree();
-            } else {
-                showToast('Rename failed: ' + (resp.error || 'Unknown'), 'error');
-            }
-        })
-        .fail(function (xhr) {
-            var msg = 'Rename failed';
-            try { msg = JSON.parse(xhr.responseText).error || msg; } catch (e) { /* ignore */ }
-            showToast(msg, 'error');
-        });
+            })
+            .fail(function (xhr) {
+                var msg = 'Rename failed';
+                try { msg = JSON.parse(xhr.responseText).error || msg; } catch (e) { /* ignore */ }
+                showToast(msg, 'error');
+            });
+        }, { currentName: oldName, dir: dir });
     }
 
     /**
-     * Delete a file or folder via confirmation and API call.
+     * Delete a file or folder via confirmation dialog and API call.
      */
     function _deleteItem() {
         if (!state.contextTarget) return;
         var itemPath = state.contextTarget.path;
         var itemType = state.contextTarget.type;
         var itemName = _basename(itemPath);
-
-        var message = 'Delete "' + itemName + '"?';
+        var bodyHtml = 'Delete <strong>' + _escHtml(itemName) + '</strong>?';
         if (itemType === 'dir') {
-            message += '\n\nThis will delete the folder and ALL its contents.';
+            bodyHtml += '<br><small class="text-muted">This will delete the folder and ALL its contents.</small>';
         }
-        if (!confirm(message)) return;
 
-        $.ajax({
-            url: '/file-browser/delete',
-            method: 'POST',
-            contentType: 'application/json',
-            data: JSON.stringify({ path: itemPath, recursive: (itemType === 'dir') })
-        })
-        .done(function (resp) {
-            if (resp.status === 'success') {
-                showToast('Deleted: ' + itemName, 'success');
-                // If deleted file was currently open, clear editor
-                if (state.currentPath === itemPath) {
-                    state.currentPath = null;
-                    $('#file-browser-ai-edit-btn').prop('disabled', true);
-                    state.originalContent = '';
-                    state.isDirty = false;
-                    _updateDirtyState();
-                    $('#file-browser-address-bar').val('');
-                    $('#file-browser-tab-bar').hide();
-                    _showView('empty');
+        _showConfirmModal('Delete', bodyHtml, function () {
+            $.ajax({
+                url: '/file-browser/delete',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ path: itemPath, recursive: (itemType === 'dir') })
+            })
+            .done(function (resp) {
+                if (resp.status === 'success') {
+                    showToast('Deleted: ' + itemName, 'success');
+                    if (state.currentPath === itemPath) {
+                        state.currentPath = null;
+                        $('#file-browser-ai-edit-btn').prop('disabled', true);
+                        $('#file-browser-reload-btn').prop('disabled', true);
+                        state.originalContent = '';
+                        state.isDirty = false;
+                        _updateDirtyState();
+                        $('#file-browser-address-bar').val('');
+                        $('#file-browser-tab-bar').hide();
+                        _showView('empty');
+                    }
+                    _refreshTree();
+                } else {
+                    showToast('Delete failed: ' + (resp.error || 'Unknown'), 'error');
                 }
-                _refreshTree();
-            } else {
-                showToast('Delete failed: ' + (resp.error || 'Unknown'), 'error');
-            }
-        })
-        .fail(function (xhr) {
-            var msg = 'Delete failed';
-            try { msg = JSON.parse(xhr.responseText).error || msg; } catch (e) { /* ignore */ }
-            showToast(msg, 'error');
-        });
+            })
+            .fail(function (xhr) {
+                var msg = 'Delete failed';
+                try { msg = JSON.parse(xhr.responseText).error || msg; } catch (e) { /* ignore */ }
+                showToast(msg, 'error');
+            });
+        }, { okText: 'Delete' });
     }
 
     /**
@@ -940,23 +1302,24 @@ var FileBrowserManager = (function () {
      * Removes our custom backdrop. Leaves the settings modal intact underneath.
      */
     function _closeModal() {
-        if (!_confirmIfDirty()) return;
-        var modal = document.getElementById('file-browser-modal');
-        if (modal) {
-            modal.classList.remove('show');
-            modal.style.display = 'none';
-            modal.setAttribute('aria-hidden', 'true');
-        }
-        // Remove stale backdrop from old cached JS
-        var staleBackdrop = document.getElementById('file-browser-backdrop');
-        if (staleBackdrop) staleBackdrop.remove();
-        // Remove any orphan Bootstrap backdrops
-        $('.modal-backdrop').each(function () {
-            if (!$(this).closest('.modal').length) $(this).remove();
+        _confirmIfDirty(function () {
+            var modal = document.getElementById('file-browser-modal');
+            if (modal) {
+                modal.classList.remove('show');
+                modal.style.display = 'none';
+                modal.setAttribute('aria-hidden', 'true');
+            }
+            // Remove stale backdrop from old cached JS
+            var staleBackdrop = document.getElementById('file-browser-backdrop');
+            if (staleBackdrop) staleBackdrop.remove();
+            // Remove any orphan Bootstrap backdrops
+            $('.modal-backdrop').each(function () {
+                if (!$(this).closest('.modal').length) $(this).remove();
+            });
+            if ($('.modal.show').length === 0) {
+                document.body.classList.remove('modal-open');
+            }
         });
-        if ($('.modal.show').length === 0) {
-            document.body.classList.remove('modal-open');
-        }
     }
 
 
@@ -1199,6 +1562,9 @@ var FileBrowserManager = (function () {
             discardChanges();
         });
 
+        // --- Reload from disk button ---
+        $('#file-browser-reload-btn').on('click', _reloadFromDisk);
+
         // --- Close button ---
         $('#file-browser-close-btn').on('click', function () {
             _closeModal();
@@ -1250,6 +1616,26 @@ var FileBrowserManager = (function () {
             if (e.target === this) _hideNameModal();
         });
 
+
+
+        // --- Confirm modal: OK / Cancel / Escape ---
+        $('#file-browser-confirm-ok-btn').on('click', function () {
+            var cb = $('#file-browser-confirm-modal').data('_confirmCallback');
+            _hideConfirmModal();
+            if (typeof cb === 'function') cb();
+        });
+        $('#file-browser-confirm-cancel-btn').on('click', function () {
+            _hideConfirmModal();
+        });
+        $('#file-browser-confirm-modal').on('click', function (e) {
+            if (e.target === this) _hideConfirmModal();
+        });
+        $(document).on('keydown', function (e) {
+            if (e.key === 'Escape' && $('#file-browser-confirm-modal').css('display') === 'flex') {
+                e.stopPropagation();
+                _hideConfirmModal();
+            }
+        });
 
         // --- AI Edit handlers ---
         $('#file-browser-ai-edit-btn').on('click', function() {
@@ -1307,18 +1693,60 @@ var FileBrowserManager = (function () {
             if (e.target === this) _rejectAiEdit();
         });
 
-        // --- Address bar: Enter key ---
+        // --- Address bar: input for fuzzy suggestions ---
+        $('#file-browser-address-bar').on('input', function () {
+            _filterAndShowSuggestions($(this).val().trim());
+        });
+
+        // --- Address bar: keyboard navigation (arrows, Enter, Escape) ---
         $('#file-browser-address-bar').on('keydown', function (e) {
+            // Arrow keys and Enter for suggestion navigation
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                if (_handleSuggestionNav(e.key)) {
+                    e.preventDefault();
+                    return;
+                }
+            }
             if (e.key === 'Enter') {
                 e.preventDefault();
+                // If a suggestion is highlighted, select it
+                if (_handleSuggestionNav('Enter')) return;
+                // Otherwise navigate to typed path
+                _hideSuggestionDropdown();
                 _navigateAddressBar($(this).val());
+                return;
+            }
+            if (e.key === 'Escape') {
+                var $dd = $('#file-browser-suggestion-dropdown');
+                if ($dd.css('display') !== 'none') {
+                    e.stopPropagation();
+                    _hideSuggestionDropdown();
+                    return;
+                }
             }
         });
-        $('#file-browser-address-bar').on('change', function () {
-            var value = $(this).val().trim();
-            if (value && state.pathSuggestionMap[value]) {
-                _navigateAddressBar(value);
+
+        // --- Address bar: click on suggestion item ---
+        $(document).on('click', '.fb-suggestion-item', function () {
+            var selectedPath = $(this).attr('data-path');
+            if (selectedPath) {
+                $('#file-browser-address-bar').val(selectedPath);
+                _hideSuggestionDropdown();
+                _navigateAddressBar(selectedPath);
             }
+        });
+
+        // --- Address bar: close dropdown on outside click ---
+        $(document).on('mousedown', function (e) {
+            if (!$(e.target).closest('#file-browser-address-bar, #file-browser-suggestion-dropdown').length) {
+                _hideSuggestionDropdown();
+            }
+        });
+
+        // --- Address bar: focus shows suggestions if text present ---
+        $('#file-browser-address-bar').on('focus', function () {
+            var val = $(this).val().trim();
+            if (val.length > 0) _filterAndShowSuggestions(val);
         });
 
         // --- Tree click handlers (delegated) ---
@@ -1359,14 +1787,19 @@ var FileBrowserManager = (function () {
         // --- Context menu actions ---
         $('#file-browser-context-menu').on('click', 'a[data-action]', function (e) {
             e.preventDefault();
+            e.stopPropagation(); // Prevent document click handler from also firing
             var action = $(this).attr('data-action');
+            // Save target before hiding (hide nulls state.contextTarget)
+            var target = state.contextTarget;
             _hideContextMenu();
+            state.contextTarget = target; // Restore for the action to use
             switch (action) {
                 case 'new-file':   _createFile(); break;
                 case 'new-folder': _createFolder(); break;
                 case 'rename':     _renameItem(); break;
                 case 'delete':     _deleteItem(); break;
             }
+            state.contextTarget = null;
         });
 
         // --- Hide context menu on click outside ---

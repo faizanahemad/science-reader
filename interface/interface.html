@@ -2609,9 +2609,11 @@ greet("World");</code></pre>
                       <button class="btn btn-sm btn-outline-secondary" id="file-browser-sidebar-toggle" title="Toggle sidebar">
                           <i class="bi bi-layout-sidebar"></i>
                       </button>
-                      <input type="text" class="form-control form-control-sm" id="file-browser-address-bar" list="file-browser-path-suggestions"
-                            placeholder="Path relative to server root..." style="flex: 1; font-family: monospace; font-size: 0.85rem;">
-                      <datalist id="file-browser-path-suggestions"></datalist>
+                      <div style="position: relative; flex: 1;">
+                      <input type="text" class="form-control form-control-sm" id="file-browser-address-bar" autocomplete="off"
+                            placeholder="Path relative to server root..." style="font-family: monospace; font-size: 0.85rem;">
+                      <div id="file-browser-suggestion-dropdown" class="fb-suggestion-dropdown" style="display: none;"></div>
+                      </div>
                       <span class="file-browser-dirty-indicator" id="file-browser-dirty-indicator" title="Unsaved changes">*</span>
                       <select class="form-control form-control-sm" id="file-browser-theme-select" title="Editor theme">
                           <option value="monokai">Monokai</option>
@@ -2625,6 +2627,9 @@ greet("World");</code></pre>
                       </button>
                       <button class="btn btn-sm btn-primary" id="file-browser-save-btn" title="Save (Ctrl+S)" disabled>
                           <i class="bi bi-save"></i> Save
+                      </button>
+                      <button class="btn btn-sm btn-outline-secondary" id="file-browser-reload-btn" title="Reload from Disk" disabled>
+                          <i class="bi bi-arrow-clockwise"></i>
                       </button>
                       <button type="button" class="close" id="file-browser-close-btn" aria-label="Close">
                           <span aria-hidden="true">&times;</span>
@@ -2674,7 +2679,7 @@ greet("World");</code></pre>
     </div>
 
     <!-- File Browser Context Menu -->
-    <div id="file-browser-context-menu" style="display:none; position:fixed; z-index:9999;">
+    <div id="file-browser-context-menu" style="display:none; position:fixed; z-index:100005;">
         <div class="dropdown-menu show" style="position: static;">
             <a class="dropdown-item" href="#" data-action="new-file"><i class="bi bi-file-plus"></i> New File</a>
             <a class="dropdown-item" href="#" data-action="new-folder"><i class="bi bi-folder-plus"></i> New Folder</a>
@@ -2695,6 +2700,19 @@ greet("World");</code></pre>
             <div style="padding:8px 16px; border-top:1px solid #dee2e6; text-align:right;">
                 <button class="btn btn-sm btn-secondary mr-1" id="file-browser-name-cancel-btn">Cancel</button>
                 <button class="btn btn-sm btn-primary" id="file-browser-name-ok-btn">Create</button>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- File Browser Confirm Dialog (inline overlay for delete, discard, dirty-check) -->
+    <div id="file-browser-confirm-modal" style="display:none; position:fixed; inset:0; z-index:100002; background:rgba(0,0,0,0.35); align-items:center; justify-content:center;">
+        <div style="background:#fff; border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,0.25); width:380px; max-width:90vw; padding:0;">
+            <div style="padding:10px 16px; border-bottom:1px solid #dee2e6; font-weight:600; font-size:0.9rem;" id="file-browser-confirm-title">Confirm</div>
+            <div style="padding:16px;" id="file-browser-confirm-body">Are you sure?</div>
+            <div style="padding:8px 16px; border-top:1px solid #dee2e6; text-align:right;">
+                <button class="btn btn-sm btn-secondary mr-1" id="file-browser-confirm-cancel-btn">Cancel</button>
+                <button class="btn btn-sm btn-danger" id="file-browser-confirm-ok-btn">OK</button>
             </div>
         </div>
     </div>
@@ -3030,6 +3048,49 @@ greet("World");</code></pre>
             }
         }
         
+        /* ── File Browser Fuzzy Suggestion Dropdown ── */
+        .fb-suggestion-dropdown {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            max-height: 320px;
+            overflow-y: auto;
+            background: #fff;
+            border: 1px solid #ccc;
+            border-top: none;
+            border-radius: 0 0 4px 4px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            z-index: 100010;
+            font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+            font-size: 0.8rem;
+        }
+        .fb-suggestion-item {
+            padding: 5px 10px;
+            cursor: pointer;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        .fb-suggestion-item:last-child { border-bottom: none; }
+        .fb-suggestion-item:hover,
+        .fb-suggestion-item.active {
+            background: #e9ecef;
+        }
+        .fb-suggestion-item .fb-match-char {
+            color: #0d6efd;
+            font-weight: 700;
+        }
+        .fb-suggestion-item .fb-match-filename {
+            color: #212529;
+        }
+        .fb-suggestion-item .fb-match-dir {
+            color: #6c757d;
+            font-size: 0.75rem;
+            margin-left: 6px;
+        }
+
         /* LLM Context Menu Styles */
         .llm-context-menu {
             position: fixed;
@@ -3477,7 +3538,7 @@ greet("World");</code></pre>
     <script src="interface/tab-picker-manager.js"></script>
     <script src="interface/workflow-manager.js"></script>
     <script src="interface/script-manager.js"></script>
-    <script src="interface/file-browser-manager.js?v=20"></script>
+    <script src="interface/file-browser-manager.js?v=21"></script>
     <script>
         document.addEventListener('click', function (event) {
             var button = event.target.closest('#settings-file-browser-modal-open-button');

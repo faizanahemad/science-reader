@@ -11,7 +11,7 @@ Full-screen modal file browser and code editor accessible from the chat-settings
 - VS Code-like collapsible file tree sidebar with lazy per-directory loading
 - CodeMirror 5 editor with syntax highlighting for Python, JavaScript, TypeScript, CSS, HTML, XML, Markdown (GFM), JSON
 - Markdown preview tab using the project's `renderMarkdownToHtml` / `marked.js` renderer with `hljs` code block highlighting
-- Address bar for direct path navigation with HTML5 `<datalist>` autocomplete populated from the loaded tree
+- Address bar for direct path navigation with fuzzy autocomplete dropdown (substring + sequential character matching, filename-boosted scoring, highlighted matches)
 - Full CRUD: create files/folders, rename, delete (via right-click context menu or background context-click)
 - Unsaved-changes guard: dirty indicator dot, Save / Discard buttons, confirmation dialog on close/navigate
 - Keyboard shortcuts: `Ctrl+S` / `Cmd+S` save, `Escape` close, `Tab` indent
@@ -21,7 +21,10 @@ Full-screen modal file browser and code editor accessible from the chat-settings
 - State persistence across modal open/close (expanded dirs, current file, scroll position — all in-memory)
 - Sidebar collapse toggle (hide/show the 250 px tree panel to maximize editor width)
 - Sidebar New File / New Folder buttons in the tree header for quick creation without right-clicking
-- Inline naming modal for file/folder creation, replacing the browser's native `prompt()` with a target directory hint
+- Inline naming modal for file/folder creation and renaming, replacing the browser's native `prompt()` with a target directory hint; also used for renaming items (pre-fills current name, auto-selects text)
+- Reload from Disk button: re-fetches the currently open file from the server, with unsaved-changes confirmation if dirty
+- Fuzzy address bar autocomplete: replaces browser-native datalist prefix matching with a custom dropdown supporting substring, fuzzy sequential character matching, and filename-priority scoring with highlighted matched characters
+- In-modal confirmation and naming dialogs: all `confirm()` and `prompt()` calls replaced with styled overlay modals (z-index 100001-100002) that render correctly above the file browser's z-index:100000 overlay
 
 ---
 
@@ -38,12 +41,25 @@ A fallback click handler is also wired inline in `interface.html` so the button 
 - Full-screen overlay: `position: fixed; inset: 0; z-index: 100000 !important`
 - The modal is **not** a Bootstrap `.modal` — it is a plain `<div>` with Bootstrap layout classes inside, opened/closed with manual DOM manipulation to avoid Bootstrap JS conflicts when another modal (settings) is already open.
 - Inner layout: flex row → collapsible sidebar (250 px) + editor/viewer column
-- Header bar: sidebar-toggle, address bar (with datalist), refresh, theme picker, save, discard, close
+- Header bar: sidebar-toggle, address bar (with fuzzy autocomplete dropdown), dirty indicator, theme picker, AI Edit button, discard, save, reload-from-disk, close
 - Editor area shows one of three views at a time: editor, preview, empty-state
 
-### Address Bar Autocomplete
+### Address Bar Fuzzy Autocomplete
 
-The address bar (`#file-browser-address-bar`) is an `<input list="file-browser-path-suggestions">` element backed by a `<datalist id="file-browser-path-suggestions">`. After every tree load, `_refreshPathSuggestions()` scans all rendered `<li>` elements in the tree and repopulates the datalist with their `data-path` values. When the user selects a suggestion from the native dropdown (fires the `change` event), `_navigateAddressBar(value)` is called immediately — no Enter keypress required.
+The address bar (`#file-browser-address-bar`) is an `<input>` with `autocomplete="off"` wrapped in a `position: relative` container. A custom dropdown div `#file-browser-suggestion-dropdown` (class `fb-suggestion-dropdown`) is positioned absolutely below the input.
+
+After every tree load, `_refreshPathSuggestions()` scans all rendered `<li>` elements and stores sorted paths in `state.pathSuggestions` and `state.pathSuggestionMap`. No `<datalist>` is used.
+
+On every keystroke (`input` event), `_filterAndShowSuggestions(query)` runs the fuzzy algorithm against all stored paths:
+
+- **Fuzzy matching**: `_fuzzyMatch(needle, haystack)` performs case-insensitive sequential character matching. An exact substring match is tried first (bonus 1.5-2.0x). Then a sequential character scan scores results: consecutive matches = 1.0, word boundary matches = 0.8, mid-word matches = 0.3, gap penalty of -0.005 per character.
+- **Path-aware scoring**: `_fuzzyMatchPath(query, path)` tries matching against the filename component first with a 1.5x score boost, then falls back to the full path.
+- **Results**: sorted by score descending, limited to the top 30.
+- **Rendering**: each result is rendered with `_renderHighlightedPath()`. The directory part appears in muted gray, the filename in dark text, and matched characters in bold blue (class `fb-match-char`).
+- **Keyboard navigation**: ArrowDown/ArrowUp navigate the list, Enter selects the highlighted item (or navigates to the typed path if nothing is highlighted), Escape closes the dropdown.
+- **Mouse and focus**: clicking an item navigates to it, clicking outside closes the dropdown, focusing the input re-opens the dropdown if text is present.
+
+CSS classes: `.fb-suggestion-dropdown`, `.fb-suggestion-item`, `.fb-suggestion-item.active`, `.fb-match-char`, `.fb-match-filename`, `.fb-match-dir`.
 
 ### Markdown Tab Bar
 
@@ -64,18 +80,33 @@ Both use the same styling as the Refresh button: `btn btn-sm btn-link text-muted
 
 ### Naming Modal
 
-The naming modal (`#file-browser-name-modal`) replaces the browser's native `prompt()` for file and folder creation. It provides a cleaner UX with a visible target directory hint so the user knows where the new item will be created.
+The naming modal (`#file-browser-name-modal`) replaces the browser's native `prompt()` for file and folder creation and renaming. It provides a cleaner UX with a visible target directory hint so the user knows where the new item will be created.
 
 Layout and behavior:
 
 - Fixed overlay with `z-index: 100001` (one above the file browser modal) and a semi-transparent backdrop
-- Title text changes dynamically: "New File" or "New Folder" depending on the action
-- Input field for the file or folder name
+- Title text changes dynamically: "New File", "New Folder", or "Rename" depending on the action
+- Input field for the file or folder name; pre-filled with the current filename and auto-selected for rename operations
 - Directory hint below the input showing the resolved target directory
-- Cancel and Create buttons in the footer
+- Cancel and OK buttons in the footer; OK button text changes: "Create" for new file/folder, "Rename" for rename
 - Enter key confirms, Escape key cancels, clicking the backdrop cancels
 
 Target directory logic uses `_getTargetDir()`, which checks in order: `state.contextTarget` (from right-click), parent directory of `state.currentPath` (currently open file), then `state.currentDir` as fallback.
+Function signature: `_showNameModal(type, callback, opts)` where `type` can be `'file'`, `'folder'`, or `'rename'`, and `opts` can include `currentName` and `dir`.
+
+### Confirm Modal
+
+`#file-browser-confirm-modal` is a fixed overlay at `z-index: 100002` that replaces all native `confirm()` calls. Native browser dialogs are blocked behind the file browser's z-index:100000 overlay, so a custom in-modal solution is required.
+
+Layout and behavior:
+
+- Title, body (supports HTML), OK and Cancel buttons
+- OK button text and class are customizable (e.g. "Delete" with `btn-danger`, "Discard" with `btn-warning`)
+- Escape closes, backdrop click closes
+
+Function signature: `_showConfirmModal(title, bodyHtml, onConfirm, opts)`. The API is callback-based, not synchronous, since it replaces blocking `confirm()` calls with an async overlay.
+
+Used by: delete item, discard changes, reload from disk (dirty check), close modal (dirty check), navigate to file (dirty check).
 
 ---
 
@@ -308,17 +339,31 @@ LLM-assisted inline editing, similar to Cursor's Cmd+K. When a file is open in t
  `_renderDiffPreview()` — renders unified diff as colored HTML
 
 ---
+## Reload from Disk
+
+Button: `#file-browser-reload-btn` in the top bar after Save, icon `bi-arrow-clockwise`, disabled when no file is open.
+
+- If the file has unsaved changes, a confirm modal is shown before reloading
+- Calls the existing `GET /file-browser/read` endpoint (no new backend needed)
+- Preserves cursor position and scroll position after reload
+- Updates `state.originalContent`, resets `state.isDirty`
+- Shows success toast on reload, error toast on failure (404 if file was deleted from disk)
+- Enable/disable logic mirrors the AI Edit button: enabled after a successful text file load, disabled on binary/too-large/no-file/file-deleted
+
+Key functions: `_reloadFromDisk()` (dirty-check wrapper), `_doReload()` (performs the actual GET request).
+
+---
 ## Implementation Notes
 
 ### Files Created
 
 - `endpoints/file_browser.py` — Flask Blueprint (`file_browser_bp`) with 6 endpoints, path traversal prevention, binary detection, 2 MB size guard
-- `interface/file-browser-manager.js` — IIFE module (`FileBrowserManager`) with full tree rendering, CodeMirror integration, address bar autocomplete, CRUD operations, keyboard shortcuts, modal lifecycle
+- `interface/file-browser-manager.js` — IIFE module (`FileBrowserManager`) with full tree rendering, CodeMirror integration, fuzzy address bar autocomplete, CRUD operations, keyboard shortcuts, modal lifecycle, confirm modal, reload from disk, context menu z-index fix
 
 ### Files Modified
 
 - `endpoints/__init__.py` — Registered `file_browser_bp` blueprint
-- `interface/interface.html` — Added File Browser button in Actions section; full-screen modal HTML (no Bootstrap modal classes/attributes); context menu HTML; naming modal (`#file-browser-name-modal`); sidebar New File (`#file-browser-new-file-btn`) and New Folder (`#file-browser-new-folder-btn`) buttons; `<datalist id="file-browser-path-suggestions">`; `<script>` tag with cache-buster version; fallback click handler
+- `interface/interface.html` — Added File Browser button in Actions section; full-screen modal HTML (no Bootstrap modal classes/attributes); context menu HTML; naming modal (`#file-browser-name-modal`); confirm modal (`#file-browser-confirm-modal`); fuzzy dropdown (`#file-browser-suggestion-dropdown`) HTML + CSS; reload button (`#file-browser-reload-btn`); sidebar New File (`#file-browser-new-file-btn`) and New Folder (`#file-browser-new-folder-btn`) buttons; `<script>` tag with cache-buster version; fallback click handler
 - `interface/style.css` — Added file browser CSS: sidebar layout, tree item styling, editor/preview containers, tab bar, context menu, dirty indicator, empty state
 - `interface/service-worker.js` — Added `file-browser-manager.js` to precache list; cache version bumped on each JS update
 
@@ -341,16 +386,26 @@ LLM-assisted inline editing, similar to Cursor's Cmd+K. When a file is open in t
 | `_showView(view, messageHtml)` | Switches between editor / preview / empty-state views |
 | `_showFileBrowserModal()` | Opens the modal with manual DOM manipulation; kills any stale backdrop |
 | `_closeModal()` | Closes modal, sweeps orphan backdrops, conditionally removes `modal-open` |
-| `_refreshPathSuggestions()` | Repopulates the `<datalist>` with current tree paths for autocomplete |
+| `_refreshPathSuggestions()` | Rebuilds sorted path list from tree for fuzzy autocomplete (no datalist) |
 | `_renderPreview()` | Renders current editor content as markdown HTML into preview container |
 | `_ensureEditor()` | Lazily creates the CodeMirror instance on first open |
-| `_confirmIfDirty()` | Shows a confirm dialog if there are unsaved changes; returns boolean |
+| `_confirmIfDirty()` | Shows confirm modal if unsaved changes; calls callback when safe to proceed (async, not synchronous) |
 | `_createFile()`, `_createFolder()` | CRUD via naming modal + API calls |
-| `_renameItem()`, `_deleteItem()` | CRUD prompts + API calls |
+| `_renameItem()`, `_deleteItem()` | Rename via naming modal (pre-fills current name) + API call; Delete via confirm modal + API call |
 | `_getTargetDir()` | Determines target directory for new file/folder (contextTarget, then currentPath parent, then currentDir) |
-| `_showNameModal(type, callback)` | Shows naming modal for file or folder creation |
+| `_showNameModal(type, callback, opts)` | Shows naming modal for file/folder creation or renaming |
 | `_hideNameModal()` | Hides the naming modal and clears state |
 | `_nameModalConfirm()` | Validates input and fires callback from naming modal |
+| `_reloadFromDisk()` | Reload current file from disk with dirty-check confirmation |
+| `_doReload()` | Internal: performs the actual reload GET request |
+| `_fuzzyMatch(needle, haystack)` | Sequential char fuzzy matching with scoring (substring > consecutive > word-boundary > mid-word) |
+| `_fuzzyMatchPath(query, path)` | Path-aware fuzzy match: tries filename first (1.5x boost), falls back to full path |
+| `_filterAndShowSuggestions(query)` | Filters all paths by fuzzy query and renders the suggestion dropdown |
+| `_hideSuggestionDropdown()` | Hides suggestion dropdown and resets navigation state |
+| `_handleSuggestionNav(key)` | Arrow/Enter key navigation for the suggestion dropdown |
+| `_renderHighlightedPath(path, indexes)` | Renders path HTML with matched chars highlighted in blue bold |
+| `_showConfirmModal(title, body, onConfirm, opts)` | Shows in-modal confirmation dialog (replaces native confirm()) |
+| `_hideConfirmModal()` | Hides confirm dialog |
 
 ### State Object
 
@@ -369,7 +424,14 @@ var state = {
     currentTheme: 'monokai', // Active CodeMirror theme
     initialized: false,
     pathSuggestions: [],     // Ordered list of tree paths for autocomplete
-    pathSuggestionMap: {}    // Set-like map for O(1) lookup on address bar change event
+    pathSuggestionMap: {},    // Set-like map for O(1) lookup on address bar change event
+    aiEditSelection: null,   // Selected text for AI edit
+    aiEditProposed: null,    // Proposed replacement from AI edit
+    aiEditOriginal: null,    // Original text before AI edit
+    aiEditIsSelection: false, // Whether AI edit targets a selection vs whole file
+    aiEditStartLine: null,   // Start line of AI edit selection
+    aiEditEndLine: null,     // End line of AI edit selection
+    aiEditBaseHash: null     // Hash of file content at time of AI edit request
 };
 ```
 
@@ -396,6 +458,7 @@ var state = {
 | `Ctrl+S` / `Cmd+S` | Save current file |
 | `Escape` | Close modal (with unsaved changes confirmation if dirty) |
 | `Tab` (in editor) | Insert 4 spaces |
+| `Cmd+K` / `Ctrl+K` | Open AI Edit overlay (when editor focused) |
 
 ---
 
@@ -418,3 +481,7 @@ If a stale version of the JS is running (visible symptom: `#file-browser-backdro
 | CodeMirror renders blank on first open | CodeMirror instantiated before modal was visible | Deferred `_ensureEditor()` to 50 ms after modal `display: block` |
 | Address bar autocomplete not working | `change` event not bound; datalist not populated | Added `_refreshPathSuggestions()` call after every `loadTree()` completion; bound `change` event to call `_navigateAddressBar()` |
 | Browser `prompt()` for file creation | `prompt()` is ugly and doesn't show target directory | Replaced with inline naming modal overlay showing target directory hint |
+| Context menu invisible behind file browser modal | Context menu z-index was 9999, file browser modal is 100000 | Bumped context menu z-index to 100005 |
+| Rename/Delete from context menu did nothing | `_hideContextMenu()` nulled `state.contextTarget` before action could read it; global document click handler raced with action handler | Save target to local var before hiding, restore after; added `e.stopPropagation()` on context menu clicks |
+| Native `confirm()`/`prompt()` dialogs invisible behind file browser | Browser native dialogs rendered behind the z-index:100000 file browser overlay | Replaced all 5 `confirm()`/`prompt()` calls with in-modal overlay dialogs (`_showConfirmModal`, `_showNameModal` with rename mode) |
+| Address bar autocomplete only matches by prefix | Used HTML5 `datalist` which only supports browser-native prefix filtering | Replaced with custom fuzzy dropdown supporting substring, sequential char, and filename-priority matching |
