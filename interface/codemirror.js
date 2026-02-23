@@ -476,8 +476,15 @@ def comprehensive_example():
                 modalContent.append(scrollTopBtn);
                 
                 // Clean up button when modal is closed
-                $('#hint-modal').on('hidden.bs.modal', function() {
+                // Use .off().on() to prevent handler accumulation — this code runs
+                // inside renderStreamingHint(), which is called every hint request.
+                $('#hint-modal').off('hidden.bs.modal.hintCleanup').on('hidden.bs.modal.hintCleanup', function() {
                     $('.code-hint-scroll-top').remove();
+                    // Unconditionally remove backdrops — stale ones with inflated z-index
+                    // (1089) from hint/solution modals survive conditional checks and
+                    // cover lower-z-index modals like chat-settings (1055).
+                    $('.modal-backdrop').remove();
+                    $('body').removeClass('modal-open');
                 });
             }
         }
@@ -664,8 +671,15 @@ def comprehensive_example():
                 modalContent.append(scrollTopBtn);
                 
                 // Clean up button when modal is closed
-                $('#solution-modal').on('hidden.bs.modal', function() {
+                // Use .off().on() to prevent handler accumulation — this code runs
+                // inside renderStreamingSolution(), which is called every solution request.
+                $('#solution-modal').off('hidden.bs.modal.solutionCleanup').on('hidden.bs.modal.solutionCleanup', function() {
                     $('.code-solution-scroll-top').remove();
+                    // Unconditionally remove backdrops — stale ones with inflated z-index
+                    // (1089) from hint/solution modals survive conditional checks and
+                    // cover lower-z-index modals like chat-settings (1055).
+                    $('.modal-backdrop').remove();
+                    $('body').removeClass('modal-open');
                 });
             }
         }

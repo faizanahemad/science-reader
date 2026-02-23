@@ -113,6 +113,22 @@ Entry points:
 - **Linked save-through**: `saveArtefact()` reuses the link to update the original message text (falling back to `/edit_message_from_conversation/...` if no card element is available).
 - **Diff blocks**: `parseUnifiedDiff()` splits hunks into smaller blocks around change clusters to enable per-block checkboxes.
 
+## Cmd+K Inline Edit
+
+Keyboard shortcut for quick AI-assisted editing:
+
+ **Shortcut**: Cmd+K / Ctrl+K while the artefact textarea has focus opens an instruction overlay.
+ **Selection**: If text is selected, shows the selected line range. Otherwise, edits the entire artefact.
+ **Flow**: Overlay captures instruction -> feeds into existing `proposeEdits()` pipeline -> per-hunk diff in Diff tab.
+ **Deep context**: Optional checkbox for `retrieve_prior_context_llm_based` extraction (adds 2-5s latency).
+ Ctrl+Enter / Cmd+Enter submits the instruction.
+ Escape closes the overlay.
+
+### Backend Enhancement
+ `propose_edits` endpoint now accepts optional `deep_context` boolean field.
+ When true, calls `conversation.retrieve_prior_context_llm_based(instruction)` and includes extracted context in the LLM prompt.
+
+---
 ## Chat References
 
 - Use `#artefact_N` in a message to inject artefact content into the prompt.

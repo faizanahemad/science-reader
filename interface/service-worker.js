@@ -12,7 +12,7 @@
 const DEBUG = false;
 
 // Bump cache when UI shell assets change.
-const CACHE_VERSION = "v18";
+const CACHE_VERSION = "v20";
 const UI_SHELL_CACHE = `ui-shell-${CACHE_VERSION}`;
 const META_CACHE = `meta-${CACHE_VERSION}`;
 

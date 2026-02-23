@@ -513,6 +513,7 @@ def propose_artefact_edits_route(conversation_id: str, artefact_id: str):
     include_messages = bool(payload.get("include_messages"))
     include_memory_pad = bool(payload.get("include_memory_pad"))
     history_count = int(payload.get("history_count", 10))
+    deep_context = bool(payload.get("deep_context"))
 
     if not instruction:
         return json_error(
@@ -537,6 +538,19 @@ def propose_artefact_edits_route(conversation_id: str, artefact_id: str):
             if include_memory_pad and hasattr(conversation, "_memory_pad")
             else ""
         )
+
+
+        # Deep context extraction (optional, expensive)
+        extracted_context = ""
+        if deep_context:
+            try:
+                ctx = conversation.retrieve_prior_context_llm_based(
+                    query=instruction,
+                    required_message_lookback=30,
+                )
+                extracted_context = ctx.get("extracted_context", "")
+            except Exception:
+                logger.warning("Failed to retrieve LLM-based context", exc_info=True)
 
         selection_text = ""
         if (
@@ -569,6 +583,8 @@ Recent messages:
 
 Memory pad:
 {memory_pad or "(not included)"}
+Extracted context:
+{extracted_context or "(not included)"}
 
 File content with line numbers:
 {_line_number_content(content)}

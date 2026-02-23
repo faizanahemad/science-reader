@@ -20,7 +20,8 @@ var ArtefactsManager = (function () {
         linkedMessage: null,
         pendingArtefact: null,
         pendingLinkLookup: null,
-        linkMap: null
+        linkMap: null,
+        deepContext: false
     };
 
     function ensureLinksLoaded(onDone) {
@@ -185,6 +186,10 @@ var ArtefactsManager = (function () {
         $(document).off('click', '#artefact-create-btn').on('click', '#artefact-create-btn', createArtefact);
         $(document).off('click', '#artefacts-list .artefact-list-item').on('click', '#artefacts-list .artefact-list-item', function () {
             openArtefact($(this).data('id'));
+            // Auto-close sidebar on mobile after selecting an artefact
+            if (window.innerWidth < 768) {
+                $('#artefacts-modal .artefact-sidebar').removeClass('show');
+            }
         });
         $(document).off('click', '#artefact-save-btn').on('click', '#artefact-save-btn', saveArtefact);
         $(document).off('click', '#artefact-delete-btn').on('click', '#artefact-delete-btn', deleteArtefact);
@@ -206,6 +211,57 @@ var ArtefactsManager = (function () {
                 state.selectedHunks = {};
             }
             state.selectedHunks[idx] = $(this).is(':checked');
+        });
+
+        // Cmd+K overlay handlers
+        $(document).off('click', '#art-ai-edit-cancel').on('click', '#art-ai-edit-cancel', _hideArtAiEditModal);
+        $(document).off('click', '#art-ai-edit-generate').on('click', '#art-ai-edit-generate', _generateArtAiEdit);
+
+        // Cmd+K / Ctrl+K keyboard shortcut on artefact textarea
+        $(document).off('keydown', '#artefact-editor-textarea.art-cmdk').on('keydown', '#artefact-editor-textarea', function(e) {
+            if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+                e.preventDefault();
+                _showArtAiEditModal();
+            }
+        });
+
+        // Escape to close AI edit overlay
+        $(document).off('keydown.artAiEdit').on('keydown.artAiEdit', function(e) {
+            if (e.key === 'Escape') {
+                var modal = document.getElementById('artefact-ai-edit-modal');
+                if (modal && modal.style.display === 'flex') {
+                    e.stopPropagation();
+                    _hideArtAiEditModal();
+                    return;
+                }
+            }
+        });
+
+        // Ctrl+Enter / Cmd+Enter in instruction textarea
+        $(document).off('keydown', '#art-ai-edit-instruction').on('keydown', '#art-ai-edit-instruction', function(e) {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                e.preventDefault();
+                _generateArtAiEdit();
+            }
+        });
+
+        // Backdrop click to close
+        $(document).off('click', '#artefact-ai-edit-modal').on('click', '#artefact-ai-edit-modal', function(e) {
+            if (e.target === this) _hideArtAiEditModal();
+        });
+
+        // Sidebar toggle for mobile
+        $(document).off('click', '#artefact-sidebar-toggle').on('click', '#artefact-sidebar-toggle', function() {
+            var sidebar = $('#artefacts-modal .artefact-sidebar');
+            sidebar.toggleClass('show');
+        });
+
+        // Close sidebar when clicking outside it on mobile
+        $('#artefacts-modal .modal-body').on('click', function(e) {
+            var sidebar = $('#artefacts-modal .artefact-sidebar');
+            if (sidebar.hasClass('show') && !$(e.target).closest('.artefact-sidebar').length) {
+                sidebar.removeClass('show');
+            }
         });
     }
 
@@ -510,8 +566,10 @@ var ArtefactsManager = (function () {
             include_summary: $('#artefact-include-summary').is(':checked'),
             include_messages: $('#artefact-include-messages').is(':checked'),
             include_memory_pad: $('#artefact-include-memory').is(':checked'),
-            history_count: parseInt($('#artefact-history-count').val() || '10', 10)
+            history_count: parseInt($('#artefact-history-count').val() || '10', 10),
+            deep_context: state.deepContext || false
         };
+        state.deepContext = false;
         fetch(`/artefacts/${state.conversationId}/${state.activeArtefactId}/propose_edits`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -880,6 +938,67 @@ var ArtefactsManager = (function () {
         return null;
     }
 
+    function _showArtAiEditModal() {
+        var textarea = document.getElementById('artefact-editor-textarea');
+        if (!textarea) {
+            showToast('No artefact open', 'warning');
+            return;
+        }
+
+        var start = textarea.selectionStart;
+        var end = textarea.selectionEnd;
+        if (start !== end) {
+            var beforeStart = textarea.value.slice(0, start);
+            var beforeEnd = textarea.value.slice(0, end);
+            var startLine = beforeStart.split('\n').length;
+            var endLine = beforeEnd.split('\n').length;
+            $('#art-ai-edit-info').text('Editing: lines ' + startLine + '-' + endLine + ' (selected)');
+        } else {
+            $('#art-ai-edit-info').text('Editing: entire artefact');
+        }
+
+
+        // Initialize modal controls from footer state
+        $('#art-ai-edit-include-summary').prop('checked', $('#artefact-include-summary').is(':checked'));
+        $('#art-ai-edit-include-messages').prop('checked', $('#artefact-include-messages').is(':checked'));
+        $('#art-ai-edit-include-memory').prop('checked', $('#artefact-include-memory').is(':checked'));
+        $('#art-ai-edit-history-count').val($('#artefact-history-count').val());
+        $('#art-ai-edit-deep-context').prop('checked', false);
+
+        var modal = document.getElementById('artefact-ai-edit-modal');
+        modal.style.display = 'flex';
+        setTimeout(function() {
+            $('#art-ai-edit-instruction').focus();
+        }, 50);
+    }
+
+    function _hideArtAiEditModal() {
+        var modal = document.getElementById('artefact-ai-edit-modal');
+        modal.style.display = 'none';
+        $('#art-ai-edit-spinner').hide();
+        $('#art-ai-edit-generate').prop('disabled', false);
+    }
+
+    function _generateArtAiEdit() {
+        var instruction = ($('#art-ai-edit-instruction').val() || '').trim();
+        if (!instruction) {
+            showToast('Please enter an instruction', 'warning');
+            return;
+        }
+
+        // Put instruction into existing propose edits textarea
+        $('#artefact-instruction').val(instruction);
+        // Sync AI edit modal controls to footer controls
+        $('#artefact-include-summary').prop('checked', $('#art-ai-edit-include-summary').is(':checked'));
+        $('#artefact-include-messages').prop('checked', $('#art-ai-edit-include-messages').is(':checked'));
+        $('#artefact-include-memory').prop('checked', $('#art-ai-edit-include-memory').is(':checked'));
+        $('#artefact-history-count').val($('#art-ai-edit-history-count').val());
+        // Set deep_context flag on state
+        state.deepContext = $('#art-ai-edit-deep-context').is(':checked');
+        _hideArtAiEditModal();
+        // Call existing proposeEdits function
+        proposeEdits();
+    }
     init();
 
     return {

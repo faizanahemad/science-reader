@@ -72,7 +72,14 @@ var FileBrowserManager = (function () {
         currentTheme: 'monokai',  // Current CodeMirror theme
         initialized: false,
         pathSuggestions: [],
-        pathSuggestionMap: {}
+        pathSuggestionMap: {},
+        aiEditSelection: null,      // {from, to} CodeMirror cursor positions
+        aiEditProposed: null,       // LLM's replacement text
+        aiEditOriginal: null,       // Original text (selection or full file)
+        aiEditIsSelection: false,   // Whether editing a selection vs whole file
+        aiEditStartLine: null,      // 1-indexed start line
+        aiEditEndLine: null,        // 1-indexed end line
+        aiEditBaseHash: null        // Hash from server response
     };
 
     // ═══════════════════════════════════════════════════════════════
@@ -216,7 +223,9 @@ var FileBrowserManager = (function () {
                     } else {
                         cm.replaceSelection('    ', 'end');
                     }
-                }
+                },
+                'Cmd-K': function(cm) { _showAiEditModal(); },
+                'Ctrl-K': function(cm) { _showAiEditModal(); }
             }
         });
         state.cmEditor.on('change', function () {
@@ -401,6 +410,7 @@ var FileBrowserManager = (function () {
                         '<p class="mt-2">Binary file — cannot edit</p>' +
                         '<small class="text-muted">' + _basename(filePath) + ' (' + _formatSize(resp.size) + ')</small>'
                     );
+                    $('#file-browser-ai-edit-btn').prop('disabled', true);
                     return;
                 }
 
@@ -423,6 +433,7 @@ var FileBrowserManager = (function () {
                     $('#file-browser-load-anyway-btn').off('click').on('click', function () {
                         loadFile(filePath, true);
                     });
+                    $('#file-browser-ai-edit-btn').prop('disabled', true);
                     return;
                 }
 
@@ -459,6 +470,7 @@ var FileBrowserManager = (function () {
                 // Move cursor to top
                 state.cmEditor.setCursor(0, 0);
                 state.cmEditor.focus();
+                $('#file-browser-ai-edit-btn').prop('disabled', false);
             })
             .fail(function (xhr) {
                 var msg = 'Failed to read file';
@@ -775,6 +787,7 @@ var FileBrowserManager = (function () {
                 // If deleted file was currently open, clear editor
                 if (state.currentPath === itemPath) {
                     state.currentPath = null;
+                    $('#file-browser-ai-edit-btn').prop('disabled', true);
                     state.originalContent = '';
                     state.isDirty = false;
                     _updateDirtyState();
@@ -946,6 +959,214 @@ var FileBrowserManager = (function () {
         }
     }
 
+
+    // ═══════════════════════════════════════════════════════════════
+    //  AI Edit functions
+    // ═══════════════════════════════════════════════════════════════
+
+    function _showAiEditModal() {
+        if (!state.cmEditor || !state.currentPath) {
+            showToast('No file open', 'warning');
+            return;
+        }
+
+        // Capture selection info
+        if (state.cmEditor.somethingSelected()) {
+            var from = state.cmEditor.getCursor('from');
+            var to = state.cmEditor.getCursor('to');
+            // Expand to full lines
+            state.aiEditSelection = {
+                from: {line: from.line, ch: 0},
+                to: {line: to.line, ch: state.cmEditor.getLine(to.line).length}
+            };
+            state.aiEditStartLine = from.line + 1;  // 1-indexed
+            state.aiEditEndLine = to.line + 1;
+            state.aiEditIsSelection = true;
+            $('#fb-ai-edit-info').text('Editing: lines ' + state.aiEditStartLine + '-' + state.aiEditEndLine + ' (selected)');
+        } else {
+            state.aiEditSelection = null;
+            state.aiEditStartLine = null;
+            state.aiEditEndLine = null;
+            state.aiEditIsSelection = false;
+            var totalLines = state.cmEditor.lineCount();
+            if (totalLines > 500) {
+                showToast('File too large for whole-file AI edit (' + totalLines + ' lines). Please select a region.', 'warning');
+                return;
+            }
+            $('#fb-ai-edit-info').text('Editing: entire file');
+        }
+
+        // Check if conversation is available
+        var convId = (typeof getConversationIdFromUrl === 'function') ? getConversationIdFromUrl() : null;
+        if (convId) {
+            $('#fb-ai-edit-include-summary, #fb-ai-edit-include-messages, #fb-ai-edit-include-memory, #fb-ai-edit-deep-context').prop('disabled', false).closest('.form-check').css('opacity', '1');
+            $('#fb-ai-edit-history-count').prop('disabled', false);
+        } else {
+            $('#fb-ai-edit-include-summary, #fb-ai-edit-include-messages, #fb-ai-edit-include-memory, #fb-ai-edit-deep-context').prop('disabled', true).prop('checked', false).closest('.form-check').css('opacity', '0.5');
+            $('#fb-ai-edit-history-count').prop('disabled', true);
+        }
+
+        // Show the modal
+        var modal = document.getElementById('file-browser-ai-edit-modal');
+        modal.style.display = 'flex';
+        setTimeout(function() {
+            $('#fb-ai-edit-instruction').focus();
+        }, 50);
+    }
+
+    function _hideAiEditModal() {
+        var modal = document.getElementById('file-browser-ai-edit-modal');
+        modal.style.display = 'none';
+        $('#fb-ai-edit-spinner').hide();
+        $('#fb-ai-edit-generate').prop('disabled', false);
+    }
+
+    function _generateAiEdit() {
+        var instruction = ($('#fb-ai-edit-instruction').val() || '').trim();
+        if (!instruction) {
+            showToast('Please enter an instruction', 'warning');
+            return;
+        }
+
+        // Show spinner
+        $('#fb-ai-edit-spinner').show();
+        $('#fb-ai-edit-generate').prop('disabled', true);
+
+        var convId = (typeof getConversationIdFromUrl === 'function') ? getConversationIdFromUrl() : null;
+        var payload = {
+            path: state.currentPath,
+            instruction: instruction,
+            include_summary: $('#fb-ai-edit-include-summary').is(':checked'),
+            include_messages: $('#fb-ai-edit-include-messages').is(':checked'),
+            include_memory_pad: $('#fb-ai-edit-include-memory').is(':checked'),
+            history_count: parseInt($('#fb-ai-edit-history-count').val() || '10', 10),
+            deep_context: $('#fb-ai-edit-deep-context').is(':checked')
+        };
+        var anyContextRequested = payload.include_summary || payload.include_messages || payload.include_memory_pad || payload.deep_context;
+        if (convId && anyContextRequested) {
+            payload.conversation_id = convId;
+        }
+        if (state.aiEditIsSelection && state.aiEditStartLine && state.aiEditEndLine) {
+            payload.selection = {
+                start_line: state.aiEditStartLine,
+                end_line: state.aiEditEndLine
+            };
+        }
+
+        $.ajax({
+            url: '/file-browser/ai-edit',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify(payload)
+        })
+        .done(function(resp) {
+            if (resp.status === 'error') {
+                showToast(resp.error || 'AI edit failed', 'error');
+                _hideAiEditModal();
+                return;
+            }
+            state.aiEditProposed = resp.proposed;
+            state.aiEditOriginal = resp.original;
+            state.aiEditBaseHash = resp.base_hash;
+            if (resp.is_selection) {
+                state.aiEditStartLine = resp.start_line;
+                state.aiEditEndLine = resp.end_line;
+            }
+            _hideAiEditModal();
+            _showAiDiffModal(resp.diff_text);
+        })
+        .fail(function(xhr) {
+            var msg = 'AI edit request failed';
+            try { msg = JSON.parse(xhr.responseText).error || msg; } catch (e) { /* ignore */ }
+            showToast(msg, 'error');
+            _hideAiEditModal();
+        });
+    }
+
+    function _showAiDiffModal(diffText) {
+        var container = document.getElementById('fb-ai-diff-content');
+        container.innerHTML = _renderDiffPreview(diffText);
+        var modal = document.getElementById('file-browser-ai-diff-modal');
+        modal.style.display = 'flex';
+    }
+
+    function _hideAiDiffModal() {
+        var modal = document.getElementById('file-browser-ai-diff-modal');
+        modal.style.display = 'none';
+        document.getElementById('fb-ai-diff-content').innerHTML = '';
+    }
+
+    function _acceptAiEdit() {
+        if (!state.aiEditProposed) {
+            showToast('No proposed edit to accept', 'warning');
+            _hideAiDiffModal();
+            return;
+        }
+
+        if (state.aiEditIsSelection && state.aiEditSelection) {
+            // Replace the selected range
+            state.cmEditor.replaceRange(
+                state.aiEditProposed,
+                state.aiEditSelection.from,
+                state.aiEditSelection.to
+            );
+        } else {
+            // Replace entire file content
+            var cursor = state.cmEditor.getCursor();
+            state.cmEditor.setValue(state.aiEditProposed);
+            state.cmEditor.setCursor(cursor);
+        }
+
+        state.isDirty = true;
+        _updateDirtyState();
+        _hideAiDiffModal();
+        _clearAiEditState();
+        showToast('AI edit applied. Review and save when ready.', 'success');
+    }
+
+    function _rejectAiEdit() {
+        _hideAiDiffModal();
+        _clearAiEditState();
+    }
+
+    function _editAiInstruction() {
+        _hideAiDiffModal();
+        // Re-open the instruction modal (instruction text is preserved)
+        var modal = document.getElementById('file-browser-ai-edit-modal');
+        modal.style.display = 'flex';
+        setTimeout(function() {
+            $('#fb-ai-edit-instruction').focus();
+        }, 50);
+    }
+
+    function _clearAiEditState() {
+        state.aiEditProposed = null;
+        state.aiEditOriginal = null;
+        state.aiEditBaseHash = null;
+    }
+
+    function _renderDiffPreview(diffText) {
+        if (!diffText) return '<div class="text-muted p-2">No changes detected</div>';
+        var lines = diffText.split('\n');
+        var html = '';
+        for (var i = 0; i < lines.length; i++) {
+            var line = lines[i];
+            var escaped = line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+            var cls = 'ai-diff-line';
+            if (line.indexOf('@@') === 0) {
+                cls += ' ai-diff-hunk';
+            } else if (line.indexOf('+++') === 0 || line.indexOf('---') === 0) {
+                cls += ' ai-diff-header';
+            } else if (line.indexOf('+') === 0) {
+                cls += ' ai-diff-add';
+            } else if (line.indexOf('-') === 0) {
+                cls += ' ai-diff-del';
+            }
+            html += '<div class="' + cls + '">' + escaped + '</div>';
+        }
+        return html;
+    }
+
     // ═══════════════════════════════════════════════════════════════
     //  Initialization
     // ═══════════════════════════════════════════════════════════════
@@ -1027,6 +1248,63 @@ var FileBrowserManager = (function () {
         // Click on backdrop (outside the inner card) closes naming modal
         $('#file-browser-name-modal').on('click', function (e) {
             if (e.target === this) _hideNameModal();
+        });
+
+
+        // --- AI Edit handlers ---
+        $('#file-browser-ai-edit-btn').on('click', function() {
+            _showAiEditModal();
+        });
+        $('#fb-ai-edit-cancel').on('click', function() {
+            _hideAiEditModal();
+        });
+        $('#fb-ai-edit-generate').on('click', function() {
+            _generateAiEdit();
+        });
+        $('#fb-ai-diff-accept').on('click', function() {
+            _acceptAiEdit();
+        });
+        $('#fb-ai-diff-reject').on('click', function() {
+            _rejectAiEdit();
+        });
+        $('#fb-ai-diff-edit').on('click', function() {
+            _editAiInstruction();
+        });
+
+
+        // Keyboard shortcuts for AI edit overlays
+        $(document).on('keydown', function(e) {
+            // Escape closes AI edit overlays (highest priority)
+            if (e.key === 'Escape') {
+                var diffModal = document.getElementById('file-browser-ai-diff-modal');
+                if (diffModal && diffModal.style.display === 'flex') {
+                    e.stopPropagation();
+                    _rejectAiEdit();
+                    return;
+                }
+                var editModal = document.getElementById('file-browser-ai-edit-modal');
+                if (editModal && editModal.style.display === 'flex') {
+                    e.stopPropagation();
+                    _hideAiEditModal();
+                    return;
+                }
+            }
+        });
+
+        // Ctrl+Enter / Cmd+Enter in instruction textarea triggers generate
+        $('#fb-ai-edit-instruction').on('keydown', function(e) {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                e.preventDefault();
+                _generateAiEdit();
+            }
+        });
+
+        // Backdrop click to close AI edit modals
+        $('#file-browser-ai-edit-modal').on('click', function(e) {
+            if (e.target === this) _hideAiEditModal();
+        });
+        $('#file-browser-ai-diff-modal').on('click', function(e) {
+            if (e.target === this) _rejectAiEdit();
         });
 
         // --- Address bar: Enter key ---

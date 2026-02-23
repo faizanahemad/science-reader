@@ -1234,6 +1234,9 @@
         <div class="modal-content">
           <div class="modal-header d-flex justify-content-between align-items-center">
             <h5 class="modal-title">Artefacts</h5>
+            <button type="button" id="artefact-sidebar-toggle" class="btn btn-sm btn-outline-secondary d-md-none ml-2" title="Toggle sidebar">
+                <i class="fa fa-bars"></i>
+            </button>
             <div class="d-flex align-items-center">
               <select id="artefact-file-type" class="form-control form-control-sm mr-2" style="width: auto;">
                 <option value="md">Markdown (.md)</option>
@@ -1254,7 +1257,7 @@
           </div>
           <div class="modal-body">
             <div class="d-flex h-100">
-              <div class="border-right" style="width: 280px; overflow-y: auto;">
+              <div class="artefact-sidebar border-right" style="width: 280px; overflow-y: auto;">
                 <div class="p-2">
                   <button id="artefact-create-btn" class="btn btn-sm btn-primary btn-block">New Artefact</button>
                   <div id="artefacts-list" class="list-group mt-2"></div>
@@ -1315,7 +1318,46 @@
               <button type="button" id="artefact-discard-btn" class="btn btn-outline-secondary">Discard</button>
             </div>
           </div>
+            <!-- Artefact Cmd+K instruction overlay -->
+            <div id="artefact-ai-edit-modal" style="display:none; position:absolute; top:0; left:0; right:0; bottom:0; z-index:1090; background:rgba(0,0,0,0.4); align-items:center; justify-content:center;">
+                <div style="background:#fff; border-radius:8px; padding:20px; width:500px; max-width:90%; box-shadow:0 4px 20px rgba(0,0,0,0.3);">
+                    <h6 class="mb-2" style="font-weight:600;">AI Edit (Cmd+K)</h6>
+                    <div id="art-ai-edit-info" class="text-muted small mb-2">Editing: entire artefact</div>
+                    <textarea id="art-ai-edit-instruction" class="form-control mb-2" rows="3" placeholder="Describe the changes you want..."></textarea>
+                    <div class="mb-2">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="art-ai-edit-deep-context">
+                            <label class="form-check-label small" for="art-ai-edit-deep-context">Deep context extraction <span class="text-muted">(adds 2-5s)</span></label>
+                        </div>
+                    </div>
+                    <div class="d-flex flex-wrap align-items-center mt-1 mb-1" style="gap:4px 12px;">
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="art-ai-edit-include-summary">
+                            <label class="form-check-label small" for="art-ai-edit-include-summary">Include summary</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="art-ai-edit-include-messages">
+                            <label class="form-check-label small" for="art-ai-edit-include-messages">Include recent messages</label>
+                        </div>
+                        <div class="form-check">
+                            <input class="form-check-input" type="checkbox" id="art-ai-edit-include-memory">
+                            <label class="form-check-label small" for="art-ai-edit-include-memory">Include memory pad</label>
+                        </div>
+                        <div class="form-inline">
+                            <label class="mr-1 text-muted small" for="art-ai-edit-history-count">History</label>
+                            <input id="art-ai-edit-history-count" type="number" class="form-control form-control-sm" style="width: 60px;" value="10" min="0" max="50">
+                        </div>
+                    </div>
+                    <div class="d-flex justify-content-end" style="gap:8px;">
+                        <button class="btn btn-sm btn-secondary" id="art-ai-edit-cancel">Cancel</button>
+                        <button class="btn btn-sm btn-primary" id="art-ai-edit-generate">
+                            <span id="art-ai-edit-spinner" class="spinner-border spinner-border-sm mr-1" role="status" style="display:none;"></span>
+                            Generate
+                        </button>
+                    </div>
+                </div>
         </div>
+      </div> 
       </div>
     </div>
 
@@ -2575,6 +2617,9 @@ greet("World");</code></pre>
                           <option value="monokai">Monokai</option>
                           <option value="default">Light</option>
                       </select>
+                    <button class="btn btn-sm btn-outline-info" id="file-browser-ai-edit-btn" title="AI Edit (Cmd+K)" disabled>
+                        <i class="bi bi-magic"></i> AI Edit
+                    </button>
                       <button class="btn btn-sm btn-outline-warning" id="file-browser-discard-btn" title="Discard changes" style="display: none;">
                           <i class="bi bi-arrow-counterclockwise"></i> Discard
                       </button>
@@ -2654,15 +2699,68 @@ greet("World");</code></pre>
         </div>
     </div>
 
+                <!-- AI Edit instruction overlay -->
+                <div id="file-browser-ai-edit-modal" style="display:none; position:absolute; top:0; left:0; right:0; bottom:0; z-index:100001; background:rgba(0,0,0,0.4); align-items:center; justify-content:center;">
+                    <div style="background:#fff; border-radius:8px; padding:20px; width:500px; max-width:90%; box-shadow:0 4px 20px rgba(0,0,0,0.3);">
+                        <h6 class="mb-2" style="font-weight:600;">AI Edit</h6>
+                        <div id="fb-ai-edit-info" class="text-muted small mb-2">Editing: entire file</div>
+                        <textarea id="fb-ai-edit-instruction" class="form-control mb-2" rows="3" placeholder="Describe the changes you want..."></textarea>
+                        <div class="mb-2">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="fb-ai-edit-include-summary">
+                                <label class="form-check-label small" for="fb-ai-edit-include-summary">Include summary</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="fb-ai-edit-include-messages">
+                                <label class="form-check-label small" for="fb-ai-edit-include-messages">Include recent messages</label>
+                            </div>
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" id="fb-ai-edit-include-memory">
+                                <label class="form-check-label small" for="fb-ai-edit-include-memory">Include memory pad</label>
+                            </div>
+                            <div class="form-inline mt-1">
+                                <label class="mr-1 text-muted small" for="fb-ai-edit-history-count">History</label>
+                                <input id="fb-ai-edit-history-count" type="number" class="form-control form-control-sm" style="width: 60px;" value="10" min="0" max="50">
+                            </div>
+                            <div class="form-check mt-1">
+                                <input class="form-check-input" type="checkbox" id="fb-ai-edit-deep-context">
+                                <label class="form-check-label small" for="fb-ai-edit-deep-context">Deep context extraction <span class="text-muted">(adds 2-5s)</span></label>
+                            </div>
+                        </div>
+                        <div class="d-flex justify-content-end" style="gap:8px;">
+                            <button class="btn btn-sm btn-secondary" id="fb-ai-edit-cancel">Cancel</button>
+                            <button class="btn btn-sm btn-primary" id="fb-ai-edit-generate">
+                                <span id="fb-ai-edit-spinner" class="spinner-border spinner-border-sm mr-1" role="status" style="display:none;"></span>
+                                Generate
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- AI Edit diff preview overlay -->
+                <div id="file-browser-ai-diff-modal" style="display:none; position:absolute; top:0; left:0; right:0; bottom:0; z-index:100002; background:rgba(0,0,0,0.4); align-items:center; justify-content:center;">
+                    <div style="background:#fff; border-radius:8px; padding:20px; width:80vw; max-width:900px; max-height:80vh; display:flex; flex-direction:column; box-shadow:0 4px 20px rgba(0,0,0,0.3);">
+                        <h6 class="mb-2" style="font-weight:600;">AI Edit Preview</h6>
+                        <div id="fb-ai-diff-content" class="ai-diff-view mb-3" style="flex:1; overflow:auto; border:1px solid #dee2e6; border-radius:4px; padding:8px; min-height:100px; max-height:60vh;"></div>
+                        <div class="d-flex justify-content-end" style="gap:8px;">
+                            <button class="btn btn-sm btn-outline-primary" id="fb-ai-diff-edit">
+                                <i class="bi bi-pencil"></i> Edit Instruction
+                            </button>
+                            <button class="btn btn-sm btn-secondary" id="fb-ai-diff-reject">Reject</button>
+                            <button class="btn btn-sm btn-success" id="fb-ai-diff-accept">Accept</button>
+                        </div>
+                    </div>
+                </div>
+
     <!-- Modal Z-Index CSS Fix -->
     <style>
         /* Chat Settings Modal - Base level */
         #chat-settings-modal.modal {
             z-index: 1055 !important;
         }
-        #chat-settings-modal .modal-backdrop {
-            z-index: 1054 !important;
-        }
+        /* NOTE: .modal-backdrop is appended to <body> by Bootstrap 4, NOT inside the modal.
+           Descendant selectors like "#modal-id .modal-backdrop" never match.
+           Backdrop z-index is managed via JS in shown.bs.modal handlers instead. */
         #chat-settings-modal .modal-dialog {
             z-index: 1056 !important;
             position: relative;
@@ -2793,14 +2891,8 @@ greet("World");</code></pre>
             z-index: 1065 !important;
         }
         
-        #memory-pad-modal .modal-backdrop,
-        #user-details-modal .modal-backdrop,
-        #user-preferences-modal .modal-backdrop,
-        #code-editor-modal .modal-backdrop,
-        #artefacts-modal .modal-backdrop,
-        #model-overrides-modal .modal-backdrop {
-            z-index: 1064 !important;
-        }
+        /* NOTE: .modal-backdrop descendant selectors removed — Bootstrap 4 appends
+           backdrops to <body>, so these never matched. Managed via JS instead. */
 
         #memory-pad-modal .modal-dialog,
         #user-details-modal .modal-dialog,
@@ -2837,6 +2929,105 @@ greet("World");</code></pre>
         #artefacts-modal .modal-body {
             padding: 0;
             height: calc(100vh - 120px);
+        }
+
+        /* ── Artefacts Modal Mobile Responsive ── */
+        @media (max-width: 767.98px) {
+            /* Full-screen modal on mobile */
+            #artefacts-modal .modal-dialog {
+                max-width: 100% !important;
+                width: 100% !important;
+                height: 100% !important;
+                margin: 0 !important;
+            }
+            #artefacts-modal .modal-content {
+                height: 100% !important;
+                border-radius: 0 !important;
+            }
+            #artefacts-modal .modal-body {
+                height: calc(100vh - 140px) !important;
+            }
+
+            /* Sidebar: hidden by default on mobile, toggled via JS */
+            #artefacts-modal .artefact-sidebar {
+                display: none;
+                position: absolute;
+                top: 0;
+                left: 0;
+                bottom: 0;
+                width: 260px !important;
+                z-index: 10;
+                background: #fff;
+                box-shadow: 2px 0 8px rgba(0,0,0,0.15);
+            }
+            #artefacts-modal .artefact-sidebar.show {
+                display: block;
+            }
+
+            /* Header: make close button larger and easier to tap */
+            #artefacts-modal .modal-header {
+                padding: 0.5rem 0.75rem;
+                flex-wrap: wrap;
+            }
+            #artefacts-modal .modal-header .close {
+                font-size: 1.8rem;
+                padding: 0.25rem 0.5rem;
+                margin: -0.25rem -0.25rem -0.25rem auto;
+                opacity: 0.8;
+            }
+            /* Header controls: wrap and shrink on mobile */
+            #artefacts-modal .modal-header .d-flex.align-items-center {
+                flex-wrap: wrap;
+                gap: 4px;
+            }
+            #artefacts-modal .modal-header select,
+            #artefacts-modal .modal-header .btn {
+                font-size: 0.75rem;
+                padding: 0.2rem 0.4rem;
+            }
+
+            /* Footer: stack vertically on mobile */
+            #artefacts-modal .modal-footer {
+                flex-direction: column;
+                align-items: stretch !important;
+                padding: 0.5rem;
+            }
+            #artefacts-modal .modal-footer .flex-grow-1 {
+                margin-right: 0 !important;
+                margin-bottom: 0.5rem;
+            }
+            #artefacts-modal .modal-footer .d-flex:last-child {
+                flex-wrap: wrap;
+                gap: 4px;
+            }
+            #artefacts-modal .modal-footer .d-flex:last-child .btn {
+                flex: 1 1 auto;
+                margin-right: 0 !important;
+            }
+            /* Footer checkboxes: stack on mobile */
+            #artefacts-modal .modal-footer .d-flex.align-items-center.mt-2 {
+                flex-wrap: wrap;
+                gap: 2px 10px;
+            }
+
+            /* AI Edit overlay: responsive width */
+            #artefact-ai-edit-modal > div {
+                width: 95% !important;
+                max-width: 95% !important;
+            }
+        }
+
+        /* ── File Browser AI Edit Modal Mobile ── */
+        @media (max-width: 767.98px) {
+            #file-browser-ai-edit-modal > div {
+                width: 95% !important;
+                max-width: 95% !important;
+            }
+            #file-browser-ai-diff-modal > div {
+                width: 95% !important;
+                max-width: 95% !important;
+                max-height: 90vh !important;
+            }
         }
         
         /* LLM Context Menu Styles */
@@ -3264,7 +3455,7 @@ greet("World");</code></pre>
     <script src="interface/context-menu-manager.js"></script>
     <script src="interface/prompt-manager.js"></script>
     <script src="interface/pkb-manager.js"></script>
-    <script src="interface/artefacts-manager.js"></script>
+    <script src="interface/artefacts-manager.js?v=20"></script>
     <script src="interface/global-docs-manager.js"></script>
     <script src="interface/chat.js"></script>
     <!-- Add to the <head> section -->
@@ -3286,7 +3477,7 @@ greet("World");</code></pre>
     <script src="interface/tab-picker-manager.js"></script>
     <script src="interface/workflow-manager.js"></script>
     <script src="interface/script-manager.js"></script>
-    <script src="interface/file-browser-manager.js?v=18"></script>
+    <script src="interface/file-browser-manager.js?v=20"></script>
     <script>
         document.addEventListener('click', function (event) {
             var button = event.target.closest('#settings-file-browser-modal-open-button');

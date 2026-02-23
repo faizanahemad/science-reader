@@ -47,6 +47,10 @@ from flask import Blueprint, send_from_directory, session
 from flask_sock import Sock
 from simple_websocket import ConnectionClosed
 
+
+from endpoints.auth import login_required
+from endpoints.session_utils import get_session_identity
+from extensions import limiter
 from endpoints.auth import login_required
 from endpoints.session_utils import get_session_identity
 from extensions import limiter
@@ -355,13 +359,14 @@ def terminal_websocket(ws):
     - ``{"type": "pong"}``  — keepalive response
     """
     # ─── Auth check ───
+    import sys; print(f"[Terminal DEBUG] WebSocket handler entered. session keys={list(session.keys())}, email={session.get('email')}, mode={ws.mode}", file=sys.stderr, flush=True)
     email = _ws_auth_check()
     if not email:
+        print(f"[Terminal DEBUG] Auth check FAILED. Session: {dict(session)}", file=sys.stderr, flush=True)
         ws.send(json.dumps({"type": "error", "message": "Not authenticated"}))
         ws.close(1008, "Unauthorized")
         return
-
-    logger.info(f"[Terminal] WebSocket connected for {email}")
+    print(f"[Terminal DEBUG] WebSocket connected for {email}", file=sys.stderr, flush=True)
 
     # ─── Verify shell binary exists ───
     if not shutil.which(TERMINAL_SHELL):

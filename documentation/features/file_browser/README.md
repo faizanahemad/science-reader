@@ -274,6 +274,40 @@ Additionally, `delete` refuses to delete `SERVER_ROOT` itself.
 
 ---
 
+## AI Edit (Cmd+K)
+
+LLM-assisted inline editing, similar to Cursor's Cmd+K. When a file is open in the editor:
+
+ **Button**: "AI Edit" button in the top bar (between theme selector and discard). Icon: magic wand.
+ **Shortcut**: Cmd+K / Ctrl+K opens the AI Edit overlay.
+ **Selection edit**: Select text, then Cmd+K. Only the selected lines are sent to the LLM for editing.
+ **Whole-file edit**: No selection + Cmd+K edits the entire file (limited to 500 lines).
+
+### Instruction Modal
+ Textarea for natural language edit instructions
+ "Include conversation context" checkbox (greyed out if no conversation open)
+ "Deep context extraction" nested checkbox (adds 2-5s latency, uses `retrieve_prior_context_llm_based`)
+ Ctrl+Enter / Cmd+Enter to submit
+
+### Diff Preview
+ Unified diff with green (additions) / red (deletions) coloring
+ Accept: splices edit into CodeMirror (`replaceRange` for selection, `setValue` for whole file)
+ Reject: discards the proposed edit
+ Edit Instruction: returns to instruction modal with previous text preserved
+
+### API
+ `POST /file-browser/ai-edit` — accepts `path`, `instruction`, `selection` (optional), `conversation_id`, `include_context`, `deep_context`
+ Returns `proposed` (replacement text), `diff_text` (unified diff), `base_hash`, line info
+
+### Key Functions
+ `_showAiEditModal()` — captures selection, shows instruction overlay
+ `_hideAiEditModal()` — closes instruction overlay
+ `_generateAiEdit()` — POSTs to `/file-browser/ai-edit`, shows diff on success
+ `_acceptAiEdit()` — applies proposed edit to editor
+ `_rejectAiEdit()` — discards proposed edit
+ `_renderDiffPreview()` — renders unified diff as colored HTML
+
+---
 ## Implementation Notes
 
 ### Files Created

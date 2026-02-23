@@ -13,10 +13,30 @@ import logging
 import os
 import shutil
 
+from difflib import unified_diff
+
+
 from flask import Blueprint, request
 
 from endpoints.auth import login_required
 from endpoints.responses import json_error, json_ok
+from call_llm import CallLLm
+from common import EXPENSIVE_LLM
+from Conversation import Conversation
+from database.conversations import checkConversationExists
+from endpoints.llm_edit_utils import (
+    hash_content,
+    read_lines,
+    consume_llm_output,
+    extract_code_from_response,
+    build_edit_prompt,
+    gather_conversation_context,
+    generate_diff,
+    SYSTEM_PROMPT,
+)
+from endpoints.request_context import get_state_and_keys
+from endpoints.session_utils import get_session_identity
+from extensions import limiter
 
 file_browser_bp = Blueprint("file_browser", __name__)
 logger = logging.getLogger(__name__)
@@ -356,3 +376,176 @@ def delete():
     except OSError:
         logger.exception("Failed to delete: %s", resolved)
         return json_error("Failed to delete", status=500, code="os_error")
+
+
+@file_browser_bp.route("/file-browser/ai-edit", methods=["POST"])
+@limiter.limit("20 per minute")
+@login_required
+def ai_edit():
+    """Propose an LLM-assisted edit for a file.
+
+    Reads the file, optionally gathers conversation context, builds a prompt,
+    calls the LLM, and returns the proposed replacement with a unified diff.
+
+    Request Body (JSON)
+    -------------------
+    path : str
+        Relative path to the file.
+    instruction : str
+        Natural language edit instruction.
+    selection : dict, optional
+        ``{"start_line": int, "end_line": int}`` (1-indexed) for partial edits.
+    conversation_id : str, optional
+        Conversation to pull context from.
+    include_summary : bool, optional
+        Include conversation summary.
+    include_messages : bool, optional
+        Include recent messages from the conversation.
+    include_memory_pad : bool, optional
+        Include memory pad content.
+    history_count : int, optional
+        Number of recent messages to include (default 10).
+    deep_context : bool, optional
+        Additionally run LLM-based context extraction (adds latency).
+
+    Returns
+    -------
+    JSON
+        ``{"status": "success", "original": ..., "proposed": ..., "diff_text": ...,
+          "base_hash": ..., "start_line": ..., "end_line": ..., "is_selection": bool}``
+    """
+    data = request.get_json(silent=True) or {}
+    rel_path = data.get("path", "")
+    instruction = (data.get("instruction") or "").strip()
+    selection = data.get("selection") or {}
+    conversation_id = data.get("conversation_id") or ""
+    include_context = bool(data.get("include_context"))
+    deep_context = bool(data.get("deep_context"))
+    include_summary = bool(data.get("include_summary"))
+    include_messages = bool(data.get("include_messages"))
+    include_memory_pad = bool(data.get("include_memory_pad"))
+    history_count = int(data.get("history_count", 10))
+
+    if not rel_path:
+        return json_error("Missing 'path'", status=400, code="missing_param")
+    if not instruction:
+        return json_error("Instruction is required", status=400, code="missing_instruction")
+
+    resolved = _safe_resolve(rel_path)
+    if resolved is None:
+        return json_error("Path escapes server root", status=403, code="path_forbidden")
+    if not os.path.isfile(resolved):
+        return json_error("File not found", status=404, code="not_found")
+
+    try:
+        # Binary check
+        with open(resolved, "rb") as fh:
+            chunk = fh.read(8192)
+        if b"\x00" in chunk:
+            return json_error("Cannot AI-edit binary files", status=400, code="binary_file")
+
+        with open(resolved, "r", encoding="utf-8", errors="replace") as fh:
+            content = fh.read()
+
+        lines = content.splitlines()
+        total_lines = len(lines)
+
+        # Determine if selection edit or whole-file edit
+        is_selection = (
+            isinstance(selection, dict)
+            and selection.get("start_line")
+            and selection.get("end_line")
+        )
+
+        if not is_selection and total_lines > 500:
+            return json_error(
+                f"File too large for whole-file AI edit ({total_lines} lines). "
+                "Please select a region.",
+                status=400,
+                code="file_too_large",
+            )
+
+        base_hash = hash_content(content)
+
+        # Gather conversation context if requested
+        context_parts = None
+        keys = None
+        any_context = include_context or include_summary or include_messages or include_memory_pad or deep_context
+        if conversation_id and any_context:
+            try:
+                state_obj, keys = get_state_and_keys()
+                email, _name, _logged_in = get_session_identity()
+                if checkConversationExists(email, conversation_id, users_dir=state_obj.users_dir):
+                    conversation = state_obj.conversation_cache[conversation_id]
+                    conversation.set_api_keys(keys)
+                    context_parts = gather_conversation_context(
+                        conversation, instruction,
+                        include_context=True,
+                        deep_context=deep_context,
+                        include_summary=include_summary,
+                        include_messages=include_messages,
+                        include_memory_pad=include_memory_pad,
+                        history_count=history_count,
+                    )
+            except Exception:
+                logger.warning("Failed to gather conversation context", exc_info=True)
+
+        # Build prompt
+        sel_dict = None
+        if is_selection:
+            sel_dict = {
+                "start_line": int(selection["start_line"]),
+                "end_line": int(selection["end_line"]),
+            }
+
+        prompt = build_edit_prompt(
+            instruction=instruction,
+            file_path=rel_path,
+            content=content,
+            selection=sel_dict,
+            context_parts=context_parts,
+        )
+
+        # Call LLM
+        if keys is None:
+            _state_obj, keys = get_state_and_keys()
+
+        model_name = EXPENSIVE_LLM[2]
+        llm = CallLLm(keys, model_name=model_name, use_gpt4=False, use_16k=False)
+        response = llm(
+            prompt,
+            stream=False,
+            temperature=0.2,
+            max_tokens=4000,
+            system=SYSTEM_PROMPT,
+        )
+        response_text = consume_llm_output(response)
+        proposed = extract_code_from_response(response_text)
+
+        if not proposed:
+            return json_error("LLM returned empty response", status=502, code="llm_error")
+
+        # Determine original text for diff
+        if is_selection:
+            start = int(selection["start_line"])
+            end = int(selection["end_line"])
+            original_text = read_lines(content, start, end)
+        else:
+            start = None
+            end = None
+            original_text = content
+
+        diff_text = generate_diff(original_text, proposed)
+
+        return json_ok({
+            "original": original_text,
+            "proposed": proposed,
+            "diff_text": diff_text,
+            "base_hash": base_hash,
+            "start_line": start,
+            "end_line": end,
+            "is_selection": bool(is_selection),
+        })
+    except Exception as exc:
+        logger.exception("Failed to generate AI edit for: %s", resolved)
+        return json_error(str(exc), status=500, code="ai_edit_error")
