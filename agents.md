@@ -9,21 +9,13 @@ This file is guidance for agentic coding assistants working in this repo.
 
 ## Code Style Guidelines
 
-Follow existing patterns in the file you touch. Do not reformat unrelated code.
+- Follow existing patterns in the file you touch. Do not reformat unrelated code.
+- Indentation: 4 spaces. 
+- Imports: prefer standard library, third-party, then local imports. Avoid reordering imports in legacy files unless you are already editing that import block.
+- Docstrings: Add docstrings for new public functions/classes (purpose, inputs, outputs).
+- Errors: prefer explicit exceptions and meaningful messages.
+- Logging: loggers are defined at top of file already in most cases and come from `getLoggers` from `loggers.py`.
 
-### Python
-
-- Indentation: 4 spaces. Keep line length consistent with the surrounding file.
-- Imports: prefer standard library, third-party, then local imports. Avoid reordering
-  imports in legacy files unless you are already editing that import block.
-- Types: type hints are used in newer modules (e.g., endpoints). Preserve and add
-  hints where reasonable, especially for public helpers and endpoint handlers.
-- Docstrings: many helpers use NumPy-style docstrings. Add docstrings for new
-  public functions/classes (purpose, inputs, outputs).
-- Errors: prefer explicit exceptions and meaningful messages. In Flask endpoints,
-  use `json_error(...)` and `logger.exception(...)` for failures.
-- Logging: use `logger` from the module (many files use `logging.getLogger(__name__)`).
-- Filesystem access: use existing helpers and ensure directories exist before writes.
 
 
 ### Flask / Endpoints
@@ -36,27 +28,12 @@ Follow existing patterns in the file you touch. Do not reformat unrelated code.
 ### JavaScript (interface/)
 
 - UI uses jQuery + Bootstrap 4.6. Stick to the existing event handler patterns.
-- Prefer `var` in legacy modules to match existing style (unless the file already
-  uses `let`/`const` consistently).
 - Keep DOM selectors scoped and avoid global side effects.
 - When adding buttons/menu entries, wire up handlers in the same module.
-
-### HTML/CSS (interface/)
-
-- Follow existing modal/layout structure. Do not introduce new frameworks.
-- Keep CSS near related markup if that is the current pattern.
-
-## Naming Conventions
-
-- Python: `snake_case` for functions/variables, `CamelCase` for classes,
-  `UPPER_SNAKE_CASE` for constants.
-- JS: camelCase for functions/variables, PascalCase for module-level objects
-  when already used (e.g., `ConversationManager`).
 
 ## Error Handling and Validation
 
 - Validate inputs early; return 4xx errors for user errors.
-- Use `try/except` with `logger.exception(...)` when failures need diagnosis.
 - Avoid silent failures in new code paths; surface errors to UI with `showToast`.
 
 ## Common Entry Points
@@ -68,9 +45,7 @@ Follow existing patterns in the file you touch. Do not reformat unrelated code.
 - Core chat flow: `Conversation.py`, `server.py`, `endpoints/`.
 - UI: `interface/interface.html`, `interface/*.js`.
 - PKB module: `truth_management_system/`.
-- Extension: `extension/` (connects to `server.py` on port 5000). Legacy `extension_server.py` is deprecated.
 - Documentation in markdown files within same module and in documentation folder with entry point as documentation/README.md.
-- Global documents can be listed via `docs_list_global_docs` and retrieved by `doc_storage_path` using `docs_get_full_text` or `docs_query`. If only a `doc_id` is given, list global docs first, match by `doc_id`, then use the corresponding `doc_storage_path` to access content.
 - Feature documentation in documentation/features
 - Planning documents go into documentation/planning/plans and have extension as `.plan.md`.
 
@@ -96,6 +71,8 @@ Follow existing patterns in the file you touch. Do not reformat unrelated code.
 - Your context length is small, as such delegate tasks like surveying or reading large files or looking up code in multiple files to get answers to sub-tasks or sub-agents. From the delegated tasks or agents return only important and useful parts to the main agent or context to prevent context bloat.
 - Breaking tasks and goals into smaller parts, asking sub-agents by delegation to complete them and then the main agent only looking at relevant parts (like api detail or function signature instead of all code, or just survey or grep results or just exact code needed to be read) will help us work faster and save context.
 - Spinning up sub-agents and delegation is cheaper than doing it yourself.
+- If we had to compress the context or summarise or compact then we are compacting the session/chat. 
+- Post compaction or summarisation if you are unable to find session context for particular information then use `session_search`, `session_list` and `session_read` tools.
 
 
 
