@@ -1,17 +1,21 @@
 """
-WebSocket-based terminal for OpenCode TUI.
+WebSocket-based terminal.
 
-Spawns ``opencode`` in a PTY, bridges I/O to browser via WebSocket + xterm.js.
-Auth-protected by Flask session (same as all other endpoints).
+Spawns the user's default shell in a PTY, bridges I/O to browser via
+WebSocket + xterm.js.  Auth-protected by Flask session (same as all
+other endpoints).
 
 Architecture
 ------------
 - ``TerminalSession`` class wraps a single PTY process with process-group
   isolation (``os.setsid()`` in child) so that ``os.killpg`` can reap the
-  entire subtree (LSP servers, tools, etc.) on cleanup.
+  entire subtree on cleanup.
 - One ``TerminalSession`` per user email; second tabs reattach to the same PTY.
 - A reader thread pumps PTY output → WebSocket; the main thread pumps
   WebSocket input → PTY.
+- All ``ws.send()`` calls go through ``safe_send()`` which serializes with a
+  lock — simple-websocket's Server object is NOT thread-safe (wsproto's
+  internal state machine gets corrupted by concurrent sends).
 - Idle timeout, max-sessions cap, and graceful SIGTERM→wait→SIGKILL cleanup
   prevent resource leaks.
 
@@ -20,7 +24,7 @@ Configuration (env vars)
 - TERMINAL_IDLE_TIMEOUT  — seconds before idle kill (default 1800 = 30 min)
 - TERMINAL_MAX_SESSIONS  — global cap on concurrent sessions (default 5)
 - TERMINAL_SCROLLBACK    — advertised scrollback (default 5000, used by client)
-- OPENCODE_BINARY        — binary name / path (default "opencode")
+- TERMINAL_SHELL         — shell to spawn (default: $SHELL or /bin/bash)
 - PROJECT_DIR            — cwd for the spawned process (default os.getcwd())
 """
 
@@ -31,6 +35,7 @@ import json
 import logging
 import os
 import select
+import shutil
 import signal
 import struct
 import termios
@@ -40,6 +45,7 @@ from typing import Dict, Optional
 
 from flask import Blueprint, send_from_directory, session
 from flask_sock import Sock
+from simple_websocket import ConnectionClosed
 
 from endpoints.auth import login_required
 from endpoints.session_utils import get_session_identity
@@ -58,7 +64,7 @@ _sessions_lock = threading.Lock()
 TERMINAL_IDLE_TIMEOUT = int(os.getenv("TERMINAL_IDLE_TIMEOUT", "1800"))  # 30 min
 TERMINAL_MAX_SESSIONS = int(os.getenv("TERMINAL_MAX_SESSIONS", "5"))
 TERMINAL_SCROLLBACK = int(os.getenv("TERMINAL_SCROLLBACK", "5000"))
-OPENCODE_BINARY = os.getenv("OPENCODE_BINARY", "opencode")
+TERMINAL_SHELL = os.getenv("TERMINAL_SHELL", os.environ.get("SHELL", "/bin/bash"))
 PROJECT_DIR = os.getenv("PROJECT_DIR", os.getcwd())
 
 
@@ -99,10 +105,10 @@ class TerminalSession:
 
     def spawn(self) -> None:
         """
-        Spawn opencode in a new PTY with process group isolation.
+        Spawn a shell in a new PTY with process group isolation.
 
         Child calls ``os.setsid()`` to create a new session/process group,
-        then ``os.execvpe`` replaces it with the opencode binary.
+        then ``os.execvpe`` replaces it with the configured shell.
         Parent stores pid/fd and sets initial terminal size.
         """
         import pty as pty_module
@@ -120,9 +126,10 @@ class TerminalSession:
             # Create new process group (so we can kill all children)
             os.setsid()
             os.chdir(PROJECT_DIR)
+            # Spawn a login shell (-l flag for login profile)
             os.execvpe(
-                OPENCODE_BINARY,
-                [OPENCODE_BINARY, PROJECT_DIR],
+                TERMINAL_SHELL,
+                [TERMINAL_SHELL, "-l"],
                 env,
             )
             # execvpe does not return; if it fails:
@@ -225,7 +232,7 @@ class TerminalSession:
         4. ``SIGKILL`` + blocking ``waitpid`` if still alive.
 
         Uses process group kill (``os.killpg``) to ensure child processes
-        spawned by opencode (LSP servers, tools, etc.) are also terminated.
+        spawned by the shell are also terminated.
         Thread-safe — guarded by ``self._lock``.
         """
         with self._lock:
@@ -308,7 +315,7 @@ def _ws_auth_check() -> Optional[str]:
 
 # ─── WebSocket endpoint ──────────────────────────────────────────────
 
-sock = Sock()  # Initialized in server.py via sock.init_app(app)
+sock = Sock()  # Initialized in endpoints/__init__.py via sock.init_app(app)
 
 
 @sock.route("/ws/terminal")
@@ -317,6 +324,22 @@ def terminal_websocket(ws):
     WebSocket endpoint for terminal I/O.
 
     Bridges browser ↔ PTY using JSON messages.
+
+    Thread safety
+    -------------
+    All ``ws.send()`` calls are serialized through ``safe_send()`` using a
+    ``threading.Lock``.  simple-websocket's ``Server`` object wraps wsproto
+    whose internal state machine is NOT thread-safe — concurrent ``send()``
+    calls from the reader thread and main thread corrupt WebSocket frames,
+    producing "Invalid frame header" / 1002 errors on the client.
+
+    Timeout handling
+    ----------------
+    ``ws.receive(timeout=30)`` returns ``None`` on timeout — this is NOT a
+    disconnect signal.  Only ``ConnectionClosed`` (raised when the peer
+    actually closes) triggers loop exit.  The previous ``timeout=5`` +
+    ``break on None`` pattern killed the connection after 5 s of no user
+    input, which is normal terminal idle behavior.
 
     Protocol
     --------
@@ -338,7 +361,44 @@ def terminal_websocket(ws):
         ws.close(1008, "Unauthorized")
         return
 
-    logger.info(f"Terminal WebSocket connected for {email}")
+    logger.info(f"[Terminal] WebSocket connected for {email}")
+
+    # ─── Verify shell binary exists ───
+    if not shutil.which(TERMINAL_SHELL):
+        logger.error(f"[Terminal] Shell not found: {TERMINAL_SHELL}")
+        ws.send(
+            json.dumps(
+                {
+                    "type": "error",
+                    "message": f"Shell not found in PATH ({TERMINAL_SHELL}). "
+                    "Set TERMINAL_SHELL env var to a valid shell.",
+                }
+            )
+        )
+        ws.close(1011, "Shell not found")
+        return
+
+    # ─── Thread-safe send wrapper ───
+    # wsproto's WSConnection is NOT thread-safe.  Both the reader thread
+    # (PTY → WS) and the main thread (pong responses) call ws.send().
+    # Without this lock, concurrent sends corrupt WebSocket frame headers.
+    _send_lock = threading.Lock()
+
+    def safe_send(data: str) -> bool:
+        """
+        Send data to WebSocket with thread-safety and error handling.
+
+        Returns True on success, False if the connection is broken.
+        """
+        try:
+            with _send_lock:
+                ws.send(data)
+            return True
+        except ConnectionClosed:
+            return False
+        except Exception as exc:
+            logger.debug(f"[Terminal] safe_send failed for {email}: {exc}")
+            return False
 
     # ─── Get or create terminal session ───
     terminal = None
@@ -346,7 +406,7 @@ def terminal_websocket(ws):
         with _sessions_lock:
             if email in _terminal_sessions and _terminal_sessions[email].alive:
                 terminal = _terminal_sessions[email]
-                logger.info(f"Reattaching to existing terminal for {email}")
+                logger.info(f"[Terminal] Reattaching to existing terminal for {email}")
             else:
                 # Check max sessions cap
                 active_count = sum(1 for s in _terminal_sessions.values() if s.alive)
@@ -364,53 +424,66 @@ def terminal_websocket(ws):
                 terminal = TerminalSession(user_email=email)
                 terminal.spawn()
                 _terminal_sessions[email] = terminal
+                logger.info(
+                    f"[Terminal] New session spawned for {email}, pid={terminal.pid}"
+                )
 
         # ─── Reader thread: PTY → WebSocket ───
         reader_alive = threading.Event()
         reader_alive.set()
 
         def pty_reader():
-            """Read PTY output and send to WebSocket."""
+            """
+            Read PTY output and forward to WebSocket via safe_send().
+
+            Runs in a daemon thread.  Exits when:
+            - reader_alive is cleared (main thread shutting down)
+            - terminal.alive goes False (PTY exited)
+            - safe_send() returns False (WebSocket broken)
+            """
+            logger.debug(f"[Terminal] Reader thread started for {email}")
             while reader_alive.is_set() and terminal.alive:
                 data = terminal.read(timeout=0.05)
                 if data:
-                    try:
-                        text = data.decode("utf-8", errors="replace")
-                        ws.send(json.dumps({"type": "output", "data": text}))
-                    except Exception:
-                        break  # WebSocket closed
+                    text = data.decode("utf-8", errors="replace")
+                    if not safe_send(json.dumps({"type": "output", "data": text})):
+                        logger.debug(f"[Terminal] Reader: send failed, exiting")
+                        break
+
                 # Check idle timeout
                 if terminal.is_idle():
-                    try:
-                        ws.send(
-                            json.dumps(
-                                {
-                                    "type": "error",
-                                    "message": f"Terminal idle for {TERMINAL_IDLE_TIMEOUT}s, disconnecting",
-                                }
-                            )
+                    safe_send(
+                        json.dumps(
+                            {
+                                "type": "error",
+                                "message": f"Terminal idle for {TERMINAL_IDLE_TIMEOUT}s, disconnecting",
+                            }
                         )
-                    except Exception:
-                        pass
+                    )
                     terminal.cleanup()
                     break
 
-            # Process exited or disconnected
+            # Process exited or disconnected — notify client
             if not terminal.alive:
-                try:
-                    ws.send(json.dumps({"type": "exit", "code": 0}))
-                except Exception:
-                    pass
+                safe_send(json.dumps({"type": "exit", "code": 0}))
+
+            logger.debug(f"[Terminal] Reader thread exiting for {email}")
 
         reader_thread = threading.Thread(target=pty_reader, daemon=True)
         reader_thread.start()
 
         # ─── Main loop: WebSocket → PTY ───
+        # Use timeout=30 so we periodically check terminal.alive without
+        # blocking forever.  timeout returns None — NOT a disconnect signal.
+        # Only ConnectionClosed means the peer actually closed.
+        logger.debug(f"[Terminal] Main loop started for {email}")
         while terminal.alive:
             try:
-                raw = ws.receive(timeout=5)
+                raw = ws.receive(timeout=30)
                 if raw is None:
-                    break  # WebSocket closed
+                    # Timeout — not a disconnect.  Just loop back to check
+                    # terminal.alive and receive again.
+                    continue
 
                 msg = json.loads(raw)
                 msg_type = msg.get("type", "")
@@ -422,21 +495,25 @@ def terminal_websocket(ws):
                     cols = int(msg.get("cols", 80))
                     rows = int(msg.get("rows", 24))
                     terminal.resize(cols, rows)
+                    logger.debug(f"[Terminal] Resize for {email}: {cols}x{rows}")
 
                 elif msg_type == "ping":
-                    ws.send(json.dumps({"type": "pong"}))
+                    safe_send(json.dumps({"type": "pong"}))
                     terminal.last_activity = time.time()
 
             except json.JSONDecodeError:
-                # Raw binary input (fallback)
+                # Raw binary input (fallback for terminals that send raw)
                 if isinstance(raw, (str, bytes)):
                     terminal.write(raw.encode("utf-8") if isinstance(raw, str) else raw)
+            except ConnectionClosed:
+                logger.info(f"[Terminal] WebSocket closed by client for {email}")
+                break
             except Exception as e:
-                logger.warning(f"Terminal WebSocket error for {email}: {e}")
+                logger.warning(f"[Terminal] WebSocket error for {email}: {e}")
                 break
 
     except Exception as e:
-        logger.exception(f"Terminal fatal error for {email}: {e}")
+        logger.exception(f"[Terminal] Fatal error for {email}: {e}")
     finally:
         # ─── Cleanup ───
         reader_alive.clear()
@@ -445,4 +522,4 @@ def terminal_websocket(ws):
         with _sessions_lock:
             if email in _terminal_sessions:
                 del _terminal_sessions[email]
-        logger.info(f"Terminal WebSocket disconnected for {email}")
+        logger.info(f"[Terminal] WebSocket disconnected for {email}")

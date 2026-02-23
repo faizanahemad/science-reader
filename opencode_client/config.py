@@ -34,11 +34,18 @@ OPENCODE_SERVER_PASSWORD = os.environ.get("OPENCODE_SERVER_PASSWORD", "")
 # Default model / provider
 # ---------------------------------------------------------------------------
 
-OPENCODE_DEFAULT_PROVIDER = os.environ.get("OPENCODE_DEFAULT_PROVIDER", "anthropic")
+OPENCODE_DEFAULT_PROVIDER = os.environ.get("OPENCODE_DEFAULT_PROVIDER", "openrouter")
 """Provider ID used when no explicit provider is given."""
 
-OPENCODE_DEFAULT_MODEL = os.environ.get("OPENCODE_DEFAULT_MODEL", "claude-sonnet-4-5")
+OPENCODE_DEFAULT_MODEL = os.environ.get("OPENCODE_DEFAULT_MODEL", "anthropic/claude-sonnet-4.5")
 """Model ID used when no explicit model is given."""
+
+
+# Provider-to-model-ID mapping: how Flask model names map to OpenCode providerID/modelID.
+# OpenCode expects {"providerID": "openrouter", "modelID": "anthropic/claude-sonnet-4.5"}
+# while Flask uses "anthropic/claude-sonnet-4.5" or "openrouter/anthropic/claude-sonnet-4.5".
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY", "")
+"""OpenRouter API key — used by both Flask direct LLM calls and OpenCode server."""
 
 # ---------------------------------------------------------------------------
 # Timeouts (seconds)

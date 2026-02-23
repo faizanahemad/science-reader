@@ -36,6 +36,33 @@ server {
         proxy_cache off;
     }   
 }
+
+### WebSocket proxy for Web Terminal
+
+Add this location block inside the same `server { }` block to enable the browser-based terminal. Without these headers, WebSocket connections to `/ws/terminal` will silently fail.
+
+```nginx
+# WebSocket terminal endpoint — add inside server { } alongside location / { }
+location /ws/terminal {
+    proxy_pass http://127.0.0.1:5000;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    # WebSocket-specific timeouts
+    proxy_read_timeout 3600s;    # 1 hour (matches terminal idle timeout)
+    proxy_send_timeout 60s;
+    proxy_connect_timeout 10s;
+
+    # Disable buffering for WebSocket
+    proxy_buffering off;
+}
+```
+
 ```
 `sudo ls -l /etc/nginx/sites-enabled/`
 `sudo rm /etc/nginx/sites-enabled/default`

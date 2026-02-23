@@ -2192,10 +2192,14 @@
                                         </button>
                                     </div>
                                     <div class="col">
-                                        <button class="btn btn-outline-info btn-sm rounded-pill w-100" id="settings-opencode-terminal-button" title="Open OpenCode Terminal">
+                                        <button class="btn btn-outline-info btn-sm rounded-pill w-100" id="settings-opencode-terminal-button" title="Open Terminal">
                                             <i class="bi bi-terminal"></i> Terminal
                                         </button>
                                     </div>
+                                    <div class="col">
+                                        <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-file-browser-modal-open-button" title="Open File Browser" type="button">
+                                            <i class="bi bi-folder2-open"></i> File Browser
+                                        </button>
                                 </div>
                             </div>
                         </div>
@@ -2472,6 +2476,27 @@ greet("World");</code></pre>
                         </select>
                         <small class="form-text text-muted">Controls how much conversation context is injected into OpenCode prompts.</small>
                     </div>
+                    <!-- Provider -->
+                    <div class="form-group">
+                        <label for="opencode-provider"><strong>Provider</strong></label>
+                        <select class="form-control" id="opencode-provider">
+                            <option value="openrouter" selected>OpenRouter</option>
+                            <option value="amazon-bedrock">Amazon Bedrock</option>
+                        </select>
+                        <small class="form-text text-muted">Which LLM provider OpenCode should use for this conversation.</small>
+                    </div>
+                    <!-- Model -->
+                    <div class="form-group">
+                        <label for="opencode-model"><strong>Model</strong></label>
+                        <select class="form-control" id="opencode-model">
+                            <option value="anthropic/claude-sonnet-4.5" selected>Claude Sonnet 4.5</option>
+                            <option value="anthropic/claude-haiku-4.5">Claude Haiku 4.5</option>
+                            <option value="anthropic/claude-opus-4.5">Claude Opus 4.5</option>
+                            <option value="anthropic/claude-sonnet-4.6">Claude Sonnet 4.6</option>
+                            <option value="anthropic/claude-opus-4.6">Claude Opus 4.6</option>
+                        </select>
+                        <small class="form-text text-muted">Claude model to use. Model IDs are translated automatically per provider.</small>
+                    </div>
                     <!-- Session Info -->
                     <hr>
                     <h6 class="text-primary mb-2"><i class="bi bi-info-circle"></i> Session Info</h6>
@@ -2501,31 +2526,130 @@ greet("World");</code></pre>
         </div>
     </div>
 
-    <!-- OpenCode Terminal Modal (fullscreen) -->
-    <div id="opencode-terminal-modal" class="modal fade" tabindex="-1" role="dialog"
-         style="z-index: 1080;" data-backdrop="static" data-keyboard="false">
+    <!-- ═══════════════ Terminal Modal (fullscreen) ═══════════════ -->
+    <div id="terminal-modal" tabindex="-1" role="dialog"
+         style="display:none; z-index: 100000 !important; position:fixed; top:0; left:0; right:0; bottom:0; overflow-x:hidden; overflow-y:auto;">
         <div class="modal-dialog" role="document"
-             style="max-width: 95vw; margin: 2vh auto;">
-            <div class="modal-content" style="height: 90vh; background: #1e1e2e;">
+             style="max-width: 99vw; margin: 0.5vh auto;">
+            <div class="modal-content" style="height: 99vh; background: #1e1e2e; display: flex; flex-direction: column;">
                 <div class="modal-header py-1" style="background: #313244; border-bottom: 1px solid #45475a;">
                     <h6 class="modal-title" style="color: #cdd6f4;">
-                        <i class="bi bi-terminal" style="color: #89b4fa;"></i> OpenCode Terminal
+                        <i class="bi bi-terminal" style="color: #89b4fa;"></i> Terminal
                     </h6>
                     <div>
-                        <button class="btn btn-sm btn-outline-light mr-2" id="opencode-terminal-newtab"
+                        <button class="btn btn-sm btn-outline-light mr-2" id="terminal-newtab"
                                 title="Open in new tab" style="font-size: 0.75rem;">
                             <i class="bi bi-box-arrow-up-right"></i>
                         </button>
-                        <button type="button" class="close" data-dismiss="modal"
-                                style="color: #cdd6f4;" aria-label="Close">
+                        <button type="button" class="btn btn-sm btn-outline-light" id="terminal-close-button"
+                                style="font-size: 0.75rem;" aria-label="Close">
                             <span aria-hidden="true">&times;</span>
                         </button>
                     </div>
                 </div>
                 <div class="modal-body p-0" style="height: calc(100% - 40px);">
-                    <div id="opencode-terminal-container"
+                    <div id="terminal-container-modal"
                          style="width: 100%; height: 100%;"></div>
                 </div>
+            </div>
+        </div>
+    </div>
+
+
+    <!-- ═══════════════ File Browser Modal (fullscreen) ═══════════════ -->
+    <div id="file-browser-modal" tabindex="-1" role="dialog"
+         style="display:none; z-index: 100000 !important; position:fixed; top:0; left:0; right:0; bottom:0; overflow-x:hidden; overflow-y:auto;">
+        <div class="modal-dialog" role="document" style="max-width: 99vw; margin: 0.5vh auto;">
+            <div class="modal-content" style="height: 99vh; display: flex; flex-direction: column;">
+                <!-- Header -->
+                <small>
+                  <div class="modal-header py-1" style="border-bottom: 1px solid #dee2e6; gap: 4px;">
+                      <button class="btn btn-sm btn-outline-secondary" id="file-browser-sidebar-toggle" title="Toggle sidebar">
+                          <i class="bi bi-layout-sidebar"></i>
+                      </button>
+                      <input type="text" class="form-control form-control-sm" id="file-browser-address-bar" list="file-browser-path-suggestions"
+                            placeholder="Path relative to server root..." style="flex: 1; font-family: monospace; font-size: 0.85rem;">
+                      <datalist id="file-browser-path-suggestions"></datalist>
+                      <span class="file-browser-dirty-indicator" id="file-browser-dirty-indicator" title="Unsaved changes">*</span>
+                      <select class="form-control form-control-sm" id="file-browser-theme-select" title="Editor theme">
+                          <option value="monokai">Monokai</option>
+                          <option value="default">Light</option>
+                      </select>
+                      <button class="btn btn-sm btn-outline-warning" id="file-browser-discard-btn" title="Discard changes" style="display: none;">
+                          <i class="bi bi-arrow-counterclockwise"></i> Discard
+                      </button>
+                      <button class="btn btn-sm btn-primary" id="file-browser-save-btn" title="Save (Ctrl+S)" disabled>
+                          <i class="bi bi-save"></i> Save
+                      </button>
+                      <button type="button" class="close" id="file-browser-close-btn" aria-label="Close">
+                          <span aria-hidden="true">&times;</span>
+                      </button>
+                  </div>
+                </small>
+                <!-- Body -->
+                <div class="modal-body p-0" style="flex: 1; overflow: hidden;">
+                    <!-- Sidebar -->
+                    <div id="file-browser-sidebar">
+                        <div class="p-1 d-flex align-items-center" style="border-bottom: 1px solid #dee2e6; background: #f1f3f5;">
+                            <small class="font-weight-bold text-muted flex-grow-1 pl-1">FILES</small>
+                            <button class="btn btn-sm btn-link text-muted p-0 mr-1" id="file-browser-new-file-btn" title="New File">
+                                <i class="bi bi-file-earmark-plus" style="font-size: 0.8rem;"></i>
+                            </button>
+                            <button class="btn btn-sm btn-link text-muted p-0 mr-1" id="file-browser-new-folder-btn" title="New Folder">
+                                <i class="bi bi-folder-plus" style="font-size: 0.8rem;"></i>
+                            </button>
+                            <button class="btn btn-sm btn-link text-muted p-0 mr-1" id="file-browser-refresh-btn" title="Refresh">
+                                <i class="bi bi-arrow-clockwise" style="font-size: 0.8rem;"></i>
+                            </button>
+                        </div>
+                        <div id="file-browser-tree" style="overflow-y: auto; overflow-x: hidden; height: calc(100% - 30px);"></div>
+                    </div>
+                    <!-- Editor Wrapper -->
+                    <div id="file-browser-editor-wrapper">
+                        <!-- Markdown tab bar (hidden by default) -->
+                        <div id="file-browser-tab-bar">
+                            <button class="btn btn-sm btn-outline-secondary active" data-tab="code">Code</button>
+                            <button class="btn btn-sm btn-outline-secondary" data-tab="preview">Preview</button>
+                        </div>
+                        <!-- CodeMirror container -->
+                        <div id="file-browser-editor-container"></div>
+                        <!-- Markdown preview container -->
+                        <div id="file-browser-preview-container"></div>
+                        <!-- Welcome/empty state -->
+                        <div id="file-browser-empty-state">
+                            <div class="text-center text-muted">
+                                <i class="bi bi-folder2-open" style="font-size: 3rem;"></i>
+                                <p class="mt-2">Select a file from the tree to edit</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- File Browser Context Menu -->
+    <div id="file-browser-context-menu" style="display:none; position:fixed; z-index:9999;">
+        <div class="dropdown-menu show" style="position: static;">
+            <a class="dropdown-item" href="#" data-action="new-file"><i class="bi bi-file-plus"></i> New File</a>
+            <a class="dropdown-item" href="#" data-action="new-folder"><i class="bi bi-folder-plus"></i> New Folder</a>
+            <div class="dropdown-divider"></div>
+            <a class="dropdown-item" href="#" data-action="rename"><i class="bi bi-pencil"></i> Rename</a>
+            <a class="dropdown-item text-danger" href="#" data-action="delete"><i class="bi bi-trash"></i> Delete</a>
+        </div>
+    </div>
+
+    <!-- File Browser Naming Modal (inline overlay for New File / New Folder) -->
+    <div id="file-browser-name-modal" style="display:none; position:fixed; inset:0; z-index:100001; background:rgba(0,0,0,0.35); align-items:center; justify-content:center;">
+        <div style="background:#fff; border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,0.25); width:340px; max-width:90vw; padding:0;">
+            <div style="padding:10px 16px; border-bottom:1px solid #dee2e6; font-weight:600; font-size:0.9rem;" id="file-browser-name-modal-title">New File</div>
+            <div style="padding:16px;">
+                <input type="text" id="file-browser-name-input" class="form-control form-control-sm" placeholder="Enter name..." autocomplete="off">
+                <small class="text-muted mt-1 d-block" id="file-browser-name-modal-hint">Will be created in: <span id="file-browser-name-modal-dir">.</span></small>
+            </div>
+            <div style="padding:8px 16px; border-top:1px solid #dee2e6; text-align:right;">
+                <button class="btn btn-sm btn-secondary mr-1" id="file-browser-name-cancel-btn">Cancel</button>
+                <button class="btn btn-sm btn-primary" id="file-browser-name-ok-btn">Create</button>
             </div>
         </div>
     </div>
@@ -3162,6 +3286,34 @@ greet("World");</code></pre>
     <script src="interface/tab-picker-manager.js"></script>
     <script src="interface/workflow-manager.js"></script>
     <script src="interface/script-manager.js"></script>
+    <script src="interface/file-browser-manager.js?v=18"></script>
+    <script>
+        document.addEventListener('click', function (event) {
+            var button = event.target.closest('#settings-file-browser-modal-open-button');
+            if (!button) return;
+            event.preventDefault();
+            if (window.FileBrowserManager && typeof window.FileBrowserManager.open === 'function') {
+                window.FileBrowserManager.open();
+            }
+        });
+    </script>
+    <script>
+        // Document-level delegated handler for Terminal button.
+        // Same pattern as file browser above — works reliably inside
+        // Bootstrap modals where jQuery .click() can race with modal hide.
+        document.addEventListener('click', function (event) {
+            var button = event.target.closest('#settings-opencode-terminal-button');
+            if (!button) return;
+            event.preventDefault();
+            event.stopPropagation();
+            console.log('[Terminal] Document-level click handler fired');
+            if (typeof window._showTerminalModal === 'function') {
+                window._showTerminalModal();
+            } else {
+                console.error('[Terminal] _showTerminalModal not defined yet');
+            }
+        });
+    </script>
     <script type="text/x-mathjax-config">
       MathJax.Hub.Config({
         tex2jax: {

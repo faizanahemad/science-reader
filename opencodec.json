@@ -12,6 +12,20 @@
     "prune": true,
     "reserved": 10000
   },
+  "provider": {
+    "openrouter": {
+      "models": {},
+      "options": {
+        "apiKey": "{env:OPENROUTER_API_KEY}"
+      }
+    },
+    "amazon-bedrock": {
+      "models": {},
+      "options": {
+        "region": "us-east-1"
+      }
+    }
+  },
   "instructions": ["AGENTS.md"],
   "mcp": {
     "web-search": {

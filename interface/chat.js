@@ -345,7 +345,9 @@ function chat_interface_readiness() {
         var settings = {
             opencode_config: {
                 always_enabled: $('#opencode-always-enabled').is(':checked'),
-                injection_level: $('#opencode-injection-level').val()
+                injection_level: $('#opencode-injection-level').val(),
+                opencode_provider: $('#opencode-provider').val(),
+                opencode_model: $('#opencode-model').val()
             }
         };
 
@@ -369,43 +371,35 @@ function chat_interface_readiness() {
         showToast('Send /new in chat to create a new OpenCode session', 'info');
     });
 
-    // Open Terminal from settings modal
+    // Open Terminal from OpenCode settings modal
     $('#opencode-open-terminal-button').click(function() {
-        $('#opencode-settings-modal').modal('hide');
-        $('#opencode-terminal-modal').modal('show');
+        console.log('[Terminal] opencode-open-terminal-button clicked');
+        window._showTerminalModal();
     });
-
-    // --- OpenCode Terminal Modal ---
-    $('#settings-opencode-terminal-button').click(function() {
-        $('#chat-settings-modal').modal('hide');
-        $('#opencode-terminal-modal').modal('show');
+    // --- Terminal Modal (manual DOM, bypasses Bootstrap modal JS) ---
+    // Same approach as file-browser-modal: raw display toggle to avoid
+    // backdrop/stacking issues when opened from another Bootstrap modal.
+    // NOTE: The main trigger for the settings-panel Terminal button uses
+    // a document-level delegated handler in interface.html (same pattern
+    // as file browser) to work reliably inside Bootstrap modals.
+    // Close button
+    $('#terminal-close-button').click(function() {
+        window._closeTerminalModal();
     });
-
-    // Lazy-load xterm.js and connect on modal show
-    $('#opencode-terminal-modal').on('shown.bs.modal', function() {
-        loadXtermScripts(function() {
-            if (!OpencodeTerminal.isInitialized()) {
-                OpencodeTerminal.init('opencode-terminal-container');
-            }
-            OpencodeTerminal.connect();
-            OpencodeTerminal.fit();
-            OpencodeTerminal.focus();
-        });
-    });
-
-    $('#opencode-terminal-modal').on('hidden.bs.modal', function() {
-        OpencodeTerminal.disconnect();
-    });
-
     // Open terminal in new tab
-    $('#opencode-terminal-newtab').click(function() {
+    $('#terminal-newtab').click(function() {
         window.open('/terminal', '_blank');
     });
-
     // Handle resize while terminal modal is open
     $(window).on('resize', function() {
-        if ($('#opencode-terminal-modal').hasClass('show')) {
+        if ($('#terminal-modal').hasClass('show')) {
             OpencodeTerminal.fit();
+        }
+    });
+    // ESC to close terminal modal
+    $(document).on('keydown', function(e) {
+        if (e.keyCode === 27 && $('#terminal-modal').hasClass('show')) {
+            window._closeTerminalModal();
         }
     });
 
@@ -831,10 +825,78 @@ function loadOpencodeSettings(conversationId) {
         var oc = (data.settings || {}).opencode_config || {};
         $('#opencode-always-enabled').prop('checked', oc.always_enabled || false);
         $('#opencode-injection-level').val(oc.injection_level || 'medium');
+        $('#opencode-provider').val(oc.opencode_provider || 'openrouter');
+        $('#opencode-model').val(oc.opencode_model || 'anthropic/claude-sonnet-4.5');
         $('#opencode-session-id').text(oc.active_session_id || 'None');
         $('#opencode-session-count').text((oc.session_ids || []).length);
     });
 }
+
+// ─── Terminal Modal (global functions) ───────────────────────────────
+// Exposed on `window` so both the jQuery handlers inside $(document).ready
+// and the document-level delegated handler in interface.html can call them.
+// Uses raw DOM manipulation (same as file-browser-modal) to bypass Bootstrap
+// modal JS and avoid stacking/backdrop race conditions.
+
+/**
+ * Show the terminal modal on top of everything (z-index 100000).
+ * Lazy-loads xterm.js scripts from CDN, initializes the terminal, and
+ * opens a WebSocket connection to /ws/terminal.
+ */
+window._showTerminalModal = function() {
+    console.log('[Terminal] _showTerminalModal called');
+    var modal = document.getElementById('terminal-modal');
+    if (!modal) {
+        console.error('[Terminal] terminal-modal element not found in DOM');
+        return;
+    }
+    if (modal.classList.contains('show')) {
+        console.log('[Terminal] Modal already open, focusing');
+        if (typeof OpencodeTerminal !== 'undefined') OpencodeTerminal.focus();
+        return;
+    }
+    modal.style.display = 'block';
+    modal.classList.add('show');
+    modal.setAttribute('aria-hidden', 'false');
+    document.body.classList.add('modal-open');
+    console.log('[Terminal] Modal display set to block, show class added');
+    // Init + connect xterm after modal is visible (needs dimensions)
+    setTimeout(function() {
+        loadXtermScripts(function() {
+            console.log('[Terminal] xterm scripts loaded, initializing');
+            if (!OpencodeTerminal.isInitialized()) {
+                OpencodeTerminal.init('terminal-container-modal');
+            }
+            OpencodeTerminal.connect();
+            OpencodeTerminal.fit();
+            OpencodeTerminal.focus();
+        });
+    }, 100);
+};
+
+/**
+ * Close the terminal modal and disconnect the WebSocket.
+ * Cleans up orphan Bootstrap backdrops.
+ */
+window._closeTerminalModal = function() {
+    console.log('[Terminal] _closeTerminalModal called');
+    var modal = document.getElementById('terminal-modal');
+    if (modal) {
+        modal.classList.remove('show');
+        modal.style.display = 'none';
+        modal.setAttribute('aria-hidden', 'true');
+    }
+    if (typeof OpencodeTerminal !== 'undefined') {
+        OpencodeTerminal.disconnect();
+    }
+    // Remove any orphan Bootstrap backdrops
+    $('.modal-backdrop').each(function () {
+        if (!$(this).closest('.modal').length) $(this).remove();
+    });
+    if ($('.modal.show').length === 0) {
+        document.body.classList.remove('modal-open');
+    }
+};
 
 /**
  * Lazy-load xterm.js core + addons from CDN, then load opencode-terminal.js.

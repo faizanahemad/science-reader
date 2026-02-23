@@ -1,0 +1,1173 @@
+/**
+ * File Browser Manager — Full-screen modal file browser & editor.
+ *
+ * Provides VS Code-like file tree navigation, CodeMirror 5 editing with syntax
+ * highlighting, markdown preview, and full CRUD operations (create, rename, delete
+ * files and folders). All file access is sandboxed to the server's working directory.
+ *
+ * Dependencies (all pre-loaded in interface.html):
+ *   - jQuery + Bootstrap 4.6 (modal, dropdowns)
+ *   - CodeMirror 5.65.16 (editor, modes: python, js, css, htmlmixed, xml, markdown, gfm)
+ *   - marked.js (markdown preview, from common.js)
+ *   - Bootstrap Icons (tree icons)
+ *
+ * @module FileBrowserManager
+ */
+/* global $, CodeMirror, showToast, marked, hljs, renderMarkdownToHtml */
+
+var FileBrowserManager = (function () {
+    'use strict';
+
+    // ─── Mode map: file extension → CodeMirror mode (pre-loaded only) ───
+    var MODE_MAP = {
+        '.py':       'python',
+        '.pyw':      'python',
+        '.js':       'javascript',
+        '.mjs':      'javascript',
+        '.jsx':      'javascript',
+        '.ts':       { name: 'javascript', typescript: true },
+        '.tsx':      { name: 'javascript', typescript: true },
+        '.json':     { name: 'javascript', json: true },
+        '.html':     'htmlmixed',
+        '.htm':      'htmlmixed',
+        '.css':      'css',
+        '.xml':      'xml',
+        '.svg':      'xml',
+        '.md':       'gfm',
+        '.markdown': 'gfm'
+    };
+
+    // ─── File icon map: extension → Bootstrap Icon class ───
+    var ICON_MAP = {
+        '.py':   'bi-filetype-py',
+        '.js':   'bi-filetype-js',
+        '.ts':   'bi-filetype-tsx',
+        '.tsx':  'bi-filetype-tsx',
+        '.jsx':  'bi-filetype-jsx',
+        '.json': 'bi-filetype-json',
+        '.html': 'bi-filetype-html',
+        '.htm':  'bi-filetype-html',
+        '.css':  'bi-filetype-css',
+        '.xml':  'bi-filetype-xml',
+        '.md':   'bi-filetype-md',
+        '.svg':  'bi-filetype-svg',
+        '.yml':  'bi-filetype-yml',
+        '.yaml': 'bi-filetype-yml',
+        '.sh':   'bi-terminal',
+        '.txt':  'bi-file-earmark-text'
+    };
+
+    // ─── State ───
+    var state = {
+        currentPath: null,        // Currently open file path (relative to server root)
+        currentDir: '.',          // Currently viewed directory in address bar
+        originalContent: '',      // Content as loaded from server (for discard)
+        isDirty: false,           // Has unsaved changes
+        cmEditor: null,           // CodeMirror 5 instance
+        sidebarVisible: true,     // Sidebar collapse state
+        expandedDirs: {},         // Map of expanded directory paths → true
+        isMarkdown: false,        // Current file is .md / .markdown
+        activeTab: 'code',        // 'code' or 'preview' (for markdown)
+        contextTarget: null,      // Tree item that was right-clicked (for context menu)
+        currentTheme: 'monokai',  // Current CodeMirror theme
+        initialized: false,
+        pathSuggestions: [],
+        pathSuggestionMap: {}
+    };
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Utility helpers
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Get file extension from a path (lowercase, including the dot).
+     * @param {string} filePath - File path or name.
+     * @returns {string} Extension like '.py' or '' if none.
+     */
+    function _ext(filePath) {
+        var dot = filePath.lastIndexOf('.');
+        if (dot < 1) return '';
+        return filePath.substring(dot).toLowerCase();
+    }
+
+    /**
+     * Get the parent directory of a path (relative).
+     * @param {string} p - Relative path.
+     * @returns {string} Parent directory path, or '.' for root-level items.
+     */
+    function _parentDir(p) {
+        if (!p || p === '.') return '.';
+        var parts = p.replace(/\\/g, '/').split('/');
+        parts.pop();
+        return parts.length === 0 ? '.' : parts.join('/');
+    }
+
+    /**
+     * Get just the filename from a path.
+     * @param {string} p - Relative path.
+     * @returns {string} Filename component.
+     */
+    function _basename(p) {
+        if (!p) return '';
+        var parts = p.replace(/\\/g, '/').split('/');
+        return parts[parts.length - 1] || '';
+    }
+
+    /**
+     * Build a relative path by joining a directory and a name.
+     * @param {string} dir - Directory path.
+     * @param {string} name - Filename or subdirectory name.
+     * @returns {string} Combined relative path.
+     */
+    function _joinPath(dir, name) {
+        if (!dir || dir === '.') return name;
+        return dir.replace(/\/+$/, '') + '/' + name;
+    }
+
+    /**
+     * Get a Bootstrap Icon class for a file based on its extension.
+     * @param {string} name - File name or path.
+     * @param {string} type - 'file' or 'dir'.
+     * @param {boolean} [expanded] - Whether the directory is expanded.
+     * @returns {string} Full icon class name.
+     */
+    function _icon(name, type, expanded) {
+        if (type === 'dir') {
+            return expanded ? 'bi bi-folder2-open text-warning' : 'bi bi-folder-fill text-warning';
+        }
+        var ext = _ext(name);
+        return 'bi ' + (ICON_MAP[ext] || 'bi-file-earmark');
+    }
+
+    /**
+     * Determine if a file extension indicates a markdown file.
+     * @param {string} ext - File extension (e.g. '.md').
+     * @returns {boolean}
+     */
+    function _isMarkdownExt(ext) {
+        return ext === '.md' || ext === '.markdown';
+    }
+
+    /**
+     * Update the dirty indicator and save/discard button states.
+     */
+    function _updateDirtyState() {
+        if (state.isDirty) {
+            $('#file-browser-dirty-indicator').addClass('visible');
+            $('#file-browser-save-btn').prop('disabled', false);
+            $('#file-browser-discard-btn').show();
+        } else {
+            $('#file-browser-dirty-indicator').removeClass('visible');
+            $('#file-browser-save-btn').prop('disabled', true);
+            $('#file-browser-discard-btn').hide();
+        }
+    }
+
+    /**
+     * Show a specific view in the editor area: 'editor', 'preview', 'empty', or 'message'.
+     * @param {string} view - One of 'editor', 'preview', 'empty', 'message'.
+     * @param {string} [messageHtml] - HTML content for the 'message' view.
+     */
+    function _showView(view, messageHtml) {
+        var edEl = document.getElementById('file-browser-editor-container');
+        var prEl = document.getElementById('file-browser-preview-container');
+        var emEl = document.getElementById('file-browser-empty-state');
+        if (!edEl || !prEl || !emEl) return;
+
+        edEl.style.display = (view === 'editor') ? 'block' : 'none';
+        prEl.style.display = (view === 'preview') ? 'block' : 'none';
+        emEl.style.display = (view === 'empty' || view === 'message') ? 'flex' : 'none';
+        if (view === 'message' && messageHtml) {
+            emEl.innerHTML = '<div class="text-center text-muted">' + messageHtml + '</div>';
+        } else if (view === 'empty') {
+            emEl.innerHTML =
+                '<div class="text-center text-muted">' +
+                '<i class="bi bi-folder2-open" style="font-size: 3rem;"></i>' +
+                '<p class="mt-2">Select a file from the tree to edit</p></div>';
+        }
+        if (view === 'editor' && state.cmEditor) {
+            setTimeout(function () { state.cmEditor.refresh(); }, 10);
+        }
+    }
+
+    /**
+     * Ensure the CodeMirror editor instance exists.
+     * Creates it lazily on first call to avoid rendering in a hidden container.
+     */
+    function _ensureEditor() {
+        if (state.cmEditor) return;
+        state.cmEditor = CodeMirror($('#file-browser-editor-container')[0], {
+            lineNumbers: true,
+            theme: state.currentTheme,
+            mode: null,
+            autoCloseBrackets: true,
+            matchBrackets: true,
+            styleActiveLine: true,
+            foldGutter: true,
+            gutters: ['CodeMirror-linenumbers', 'CodeMirror-foldgutter'],
+            indentUnit: 4,
+            tabSize: 4,
+            indentWithTabs: false,
+            lineWrapping: false,
+            extraKeys: {
+                'Tab': function (cm) {
+                    if (cm.somethingSelected()) {
+                        cm.indentSelection('add');
+                    } else {
+                        cm.replaceSelection('    ', 'end');
+                    }
+                }
+            }
+        });
+        state.cmEditor.on('change', function () {
+            if (!state.currentPath) return;
+            var newDirty = (state.cmEditor.getValue() !== state.originalContent);
+            if (newDirty !== state.isDirty) {
+                state.isDirty = newDirty;
+                _updateDirtyState();
+            }
+        });
+    }
+
+    /**
+     * Check for unsaved changes and prompt user if dirty.
+     * @returns {boolean} true if safe to proceed, false if user cancelled.
+     */
+    function _confirmIfDirty() {
+        if (!state.isDirty) return true;
+        return confirm('You have unsaved changes. Discard them?');
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Tree rendering
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Load and render a directory listing in the file tree sidebar.
+     * @param {string} dirPath - Relative directory path to load.
+     * @param {jQuery} [$parentUl] - Parent <ul> element to append children to.
+     *                               If null, replaces the entire tree.
+     */
+    function loadTree(dirPath, $parentUl) {
+        $.getJSON('/file-browser/tree', { path: dirPath })
+            .done(function (resp) {
+                if (resp.status !== 'success') {
+                    showToast('Failed to load tree: ' + (resp.error || 'Unknown'), 'error');
+                    return;
+                }
+                var entries = resp.entries || [];
+                var $ul = $('<ul></ul>');
+
+                entries.forEach(function (entry) {
+                    var entryPath = _joinPath(dirPath, entry.name);
+                    var isDir = (entry.type === 'dir');
+                    var isExpanded = !!state.expandedDirs[entryPath];
+                    var iconClass = _icon(entry.name, entry.type, isExpanded);
+
+                    var $li = $('<li></li>')
+                        .attr('data-path', entryPath)
+                        .attr('data-type', entry.type)
+                        .attr('data-name', entry.name);
+
+                    var $iconSpan = $('<span class="tree-icon"><i class="' + iconClass + '"></i></span>');
+                    var $nameSpan = $('<span class="tree-name"></span>').text(entry.name);
+                    $li.append($iconSpan).append($nameSpan);
+
+                    // Highlight currently open file
+                    if (!isDir && state.currentPath === entryPath) {
+                        $li.addClass('active');
+                    }
+
+                    $ul.append($li);
+
+                    // If directory was previously expanded, re-expand it
+                    if (isDir && isExpanded) {
+                        loadTree(entryPath, $ul);
+                    }
+                });
+
+                if ($parentUl) {
+                    // Appending as a child of a directory <li>
+                    var $parentLi = $parentUl.children('li[data-path="' + CSS.escape(dirPath) + '"]');
+                    if ($parentLi.length) {
+                        $parentLi.find('> ul').remove();
+                        $parentLi.append($ul);
+                    } else {
+                        $parentUl.append($ul);
+                    }
+                } else {
+                    // Root level: replace entire tree content
+                    $('#file-browser-tree').empty().append($ul);
+                }
+                _refreshPathSuggestions();
+            })
+            .fail(function (xhr) {
+                var msg = 'Failed to load directory';
+                try { msg = JSON.parse(xhr.responseText).error || msg; } catch (e) { /* ignore */ }
+                showToast(msg, 'error');
+            });
+    }
+
+    function _refreshPathSuggestions() {
+        var paths = [];
+        $('#file-browser-tree li').each(function () {
+            var p = $(this).attr('data-path');
+            if (p) paths.push(p);
+        });
+        paths.sort();
+        state.pathSuggestions = paths;
+        state.pathSuggestionMap = {};
+        var $list = $('#file-browser-path-suggestions');
+        if (!$list.length) return;
+        $list.empty();
+        paths.forEach(function (p) {
+            state.pathSuggestionMap[p] = true;
+            $list.append($('<option></option>').attr('value', p));
+        });
+    }
+
+    /**
+     * Toggle expansion of a directory node in the tree.
+     * @param {jQuery} $li - The <li> element for the directory.
+     */
+    function _toggleDir($li) {
+        var dirPath = $li.attr('data-path');
+        if (state.expandedDirs[dirPath]) {
+            // Collapse
+            delete state.expandedDirs[dirPath];
+            $li.find('> ul').remove();
+            $li.find('> .tree-icon i').attr('class', _icon($li.attr('data-name'), 'dir', false));
+        } else {
+            // Expand
+            state.expandedDirs[dirPath] = true;
+            $li.find('> .tree-icon i').attr('class', _icon($li.attr('data-name'), 'dir', true));
+            var $childUl = $('<ul></ul>');
+            $li.append($childUl);
+            loadTree(dirPath, $li.parent());
+        }
+        // Update address bar to show this directory
+        state.currentDir = dirPath;
+        if (!state.currentPath) {
+            $('#file-browser-address-bar').val(dirPath === '.' ? '' : dirPath);
+        }
+    }
+
+    /**
+     * Highlight the currently open file in the tree and remove previous highlight.
+     * @param {string} filePath - Relative file path to highlight.
+     */
+    function _highlightTreeItem(filePath) {
+        $('#file-browser-tree li.active').removeClass('active');
+        if (filePath) {
+            $('#file-browser-tree li[data-path="' + CSS.escape(filePath) + '"]').addClass('active');
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  File loading & editing
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Load a file from the server into the editor.
+     * Checks for unsaved changes before navigating.
+     * @param {string} filePath - Relative path to the file.
+     * @param {boolean} [force] - If true, skip the 2MB size guard.
+     */
+    function loadFile(filePath, force) {
+        if (!_confirmIfDirty()) return;
+
+        var params = { path: filePath };
+        if (force) params.force = 'true';
+
+        $.getJSON('/file-browser/read', params)
+            .done(function (resp) {
+                if (resp.status !== 'success') {
+                    showToast('Failed to read file: ' + (resp.error || 'Unknown'), 'error');
+                    return;
+                }
+
+                // Handle binary files
+                if (resp.is_binary) {
+                    state.currentPath = filePath;
+                    state.originalContent = '';
+                    state.isDirty = false;
+                    state.isMarkdown = false;
+                    _updateDirtyState();
+                    _highlightTreeItem(filePath);
+                    $('#file-browser-address-bar').val(filePath);
+                    $('#file-browser-tab-bar').hide();
+                    _showView('message',
+                        '<i class="bi bi-file-earmark-binary" style="font-size: 3rem;"></i>' +
+                        '<p class="mt-2">Binary file — cannot edit</p>' +
+                        '<small class="text-muted">' + _basename(filePath) + ' (' + _formatSize(resp.size) + ')</small>'
+                    );
+                    return;
+                }
+
+                // Handle too-large files
+                if (resp.too_large) {
+                    state.currentPath = filePath;
+                    state.originalContent = '';
+                    state.isDirty = false;
+                    state.isMarkdown = false;
+                    _updateDirtyState();
+                    _highlightTreeItem(filePath);
+                    $('#file-browser-address-bar').val(filePath);
+                    $('#file-browser-tab-bar').hide();
+                    _showView('message',
+                        '<i class="bi bi-exclamation-triangle" style="font-size: 3rem; color: #ffc107;"></i>' +
+                        '<p class="mt-2">File is too large (' + _formatSize(resp.size) + ')</p>' +
+                        '<button class="btn btn-sm btn-outline-warning" id="file-browser-load-anyway-btn">Load Anyway</button>'
+                    );
+                    // Bind the Load Anyway button
+                    $('#file-browser-load-anyway-btn').off('click').on('click', function () {
+                        loadFile(filePath, true);
+                    });
+                    return;
+                }
+
+                // Normal file — load into editor
+                _ensureEditor();
+                var ext = _ext(filePath);
+                var mode = MODE_MAP[ext] || null;
+
+                state.currentPath = filePath;
+                state.currentDir = _parentDir(filePath);
+                state.originalContent = resp.content;
+                state.isDirty = false;
+                state.isMarkdown = _isMarkdownExt(ext);
+                state.activeTab = 'code';
+
+                state.cmEditor.setValue(resp.content);
+                state.cmEditor.setOption('mode', mode);
+                state.cmEditor.clearHistory();
+
+                _updateDirtyState();
+                _highlightTreeItem(filePath);
+                $('#file-browser-address-bar').val(filePath);
+
+                // Markdown tabs
+                if (state.isMarkdown) {
+                    $('#file-browser-tab-bar').show();
+                    $('#file-browser-tab-bar .btn').removeClass('active');
+                    $('#file-browser-tab-bar .btn[data-tab="code"]').addClass('active');
+                } else {
+                    $('#file-browser-tab-bar').hide();
+                }
+
+                _showView('editor');
+                // Move cursor to top
+                state.cmEditor.setCursor(0, 0);
+                state.cmEditor.focus();
+            })
+            .fail(function (xhr) {
+                var msg = 'Failed to read file';
+                try { msg = JSON.parse(xhr.responseText).error || msg; } catch (e) { /* ignore */ }
+                showToast(msg, 'error');
+            });
+    }
+
+    /**
+     * Format a file size in bytes to a human-readable string.
+     * @param {number} bytes - File size in bytes.
+     * @returns {string} Formatted size string.
+     */
+    function _formatSize(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+        return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    /**
+     * Save the current file to the server.
+     */
+    function saveFile() {
+        if (!state.currentPath || !state.isDirty) return;
+
+        var content = state.cmEditor.getValue();
+        $.ajax({
+            url: '/file-browser/write',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ path: state.currentPath, content: content })
+        })
+        .done(function (resp) {
+            if (resp.status === 'success') {
+                state.originalContent = content;
+                state.isDirty = false;
+                _updateDirtyState();
+                showToast('Saved: ' + _basename(state.currentPath), 'success');
+            } else {
+                showToast('Save failed: ' + (resp.error || 'Unknown'), 'error');
+            }
+        })
+        .fail(function (xhr) {
+            var msg = 'Save failed';
+            try { msg = JSON.parse(xhr.responseText).error || msg; } catch (e) { /* ignore */ }
+            showToast(msg, 'error');
+        });
+    }
+
+    /**
+     * Discard changes and revert to the last saved content.
+     */
+    function discardChanges() {
+        if (!state.isDirty) return;
+        if (!confirm('Discard unsaved changes?')) return;
+        state.cmEditor.setValue(state.originalContent);
+        state.isDirty = false;
+        _updateDirtyState();
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Markdown preview
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Render the current file content as markdown preview.
+     */
+    function _renderPreview() {
+        if (!state.cmEditor) return;
+        var content = state.cmEditor.getValue();
+        var html;
+
+        // Try to use the project's renderMarkdownToHtml if available
+        if (typeof renderMarkdownToHtml === 'function') {
+            html = renderMarkdownToHtml(content);
+        } else if (typeof marked !== 'undefined') {
+            html = marked.marked ? marked.marked(content) : marked(content);
+        } else {
+            html = '<pre>' + $('<span>').text(content).html() + '</pre>';
+        }
+
+        var $container = $('#file-browser-preview-container');
+        $container.html(html);
+
+        // Apply syntax highlighting to code blocks
+        if (typeof hljs !== 'undefined') {
+            $container.find('pre code').each(function () {
+                hljs.highlightElement(this);
+            });
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  CRUD operations (context menu)
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Show the context menu at the given mouse position.
+     * @param {number} x - Horizontal position.
+     * @param {number} y - Vertical position.
+     */
+    function _showContextMenu(x, y) {
+        $('#file-browser-context-menu').css({ left: x, top: y, display: 'block' });
+    }
+
+    /**
+     * Hide the context menu.
+     */
+    function _hideContextMenu() {
+        $('#file-browser-context-menu').hide();
+        state.contextTarget = null;
+    }
+
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Naming modal helpers
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Determine the target directory for new file/folder creation.
+     * Priority: contextTarget (if set) → parent of currentPath → currentDir.
+     * If contextTarget or currentPath is a file, its parent directory is used.
+     * @returns {string} Relative directory path.
+     */
+    function _getTargetDir() {
+        if (state.contextTarget) {
+            if (state.contextTarget.type === 'file') {
+                return _parentDir(state.contextTarget.path);
+            }
+            return state.contextTarget.path;
+        }
+        if (state.currentPath) {
+            return _parentDir(state.currentPath);
+        }
+        return state.currentDir;
+    }
+
+    /**
+     * Show the naming modal overlay for creating a new file or folder.
+     * @param {'file'|'folder'} type - Whether creating a file or folder.
+     * @param {function} callback - Called with the entered name string when user confirms.
+     */
+    function _showNameModal(type, callback) {
+        var dir = _getTargetDir();
+        var $modal = $('#file-browser-name-modal');
+        var $input = $('#file-browser-name-input');
+        var $title = $('#file-browser-name-modal-title');
+        var $dirHint = $('#file-browser-name-modal-dir');
+
+        $title.text(type === 'file' ? 'New File' : 'New Folder');
+        $dirHint.text(dir === '.' ? '/ (root)' : dir);
+        $input.val('');
+        $modal.css('display', 'flex');
+        setTimeout(function () { $input.focus(); }, 50);
+
+        // Store callback for OK button / Enter key
+        $modal.data('_nameCallback', callback);
+        $modal.data('_nameDir', dir);
+    }
+
+    /**
+     * Hide the naming modal overlay and clear callback state.
+     */
+    function _hideNameModal() {
+        var $modal = $('#file-browser-name-modal');
+        $modal.css('display', 'none');
+        $modal.removeData('_nameCallback');
+        $modal.removeData('_nameDir');
+    }
+
+    /**
+     * Handle OK action from naming modal — reads input, validates, fires callback.
+     */
+    function _nameModalConfirm() {
+        var $modal = $('#file-browser-name-modal');
+        var $input = $('#file-browser-name-input');
+        var name = $input.val().trim();
+        if (!name) {
+            $input.addClass('is-invalid');
+            setTimeout(function () { $input.removeClass('is-invalid'); }, 1500);
+            return;
+        }
+        var callback = $modal.data('_nameCallback');
+        _hideNameModal();
+        if (typeof callback === 'function') {
+            callback(name);
+        }
+    }
+
+    /**
+     * Create a new file — shows naming modal, then calls the write API.
+     * Uses _getTargetDir() to determine which folder to create in.
+     */
+    function _createFile() {
+        _showNameModal('file', function (name) {
+            var dir = _getTargetDir();
+        var filePath = _joinPath(dir, name);
+            $.ajax({
+                url: '/file-browser/write',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ path: filePath, content: '' })
+            })
+            .done(function (resp) {
+                if (resp.status === 'success') {
+                    showToast('Created: ' + name, 'success');
+                    _refreshTree();
+                    loadFile(filePath);
+                } else {
+                    showToast('Create failed: ' + (resp.error || 'Unknown'), 'error');
+                }
+            })
+            .fail(function (xhr) {
+                var msg = 'Create failed';
+                try { msg = JSON.parse(xhr.responseText).error || msg; } catch (e) { /* ignore */ }
+                showToast(msg, 'error');
+            });
+        });
+    }
+
+    /**
+     * Create a new folder — shows naming modal, then calls the mkdir API.
+     * Uses _getTargetDir() to determine which folder to create in.
+     */
+    function _createFolder() {
+        _showNameModal('folder', function (name) {
+            var dir = _getTargetDir();
+        var folderPath = _joinPath(dir, name);
+            $.ajax({
+                url: '/file-browser/mkdir',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ path: folderPath })
+            })
+            .done(function (resp) {
+                if (resp.status === 'success') {
+                    showToast('Created folder: ' + name, 'success');
+                    _refreshTree();
+                } else {
+                    showToast('Create folder failed: ' + (resp.error || 'Unknown'), 'error');
+                }
+            })
+            .fail(function (xhr) {
+                var msg = 'Create folder failed';
+                try { msg = JSON.parse(xhr.responseText).error || msg; } catch (e) { /* ignore */ }
+                showToast(msg, 'error');
+            });
+        });
+    }
+
+    /**
+     * Rename a file or folder via prompt and API call.
+     */
+    function _renameItem() {
+        if (!state.contextTarget) return;
+        var oldPath = state.contextTarget.path;
+        var oldName = _basename(oldPath);
+        var newName = prompt('Rename to:', oldName);
+        if (!newName || newName === oldName) return;
+
+        var dir = _parentDir(oldPath);
+        var newPath = _joinPath(dir, newName);
+
+        $.ajax({
+            url: '/file-browser/rename',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ old_path: oldPath, new_path: newPath })
+        })
+        .done(function (resp) {
+            if (resp.status === 'success') {
+                showToast('Renamed to: ' + newName, 'success');
+                // If the renamed item was the currently open file, update state
+                if (state.currentPath === oldPath) {
+                    state.currentPath = newPath;
+                    $('#file-browser-address-bar').val(newPath);
+                }
+                _refreshTree();
+            } else {
+                showToast('Rename failed: ' + (resp.error || 'Unknown'), 'error');
+            }
+        })
+        .fail(function (xhr) {
+            var msg = 'Rename failed';
+            try { msg = JSON.parse(xhr.responseText).error || msg; } catch (e) { /* ignore */ }
+            showToast(msg, 'error');
+        });
+    }
+
+    /**
+     * Delete a file or folder via confirmation and API call.
+     */
+    function _deleteItem() {
+        if (!state.contextTarget) return;
+        var itemPath = state.contextTarget.path;
+        var itemType = state.contextTarget.type;
+        var itemName = _basename(itemPath);
+
+        var message = 'Delete "' + itemName + '"?';
+        if (itemType === 'dir') {
+            message += '\n\nThis will delete the folder and ALL its contents.';
+        }
+        if (!confirm(message)) return;
+
+        $.ajax({
+            url: '/file-browser/delete',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ path: itemPath, recursive: (itemType === 'dir') })
+        })
+        .done(function (resp) {
+            if (resp.status === 'success') {
+                showToast('Deleted: ' + itemName, 'success');
+                // If deleted file was currently open, clear editor
+                if (state.currentPath === itemPath) {
+                    state.currentPath = null;
+                    state.originalContent = '';
+                    state.isDirty = false;
+                    _updateDirtyState();
+                    $('#file-browser-address-bar').val('');
+                    $('#file-browser-tab-bar').hide();
+                    _showView('empty');
+                }
+                _refreshTree();
+            } else {
+                showToast('Delete failed: ' + (resp.error || 'Unknown'), 'error');
+            }
+        })
+        .fail(function (xhr) {
+            var msg = 'Delete failed';
+            try { msg = JSON.parse(xhr.responseText).error || msg; } catch (e) { /* ignore */ }
+            showToast(msg, 'error');
+        });
+    }
+
+    /**
+     * Refresh the entire file tree, preserving expanded directories.
+     */
+    function _refreshTree() {
+        loadTree('.', null);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Sidebar toggle
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Toggle the sidebar visibility with a CSS transition.
+     */
+    function _toggleSidebar() {
+        state.sidebarVisible = !state.sidebarVisible;
+        var $sidebar = $('#file-browser-sidebar');
+        if (state.sidebarVisible) {
+            $sidebar.removeClass('collapsed');
+            $('#file-browser-sidebar-toggle i').attr('class', 'bi bi-layout-sidebar');
+        } else {
+            $sidebar.addClass('collapsed');
+            $('#file-browser-sidebar-toggle i').attr('class', 'bi bi-layout-sidebar-inset');
+        }
+        // Refresh CodeMirror after CSS transition completes
+        setTimeout(function () {
+            if (state.cmEditor) state.cmEditor.refresh();
+        }, 250);
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Address bar navigation
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Navigate to a path typed in the address bar.
+     * Tries to load as a file first, then falls back to directory navigation.
+     * @param {string} inputPath - Path typed by the user.
+     */
+    function _navigateAddressBar(inputPath) {
+        if (!inputPath || inputPath.trim() === '') {
+            // Empty path → go to root
+            state.currentDir = '.';
+            _refreshTree();
+            return;
+        }
+        var path = inputPath.trim();
+
+        // Try as a file first
+        $.getJSON('/file-browser/read', { path: path })
+            .done(function (resp) {
+                if (resp.status === 'success') {
+                    loadFile(path);
+                    return;
+                }
+                // Not a file, try as directory
+                _tryAsDirectory(path);
+            })
+            .fail(function () {
+                _tryAsDirectory(path);
+            });
+    }
+
+    /**
+     * Try navigating to a directory path.
+     * @param {string} path - Relative directory path.
+     */
+    function _tryAsDirectory(path) {
+        $.getJSON('/file-browser/tree', { path: path })
+            .done(function (resp) {
+                if (resp.status === 'success') {
+                    state.currentDir = path;
+                    // Expand all parent directories
+                    var parts = path.split('/');
+                    var cumulative = '';
+                    for (var i = 0; i < parts.length; i++) {
+                        cumulative = cumulative ? cumulative + '/' + parts[i] : parts[i];
+                        state.expandedDirs[cumulative] = true;
+                    }
+                    _refreshTree();
+                } else {
+                    showToast('Path not found', 'error');
+                }
+            })
+            .fail(function () {
+                showToast('Path not found', 'error');
+            });
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Modal open / close
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Open the file browser modal. Stacks on top of whatever is showing
+     * (including the settings modal) — bypasses Bootstrap modal JS entirely
+     * to avoid stacking/backdrop issues.
+     */
+    function open() {
+        console.log('[FileBrowser] open() called');
+        _showFileBrowserModal();
+    }
+
+    /**
+     * Show the file browser by manually toggling CSS classes and creating
+     * our own backdrop. Bootstrap's .modal('show') fights with already-open
+     * modals, so we bypass it completely.
+     */
+    function _showFileBrowserModal() {
+        var modal = document.getElementById('file-browser-modal');
+        if (!modal || modal.classList.contains('show')) return;
+        console.log('[FileBrowser] Showing modal manually');
+        // Kill any stale backdrop left by old cached JS
+        var staleBackdrop = document.getElementById('file-browser-backdrop');
+        if (staleBackdrop) staleBackdrop.remove();
+        modal.style.display = 'block';
+        modal.classList.add('show');
+        modal.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('modal-open');
+        setTimeout(function () {
+            _ensureEditor();
+            if (state.cmEditor) state.cmEditor.refresh();
+            if (Object.keys(state.expandedDirs).length === 0 && !state.currentPath) {
+                loadTree('.', null);
+            }
+        }, 50);
+    }
+
+    /**
+     * Close the file browser modal. Prompts if unsaved changes.
+     * Removes our custom backdrop. Leaves the settings modal intact underneath.
+     */
+    function _closeModal() {
+        if (!_confirmIfDirty()) return;
+        var modal = document.getElementById('file-browser-modal');
+        if (modal) {
+            modal.classList.remove('show');
+            modal.style.display = 'none';
+            modal.setAttribute('aria-hidden', 'true');
+        }
+        // Remove stale backdrop from old cached JS
+        var staleBackdrop = document.getElementById('file-browser-backdrop');
+        if (staleBackdrop) staleBackdrop.remove();
+        // Remove any orphan Bootstrap backdrops
+        $('.modal-backdrop').each(function () {
+            if (!$(this).closest('.modal').length) $(this).remove();
+        });
+        if ($('.modal.show').length === 0) {
+            document.body.classList.remove('modal-open');
+        }
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Initialization
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Initialize all event handlers. Called once on page load.
+     */
+    function init() {
+        if (state.initialized) return;
+        state.initialized = true;
+        console.log('[FileBrowser] init() called');
+        console.log('[FileBrowser] Button element found:', $('#settings-file-browser-modal-open-button').length);
+        console.log('[FileBrowser] Modal element found:', $('#file-browser-modal').length);
+        // --- Button to open file browser ---
+        $('#settings-file-browser-modal-open-button').on('click', function () {
+            console.log('[FileBrowser] Button clicked!');
+            open();
+        });
+
+        // NOTE: shown.bs.modal won't fire because we bypass Bootstrap's modal JS.
+        // Editor init and tree loading are handled in _showFileBrowserModal() instead.
+
+        // --- Save button ---
+        $('#file-browser-save-btn').on('click', function () {
+            saveFile();
+        });
+
+        // --- Discard button ---
+        $('#file-browser-discard-btn').on('click', function () {
+            discardChanges();
+        });
+
+        // --- Close button ---
+        $('#file-browser-close-btn').on('click', function () {
+            _closeModal();
+        });
+
+        // --- Sidebar toggle ---
+        $('#file-browser-sidebar-toggle').on('click', function () {
+            _toggleSidebar();
+        });
+
+        // --- Refresh button ---
+        $('#file-browser-refresh-btn').on('click', function () {
+            _refreshTree();
+        });
+
+
+        // --- New File sidebar button ---
+        $('#file-browser-new-file-btn').on('click', function () {
+            state.contextTarget = null; // use currentPath / currentDir fallback
+            _createFile();
+        });
+
+        // --- New Folder sidebar button ---
+        $('#file-browser-new-folder-btn').on('click', function () {
+            state.contextTarget = null; // use currentPath / currentDir fallback
+            _createFolder();
+        });
+
+        // --- Naming modal: OK / Cancel / Enter ---
+        $('#file-browser-name-ok-btn').on('click', function () {
+            _nameModalConfirm();
+        });
+        $('#file-browser-name-cancel-btn').on('click', function () {
+            _hideNameModal();
+        });
+        $('#file-browser-name-input').on('keydown', function (e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                _nameModalConfirm();
+            }
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                _hideNameModal();
+            }
+        });
+        // Click on backdrop (outside the inner card) closes naming modal
+        $('#file-browser-name-modal').on('click', function (e) {
+            if (e.target === this) _hideNameModal();
+        });
+
+        // --- Address bar: Enter key ---
+        $('#file-browser-address-bar').on('keydown', function (e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                _navigateAddressBar($(this).val());
+            }
+        });
+        $('#file-browser-address-bar').on('change', function () {
+            var value = $(this).val().trim();
+            if (value && state.pathSuggestionMap[value]) {
+                _navigateAddressBar(value);
+            }
+        });
+
+        // --- Tree click handlers (delegated) ---
+        $('#file-browser-tree').on('click', 'li', function (e) {
+            e.stopPropagation();
+            var $li = $(this);
+            var type = $li.attr('data-type');
+            var path = $li.attr('data-path');
+
+            if (type === 'dir') {
+                _toggleDir($li);
+            } else {
+                loadFile(path);
+            }
+        });
+
+        // --- Context menu: right-click on tree items ---
+        $('#file-browser-tree').on('contextmenu', 'li', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            var $li = $(this);
+            state.contextTarget = {
+                path: $li.attr('data-path'),
+                type: $li.attr('data-type'),
+                name: $li.attr('data-name')
+            };
+            _showContextMenu(e.clientX, e.clientY);
+        });
+
+        // --- Context menu: right-click on tree background (create in current dir) ---
+        $('#file-browser-tree').on('contextmenu', function (e) {
+            if ($(e.target).closest('li').length) return; // handled above
+            e.preventDefault();
+            state.contextTarget = { path: state.currentDir, type: 'dir', name: '' };
+            _showContextMenu(e.clientX, e.clientY);
+        });
+
+        // --- Context menu actions ---
+        $('#file-browser-context-menu').on('click', 'a[data-action]', function (e) {
+            e.preventDefault();
+            var action = $(this).attr('data-action');
+            _hideContextMenu();
+            switch (action) {
+                case 'new-file':   _createFile(); break;
+                case 'new-folder': _createFolder(); break;
+                case 'rename':     _renameItem(); break;
+                case 'delete':     _deleteItem(); break;
+            }
+        });
+
+        // --- Hide context menu on click outside ---
+        $(document).on('click', function () {
+            _hideContextMenu();
+        });
+        $(document).on('keydown', function (e) {
+            if (e.key === 'Escape') {
+                if ($('#file-browser-context-menu').is(':visible')) {
+                    _hideContextMenu();
+                    e.stopPropagation();
+                }
+            }
+        });
+
+        // --- Theme picker ---
+        $('#file-browser-theme-select').on('change', function () {
+            var newTheme = $(this).val();
+            state.currentTheme = newTheme;
+            if (state.cmEditor) {
+                state.cmEditor.setOption('theme', newTheme);
+            }
+        });
+
+        // --- Markdown tab switching ---
+        $('#file-browser-tab-bar').on('click', '.btn', function () {
+            var tab = $(this).attr('data-tab');
+            if (tab === state.activeTab) return;
+            state.activeTab = tab;
+            $('#file-browser-tab-bar .btn').removeClass('active');
+            $(this).addClass('active');
+
+            if (tab === 'preview') {
+                _renderPreview();
+                _showView('preview');
+            } else {
+                _showView('editor');
+            }
+        });
+
+        // --- Keyboard shortcuts (global, scoped to modal visibility) ---
+        $(document).on('keydown', function (e) {
+            if (!$('#file-browser-modal').hasClass('show')) return;
+
+            // Ctrl+S / Cmd+S → Save
+            if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                e.preventDefault();
+                saveFile();
+                return;
+            }
+
+            // Escape → Close modal (with dirty check)
+            if (e.key === 'Escape') {
+                // Don't close if context menu is visible (handled separately)
+                if ($('#file-browser-context-menu').is(':visible')) return;
+                e.preventDefault();
+                _closeModal();
+            }
+        });
+
+        // NOTE: hide.bs.modal won't fire because we bypass Bootstrap's modal JS.
+        // Dirty check is handled in _closeModal() instead.
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Public API
+    // ═══════════════════════════════════════════════════════════════
+
+    return {
+        init: init,
+        open: open,
+        loadFile: loadFile,
+        saveFile: saveFile,
+        discardChanges: discardChanges
+    };
+
+})();
+
+// Initialize on DOM ready
+$(document).ready(function () {
+    FileBrowserManager.init();
+});

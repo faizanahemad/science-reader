@@ -325,6 +325,119 @@ Server-side injection:
 
 ---
 
+
+### 5c) OpenCode Integration (Agentic Chat via `opencode serve`)
+
+**What it does**
+ Routes chat messages through an `opencode serve` instance (port 4096) instead of calling LLM provider APIs directly, giving every conversation access to OpenCode's agentic capabilities: tool use (bash, file edit, grep, LSP), MCP servers, multi-step planning, and context compaction.
+ Opt-in per message via the `opencode_enabled` checkbox. Non-OpenCode conversations work exactly as before.
+ Supports **two LLM providers**: OpenRouter (default, model IDs like `anthropic/claude-sonnet-4.5`) and AWS Bedrock (model IDs like `anthropic.claude-sonnet-4-5-20250929-v1:0`). Only Claude 4.5 and 4.6 models (Haiku, Sonnet, Opus) are supported.
+ Per-conversation OpenCode sessions with persistent context, compaction, and tool history.
+ Configurable context injection levels (minimal/medium/full) control how much conversation context is auto-injected vs available via MCP tools.
+
+**Architecture**
+ Flask server acts as a translation layer between the browser's newline-delimited JSON protocol and OpenCode's SSE event stream.
+ The `opencode_client/` Python package provides: HTTP client (`OpencodeClient`), session manager (`SessionManager`), and SSE bridge (`SSEBridge`).
+ SSE Bridge translates OpenCode events (`message.part.delta`, `session.idle`, tool status) into the existing `{"text": ..., "status": ...}` streaming format.
+ Math formatting (`process_math_formatting`) applied to each OpenCode delta to match non-OpenCode rendering pipeline.
+ Context injected into OpenCode sessions via `noReply` messages (stored without triggering AI response).
+
+**Providers and model routing**
+ Model resolver (`_resolve_opencode_model`) maps UI model names to `{providerID, modelID}` pairs.
+ OpenRouter: model-family prefixes like `anthropic/` are part of the model ID (not extracted as provider).
+ Bedrock: `BEDROCK_MODEL_MAP` translates OpenRouter-style names to Bedrock model IDs.
+ Provider/model selection available via OpenCode settings modal in the UI.
+
+**SSE event handling**
+ OpenCode wraps ALL events under SSE `event: message`. Real event type is in `data["type"]`.
+ Delta events have flat properties structure (`properties.field`, `properties.content`).
+ Bridge handles reconnection (up to 5 retries), cancellation (abort session), and permission auto-approval.
+
+**Slash commands (OpenCode mode)**
+ `/compact`, `/abort`, `/new`, `/sessions`, `/fork`, `/summarize`, `/status`, `/diff`, `/revert`, `/mcp`, `/models`, `/help`
+ Local commands (`/title`, `/temp`) always handled by Conversation.py. Unknown commands passed through to OpenCode.
+
+**API**
+ Main flow: `POST /send_message/<conversation_id>` with `checkboxes.opencode_enabled=true` — same endpoint, same streaming format.
+ OpenCode settings: persisted in `conversation_settings.opencode_config` (provider, model, session IDs, injection level).
+ Settings validated in `endpoints/conversations.py` against whitelisted provider and model values.
+
+**UI**
+ OpenCode settings modal (`#opencode-settings-modal`) with Provider dropdown (OpenRouter/Bedrock) and Model dropdown (5 Claude models).
+ `opencode_enabled` checkbox in the chat options area.
+ Save handler persists `opencode_provider` and `opencode_model` to conversation settings.
+
+**Configuration**
+ `opencode.json` (project root): provider config (`openrouter` with `{env:OPENROUTER_API_KEY}`, `amazon-bedrock` with region), MCP servers (7 servers on ports 8100-8106), permissions (bash/edit/webfetch allowed), compaction settings, AGENTS.md instructions.
+ Environment variables: `OPENROUTER_API_KEY`, `OPENCODE_BASE_URL`, `OPENCODE_DEFAULT_PROVIDER`, `OPENCODE_DEFAULT_MODEL`, timeouts, SSE reconnect settings.
+
+**Key files**
+ `opencode_client/` — `client.py` (HTTP client), `session_manager.py` (conversation-to-session mapping), `sse_bridge.py` (SSE-to-Flask bridge), `config.py` (env var config)
+ `Conversation.py` — `BEDROCK_MODEL_MAP`, `_resolve_opencode_model()`, `_reply_via_opencode()`, `_build_opencode_system_prompt()`, `_assemble_opencode_context()`, OpenCode slash command routing in `reply()`
+ `opencode.json` — OpenCode server configuration
+ `interface/interface.html` — OpenCode settings modal
+ `interface/chat.js` — Settings save/load handlers
+ `endpoints/conversations.py` — Settings validation whitelist
+**Docs:** `documentation/features/opencode_integration/README.md`, `documentation/planning/plans/opencode_integration.plan.md`
+
+**Differentiator**
+ Transforms the chat app from a text-only assistant into an agentic system that can execute tools (bash, file editing, web search, code execution) as part of its responses. No other integration preserves the existing UI, streaming format, PKB memory, document grounding, and math rendering while adding full tool-use capabilities via a separate AI engine.
+
+---
+
+
+### 5d) Web Terminal (Browser-based Shell)
+
+**What it does**
+ Browser-based terminal accessible from Settings → Actions → Terminal, or as a standalone page at `/terminal`.
+ Spawns the user's default shell (`$SHELL` or `/bin/bash`) in a PTY on the server, bridges I/O to the browser via WebSocket + xterm.js.
+ General-purpose terminal — users can run any command including `opencode` if desired.
+ Per-user session registry with reattach support (second tab reconnects to same PTY), configurable idle timeout (30 min default), max-sessions cap, and process-group cleanup on disconnect.
+
+**Architecture**
+ Frontend: xterm.js (CDN-loaded) with Catppuccin Mocha theme, fit addon for auto-resize.
+ Backend: `endpoints/terminal.py` — `TerminalSession` class manages PTY lifecycle; `flask-sock` WebSocket endpoint at `/ws/terminal` bridges PTY ↔ browser.
+ Auth: WebSocket handler checks `session["email"]` before spawning PTY. No session = `ws.close(1008)`.
+ Modal uses raw DOM manipulation (no Bootstrap JS) to stack safely over the settings modal. Document-level delegated click handler bypasses Bootstrap event interference.
+
+**nginx WebSocket proxy (required for production)**
+ If deployed behind nginx, WebSocket connections to `/ws/terminal` will silently fail without proper upgrade headers. Add this location block inside the existing `server { }` block:
+
+```nginx
+# WebSocket terminal endpoint
+location /ws/terminal {
+    proxy_pass http://127.0.0.1:5000;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    # WebSocket-specific timeouts
+    proxy_read_timeout 3600s;    # 1 hour (matches idle timeout)
+    proxy_send_timeout 60s;
+    proxy_connect_timeout 10s;
+
+    # Disable buffering for WebSocket
+    proxy_buffering off;
+}
+```
+
+**Config env vars**
+ `TERMINAL_SHELL` — shell binary (default: `$SHELL` or `/bin/bash`), `TERMINAL_IDLE_TIMEOUT` — seconds before idle disconnect (default: 1800), `TERMINAL_MAX_SESSIONS` — max concurrent sessions per user, `PROJECT_DIR` — starting directory for the shell.
+
+**Key files**
+ `endpoints/terminal.py` — PTY + WebSocket handler, `TerminalSession` class, session registry
+ `interface/opencode-terminal.js` — xterm.js client module (lazy-loaded when terminal opens)
+ `interface/terminal.html` — standalone terminal page
+ `interface/interface.html` — terminal modal HTML + document-level click handler
+ `interface/chat.js` — `window._showTerminalModal()` / `window._closeTerminalModal()` global functions
+**Docs:** `documentation/features/opencode_integration/README.md` (OpenCode integration docs include terminal), `documentation/planning/plans/opencode_integration.plan.md` (sections 12-13)
+
+---
+
 ### 6) Multi-model responses and formatting
 
 **What it does**
@@ -783,6 +896,39 @@ The extension uses two categories of endpoints:
   - main response streaming
   - doubt clearing streaming
 - Conversation locking uses filesystem lock files; clients may see "waiting for lock" warnings in stream.
+
+---
+
+## File Browser & Editor
+
+Full-screen modal file browser and code editor accessible from the chat-settings-modal **Actions** tab. Intended for server-side file management without leaving the chat interface.
+
+**Entry point**: Settings → Actions tab → **File Browser** button.
+
+**What it does**
+ Displays a VS Code-like file tree of the server's working directory (lazy-loaded, depth-first expansion).
+ Opens files in a CodeMirror 5 editor with syntax highlighting (Python, JS, TS, CSS, HTML, XML, Markdown, JSON).
+ For `.md` / `.markdown` files: a **Code / Preview** tab bar toggles between raw editing and rendered markdown preview.
+ Address bar with HTML5 `<datalist>` autocomplete populated from the loaded tree — typing a path or picking a suggestion navigates directly.
+ Right-click context menu on tree items: **New File**, **New Folder**, **Rename**, **Delete**.
+ **Ctrl+S / Cmd+S** saves the current file; **Escape** closes the modal (with a confirmation prompt if there are unsaved changes).
+ Binary files are detected (null-byte scan in first 8 KB) and displayed with an informational message instead of garbled text.
+ Files over 2 MB are blocked with a warning; a **Load Anyway** button overrides the guard.
+
+**API** (`endpoints/file_browser.py`, all `@login_required`)
+ `GET /file-browser/tree?path=.` — list directory (dirs first, sorted)
+ `GET /file-browser/read?path=...&force=true` — read file content
+ `POST /file-browser/write` — write file `{path, content}`
+ `POST /file-browser/mkdir` — create directory `{path}`
+ `POST /file-browser/rename` — rename/move `{old_path, new_path}`
+ `POST /file-browser/delete` — delete file/dir `{path, recursive}`
+
+**Security**: all paths validated via `os.path.realpath()` + `startswith(SERVER_ROOT)` — cannot escape the server root.
+
+**Modal architecture**: The modal is a plain `position: fixed` `<div>` (not a Bootstrap `.modal`). It is opened/closed with raw DOM manipulation to avoid Bootstrap JS stacking conflicts when the settings modal is already open. No backdrop is used. View switching (`editor / preview / empty-state`) uses vanilla `element.style.display` rather than jQuery `.show()/.hide()` to avoid Bootstrap `!important` utility class conflicts.
+
+**Key files**: `endpoints/file_browser.py`, `interface/file-browser-manager.js`
+**Docs**: `documentation/features/file_browser/README.md`
 
 ---
 

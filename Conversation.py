@@ -144,6 +144,19 @@ except ImportError:
     SessionManager = None
     OPENCODE_AVAILABLE = False
 
+
+# Bedrock model ID mapping: OpenRouter-style names -> AWS Bedrock model IDs.
+# Only Claude 4.5 and 4.6 models are mapped (the ones we actually use).
+# When provider is 'amazon-bedrock', _resolve_opencode_model() translates via this map.
+BEDROCK_MODEL_MAP = {
+    # Claude 4.5
+    "anthropic/claude-haiku-4.5": "anthropic.claude-haiku-4-5-20251001-v1:0",
+    "anthropic/claude-sonnet-4.5": "anthropic.claude-sonnet-4-5-20250929-v1:0",
+    "anthropic/claude-opus-4.5": "anthropic.claude-opus-4-5-20251101-v1:0",
+    # Claude 4.6 (no Haiku 4.6 released)
+    "anthropic/claude-sonnet-4.6": "anthropic.claude-sonnet-4-6",
+    "anthropic/claude-opus-4.6": "anthropic.claude-opus-4-6-v1",
+}
 # Global PKB database instance (shared across conversations)
 _pkb_db_instance = None
 _pkb_config_instance = None
@@ -4640,16 +4653,24 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
 
     def _resolve_opencode_model(self, checkboxes, oc_config):
         """Resolve the OpenCode model to use for this message.
+        Routes model names from the UI (e.g. ``'anthropic/claude-sonnet-4.5'``)
+        to the correct OpenCode provider + model ID pair.
 
-        Priority: per-message checkbox > per-conversation setting > default.
-
+        Routing logic:
+        1. Explicit provider prefix ``openrouter/...`` or ``amazon-bedrock/...``
+           → use that provider, remainder is the model ID.
+        2. Model-family prefix like ``anthropic/...``, ``openai/...``, ``google/...``
+           → pass the FULL string as modelID to the default provider (openrouter),
+           because OpenRouter accepts ``anthropic/claude-sonnet-4.5`` as a model ID.
+        3. If provider is ``amazon-bedrock``, translate the model name to a Bedrock
+           model ID via :data:`BEDROCK_MODEL_MAP`.
+        4. No ``/`` → use default provider with model as-is.
         Parameters
         ----------
         checkboxes : dict
             Per-message checkboxes from the UI.
         oc_config : dict
             Per-conversation opencode_config from conversation_settings.
-
         Returns
         -------
         dict or None
@@ -4657,10 +4678,33 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         """
         model_id = checkboxes.get("opencode_model") or oc_config.get("opencode_model") or OPENCODE_DEFAULT_MODEL
         provider_id = oc_config.get("opencode_provider") or OPENCODE_DEFAULT_PROVIDER
-        if model_id:
-            return {"providerID": provider_id, "modelID": model_id}
-        return None
+        if not model_id:
+            return None
+        # --- Provider extraction ---
+        # Only extract provider when the prefix is an actual OpenCode provider
+        # (openrouter, amazon-bedrock).  Model-family prefixes like 'anthropic/',
+        # 'openai/', 'google/' are part of the OpenRouter model ID and must stay intact.
+        OPENCODE_PROVIDERS = {"openrouter", "amazon-bedrock"}
+        if "/" in model_id:
+            first_segment = model_id.split("/", 1)[0]
+            if first_segment in OPENCODE_PROVIDERS:
+                provider_id = first_segment
+                model_id = model_id.split("/", 1)[1]  # remainder is the model ID
+            # Otherwise keep model_id intact (e.g. 'anthropic/claude-sonnet-4.5'
+            # is a valid OpenRouter model ID, not a provider/model split)
 
+        # --- Bedrock model ID translation ---
+        # Bedrock requires specific model IDs (e.g. 'anthropic.claude-sonnet-4-5-v1:0')
+        # instead of OpenRouter-style names ('anthropic/claude-sonnet-4.5').
+        if provider_id == "amazon-bedrock":
+            bedrock_id = BEDROCK_MODEL_MAP.get(model_id)
+            if bedrock_id:
+                model_id = bedrock_id
+            else:
+                logger.warning(
+                    "No Bedrock model ID mapping for '%s'; passing as-is", model_id
+                )
+        return {"providerID": provider_id, "modelID": model_id}
     def _build_opencode_system_prompt(self, userData=None):
         """Build the system prompt for OpenCode sessions.
 
@@ -4683,7 +4727,7 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
             parts.append(f"You are assisting user with email: {user_email}")
             parts.append(f"When calling PKB or document MCP tools, pass user_email='{user_email}'.")
 
-        title = self.get_title()
+        title = self.get_field("memory").get("title")
         if title and title != "Start the Conversation":
             parts.append(f"Conversation title: {title}")
 
@@ -4780,26 +4824,58 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         try:
             session_id = sm.get_or_create_session(
                 self.conversation_id,
-                title=self.get_title() or f"Conversation {self.conversation_id[:8]}"
+                title=self.get_field("memory").get("title") or f"Conversation {self.conversation_id[:8]}"
             )
             is_new_session = session_id not in (oc_config.get("session_ids") or [])
             yield {"text": "", "status": f"OpenCode session: {session_id[:12]}..."}
+        except ConnectionError as e:
+            logger.error("OpenCode server not reachable: %s", e)
+            yield {
+                "text": "\n\n**OpenCode server is not running.** Start it with `opencode serve` on port 4096, then retry.",
+                "status": "Error"
+            }
+            return
         except Exception as e:
             logger.exception("Failed to get/create OpenCode session: %s", e)
             yield {"text": f"\n\nFailed to create OpenCode session: {e}", "status": "Error"}
             return
 
         # --- Resolve model ---
-        model_dict = self._resolve_opencode_model(checkboxes, oc_config)
-
+        try:
+            model_dict = self._resolve_opencode_model(checkboxes, oc_config)
+            logger.info("OpenCode model resolved: %s", model_dict)
+        except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            logger.error("OpenCode model resolution failed: %s\n%s", e, tb)
+            print(f"[OpenCode ERROR] Model resolution failed: {e}\n{tb}")
+            yield {"text": f"\n\n**OpenCode error (model resolution):** {e}\n```\n{tb}\n```", "status": "Error"}
+            return
         # --- Build and send system prompt for new sessions ---
-        system_prompt = self._build_opencode_system_prompt(userData)
-
+        try:
+            system_prompt = self._build_opencode_system_prompt(userData)
+            logger.info("OpenCode system prompt built (%d chars)", len(system_prompt) if system_prompt else 0)
+        except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            logger.error("OpenCode system prompt build failed: %s\n%s", e, tb)
+            print(f"[OpenCode ERROR] System prompt build failed: {e}\n{tb}")
+            yield {"text": f"\n\n**OpenCode error (system prompt):** {e}\n```\n{tb}\n```", "status": "Error"}
+            return
         # --- Assemble and inject context ---
         injection_level = oc_config.get("injection_level", "medium")
-        context_text = self._assemble_opencode_context(
-            query, injection_level, pkb_context_future=pkb_context_future
-        )
+        try:
+            context_text = self._assemble_opencode_context(
+                query, injection_level, pkb_context_future=pkb_context_future
+            )
+            logger.info("OpenCode context assembled (%d chars, level=%s)", len(context_text) if context_text else 0, injection_level)
+        except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            logger.error("OpenCode context assembly failed: %s\n%s", e, tb)
+            print(f"[OpenCode ERROR] Context assembly failed: {e}\n{tb}")
+            yield {"text": f"\n\n**OpenCode error (context assembly):** {e}\n```\n{tb}\n```", "status": "Error"}
+            return
         if context_text:
             try:
                 yield {"text": "", "status": "Injecting context into OpenCode session..."}
@@ -4817,6 +4893,8 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
             user_parts = [{"type": "text", "text": query["messageText"]}]
             # Only send system prompt if we didn't already send it with context
             msg_system = system_prompt if (system_prompt and not context_text) else None
+            logger.info("Sending message to OpenCode session %s, model=%s, system=%s chars, parts=%d",
+                        session_id, model_dict, len(msg_system) if msg_system else 0, len(user_parts))
             client.send_message_async(
                 session_id,
                 parts=user_parts,
@@ -4825,8 +4903,11 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
             )
             yield {"text": "", "status": "Message sent to OpenCode, waiting for response..."}
         except Exception as e:
-            logger.exception("Failed to send message to OpenCode: %s", e)
-            yield {"text": f"\n\nFailed to send message to OpenCode: {e}", "status": "Error"}
+            import traceback
+            tb = traceback.format_exc()
+            logger.exception("Failed to send message to OpenCode: %s\n%s", e, tb)
+            print(f"[OpenCode ERROR] send_message_async failed: {e}\n{tb}")
+            yield {"text": f"\n\nFailed to send message to OpenCode: {e}\n```\n{traceback.format_exc()}\n```", "status": "Error"}
             return
 
         # --- Stream SSE events via SSEBridge ---
@@ -4838,9 +4919,22 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
             is_cancelled_fn=self.is_cancelled,
         )
 
+        # Import math formatting to match non-OpenCode provider behavior.
+        # Non-OpenCode: CallLLm wraps stream in stream_text_with_math_formatting
+        # which doubles backslashes (\[ -> \\[) so the frontend MathJax/KaTeX
+        # can recognize them.  Without this, math delimiters arrive as single-
+        # backslash sequences and get eaten by the JS/HTML parser.
+        try:
+            from math_formatting import process_math_formatting
+            _math_fmt = process_math_formatting
+        except ImportError:
+            _math_fmt = None
         for chunk in bridge.stream_response():
             text_delta = chunk.get("text", "")
             status = chunk.get("status", "")
+            # Apply math formatting to each delta (match non-OpenCode behavior)
+            if text_delta and _math_fmt:
+                text_delta = _math_fmt(text_delta)
             if text_delta:
                 answer += text_delta
             yield {"text": text_delta, "status": status}
@@ -10825,8 +10919,8 @@ def model_name_to_canonical_name(model_name):
         model_name = "mistralai/devstral-medium"
     elif model_name == "perplexity/sonar-pro":
         model_name = "perplexity/sonar-pro"
-    elif model_name == "perplexity/sonar-reasoning-pro":
-        model_name = "perplexity/sonar-reasoning-pro"
+    elif model_name == "perplexity/sonar-deep-research":
+        model_name = "perplexity/sonar-deep-research"
     elif model_name == "openai/gpt-4o-search-preview":
         model_name = "openai/gpt-4o-search-preview"
     elif model_name == "openai/gpt-4o-mini-search-preview":

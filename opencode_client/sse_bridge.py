@@ -87,7 +87,8 @@ class SSEBridge:
             indicator.
         """
         reconnects = 0
-
+        logger.info("[SSE Bridge] Starting stream for session %s", self._session_id)
+        print(f"[SSE Bridge] Starting stream for session {self._session_id}")
         while reconnects <= OPENCODE_SSE_MAX_RECONNECTS:
             try:
                 yield from self._consume_stream()
@@ -135,11 +136,13 @@ class SSEBridge:
 
     def _consume_stream(self) -> Generator[Dict[str, str], None, None]:
         """Read from the SSE stream and translate events.
-
-        This is the inner loop that may raise connection errors, which
         :meth:`stream_response` catches for reconnection.
         """
+        event_count = 0
+        logger.info("[SSE Bridge] Connecting to SSE endpoint for session %s", self._session_id)
+        print(f"[SSE Bridge] Connecting to SSE endpoint for session {self._session_id}")
         for sse_event in self._client.stream_events(session_id=self._session_id):
+            event_count += 1
             # ---- Cancellation check ----
             if self._is_cancelled_fn and self._is_cancelled_fn():
                 logger.info("Cancellation detected for session %s", self._session_id)
@@ -149,20 +152,35 @@ class SSEBridge:
                     "status": "Response cancelled",
                 }
                 return
-
-            event_type = sse_event.get("event", "")
+            raw_event_type = sse_event.get("event", "")
             data = sse_event.get("data", {})
-
+            # OpenCode wraps ALL events under SSE event type "message".
+            # The real event type lives in data["type"].
+            if raw_event_type == "message" and isinstance(data, dict) and "type" in data:
+                event_type = data["type"]
+            else:
+                event_type = raw_event_type
+            # ---- Debug logging for first 5 events + all non-delta events ----
+            if event_count <= 5 or event_type not in ("message.part.delta", "message.part.updated"):
+                import json as _json
+                data_preview = _json.dumps(data, default=str)[:500] if isinstance(data, dict) else str(data)[:500]
+                logger.info("[SSE Bridge] Event #%d type=%s (raw=%s) data_preview=%s", event_count, event_type, raw_event_type, data_preview)
+                print(f"[SSE Bridge] Event #{event_count} type={event_type} (raw={raw_event_type}) data_preview={data_preview[:200]}")
             # ---- Dispatch by event type ----
             chunk = self._handle_event(event_type, data)
             if chunk is not None:
                 if chunk.get("_done"):
                     # Internal signal: stream is finished
+                    logger.info("[SSE Bridge] Stream done after %d events for session %s", event_count, self._session_id)
+                    print(f"[SSE Bridge] Stream done after {event_count} events")
                     chunk.pop("_done", None)
                     if chunk.get("text") or chunk.get("status"):
                         yield chunk
                     return
                 yield chunk
+        # If we fall off the end of the for loop, the SSE stream closed without session.idle
+        logger.warning("[SSE Bridge] SSE stream ended without session.idle after %d events for session %s", event_count, self._session_id)
+        print(f"[SSE Bridge] SSE stream ended unexpectedly after {event_count} events")
 
     # ------------------------------------------------------------------
     # Event handlers
@@ -184,7 +202,9 @@ class SSEBridge:
             A Flask chunk dict, possibly with internal ``_done`` flag.
             ``None`` if the event should be silently skipped.
         """
-        if event_type == "message.part.updated":
+        if event_type == "message.part.delta":
+            return self._handle_part_delta(data)
+        elif event_type in ("message.part.updated",):
             return self._handle_part_updated(data)
         elif event_type == "session.idle":
             return self._handle_session_idle(data)
@@ -194,9 +214,63 @@ class SSEBridge:
             return self._handle_session_status(data)
         elif event_type == "permission.updated":
             return self._handle_permission(data)
+        elif event_type == "message.updated":
+            # Full message update — may contain final text, route same as part update
+            return self._handle_part_updated(data)
+        elif event_type == "session.updated":
+            # Session metadata update — skip silently
+            return None
+        elif event_type == "session.diff":
+            # File diff update — skip silently
+            return None
         else:
-            # Unknown event types are silently ignored
-            logger.debug("Ignoring SSE event type: %s", event_type)
+            # Unknown event types are logged for debugging
+            logger.debug("Ignoring SSE event type: %s (data keys: %s)", event_type, list(data.keys()) if isinstance(data, dict) else type(data).__name__)
+            return None
+
+    def _handle_part_delta(self, data: Any) -> Optional[Dict[str, str]]:
+        """Handle ``message.part.delta`` events.
+
+        Delta events have a flat structure at the properties level:
+        ``{"type": "message.part.delta", "properties": {"sessionID": ...,
+        "partID": ..., "field": "text", "content": "delta text", ...}}``
+
+        This is different from ``message.part.updated`` which nests a full
+        ``part`` object inside properties.
+
+        Parameters
+        ----------
+        data : Any
+            Parsed event data with flat ``properties`` containing ``field``
+            and ``content``.
+
+        Returns
+        -------
+        dict or None
+        """
+        if not isinstance(data, dict):
+            return None
+        props = data.get("properties", {})
+        if not isinstance(props, dict):
+            return None
+
+        field = props.get("field", "")
+        part_id = props.get("partID", "") or props.get("id", "") or "_anon_delta"
+
+        if field == "text":
+            # Text delta — the actual streaming content
+            # Try 'content' first (OpenCode standard), fall back to 'delta'
+            delta = props.get("content", "") or props.get("delta", "")
+            if delta:
+                self._text_parts[part_id] = self._text_parts.get(part_id, "") + delta
+                return {"text": delta, "status": "Generating response..."}
+            return None
+        elif field == "reasoning":
+            # Reasoning deltas — skip (could optionally surface later)
+            return None
+        else:
+            # Other field types (tool state, etc.) — log and skip
+            logger.debug("Ignoring delta for field: %s (partID=%s)", field, part_id)
             return None
 
     def _handle_part_updated(self, data: Any) -> Optional[Dict[str, str]]:
@@ -217,8 +291,13 @@ class SSEBridge:
         props = data.get("properties", {}) if isinstance(data, dict) else {}
         part = props.get("part", {})
         if not isinstance(part, dict):
+            # Log the data structure so we can see what's actually there
+            import json as _json
+            logger.warning("[SSE Bridge] _handle_part_updated: no 'part' dict in data. props_keys=%s, data_type=%s, data_preview=%s",
+                           list(props.keys()) if isinstance(props, dict) else type(props).__name__,
+                           type(data).__name__,
+                           _json.dumps(data, default=str)[:300] if isinstance(data, dict) else str(data)[:300])
             return None
-
         part_type = part.get("type", "")
         part_id = part.get("id") or f"_anon_{id(part)}"
 

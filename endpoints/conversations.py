@@ -318,6 +318,24 @@ def set_conversation_settings(conversation_id: str):
         validated_oc["active_session_id"] = opencode_config.get(
             "active_session_id"
         )
+        # --- opencode_provider (optional) ---
+        _valid_providers = {"openrouter", "amazon-bedrock"}
+        oc_provider = opencode_config.get("opencode_provider", "openrouter")
+        if oc_provider not in _valid_providers:
+            oc_provider = "openrouter"
+        validated_oc["opencode_provider"] = oc_provider
+        # --- opencode_model (optional) ---
+        _valid_models = {
+            "anthropic/claude-haiku-4.5",
+            "anthropic/claude-sonnet-4.5",
+            "anthropic/claude-opus-4.5",
+            "anthropic/claude-sonnet-4.6",
+            "anthropic/claude-opus-4.6",
+        }
+        oc_model = opencode_config.get("opencode_model", "anthropic/claude-sonnet-4.5")
+        if oc_model not in _valid_models:
+            oc_model = "anthropic/claude-sonnet-4.5"
+        validated_oc["opencode_model"] = oc_model
     else:
         validated_oc = None
     existing = conversation.get_conversation_settings()

@@ -16,7 +16,7 @@ both `server.py` and endpoint modules can import safely.
 
 from __future__ import annotations
 
-from flask import session
+from flask import request, session
 from flask_caching import Cache
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -42,5 +42,16 @@ limiter = Limiter(
     key_func=limiter_key_func,
     default_limits=["200 per hour", "10 per minute"],
 )
+
+
+@limiter.request_filter
+def _exempt_websocket_requests():
+    """Exempt WebSocket upgrade requests from rate limiting.
+
+    WebSocket connections are long-lived and should not count against
+    short-duration rate limits. The limiter's after_request hook would
+    also corrupt WebSocket frames by injecting HTTP headers.
+    """
+    return request.headers.get('Upgrade', '').lower() == 'websocket'
 
 

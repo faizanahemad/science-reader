@@ -1,5 +1,5 @@
 /**
- * OpenCode Terminal — xterm.js WebSocket bridge.
+ * Terminal — xterm.js WebSocket bridge.
  *
  * Provides terminal UI in both a modal (inside interface.html) and
  * standalone page (terminal.html). Connects to /ws/terminal WebSocket.
@@ -146,7 +146,7 @@ var OpencodeTerminal = (function() {
                 }
             }, 30000);
 
-            term.write('\x1b[32mConnected to OpenCode terminal\x1b[0m\r\n');
+            term.write('\x1b[32mConnected\x1b[0m\r\n');
         };
 
         socket.onmessage = function(event) {

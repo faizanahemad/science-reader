@@ -1427,8 +1427,8 @@ class PerplexitySearchAgent(WebSearchWithAgent):
 
         if detail_level >= 3:
             # self.perplexity_models.append("perplexity/sonar-pro")
-            self.perplexity_models.append("perplexity/sonar-reasoning")
-            self.perplexity_models.append("perplexity/sonar-reasoning-pro")
+            self.perplexity_models.append("perplexity/sonar-pro")  # extra sonar-pro call for detail
+            self.perplexity_models.append("perplexity/sonar-deep-research")
         if detail_level >= 4:
             self.perplexity_models.append("perplexity/sonar-deep-research")
 

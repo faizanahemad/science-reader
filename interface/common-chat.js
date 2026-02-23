@@ -1088,6 +1088,9 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
     var response_message_id = null;
     var user_message_id = null;
     var isCancelled = false;
+    // ── Diagnostic: capture raw backend text before any JS-side transforms ──
+    var _rawBackendChunks = [];   // each chunk as received (pre-newline-replace)
+    var _rawBackendText = '';     // accumulated raw text from backend
     
     // Store the reader for potential cancellation
     currentStreamingController = {
@@ -1250,6 +1253,14 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
             const part = JSON.parse(buffer.slice(0, boundary));
             buffer = buffer.slice(boundary + 1);
             boundary = buffer.indexOf('\n');
+
+
+            // ── Diagnostic: capture raw text BEFORE newline replacement ──
+            var rawChunkText = part['text'] || '';
+            if (rawChunkText.length > 0) {
+                _rawBackendChunks.push(rawChunkText);
+                _rawBackendText += rawChunkText;
+            }
 
             // Parse and handle gamification tags before processing
             let processedText = parseGamificationTags(part['text'], card);
@@ -1486,6 +1497,13 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
             statusDiv.find('.spinner-border').hide();
             statusDiv.find('.spinner-border').removeClass('spinner-border');
             console.log('Stream complete');
+            // ── Diagnostic: dump raw backend text to console ──
+            console.warn('[STREAM DIAG] Raw backend text (before newline replace):', _rawBackendText);
+            console.warn('[STREAM DIAG] Total chunks:', _rawBackendChunks.length, '| Total chars:', _rawBackendText.length);
+            console.warn('[STREAM DIAG] First 500 chars:', _rawBackendText.substring(0, 500));
+            console.warn('[STREAM DIAG] Last 500 chars:', _rawBackendText.substring(Math.max(0, _rawBackendText.length - 500)));
+            // Store on window for easy console access
+            window._lastStreamDiag = { rawText: _rawBackendText, chunks: _rawBackendChunks, answer: answer, rendered_answer: rendered_answer };
             
             // Mark streaming as ended - used by ToC to distinguish live-streaming vs post-streaming renders
             try {
