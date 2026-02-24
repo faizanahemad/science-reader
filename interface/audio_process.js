@@ -194,16 +194,15 @@ $(document).ready(function () {
     mainChatVoice = new VoiceTranscription('#messageText', '#voice-record', 'label[for="voice-record"] i');
     
     // Global keyboard shortcut for voice transcription (Ctrl+K)
+    // Skip when the file browser is open — Cmd+K is used there for AI Edit.
     $(document).on('keydown', (event) => {
         if ((event.metaKey || event.ctrlKey) && event.key === 'k') {
+            if ($('#file-browser-modal').hasClass('show')) return;
             event.preventDefault();
-            
-            // Determine which voice instance to use based on focus/visible modals
             if ($('#doubt-chat-modal').is(':visible') && doubtChatVoice) {
                 doubtChatVoice.toggleRecording();
             } else if (mainChatVoice) {
                 mainChatVoice.toggleRecording();
             }
         }
-    });
 });  

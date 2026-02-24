@@ -94,8 +94,8 @@ CHEAP_LLM = [
 EXPENSIVE_LLM = [
     "anthropic/claude-sonnet-4.5",
     "openai/gpt-5.1",
-    "openai/gpt-5.2",
     "anthropic/claude-sonnet-4.6",
+    "openai/gpt-5.2",
     "google/gemini-3.1-pro-preview",
     "openai/gpt-5.2-codex",
     "mistralai/mistral-large-2512",

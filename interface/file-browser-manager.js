@@ -80,6 +80,7 @@ var FileBrowserManager = (function () {
         aiEditStartLine: null,      // 1-indexed start line
         aiEditEndLine: null,        // 1-indexed end line
         aiEditBaseHash: null,        // Hash from server response
+        aiEditLastDiffText: null,    // Most-recent diff text (for Edit Instruction context)
         wordWrap: false              // Whether line wrapping is enabled in the editor
     };
 
@@ -680,6 +681,7 @@ var FileBrowserManager = (function () {
                     $('#file-browser-ai-edit-btn').prop('disabled', true);
                     $('#file-browser-reload-btn').prop('disabled', true);
                     $('#file-browser-wrap-btn').prop('disabled', true);
+                    $('#file-browser-download-btn').prop('disabled', true);
                     return;
                 }
 
@@ -705,6 +707,7 @@ var FileBrowserManager = (function () {
                     $('#file-browser-ai-edit-btn').prop('disabled', true);
                     $('#file-browser-reload-btn').prop('disabled', true);
                     $('#file-browser-wrap-btn').prop('disabled', true);
+                    $('#file-browser-download-btn').prop('disabled', true);
                     return;
                 }
 
@@ -744,6 +747,7 @@ var FileBrowserManager = (function () {
                 $('#file-browser-ai-edit-btn').prop('disabled', false);
                 $('#file-browser-reload-btn').prop('disabled', false);
                 $('#file-browser-wrap-btn').prop('disabled', false);
+                $('#file-browser-download-btn').prop('disabled', false);
             })
             .fail(function (xhr) {
                 var msg = 'Failed to read file';
@@ -1165,6 +1169,7 @@ var FileBrowserManager = (function () {
                         $('#file-browser-ai-edit-btn').prop('disabled', true);
                         $('#file-browser-reload-btn').prop('disabled', true);
                         $('#file-browser-wrap-btn').prop('disabled', true);
+                        $('#file-browser-download-btn').prop('disabled', true);
                         state.originalContent = '';
                         state.isDirty = false;
                         _updateDirtyState();
@@ -1470,6 +1475,7 @@ var FileBrowserManager = (function () {
     }
 
     function _showAiDiffModal(diffText) {
+        state.aiEditLastDiffText = diffText || null;
         var container = document.getElementById('fb-ai-diff-content');
         container.innerHTML = _renderDiffPreview(diffText);
         var modal = document.getElementById('file-browser-ai-diff-modal');
@@ -1517,11 +1523,26 @@ var FileBrowserManager = (function () {
 
     function _editAiInstruction() {
         _hideAiDiffModal();
-        // Re-open the instruction modal (instruction text is preserved)
+        // Append the previous diff as context so the user can give follow-up instructions.
+        var $ta = $('#fb-ai-edit-instruction');
+        var prev = ($ta.val() || '').replace(/\s+$/, '');
+        if (prev && state.aiEditLastDiffText) {
+            // Build a compact summary: count added/removed lines
+            var added = 0, removed = 0;
+            (state.aiEditLastDiffText || '').split('\n').forEach(function(l) {
+                if (l.charAt(0) === '+' && l.indexOf('+++') !== 0) added++;
+                if (l.charAt(0) === '-' && l.indexOf('---') !== 0) removed++;
+            });
+            var summary = '\n\n--- Previous result: +' + added + ' / -' + removed +
+                ' lines. Give additional instructions below: ---\n';
+            $ta.val(prev + summary);
+        }
         var modal = document.getElementById('file-browser-ai-edit-modal');
         modal.style.display = 'flex';
         setTimeout(function() {
-            $('#fb-ai-edit-instruction').focus();
+            var el = $ta[0];
+            el.focus();
+            el.setSelectionRange(el.value.length, el.value.length);
         }, 50);
     }
 
@@ -1529,6 +1550,7 @@ var FileBrowserManager = (function () {
         state.aiEditProposed = null;
         state.aiEditOriginal = null;
         state.aiEditBaseHash = null;
+        state.aiEditLastDiffText = null;
     }
 
     function _renderDiffPreview(diffText) {
@@ -1551,6 +1573,113 @@ var FileBrowserManager = (function () {
             html += '<div class="' + cls + '">' + escaped + '</div>';
         }
         return html;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Download / Upload helpers
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Trigger a browser file download for the currently open file.
+     * Uses a temporary <a> with the /file-browser/download URL.
+     */
+    function _downloadFile() {
+        if (!state.currentPath) return;
+        var url = '/file-browser/download?path=' + encodeURIComponent(state.currentPath);
+        var a = document.createElement('a');
+        a.href = url;
+        a.download = state.currentPath.split('/').pop();
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    }
+
+    /**
+     * Return the target upload directory: directory of current file,
+     * directory currently browsed, or '.' (root) as fallback.
+     */
+    function _getUploadDir() {
+        if (state.currentPath) {
+            var parts = state.currentPath.replace(/\\/g, '/').split('/');
+            parts.pop();
+            return parts.length ? parts.join('/') : '.';
+        }
+        if (state.currentDir && state.currentDir !== '.') return state.currentDir;
+        return '.';
+    }
+
+    /** Pending file object for the upload modal. */
+    var _uploadPendingFile = null;
+
+    function _showUploadModal() {
+        _uploadPendingFile = null;
+        var dir = _getUploadDir();
+        $('#fb-upload-dir-hint').text('Uploading to: ' + (dir === '.' ? '/ (root)' : dir));
+        $('#fb-upload-filename').text('');
+        $('#fb-upload-progress-wrap').hide();
+        $('#fb-upload-progress-bar').css('width', '0%');
+        $('#fb-upload-progress-text').text('0%');
+        $('#fb-upload-submit-btn').prop('disabled', true);
+        $('#fb-upload-spinner').hide();
+        $('#fb-upload-input').val('');
+        $('#file-browser-upload-modal').css('display', 'flex');
+    }
+
+    function _hideUploadModal() {
+        $('#file-browser-upload-modal').css('display', 'none');
+        _uploadPendingFile = null;
+    }
+
+    function _setUploadFile(file) {
+        if (!file) return;
+        _uploadPendingFile = file;
+        $('#fb-upload-filename').text(file.name);
+        $('#fb-upload-submit-btn').prop('disabled', false);
+    }
+
+    function _doUpload() {
+        if (!_uploadPendingFile) return;
+        var dir = _getUploadDir();
+        var formData = new FormData();
+        formData.append('file', _uploadPendingFile);
+        formData.append('path', dir);
+
+        $('#fb-upload-spinner').show();
+        $('#fb-upload-submit-btn').prop('disabled', true);
+        $('#fb-upload-cancel-btn').prop('disabled', true);
+        $('#fb-upload-progress-wrap').show();
+
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/file-browser/upload', true);
+        xhr.upload.onprogress = function(e) {
+            if (e.lengthComputable) {
+                var pct = Math.round((e.loaded / e.total) * 100);
+                $('#fb-upload-progress-bar').css('width', pct + '%');
+                $('#fb-upload-progress-text').text(pct + '%');
+            }
+        };
+        xhr.onload = function() {
+            var pendingName = _uploadPendingFile ? _uploadPendingFile.name : '';
+            $('#fb-upload-spinner').hide();
+            $('#fb-upload-cancel-btn').prop('disabled', false);
+            if (xhr.status === 200) {
+                _hideUploadModal();
+                _refreshTree();
+                showToast('Uploaded: ' + pendingName, 'success');
+            } else {
+                var msg = 'Upload failed';
+                try { msg = JSON.parse(xhr.responseText).error || msg; } catch(e2) { /* ignore */ }
+                showToast(msg, 'error');
+                $('#fb-upload-submit-btn').prop('disabled', false);
+            }
+        };
+        xhr.onerror = function() {
+            $('#fb-upload-spinner').hide();
+            $('#fb-upload-cancel-btn').prop('disabled', false);
+            $('#fb-upload-submit-btn').prop('disabled', false);
+            showToast('Upload failed (network error)', 'error');
+        };
+        xhr.send(formData);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -1590,6 +1719,46 @@ var FileBrowserManager = (function () {
 
         // --- Word wrap toggle ---
         $('#file-browser-wrap-btn').on('click', _toggleWordWrap);
+
+        // --- Download button ---
+        $('#file-browser-download-btn').on('click', _downloadFile);
+
+        // --- Upload button & modal ---
+        $('#file-browser-upload-btn').on('click', _showUploadModal);
+        $('#fb-upload-close, #fb-upload-cancel-btn').on('click', _hideUploadModal);
+        $('#fb-upload-submit-btn').on('click', _doUpload);
+
+        // Browse link / file input
+        $('#fb-upload-browse-link').on('click', function(e) {
+            e.preventDefault();
+            $('#fb-upload-input').click();
+        });
+        $('#fb-upload-dropzone').on('click', function() {
+            $('#fb-upload-input').click();
+        });
+        $('#fb-upload-input').on('change', function() {
+            if (this.files && this.files[0]) _setUploadFile(this.files[0]);
+        });
+
+        // Drag-and-drop onto the dropzone
+        $('#fb-upload-dropzone').on('dragover', function(e) {
+            e.preventDefault();
+            $(this).css('background', '#f0f4ff');
+        });
+        $('#fb-upload-dropzone').on('dragleave', function() {
+            $(this).css('background', '');
+        });
+        $('#fb-upload-dropzone').on('drop', function(e) {
+            e.preventDefault();
+            $(this).css('background', '');
+            var files = e.originalEvent.dataTransfer.files;
+            if (files && files[0]) _setUploadFile(files[0]);
+        });
+
+        // Backdrop click closes upload modal
+        $('#file-browser-upload-modal').on('click', function(e) {
+            if (e.target === this) _hideUploadModal();
+        });
 
         // --- Close button ---
         $('#file-browser-close-btn').on('click', function () {

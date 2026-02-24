@@ -16,7 +16,7 @@ import shutil
 from difflib import unified_diff
 
 
-from flask import Blueprint, request
+from flask import Blueprint, request, send_file
 
 from endpoints.auth import login_required
 from endpoints.responses import json_error, json_ok
@@ -549,3 +549,102 @@ def ai_edit():
     except Exception as exc:
         logger.exception("Failed to generate AI edit for: %s", resolved)
         return json_error(str(exc), status=500, code="ai_edit_error")
+
+
+
+@file_browser_bp.route("/file-browser/download")
+@login_required
+def download_file():
+    """Download a file from the server to the client.
+
+    Query Parameters
+    ----------------
+    path : str
+        Relative path to the file.
+
+    Returns
+    -------
+    File response
+        The raw file bytes with Content-Disposition: attachment.
+    """
+    rel_path = request.args.get("path", "")
+    if not rel_path:
+        return json_error("Missing 'path' parameter", status=400, code="missing_param")
+
+    resolved = _safe_resolve(rel_path)
+    if resolved is None:
+        return json_error("Path escapes server root", status=403, code="path_forbidden")
+
+    if not os.path.isfile(resolved):
+        return json_error("File not found", status=404, code="not_found")
+
+    try:
+        filename = os.path.basename(resolved)
+        return send_file(resolved, as_attachment=True, download_name=filename)
+    except OSError:
+        logger.exception("Failed to send file: %s", resolved)
+        return json_error("Failed to download file", status=500, code="os_error")
+
+
+@file_browser_bp.route("/file-browser/upload", methods=["POST"])
+@login_required
+def upload_file():
+    """Upload a file into a directory on the server.
+
+    Accepts multipart/form-data with:
+
+    Form Fields
+    -----------
+    path : str
+        Relative directory path where the file should be saved.
+    file : file
+        The uploaded file data.
+    overwrite : str, optional
+        If ``"true"``, an existing file with the same name will be replaced.
+        Default is ``"false"``.
+
+    Returns
+    -------
+    JSON
+        ``json_ok`` with ``{"path": <relative_path>, "size": N}`` on success.
+    """
+    rel_dir = request.form.get("path", ".")
+    overwrite = request.form.get("overwrite", "false").lower() == "true"
+
+    if "file" not in request.files:
+        return json_error("No file in request", status=400, code="missing_file")
+
+    upload = request.files["file"]
+    filename = upload.filename
+    if not filename:
+        return json_error("Empty filename", status=400, code="empty_filename")
+
+    # Sanitise filename: strip path separators, keep only the basename
+    filename = os.path.basename(filename.replace("\\", "/"))
+    if not filename:
+        return json_error("Invalid filename", status=400, code="invalid_filename")
+
+    resolved_dir = _safe_resolve(rel_dir)
+    if resolved_dir is None:
+        return json_error("Path escapes server root", status=403, code="path_forbidden")
+
+    dest_rel = rel_dir.rstrip("/") + "/" + filename if rel_dir not in (".", "") else filename
+    dest = _safe_resolve(dest_rel)
+    if dest is None:
+        return json_error("Destination path escapes server root", status=403, code="path_forbidden")
+
+    if os.path.exists(dest) and not overwrite:
+        return json_error(
+            "File already exists; pass overwrite=true to replace it",
+            status=409,
+            code="conflict",
+        )
+
+    try:
+        os.makedirs(resolved_dir, exist_ok=True)
+        upload.save(dest)
+        size = os.path.getsize(dest)
+        return json_ok({"path": dest_rel, "size": size})
+    except OSError:
+        logger.exception("Failed to save uploaded file: %s", dest)
+        return json_error("Failed to save file", status=500, code="os_error")

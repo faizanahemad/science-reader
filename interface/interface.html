@@ -2622,6 +2622,12 @@ greet("World");</code></pre>
                        <button class="btn btn-sm btn-outline-secondary" id="file-browser-wrap-btn" title="Toggle word wrap" disabled>
                            <i class="bi bi-text-wrap"></i> Wrap
                        </button>
+                       <button class="btn btn-sm btn-outline-secondary" id="file-browser-download-btn" title="Download current file" disabled>
+                           <i class="bi bi-download"></i>
+                       </button>
+                       <button class="btn btn-sm btn-outline-secondary" id="file-browser-upload-btn" title="Upload file to current directory">
+                           <i class="bi bi-upload"></i>
+                       </button>
                     <button class="btn btn-sm btn-outline-info" id="file-browser-ai-edit-btn" title="AI Edit (Cmd+K)" disabled>
                         <i class="bi bi-magic"></i> AI Edit
                     </button>
@@ -2720,6 +2726,42 @@ greet("World");</code></pre>
         </div>
     </div>
 
+    <!-- File Browser Upload Modal -->
+    <div id="file-browser-upload-modal" style="display:none; position:fixed; inset:0; z-index:100003; background:rgba(0,0,0,0.4); align-items:center; justify-content:center;">
+        <div style="background:#fff; border-radius:8px; box-shadow:0 4px 20px rgba(0,0,0,0.3); width:460px; max-width:94vw; padding:0;">
+            <div style="padding:12px 16px; border-bottom:1px solid #dee2e6; font-weight:600; font-size:0.9rem; display:flex; align-items:center; justify-content:space-between;">
+                <span><i class="bi bi-upload mr-1"></i>Upload File</span>
+                <button type="button" class="close" id="fb-upload-close" style="font-size:1.2rem;">&times;</button>
+            </div>
+            <div style="padding:16px;">
+                <div id="fb-upload-dir-hint" class="text-muted small mb-2">Uploading to: /</div>
+                <!-- Drag-and-drop zone -->
+                <div id="fb-upload-dropzone"
+                     style="border:2px dashed #adb5bd; border-radius:6px; padding:24px 16px; text-align:center; cursor:pointer; margin-bottom:12px; transition:background 0.15s;">
+                    <i class="bi bi-cloud-upload" style="font-size:1.8rem; color:#6c757d;"></i>
+                    <div class="mt-1 text-muted small">Drop a file here, or <a href="#" id="fb-upload-browse-link">browse</a></div>
+                    <div id="fb-upload-filename" class="mt-1 small font-weight-bold" style="color:#495057;"></div>
+                </div>
+                <!-- Hidden file input -->
+                <input type="file" id="fb-upload-input" style="display:none;">
+                <!-- Progress -->
+                <div id="fb-upload-progress-wrap" style="display:none; margin-bottom:10px;">
+                    <div class="progress" style="height:6px;">
+                        <div id="fb-upload-progress-bar" class="progress-bar" role="progressbar" style="width:0%;"></div>
+                    </div>
+                    <small id="fb-upload-progress-text" class="text-muted">0%</small>
+                </div>
+            </div>
+            <div style="padding:8px 16px; border-top:1px solid #dee2e6; text-align:right;">
+                <button class="btn btn-sm btn-secondary mr-1" id="fb-upload-cancel-btn">Cancel</button>
+                <button class="btn btn-sm btn-primary" id="fb-upload-submit-btn" disabled>
+                    <span id="fb-upload-spinner" class="spinner-border spinner-border-sm mr-1" style="display:none;"></span>
+                    Upload
+                </button>
+            </div>
+        </div>
+    </div>
+
                 <!-- AI Edit instruction overlay -->
                 <div id="file-browser-ai-edit-modal" style="display:none; position:fixed; inset:0; z-index:100001; background:rgba(0,0,0,0.4); align-items:center; justify-content:center;">
                     <div style="background:#fff; border-radius:8px; padding:20px; width:500px; max-width:90%; box-shadow:0 4px 20px rgba(0,0,0,0.3);">
@@ -2762,7 +2804,7 @@ greet("World");</code></pre>
                 <div id="file-browser-ai-diff-modal" style="display:none; position:fixed; inset:0; z-index:100002; background:rgba(0,0,0,0.4); align-items:center; justify-content:center;">
                     <div style="background:#fff; border-radius:8px; padding:20px; width:80vw; max-width:900px; max-height:80vh; display:flex; flex-direction:column; box-shadow:0 4px 20px rgba(0,0,0,0.3);">
                         <h6 class="mb-2" style="font-weight:600;">AI Edit Preview</h6>
-                        <div id="fb-ai-diff-content" class="ai-diff-view mb-3" style="flex:1; overflow:auto; border:1px solid #dee2e6; border-radius:4px; padding:8px; min-height:100px; max-height:60vh;"></div>
+                        <div id="fb-ai-diff-content" class="ai-diff-view mb-3" style="flex:1; overflow:auto; border:1px solid #dee2e6; border-radius:4px; padding:8px; min-height:100px; max-height:60vh; white-space:pre-wrap; word-break:break-all; font-family:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,monospace; font-size:0.82rem;"></div>
                         <div class="d-flex justify-content-end" style="gap:8px;">
                             <button class="btn btn-sm btn-outline-primary" id="fb-ai-diff-edit">
                                 <i class="bi bi-pencil"></i> Edit Instruction
@@ -3050,6 +3092,13 @@ greet("World");</code></pre>
                 max-height: 90vh !important;
             }
         }
+
+        /* ── File Browser AI Diff line colours ── */
+        .ai-diff-line { display: block; line-height: 1.4; }
+        .ai-diff-add  { background: #e6ffec; color: #24292f; }
+        .ai-diff-del  { background: #ffebe9; color: #24292f; }
+        .ai-diff-hunk { background: #ddf4ff; color: #0550ae; font-weight: 600; }
+        .ai-diff-header { color: #6e7781; }
         
         /* ── File Browser Fuzzy Suggestion Dropdown ── */
         .fb-suggestion-dropdown {
@@ -3541,7 +3590,7 @@ greet("World");</code></pre>
     <script src="interface/tab-picker-manager.js"></script>
     <script src="interface/workflow-manager.js"></script>
     <script src="interface/script-manager.js"></script>
-    <script src="interface/file-browser-manager.js?v=22"></script>
+    <script src="interface/file-browser-manager.js?v=23"></script>
     <script>
         document.addEventListener('click', function (event) {
             var button = event.target.closest('#settings-file-browser-modal-open-button');
