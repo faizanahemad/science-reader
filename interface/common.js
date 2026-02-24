@@ -2342,6 +2342,23 @@ markdownParser.code = function (code, language) {
     if (code.trim().startsWith('<div class="section-footer">')) {
         return code;
     }
+    // Mermaid: render diagram duplicate + keep original code block for copy-btn.
+    // The <pre class="mermaid"> clone is what mermaid.run() targets.
+    // The original <pre><code> source is preserved inside a <details> so the
+    // copy button still has the raw source to copy.
+    if (language === 'mermaid') {
+        var escapedCode = code
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+        return '<div class="code-block mermaid-container">' +
+            '<pre class="mermaid">' + code + '</pre>' +
+            '<details class="mermaid-source-block">' +
+                '<summary style="font-size:11px;color:#888;cursor:pointer;">Mermaid source</summary>' +
+                '<pre><code class="hljs mermaid">' + escapedCode + '</code></pre>' +
+            '</details>' +
+            '</div>';
+    }
     const validLanguage = hljs.getLanguage(language) ? language : 'plaintext';
     if (validLanguage === 'plaintext') {
         var highlighted = hljs.highlightAuto(code).value;
@@ -2351,24 +2368,20 @@ markdownParser.code = function (code, language) {
     number_of_lines = code.split('\n').length;
     show_by_default = number_of_lines < 8 || (language === 'markdown' && number_of_lines < 15) || (language === 'md' && number_of_lines < 15) || (language === 'plaintext' && number_of_lines < 15);
     // var highlighted = validLang ? hljs.highlight(code, { language }).value : code;
-
     if (show_by_default) {
-        return `<div class="code-block">
-        <pre><code class="hljs ${language || ''}">${highlighted}</code></pre>
-        </div>`;
-    }
-    else {
-
-    return `<div class="code-block">
-        <div class="code-header" style="height: 18px; min-height: 16px; padding: 1px 4px; display: flex; align-items: center; justify-content: space-between;">
-            
-            <button class="copy-code-btn" style="padding: 2px 2px; font-size: 12px; height: 20px;">Copy</button>
-        </div>
-        <details style="padding-top: 20px;">
-            <summary>Code Block</summary>
-            <pre><code class="hljs ${language || ''}">${highlighted}</code></pre>
-        </details>
-    </div>`;
+        return '<div class="code-block">' +
+            '<pre><code class="hljs ' + (language || '') + '">' + highlighted + '</code></pre>' +
+            '</div>';
+    } else {
+        return '<div class="code-block">' +
+            '<div class="code-header" style="height: 18px; min-height: 16px; padding: 1px 4px; display: flex; align-items: center; justify-content: space-between;">' +
+                '<button class="copy-code-btn" style="padding: 2px 2px; font-size: 12px; height: 20px;">Copy</button>' +
+            '</div>' +
+            '<details style="padding-top: 20px;">' +
+                '<summary>Code Block</summary>' +
+                '<pre><code class="hljs ' + (language || '') + '">' + highlighted + '</code></pre>' +
+            '</details>' +
+            '</div>';
     }
 };
 
