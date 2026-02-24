@@ -1598,6 +1598,61 @@ Compact list of bullet points:
             setattr(self, "_doc_infos", value)
         self.save_local()
 
+    def add_fast_uploaded_document(self, pdf_url):
+        """Create a fast-indexed document (BM25, no FAISS/LLM) and store in uploaded_documents_list.
+
+        Used by /upload_doc_to_conversation/ endpoint for instant uploads from the
+        Add Document modal.  Identical to add_message_attached_document() but stores
+        the result in ``uploaded_documents_list`` so it appears in the conversation
+        document panel immediately.
+
+        Parameters
+        ----------
+        pdf_url : str
+            Local file path or remote URL of the document.
+
+        Returns
+        -------
+        DocIndex or None
+            The created ``FastDocIndex``/``FastImageDocIndex``, or ``None`` if the
+            document was already uploaded.
+        """
+        storage = self.documents_path
+        keys = self.get_api_keys()
+        keys["mathpixKey"] = None
+        keys["mathpixId"] = None
+
+        # ---- Deduplicate against both lists ----
+        previous_docs = self.get_field("uploaded_documents_list")
+        previous_docs = previous_docs if previous_docs is not None else []
+        previous_msg_docs = self.get_field("message_attached_documents_list") or []
+
+        # Deduplicate by both exact path and basename (stored d[2] is post-move path)
+        all_existing_paths = [d[2] for d in previous_docs] + [d[2] for d in previous_msg_docs]
+        all_existing_basenames = [os.path.basename(p) for p in all_existing_paths]
+        if pdf_url in all_existing_paths or os.path.basename(pdf_url) in all_existing_basenames:
+            return None
+
+        doc_index = create_fast_document_index(pdf_url, storage, keys)
+        doc_index._visible = True
+        doc_index.save_local()
+        doc_id = doc_index.doc_id
+        doc_storage = doc_index._storage
+        all_docs = previous_docs + [(doc_id, doc_storage, doc_index.doc_source)]
+        self.set_field("uploaded_documents_list", all_docs, overwrite=True)
+
+        # ---- Rebuild doc_infos ----
+        current_documents = self.get_uploaded_documents(readonly=True)
+        doc_infos = "\n".join(
+            [
+                f"#doc_{i + 1}: ({d.title})[{d.doc_source}]"
+                for i, d in enumerate(current_documents)
+            ]
+        )
+        self.doc_infos = doc_infos
+        return doc_index
+
+
     def add_uploaded_document(self, pdf_url):
         # TODO: check file md5 hash to see if it is already uploaded
         storage = self.documents_path
@@ -1716,10 +1771,9 @@ Compact list of bullet points:
             previous_uploaded_docs if previous_uploaded_docs is not None else []
         )
 
-        all_existing_urls = [d[2] for d in previous_msg_docs] + [
-            d[2] for d in previous_uploaded_docs
-        ]
-        if pdf_url in all_existing_urls:
+        all_existing_paths = [d[2] for d in previous_msg_docs] + [d[2] for d in previous_uploaded_docs]
+        all_existing_basenames = [os.path.basename(p) for p in all_existing_paths]
+        if pdf_url in all_existing_paths or os.path.basename(pdf_url) in all_existing_basenames:
             return None
 
         doc_index = create_fast_document_index(pdf_url, storage, keys)
@@ -1727,7 +1781,7 @@ Compact list of bullet points:
         doc_index.save_local()
         doc_id = doc_index.doc_id
         doc_storage = doc_index._storage
-        all_msg_docs = previous_msg_docs + [(doc_id, doc_storage, pdf_url)]
+        all_msg_docs = previous_msg_docs + [(doc_id, doc_storage, doc_index.doc_source)]
         self.set_field("message_attached_documents_list", all_msg_docs, overwrite=True)
 
         # ---- Rebuild doc_infos from combined list ----
@@ -1781,6 +1835,22 @@ Compact list of bullet points:
                 d.set_api_keys(keys)
         return docs
 
+
+    def delete_message_attached_document(self, doc_id):
+        """Remove a message-attached FastDocIndex from message_attached_documents_list.
+
+        Parameters
+        ----------
+        doc_id : str
+            The document ID to remove.
+        """
+        all_docs = [
+            d for d in (self.get_field("message_attached_documents_list") or [])
+            if d[0] != doc_id
+        ]
+        self.set_field("message_attached_documents_list", all_docs, overwrite=True)
+        self.save_local()
+
     def promote_message_attached_document(self, doc_id):
         """Promote a message-attached doc to a full conversation document.
 
@@ -1808,26 +1878,25 @@ Compact list of bullet points:
         if target is None:
             return None
 
-        _doc_id, _doc_storage, pdf_url = target
-
+        _doc_id, _doc_storage, actual_source = target
+        # actual_source is the post-move path stored by add_message_attached_document
         # ---- Remove from message_attached list ----
         remaining = [d for d in msg_docs if d[0] != doc_id]
         self.set_field("message_attached_documents_list", remaining, overwrite=True)
-
-        # ---- Create full index (this is the slow path — FAISS + LLM) ----
+        # ---- Create full index (slow path — FAISS + LLM) ----
         storage = self.documents_path
         keys = self.get_api_keys()
         keys["mathpixKey"] = None
         keys["mathpixId"] = None
-        full_doc_index = create_immediate_document_index(pdf_url, storage, keys)
-        full_doc_index._visible = False
+        full_doc_index = create_immediate_document_index(actual_source, storage, keys)
+        full_doc_index._visible = True
         full_doc_index.save_local()
 
         # ---- Add to uploaded_documents_list (same logic as add_uploaded_document) ----
         previous_docs = self.get_field("uploaded_documents_list")
         previous_docs = previous_docs if previous_docs is not None else []
         all_docs = previous_docs + [
-            (full_doc_index.doc_id, full_doc_index._storage, pdf_url)
+            (full_doc_index.doc_id, full_doc_index._storage, actual_source)
         ]
         self.set_field("uploaded_documents_list", all_docs, overwrite=True)
 

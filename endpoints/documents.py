@@ -37,7 +37,7 @@ def upload_doc_to_conversation_route(conversation_id: str):
         try:
             pdf_file.save(os.path.join(state.pdfs_dir, pdf_file.filename))
             full_pdf_path = os.path.join(state.pdfs_dir, pdf_file.filename)
-            doc_index = conversation.add_message_attached_document(full_pdf_path)
+            doc_index = conversation.add_fast_uploaded_document(full_pdf_path)
             conversation.save_local()
             result = {"status": "Indexing started"}
             if doc_index and hasattr(doc_index, "get_short_info"):
@@ -61,7 +61,7 @@ def upload_doc_to_conversation_route(conversation_id: str):
 
     if pdf_url:
         try:
-            doc_index = conversation.add_message_attached_document(pdf_url)
+            doc_index = conversation.add_fast_uploaded_document(pdf_url)
             conversation.save_local()
             result = {"status": "Indexing started"}
             if doc_index and hasattr(doc_index, "get_short_info"):
@@ -76,6 +76,45 @@ def upload_doc_to_conversation_route(conversation_id: str):
 
     return json_error("No pdf_url or pdf_file provided", status=400, code="bad_request")
 
+
+
+
+@documents_bp.route("/attach_doc_to_message/<conversation_id>", methods=["POST"])
+@limiter.limit("100 per minute")
+@login_required
+def attach_doc_to_message_route(conversation_id: str):
+    """Upload a file and store it as a message-attached FastDocIndex.
+
+    Used by the drag-onto-page and paperclip-icon flows: the file appears in
+    the attachment-preview strip above the message box, is available to the LLM
+    for the current turn via display_attachments, and lives in
+    ``message_attached_documents_list`` (not the conversation document panel).
+
+    Returns the same JSON shape as /upload_doc_to_conversation/ so the JS
+    enrichAttachmentWithDocInfo() call works without modification.
+    """
+    state, keys = get_state_and_keys()
+    pdf_file = request.files.get("pdf_file")
+    conversation = attach_keys(state.conversation_cache[conversation_id], keys)
+
+    if pdf_file and conversation_id:
+        try:
+            pdf_file.save(os.path.join(state.pdfs_dir, pdf_file.filename))
+            full_pdf_path = os.path.join(state.pdfs_dir, pdf_file.filename)
+            doc_index = conversation.add_message_attached_document(full_pdf_path)
+            conversation.save_local()
+            result = {"status": "Attached"}
+            if doc_index and hasattr(doc_index, "get_short_info"):
+                info = doc_index.get_short_info()
+                result["doc_id"] = info.get("doc_id", "")
+                result["source"] = info.get("source", "")
+                result["title"] = info.get("title", pdf_file.filename)
+            return jsonify(result)
+        except Exception as e:
+            traceback.print_exc()
+            return json_error(str(e), status=400, code="bad_request")
+
+    return json_error("No pdf_file provided", status=400, code="bad_request")
 
 @documents_bp.route(
     "/promote_message_doc/<conversation_id>/<document_id>",

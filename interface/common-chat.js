@@ -158,7 +158,9 @@ function showAttachmentContextMenu(event, att, conversationId) {
             contentType: 'application/json',
             success: function(resp) {
                 showToast('Document promoted to conversation: ' + (resp.title || att.name), 'success');
-                ChatManager.listDocuments(conversationId);
+                ChatManager.listDocuments(conversationId).done(function(documents) {
+                    ChatManager.renderDocuments(conversationId, documents);
+                });
             },
             error: function(xhr) {
                 var msg = 'Failed to promote document.';
@@ -2178,6 +2180,35 @@ var ChatManager = {
             xhr.send(formData);
         }
 
+
+        // Upload a file as a message attachment (drag-onto-page / paperclip icon).
+        // Posts to /attach_doc_to_message/ so it lands in message_attached_documents_list,
+        // NOT the conversation document panel.
+        function uploadFileAsAttachment(file, attId) {
+            if (!isValidFileType(file)) {
+                console.log('Invalid file type for attachment: ' + file.type);
+                return;
+            }
+            var formData = new FormData();
+            formData.append('pdf_file', file);
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', '/attach_doc_to_message/' + conversationId, true);
+            xhr.onload = function () {
+                if (xhr.status === 200) {
+                    var response = JSON.parse(xhr.responseText);
+                    if (attId && response.doc_id) {
+                        enrichAttachmentWithDocInfo(attId, response.doc_id, response.source, response.title);
+                    }
+                } else {
+                    console.error('Failed to attach document:', xhr.responseText);
+                }
+            };
+            xhr.onerror = function () {
+                console.error('Network error attaching document.');
+            };
+            xhr.send(formData);
+        }
+
         function uploadFile(file, attId) {
             if (isValidFileType(file)) {
                 uploadFile_internal(file, attId);  // Call the file upload function
@@ -2221,7 +2252,7 @@ var ChatManager = {
             var file = e.target.files[0]; // Get the selected file
             if (file) {
                 var attId = addFileToAttachmentPreview(file);
-                uploadFile(file, attId); // Call the file upload function
+                uploadFileAsAttachment(file, attId); // message-attach path → /attach_doc_to_message/
             }
         });
 
@@ -2237,6 +2268,7 @@ var ChatManager = {
         });
         dropArea.off('drop').on('drop', function (e) {
             e.preventDefault();  // Prevent the default drop behavior
+            e.stopPropagation();  // Prevent bubbling to $(document).drop which would trigger a second upload
             $(this).css('background-color', 'transparent');  // Change the color of the drop area back to its original color
 
             // Check if the dropped item is a file
@@ -2314,7 +2346,7 @@ var ChatManager = {
             for (var i = 0; i < files.length; i++) {
                 var file = files[i];
                 var attId = addFileToAttachmentPreview(file);
-                uploadFile(file, attId);
+                uploadFileAsAttachment(file, attId); // message-attach path → /attach_doc_to_message/
             }
         });  
     },

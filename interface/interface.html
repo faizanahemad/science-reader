@@ -178,7 +178,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/4.6.2/css/bootstrap.min.css" integrity="sha512-rt/SrQ4UNIaGfDyEXZtNcyWvQeOq0QLygHluFQcSjaGB04IxWhal71tKuzP6K8eYXYB6vJV4pHkXcmFGGQ1/0w==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/4.6.2/js/bootstrap.bundle.min.js" integrity="sha512-igl8WEUuas9k5dtnhKqyyld6TzzRjvMqLC79jkgT3z02FvJyHAuUtyemm/P/jYSne1xwFI06ezQxEwweaiV7VA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.7.2/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
     <link rel="stylesheet" href="interface/style.css">
 
@@ -2619,6 +2619,9 @@ greet("World");</code></pre>
                           <option value="monokai">Monokai</option>
                           <option value="default">Light</option>
                       </select>
+                       <button class="btn btn-sm btn-outline-secondary" id="file-browser-wrap-btn" title="Toggle word wrap" disabled>
+                           <i class="bi bi-text-wrap"></i> Wrap
+                       </button>
                     <button class="btn btn-sm btn-outline-info" id="file-browser-ai-edit-btn" title="AI Edit (Cmd+K)" disabled>
                         <i class="bi bi-magic"></i> AI Edit
                     </button>
@@ -2718,7 +2721,7 @@ greet("World");</code></pre>
     </div>
 
                 <!-- AI Edit instruction overlay -->
-                <div id="file-browser-ai-edit-modal" style="display:none; position:absolute; top:0; left:0; right:0; bottom:0; z-index:100001; background:rgba(0,0,0,0.4); align-items:center; justify-content:center;">
+                <div id="file-browser-ai-edit-modal" style="display:none; position:fixed; inset:0; z-index:100001; background:rgba(0,0,0,0.4); align-items:center; justify-content:center;">
                     <div style="background:#fff; border-radius:8px; padding:20px; width:500px; max-width:90%; box-shadow:0 4px 20px rgba(0,0,0,0.3);">
                         <h6 class="mb-2" style="font-weight:600;">AI Edit</h6>
                         <div id="fb-ai-edit-info" class="text-muted small mb-2">Editing: entire file</div>
@@ -2756,7 +2759,7 @@ greet("World");</code></pre>
                 </div>
 
                 <!-- AI Edit diff preview overlay -->
-                <div id="file-browser-ai-diff-modal" style="display:none; position:absolute; top:0; left:0; right:0; bottom:0; z-index:100002; background:rgba(0,0,0,0.4); align-items:center; justify-content:center;">
+                <div id="file-browser-ai-diff-modal" style="display:none; position:fixed; inset:0; z-index:100002; background:rgba(0,0,0,0.4); align-items:center; justify-content:center;">
                     <div style="background:#fff; border-radius:8px; padding:20px; width:80vw; max-width:900px; max-height:80vh; display:flex; flex-direction:column; box-shadow:0 4px 20px rgba(0,0,0,0.3);">
                         <h6 class="mb-2" style="font-weight:600;">AI Edit Preview</h6>
                         <div id="fb-ai-diff-content" class="ai-diff-view mb-3" style="flex:1; overflow:auto; border:1px solid #dee2e6; border-radius:4px; padding:8px; min-height:100px; max-height:60vh;"></div>
@@ -3538,7 +3541,7 @@ greet("World");</code></pre>
     <script src="interface/tab-picker-manager.js"></script>
     <script src="interface/workflow-manager.js"></script>
     <script src="interface/script-manager.js"></script>
-    <script src="interface/file-browser-manager.js?v=21"></script>
+    <script src="interface/file-browser-manager.js?v=22"></script>
     <script>
         document.addEventListener('click', function (event) {
             var button = event.target.closest('#settings-file-browser-modal-open-button');

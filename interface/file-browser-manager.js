@@ -79,7 +79,8 @@ var FileBrowserManager = (function () {
         aiEditIsSelection: false,   // Whether editing a selection vs whole file
         aiEditStartLine: null,      // 1-indexed start line
         aiEditEndLine: null,        // 1-indexed end line
-        aiEditBaseHash: null        // Hash from server response
+        aiEditBaseHash: null,        // Hash from server response
+        wordWrap: false              // Whether line wrapping is enabled in the editor
     };
 
     // ═══════════════════════════════════════════════════════════════
@@ -236,6 +237,17 @@ var FileBrowserManager = (function () {
                 _updateDirtyState();
             }
         });
+    }
+
+    /**
+     * Toggle word wrap on the CodeMirror editor.
+     * Updates state.wordWrap and the active style of the wrap button.
+     */
+    function _toggleWordWrap() {
+        if (!state.cmEditor) return;
+        state.wordWrap = !state.wordWrap;
+        state.cmEditor.setOption('lineWrapping', state.wordWrap);
+        $('#file-browser-wrap-btn').toggleClass('active', state.wordWrap);
     }
 
     /**
@@ -667,6 +679,7 @@ var FileBrowserManager = (function () {
                     );
                     $('#file-browser-ai-edit-btn').prop('disabled', true);
                     $('#file-browser-reload-btn').prop('disabled', true);
+                    $('#file-browser-wrap-btn').prop('disabled', true);
                     return;
                 }
 
@@ -691,6 +704,7 @@ var FileBrowserManager = (function () {
                     });
                     $('#file-browser-ai-edit-btn').prop('disabled', true);
                     $('#file-browser-reload-btn').prop('disabled', true);
+                    $('#file-browser-wrap-btn').prop('disabled', true);
                     return;
                 }
 
@@ -729,6 +743,7 @@ var FileBrowserManager = (function () {
                 state.cmEditor.focus();
                 $('#file-browser-ai-edit-btn').prop('disabled', false);
                 $('#file-browser-reload-btn').prop('disabled', false);
+                $('#file-browser-wrap-btn').prop('disabled', false);
             })
             .fail(function (xhr) {
                 var msg = 'Failed to read file';
@@ -1149,6 +1164,7 @@ var FileBrowserManager = (function () {
                         state.currentPath = null;
                         $('#file-browser-ai-edit-btn').prop('disabled', true);
                         $('#file-browser-reload-btn').prop('disabled', true);
+                        $('#file-browser-wrap-btn').prop('disabled', true);
                         state.originalContent = '';
                         state.isDirty = false;
                         _updateDirtyState();
@@ -1284,6 +1300,10 @@ var FileBrowserManager = (function () {
         // Kill any stale backdrop left by old cached JS
         var staleBackdrop = document.getElementById('file-browser-backdrop');
         if (staleBackdrop) staleBackdrop.remove();
+        // Dismiss any stale confirm/name dialogs left over from a prior session
+        _hideConfirmModal();
+        _hideNameModal();
+
         modal.style.display = 'block';
         modal.classList.add('show');
         modal.setAttribute('aria-hidden', 'false');
@@ -1302,6 +1322,9 @@ var FileBrowserManager = (function () {
      * Removes our custom backdrop. Leaves the settings modal intact underneath.
      */
     function _closeModal() {
+        // Guard: if confirm modal is already visible (e.g. from a previous close attempt),
+        // don't re-trigger — just let the user respond to the existing dialog.
+        if ($('#file-browser-confirm-modal').css('display') === 'flex') return;
         _confirmIfDirty(function () {
             var modal = document.getElementById('file-browser-modal');
             if (modal) {
@@ -1564,6 +1587,9 @@ var FileBrowserManager = (function () {
 
         // --- Reload from disk button ---
         $('#file-browser-reload-btn').on('click', _reloadFromDisk);
+
+        // --- Word wrap toggle ---
+        $('#file-browser-wrap-btn').on('click', _toggleWordWrap);
 
         // --- Close button ---
         $('#file-browser-close-btn').on('click', function () {

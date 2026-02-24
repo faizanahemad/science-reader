@@ -2173,8 +2173,12 @@ class FastDocIndex(DocIndex):
         ) != os.path.expanduser(storage):
             try:
                 shutil.move(doc_source, storage)
-            except shutil.Error:
-                shutil.copy(doc_source, storage)
+            except (shutil.Error, FileNotFoundError, OSError):
+                # File may already be in storage (e.g. from a prior attempt that
+                # partially succeeded) — try copy, then verify destination exists.
+                dest = os.path.join(storage, os.path.basename(doc_source))
+                if not os.path.exists(dest):
+                    shutil.copy(doc_source, storage)
             doc_source = os.path.join(storage, os.path.basename(doc_source))
 
         self.doc_source = doc_source
