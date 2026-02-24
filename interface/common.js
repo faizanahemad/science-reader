@@ -2355,7 +2355,7 @@ markdownParser.code = function (code, language) {
             '<pre class="mermaid">' + code + '</pre>' +
             '<details class="mermaid-source-block">' +
                 '<summary style="font-size:11px;color:#888;cursor:pointer;">Mermaid source</summary>' +
-                '<pre><code class="hljs mermaid">' + escapedCode + '</code></pre>' +
+                '<pre><code class="hljs language-mermaid">' + escapedCode + '</code></pre>' +
             '</details>' +
             '</div>';
     }
