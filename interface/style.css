@@ -1590,3 +1590,69 @@ table, tr, thead, th, td {
 .ai-diff-header {
     color: #6c757d;
 }
+
+/* ── File Browser: drag-and-drop move ──────────────────────────────── */
+
+/* Item being dragged gets reduced opacity */
+#file-browser-tree li.fb-drag-source {
+    opacity: 0.45;
+}
+
+/* Valid drop target folder highlights with dashed border + blue tint */
+#file-browser-tree li.fb-drag-over {
+    outline: 1.5px dashed #4a90e2;
+    outline-offset: -1px;
+    border-radius: 3px;
+    background: #e8f0fe;
+}
+
+/* Dragging over the tree background = drop onto root */
+#file-browser-tree.fb-drag-over-root {
+    outline: 2px dashed #4a90e2;
+    outline-offset: -2px;
+    background: rgba(74, 144, 226, 0.06);
+}
+
+/* ── File Browser: move destination modal folder tree ──────────────── */
+
+#fb-move-folder-tree ul {
+    list-style: none;
+    padding-left: 0;
+    margin: 0;
+}
+
+#fb-move-folder-tree .fb-move-dir-item {
+    padding: 4px 6px;
+    cursor: pointer;
+    border-radius: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-size: 0.85rem;
+    user-select: none;
+    display: block;
+}
+
+#fb-move-folder-tree .fb-move-dir-item:hover {
+    background: #f0f4ff;
+}
+
+#fb-move-folder-tree .fb-move-dir-item.fb-move-selected {
+    background: #d0e4ff;
+    font-weight: 600;
+}
+
+#fb-move-folder-tree .fb-move-children {
+    padding-left: 16px;
+}
+
+/* Root item in move modal — visually distinct, slight bottom separator */
+#fb-move-folder-tree .fb-move-root-item {
+    border-bottom: 1px solid #e9ecef;
+    margin-bottom: 4px;
+    padding-bottom: 6px;
+    font-size: 0.85rem;
+}
+    padding-left: 16px;
+}
+

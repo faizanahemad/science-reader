@@ -3424,7 +3424,9 @@ function initializeChatControlsToggleHandler() {
         atPosition: -1,         // Position of the @ character in textarea
         selectedIndex: 0,       // Currently highlighted item
         results: [],            // Combined results [{type, friendly_id, label, sublabel}]
-        debounceTimer: null
+        debounceTimer: null,
+        hashDebounceTimer: null,  // Debounce timer for #folder:/#tag: autocomplete
+        hashDropdown: null        // jQuery element for hash autocomplete dropdown
     };
     
     /**
@@ -3495,8 +3497,20 @@ function initializeChatControlsToggleHandler() {
         var text = textarea.value;
         var cursorPos = textarea.selectionStart;
         
-        // Find the @ character before cursor
         var textBeforeCursor = text.substring(0, cursorPos);
+        // Check for #folder: or #tag: autocomplete BEFORE @ check
+        var hashMatch = textBeforeCursor.match(/#(folder|tag):([\w\-\.]*)$/);
+        if (hashMatch) {
+            var hashRefType = hashMatch[1];
+            var hashPrefix = hashMatch[2];
+            clearTimeout(autocompleteState.hashDebounceTimer);
+            autocompleteState.hashDebounceTimer = setTimeout(function() {
+                fetchHashAutocomplete(hashRefType, hashPrefix, textarea);
+            }, 200);
+            return;
+        }
+
+        // Find the @ character before cursor
         var lastAtIndex = textBeforeCursor.lastIndexOf('@');
         
         if (lastAtIndex === -1) {
@@ -3623,6 +3637,84 @@ function initializeChatControlsToggleHandler() {
             hideAutocomplete();
         });
     }
+
+    /**
+     * Fetch folder or tag autocomplete results for #folder: and #tag: references.
+     * @param {string} refType - 'folder' or 'tag'
+     * @param {string} prefix - text typed after the colon
+     * @param {HTMLElement} textarea - the chat textarea
+     */
+    function fetchHashAutocomplete(refType, prefix, textarea) {
+        var url = '/global_docs/autocomplete?type=' + encodeURIComponent(refType)
+                  + '&prefix=' + encodeURIComponent(prefix);
+        $.getJSON(url, function(resp) {
+            var items = refType === 'folder' ? (resp.folders || []) : (resp.tags || []);
+            if (!items.length) { hideAutocomplete(); return; }
+            showHashAutocompleteDropdown(items, refType, prefix, textarea);
+        }).fail(function() { hideAutocomplete(); });
+    }
+
+    /**
+     * Show autocomplete dropdown for #folder: or #tag: tokens.
+     * Reuses the existing autocomplete dropdown element and positioning.
+     * @param {Array} items - list of folder/tag name strings
+     * @param {string} refType - 'folder' or 'tag'
+     * @param {string} prefix - text typed after the colon
+     * @param {HTMLElement} textarea - the chat textarea
+     */
+    function showHashAutocompleteDropdown(items, refType, prefix, textarea) {
+        hideAutocomplete();
+        var label = refType === 'folder' ? 'Folders' : 'Tags';
+        var $dropdown = $('<div class="autocomplete-dropdown"></div>')
+            .css({ position: 'absolute', zIndex: 9999, background: '#fff',
+                   border: '1px solid #ccc', borderRadius: '4px', maxHeight: '200px',
+                   overflowY: 'auto', minWidth: '200px' });
+
+        var $header = $('<div class="autocomplete-section-header px-2 py-1 text-muted small font-weight-bold"></div>')
+            .text(label);
+        $dropdown.append($header);
+
+        items.forEach(function(item) {
+            var displayText = typeof item === 'string' ? item : item;
+            var $item = $('<div class="autocomplete-item px-2 py-1" style="cursor:pointer;"></div>')
+                .text(displayText)
+                .on('mouseenter', function() { $(this).css('background', '#f0f0f0'); })
+                .on('mouseleave', function() { $(this).css('background', ''); })
+                .on('mousedown', function(e) {
+                    e.preventDefault();
+                    var text = textarea.value;
+                    var cursorPos = textarea.selectionStart;
+                    var textBeforeCursor = text.substring(0, cursorPos);
+                    var tokenStart = textBeforeCursor.lastIndexOf('#' + refType + ':');
+                    if (tokenStart === -1) return;
+                    var replacement = '#' + refType + ':' + displayText + ' ';
+                    var newText = text.substring(0, tokenStart) + replacement + text.substring(cursorPos);
+                    textarea.value = newText;
+                    var newPos = tokenStart + replacement.length;
+                    textarea.setSelectionRange(newPos, newPos);
+                    $(textarea).trigger('input');
+                    $dropdown.remove();
+                    autocompleteState.hashDropdown = null;
+                });
+            $dropdown.append($item);
+        });
+
+        var $textarea = $(textarea);
+        var offset = $textarea.offset();
+        var dropHeight = Math.min(items.length * 32 + 36, 200);
+        $dropdown.css({
+            left: offset.left,
+            top: offset.top - dropHeight - 4,
+            width: Math.max(200, $textarea.width() / 2)
+        });
+        $('body').append($dropdown);
+        autocompleteState.hashDropdown = $dropdown;
+
+        $(document).one('click.hashautocomplete', function() {
+            $dropdown.remove();
+            autocompleteState.hashDropdown = null;
+        });
+    }
     
     /**
      * Show the autocomplete dropdown positioned near the textarea.
@@ -3679,6 +3771,10 @@ function initializeChatControlsToggleHandler() {
         autocompleteState.active = false;
         autocompleteState.results = [];
         autocompleteState.selectedIndex = 0;
+        if (autocompleteState.hashDropdown) {
+            autocompleteState.hashDropdown.remove();
+            autocompleteState.hashDropdown = null;
+        }
     }
     
     /**

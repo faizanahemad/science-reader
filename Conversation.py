@@ -5558,6 +5558,40 @@ Any other `/command` is passed through to OpenCode directly.
         gdoc_indices = [int(r) for r in gdoc_refs]
         gdoc_ref_names = [f"#gdoc_{r}" for r in gdoc_refs]
 
+        # --- NEW: #folder: references ---
+        folder_refs = re.findall(r'#folder:([\w/\-\.]+)', messageText)
+        for folder_name in folder_refs:
+            from database.doc_folders import get_folder_by_name as _get_folder_by_name
+            from database.doc_folders import get_docs_in_folder as _get_docs_in_folder
+            _folder = _get_folder_by_name(
+                users_dir=users_dir, user_email=user_email, name=folder_name
+            )
+            if _folder:
+                _folder_doc_ids = set(_get_docs_in_folder(
+                    users_dir=users_dir, user_email=user_email,
+                    folder_id=_folder['folder_id'], recursive=True
+                ))
+                from database.global_docs import list_global_docs as _lgd_folder
+                _all_rows = _lgd_folder(users_dir=users_dir, user_email=user_email)
+                for _idx0, _row in enumerate(_all_rows):
+                    if _row['doc_id'] in _folder_doc_ids and (_idx0 + 1) not in gdoc_indices:
+                        gdoc_indices.append(_idx0 + 1)
+                        gdoc_ref_names.append(f"#gdoc_{_idx0 + 1}")
+
+        # --- NEW: #tag: references ---
+        tag_refs = re.findall(r'#tag:([\w\-\.]+)', messageText)
+        for tag_name in tag_refs:
+            from database.doc_tags import list_docs_by_tag as _list_docs_by_tag
+            _tagged_doc_ids = set(_list_docs_by_tag(
+                users_dir=users_dir, user_email=user_email, tag=tag_name
+            ))
+            from database.global_docs import list_global_docs as _lgd_tag
+            _all_rows = _lgd_tag(users_dir=users_dir, user_email=user_email)
+            for _idx0, _row in enumerate(_all_rows):
+                if _row['doc_id'] in _tagged_doc_ids and (_idx0 + 1) not in gdoc_indices:
+                    gdoc_indices.append(_idx0 + 1)
+                    gdoc_ref_names.append(f"#gdoc_{_idx0 + 1}")
+
         # --- Quoted display_name references ---
         # Match "some name" (straight quotes) and \u201csome name\u201d (curly quotes).
         # Exclude code blocks (already stripped above).

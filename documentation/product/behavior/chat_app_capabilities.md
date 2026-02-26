@@ -211,7 +211,7 @@ Server-side injection:
   - List card: `#conv-docs-list` with per-doc actions: View (PDF viewer via `/proxy_shared`), Download, Promote to Global, Delete.
 - Manager class: `LocalDocsManager` (`interface/local-docs-manager.js`) — `setup()`, `upload()`, `list()`, `renderList()`, `refresh()`, `deleteDoc()`.
 - Shared upload utilities: `DocsManagerUtils` (`interface/local-docs-manager.js`) — `uploadWithProgress()`, `isValidFileType()`, `setupDropArea()`, `getMimeType()`.
-- Initialized via `ChatManager.setupAddDocumentForm()` (`interface/common-chat.js`, line 2144) when a conversation is opened.
+- Initialized via `LocalDocsManager.setup(conversationId)` called from `common-chat.js` when a conversation is opened (replaces old `ChatManager.setupAddDocumentForm()`).
 
 **UI — Message Attachment (Paperclip / Drag-and-Drop)**
 - Paperclip click → `#chat-file-upload` hidden file input.
@@ -270,51 +270,64 @@ Server-side injection:
 **What it does**
 - Provides a user-scoped document library that lives outside any single conversation.
 - A document is uploaded and indexed once (via file or URL) and then available across every conversation the user opens.
-- Reference syntax is identical in spirit to conversation docs but uses the `#gdoc_N` / `#global_doc_N` prefix, or quoted display names:
-|--------|--------|
+- Reference syntax is identical in spirit to conversation docs but uses the `#gdoc_N` / `#global_doc_N` prefix, quoted display names, folder names, or tag names:
+| Reference | Effect |
+|-----------|--------|
 | `#gdoc_1` or `#global_doc_1` | RAG-grounded answer from global doc 1 |
 | `"my doc name"` | Reference by display name (case-insensitive match) |
 | `#gdoc_all` or `#global_doc_all` | Query all global docs |
+| `#folder:Research` | Query all docs in the "Research" folder |
+| `#tag:arxiv` | Query all docs tagged "arxiv" |
 | `#summary_gdoc_1` | Force summary of global doc 1 |
 | `#dense_summary_gdoc_1` | Force dense summary of global doc 1 |
 | `#full_gdoc_1` | Retrieve raw full text of global doc 1 |
 - Users can **promote** a conversation-scoped document to global via the Promote button in the conversation docs list. The doc is moved (not copied) — no re-indexing required.
+- Docs can be **organized into hierarchical folders** (pure DB metadata — storage paths unchanged) and **tagged** (free-form, many-to-many).
+- Chat input autocomplete: type `#folder:` or `#tag:` to get a dropdown of matching names (debounced).
 
 **UI — Global Docs Modal**
 - Entry point: Global Docs button (globe icon) in the sidebar/toolbar → opens `#global-docs-modal`.
-- Upload card: file picker, URL input, drag-and-drop area, XHR progress bar (0–70% upload, 70–99% indexing tick, via `DocsManagerUtils.uploadWithProgress()`).
-- List card: per-doc actions: View (`showPDF()` via `/global_docs/serve`), Download, Delete. Each doc shows a `#gdoc_N` badge (1-based) and `display_name` badge.
-- Manager class: `GlobalDocsManager` (`interface/global-docs-manager.js`) — delegates upload/validation/drag-drop to `DocsManagerUtils` (from `interface/local-docs-manager.js`).
+- **Two views** controlled by `#global-docs-view-switcher`:
+  - **List view**: flat doc list with `#gdoc_N` badge, display name, tag chips, action buttons. Filter bar (`#global-docs-filter`) filters in real time by tag or display name.
+  - **Folder view**: embedded `FileBrowserManager.configure({onMove: fn, ...})` panel. A **Manage Folders** button opens the file browser for drag-and-drop folder organization.
+- Upload card: file picker (`#global-doc-file-input`), URL input, drag-and-drop area, folder picker (`#global-doc-folder-select`), XHR progress bar (0–70% upload, 70–99% indexing tick, via `DocsManagerUtils.uploadWithProgress()`).
+- Per-doc actions: View (`showPDF()` via `/global_docs/serve`), Download, Delete, Edit Tags (opens tag editor).
+- Manager class: `GlobalDocsManager` (`interface/global-docs-manager.js`) with `_viewMode`, `_folderCache`, `_userHash` state; `filterDocList()`, `openTagEditor()`, `_loadFolderCache()` methods.
 - Promote from conversation docs list: `GlobalDocsManager.promote(conversationId, docId)` called from `LocalDocsManager.renderList()`.
 
 **API**
-- `POST /global_docs/upload` — upload a file or provide a URL; the server indexes via `create_immediate_document_index()` and creates a DB row.
-- `GET /global_docs/list` — returns 1-indexed array of global docs for the current user (ordered by `created_at ASC`). Each entry includes `display_name` shown as a badge in the UI.
-- `GET /global_docs/info/<doc_id>` — detailed info including DocIndex metadata (type, filetype, visibility).
-- `GET /global_docs/download/<doc_id>` — download source file, with DocIndex fallback when DB `doc_source` is stale (e.g. after promote). Falls back to redirect for URL-based docs.
-- `GET /global_docs/serve?file=<doc_id>` — query-param wrapper for the PDF viewer. Used by `showPDF()` in the UI to render global docs with the same full-height viewer as conversation docs.
-- `DELETE /global_docs/<doc_id>` — delete DB row and remove filesystem storage (`shutil.rmtree`).
-- `POST /global_docs/promote/<conversation_id>/<doc_id>` — copy doc storage to global directory, update `DocIndex._storage`, register in DB, remove from conversation. Uses copy-verify-delete for safety.
+- `POST /global_docs/upload` — upload a file or URL; indexes via `create_immediate_document_index()`. Accepts optional `folder_id`.
+- `GET /global_docs/list` — returns 1-indexed array including `tags` array and `folder_id` field.
+- `GET /global_docs/info/<doc_id>` — detailed info including DocIndex metadata.
+- `GET /global_docs/download/<doc_id>` — download source file, with DocIndex fallback for stale paths.
+- `GET /global_docs/serve?file=<doc_id>` — PDF viewer endpoint.
+- `DELETE /global_docs/<doc_id>` — delete DB row and filesystem storage.
+- `POST /global_docs/promote/<conversation_id>/<doc_id>` — copy-verify-delete promote flow.
+- `POST /global_docs/<doc_id>/tags` — set tags `{"tags": [...]}` (replaces all existing).
+- `GET /global_docs/tags` — list all distinct tags for current user.
+- `GET /global_docs/autocomplete?q=<prefix>` — tag name autocomplete for `#tag:` in chat input.
+- `GET /doc_folders`, `POST /doc_folders`, `PATCH /doc_folders/<id>`, `DELETE /doc_folders/<id>` — folder CRUD.
+- `POST /doc_folders/<id>/assign` — assign/unassign a doc to a folder.
+- `GET /doc_folders/<id>/docs` — list docs in folder.
+- `GET /doc_folders/autocomplete?q=<prefix>` — folder name autocomplete for `#folder:` in chat input.
 
 **Persistence**
-- **Database**: `GlobalDocuments` table in `users.db` with composite PK `(doc_id, user_email)`. Stores `display_name`, `doc_source`, `doc_storage`, cached `title`/`short_summary`, and timestamps.
-- **Filesystem**: `storage/global_docs/{md5(user_email)}/{doc_id}/` — identical layout to conversation docs (`{doc_id}.index`, `indices.partial`, `raw_data.partial`, `static_data.json`, `review_data.partial`, `_paper_details.partial`, `locks/`).
+- **Database**: `GlobalDocuments` table in `users.db` (composite PK `(doc_id, user_email)`). Added `folder_id` column via idempotent `ALTER TABLE` migration. `GlobalDocFolders` table for folder hierarchy. `GlobalDocTags` table for tag assignments (composite PK `(doc_id, user_email, tag)`).
+- **Filesystem**: `storage/global_docs/{md5(user_email)}/{doc_id}/` — storage paths unchanged by folder metadata.
 - Numbering is positional (1-based by `created_at ASC`). Deleting a doc renumbers subsequent ones.
 
 **Key files**
-- `database/global_docs.py` — DB CRUD helpers (`add_global_doc`, `list_global_docs`, `get_global_doc`, `delete_global_doc`, `update_global_doc_metadata`).
-- `endpoints/global_docs.py` — Flask Blueprint (`global_docs_bp`) with 7 routes (upload, list, info, download, serve, delete, promote). Helper `_user_hash(email)` = MD5(email) for directory naming.
-- `Conversation.py` — `get_global_documents_for_query()` (line 5535) with quoted display-name matching, `#gdoc_all` support, and 7 reply-flow integration points (parsing, quoted-name detection, all-docs check, summary pattern, full-text pattern, async launch, merge).
-- `endpoints/conversations.py` — injects `_user_email` and `_global_docs_dir` into the query dict for `Conversation.reply()`.
-- `endpoints/state.py` — `global_docs_dir` field on `AppState`.
-- `interface/global-docs-manager.js` — `GlobalDocsManager` class; delegates upload/validation/drag-drop to `DocsManagerUtils` from `local-docs-manager.js`.
-- `interface/local-docs-manager.js` — `DocsManagerUtils` (shared upload utilities used by both managers).
-- `interface/interface.html` — Global Docs button (globe icon), `#global-docs-modal` with drag-and-drop drop area.
-- `endpoints/static_routes.py` — `_is_missing_local_path()` guard on proxy routes (prevents crash on non-existent local file paths).
-- Global docs always use full `ImmediateDocIndex` (FAISS + LLM); conversation docs start as `FastDocIndex` (BM25-only) and can be promoted.
+- `database/global_docs.py`, `database/doc_folders.py`, `database/doc_tags.py` — DB CRUD layers.
+- `endpoints/global_docs.py` — Flask Blueprint (`global_docs_bp`) with 10 routes.
+- `endpoints/doc_folders.py` — Flask Blueprint (`doc_folders_bp`) with 7 folder routes.
+- `Conversation.py` — `get_global_documents_for_query()` with display-name matching, `#gdoc_all` support, `#folder:` + `#tag:` resolution (lines 5561–5593), and 7 reply-flow integration points.
+- `interface/global-docs-manager.js` — `GlobalDocsManager` with dual-view, tag editor, folder cache, file browser integration.
+- `interface/common-chat.js` — `#folder:`/`#tag:` autocomplete in `handleInput()` before `@` check.
+- `interface/local-docs-manager.js` — `DocsManagerUtils` shared upload utilities.
+- `endpoints/static_routes.py` — `_is_missing_local_path()` guard on proxy routes.
+- Global docs always use full `ImmediateDocIndex` (FAISS + LLM); conversation docs start as `FastDocIndex` and can be promoted.
 - Global docs are user-scoped (keyed by email hash), not conversation-scoped.
-- The promote feature provides a migration path: start with a conversation doc, realize you need it elsewhere, promote it with one click.
-**See also**: `documentation/features/documents/doc_flow_reference.md` — full end-to-end flow reference.
+**See also**: `documentation/features/global_docs/README.md`, `documentation/features/documents/doc_flow_reference.md`.
 ---
 
 ### 5) Web search + “research augmentation”
@@ -986,7 +999,10 @@ Full-screen modal file browser and code editor accessible from the chat-settings
  For `.md` / `.markdown` files: a **Raw / Preview / WYSIWYG** view-mode selector appears above the editor. WYSIWYG embeds EasyMDE inline; CodeMirror is the source of truth and is synced before every save.
  For `.pdf` files: renders inline using the bundled PDF.js viewer with a scoped download-progress bar. No download prompt.
  Address bar with fuzzy autocomplete dropdown — substring + sequential character matching with filename-priority scoring and highlighted matches.
- Right-click context menu and sidebar buttons: **New File**, **New Folder**, **Rename**, **Delete**.
+ Right-click context menu and sidebar buttons: **New File**, **New Folder**, **Rename**, **Move to…**, **Delete**.
+ **Drag-and-drop move**: drag any tree item onto a folder to move it. Dropping onto the tree background (outside any folder item) moves the item to the **root directory**. Drop targets highlight with a dashed blue outline; the tree background highlights with a dashed blue outline + faint tint (`.fb-drag-over-root`) when hovering over root. Prevents moving a folder into itself or its own descendant.
+ **Context-menu move**: right-click → "Move to…" opens `#file-browser-move-modal` (z-index 100004) with a lazy-expanding folder-only tree. A **/ (root)** item is pinned at the top of the tree so items can be moved to the root directory. Move Here button enables once a destination is selected.
+ **Decoupled move backend**: move is routed through `_config.onMove(src, dest, done)`. Default calls `POST /file-browser/move`. Override at `FileBrowserManager.init({onMove: fn})` or `.configure({onMove: fn})` for embedding in other contexts (e.g. the Global Docs Folder view uses `onMove` to call `POST /doc_folders/<id>/assign`).
  In-modal confirm and naming dialogs (replaces native `confirm()` / `prompt()` which are blocked behind z-index:100000).
  **Ctrl+S / Cmd+S** saves the current file; **Escape** closes the modal (with dirty-check confirmation). **Cmd+K / Ctrl+K** opens AI Edit overlay.
  **AI Edit (Cmd+K)**: LLM-assisted inline editing — selection or whole file, unified diff preview, Accept / Reject / Edit Instruction flow, conversation context injection.
@@ -999,6 +1015,7 @@ Full-screen modal file browser and code editor accessible from the chat-settings
  `POST /file-browser/write` — write file `{path, content}`
  `POST /file-browser/mkdir` — create directory `{path}`
  `POST /file-browser/rename` — rename/move `{old_path, new_path}`
+ `POST /file-browser/move` — move file/directory `{src_path, dest_path}` (full new path). 409 if dest exists, 400 if moving folder into itself. Reuses `os.rename()` + `_safe_resolve()` pattern.
  `POST /file-browser/delete` — delete file/dir `{path, recursive}`
  `GET /file-browser/download?path=...` — download file as attachment
  `POST /file-browser/upload` — upload file (multipart, with overwrite flag)
@@ -1010,6 +1027,8 @@ Full-screen modal file browser and code editor accessible from the chat-settings
 **Modal architecture**: The modal is a plain `position: fixed` `<div>` (not a Bootstrap `.modal`). Opened/closed with raw DOM manipulation to avoid Bootstrap JS stacking conflicts when the settings modal is already open. No backdrop. View switching (`editor / preview / wysiwyg / pdf / empty-state`) uses vanilla `element.style.display` (not jQuery `.show()/.hide()`) to avoid Bootstrap `!important` utility class conflicts.
 **Key files**: `endpoints/file_browser.py`, `interface/file-browser-manager.js`
 **Docs**: `documentation/features/file_browser/README.md`
+
+**Pluggable Config API**: `FileBrowserManager` exposes a 7-group config schema allowing full customization for different embedding contexts — endpoints, DOM IDs, behavior flags (read-only, allowUpload, allowDelete, showEditor, etc.), root path, CRUD operation callbacks (`onMove`, `onDelete`, `onRename`, `onCreateFolder`, `onCreateFile`, `onSave`), lifecycle events (`onOpen`, `onClose`, `onSelect`), and custom rendering hooks (`enrichEntry`, `renderEntry`, `buildContextMenu`). Used by the Global Docs Folder view to embed the file browser as a folder-only organizer. `FileBrowserManager.init([cfg])` / `.configure(cfg)` — both use `$.extend(true, ...)` deep merge so partial overrides are safe.
 
 ---
 

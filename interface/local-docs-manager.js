@@ -130,6 +130,12 @@ var DocsManagerUtils = {
             var formData = new FormData();
             formData.append('pdf_file', fileOrUrl);
             if (opts.displayName) formData.append('display_name', opts.displayName);
+            // Append any extra fields (e.g. folder_id)
+            if (opts.extraFields) {
+                Object.keys(opts.extraFields).forEach(function(k) {
+                    if (opts.extraFields[k]) formData.append(k, opts.extraFields[k]);
+                });
+            }
 
             xhr.open('POST', endpoint, true);
 

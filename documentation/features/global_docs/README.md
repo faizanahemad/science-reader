@@ -1,10 +1,14 @@
 # Global Documents
 
+Index a document once and reference it from any conversation via `#gdoc_N`, `#global_doc_N`, `"display name"`, `#folder:Name`, or `#tag:name` syntax.
+
 Index a document once and reference it from any conversation via `#gdoc_N`, `#global_doc_N`, or `"display name"` syntax.
 
 ## Overview
 
-Global Documents are user-scoped documents stored outside any conversation. They can be uploaded once, indexed once, and then referenced from any conversation using `#gdoc_1`, `#gdoc_2`, or by their display name in quotes (e.g., `"my research paper"`) — identical to how `#doc_1` references conversation-scoped documents.
+Global Documents are user-scoped documents stored outside any conversation. They can be uploaded once, indexed once, and then referenced from any conversation using `#gdoc_1`, `#gdoc_2`, by their display name in quotes (e.g., `"my research paper"`), by folder (`#folder:Research`), or by tag (`#tag:arxiv`) — identical in spirit to how `#doc_1` references conversation-scoped documents.
+
+Docs can be organized into **hierarchical folders** (DB-metadata only — storage paths are unchanged) and **tagged** (free-form, many-to-many) for filtering and chat referencing. The modal offers two views: a **List view** with tag chips and filter bar, and a **Folder view** backed by the pluggable file browser for drag-and-drop folder organization.
 
 ## User Guide
 
@@ -26,6 +30,8 @@ Type the reference syntax in any message:
 | `#global_doc_1` | Same as `#gdoc_1` |
 | `"my doc name"` | Reference by display name (case-insensitive match) |
 | `#gdoc_all` / `#global_doc_all` | Reference all global docs |
+| `#folder:Research` | Reference all docs assigned to the "Research" folder |
+| `#tag:arxiv` | Reference all docs tagged "arxiv" |
 | `#summary_gdoc_1` | Force summary generation |
 | `#dense_summary_gdoc_1` | Force dense summary generation |
 | `#full_gdoc_1` | Get raw full text |
@@ -34,12 +40,43 @@ Mix with conversation docs: `#doc_1 and #gdoc_1 compare these papers`.
 
 Mix by name: `"my research paper" summarize the key findings`.
 
+Mix folder+tag: `#folder:ML and #tag:2026 latest findings`.
+
+**Autocomplete in chat input** — type `#folder:` or `#tag:` to get a dropdown of matching names (debounced, powered by `/doc_folders/autocomplete?q=` and `/global_docs/autocomplete?q=`).
+
 ### Managing Global Documents
 
 Open the Global Docs modal to:
 - **View**: Click the eye icon to open in PDF viewer.
 - **Download**: Click the download icon.
 - **Delete**: Click the trash icon (confirmation required).
+- **Tag**: Click the tag icon (or tag chip area) on any doc row to open the tag editor and add/remove free-form tags.
+- **Switch views**: Use the **List / Folder** toggle at the top of the modal to switch between the flat list view and the hierarchical folder view.
+- **Manage Folders**: In Folder view, click the **Manage Folders** button to open the pluggable file browser for drag-and-drop folder organization.
+- **Filter**: Use the filter bar (List view) to filter by tag, display name, or title.
+- **Upload to folder**: When a folder is selected in the folder picker (`#global-doc-folder-select`) before uploading, the new doc is assigned to that folder automatically.
+
+### Folder Organization
+
+Folders are hierarchical (parent/child), stored in the `GlobalDocFolders` DB table. They are **pure metadata** — the filesystem storage paths for doc indices are unchanged regardless of folder assignments. A doc can be in at most one folder.
+
+- Create, rename, move, and delete folders via the **Manage Folders** file browser (opens the pluggable `FileBrowserManager` configured with `onMove` pointing to `POST /doc_folders/<id>/assign`).
+- `#folder:Name` references resolve to all docs directly assigned to that folder (non-recursive).
+
+### Tagging
+
+Tags are free-form strings (e.g., `arxiv`, `2026`, `ml`, `reference`). A doc can have any number of tags. Tags are stored in the `GlobalDocTags` DB table (composite PK: `doc_id`, `user_email`, `tag`).
+
+- Add/remove tags via the tag editor in the doc row.
+- Tags appear as badge chips on each doc row in List view.
+- `#tag:name` references resolve to all docs tagged with that exact tag.
+
+### Dual-View UI
+
+The Global Docs modal (`#global-docs-modal`) has two views controlled by `#global-docs-view-switcher`:
+
+- **List view** (`#global-docs-view-list`): Flat list with `#gdoc_N` badge, display name, title, source, tag chips, and action buttons. Filter bar (`#global-docs-filter`) filters rows in real time.
+- **Folder view** (`#global-docs-view-folder`): Folder tree embedded via `FileBrowserManager.configure({onMove: fn, ...})`. A **Manage Folders** button opens the file browser for drag-and-drop folder moves.
 
 ### Promoting Conversation Documents
 
@@ -47,15 +84,37 @@ Click the globe icon on any conversation document button in the doc bar. The doc
 
 ## API Endpoints
 
+### Core Endpoints
+
 | Method | Path | Purpose |
 |--------|------|---------|
-| POST | `/global_docs/upload` | Upload new global document (file or URL) |
-| GET | `/global_docs/list` | List all global docs for current user |
+| POST | `/global_docs/upload` | Upload new global document (file or URL). Accepts optional `folder_id` form field. |
+| GET | `/global_docs/list` | List all global docs (includes `tags` array and `folder_id` fields) |
 | GET | `/global_docs/info/<doc_id>` | Get detailed info for a global doc |
 | GET | `/global_docs/download/<doc_id>` | Download source file |
-| GET | `/global_docs/serve?file=<doc_id>` | Serve doc for PDF viewer (query-param wrapper around download) |
+| GET | `/global_docs/serve?file=<doc_id>` | Serve doc for PDF viewer |
 | DELETE | `/global_docs/<doc_id>` | Delete a global doc |
 | POST | `/global_docs/promote/<conv_id>/<doc_id>` | Promote conversation doc to global |
+
+### Tag Endpoints
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/global_docs/<doc_id>/tags` | Set tags `{"tags": ["t1", "t2"]}` — replaces all existing tags |
+| GET | `/global_docs/tags` | List all distinct tags for current user |
+| GET | `/global_docs/autocomplete?q=<prefix>` | Autocomplete for `#tag:` references |
+
+### Folder Endpoints (`doc_folders_bp`)
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/doc_folders` | List all folders (flat, with `folder_id`, `parent_id`, `name`) |
+| POST | `/doc_folders` | Create folder `{"name": "...", "parent_id": null}` |
+| PATCH | `/doc_folders/<folder_id>` | Rename or re-parent folder |
+| DELETE | `/doc_folders/<folder_id>` | Delete folder (`?action=move_docs_to_parent` or `?action=delete_docs`) |
+| POST | `/doc_folders/<folder_id>/assign` | Assign doc to folder `{"doc_id": "..."}`. `null` removes assignment |
+| GET | `/doc_folders/<folder_id>/docs` | List docs in folder |
+| GET | `/doc_folders/autocomplete?q=<prefix>` | Autocomplete for `#folder:` references |
 
 ### POST /global_docs/upload
 
@@ -103,7 +162,7 @@ storage/global_docs/{user_email_md5_hash}/{doc_id}/
 
 ## Database
 
-Table `GlobalDocuments` in `users.db`:
+### GlobalDocuments Table (`users.db`)
 
 | Column | Type | Description |
 |--------|------|-------------|
@@ -114,9 +173,33 @@ Table `GlobalDocuments` in `users.db`:
 | doc_storage | TEXT | Filesystem path to DocIndex folder |
 | title | TEXT | Cached DocIndex title |
 | short_summary | TEXT | Cached DocIndex summary |
+| folder_id | TEXT | FK to `GlobalDocFolders.folder_id` (nullable, added via idempotent ALTER TABLE migration) |
 | created_at | TEXT | ISO timestamp |
 | updated_at | TEXT | ISO timestamp |
 
+### GlobalDocFolders Table (new)
+
+| Column | Type | Description |
+|--------|------|-------------|
+| folder_id | TEXT | UUID primary key (PK with user_email) |
+| user_email | TEXT | Owner email |
+| name | TEXT | Folder display name |
+| parent_id | TEXT | Parent folder_id (null = root) |
+| created_at | TEXT | ISO timestamp |
+| updated_at | TEXT | ISO timestamp |
+
+Indexes: `(user_email)`, `(user_email, name)`, `(user_email, parent_id)`.
+
+### GlobalDocTags Table (new)
+
+| Column | Type | Description |
+|--------|------|-------------|
+| doc_id | TEXT | Part of composite PK |
+| user_email | TEXT | Part of composite PK |
+| tag | TEXT | Free-form tag string (part of composite PK) |
+| created_at | TEXT | ISO timestamp |
+
+Composite PK: `(doc_id, user_email, tag)`. Indexes: `(user_email)`, `(user_email, tag)`, `(doc_id, user_email)`.
 ## Numbering
 
 Global docs use positional numbering (1-based, ordered by `created_at ASC`). Deleting a doc renumbers subsequent ones. This matches how `#doc_N` works for conversation docs.
@@ -302,23 +385,40 @@ All endpoints use `endpoints.responses.json_error()` for structured error respon
 
 **Fix**: The proxy routes now check `_is_missing_local_path()` before calling `cached_get_file()` and return `Response("File not found on disk", status=404)` instead of streaming an empty response.
 
-## Implementation Files (updated)
+## Implementation Files
 
-### New Files
+### New Files (v1 — Core)
 - `database/global_docs.py` — DB CRUD helpers
 - `endpoints/global_docs.py` — Flask Blueprint with 7 endpoints (upload, list, info, download, serve, delete, promote)
 - `interface/global-docs-manager.js` — Frontend JS manager with drag-drop, XHR progress, file validation
 
-### Modified Files
-- `database/connection.py` — GlobalDocuments table + indexes in `create_tables()`
+### New Files (v2 — Folders + Tags)
+- `database/doc_folders.py` — 9 folder CRUD functions: `create_folder`, `rename_folder`, `move_folder`, `delete_folder`, `list_folders`, `get_folder`, `get_folder_by_name`, `assign_doc_to_folder`, `get_docs_in_folder`
+- `database/doc_tags.py` — 6 tag CRUD functions: `add_tag`, `remove_tag`, `set_tags`, `list_tags_for_doc`, `list_all_tags`, `list_docs_by_tag`
+- `endpoints/doc_folders.py` — Flask Blueprint `doc_folders_bp` with 7 folder endpoints
+
+### Modified Files (v1)
+- `database/connection.py` — `GlobalDocuments` table + indexes
 - `endpoints/state.py` — `global_docs_dir` field on AppState
-- `server.py` — create `global_docs_dir` on startup, pass to `init_state()`
+- `server.py` — create `global_docs_dir` on startup
 - `endpoints/__init__.py` — register `global_docs_bp`
 - `endpoints/conversations.py` — inject `_user_email`, `_global_docs_dir` into query dict
-- `Conversation.py` — `get_global_documents_for_query()` method with display-name matching, reply flow modifications (7 points: initial parsing, quoted-name detection, all-docs check, summary pattern, full-text pattern, async resolution, merge)
+- `Conversation.py` — `get_global_documents_for_query()`, reply flow modifications (7 integration points)
 - `interface/interface.html` — Global Docs button, modal HTML with drop area, script tag
 - `interface/common-chat.js` — promote button on conversation doc buttons
-- `endpoints/static_routes.py` — `_is_missing_local_path()` guard on proxy routes to prevent crashes on non-existent local paths
+- `endpoints/static_routes.py` — `_is_missing_local_path()` guard on proxy routes
+
+### Modified Files (v2 — Folders + Tags)
+- `database/connection.py` — `GlobalDocFolders` + `GlobalDocTags` tables + `ALTER TABLE GlobalDocuments ADD COLUMN folder_id` migration + 6 new indexes
+- `database/global_docs.py` — Tags LEFT JOIN in `list_global_docs()`, `folder_id` in `add_global_doc()`, new `list_global_docs_by_folder()`
+- `endpoints/global_docs.py` — 3 new tag endpoints, `folder_id` support in upload/promote
+- `endpoints/__init__.py` — `doc_folders_bp` registered
+- `Conversation.py` — `#folder:` + `#tag:` detection at lines 5561–5593
+- `interface/interface.html` — view switcher, folder picker, filter bar, view containers, `id="global-docs-dialog"` on modal-dialog div
+- `interface/global-docs-manager.js` — `_viewMode`, `_folderCache`, `_userHash` state; `filterDocList()`, `openTagEditor()`, `_loadFolderCache()`; tag chips in `renderList()`; view switcher + "Manage Folders" + `FileBrowserManager.configure({onMove})`; `upload()` accepts `folderId` 3rd param
+- `interface/common-chat.js` — `hashDebounceTimer`; `#folder:`/`#tag:` autocomplete before `@` in `handleInput()`; `fetchHashAutocomplete()`, `showHashAutocompleteDropdown()`
+- `interface/local-docs-manager.js` — `extraFields` support in `DocsManagerUtils.uploadWithProgress` FormData builder
+- `interface/service-worker.js` — `CACHE_VERSION` bumped `v26` → `v27`
 
 ## Known Limitations
 
@@ -326,15 +426,18 @@ All endpoints use `endpoints.responses.json_error()` for structured error respon
 - **No display-name uniqueness enforcement**: Two global docs can have the same `display_name`. When referenced by name, the first one (by `created_at`) wins.
 - **Positional renumbering on delete**: Deleting `#gdoc_2` causes `#gdoc_3` to become `#gdoc_2`. Users who memorize indices may be surprised.
 - **No bulk operations**: Upload, delete, and promote are one-at-a-time.
-- **doc_source drift**: The DB `doc_source` can become stale after promote. The download endpoint handles this via DocIndex fallback, but the list endpoint still returns the stale path. The UI list shows this as the source display text.
-
+- **doc_source drift**: The DB `doc_source` can become stale after promote. The download endpoint handles this via DocIndex fallback, but the list endpoint still returns the stale path.
+- **`#folder:` is non-recursive**: Only docs directly assigned to the named folder are returned; sub-folder docs are not included.
+- **No folder picker in promote flow**: Promoted docs are unassigned (no folder). Assign via Folder view afterwards.
 ## Future Development Ideas
 
 - **Rename / edit display name**: Add a `PATCH /global_docs/<doc_id>` endpoint to update `display_name` (the DB helper `update_global_doc_metadata` already supports this). Add an edit button in the UI list.
 - **Fuzzy name matching**: Use Levenshtein distance or prefix matching for display-name references, with a configurable threshold.
-- **Tagging / categories**: Add a `tags` column to `GlobalDocuments` for organizing docs (e.g., `#gdoc_tag:research`).
+- **Recursive `#folder:` resolution**: Traverse sub-folders so `#folder:ML` includes docs in `ML/NLP`, `ML/Vision`, etc.
 - **Bulk upload**: Drag multiple files onto the drop area and index them in parallel.
 - **Search within global docs**: Add a search box in the modal that queries `title`, `display_name`, and `short_summary` via FTS.
 - **Sync doc_source on promote**: Update the DB `doc_source` to the DocIndex's actual `doc_source` after promote, eliminating the fallback need.
+- **Context menu on doc rows**: Right-click → Move to Folder, Edit Tags, Delete (deferred).
+- **Display `#folder:Name (N docs)` in rendered chat**: Replace the raw reference with a resolved label showing doc count.
 - **Global doc references in PKB**: Allow PKB claims to reference global docs via `@gdoc_N` syntax.
 - **Sharing**: Allow sharing global docs with other users or making them workspace-scoped rather than user-scoped.

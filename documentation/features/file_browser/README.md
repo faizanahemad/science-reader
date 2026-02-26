@@ -34,6 +34,9 @@ Full-screen modal file browser and code editor accessible from the chat-settings
 - **PDF Viewer**: clicking a `.pdf` file in the tree renders it inline using the bundled PDF.js viewer (no download prompt). A scoped progress bar shows download progress. Save, AI Edit, Word Wrap, Reload are disabled for PDFs; Download remains active.
 - **WYSIWYG Markdown Editing**: markdown files now have a three-mode view-mode selector (Raw / Preview / WYSIWYG). WYSIWYG embeds EasyMDE inline in the file browser panel. Content syncs back to CodeMirror (source of truth) on mode switch or save. AI Edit is disabled in WYSIWYG mode.
 - **Responsive view-mode selector**: button group on ≥576 px screens (ids: `#fb-view-btngroup`, buttons have `data-view="raw|preview|wysiwyg"`); `<select id="file-browser-view-select">` on narrow screens. Both driven by `_setViewMode(mode)`.
+- **Drag-and-drop move**: any tree item can be dragged onto a folder in the sidebar to move it. Dropping onto the tree background (outside any folder `<li>`) moves the item to the **root directory**. Visual feedback: dragged item dims (`.fb-drag-source`), valid drop targets highlight with a dashed blue outline (`.fb-drag-over`), the entire tree panel highlights with a dashed blue outline and faint blue tint (`.fb-drag-over-root`) when the cursor is over the tree background. Prevents moving a folder into itself or its own descendant.
+- **Context-menu move**: right-click → "Move to…" opens a destination picker modal (`#file-browser-move-modal`) with a lazy-expanding folder-only tree. A **/ (root)** item (icon `bi-house-door`, class `fb-move-root-item`, `data-path="."`) is prepended above the sub-folder tree so the user can explicitly move the item to the root directory. Move button enables once a destination folder is selected.
+- **Decoupled move backend**: move operations are routed through `_config.onMove(srcPath, destPath, done)`. Default implementation calls `POST /file-browser/move`. Override at `FileBrowserManager.init({onMove: fn})` or `FileBrowserManager.configure({onMove: fn})` for different embedding contexts.
 
 ---
 
@@ -98,7 +101,7 @@ The `state.sidebarVisible` guard in `_doLoadFile` is the critical coupling point
 
 ### Context Menu
 
-Right-click on any tree `<li>` populates `state.contextTarget` and shows `#file-browser-context-menu` at cursor coordinates. Right-clicking the tree background (not on an item) sets `state.contextTarget` to the current directory for "create here" operations. Menu items: **New File**, **New Folder**, **Rename**, **Delete**. The New File and New Folder actions use the naming modal (see below) instead of the browser's native `prompt()`.
+Right-click on any tree `<li>` populates `state.contextTarget` and shows `#file-browser-context-menu` at cursor coordinates. Right-clicking the tree background (not on an item) sets `state.contextTarget` to the current directory for "create here" operations. Menu items: **New File**, **New Folder**, **Rename**, **Move to…**, **Delete**. The New File and New Folder actions use the naming modal (see below) instead of the browser's native `prompt()`. Move opens the move destination modal (see below).
 
 ### Sidebar Header Buttons
 
@@ -139,6 +142,22 @@ Function signature: `_showConfirmModal(title, bodyHtml, onConfirm, opts)`. The A
 
 Used by: delete item, discard changes, reload from disk (dirty check), close modal (dirty check), navigate to file (dirty check).
 
+### Move Modal
+
+`#file-browser-move-modal` is a fixed overlay at `z-index: 100004` that appears when the user selects **Move to…** from the context menu or drops a file via drag-and-drop.
+
+Layout and behavior:
+
+- Displays the source item name at the top (`#fb-move-src-name`)
+- Lazy-expanding folder-only tree (`#fb-move-folder-tree`) — shows only directories (no files). A **/ (root)** item (`<div class="fb-move-dir-item fb-move-root-item" data-path=".">` with `bi-house-door` icon) is prepended at the top, separated from the sub-folder tree by a bottom border. Root is loaded on modal open; sub-folders expand on click by fetching from `/file-browser/tree`.
+- Selected folder is highlighted with `.fb-move-selected` class; the `#fb-move-dest-hint` shows the full selected path.
+- **Move Here** button (`#fb-move-ok-btn`) is disabled until a destination folder is selected; re-enabled on failure.
+- **Cancel** button and backdrop click both dismiss the modal.
+- After a successful move, the file tree is refreshed and a success toast is shown. If the currently open file was moved, `state.currentPath` and the address bar are updated to the new path.
+- Prevents moving a folder into itself or its own descendant (validated client-side via `_isValidMoveTarget()` and server-side via the `/file-browser/move` endpoint).
+
+Key functions: `_showMoveModal()`, `_hideMoveModal()`, `_loadMoveTree(dirPath, $container)`, `_confirmMove()`, `_moveItem(srcPath, destPath)`, `_isValidMoveTarget(srcPath, destDirPath)`.
+
 ### Word Wrap
 
 Button: `#file-browser-wrap-btn` in the toolbar (after the theme picker), icon `bi-text-wrap`, label "Wrap" (text hidden on screens <576 px via `<span class="d-none d-sm-inline">`). Disabled when no file is open.
@@ -161,6 +180,7 @@ All endpoints require `@login_required` and are registered under the `file_brows
 | POST | `/file-browser/write` | Write file content `{"path": "...", "content": "..."}` |
 | POST | `/file-browser/mkdir` | Create directory `{"path": "..."}` |
 | POST | `/file-browser/rename` | Rename or move `{"old_path": "...", "new_path": "..."}` |
+| POST | `/file-browser/move` | Move file or directory `{"src_path": "...", "dest_path": "..."}`. dest_path is the full new path. 409 if dest exists, 400 if moving folder into itself |
 | POST | `/file-browser/delete` | Delete file or directory `{"path": "...", "recursive": true}` |
 | GET | `/file-browser/download?path=...` | Download file as attachment (`send_file` with `as_attachment=True`) |
 | POST | `/file-browser/upload` | Upload file (multipart form-data: `file`, `path`, `overwrite`). Returns `{"path", "size"}`. 409 if exists without overwrite |
@@ -448,14 +468,14 @@ Opens `#file-browser-upload-modal` (`position:fixed; inset:0; z-index:100003`).
 
 ### Files Created
 
-- `endpoints/file_browser.py` — Flask Blueprint (`file_browser_bp`) with 8 endpoints (tree, read, write, mkdir, rename, delete, download, upload), path traversal prevention, binary detection, 2 MB size guard
-- `interface/file-browser-manager.js` — IIFE module (`FileBrowserManager`) with full tree rendering, CodeMirror integration, fuzzy address bar autocomplete, CRUD operations, keyboard shortcuts, modal lifecycle, confirm modal, reload from disk, word wrap toggle, download, upload modal, AI edit with diff context, context menu z-index fix
+- `endpoints/file_browser.py` — Flask Blueprint (`file_browser_bp`) with 11 endpoints (tree, read, write, mkdir, rename, **move**, delete, download, upload, serve, ai-edit), path traversal prevention, binary detection, 2 MB size guard. Move endpoint: `POST /file-browser/move`, validates both paths via `_safe_resolve()`, prevents self-moves, returns 400/404/409 errors.
+- `interface/file-browser-manager.js` — IIFE module (`FileBrowserManager`) with full tree rendering, CodeMirror integration, fuzzy address bar autocomplete, CRUD operations, keyboard shortcuts, modal lifecycle, confirm modal, reload from disk, word wrap toggle, download, upload modal, AI edit with diff context, context menu z-index fix, **drag-and-drop move** (tree item drag onto folder), **context-menu Move modal** (lazy folder tree), **`_config.onMove` decoupled callback**, `configure()` public API method.
 
 ### Files Modified
 
 - `endpoints/__init__.py` — Registered `file_browser_bp` blueprint
-- `interface/interface.html` — Added File Browser button in Actions section; full-screen modal HTML (no Bootstrap modal classes/attributes); context menu HTML; naming modal (`#file-browser-name-modal`); confirm modal (`#file-browser-confirm-modal`); fuzzy dropdown (`#file-browser-suggestion-dropdown`) HTML + CSS; reload button (`#file-browser-reload-btn`); sidebar New File (`#file-browser-new-file-btn`) and New Folder (`#file-browser-new-folder-btn`) buttons; word wrap button (`#file-browser-wrap-btn`); download button (`#file-browser-download-btn`); upload button + modal (`#file-browser-upload-btn`, `#file-browser-upload-modal`); AI edit modal (`#file-browser-ai-edit-modal`); AI diff modal (`#file-browser-ai-diff-modal`); Bootstrap Icons CDN upgraded to 1.11.3; `<script>` tag with cache-buster version; fallback click handler
-- `interface/style.css` — Added file browser CSS: sidebar layout, tree item styling, editor/preview containers, tab bar, context menu, dirty indicator, empty state, AI diff line colour classes (`.ai-diff-add`, `.ai-diff-del`, `.ai-diff-hunk`, `.ai-diff-header`), upload modal styles
+- `interface/interface.html` — Added File Browser button in Actions section; full-screen modal HTML (no Bootstrap modal classes/attributes); context menu HTML + **Move to… item** (`data-action="move"`); naming modal (`#file-browser-name-modal`); confirm modal (`#file-browser-confirm-modal`); **move modal** (`#file-browser-move-modal`, z-index 100004) with lazy folder tree; fuzzy dropdown; reload/wrap/download/upload buttons; AI edit modal; AI diff modal; Bootstrap Icons CDN upgraded to 1.11.3; `<script>` tag v25; fallback click handler
+- `interface/style.css` — Added file browser CSS: sidebar layout, tree item styling, editor/preview containers, tab bar, context menu, dirty indicator, empty state, AI diff line colour classes, upload modal styles, **drag-and-drop feedback** (`.fb-drag-source`, `.fb-drag-over`), **root drag-over feedback** (`.fb-drag-over-root` — dashed blue outline + faint blue tint on `#file-browser-tree` when dragging over tree background), **move modal folder tree** (`.fb-move-dir-item`, `.fb-move-selected`, `.fb-move-children`), **move modal root item** (`.fb-move-root-item` — bottom border separator + bolder label for the `/ (root)` item)
 - `interface/service-worker.js` — Added `file-browser-manager.js` to precache list; cache version bumped on each JS update
 - `interface/audio_process.js` — Added guard to skip Cmd+K / Ctrl+K voice shortcut when file browser modal is open
 
@@ -463,11 +483,12 @@ Opens `#file-browser-upload-modal` (`position:fixed; inset:0; z-index:100003`).
 
 | Function | Description |
 |----------|-------------|
-| `FileBrowserManager.init()` | Binds all event handlers; called once on DOM ready |
+| `FileBrowserManager.init(cfg)` | Binds all event handlers; merges optional config (e.g. `{ onMove: fn }`); called once on DOM ready |
 | `FileBrowserManager.open()` | Opens the file browser modal |
 | `FileBrowserManager.loadFile(path, force)` | Loads a file into CodeMirror (with binary/size guards) |
 | `FileBrowserManager.saveFile()` | Writes current editor content to server |
 | `FileBrowserManager.discardChanges()` | Reverts editor to last saved content |
+| `FileBrowserManager.configure(cfg)` | Merges config overrides post-init, e.g. to set a custom `onMove` callback for a different embedding context |
 
 ### Key Internal Functions
 
@@ -513,6 +534,11 @@ Opens `#file-browser-upload-modal` (`position:fixed; inset:0; z-index:100003`).
 | `_initOrRefreshEasyMDE()` | Lazily creates the EasyMDE instance (with `shortcuts` overrides to prevent Ctrl+S interception) inside `#file-browser-wysiwyg-container` on first call; on subsequent calls just sets content and refreshes the inner CodeMirror. Wires dirty tracking via EasyMDE's internal CodeMirror `change` event. |
 | `_syncWysiwygToCodeMirror()` | Reads `fbEasyMDE.value()` and sets it as CodeMirror's value, keeping CodeMirror as the single source of truth. Called before every save, modal close, and mode switch away from WYSIWYG. |
 | `_updateToolbarForFileType()` | Enables/disables toolbar buttons based on file type and view mode. PDF: disables Save, Discard, AI Edit, Wrap, Reload. WYSIWYG mode: additionally disables AI Edit and Wrap. |
+| `_isValidMoveTarget(srcPath, destDirPath)` | Returns true if srcPath can be moved into destDirPath — blocks self-drops, descendant-drops, and same-parent no-ops. |
+| `_moveItem(srcPath, destPath)` | Calls `_config.onMove()`, updates `state.currentPath` if the open file was moved, calls `_refreshTree()`, shows toast. |
+| `_showMoveModal()` / `_hideMoveModal()` | Open/close the move destination modal; populate/clear folder tree and reset state. |
+| `_loadMoveTree(dirPath, $container)` | Fetch folder-only tree from `/file-browser/tree` and render lazy-expandable folder list into the move modal. |
+| `_confirmMove()` | Reads `state.moveDest`, constructs `destPath = moveDest + '/' + basename(srcPath)`, validates, calls `_moveItem()`. |
 
 ### State Object
 
@@ -544,7 +570,10 @@ var state = {
     isPdf: false,              // Whether current file is a PDF (no CodeMirror, uses PDF.js)
     pdfBlobUrl: null,          // Blob URL of currently loaded PDF (revoked on file change/close)
     viewMode: 'raw',           // Active view mode: 'raw' | 'preview' | 'wysiwyg' (markdown only)
-    fbEasyMDE: null            // EasyMDE instance (lazy-created in WYSIWYG container, persisted)
+    fbEasyMDE: null,           // EasyMDE instance (lazy-created in WYSIWYG container, persisted)
+    dragSource: null,          // {path,type,name} of tree item currently being dragged (D&D move)
+    moveTarget: null,          // {path,type,name} of item being moved via context menu
+    moveDest: null             // Destination directory selected in move modal
 };
 ```
 
@@ -583,6 +612,165 @@ If a stale version of the JS is running (visible symptom: `#file-browser-backdro
 
 ---
 
+## Pluggable Config API
+
+The file browser can be configured for different embedding contexts via a 7-group config schema. All hardcoded `$('#file-browser-*')` selectors have been replaced with `_$(key)` lookups against `_config.dom`, and all endpoint strings replaced with `_ep(name)` lookups against `_config.endpoints`. Behavior flags, operation callbacks, lifecycle events, and custom rendering hooks allow full customization without forking the code.
+
+### Public API
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `init` | `init([cfg])` | Initialize event handlers. Call once on page load. Optional config overrides deep-merged into defaults. |
+| `open` | `open([path])` | Open the file browser modal. Optional `path` sets the starting directory. |
+| `configure` | `configure(cfg)` | Deep-merge config overrides after initialization. `$.extend(true, ...)` preserves unspecified keys. |
+| `loadFile` | `loadFile(path, [force])` | Load a specific file into the editor. |
+| `saveFile` | `saveFile()` | Save current file to server. |
+| `discardChanges` | `discardChanges()` | Revert editor to last saved content. |
+
+### Config Schema (7 Groups)
+
+All defaults reproduce the current Settings > Actions > File Browser behavior exactly.
+
+#### Group 1: Endpoints
+
+```javascript
+endpoints: {
+    tree:     '/file-browser/tree',     // GET  ?path=
+    read:     '/file-browser/read',     // GET  ?path=
+    write:    '/file-browser/write',    // POST {path, content}
+    mkdir:    '/file-browser/mkdir',    // POST {path}
+    rename:   '/file-browser/rename',   // POST {old_path, new_path}
+    delete:   '/file-browser/delete',   // POST {path, recursive}
+    move:     '/file-browser/move',     // POST {src_path, dest_path}
+    upload:   '/file-browser/upload',   // POST multipart {file, path}
+    download: '/file-browser/download', // GET  ?path=
+    serve:    '/file-browser/serve',    // GET  ?path=  (PDF inline)
+    aiEdit:   '/file-browser/ai-edit'   // POST {path, instruction, ...}
+}
+```
+
+Set any endpoint to `null` to disable that operation. If `write` is null, Save and Create File are disabled. If `tree` is null, tree browsing is disabled entirely.
+
+#### Group 2: DOM Element IDs
+
+47 configurable DOM IDs covering the main modal, tree, toolbar buttons, address bar, editor containers, and sub-modals (confirm, name, move, upload, AI edit/diff). All default to the existing `file-browser-*` IDs. Override for a second embedding that uses different DOM elements.
+
+Note: internal `$('#fb-*')` sub-element selectors (upload dropzone, move folder tree, AI edit form fields, PDF progress) remain hardcoded. These are inside shared modals and do not need per-embedding overrides.
+
+#### Group 3: Behavior Flags
+
+```javascript
+readOnly:        false,   // true = no write/create/rename/delete/upload
+allowUpload:     true,    // show/enable upload button
+allowDelete:     true,    // show/enable delete in context menu
+allowRename:     true,    // show/enable rename in context menu
+allowCreate:     true,    // show/enable new file + new folder buttons
+allowMove:       true,    // show/enable move in context menu + DnD
+allowAiEdit:     true,    // show/enable AI Edit button
+showEditor:      true,    // false = tree-only mode; editor panel hidden
+showAddressBar:  true,    // false = hide address bar
+```
+
+Flags are applied via `_applyBehaviorFlags()` when the modal opens. `readOnly: true` implies all write operations disabled.
+
+#### Group 4: Root and Title
+
+```javascript
+rootPath: '.',            // Directory to load when modal opens
+title:    'File Browser', // Text shown in modal header (future use)
+```
+
+#### Group 5: Operation Callbacks
+
+Each CRUD operation checks for a custom callback before falling back to the default endpoint-based implementation. All callbacks use the same `done(errorMsg|null)` pattern as `onMove`.
+
+| Callback | Signature | Default |
+|----------|-----------|---------|
+| `onMove` | `(srcPath, destPath, done)` | POST to `endpoints.move` |
+| `onDelete` | `(path, done)` | POST to `endpoints.delete` |
+| `onRename` | `(oldPath, newPath, done)` | POST to `endpoints.rename` |
+| `onCreateFolder` | `(path, done)` | POST to `endpoints.mkdir` |
+| `onCreateFile` | `(path, done)` | POST to `endpoints.write` |
+| `onUpload` | `(file, targetDir, done)` | XHR POST to `endpoints.upload` |
+| `onSave` | `(path, content, done)` | POST to `endpoints.write` |
+
+Set to `null` (default) to use the default endpoint-based implementation.
+
+#### Group 6: Lifecycle Events
+
+Pure notification callbacks (no `done()` needed).
+
+| Event | Signature | When |
+|-------|-----------|------|
+| `onSelect` | `(path, type, entry)` | User clicks a tree item (after default action) |
+| `onOpen` | `()` | Modal opened |
+| `onClose` | `()` | Modal closed (after dirty check passes) |
+
+#### Group 7: Custom Rendering
+
+| Hook | Signature | Description |
+|------|-----------|-------------|
+| `enrichEntry` | `(entry, path, done)` | Async per-entry enrichment. Call `done(enrichedEntry)` when done. Runs after initial render. Callers should cache results to avoid API flooding. |
+| `renderEntry` | `(entry, path)` | Sync custom rendering. Return a jQuery element to replace the default icon+name, or `null` for default rendering. |
+| `buildContextMenu` | `(path, type)` | Return `[{label, icon, action}]` array for custom context menu items, or `null` for default menu. `action` receives `(path, type)`. |
+
+### Example: Read-Only Folder Browser
+
+```javascript
+FileBrowserManager.configure({
+    rootPath: 'storage/global_docs/abc123/',
+    showEditor: false,
+    readOnly: true,
+    allowAiEdit: false,
+    endpoints: {
+        write: null,
+        read: null,
+        aiEdit: null
+    },
+    onOpen: function() { console.log('Folder browser opened'); },
+    onSelect: function(path, type, entry) {
+        console.log('Selected:', path, type);
+    },
+    enrichEntry: function(entry, path, done) {
+        if (entry.type !== 'dir') { done(entry); return; }
+        $.getJSON('/api/doc-info/' + entry.name, function(info) {
+            done($.extend({}, entry, info));
+        }).fail(function() { done(entry); });
+    },
+    renderEntry: function(entry, path) {
+        if (entry.type !== 'dir' || !entry.title) return null;
+        var $wrap = $('<span></span>');
+        $wrap.append($('<span class="tree-name"></span>').text(entry.title));
+        (entry.tags || []).slice(0, 3).forEach(function(tag) {
+            $wrap.append($('<span class="badge badge-pill badge-secondary ml-1">' + tag + '</span>'));
+        });
+        return $wrap;
+    }
+});
+FileBrowserManager.open('storage/global_docs/abc123/');
+```
+
+### Deep Merge Behavior
+
+Both `init(cfg)` and `configure(cfg)` use `$.extend(true, _config, cfg)` (deep merge). This means partial overrides are safe:
+
+```javascript
+// Only override the upload endpoint; all other endpoints preserved
+FileBrowserManager.configure({
+    endpoints: { upload: '/custom/upload' }
+});
+```
+
+### Refactor Files Modified
+
+| File | Change |
+|------|--------|
+| `interface/file-browser-manager.js` | All config schema, helpers, behavior flags, callbacks, lifecycle events, custom rendering (Tasks 1-12) |
+| `interface/interface.html` | Script tag `?v=` bump |
+| `interface/service-worker.js` | `CACHE_VERSION` bump |
+
+No HTML structure changes. No new DOM elements. No backend changes. All existing `/file-browser/*` endpoints unchanged.
+
 ## Known Issues and Historical Fixes
 
 | Issue | Root Cause | Fix |
@@ -607,3 +795,5 @@ If a stale version of the JS is running (visible symptom: `#file-browser-backdro
 | EasyMDE intercepted Ctrl+S in WYSIWYG mode instead of saving the file | EasyMDE registers internal key bindings that fire before the global `keydown` handler calling `saveFile()` | Added `shortcuts: { toggleSideBySide: null, toggleFullScreen: null }` to the EasyMDE config to null out conflicting default bindings |
 | Tab bar re-appears after loading a new file even when sidebar is collapsed | `_doLoadFile()` called `$('#file-browser-tab-bar').show()` unconditionally for markdown files, ignoring `state.sidebarVisible`. Toggling the sidebar hid the tab bar, but loading a new markdown file immediately re-showed it | Added `if (state.sidebarVisible)` guard around the `.show()` call in `_doLoadFile()`. `_toggleSidebar()` is the single authority for sidebar-coupled visibility; `_doLoadFile()` now defers to it |
 | Toolbar button text (Wrap, AI Edit, Discard, Save) visible on narrow screens, wasting horizontal space | Button labels were plain text nodes always rendered | Wrapped each label in `<span class="d-none d-sm-inline">` — icons only on screens <576 px, icon + label on ≥576 px. `title` attributes preserved for hover tooltips at all sizes |
+| Cannot move item to root directory via move modal | `_loadMoveTree('.')` only rendered sub-folders — there was no selectable item representing `/` (root) itself | Prepended a `<div class="fb-move-dir-item fb-move-root-item" data-path=".">` with `bi-house-door` icon and `/ (root)` label above the sub-folder tree in `_showMoveModal()`; `_isValidMoveTarget` and `_joinPath` already handled `'.'` correctly |
+| Cannot move item to root directory via drag-and-drop | The `drop` handler was only bound on `li[data-type=dir]` items — dropping onto the tree background (where root has no `<li>`) had no handler | Added `dragover` / `dragleave` / `drop` handlers on `#file-browser-tree` container; a guard `if ($(e.target).closest('li').length) return` prevents double-firing when dropping on an `<li>`; `_joinPath('.', basename)` constructs the new root-level path |

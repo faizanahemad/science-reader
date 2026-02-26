@@ -8,6 +8,10 @@
  * Requires: local-docs-manager.js (DocsManagerUtils) to be loaded first.
  */
 var GlobalDocsManager = {
+    _viewMode: 'list',
+    _folderCache: [],
+    _userHash: null,
+
 
     /* ------------------------------------------------------------------ */
     /*  API helpers                                                        */
@@ -50,12 +54,13 @@ var GlobalDocsManager = {
      * @param {File|string} fileOrUrl - File object for file upload, string for URL upload.
      * @param {string} displayName - Optional display name.
      */
-    upload: function (fileOrUrl, displayName) {
+    upload: function (fileOrUrl, displayName, folderId) {
         DocsManagerUtils.uploadWithProgress('/global_docs/upload', fileOrUrl, {
             $btn:        $('#global-doc-submit-btn'),
             $spinner:    $('#global-doc-upload-spinner'),
             $progress:   $('#global-doc-upload-progress'),
             displayName: displayName,
+            extraFields: { folder_id: folderId || '' },
             onSuccess: function () {
                 GlobalDocsManager._resetForm();
                 GlobalDocsManager.refresh();
@@ -98,6 +103,9 @@ var GlobalDocsManager = {
             if (sourceDisplay.length > 60) sourceDisplay = sourceDisplay.substring(0, 57) + '...';
 
             var $item = $('<div class="list-group-item d-flex justify-content-between align-items-center"></div>');
+            $item.attr('data-doc-id', doc.doc_id)
+                 .attr('data-title', (title + ' ' + (doc.display_name || '')).toLowerCase())
+                 .attr('data-tags', (doc.tags || []).join(',').toLowerCase());
 
             var $info = $('<div></div>');
             $info.append($('<span class="badge badge-info mr-2"></span>').text('#gdoc_' + doc.index));
@@ -107,6 +115,28 @@ var GlobalDocsManager = {
             $info.append($('<strong></strong>').text(' ' + title));
             $info.append($('<br>'));
             $info.append($('<small class="text-muted"></small>').text(sourceDisplay + ' | ' + (doc.created_at || '')));
+
+            // Tags
+            var tags = doc.tags || [];
+            var $tagWrap = $('<div class="mt-1"></div>');
+            tags.forEach(function(tag) {
+                $tagWrap.append(
+                    $('<span class="badge badge-pill badge-secondary mr-1" style="cursor:pointer;"></span>')
+                        .text(tag)
+                        .on('click', function() {
+                            $('#global-docs-filter').val(tag);
+                            GlobalDocsManager.filterDocList(tag);
+                        })
+                );
+            });
+            // Tag add button
+            var $addTagBtn = $('<button class="btn btn-link btn-sm p-0 ml-1" title="Edit tags"><i class="fa fa-tag fa-xs"></i></button>');
+            $addTagBtn.on('click', function(e) {
+                e.stopPropagation();
+                GlobalDocsManager.openTagEditor(doc.doc_id, tags, $tagWrap);
+            });
+            $tagWrap.append($addTagBtn);
+            $info.append($tagWrap);
 
             var $actions = $('<div class="d-flex flex-nowrap"></div>');
 
@@ -147,9 +177,64 @@ var GlobalDocsManager = {
         });
     },
 
+    filterDocList: function(query) {
+        var q = (query || '').toLowerCase().trim();
+        $('#global-docs-list .list-group-item').each(function() {
+            var title = ($(this).data('title') || '').toLowerCase();
+            var tags = ($(this).data('tags') || '').toLowerCase();
+            var show = !q || title.indexOf(q) !== -1 || tags.indexOf(q) !== -1;
+            $(this).toggle(show);
+        });
+    },
+
+    openTagEditor: function(docId, currentTags, $container) {
+        // Remove any existing editor
+        $container.find('.tag-editor-input').remove();
+        var $input = $('<input type="text" class="form-control form-control-sm tag-editor-input mt-1">')
+            .attr('placeholder', 'Tags (comma-separated)')
+            .val(currentTags.join(', '));
+        $container.append($input);
+        $input.focus();
+        function save() {
+            var newTags = $input.val().split(',').map(function(t) { return t.trim().toLowerCase(); }).filter(Boolean);
+            $.ajax({
+                url: '/global_docs/' + docId + '/tags',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ tags: newTags }),
+                success: function() { GlobalDocsManager.refresh(); }
+            });
+        }
+        $input.on('keydown', function(e) {
+            if (e.key === 'Enter') { save(); }
+            if (e.key === 'Escape') { $input.remove(); }
+        });
+        $input.on('blur', function() { setTimeout(function() { $input.remove(); }, 200); });
+    },
+
+    _loadFolderCache: function() {
+        $.getJSON('/doc_folders', function(resp) {
+            if (resp.status === 'ok') {
+                GlobalDocsManager._folderCache = resp.folders || [];
+                // Populate folder picker
+                var $sel = $('#global-doc-folder-select');
+                $sel.find('option:not(:first)').remove();
+                GlobalDocsManager._folderCache.forEach(function(f) {
+                    $sel.append($('<option></option>').val(f.folder_id).text(f.name));
+                });
+            }
+        });
+    },
+
     refresh: function () {
         GlobalDocsManager.list().done(function (docs) {
             GlobalDocsManager.renderList(docs);
+            // Cache user hash for file browser navigation
+            if (docs && docs.length > 0 && !GlobalDocsManager._userHash) {
+                var storage = docs[0].doc_storage || '';
+                var match = storage.match(/storage\/global_docs\/([^\/]+)\//);
+                if (match) GlobalDocsManager._userHash = match[1];
+            }
         });
     },
 
@@ -217,12 +302,91 @@ var GlobalDocsManager = {
                 return;
             }
 
-            GlobalDocsManager.upload(fileOrUrl, displayName);
+            GlobalDocsManager.upload(fileOrUrl, displayName, $('#global-doc-folder-select').val() || null);
         });
 
         // Refresh button
         $('#global-doc-refresh-btn').off('click').on('click', function () {
             GlobalDocsManager.refresh();
+        });
+
+        // View switcher
+        $('#global-docs-view-switcher').on('click', 'button[data-view]', function() {
+            var view = $(this).data('view');
+            GlobalDocsManager._viewMode = view;
+            localStorage.setItem('globalDocsViewMode', view);
+            $('#global-docs-view-switcher button').removeClass('active');
+            $(this).addClass('active');
+            if (view === 'list') {
+                $('#global-docs-view-list').show();
+                $('#global-docs-view-folder').hide();
+                $('#global-docs-manage-folders-btn').hide();
+                $('#global-docs-dialog').removeClass('modal-xl').addClass('modal-lg');
+            } else {
+                $('#global-docs-view-list').hide();
+                $('#global-docs-view-folder').show();
+                $('#global-docs-manage-folders-btn').show();
+                $('#global-docs-dialog').removeClass('modal-lg').addClass('modal-xl');
+            }
+        });
+
+        // Restore saved view mode
+        var savedView = localStorage.getItem('globalDocsViewMode') || 'list';
+        if (savedView !== 'list') {
+            $('#global-docs-view-switcher button[data-view="' + savedView + '"]').trigger('click');
+        }
+
+        // Filter bar
+        $('#global-docs-filter').on('input', function() {
+            GlobalDocsManager.filterDocList($(this).val());
+        });
+
+        // Manage Folders button
+        $('#global-docs-manage-folders-btn').on('click', function() {
+            if (typeof FileBrowserManager === 'undefined') {
+                alert('File browser not available.');
+                return;
+            }
+            FileBrowserManager.configure({
+                onMove: function(srcPath, destPath, done) {
+                    var srcParts = srcPath.replace(/\\/g, '/').split('/');
+                    var docId = srcParts[srcParts.length - 1];
+                    var destParts = destPath.replace(/\\/g, '/').split('/');
+                    // destParts last element = docId basename, second-to-last = parent folder name
+                    var parentName = destParts.length >= 2 ? destParts[destParts.length - 2] : null;
+                    var folder = parentName
+                        ? (GlobalDocsManager._folderCache || []).find(function(f) { return f.name === parentName; })
+                        : null;
+                    var folderId = folder ? folder.folder_id : 'root';
+                    if (!docId || docId.length < 8) { done('Cannot determine doc_id'); return; }
+                    $.ajax({
+                        url: '/doc_folders/' + folderId + '/assign',
+                        method: 'POST',
+                        contentType: 'application/json',
+                        data: JSON.stringify({ doc_id: docId }),
+                        success: function(r) {
+                            GlobalDocsManager.refresh();
+                            done(r.status === 'ok' ? null : (r.error || 'Assign failed'));
+                        },
+                        error: function(xhr) {
+                            var msg = 'Assign failed';
+                            try { msg = JSON.parse(xhr.responseText).error || msg; } catch(e) {}
+                            done(msg);
+                        }
+                    });
+                }
+            });
+            // Navigate to global docs storage root
+            var startPath = GlobalDocsManager._userHash
+                ? 'storage/global_docs/' + GlobalDocsManager._userHash
+                : 'storage/global_docs';
+            FileBrowserManager.open(startPath);
+            $('#global-docs-modal').modal('hide');
+        });
+
+        // Load folder cache when modal opens
+        $('#global-docs-button').off('click.folders').on('click.folders', function() {
+            GlobalDocsManager._loadFolderCache();
         });
     }
 };

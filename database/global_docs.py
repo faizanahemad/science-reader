@@ -35,6 +35,7 @@ def add_global_doc(
     title: str = "",
     short_summary: str = "",
     display_name: str = "",
+    folder_id: Optional[str] = None,
 ) -> bool:
     """
     Insert a new global doc row. Deduplicates on (doc_id, user_email).
@@ -49,17 +50,13 @@ def add_global_doc(
             """
             INSERT OR IGNORE INTO GlobalDocuments
             (doc_id, user_email, display_name, doc_source, doc_storage,
-             title, short_summary, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+             title, short_summary, folder_id, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (
-                doc_id,
-                user_email,
-                display_name,
-                doc_source,
-                doc_storage,
+            (doc_id, user_email, display_name, doc_source, doc_storage,
                 title,
                 short_summary,
+                folder_id,
                 now,
                 now,
             ),
@@ -85,11 +82,14 @@ def list_global_docs(*, users_dir: str, user_email: str) -> list[dict]:
         cur = conn.cursor()
         cur.execute(
             """
-            SELECT doc_id, user_email, display_name, doc_source, doc_storage,
-                   title, short_summary, created_at, updated_at
-            FROM GlobalDocuments
-            WHERE user_email = ?
-            ORDER BY created_at ASC
+            SELECT gd.doc_id, gd.user_email, gd.display_name, gd.doc_source, gd.doc_storage,
+                   gd.title, gd.short_summary, gd.created_at, gd.updated_at, gd.folder_id,
+                   GROUP_CONCAT(gt.tag, ',') as tags_csv
+            FROM GlobalDocuments gd
+            LEFT JOIN GlobalDocTags gt ON gd.doc_id = gt.doc_id AND gd.user_email = gt.user_email
+            WHERE gd.user_email = ?
+            GROUP BY gd.doc_id, gd.user_email
+            ORDER BY gd.created_at DESC
             """,
             (user_email,),
         )
@@ -104,11 +104,26 @@ def list_global_docs(*, users_dir: str, user_email: str) -> list[dict]:
             "short_summary",
             "created_at",
             "updated_at",
+            "folder_id",
+            "tags_csv",
         ]
-        return [dict(zip(columns, row)) for row in rows]
+        result = []
+        for row in rows:
+            row_dict = dict(zip(columns, row))
+            tags_csv = row_dict.pop('tags_csv', '') or ''
+            row_dict['tags'] = [t for t in tags_csv.split(',') if t]
+            result.append(row_dict)
+        return result
     finally:
         conn.close()
 
+def list_global_docs_by_folder(*, users_dir: str, user_email: str, folder_id: Optional[str]) -> list[dict]:
+    """Return global docs in a specific folder (or Unfiled if folder_id is None).
+    Uses list_global_docs() and filters by folder_id for consistency."""
+    all_docs = list_global_docs(users_dir=users_dir, user_email=user_email)
+    if folder_id is None:
+        return [d for d in all_docs if not d.get('folder_id')]
+    return [d for d in all_docs if d.get('folder_id') == folder_id]
 
 def get_global_doc(*, users_dir: str, user_email: str, doc_id: str) -> Optional[dict]:
     """Return a single global doc row or None."""

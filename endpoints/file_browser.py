@@ -321,6 +321,74 @@ def rename():
         logger.exception("Failed to rename %s -> %s", old_resolved, new_resolved)
         return json_error("Failed to rename", status=500, code="os_error")
 
+@file_browser_bp.route("/file-browser/move", methods=["POST"])
+@login_required
+def move():
+    """Move a file or directory to a new location.
+
+    Semantically identical to rename() but uses explicit ``src_path`` /
+    ``dest_path`` field names to make the intent clear.  The destination must
+    be a *full* path (directory + basename), not just a target directory.
+
+    Request Body (JSON)
+    -------------------
+    src_path : str
+        Current relative path of the item to move.
+    dest_path : str
+        Desired full relative path at the destination.
+
+    Returns
+    -------
+    JSON
+        ``json_ok`` on success.  Returns 404 if *src_path* does not exist,
+        409 if *dest_path* already exists.
+    """
+    data = request.get_json(silent=True) or {}
+    src_rel = data.get("src_path", "")
+    dest_rel = data.get("dest_path", "")
+
+    if not src_rel or not dest_rel:
+        return json_error(
+            "Missing 'src_path' and/or 'dest_path' in request body",
+            status=400,
+            code="missing_fields",
+        )
+
+    src_resolved = _safe_resolve(src_rel)
+    dest_resolved = _safe_resolve(dest_rel)
+
+    if src_resolved is None or dest_resolved is None:
+        return json_error("Path escapes server root", status=403, code="path_forbidden")
+
+    if not os.path.exists(src_resolved):
+        return json_error("Source path not found", status=404, code="not_found")
+
+    if os.path.exists(dest_resolved):
+        return json_error("Destination path already exists", status=409, code="conflict")
+
+    # Prevent moving a directory into itself or one of its own descendants.
+    if os.path.isdir(src_resolved):
+        src_with_sep = src_resolved + os.sep
+        if dest_resolved == src_resolved or dest_resolved.startswith(src_with_sep):
+            return json_error(
+                "Cannot move a folder into itself or its own sub-folder",
+                status=400,
+                code="invalid_move",
+            )
+
+    # Ensure the destination parent directory exists.
+    dest_parent = os.path.dirname(dest_resolved)
+    if not os.path.isdir(dest_parent):
+        return json_error("Destination directory does not exist", status=404, code="dest_not_found")
+
+    try:
+        os.rename(src_resolved, dest_resolved)
+        return json_ok()
+    except OSError:
+        logger.exception("Failed to move %s -> %s", src_resolved, dest_resolved)
+        return json_error("Failed to move", status=500, code="os_error")
+
+
 
 @file_browser_bp.route("/file-browser/delete", methods=["POST"])
 @login_required

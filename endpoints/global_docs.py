@@ -27,6 +27,7 @@ from database.global_docs import (
     list_global_docs,
     update_global_doc_metadata,
 )
+from database.doc_tags import set_tags as _set_tags, list_all_tags as _list_all_tags
 
 
 global_docs_bp = Blueprint("global_docs", __name__)
@@ -81,6 +82,7 @@ def upload_global_doc():
                 title=short_info.get("title", ""),
                 short_summary=short_info.get("short_summary", ""),
                 display_name=display_name,
+                folder_id=request.form.get('folder_id') or None,
             )
             return jsonify({"status": "ok", "doc_id": doc_index.doc_id})
         except Exception as e:
@@ -114,6 +116,7 @@ def upload_global_doc():
                 title=short_info.get("title", ""),
                 short_summary=short_info.get("short_summary", ""),
                 display_name=display_name,
+                folder_id=request.form.get('folder_id') or (request.json.get('folder_id') if request.is_json and request.json else None),
             )
             return jsonify({"status": "ok", "doc_id": doc_index.doc_id})
         except Exception as e:
@@ -143,6 +146,8 @@ def list_global_docs_route():
                 "source": doc["doc_source"],
                 "doc_source": doc["doc_source"],
                 "created_at": doc["created_at"] or "",
+                "tags": doc.get("tags") or [],
+                "folder_id": doc.get("folder_id"),
             }
         )
     return jsonify(result)
@@ -313,6 +318,8 @@ def promote_doc_to_global(conversation_id: str, doc_id: str):
         doc_index.save_local()
 
         short_info = doc_index.get_short_info()
+        payload = request.get_json(silent=True) or {}
+        folder_id = payload.get('folder_id') or None
         add_global_doc(
             users_dir=state.users_dir,
             user_email=email,
@@ -321,6 +328,7 @@ def promote_doc_to_global(conversation_id: str, doc_id: str):
             doc_storage=target_storage,
             title=short_info.get("title", ""),
             short_summary=short_info.get("short_summary", ""),
+            folder_id=folder_id,
         )
 
         new_doc_list = [e for e in doc_list if e[0] != doc_id]
@@ -344,3 +352,64 @@ def promote_doc_to_global(conversation_id: str, doc_id: str):
         if os.path.exists(target_storage) and not os.path.exists(source_storage):
             pass
         return json_error(str(e), status=500, code="promote_failed")
+
+
+@global_docs_bp.route("/global_docs/<doc_id>/tags", methods=["POST"])
+@limiter.limit("100 per minute")
+@login_required
+def set_doc_tags(doc_id: str):
+    """Set tags for a global doc. Body: {tags: ["ai", "ml"]}. Replaces all existing tags."""
+    state, keys = get_state_and_keys()
+    email = session.get("email", "")
+    users_dir = state.users_dir if state else None
+    if not email or not users_dir:
+        return json_error("Not authenticated", 401)
+    data = request.get_json(force=True) or {}
+    tags = data.get("tags", [])
+    if not isinstance(tags, list):
+        return json_error("tags must be a list", 400)
+    tags = [str(t).strip().lower() for t in tags if str(t).strip()]
+    _set_tags(users_dir=users_dir, user_email=email, doc_id=doc_id, tags=tags)
+    return jsonify({"status": "ok", "tags": tags})
+
+
+@global_docs_bp.route("/global_docs/tags", methods=["GET"])
+@limiter.limit("30 per minute")
+@login_required
+def list_all_doc_tags():
+    """List all distinct tags for the user. ?prefix= for filtering."""
+    state, keys = get_state_and_keys()
+    email = session.get("email", "")
+    users_dir = state.users_dir if state else None
+    if not email or not users_dir:
+        return json_error("Not authenticated", 401)
+    prefix = request.args.get("prefix", "").lower()
+    tags = _list_all_tags(users_dir=users_dir, user_email=email)
+    if prefix:
+        tags = [t for t in tags if t.lower().startswith(prefix)]
+    return jsonify({"status": "ok", "tags": tags})
+
+
+@global_docs_bp.route("/global_docs/autocomplete", methods=["GET"])
+@limiter.limit("30 per minute")
+@login_required
+def global_docs_autocomplete():
+    """Combined autocomplete for #folder:Name and #tag:name in chat input.
+    ?type=folder&prefix=Re or ?type=tag&prefix=ml"""
+    state, keys = get_state_and_keys()
+    email = session.get("email", "")
+    users_dir = state.users_dir if state else None
+    if not email or not users_dir:
+        return json_error("Not authenticated", 401)
+    ref_type = request.args.get("type", "tag")
+    prefix = request.args.get("prefix", "").lower()
+    if ref_type == "folder":
+        from database.doc_folders import list_folders as _list_folders
+        folders = _list_folders(users_dir=users_dir, user_email=email)
+        results = [f["name"] for f in folders if not prefix or f["name"].lower().startswith(prefix)]
+        return jsonify({"status": "ok", "folders": results})
+    else:
+        tags = _list_all_tags(users_dir=users_dir, user_email=email)
+        if prefix:
+            tags = [t for t in tags if t.lower().startswith(prefix)]
+        return jsonify({"status": "ok", "tags": tags})

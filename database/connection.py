@@ -152,6 +152,25 @@ def create_tables(*, users_dir: str, logger: Optional[logging.Logger] = None) ->
                                     PRIMARY KEY (doc_id, user_email)
                                 ); """
 
+    sql_create_global_doc_folders_table = """CREATE TABLE IF NOT EXISTS GlobalDocFolders (
+                                        folder_id     TEXT NOT NULL,
+                                        user_email    TEXT NOT NULL,
+                                        name          TEXT NOT NULL,
+                                        parent_id     TEXT,
+                                        created_at    TEXT NOT NULL,
+                                        updated_at    TEXT NOT NULL,
+                                        PRIMARY KEY (folder_id, user_email)
+                                    ); """
+
+    sql_create_global_doc_tags_table = """CREATE TABLE IF NOT EXISTS GlobalDocTags (
+                                        doc_id        TEXT NOT NULL,
+                                        user_email    TEXT NOT NULL,
+                                        tag           TEXT NOT NULL,
+                                        created_at    TEXT NOT NULL,
+                                        PRIMARY KEY (doc_id, user_email, tag),
+                                        FOREIGN KEY (doc_id, user_email) REFERENCES GlobalDocuments (doc_id, user_email)
+                                    ); """
+
     # Extension custom scripts table (Tampermonkey-like user scripts).
     sql_create_custom_scripts_table = """CREATE TABLE IF NOT EXISTS CustomScripts (
                                     script_id TEXT PRIMARY KEY,
@@ -194,6 +213,8 @@ def create_tables(*, users_dir: str, logger: Optional[logging.Logger] = None) ->
         create_table(conn, sql_create_global_documents_table)
         create_table(conn, sql_create_custom_scripts_table)
         create_table(conn, sql_create_extension_workflows_table)
+        create_table(conn, sql_create_global_doc_folders_table)
+        create_table(conn, sql_create_global_doc_tags_table)
     else:
         raise RuntimeError("Error! cannot create the database connection.")
 
@@ -293,6 +314,32 @@ def create_tables(*, users_dir: str, logger: Optional[logging.Logger] = None) ->
     )
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_GlobalDocuments_created_at ON GlobalDocuments (user_email, created_at)"
+    )
+
+    # folder_id column on GlobalDocuments (additive migration, idempotent)
+    try:
+        cur.execute("ALTER TABLE GlobalDocuments ADD COLUMN folder_id TEXT DEFAULT NULL")
+        log.info("Added folder_id column to GlobalDocuments table")
+    except Exception:
+        pass  # Column already exists
+
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_GlobalDocFolders_user ON GlobalDocFolders (user_email)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_GlobalDocFolders_parent ON GlobalDocFolders (user_email, parent_id)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_GlobalDocuments_folder ON GlobalDocuments (user_email, folder_id)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_GlobalDocTags_user ON GlobalDocTags (user_email)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_GlobalDocTags_tag ON GlobalDocTags (user_email, tag)"
+    )
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_GlobalDocTags_doc ON GlobalDocTags (doc_id, user_email)"
     )
 
     cur.execute(

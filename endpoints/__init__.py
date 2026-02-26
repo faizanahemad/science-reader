@@ -48,6 +48,7 @@ def register_blueprints(app: Flask) -> None:
     from .ext_workflows import ext_workflows_bp
     from .ext_settings import ext_settings_bp
     from .file_browser import file_browser_bp
+    from .doc_folders import doc_folders_bp
     # OpenCode terminal (WebSocket-based PTY)
     try:
         from .terminal import terminal_bp, sock as terminal_sock
@@ -76,3 +77,4 @@ def register_blueprints(app: Flask) -> None:
     app.register_blueprint(ext_workflows_bp)
     app.register_blueprint(ext_settings_bp)
     app.register_blueprint(file_browser_bp)
+    app.register_blueprint(doc_folders_bp)

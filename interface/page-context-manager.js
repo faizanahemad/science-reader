@@ -43,6 +43,17 @@ var PageContextManager = (function() {
         });
     }
 
+    /**
+     * Resolve the tabId of the currently active non-UI tab via the extension.
+     * Used by OCR flows which need an explicit tabId for captureFullPageWithOcr.
+     * @returns {Promise<number>} Resolves with tabId.
+     */
+    function _resolveCurrentTabId() {
+        return ExtensionBridge.getTabInfo().then(function(info) {
+            return info.id;
+        });
+    }
+
     function _captureAndOcrPipelined(tabId) {
         var ocrPromises = [];
         var capturedCount = 0;
@@ -207,8 +218,10 @@ var PageContextManager = (function() {
             }
         });
 
-        $('#ext-extract-page').on('click', function() {
-            var $btn = $(this);
+        // DOM extraction (default / main button click)
+        $('#ext-extract-page, #ext-extract-dom').on('click', function(e) {
+            e.preventDefault();
+            var $btn = $('#ext-extract-page');
             $btn.prop('disabled', true).find('i').removeClass('fa-globe').addClass('fa-spinner fa-spin');
             ExtensionBridge.extractCurrentPage().then(function(data) {
                 PageContextManager.setSingleContext(data);
@@ -216,6 +229,47 @@ var PageContextManager = (function() {
                 if (typeof showToast === 'function') showToast(msg, 'success');
             }).catch(function(err) {
                 if (typeof showToast === 'function') showToast('Extraction failed: ' + (err.message || err), 'danger');
+            }).finally(function() {
+                $btn.prop('disabled', false).find('i').removeClass('fa-spinner fa-spin').addClass('fa-globe');
+            });
+        });
+
+        // OCR extraction — single viewport screenshot + LLM OCR
+        $('#ext-extract-ocr').on('click', function(e) {
+            e.preventDefault();
+            var $btn = $('#ext-extract-page');
+            $btn.prop('disabled', true).find('i').removeClass('fa-globe').addClass('fa-spinner fa-spin');
+            if (typeof showToast === 'function') showToast('Taking screenshot for OCR…', 'info');
+            _resolveCurrentTabId().then(function(tabId) {
+                return ExtensionBridge.captureScreenshot(tabId).then(function(result) {
+                    return _ocrSingleScreenshot(result.dataUrl, '', '').then(function(text) {
+                        return ExtensionBridge.getTabInfo().then(function(info) {
+                            return { url: info.url, title: info.title, content: text, isOcr: true };
+                        }).catch(function() {
+                            return { url: '', title: '', content: text, isOcr: true };
+                        });
+                    });
+                });
+            }).then(function(data) {
+                PageContextManager.setSingleContext(data);
+                if (typeof showToast === 'function') showToast('OCR extraction complete', 'success');
+            }).catch(function(err) {
+                if (typeof showToast === 'function') showToast('OCR failed: ' + (err.message || err), 'danger');
+            }).finally(function() {
+                $btn.prop('disabled', false).find('i').removeClass('fa-spinner fa-spin').addClass('fa-globe');
+            });
+        });
+
+        // Full Page OCR — scrolling capture + LLM OCR pipelined
+        $('#ext-extract-full-ocr').on('click', function(e) {
+            e.preventDefault();
+            var $btn = $('#ext-extract-page');
+            $btn.prop('disabled', true).find('i').removeClass('fa-globe').addClass('fa-spinner fa-spin');
+            if (typeof showToast === 'function') showToast('Starting full-page OCR…', 'info');
+            _resolveCurrentTabId().then(function(tabId) {
+                return PageContextManager.capturePageWithOcr(tabId);
+            }).catch(function(err) {
+                if (typeof showToast === 'function') showToast('Full-page OCR failed: ' + (err.message || err), 'danger');
             }).finally(function() {
                 $btn.prop('disabled', false).find('i').removeClass('fa-spinner fa-spin').addClass('fa-globe');
             });

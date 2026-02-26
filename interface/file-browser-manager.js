@@ -57,6 +57,153 @@ var FileBrowserManager = (function () {
         '.txt':  'bi-file-earmark-text'
     };
 
+
+    // ─── Config (overridable via init(cfg) or configure(cfg)) ───
+    var _config = {
+
+        // ── Group 1: API Endpoints ─────────────────────────────────────────
+        // All paths used by AJAX calls. Override individual keys or the whole object.
+        // Set any value to null to disable that operation entirely.
+        endpoints: {
+            tree:     '/file-browser/tree',     // GET  ?path=
+            read:     '/file-browser/read',     // GET  ?path=
+            write:    '/file-browser/write',    // POST {path, content}
+            mkdir:    '/file-browser/mkdir',    // POST {path}
+            rename:   '/file-browser/rename',   // POST {old_path, new_path}
+            delete:   '/file-browser/delete',   // POST {path, recursive}
+            move:     '/file-browser/move',     // POST {src_path, dest_path}
+            upload:   '/file-browser/upload',   // POST multipart {file, path}
+            download: '/file-browser/download', // GET  ?path=
+            serve:    '/file-browser/serve',    // GET  ?path=  (PDF inline)
+            aiEdit:   '/file-browser/ai-edit'   // POST {path, instruction, ...}
+        },
+
+        // ── Group 2: DOM Element IDs ───────────────────────────────────────
+        // IDs of elements that FileBrowserManager reads/writes/binds to.
+        // For a second embedding, supply different IDs pointing to a second
+        // set of elements (e.g. inside a different modal).
+        dom: {
+            // Main containers
+            modal:              'file-browser-modal',
+            openBtn:            'settings-file-browser-modal-open-button',
+            tree:               'file-browser-tree',
+            sidebar:            'file-browser-sidebar',
+            addressBar:         'file-browser-address-bar',
+            suggestionDropdown: 'file-browser-suggestion-dropdown',
+            editorContainer:    'file-browser-editor-container',
+            previewContainer:   'file-browser-preview-container',
+            wysiwygContainer:   'file-browser-wysiwyg-container',
+            pdfContainer:       'file-browser-pdf-container',
+            emptyState:         'file-browser-empty-state',
+            dirtyIndicator:     'file-browser-dirty-indicator',
+            tabBar:             'file-browser-tab-bar',
+            viewBtnGroup:       'fb-view-btngroup',
+            viewSelect:         'file-browser-view-select',
+            // Toolbar buttons
+            saveBtn:            'file-browser-save-btn',
+            discardBtn:         'file-browser-discard-btn',
+            reloadBtn:          'file-browser-reload-btn',
+            wrapBtn:            'file-browser-wrap-btn',
+            downloadBtn:        'file-browser-download-btn',
+            uploadBtn:          'file-browser-upload-btn',
+            aiEditBtn:          'file-browser-ai-edit-btn',
+            refreshBtn:         'file-browser-refresh-btn',
+            newFileBtn:         'file-browser-new-file-btn',
+            newFolderBtn:       'file-browser-new-folder-btn',
+            sidebarToggle:      'file-browser-sidebar-toggle',
+            closeBtn:           'file-browser-close-btn',
+            themeSelect:        'file-browser-theme-select',
+            // Context menu
+            contextMenu:        'file-browser-context-menu',
+            // Sub-modals
+            confirmModal:       'file-browser-confirm-modal',
+            confirmTitle:       'file-browser-confirm-title',
+            confirmBody:        'file-browser-confirm-body',
+            confirmOkBtn:       'file-browser-confirm-ok-btn',
+            confirmCancelBtn:   'file-browser-confirm-cancel-btn',
+            nameModal:          'file-browser-name-modal',
+            nameTitle:          'file-browser-name-modal-title',
+            nameHint:           'file-browser-name-modal-hint',
+            nameDirHint:        'file-browser-name-modal-dir',
+            nameOkBtn:          'file-browser-name-ok-btn',
+            nameCancelBtn:      'file-browser-name-cancel-btn',
+            nameInput:          'file-browser-name-input',
+            moveModal:          'file-browser-move-modal',
+            uploadModal:        'file-browser-upload-modal',
+            aiEditModal:        'file-browser-ai-edit-modal',
+            aiDiffModal:        'file-browser-ai-diff-modal',
+            backdrop:           'file-browser-backdrop',
+            loadAnywayBtn:      'file-browser-load-anyway-btn'
+        },
+
+        // ── Group 3: Behavior Flags ────────────────────────────────────────
+        // All defaults reproduce current behavior.
+        readOnly:        false,   // true = no write/create/rename/delete/upload
+        allowUpload:     true,    // show/enable upload button
+        allowDelete:     true,    // show/enable delete in context menu
+        allowRename:     true,    // show/enable rename in context menu
+        allowCreate:     true,    // show/enable new file + new folder buttons
+        allowMove:       true,    // show/enable move in context menu + DnD
+        allowAiEdit:     true,    // show/enable AI Edit button
+        showEditor:      true,    // false = tree-only mode; editor panel hidden
+        showAddressBar:  true,    // false = hide address bar
+
+        // ── Group 4: Root & Title ──────────────────────────────────────────
+        rootPath: '.',            // Directory to load when modal opens
+        title:    'File Browser', // Text shown in modal header (future use)
+
+        // ── Group 5: Operation Callbacks ──────────────────────────────────
+        // Same contract as onMove: receive args + done(errorMsg|null).
+        // Set to null to use default endpoint-based implementation.
+        /**
+         * Move a file/folder from srcPath to destPath.
+         * Call done(null) on success, done(errorMessage) on failure.
+         * Override this to use a different backend or move semantics.
+         * @param {string} srcPath  - Source relative path.
+         * @param {string} destPath - Full destination relative path (dir + basename).
+         * @param {function} done   - Callback: done(errorMsg|null).
+         */
+        onMove: function (srcPath, destPath, done) {
+            $.ajax({
+                url: _config.endpoints.move,
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ src_path: srcPath, dest_path: destPath }),
+                success: function (r) {
+                    done(r.status === 'success' ? null : (r.error || 'Move failed'));
+                },
+                error: function (xhr) {
+                    var msg = 'Move failed';
+                    try { msg = JSON.parse(xhr.responseText).error || msg; } catch (ex) {}
+                    done(msg);
+                }
+            });
+        },
+        onDelete: null,        // function(path, done)
+        onRename: null,        // function(oldPath, newPath, done)
+        onCreateFolder: null,  // function(path, done)
+        onCreateFile: null,    // function(path, done)
+        onUpload: null,        // function(file, targetDir, done)
+        onSave: null,          // function(path, content, done)
+
+        // ── Group 6: Selection / Lifecycle Events ─────────────────────────
+        // Pure notification callbacks — no done() needed.
+        onSelect: null,        // function(path, type, entry)
+        onOpen:   null,        // function()
+        onClose:  null,        // function()
+
+        // ── Group 7: Custom Rendering ──────────────────────────────────────
+        enrichEntry: null,     // function(entry, path, done) — async enrichment
+        renderEntry: null,     // function(entry, path) — return jQuery element or null
+        buildContextMenu: null // function(path, type) — return [{label,icon,action}] or null
+    };
+
+    /** Resolve a config DOM key to a jQuery wrapped element. */
+    function _$(key) { return $('#' + (_config.dom[key] || key)); }
+
+    /** Resolve a config endpoint name to its URL string, or null if disabled. */
+    function _ep(name) { return (_config.endpoints && _config.endpoints[name]) || null; }
+
     // ─── State ───
     var state = {
         currentPath: null,        // Currently open file path (relative to server root)
@@ -85,7 +232,10 @@ var FileBrowserManager = (function () {
         isPdf: false,                  // Whether current file is a PDF
         pdfBlobUrl: null,              // Current PDF blob URL (for memory cleanup)
         viewMode: 'raw',              // 'raw' | 'preview' | 'wysiwyg' (for markdown files)
-        fbEasyMDE: null                // EasyMDE instance (lazy-created, persisted)
+        fbEasyMDE: null,               // EasyMDE instance (lazy-created, persisted)
+        dragSource: null,              // {path,type,name} of tree item currently being dragged
+        moveTarget: null,              // {path,type,name} of item being moved via context menu
+        moveDest: null                 // Destination dir selected in move modal
     };
 
     // ═══════════════════════════════════════════════════════════════
@@ -166,13 +316,13 @@ var FileBrowserManager = (function () {
      */
     function _updateDirtyState() {
         if (state.isDirty) {
-            $('#file-browser-dirty-indicator').addClass('visible');
-            $('#file-browser-save-btn').prop('disabled', false);
-            $('#file-browser-discard-btn').show();
+            _$('dirtyIndicator').addClass('visible');
+            _$('saveBtn').prop('disabled', false);
+            _$('discardBtn').show();
         } else {
-            $('#file-browser-dirty-indicator').removeClass('visible');
-            $('#file-browser-save-btn').prop('disabled', true);
-            $('#file-browser-discard-btn').hide();
+            _$('dirtyIndicator').removeClass('visible');
+            _$('saveBtn').prop('disabled', true);
+            _$('discardBtn').hide();
         }
     }
 
@@ -182,11 +332,11 @@ var FileBrowserManager = (function () {
      * @param {string} [messageHtml] - HTML content for the 'message' view.
      */
     function _showView(view, messageHtml) {
-        var edEl = document.getElementById('file-browser-editor-container');
-        var prEl = document.getElementById('file-browser-preview-container');
-        var wyEl = document.getElementById('file-browser-wysiwyg-container');
-        var pdEl = document.getElementById('file-browser-pdf-container');
-        var emEl = document.getElementById('file-browser-empty-state');
+        var edEl = document.getElementById(_config.dom.editorContainer);
+        var prEl = document.getElementById(_config.dom.previewContainer);
+        var wyEl = document.getElementById(_config.dom.wysiwygContainer);
+        var pdEl = document.getElementById(_config.dom.pdfContainer);
+        var emEl = document.getElementById(_config.dom.emptyState);
         if (!edEl || !prEl || !emEl) return;
         edEl.style.display = (view === 'editor')  ? 'block' : 'none';
         prEl.style.display = (view === 'preview') ? 'block' : 'none';
@@ -232,7 +382,7 @@ var FileBrowserManager = (function () {
         }
 
         var xhr = new XMLHttpRequest();
-        xhr.open('GET', '/file-browser/serve?path=' + encodeURIComponent(filePath), true);
+        xhr.open('GET', _ep('serve') + '?path=' + encodeURIComponent(filePath), true);
         xhr.responseType = 'blob';
 
         xhr.onprogress = function (e) {
@@ -279,13 +429,13 @@ var FileBrowserManager = (function () {
         var isPdf = state.isPdf;
         var isWysiwyg = (state.viewMode === 'wysiwyg');
 
-        $('#file-browser-save-btn').prop('disabled', isPdf);
-        $('#file-browser-discard-btn').prop('disabled', isPdf);
-        $('#file-browser-ai-edit-btn').prop('disabled', isPdf || isWysiwyg);
-        $('#file-browser-wrap-btn').prop('disabled', isPdf || isWysiwyg);
-        $('#file-browser-reload-btn').prop('disabled', isPdf);
+        _$('saveBtn').prop('disabled', isPdf);
+        _$('discardBtn').prop('disabled', isPdf);
+        _$('aiEditBtn').prop('disabled', isPdf || isWysiwyg);
+        _$('wrapBtn').prop('disabled', isPdf || isWysiwyg);
+        _$('reloadBtn').prop('disabled', isPdf);
         if (!isPdf) {
-            $('#file-browser-download-btn').prop('disabled', false);
+            _$('downloadBtn').prop('disabled', false);
         }
     }
 
@@ -303,10 +453,10 @@ var FileBrowserManager = (function () {
         state.viewMode = mode;
 
         // Update button group active state
-        $('#fb-view-btngroup .btn').removeClass('active');
-        $('#fb-view-btngroup .btn[data-view="' + mode + '"]').addClass('active');
+        _$('viewBtnGroup').find('.btn').removeClass('active');
+        _$('viewBtnGroup').find('.btn[data-view="' + mode + '"]').addClass('active');
         // Update select value
-        $('#file-browser-view-select').val(mode);
+        _$('viewSelect').val(mode);
 
         if (mode === 'raw') {
             _showView('editor');
@@ -329,7 +479,7 @@ var FileBrowserManager = (function () {
      */
     function _initOrRefreshEasyMDE() {
         var content = state.cmEditor ? state.cmEditor.getValue() : '';
-        var container = document.getElementById('file-browser-wysiwyg-container');
+        var container = document.getElementById(_config.dom.wysiwygContainer);
         if (!container) return;
 
         if (!state.fbEasyMDE) {
@@ -395,7 +545,7 @@ var FileBrowserManager = (function () {
      */
     function _ensureEditor() {
         if (state.cmEditor) return;
-        state.cmEditor = CodeMirror($('#file-browser-editor-container')[0], {
+        state.cmEditor = CodeMirror(_$('editorContainer')[0], {
             lineNumbers: true,
             theme: state.currentTheme,
             mode: null,
@@ -438,7 +588,7 @@ var FileBrowserManager = (function () {
         if (!state.cmEditor) return;
         state.wordWrap = !state.wordWrap;
         state.cmEditor.setOption('lineWrapping', state.wordWrap);
-        $('#file-browser-wrap-btn').toggleClass('active', state.wordWrap);
+        _$('wrapBtn').toggleClass('active', state.wordWrap);
     }
 
     /**
@@ -468,7 +618,7 @@ var FileBrowserManager = (function () {
      *                               If null, replaces the entire tree.
      */
     function loadTree(dirPath, $parentUl) {
-        $.getJSON('/file-browser/tree', { path: dirPath })
+        $.getJSON(_ep('tree'), { path: dirPath })
             .done(function (resp) {
                 if (resp.status !== 'success') {
                     showToast('Failed to load tree: ' + (resp.error || 'Unknown'), 'error');
@@ -486,11 +636,21 @@ var FileBrowserManager = (function () {
                     var $li = $('<li></li>')
                         .attr('data-path', entryPath)
                         .attr('data-type', entry.type)
-                        .attr('data-name', entry.name);
+                        .attr('data-name', entry.name)
+                        .attr('draggable', 'true');
 
                     var $iconSpan = $('<span class="tree-icon"><i class="' + iconClass + '"></i></span>');
                     var $nameSpan = $('<span class="tree-name"></span>').text(entry.name);
                     $li.append($iconSpan).append($nameSpan);
+                    $li.data('entry', entry);
+
+                    // Custom rendering hook (sync)
+                    if (_config.renderEntry) {
+                        var $custom = _config.renderEntry(entry, entryPath);
+                        if ($custom) {
+                            $li.empty().append($custom.contents ? $custom.contents() : $custom);
+                        }
+                    }
 
                     // Highlight currently open file
                     if (!isDir && state.currentPath === entryPath) {
@@ -505,6 +665,24 @@ var FileBrowserManager = (function () {
                     }
                 });
 
+                // Async enrichment hook (post-render)
+                if (_config.enrichEntry) {
+                    $ul.find('> li').each(function() {
+                        var $li = $(this);
+                        var entry = $li.data('entry');
+                        if (!entry) return;
+                        _config.enrichEntry(entry, $li.attr('data-path'), function(enriched) {
+                            $li.data('entry', enriched);
+                            if (_config.renderEntry) {
+                                var $custom = _config.renderEntry(enriched, $li.attr('data-path'));
+                                if ($custom) {
+                                    $li.empty().append($custom.contents ? $custom.contents() : $custom);
+                                }
+                            }
+                        });
+                    });
+                }
+
                 if ($parentUl) {
                     // Appending as a child of a directory <li>
                     var $parentLi = $parentUl.children('li[data-path="' + CSS.escape(dirPath) + '"]');
@@ -516,7 +694,7 @@ var FileBrowserManager = (function () {
                     }
                 } else {
                     // Root level: replace entire tree content
-                    $('#file-browser-tree').empty().append($ul);
+                    _$('tree').empty().append($ul);
                 }
                 _refreshPathSuggestions();
             })
@@ -533,7 +711,7 @@ var FileBrowserManager = (function () {
      */
     function _refreshPathSuggestions() {
         var paths = [];
-        $('#file-browser-tree li').each(function () {
+        _$('tree').find('li').each(function () {
             var p = $(this).attr('data-path');
             if (p) paths.push(p);
         });
@@ -704,7 +882,7 @@ var FileBrowserManager = (function () {
      * @param {string} query - Current input value.
      */
     function _filterAndShowSuggestions(query) {
-        var $dropdown = $('#file-browser-suggestion-dropdown');
+        var $dropdown = _$('suggestionDropdown');
         if (!query || query.length === 0) {
             $dropdown.hide().empty();
             _suggestionActiveIdx = -1;
@@ -744,7 +922,7 @@ var FileBrowserManager = (function () {
      * Hide the suggestion dropdown and reset active index.
      */
     function _hideSuggestionDropdown() {
-        $('#file-browser-suggestion-dropdown').hide().empty();
+        _$('suggestionDropdown').hide().empty();
         _suggestionActiveIdx = -1;
     }
 
@@ -754,7 +932,7 @@ var FileBrowserManager = (function () {
      * @returns {boolean} true if the key was handled, false otherwise.
      */
     function _handleSuggestionNav(key) {
-        var $dropdown = $('#file-browser-suggestion-dropdown');
+        var $dropdown = _$('suggestionDropdown');
         if ($dropdown.css('display') === 'none') return false;
         var $items = $dropdown.find('.fb-suggestion-item');
         if ($items.length === 0) return false;
@@ -779,7 +957,7 @@ var FileBrowserManager = (function () {
         if (key === 'Enter' && _suggestionActiveIdx >= 0 && _suggestionActiveIdx < $items.length) {
             var selectedPath = $($items[_suggestionActiveIdx]).attr('data-path');
             if (selectedPath) {
-                $('#file-browser-address-bar').val(selectedPath);
+                _$('addressBar').val(selectedPath);
                 _hideSuggestionDropdown();
                 _navigateAddressBar(selectedPath);
             }
@@ -810,7 +988,7 @@ var FileBrowserManager = (function () {
         // Update address bar to show this directory
         state.currentDir = dirPath;
         if (!state.currentPath) {
-            $('#file-browser-address-bar').val(dirPath === '.' ? '' : dirPath);
+            _$('addressBar').val(dirPath === '.' ? '' : dirPath);
         }
     }
 
@@ -819,9 +997,9 @@ var FileBrowserManager = (function () {
      * @param {string} filePath - Relative file path to highlight.
      */
     function _highlightTreeItem(filePath) {
-        $('#file-browser-tree li.active').removeClass('active');
+        _$('tree').find('li.active').removeClass('active');
         if (filePath) {
-            $('#file-browser-tree li[data-path="' + CSS.escape(filePath) + '"]').addClass('active');
+            _$('tree').find('li[data-path="' + CSS.escape(filePath) + '"]').addClass('active');
         }
     }
 
@@ -856,7 +1034,7 @@ var FileBrowserManager = (function () {
             state.fbEasyMDE.value('');
         }
 
-        $.getJSON('/file-browser/read', params)
+        $.getJSON(_ep('read'), params)
             .done(function (resp) {
                 if (resp.status !== 'success') {
                     showToast('Failed to read file: ' + (resp.error || 'Unknown'), 'error');
@@ -871,17 +1049,17 @@ var FileBrowserManager = (function () {
                     state.isMarkdown = false;
                     _updateDirtyState();
                     _highlightTreeItem(filePath);
-                    $('#file-browser-address-bar').val(filePath);
-                    $('#file-browser-tab-bar').hide();
+                    _$('addressBar').val(filePath);
+                    _$('tabBar').hide();
                     _showView('message',
                         '<i class="bi bi-file-earmark-binary" style="font-size: 3rem;"></i>' +
                         '<p class="mt-2">Binary file — cannot edit</p>' +
                         '<small class="text-muted">' + _basename(filePath) + ' (' + _formatSize(resp.size) + ')</small>'
                     );
-                    $('#file-browser-ai-edit-btn').prop('disabled', true);
-                    $('#file-browser-reload-btn').prop('disabled', true);
-                    $('#file-browser-wrap-btn').prop('disabled', true);
-                    $('#file-browser-download-btn').prop('disabled', true);
+                    _$('aiEditBtn').prop('disabled', true);
+                    _$('reloadBtn').prop('disabled', true);
+                    _$('wrapBtn').prop('disabled', true);
+                    _$('downloadBtn').prop('disabled', true);
                     return;
                 }
 
@@ -893,21 +1071,21 @@ var FileBrowserManager = (function () {
                     state.isMarkdown = false;
                     _updateDirtyState();
                     _highlightTreeItem(filePath);
-                    $('#file-browser-address-bar').val(filePath);
-                    $('#file-browser-tab-bar').hide();
+                    _$('addressBar').val(filePath);
+                    _$('tabBar').hide();
                     _showView('message',
                         '<i class="bi bi-exclamation-triangle" style="font-size: 3rem; color: #ffc107;"></i>' +
                         '<p class="mt-2">File is too large (' + _formatSize(resp.size) + ')</p>' +
                         '<button class="btn btn-sm btn-outline-warning" id="file-browser-load-anyway-btn">Load Anyway</button>'
                     );
                     // Bind the Load Anyway button
-                    $('#file-browser-load-anyway-btn').off('click').on('click', function () {
+                    _$('loadAnywayBtn').off('click').on('click', function () {
                         loadFile(filePath, true);
                     });
-                    $('#file-browser-ai-edit-btn').prop('disabled', true);
-                    $('#file-browser-reload-btn').prop('disabled', true);
-                    $('#file-browser-wrap-btn').prop('disabled', true);
-                    $('#file-browser-download-btn').prop('disabled', true);
+                    _$('aiEditBtn').prop('disabled', true);
+                    _$('reloadBtn').prop('disabled', true);
+                    _$('wrapBtn').prop('disabled', true);
+                    _$('downloadBtn').prop('disabled', true);
                     return;
                 }
 
@@ -923,10 +1101,10 @@ var FileBrowserManager = (function () {
                     state.originalContent = '';
                     _updateDirtyState();
                     _highlightTreeItem(filePath);
-                    $('#file-browser-address-bar').val(filePath);
-                    $('#file-browser-tab-bar').hide();
-                    $('#file-browser-download-btn').prop('disabled', false);
-                    $('#file-browser-reload-btn').prop('disabled', true);
+                    _$('addressBar').val(filePath);
+                    _$('tabBar').hide();
+                    _$('downloadBtn').prop('disabled', false);
+                    _$('reloadBtn').prop('disabled', true);
                     _updateToolbarForFileType();
                     _showView('pdf');
                     _loadFilePDF(filePath);
@@ -952,17 +1130,17 @@ var FileBrowserManager = (function () {
 
                 _updateDirtyState();
                 _highlightTreeItem(filePath);
-                $('#file-browser-address-bar').val(filePath);
+                _$('addressBar').val(filePath);
 
                 // View mode selector — shown only for markdown files; reset to Raw
                 state.viewMode = 'raw';
                 if (state.isMarkdown) {
-                    $('#fb-view-btngroup .btn').removeClass('active');
+                    _$('viewBtnGroup').find('.btn').removeClass('active');
                     $('#fb-view-btngroup .btn[data-view="raw"]').addClass('active');
-                    $('#file-browser-view-select').val('raw');
-                    if (state.sidebarVisible) { $('#file-browser-tab-bar').show(); }
+                    _$('viewSelect').val('raw');
+                    if (state.sidebarVisible) { _$('tabBar').show(); }
                 } else {
-                    $('#file-browser-tab-bar').hide();
+                    _$('tabBar').hide();
                 }
 
                 _showView('editor');
@@ -970,10 +1148,10 @@ var FileBrowserManager = (function () {
                 // Move cursor to top
                 state.cmEditor.setCursor(0, 0);
                 state.cmEditor.focus();
-                $('#file-browser-ai-edit-btn').prop('disabled', false);
-                $('#file-browser-reload-btn').prop('disabled', false);
-                $('#file-browser-wrap-btn').prop('disabled', false);
-                $('#file-browser-download-btn').prop('disabled', false);
+                _$('aiEditBtn').prop('disabled', false);
+                _$('reloadBtn').prop('disabled', false);
+                _$('wrapBtn').prop('disabled', false);
+                _$('downloadBtn').prop('disabled', false);
             })
             .fail(function (xhr) {
                 var msg = 'Failed to read file';
@@ -997,6 +1175,7 @@ var FileBrowserManager = (function () {
      * Save the current file to the server.
      */
     function saveFile() {
+        if (_config.readOnly) return;
         // Sync WYSIWYG content to CodeMirror before reading for save
         if (state.viewMode === 'wysiwyg') {
             _syncWysiwygToCodeMirror();
@@ -1004,27 +1183,36 @@ var FileBrowserManager = (function () {
         if (!state.currentPath || !state.isDirty) return;
 
         var content = state.cmEditor.getValue();
-        $.ajax({
-            url: '/file-browser/write',
-            method: 'POST',
-            contentType: 'application/json',
-            data: JSON.stringify({ path: state.currentPath, content: content })
-        })
-        .done(function (resp) {
-            if (resp.status === 'success') {
-                state.originalContent = content;
-                state.isDirty = false;
-                _updateDirtyState();
-                showToast('Saved: ' + _basename(state.currentPath), 'success');
-            } else {
-                showToast('Save failed: ' + (resp.error || 'Unknown'), 'error');
-            }
-        })
-        .fail(function (xhr) {
-            var msg = 'Save failed';
-            try { msg = JSON.parse(xhr.responseText).error || msg; } catch (e) { /* ignore */ }
-            showToast(msg, 'error');
-        });
+        var done = function(err) {
+            if (err) { showToast('Save failed: ' + err, 'error'); return; }
+            state.originalContent = content;
+            state.isDirty = false;
+            _updateDirtyState();
+            showToast('Saved: ' + _basename(state.currentPath), 'success');
+        };
+        if (_config.onSave) {
+            _config.onSave(state.currentPath, content, done);
+        } else {
+            if (!_ep('write')) { done('Not supported'); return; }
+            $.ajax({
+                url: _ep('write'),
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ path: state.currentPath, content: content })
+            })
+            .done(function (resp) {
+                if (resp.status === 'success') {
+                    done(null);
+                } else {
+                    done(resp.error || 'Unknown');
+                }
+            })
+            .fail(function (xhr) {
+                var msg = 'Save failed';
+                try { msg = JSON.parse(xhr.responseText).error || msg; } catch (e) { /* ignore */ }
+                done(msg);
+            });
+        }
     }
 
     /**
@@ -1062,7 +1250,7 @@ var FileBrowserManager = (function () {
      */
     function _doReload() {
 
-        $.get('/file-browser/read', { path: state.currentPath }, function(resp) {
+        $.get(_ep('read'), { path: state.currentPath }, function(resp) {
             if (resp.status === 'error') {
                 showToast('Reload failed: ' + (resp.message || 'Unknown error'), 'danger');
                 return;
@@ -1115,7 +1303,7 @@ var FileBrowserManager = (function () {
             html = '<pre>' + $('<span>').text(content).html() + '</pre>';
         }
 
-        var $container = $('#file-browser-preview-container');
+        var $container = _$('previewContainer');
         $container.html(html);
 
         // Apply syntax highlighting to code blocks
@@ -1136,15 +1324,165 @@ var FileBrowserManager = (function () {
      * @param {number} y - Vertical position.
      */
     function _showContextMenu(x, y) {
-        $('#file-browser-context-menu').css({ left: x, top: y, display: 'block' });
+        if (_config.buildContextMenu && state.contextTarget) {
+            var items = _config.buildContextMenu(state.contextTarget.path, state.contextTarget.type);
+            if (items !== null && items !== undefined) {
+                var $menu = _$('contextMenu');
+                var $ul = $menu.find('ul').length ? $menu.find('ul') : $menu;
+                $ul.empty();
+                items.forEach(function(item) {
+                    var $a = $('<a href="#" class="dropdown-item"></a>')
+                        .html('<i class="' + (item.icon || '') + ' mr-2"></i>' + item.label)
+                        .on('click', function(e) {
+                            e.preventDefault();
+                            _hideContextMenu();
+                            item.action(state.contextTarget.path, state.contextTarget.type);
+                        });
+                    $ul.append($('<li></li>').append($a));
+                });
+                $menu.css({ left: x, top: y, display: 'block' });
+                return;
+            }
+        }
+        // Default behavior: show standard context menu with flag guards
+        var $menu = _$('contextMenu');
+        // Apply flag guards to default menu items
+        $menu.find('[data-action="new-file"]').toggle(_config.allowCreate && !_config.readOnly);
+        $menu.find('[data-action="new-folder"]').toggle(_config.allowCreate && !_config.readOnly);
+        $menu.find('[data-action="rename"]').toggle(_config.allowRename && !_config.readOnly);
+        $menu.find('[data-action="delete"]').toggle(_config.allowDelete && !_config.readOnly);
+        $menu.find('[data-action="move"]').toggle(_config.allowMove && !_config.readOnly);
+        $menu.css({ left: x, top: y, display: 'block' });
     }
 
     /**
      * Hide the context menu.
      */
     function _hideContextMenu() {
-        $('#file-browser-context-menu').hide();
+        _$('contextMenu').hide();
         state.contextTarget = null;
+    }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Move file/folder (drag-and-drop + context menu)
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Validate whether srcPath can be moved into destDirPath.
+     * @param {string} srcPath     - Full relative path of item being moved.
+     * @param {string} destDirPath - Full relative path of target directory.
+     * @returns {boolean} true if the move is valid.
+     */
+    function _isValidMoveTarget(srcPath, destDirPath) {
+        // Cannot drop onto itself
+        if (srcPath === destDirPath) return false;
+        // Cannot drop into own descendant (would make directory vanish)
+        if (destDirPath.indexOf(srcPath + '/') === 0) return false;
+        // No-op: source is already in this directory
+        if (_parentDir(srcPath) === destDirPath) return false;
+        return true;
+    }
+
+    /**
+     * Execute the move: call the configured onMove callback, update state, refresh tree.
+     * @param {string} srcPath  - Relative path of item to move.
+     * @param {string} destPath - Full new relative path (destDir + '/' + basename).
+     */
+    function _moveItem(srcPath, destPath) {
+        $('#fb-move-ok-btn').prop('disabled', true).text('Moving…');
+        _config.onMove(srcPath, destPath, function (err) {
+            if (err) {
+                showToast(err, 'error');
+                $('#fb-move-ok-btn').prop('disabled', false).text('Move Here');
+                return;
+            }
+            // If the currently open file was moved, update its path
+            if (state.currentPath === srcPath) {
+                state.currentPath = destPath;
+                _$('addressBar').val(destPath);
+            }
+            _hideMoveModal();
+            _refreshTree();
+            showToast('Moved to ' + _parentDir(destPath), 'success');
+        });
+    }
+
+    /**
+     * Show the move destination modal for state.moveTarget.
+     * Populates the folder tree starting from root.
+     */
+    function _showMoveModal() {
+        if (!state.moveTarget) return;
+        state.moveDest = null;
+        $('#fb-move-src-name').text(state.moveTarget.name);
+        $('#fb-move-dest-hint').text('');
+        $('#fb-move-ok-btn').prop('disabled', true).text('Move Here');
+        var $tree = $('#fb-move-folder-tree').empty();
+
+        // Always show a selectable root item at the top
+        var $root = $('<div></div>')
+            .addClass('fb-move-dir-item fb-move-root-item')
+            .attr('data-path', '.')
+            .attr('data-type', 'dir')
+            .html('<i class="bi bi-house-door mr-1" style="color:#e6a817;"></i><strong>/ (root)</strong>');
+        $tree.append($root);
+
+        // Then load the sub-folder tree below it
+        _loadMoveTree('.', $tree);
+        _$('moveModal').css('display', 'flex');
+    }
+
+    /**
+     * Load folder-only tree inside the move modal.
+     * Only directories are rendered (files are hidden).
+     * @param {string} dirPath   - Directory path to load.
+     * @param {jQuery} $container - Container element to append the <ul> into.
+     */
+    function _loadMoveTree(dirPath, $container) {
+        $.getJSON(_ep('tree'), { path: dirPath })
+            .done(function (resp) {
+                if (resp.status !== 'success') return;
+                var entries = (resp.entries || []).filter(function (e) { return e.type === 'dir'; });
+                if (!entries.length) {
+                    $container.append('<p class="text-muted small p-2 mb-0">(no sub-folders)</p>');
+                    return;
+                }
+                var $ul = $('<ul></ul>').css({ 'list-style': 'none', 'padding-left': '0', 'margin': '0' });
+                entries.forEach(function (entry) {
+                    var entryPath = _joinPath(dirPath, entry.name);
+                    var $li = $('<li></li>')
+                        .attr('data-path', entryPath)
+                        .attr('data-type', 'dir')
+                        .addClass('fb-move-dir-item');
+                    var $toggle = $('<span class="fb-move-toggle" style="display:inline-block;width:14px;text-align:center;font-size:0.7rem;color:#888;cursor:pointer;">▶</span>');
+                    var $icon = $('<i class="bi bi-folder2 mr-1" style="color:#e6a817;"></i>');
+                    var $name = $('<span></span>').text(entry.name);
+                    $li.append($toggle).append($icon).append($name);
+                    var $children = $('<div class="fb-move-children" style="padding-left:14px; display:none;"></div>');
+                    $li.append($children);
+                    $ul.append($li);
+                });
+                $container.append($ul);
+            });
+    }
+
+    /** Hide the move modal and reset move state. */
+    function _hideMoveModal() {
+        _$('moveModal').hide();
+        state.moveTarget = null;
+        state.moveDest = null;
+    }
+
+    /** Called when user clicks 'Move Here' in the move modal. */
+    function _confirmMove() {
+        if (!state.moveTarget || !state.moveDest) return;
+        var srcPath = state.moveTarget.path;
+        var destPath = _joinPath(state.moveDest, _basename(srcPath));
+        if (!_isValidMoveTarget(srcPath, state.moveDest)) {
+            showToast('Cannot move a folder into itself or the same location.', 'warning');
+            return;
+        }
+        _moveItem(srcPath, destPath);
     }
 
 
@@ -1182,12 +1520,12 @@ var FileBrowserManager = (function () {
     function _showNameModal(type, callback, opts) {
         opts = opts || {};
         var dir = opts.dir || _getTargetDir();
-        var $modal = $('#file-browser-name-modal');
-        var $input = $('#file-browser-name-input');
-        var $title = $('#file-browser-name-modal-title');
-        var $hint = $('#file-browser-name-modal-hint');
-        var $dirHint = $('#file-browser-name-modal-dir');
-        var $okBtn = $('#file-browser-name-ok-btn');
+        var $modal = _$('nameModal');
+        var $input = _$('nameInput');
+        var $title = _$('nameTitle');
+        var $hint = _$('nameHint');
+        var $dirHint = _$('nameDirHint');
+        var $okBtn = _$('nameOkBtn');
 
         if (type === 'rename') {
             $title.text('Rename');
@@ -1214,7 +1552,7 @@ var FileBrowserManager = (function () {
      * Hide the naming modal overlay and clear callback state.
      */
     function _hideNameModal() {
-        var $modal = $('#file-browser-name-modal');
+        var $modal = _$('nameModal');
         $modal.css('display', 'none');
         $modal.removeData('_nameCallback');
         $modal.removeData('_nameDir');
@@ -1224,8 +1562,8 @@ var FileBrowserManager = (function () {
      * Handle OK action from naming modal \u2014 reads input, validates, fires callback.
      */
     function _nameModalConfirm() {
-        var $modal = $('#file-browser-name-modal');
-        var $input = $('#file-browser-name-input');
+        var $modal = _$('nameModal');
+        var $input = _$('nameInput');
         var name = $input.val().trim();
         if (!name) {
             $input.addClass('is-invalid');
@@ -1253,10 +1591,10 @@ var FileBrowserManager = (function () {
      */
     function _showConfirmModal(title, bodyHtml, onConfirm, opts) {
         opts = opts || {};
-        var $modal = $('#file-browser-confirm-modal');
-        $('#file-browser-confirm-title').text(title);
-        $('#file-browser-confirm-body').html(bodyHtml);
-        var $okBtn = $('#file-browser-confirm-ok-btn');
+        var $modal = _$('confirmModal');
+        _$('confirmTitle').text(title);
+        _$('confirmBody').html(bodyHtml);
+        var $okBtn = _$('confirmOkBtn');
         $okBtn.text(opts.okText || 'OK');
         $okBtn.attr('class', 'btn btn-sm ' + (opts.okClass || 'btn-danger'));
         $modal.data('_confirmCallback', onConfirm);
@@ -1268,7 +1606,7 @@ var FileBrowserManager = (function () {
      * Hide the confirmation dialog and clear callback.
      */
     function _hideConfirmModal() {
-        var $modal = $('#file-browser-confirm-modal');
+        var $modal = _$('confirmModal');
         $modal.css('display', 'none');
         $modal.removeData('_confirmCallback');
     }
@@ -1280,27 +1618,36 @@ var FileBrowserManager = (function () {
     function _createFile() {
         _showNameModal('file', function (name) {
             var dir = _getTargetDir();
-        var filePath = _joinPath(dir, name);
-            $.ajax({
-                url: '/file-browser/write',
-                method: 'POST',
-                contentType: 'application/json',
-                data: JSON.stringify({ path: filePath, content: '' })
-            })
-            .done(function (resp) {
-                if (resp.status === 'success') {
-                    showToast('Created: ' + name, 'success');
-                    _refreshTree();
-                    loadFile(filePath);
-                } else {
-                    showToast('Create failed: ' + (resp.error || 'Unknown'), 'error');
-                }
-            })
-            .fail(function (xhr) {
-                var msg = 'Create failed';
-                try { msg = JSON.parse(xhr.responseText).error || msg; } catch (e) { /* ignore */ }
-                showToast(msg, 'error');
-            });
+            var filePath = _joinPath(dir, name);
+            var done = function(err) {
+                if (err) { showToast('Create failed: ' + err, 'error'); return; }
+                showToast('Created: ' + name, 'success');
+                _refreshTree();
+                loadFile(filePath);
+            };
+            if (_config.onCreateFile) {
+                _config.onCreateFile(filePath, done);
+            } else {
+                if (!_ep('write')) { done('Not supported'); return; }
+                $.ajax({
+                    url: _ep('write'),
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ path: filePath, content: '' })
+                })
+                .done(function (resp) {
+                    if (resp.status === 'success') {
+                        done(null);
+                    } else {
+                        done(resp.error || 'Unknown');
+                    }
+                })
+                .fail(function (xhr) {
+                    var msg = 'Create failed';
+                    try { msg = JSON.parse(xhr.responseText).error || msg; } catch (e) { /* ignore */ }
+                    done(msg);
+                });
+            }
         });
     }
 
@@ -1311,26 +1658,35 @@ var FileBrowserManager = (function () {
     function _createFolder() {
         _showNameModal('folder', function (name) {
             var dir = _getTargetDir();
-        var folderPath = _joinPath(dir, name);
-            $.ajax({
-                url: '/file-browser/mkdir',
-                method: 'POST',
-                contentType: 'application/json',
-                data: JSON.stringify({ path: folderPath })
-            })
-            .done(function (resp) {
-                if (resp.status === 'success') {
-                    showToast('Created folder: ' + name, 'success');
-                    _refreshTree();
-                } else {
-                    showToast('Create folder failed: ' + (resp.error || 'Unknown'), 'error');
-                }
-            })
-            .fail(function (xhr) {
-                var msg = 'Create folder failed';
-                try { msg = JSON.parse(xhr.responseText).error || msg; } catch (e) { /* ignore */ }
-                showToast(msg, 'error');
-            });
+            var folderPath = _joinPath(dir, name);
+            var done = function(err) {
+                if (err) { showToast('Create folder failed: ' + err, 'error'); return; }
+                showToast('Created folder: ' + name, 'success');
+                _refreshTree();
+            };
+            if (_config.onCreateFolder) {
+                _config.onCreateFolder(folderPath, done);
+            } else {
+                if (!_ep('mkdir')) { done('Not supported'); return; }
+                $.ajax({
+                    url: _ep('mkdir'),
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ path: folderPath })
+                })
+                .done(function (resp) {
+                    if (resp.status === 'success') {
+                        done(null);
+                    } else {
+                        done(resp.error || 'Unknown');
+                    }
+                })
+                .fail(function (xhr) {
+                    var msg = 'Create folder failed';
+                    try { msg = JSON.parse(xhr.responseText).error || msg; } catch (e) { /* ignore */ }
+                    done(msg);
+                });
+            }
         });
     }
 
@@ -1344,30 +1700,39 @@ var FileBrowserManager = (function () {
         var dir = _parentDir(oldPath);
         _showNameModal('rename', function (newName) {
             if (!newName || newName === oldName) return;
-        var newPath = _joinPath(dir, newName);
-            $.ajax({
-                url: '/file-browser/rename',
-                method: 'POST',
-                contentType: 'application/json',
-                data: JSON.stringify({ old_path: oldPath, new_path: newPath })
-            })
-            .done(function (resp) {
-                if (resp.status === 'success') {
-                    showToast('Renamed to: ' + newName, 'success');
-                    if (state.currentPath === oldPath) {
-                        state.currentPath = newPath;
-                        $('#file-browser-address-bar').val(newPath);
-                    }
-                    _refreshTree();
-                } else {
-                    showToast('Rename failed: ' + (resp.error || 'Unknown'), 'error');
+            var newPath = _joinPath(dir, newName);
+            var done = function(err) {
+                if (err) { showToast('Rename failed: ' + err, 'error'); return; }
+                showToast('Renamed to: ' + newName, 'success');
+                if (state.currentPath === oldPath) {
+                    state.currentPath = newPath;
+                    _$('addressBar').val(newPath);
                 }
-            })
-            .fail(function (xhr) {
-                var msg = 'Rename failed';
-                try { msg = JSON.parse(xhr.responseText).error || msg; } catch (e) { /* ignore */ }
-                showToast(msg, 'error');
-            });
+                _refreshTree();
+            };
+            if (_config.onRename) {
+                _config.onRename(oldPath, newPath, done);
+            } else {
+                if (!_ep('rename')) { done('Not supported'); return; }
+                $.ajax({
+                    url: _ep('rename'),
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ old_path: oldPath, new_path: newPath })
+                })
+                .done(function (resp) {
+                    if (resp.status === 'success') {
+                        done(null);
+                    } else {
+                        done(resp.error || 'Unknown');
+                    }
+                })
+                .fail(function (xhr) {
+                    var msg = 'Rename failed';
+                    try { msg = JSON.parse(xhr.responseText).error || msg; } catch (e) { /* ignore */ }
+                    done(msg);
+                });
+            }
         }, { currentName: oldName, dir: dir });
     }
 
@@ -1385,38 +1750,47 @@ var FileBrowserManager = (function () {
         }
 
         _showConfirmModal('Delete', bodyHtml, function () {
-            $.ajax({
-                url: '/file-browser/delete',
-                method: 'POST',
-                contentType: 'application/json',
-                data: JSON.stringify({ path: itemPath, recursive: (itemType === 'dir') })
-            })
-            .done(function (resp) {
-                if (resp.status === 'success') {
-                    showToast('Deleted: ' + itemName, 'success');
-                    if (state.currentPath === itemPath) {
-                        state.currentPath = null;
-                        $('#file-browser-ai-edit-btn').prop('disabled', true);
-                        $('#file-browser-reload-btn').prop('disabled', true);
-                        $('#file-browser-wrap-btn').prop('disabled', true);
-                        $('#file-browser-download-btn').prop('disabled', true);
-                        state.originalContent = '';
-                        state.isDirty = false;
-                        _updateDirtyState();
-                        $('#file-browser-address-bar').val('');
-                        $('#file-browser-tab-bar').hide();
-                        _showView('empty');
-                    }
-                    _refreshTree();
-                } else {
-                    showToast('Delete failed: ' + (resp.error || 'Unknown'), 'error');
+            var done = function(err) {
+                if (err) { showToast('Delete failed: ' + err, 'error'); return; }
+                showToast('Deleted: ' + itemName, 'success');
+                if (state.currentPath === itemPath) {
+                    state.currentPath = null;
+                    _$('aiEditBtn').prop('disabled', true);
+                    _$('reloadBtn').prop('disabled', true);
+                    _$('wrapBtn').prop('disabled', true);
+                    _$('downloadBtn').prop('disabled', true);
+                    state.originalContent = '';
+                    state.isDirty = false;
+                    _updateDirtyState();
+                    _$('addressBar').val('');
+                    _$('tabBar').hide();
+                    _showView('empty');
                 }
-            })
-            .fail(function (xhr) {
-                var msg = 'Delete failed';
-                try { msg = JSON.parse(xhr.responseText).error || msg; } catch (e) { /* ignore */ }
-                showToast(msg, 'error');
-            });
+                _refreshTree();
+            };
+            if (_config.onDelete) {
+                _config.onDelete(itemPath, done);
+            } else {
+                if (!_ep('delete')) { done('Not supported'); return; }
+                $.ajax({
+                    url: _ep('delete'),
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ path: itemPath, recursive: (itemType === 'dir') })
+                })
+                .done(function (resp) {
+                    if (resp.status === 'success') {
+                        done(null);
+                    } else {
+                        done(resp.error || 'Unknown');
+                    }
+                })
+                .fail(function (xhr) {
+                    var msg = 'Delete failed';
+                    try { msg = JSON.parse(xhr.responseText).error || msg; } catch (e) { /* ignore */ }
+                    done(msg);
+                });
+            }
         }, { okText: 'Delete' });
     }
 
@@ -1436,19 +1810,19 @@ var FileBrowserManager = (function () {
      */
     function _toggleSidebar() {
         state.sidebarVisible = !state.sidebarVisible;
-        var $sidebar = $('#file-browser-sidebar');
+        var $sidebar = _$('sidebar');
         if (state.sidebarVisible) {
             $sidebar.removeClass('collapsed');
-            $('#file-browser-sidebar-toggle i').attr('class', 'bi bi-layout-sidebar');
+            _$('sidebarToggle').find('i').attr('class', 'bi bi-layout-sidebar');
             // Show the view-mode tab bar together with the sidebar (markdown only)
             if (state.isMarkdown) {
-                $('#file-browser-tab-bar').show();
+                _$('tabBar').show();
             }
         } else {
             $sidebar.addClass('collapsed');
-            $('#file-browser-sidebar-toggle i').attr('class', 'bi bi-layout-sidebar-inset');
+            _$('sidebarToggle').find('i').attr('class', 'bi bi-layout-sidebar-inset');
             // Hide the view-mode tab bar when sidebar collapses
-            $('#file-browser-tab-bar').hide();
+            _$('tabBar').hide();
         }
         // Refresh CodeMirror after CSS transition completes
         setTimeout(function () {
@@ -1475,7 +1849,7 @@ var FileBrowserManager = (function () {
         var path = inputPath.trim();
 
         // Try as a file first
-        $.getJSON('/file-browser/read', { path: path })
+        $.getJSON(_ep('read'), { path: path })
             .done(function (resp) {
                 if (resp.status === 'success') {
                     loadFile(path);
@@ -1494,7 +1868,7 @@ var FileBrowserManager = (function () {
      * @param {string} path - Relative directory path.
      */
     function _tryAsDirectory(path) {
-        $.getJSON('/file-browser/tree', { path: path })
+        $.getJSON(_ep('tree'), { path: path })
             .done(function (resp) {
                 if (resp.status === 'success') {
                     state.currentDir = path;
@@ -1524,9 +1898,36 @@ var FileBrowserManager = (function () {
      * (including the settings modal) — bypasses Bootstrap modal JS entirely
      * to avoid stacking/backdrop issues.
      */
-    function open() {
+    function open(path) {
         console.log('[FileBrowser] open() called');
+        if (path) { state.currentDir = path; }
         _showFileBrowserModal();
+    }
+
+    /**
+     * Apply behavior-flag guards: show/hide toolbar buttons and panels
+     * based on _config flags (readOnly, allowCreate, allowUpload, etc.).
+     * Called each time the modal opens so runtime configure() changes take effect.
+     */
+    function _applyBehaviorFlags() {
+        var ro = _config.readOnly;
+        _$('saveBtn').toggle(!ro && !!_ep('write'));
+        _$('discardBtn').toggle(!ro && !!_ep('write'));
+        _$('newFileBtn').toggle(!ro && _config.allowCreate && !!_ep('write'));
+        _$('newFolderBtn').toggle(!ro && _config.allowCreate && !!_ep('mkdir'));
+        _$('uploadBtn').toggle(!ro && _config.allowUpload && !!_ep('upload'));
+        _$('reloadBtn').toggle(!!_ep('read'));
+        _$('downloadBtn').toggle(!!_ep('download'));
+        _$('aiEditBtn').toggle(!ro && _config.allowAiEdit && !!_ep('aiEdit'));
+        if (!_config.showEditor) {
+            _$('editorContainer').hide();
+            _$('previewContainer').hide();
+            _$('wysiwygContainer').hide();
+            _$('tabBar').hide();
+        }
+        if (!_config.showAddressBar) {
+            _$('addressBar').closest('.fb-address-bar-wrap').hide();
+        }
     }
 
     /**
@@ -1535,11 +1936,11 @@ var FileBrowserManager = (function () {
      * modals, so we bypass it completely.
      */
     function _showFileBrowserModal() {
-        var modal = document.getElementById('file-browser-modal');
+        var modal = document.getElementById(_config.dom.modal);
         if (!modal || modal.classList.contains('show')) return;
         console.log('[FileBrowser] Showing modal manually');
         // Kill any stale backdrop left by old cached JS
-        var staleBackdrop = document.getElementById('file-browser-backdrop');
+        var staleBackdrop = document.getElementById(_config.dom.backdrop);
         if (staleBackdrop) staleBackdrop.remove();
         // Dismiss any stale confirm/name dialogs left over from a prior session
         _hideConfirmModal();
@@ -1549,13 +1950,17 @@ var FileBrowserManager = (function () {
         modal.classList.add('show');
         modal.setAttribute('aria-hidden', 'false');
         document.body.classList.add('modal-open');
+        var startDir = _config.rootPath || '.';
+        state.currentDir = startDir;
         setTimeout(function () {
             _ensureEditor();
             if (state.cmEditor) state.cmEditor.refresh();
             if (Object.keys(state.expandedDirs).length === 0 && !state.currentPath) {
-                loadTree('.', null);
+                loadTree(startDir, null);
             }
         }, 50);
+        _applyBehaviorFlags();
+        if (_config.onOpen) _config.onOpen();
     }
 
     /**
@@ -1565,9 +1970,10 @@ var FileBrowserManager = (function () {
     function _closeModal() {
         // Guard: if confirm modal is already visible (e.g. from a previous close attempt),
         // don't re-trigger — just let the user respond to the existing dialog.
-        if ($('#file-browser-confirm-modal').css('display') === 'flex') return;
+        if (_$('confirmModal').css('display') === 'flex') return;
         _confirmIfDirty(function () {
-            var modal = document.getElementById('file-browser-modal');
+            if (_config.onClose) _config.onClose();
+            var modal = document.getElementById(_config.dom.modal);
             if (modal) {
                 modal.classList.remove('show');
                 modal.style.display = 'none';
@@ -1583,7 +1989,7 @@ var FileBrowserManager = (function () {
                 _syncWysiwygToCodeMirror();
             }
             // Remove stale backdrop from old cached JS
-            var staleBackdrop = document.getElementById('file-browser-backdrop');
+            var staleBackdrop = document.getElementById(_config.dom.backdrop);
             if (staleBackdrop) staleBackdrop.remove();
             // Remove any orphan Bootstrap backdrops
             $('.modal-backdrop').each(function () {
@@ -1643,7 +2049,7 @@ var FileBrowserManager = (function () {
         }
 
         // Show the modal
-        var modal = document.getElementById('file-browser-ai-edit-modal');
+        var modal = document.getElementById(_config.dom.aiEditModal);
         modal.style.display = 'flex';
         setTimeout(function() {
             $('#fb-ai-edit-instruction').focus();
@@ -1651,7 +2057,7 @@ var FileBrowserManager = (function () {
     }
 
     function _hideAiEditModal() {
-        var modal = document.getElementById('file-browser-ai-edit-modal');
+        var modal = document.getElementById(_config.dom.aiEditModal);
         modal.style.display = 'none';
         $('#fb-ai-edit-spinner').hide();
         $('#fb-ai-edit-generate').prop('disabled', false);
@@ -1690,7 +2096,7 @@ var FileBrowserManager = (function () {
         }
 
         $.ajax({
-            url: '/file-browser/ai-edit',
+            url: _ep('aiEdit'),
             method: 'POST',
             contentType: 'application/json',
             data: JSON.stringify(payload)
@@ -1723,12 +2129,12 @@ var FileBrowserManager = (function () {
         state.aiEditLastDiffText = diffText || null;
         var container = document.getElementById('fb-ai-diff-content');
         container.innerHTML = _renderDiffPreview(diffText);
-        var modal = document.getElementById('file-browser-ai-diff-modal');
+        var modal = document.getElementById(_config.dom.aiDiffModal);
         modal.style.display = 'flex';
     }
 
     function _hideAiDiffModal() {
-        var modal = document.getElementById('file-browser-ai-diff-modal');
+        var modal = document.getElementById(_config.dom.aiDiffModal);
         modal.style.display = 'none';
         document.getElementById('fb-ai-diff-content').innerHTML = '';
     }
@@ -1782,7 +2188,7 @@ var FileBrowserManager = (function () {
                 ' lines. Give additional instructions below: ---\n';
             $ta.val(prev + summary);
         }
-        var modal = document.getElementById('file-browser-ai-edit-modal');
+        var modal = document.getElementById(_config.dom.aiEditModal);
         modal.style.display = 'flex';
         setTimeout(function() {
             var el = $ta[0];
@@ -1830,7 +2236,7 @@ var FileBrowserManager = (function () {
      */
     function _downloadFile() {
         if (!state.currentPath) return;
-        var url = '/file-browser/download?path=' + encodeURIComponent(state.currentPath);
+        var url = _ep('download') + '?path=' + encodeURIComponent(state.currentPath);
         var a = document.createElement('a');
         a.href = url;
         a.download = state.currentPath.split('/').pop();
@@ -1867,11 +2273,11 @@ var FileBrowserManager = (function () {
         $('#fb-upload-submit-btn').prop('disabled', true);
         $('#fb-upload-spinner').hide();
         $('#fb-upload-input').val('');
-        $('#file-browser-upload-modal').css('display', 'flex');
+        _$('uploadModal').css('display', 'flex');
     }
 
     function _hideUploadModal() {
-        $('#file-browser-upload-modal').css('display', 'none');
+        _$('uploadModal').css('display', 'none');
         _uploadPendingFile = null;
     }
 
@@ -1883,48 +2289,59 @@ var FileBrowserManager = (function () {
     }
 
     function _doUpload() {
+        if (_config.readOnly) return;
         if (!_uploadPendingFile) return;
         var dir = _getUploadDir();
-        var formData = new FormData();
-        formData.append('file', _uploadPendingFile);
-        formData.append('path', dir);
+
+        var done = function(err) {
+            $('#fb-upload-spinner').hide();
+            $('#fb-upload-cancel-btn').prop('disabled', false);
+            if (err) {
+                showToast('Upload failed: ' + err, 'error');
+                $('#fb-upload-submit-btn').prop('disabled', false);
+                return;
+            }
+            _hideUploadModal();
+            _refreshTree();
+            showToast('Uploaded: ' + (_uploadPendingFile ? _uploadPendingFile.name : ''), 'success');
+        };
 
         $('#fb-upload-spinner').show();
         $('#fb-upload-submit-btn').prop('disabled', true);
         $('#fb-upload-cancel-btn').prop('disabled', true);
         $('#fb-upload-progress-wrap').show();
 
-        var xhr = new XMLHttpRequest();
-        xhr.open('POST', '/file-browser/upload', true);
-        xhr.upload.onprogress = function(e) {
-            if (e.lengthComputable) {
-                var pct = Math.round((e.loaded / e.total) * 100);
-                $('#fb-upload-progress-bar').css('width', pct + '%');
-                $('#fb-upload-progress-text').text(pct + '%');
-            }
-        };
-        xhr.onload = function() {
-            var pendingName = _uploadPendingFile ? _uploadPendingFile.name : '';
-            $('#fb-upload-spinner').hide();
-            $('#fb-upload-cancel-btn').prop('disabled', false);
-            if (xhr.status === 200) {
-                _hideUploadModal();
-                _refreshTree();
-                showToast('Uploaded: ' + pendingName, 'success');
-            } else {
-                var msg = 'Upload failed';
-                try { msg = JSON.parse(xhr.responseText).error || msg; } catch(e2) { /* ignore */ }
-                showToast(msg, 'error');
-                $('#fb-upload-submit-btn').prop('disabled', false);
-            }
-        };
-        xhr.onerror = function() {
-            $('#fb-upload-spinner').hide();
-            $('#fb-upload-cancel-btn').prop('disabled', false);
-            $('#fb-upload-submit-btn').prop('disabled', false);
-            showToast('Upload failed (network error)', 'error');
-        };
-        xhr.send(formData);
+        if (_config.onUpload) {
+            _config.onUpload(_uploadPendingFile, dir, done);
+        } else {
+            if (!_ep('upload')) { done('Not supported'); return; }
+            var formData = new FormData();
+            formData.append('file', _uploadPendingFile);
+            formData.append('path', dir);
+
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', _ep('upload'), true);
+            xhr.upload.onprogress = function(e) {
+                if (e.lengthComputable) {
+                    var pct = Math.round((e.loaded / e.total) * 100);
+                    $('#fb-upload-progress-bar').css('width', pct + '%');
+                    $('#fb-upload-progress-text').text(pct + '%');
+                }
+            };
+            xhr.onload = function() {
+                if (xhr.status === 200) {
+                    done(null);
+                } else {
+                    var msg = 'Upload failed';
+                    try { msg = JSON.parse(xhr.responseText).error || msg; } catch(e2) { /* ignore */ }
+                    done(msg);
+                }
+            };
+            xhr.onerror = function() {
+                done('Network error');
+            };
+            xhr.send(formData);
+        }
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -1934,14 +2351,16 @@ var FileBrowserManager = (function () {
     /**
      * Initialize all event handlers. Called once on page load.
      */
-    function init() {
+    function init(cfg) {
         if (state.initialized) return;
         state.initialized = true;
+        // Merge caller-supplied config (e.g. custom onMove) with defaults
+        if (cfg) { $.extend(true, _config, cfg); }
         console.log('[FileBrowser] init() called');
-        console.log('[FileBrowser] Button element found:', $('#settings-file-browser-modal-open-button').length);
-        console.log('[FileBrowser] Modal element found:', $('#file-browser-modal').length);
+        console.log('[FileBrowser] Button element found:', _$('openBtn').length);
+        console.log('[FileBrowser] Modal element found:', _$('modal').length);
         // --- Button to open file browser ---
-        $('#settings-file-browser-modal-open-button').on('click', function () {
+        _$('openBtn').on('click', function () {
             console.log('[FileBrowser] Button clicked!');
             open();
         });
@@ -1950,26 +2369,26 @@ var FileBrowserManager = (function () {
         // Editor init and tree loading are handled in _showFileBrowserModal() instead.
 
         // --- Save button ---
-        $('#file-browser-save-btn').on('click', function () {
+        _$('saveBtn').on('click', function () {
             saveFile();
         });
 
         // --- Discard button ---
-        $('#file-browser-discard-btn').on('click', function () {
+        _$('discardBtn').on('click', function () {
             discardChanges();
         });
 
         // --- Reload from disk button ---
-        $('#file-browser-reload-btn').on('click', _reloadFromDisk);
+        _$('reloadBtn').on('click', _reloadFromDisk);
 
         // --- Word wrap toggle ---
-        $('#file-browser-wrap-btn').on('click', _toggleWordWrap);
+        _$('wrapBtn').on('click', _toggleWordWrap);
 
         // --- Download button ---
-        $('#file-browser-download-btn').on('click', _downloadFile);
+        _$('downloadBtn').on('click', _downloadFile);
 
         // --- Upload button & modal ---
-        $('#file-browser-upload-btn').on('click', _showUploadModal);
+        _$('uploadBtn').on('click', _showUploadModal);
         $('#fb-upload-close, #fb-upload-cancel-btn').on('click', _hideUploadModal);
         $('#fb-upload-submit-btn').on('click', _doUpload);
 
@@ -2001,46 +2420,79 @@ var FileBrowserManager = (function () {
         });
 
         // Backdrop click closes upload modal
-        $('#file-browser-upload-modal').on('click', function(e) {
+        _$('uploadModal').on('click', function(e) {
             if (e.target === this) _hideUploadModal();
         });
 
+        // --- Move modal: button wiring ---
+        $('#fb-move-cancel-btn').on('click', _hideMoveModal);
+        $('#fb-move-ok-btn').on('click', _confirmMove);
+        // Backdrop click cancels
+        _$('moveModal').on('click', function (e) {
+            if (e.target === this) _hideMoveModal();
+        });
+        // Folder click inside move tree (delegated)
+        $('#fb-move-folder-tree').on('click', '.fb-move-dir-item', function (e) {
+            e.stopPropagation();
+            var $li = $(this);
+            var dirPath = $li.attr('data-path');
+            // Select this item
+            $('#fb-move-folder-tree .fb-move-dir-item').removeClass('fb-move-selected');
+            $li.addClass('fb-move-selected');
+            state.moveDest = dirPath;
+            var hint = dirPath === '.' ? '/ (root)' : dirPath;
+            $('#fb-move-dest-hint').text('Destination: ' + hint);
+            $('#fb-move-ok-btn').prop('disabled', false);
+            // Toggle sub-folders
+            var $children = $li.children('.fb-move-children');
+            var $toggle = $li.children('.fb-move-toggle');
+            if ($children.children().length) {
+                $children.toggle();
+                $toggle.text($children.is(':visible') ? '▼' : '▶');
+            } else {
+                _loadMoveTree(dirPath, $children);
+                $children.show();
+                $toggle.text('▼');
+            }
+        });
+
+
         // --- Close button ---
-        $('#file-browser-close-btn').on('click', function () {
+        _$('closeBtn').on('click', function () {
             _closeModal();
         });
 
         // --- Sidebar toggle ---
-        $('#file-browser-sidebar-toggle').on('click', function () {
+        _$('sidebarToggle').on('click', function () {
             _toggleSidebar();
         });
 
         // --- Refresh button ---
-        $('#file-browser-refresh-btn').on('click', function () {
+        _$('refreshBtn').on('click', function () {
             _refreshTree();
         });
 
 
         // --- New File sidebar button ---
-        $('#file-browser-new-file-btn').on('click', function () {
+        _$('newFileBtn').on('click', function () {
             state.contextTarget = null; // use currentPath / currentDir fallback
             _createFile();
         });
 
         // --- New Folder sidebar button ---
-        $('#file-browser-new-folder-btn').on('click', function () {
+        _$('newFolderBtn').on('click', function () {
             state.contextTarget = null; // use currentPath / currentDir fallback
             _createFolder();
         });
 
         // --- Naming modal: OK / Cancel / Enter ---
-        $('#file-browser-name-ok-btn').on('click', function () {
+        _$('nameOkBtn').on('click', function () {
             _nameModalConfirm();
         });
-        $('#file-browser-name-cancel-btn').on('click', function () {
+        _$('nameCancelBtn').on('click', function () {
             _hideNameModal();
         });
-        $('#file-browser-name-input').on('keydown', function (e) {
+        _$('nameInput').on('keydown', function (e) {
             if (e.key === 'Enter') {
                 e.preventDefault();
                 _nameModalConfirm();
@@ -2052,33 +2504,33 @@ var FileBrowserManager = (function () {
             }
         });
         // Click on backdrop (outside the inner card) closes naming modal
-        $('#file-browser-name-modal').on('click', function (e) {
+        _$('nameModal').on('click', function (e) {
             if (e.target === this) _hideNameModal();
         });
 
 
 
         // --- Confirm modal: OK / Cancel / Escape ---
-        $('#file-browser-confirm-ok-btn').on('click', function () {
-            var cb = $('#file-browser-confirm-modal').data('_confirmCallback');
+        _$('confirmOkBtn').on('click', function () {
+            var cb = _$('confirmModal').data('_confirmCallback');
             _hideConfirmModal();
             if (typeof cb === 'function') cb();
         });
-        $('#file-browser-confirm-cancel-btn').on('click', function () {
+        _$('confirmCancelBtn').on('click', function () {
             _hideConfirmModal();
         });
-        $('#file-browser-confirm-modal').on('click', function (e) {
+        _$('confirmModal').on('click', function (e) {
             if (e.target === this) _hideConfirmModal();
         });
         $(document).on('keydown', function (e) {
-            if (e.key === 'Escape' && $('#file-browser-confirm-modal').css('display') === 'flex') {
+            if (e.key === 'Escape' && _$('confirmModal').css('display') === 'flex') {
                 e.stopPropagation();
                 _hideConfirmModal();
             }
         });
 
         // --- AI Edit handlers ---
-        $('#file-browser-ai-edit-btn').on('click', function() {
+        _$('aiEditBtn').on('click', function() {
             _showAiEditModal();
         });
         $('#fb-ai-edit-cancel').on('click', function() {
@@ -2102,13 +2554,13 @@ var FileBrowserManager = (function () {
         $(document).on('keydown', function(e) {
             // Escape closes AI edit overlays (highest priority)
             if (e.key === 'Escape') {
-                var diffModal = document.getElementById('file-browser-ai-diff-modal');
+                var diffModal = document.getElementById(_config.dom.aiDiffModal);
                 if (diffModal && diffModal.style.display === 'flex') {
                     e.stopPropagation();
                     _rejectAiEdit();
                     return;
                 }
-                var editModal = document.getElementById('file-browser-ai-edit-modal');
+                var editModal = document.getElementById(_config.dom.aiEditModal);
                 if (editModal && editModal.style.display === 'flex') {
                     e.stopPropagation();
                     _hideAiEditModal();
@@ -2126,20 +2578,20 @@ var FileBrowserManager = (function () {
         });
 
         // Backdrop click to close AI edit modals
-        $('#file-browser-ai-edit-modal').on('click', function(e) {
+        _$('aiEditModal').on('click', function(e) {
             if (e.target === this) _hideAiEditModal();
         });
-        $('#file-browser-ai-diff-modal').on('click', function(e) {
+        _$('aiDiffModal').on('click', function(e) {
             if (e.target === this) _rejectAiEdit();
         });
 
         // --- Address bar: input for fuzzy suggestions ---
-        $('#file-browser-address-bar').on('input', function () {
+        _$('addressBar').on('input', function () {
             _filterAndShowSuggestions($(this).val().trim());
         });
 
         // --- Address bar: keyboard navigation (arrows, Enter, Escape) ---
-        $('#file-browser-address-bar').on('keydown', function (e) {
+        _$('addressBar').on('keydown', function (e) {
             // Arrow keys and Enter for suggestion navigation
             if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
                 if (_handleSuggestionNav(e.key)) {
@@ -2157,7 +2609,7 @@ var FileBrowserManager = (function () {
                 return;
             }
             if (e.key === 'Escape') {
-                var $dd = $('#file-browser-suggestion-dropdown');
+                var $dd = _$('suggestionDropdown');
                 if ($dd.css('display') !== 'none') {
                     e.stopPropagation();
                     _hideSuggestionDropdown();
@@ -2170,7 +2622,7 @@ var FileBrowserManager = (function () {
         $(document).on('click', '.fb-suggestion-item', function () {
             var selectedPath = $(this).attr('data-path');
             if (selectedPath) {
-                $('#file-browser-address-bar').val(selectedPath);
+                _$('addressBar').val(selectedPath);
                 _hideSuggestionDropdown();
                 _navigateAddressBar(selectedPath);
             }
@@ -2178,19 +2630,110 @@ var FileBrowserManager = (function () {
 
         // --- Address bar: close dropdown on outside click ---
         $(document).on('mousedown', function (e) {
-            if (!$(e.target).closest('#file-browser-address-bar, #file-browser-suggestion-dropdown').length) {
+            if (!$(e.target).closest('#' + _config.dom.addressBar + ', #' + _config.dom.suggestionDropdown).length) {
                 _hideSuggestionDropdown();
             }
         });
 
         // --- Address bar: focus shows suggestions if text present ---
-        $('#file-browser-address-bar').on('focus', function () {
+        _$('addressBar').on('focus', function () {
             var val = $(this).val().trim();
             if (val.length > 0) _filterAndShowSuggestions(val);
         });
 
+
+        // --- Drag-and-drop: move files/folders within the tree ---
+        // dragstart: record the dragged item
+        _$('tree').on('dragstart', 'li', function (e) {
+            var $li = $(this);
+            state.dragSource = {
+                path: $li.attr('data-path'),
+                type: $li.attr('data-type'),
+                name: $li.attr('data-name')
+            };
+            e.originalEvent.dataTransfer.effectAllowed = 'move';
+            e.originalEvent.dataTransfer.setData('text/plain', state.dragSource.path);
+            $li.addClass('fb-drag-source');
+        });
+
+        // dragend: clean up all visual state
+        _$('tree').on('dragend', 'li', function () {
+            state.dragSource = null;
+            _$('tree').find('li').removeClass('fb-drag-over fb-drag-source');
+        });
+
+        // dragover: highlight valid folder targets
+        _$('tree').on('dragover', 'li', function (e) {
+            if (!state.dragSource) return;
+            var $li = $(this);
+            if ($li.attr('data-type') !== 'dir') return;
+            if (!_isValidMoveTarget(state.dragSource.path, $li.attr('data-path'))) return;
+            e.preventDefault();
+            e.originalEvent.dataTransfer.dropEffect = 'move';
+            _$('tree').find('li').removeClass('fb-drag-over');
+            $li.addClass('fb-drag-over');
+        });
+
+        // dragleave: remove highlight when leaving a folder
+        _$('tree').on('dragleave', 'li', function (e) {
+            // Only remove if actually leaving the li (not entering a child)
+            if (!$(e.relatedTarget).closest(this).length) {
+                $(this).removeClass('fb-drag-over');
+            }
+        });
+
+        // drop: execute the move
+        _$('tree').on('drop', 'li', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            var $li = $(this);
+            _$('tree').find('li').removeClass('fb-drag-over fb-drag-source');
+            if (!state.dragSource) return;
+            if ($li.attr('data-type') !== 'dir') return;
+            var destDir = $li.attr('data-path');
+            if (!_isValidMoveTarget(state.dragSource.path, destDir)) return;
+            var srcPath = state.dragSource.path;
+            var destPath = _joinPath(destDir, _basename(srcPath));
+            state.dragSource = null;
+            _moveItem(srcPath, destPath);
+        });
+
+        // --- Drag-and-drop onto the tree BACKGROUND = move to root ---
+        // These fire only when the pointer is over the tree container itself,
+        // not over any child <li> (those have stopPropagation on dragover/drop).
+        _$('tree').on('dragover', function (e) {
+            if (!state.dragSource) return;
+            // Only handle background (not bubbled from a child li)
+            if ($(e.target).closest('li').length) return;
+            if (!_isValidMoveTarget(state.dragSource.path, '.')) return;
+            e.preventDefault();
+            e.originalEvent.dataTransfer.dropEffect = 'move';
+            _$('tree').find('li').removeClass('fb-drag-over');
+            _$('tree').addClass('fb-drag-over-root');
+        });
+        _$('tree').on('dragleave', function (e) {
+            // Only clear if truly leaving the tree container
+            if (!$(e.relatedTarget).closest('#' + _config.dom.tree).length) {
+                _$('tree').removeClass('fb-drag-over-root');
+            }
+        });
+        _$('tree').on('drop', function (e) {
+            if ($(e.target).closest('li').length) return; // handled by li handler
+            e.preventDefault();
+            e.stopPropagation();
+            _$('tree').removeClass('fb-drag-over-root');
+            _$('tree').find('li').removeClass('fb-drag-over fb-drag-source');
+            if (!state.dragSource) return;
+            if (!_isValidMoveTarget(state.dragSource.path, '.')) return;
+            var srcPath = state.dragSource.path;
+            var destPath = _joinPath('.', _basename(srcPath));
+            state.dragSource = null;
+            _moveItem(srcPath, destPath);
+        });
+
+
         // --- Tree click handlers (delegated) ---
-        $('#file-browser-tree').on('click', 'li', function (e) {
+        _$('tree').on('click', 'li', function (e) {
             e.stopPropagation();
             var $li = $(this);
             var type = $li.attr('data-type');
@@ -2201,10 +2744,13 @@ var FileBrowserManager = (function () {
             } else {
                 loadFile(path);
             }
+            if (_config.onSelect) {
+                _config.onSelect(path, type, { name: $li.attr('data-name'), type: type, path: path });
+            }
         });
 
         // --- Context menu: right-click on tree items ---
-        $('#file-browser-tree').on('contextmenu', 'li', function (e) {
+        _$('tree').on('contextmenu', 'li', function (e) {
             e.preventDefault();
             e.stopPropagation();
             var $li = $(this);
@@ -2217,7 +2763,7 @@ var FileBrowserManager = (function () {
         });
 
         // --- Context menu: right-click on tree background (create in current dir) ---
-        $('#file-browser-tree').on('contextmenu', function (e) {
+        _$('tree').on('contextmenu', function (e) {
             if ($(e.target).closest('li').length) return; // handled above
             e.preventDefault();
             state.contextTarget = { path: state.currentDir, type: 'dir', name: '' };
@@ -2225,7 +2771,7 @@ var FileBrowserManager = (function () {
         });
 
         // --- Context menu actions ---
-        $('#file-browser-context-menu').on('click', 'a[data-action]', function (e) {
+        _$('contextMenu').on('click', 'a[data-action]', function (e) {
             e.preventDefault();
             e.stopPropagation(); // Prevent document click handler from also firing
             var action = $(this).attr('data-action');
@@ -2238,6 +2784,10 @@ var FileBrowserManager = (function () {
                 case 'new-folder': _createFolder(); break;
                 case 'rename':     _renameItem(); break;
                 case 'delete':     _deleteItem(); break;
+                case 'move':
+                    state.moveTarget = target;
+                    _showMoveModal();
+                    break;
             }
             state.contextTarget = null;
         });
@@ -2248,7 +2798,7 @@ var FileBrowserManager = (function () {
         });
         $(document).on('keydown', function (e) {
             if (e.key === 'Escape') {
-                if ($('#file-browser-context-menu').is(':visible')) {
+                if (_$('contextMenu').is(':visible')) {
                     _hideContextMenu();
                     e.stopPropagation();
                 }
@@ -2256,7 +2806,7 @@ var FileBrowserManager = (function () {
         });
 
         // --- Theme picker ---
-        $('#file-browser-theme-select').on('change', function () {
+        _$('themeSelect').on('change', function () {
             var newTheme = $(this).val();
             state.currentTheme = newTheme;
             if (state.cmEditor) {
@@ -2265,13 +2815,13 @@ var FileBrowserManager = (function () {
         });
 
         // --- View mode switching (Raw/Preview/WYSIWYG button group and select) ---
-        $(document).on('click', '#fb-view-btngroup .btn', function () {
+        _$('viewBtnGroup').on('click', '.btn', function () {
             var mode = $(this).attr('data-view');
             if (mode === state.viewMode) return;
             _setViewMode(mode);
         });
 
-        $(document).on('change', '#file-browser-view-select', function () {
+        _$('viewSelect').on('change', function () {
             var mode = $(this).val();
             if (mode === state.viewMode) return;
             _setViewMode(mode);
@@ -2279,7 +2829,7 @@ var FileBrowserManager = (function () {
 
         // --- Keyboard shortcuts (global, scoped to modal visibility) ---
         $(document).on('keydown', function (e) {
-            if (!$('#file-browser-modal').hasClass('show')) return;
+            if (!_$('modal').hasClass('show')) return;
 
             // Ctrl+S / Cmd+S → Save
             if ((e.ctrlKey || e.metaKey) && e.key === 's') {
@@ -2291,7 +2841,7 @@ var FileBrowserManager = (function () {
             // Escape → Close modal (with dirty check)
             if (e.key === 'Escape') {
                 // Don't close if context menu is visible (handled separately)
-                if ($('#file-browser-context-menu').is(':visible')) return;
+                if (_$('contextMenu').is(':visible')) return;
                 e.preventDefault();
                 _closeModal();
             }
@@ -2306,11 +2856,25 @@ var FileBrowserManager = (function () {
     // ═══════════════════════════════════════════════════════════════
 
     return {
+        /**
+         * Initialize event handlers. Call once on page load.
+         * @param {object} [cfg] - Config overrides (endpoints, dom, flags, callbacks).
+         */
         init: init,
+        /**
+         * Open the file browser modal.
+         * @param {string} [path] - Optional starting directory path.
+         */
         open: open,
         loadFile: loadFile,
         saveFile: saveFile,
-        discardChanges: discardChanges
+        discardChanges: discardChanges,
+        /**
+         * Override config options after initialization.
+         * Deep-merges so partial endpoint/dom overrides don't wipe other keys.
+         * @param {object} cfg - Config overrides.
+         */
+        configure: function (cfg) { $.extend(true, _config, cfg); }
     };
 
 })();

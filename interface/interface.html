@@ -278,7 +278,15 @@
                                       <button id="share-chat" type="button" class="btn btn-primary mr-2 btn-sm mb-1"><i class="fa fa-share-alt">&nbsp;</i></button>
                                       <button id="conversation-docs-button" type="button" class="btn btn-outline-primary mr-2 btn-sm mb-1"><i class="fa fa-file">&nbsp; Docs</i></button>
                                       <button id="global-docs-button" type="button" class="btn btn-outline-info mr-2 btn-sm mb-1"><i class="fa fa-globe">&nbsp; Global Docs</i></button>
-                                      <button id="ext-extract-page" class="btn btn-outline-info mr-2 btn-sm mb-1 ext-btn" style="display:none;" title="Extract content from current page"><i class="fa fa-globe"></i> Page</button>
+                                      <div class="btn-group mr-2 mb-1 ext-btn" id="ext-extract-page-group" style="display:none;">
+                                          <button id="ext-extract-page" class="btn btn-outline-info btn-sm" title="Extract DOM text from current page"><i class="fa fa-globe"></i> Page</button>
+                                          <button type="button" class="btn btn-outline-info btn-sm dropdown-toggle dropdown-toggle-split" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="Choose extraction mode"><span class="sr-only">Toggle Dropdown</span></button>
+                                          <div class="dropdown-menu">
+                                              <a class="dropdown-item" href="#" id="ext-extract-dom"><i class="fa fa-code mr-1"></i> DOM (text)</a>
+                                              <a class="dropdown-item" href="#" id="ext-extract-ocr"><i class="fa fa-camera mr-1"></i> OCR (screenshot)</a>
+                                              <a class="dropdown-item" href="#" id="ext-extract-full-ocr"><i class="fa fa-file-image-o mr-1"></i> Full Page OCR (scroll)</a>
+                                          </div>
+                                      </div>
                                       <button id="ext-refresh-page" class="btn btn-outline-info mr-2 btn-sm mb-1 ext-btn" style="display:none;" title="Refresh page context"><i class="fa fa-refresh"></i> Refresh</button>
                                       <button id="ext-multi-tab" class="btn btn-outline-info mr-2 btn-sm mb-1 ext-btn" style="display:none;" title="Capture content from multiple tabs"><i class="fa fa-clone"></i> Multi-tab</button>
                                   </div>
@@ -437,7 +445,7 @@
 
     <!-- Global Documents Management Modal -->
     <div class="modal fade" id="global-docs-modal" tabindex="-1" role="dialog" aria-labelledby="globalDocsModalLabel" aria-hidden="true">
-      <div class="modal-dialog modal-lg" role="document">
+      <div class="modal-dialog modal-lg" id="global-docs-dialog" role="document">
         <div class="modal-content">
           <div class="modal-header">
             <h5 class="modal-title" id="globalDocsModalLabel">Global Documents</h5>
@@ -446,6 +454,23 @@
             </button>
           </div>
           <div class="modal-body">
+            <!-- View switcher -->
+            <div class="d-flex justify-content-between align-items-center mb-2">
+              <div class="btn-group btn-group-sm" id="global-docs-view-switcher" role="group">
+                <button type="button" class="btn btn-outline-secondary active" data-view="list">
+                  <i class="fa fa-list"></i> List
+                </button>
+                <button type="button" class="btn btn-outline-secondary" data-view="folder">
+                  <i class="fa fa-folder"></i> Folders
+                </button>
+              </div>
+              <button class="btn btn-sm btn-outline-info" id="global-docs-manage-folders-btn"
+                      title="Manage folders in File Browser" style="display:none;">
+                <i class="fa fa-folder-open"></i> Manage Folders
+              </button>
+            </div>
+            <!-- List view container -->
+            <div id="global-docs-view-list">
             <div class="card mb-3">
               <div class="card-header"><h6 class="mb-0">Add New Global Document</h6></div>
               <div class="card-body">
@@ -467,6 +492,12 @@
                     <label for="global-doc-display-name">Display Name (optional)</label>
                     <input type="text" class="form-control" id="global-doc-display-name" placeholder="Custom name for this document">
                   </div>
+                  <div class="form-group" id="global-doc-folder-group">
+                    <label for="global-doc-folder-select">Folder (optional)</label>
+                    <select class="form-control form-control-sm" id="global-doc-folder-select">
+                      <option value="">Unfiled</option>
+                    </select>
+                  </div>
                   <button type="submit" class="btn btn-primary" id="global-doc-submit-btn">Upload</button>
                   <span id="global-doc-upload-spinner" style="display:none;">
                     <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
@@ -481,6 +512,8 @@
                 <button class="btn btn-sm btn-outline-secondary" id="global-doc-refresh-btn" title="Refresh list">
                   <i class="fa fa-refresh"></i>
                 </button>
+                <input type="text" id="global-docs-filter" class="form-control form-control-sm mt-1"
+                       placeholder="Filter by title or tag...">
               </div>
               <div class="card-body p-0">
                 <div id="global-docs-list" class="list-group list-group-flush"></div>
@@ -489,10 +522,18 @@
                 </div>
               </div>
             </div>
+            </div><!-- /global-docs-view-list -->
+
+            <!-- Folder view container -->
+            <div id="global-docs-view-folder" style="display:none;" class="p-3 text-center text-muted">
+              <i class="fa fa-folder-open fa-2x mb-2 d-block"></i>
+              <p>Click <strong>Manage Folders</strong> above to organize your global docs in the File Browser.</p>
+              <p class="small text-muted">Drag doc folders to reorganize. Changes sync automatically.</p>
           </div>
         </div>
       </div>
     </div>
+</div>
 
     <!-- Make conversation stateless Modal -->
     <div class="modal fade" id="stateless-conversation-modal" tabindex="-1" aria-hidden="true">
@@ -2393,6 +2434,7 @@ greet("World");</code></pre>
             </div>
         </div>
     </div>
+</div>
 
     <!-- Tab Picker Modal -->
     <div id="tab-picker-modal" class="modal fade" tabindex="-1" aria-hidden="true" style="z-index: 1070;">
@@ -2761,6 +2803,7 @@ greet("World");</code></pre>
             <a class="dropdown-item" href="#" data-action="new-file"><i class="bi bi-file-plus"></i> New File</a>
             <a class="dropdown-item" href="#" data-action="new-folder"><i class="bi bi-folder-plus"></i> New Folder</a>
             <div class="dropdown-divider"></div>
+            <a class="dropdown-item" href="#" data-action="move"><i class="bi bi-folder-symlink"></i> Move to…</a>
             <a class="dropdown-item" href="#" data-action="rename"><i class="bi bi-pencil"></i> Rename</a>
             <a class="dropdown-item text-danger" href="#" data-action="delete"><i class="bi bi-trash"></i> Delete</a>
         </div>
@@ -2826,6 +2869,20 @@ greet("World");</code></pre>
                     <span id="fb-upload-spinner" class="spinner-border spinner-border-sm mr-1" style="display:none;"></span>
                     Upload
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- File Browser Move Modal -->
+    <div id="file-browser-move-modal" style="display:none; position:fixed; inset:0; z-index:100004; background:rgba(0,0,0,0.35); align-items:center; justify-content:center;">
+        <div style="background:#fff; border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,0.25); width:420px; max-width:94vw; padding:0; display:flex; flex-direction:column; max-height:80vh;">
+            <div style="padding:10px 16px; border-bottom:1px solid #dee2e6; font-weight:600; font-size:0.9rem;">Move: <span id="fb-move-src-name" style="font-weight:400; font-style:italic;"></span></div>
+            <div style="padding:6px 14px 4px; font-size:0.8rem; color:#6c757d;">Select destination folder:</div>
+            <div id="fb-move-folder-tree" style="flex:1; overflow-y:auto; padding:4px 8px; min-height:120px; max-height:45vh; border-top:1px solid #f0f0f0;"></div>
+            <div id="fb-move-dest-hint" style="padding:5px 14px; font-size:0.78rem; color:#495057; border-top:1px solid #f0f0f0; min-height:26px; background:#fafafa;"></div>
+            <div style="padding:10px 14px; border-top:1px solid #dee2e6; display:flex; justify-content:flex-end; gap:8px;">
+                <button id="fb-move-cancel-btn" class="btn btn-sm btn-secondary">Cancel</button>
+                <button id="fb-move-ok-btn" class="btn btn-sm btn-primary" disabled>Move Here</button>
             </div>
         </div>
     </div>
@@ -3660,7 +3717,7 @@ greet("World");</code></pre>
     <script src="interface/tab-picker-manager.js"></script>
     <script src="interface/workflow-manager.js"></script>
     <script src="interface/script-manager.js"></script>
-    <script src="interface/file-browser-manager.js?v=24"></script>
+    <script src="interface/file-browser-manager.js?v=26"></script>
     <script>
         document.addEventListener('click', function (event) {
             var button = event.target.closest('#settings-file-browser-modal-open-button');
@@ -4338,7 +4395,7 @@ greet("World");</code></pre>
             if (available) {
                 $('.ext-btn').show();
                 if (window === window.top) {
-                    $('#ext-extract-page').hide();
+                    $('#ext-extract-page-group').hide();
                 }
                 $('#settings-workflows-section').show();
                 $('#settings-scripts-section').show();
