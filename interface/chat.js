@@ -595,6 +595,7 @@ function buildSettingsStateFromControlsOrDefaults() {
         use_memory_pad: $('#use_memory_pad').length ? $('#use_memory_pad').is(':checked') : ($('#settings-use_memory_pad').is(':checked') || false),
         enable_planner: $('#enable_planner').length ? $('#enable_planner').is(':checked') : ($('#settings-enable_planner').is(':checked') || false),
         use_pkb: $('#settings-use_pkb').length ? $('#settings-use_pkb').is(':checked') : true,
+        pkb_extraction_mode: $('#settings-pkb-extraction-mode').length ? ($('#settings-pkb-extraction-mode').val() || 'relaxed') : 'relaxed',
         enable_custom_context_menu: defaultEnableCustomContextMenu,
         ppt_answer: $('#settings-ppt-answer').is(':checked') || false,
         depth: $('#depthSelector').length ? $('#depthSelector').val() : ($('#settings-depthSelector').val() || '2'),
@@ -619,6 +620,7 @@ function setModalFromState(state) {
     $('#settings-use_memory_pad').prop('checked', !!state.use_memory_pad);
     $('#settings-enable_planner').prop('checked', !!state.enable_planner);
     $('#settings-use_pkb').prop('checked', state.use_pkb !== false);
+    $('#settings-pkb-extraction-mode').val(state.pkb_extraction_mode || 'relaxed');
     $('#settings-enable_custom_context_menu').prop(
         'checked',
         (state.enable_custom_context_menu !== undefined && state.enable_custom_context_menu !== null)
@@ -707,6 +709,7 @@ function collectSettingsFromModal() {
         use_memory_pad: $('#settings-use_memory_pad').is(':checked'),
         enable_planner: $('#settings-enable_planner').is(':checked'),
         use_pkb: $('#settings-use_pkb').is(':checked'),
+        pkb_extraction_mode: $('#settings-pkb-extraction-mode').val() || 'relaxed',
         enable_custom_context_menu: $('#settings-enable_custom_context_menu').is(':checked'),
         ppt_answer: $('#settings-ppt-answer').is(':checked'),
         depth: $('#settings-depthSelector').val() || '2',
@@ -768,6 +771,7 @@ function loadConversationModelOverrides(conversationId) {
                 setModelOverrideValue('#settings-doc-long-summary-model', overrides.doc_long_summary_model || '', DEFAULT_MODEL_OVERRIDES.doc_long_summary_model);
                 setModelOverrideValue('#settings-doc-long-summary-v2-model', overrides.doc_long_summary_v2_model || '', DEFAULT_MODEL_OVERRIDES.doc_long_summary_v2_model);
                 setModelOverrideValue('#settings-doc-short-answer-model', overrides.doc_short_answer_model || '', DEFAULT_MODEL_OVERRIDES.doc_short_answer_model);
+                setModelOverrideValue('#settings-clarify-intent-model', overrides.clarify_intent_model || '', DEFAULT_MODEL_OVERRIDES.clarify_intent_model);
                 $('#model-overrides-modal').modal('show');
             },
             error: function (xhr) {
@@ -787,7 +791,8 @@ function saveConversationModelOverrides(conversationId) {
         context_action_model: getModelOverrideValue('#settings-context-action-model'),
         doc_long_summary_model: getModelOverrideValue('#settings-doc-long-summary-model'),
         doc_long_summary_v2_model: getModelOverrideValue('#settings-doc-long-summary-v2-model'),
-        doc_short_answer_model: getModelOverrideValue('#settings-doc-short-answer-model')
+        doc_short_answer_model: getModelOverrideValue('#settings-doc-short-answer-model'),
+        clarify_intent_model: getModelOverrideValue('#settings-clarify-intent-model')
     };
     Object.keys(overrides).forEach(function (key) {
         if (!overrides[key]) {
@@ -1192,6 +1197,7 @@ function resetSettingsToDefaults() {
     $('#settings-use_memory_pad').prop('checked', false);
     $('#settings-enable_planner').prop('checked', false);
     $('#settings-use_pkb').prop('checked', true);
+    $('#settings-pkb-extraction-mode').val('relaxed');
     $('#settings-enable_custom_context_menu').prop('checked', !isProbablyMobileDevice());
     
     // Advanced Settings
@@ -1277,6 +1283,7 @@ function computeDefaultStateForTab(tab) {
         persist_or_not: true,
         use_memory_pad: false,
         enable_planner: false,
+        pkb_extraction_mode: 'relaxed',
         enable_custom_context_menu: !isProbablyMobileDevice(),
         ppt_answer: false,
         depth: '2',

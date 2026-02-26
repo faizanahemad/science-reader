@@ -44,19 +44,21 @@
         currentQuestions: [],
         lastRequestController: null,
         autoSendAfterApply: false,
+        forceClarify: false,
 
         /**
          * Entry point: request questions then show the modal.
          *
          * @param {string} conversationId
          * @param {string} messageText
-         * @param {{autoSend?: boolean}=} opts
+         * @param {{autoSend?: boolean, forceClarify?: boolean}=} opts
          */
         requestAndShowClarifications: function (conversationId, messageText, opts) {
             this.currentConversationId = conversationId;
             this.currentDraftText = messageText;
             this.currentQuestions = [];
             this.autoSendAfterApply = !!(opts && opts.autoSend);
+            this.forceClarify = !!(opts && opts.forceClarify);
 
             this._setModalState('loading');
             $('#clarifications-modal').modal('show');
@@ -92,7 +94,8 @@
                     messageText: messageText,
                     checkboxes: checkboxes,
                     links: links,
-                    search: search
+                    search: search,
+                    forceClarify: this.forceClarify
                 })
             })
                 .then((resp) => {
@@ -107,17 +110,23 @@
         _handleClarificationsResponse: function (data) {
             const questions = (data && Array.isArray(data.questions)) ? data.questions : [];
             const needs = Boolean(data && data.needs_clarification);
-
             if (!needs || questions.length === 0) {
-                this._setModalState('not-needed');
-                // Small auto-close so user isn't stuck in a modal for "no-op" results.
-                setTimeout(() => {
-                    $('#clarifications-modal').modal('hide');
-                    if (this.autoSendAfterApply && typeof sendMessageCallback === 'function') {
-                        // Skip auto-clarify re-entry to avoid loops.
-                        sendMessageCallback(true);
-                    }
-                }, 900);
+                if (this.forceClarify) {
+                    // /clarify was explicit — never auto-send. Just inform and close.
+                    this._setModalState('not-needed');
+                    setTimeout(() => {
+                        $('#clarifications-modal').modal('hide');
+                    }, 1200);
+                } else {
+                    // Auto-clarify (checkbox) path — auto-send is appropriate here.
+                    this._setModalState('not-needed');
+                    setTimeout(() => {
+                        $('#clarifications-modal').modal('hide');
+                        if (this.autoSendAfterApply && typeof sendMessageCallback === 'function') {
+                            sendMessageCallback(true);
+                        }
+                    }, 900);
+                }
                 return;
             }
 
@@ -229,28 +238,38 @@
             return answers;
         },
 
-        _buildAppendBlock: function (answers) {
+        _buildNewEntries: function (answers) {
+            // Always number from Q1 — each /clarify round is self-contained.
             if (!Array.isArray(answers) || answers.length === 0) return '';
-            let text = BLOCK_START;
-            answers.forEach((qa, idx) => {
+            var text = '';
+            answers.forEach(function (qa, idx) {
                 text += `- Q${idx + 1}: ${qa.prompt}\n`;
                 text += `  A: ${qa.answer}\n`;
             });
             return text;
         },
-
         applyToComposer: function () {
             const currentText = $('#messageText').val() || '';
-            const stripped = _stripExistingClarificationsBlock(currentText);
             const answers = this._collectAnswers();
-            const append = this._buildAppendBlock(answers);
-
-            if (!append) {
+            const newEntries = this._buildNewEntries(answers);
+            if (!newEntries) {
                 _showToastOrAlert('Please select at least one option.', 'warning');
                 return false;
             }
 
-            $('#messageText').val(stripped + append);
+            // Each /clarify round gets its own fenced section separated by ---.
+            // First round: append [Clarifications] header then entries.
+            // Subsequent rounds: append a --- separator then entries (no second header).
+            const existingIdx = currentText.lastIndexOf(BLOCK_START);
+            let newText;
+            if (existingIdx === -1) {
+                // First round — no [Clarifications] block yet.
+                newText = currentText + BLOCK_START + newEntries;
+            } else {
+                // Subsequent round — add --- separator before new entries.
+                newText = currentText + '\n---\n' + newEntries;
+            }
+            $('#messageText').val(newText);
             $('#messageText').trigger('input');
             $('#clarifications-modal').modal('hide');
             return true;

@@ -1598,19 +1598,18 @@ Compact list of bullet points:
             setattr(self, "_doc_infos", value)
         self.save_local()
 
-    def add_fast_uploaded_document(self, pdf_url):
+    def add_fast_uploaded_document(self, pdf_url, display_name=None):
         """Create a fast-indexed document (BM25, no FAISS/LLM) and store in uploaded_documents_list.
-
-        Used by /upload_doc_to_conversation/ endpoint for instant uploads from the
         Add Document modal.  Identical to add_message_attached_document() but stores
         the result in ``uploaded_documents_list`` so it appears in the conversation
         document panel immediately.
-
-        Parameters
         ----------
         pdf_url : str
             Local file path or remote URL of the document.
-
+        display_name : str or None
+            Optional human-readable label shown in the UI (replaces raw filename in the
+            doc list header).  Stored as the 4th element of the tuple in
+            ``uploaded_documents_list`` and as ``_display_name`` on the DocIndex.
         Returns
         -------
         DocIndex or None
@@ -1621,27 +1620,20 @@ Compact list of bullet points:
         keys = self.get_api_keys()
         keys["mathpixKey"] = None
         keys["mathpixId"] = None
-
-        # ---- Deduplicate against both lists ----
         previous_docs = self.get_field("uploaded_documents_list")
         previous_docs = previous_docs if previous_docs is not None else []
         previous_msg_docs = self.get_field("message_attached_documents_list") or []
-
-        # Deduplicate by both exact path and basename (stored d[2] is post-move path)
         all_existing_paths = [d[2] for d in previous_docs] + [d[2] for d in previous_msg_docs]
         all_existing_basenames = [os.path.basename(p) for p in all_existing_paths]
         if pdf_url in all_existing_paths or os.path.basename(pdf_url) in all_existing_basenames:
             return None
-
-        doc_index = create_fast_document_index(pdf_url, storage, keys)
         doc_index._visible = True
+        doc_index._display_name = display_name or None
         doc_index.save_local()
         doc_id = doc_index.doc_id
         doc_storage = doc_index._storage
-        all_docs = previous_docs + [(doc_id, doc_storage, doc_index.doc_source)]
+        all_docs = previous_docs + [(doc_id, doc_storage, doc_index.doc_source, display_name)]
         self.set_field("uploaded_documents_list", all_docs, overwrite=True)
-
-        # ---- Rebuild doc_infos ----
         current_documents = self.get_uploaded_documents(readonly=True)
         doc_infos = "\n".join(
             [
@@ -1702,10 +1694,16 @@ Compact list of bullet points:
             doc_list = None
             self.set_field("uploaded_documents_list", [])
         if doc_list is not None:
-            docs = [
-                DocIndex.load_local(doc_storage)
-                for doc_id, doc_storage, pdf_url in doc_list
-            ]
+            docs = []
+            for entry in doc_list:
+                # Support both old 3-tuple (doc_id, doc_storage, pdf_url) and
+                # new 4-tuple (doc_id, doc_storage, pdf_url, display_name).
+                doc_storage = entry[1]
+                _display_name = entry[3] if len(entry) > 3 else None
+                loaded = DocIndex.load_local(doc_storage)
+                if loaded is not None:
+                    loaded._display_name = _display_name
+                docs.append(loaded)
         else:
             docs = []
         if doc_id is not None:
@@ -1896,7 +1894,7 @@ Compact list of bullet points:
         previous_docs = self.get_field("uploaded_documents_list")
         previous_docs = previous_docs if previous_docs is not None else []
         all_docs = previous_docs + [
-            (full_doc_index.doc_id, full_doc_index._storage, actual_source)
+            (full_doc_index.doc_id, full_doc_index._storage, actual_source, None)
         ]
         self.set_field("uploaded_documents_list", all_docs, overwrite=True)
 
@@ -3365,6 +3363,13 @@ Extract facts, details, numbers, code snippets, decisions, preferences, and any 
                 )
         except Exception:
             pass  # Non-critical; hashes can be computed on-the-fly later
+        # Include running_summary so the frontend can update ConversationManager.currentConversationSummary
+        # without a separate API call. This is sent in the final streaming chunk (status: "saving answer ...")
+        # and consumed by the stream parser in common-chat.js.
+        try:
+            result["running_summary"] = self.running_summary or ""
+        except Exception:
+            result["running_summary"] = ""
         return result
 
     def show_hide_message(self, message_id, index, show_hide):

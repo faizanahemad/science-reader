@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+import mimetypes
 
 from difflib import unified_diff
 
@@ -584,6 +585,44 @@ def download_file():
     except OSError:
         logger.exception("Failed to send file: %s", resolved)
         return json_error("Failed to download file", status=500, code="os_error")
+
+@file_browser_bp.route("/file-browser/serve", methods=["GET"])
+@login_required
+def serve_file():
+    """Serve a file inline for in-browser viewing (e.g. PDF via PDF.js).
+
+    Unlike the download endpoint, this uses ``as_attachment=False`` so the
+    browser renders the file inline rather than prompting for a download.
+    The MIME type is auto-detected from the file extension.
+
+    Query Parameters
+    ----------------
+    path : str
+        Relative path to the file.
+
+    Returns
+    -------
+    File response
+        The raw file bytes with an inline Content-Disposition header.
+    """
+    rel_path = request.args.get("path", "")
+    if not rel_path:
+        return json_error("Missing 'path' parameter", status=400, code="missing_param")
+
+    resolved = _safe_resolve(rel_path)
+    if resolved is None:
+        return json_error("Path escapes server root", status=403, code="path_forbidden")
+
+    if not os.path.isfile(resolved):
+        return json_error("File not found", status=404, code="not_found")
+
+    mime, _ = mimetypes.guess_type(resolved)
+    mime = mime or "application/octet-stream"
+    try:
+        return send_file(resolved, mimetype=mime, as_attachment=False)
+    except OSError:
+        logger.exception("Failed to serve file: %s", resolved)
+        return json_error("Failed to serve file", status=500, code="os_error")
 
 
 @file_browser_bp.route("/file-browser/upload", methods=["POST"])

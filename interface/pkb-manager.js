@@ -519,11 +519,14 @@ var PKBManager = (function() {
     /**
      * Propose memory updates from a conversation turn.
      * @param {string} conversationSummary - Summary of recent conversation
-     * @param {string} userMessage - User's latest message
-     * @param {string} assistantMessage - Optional assistant response
+     * @param {string} userMessage - User's latest message (claims extracted from HERE only)
+     * @param {string} assistantMessage - Optional assistant response for current turn
+     * @param {Array}  recentTurns - [{user, assistant}, ...] prior completed turns for context
      * @returns {Promise} jQuery AJAX promise
      */
-    function proposeUpdates(conversationSummary, userMessage, assistantMessage) {
+    function proposeUpdates(conversationSummary, userMessage, assistantMessage, recentTurns) {
+        // Prefer DOM value; fall back to persisted chatSettingsState (populated by chat.js)
+        var extractionMode = $('#settings-pkb-extraction-mode').val() || (window.chatSettingsState && window.chatSettingsState.pkb_extraction_mode) || 'relaxed';
         return $.ajax({
             url: '/pkb/propose_updates',
             method: 'POST',
@@ -531,7 +534,10 @@ var PKBManager = (function() {
             data: JSON.stringify({
                 conversation_summary: conversationSummary || '',
                 user_message: userMessage,
-                assistant_message: assistantMessage || ''
+                assistant_message: assistantMessage || '',
+                recent_turns: recentTurns || [],
+                extraction_mode: extractionMode
+                conversation_id: (typeof ConversationManager !== 'undefined' && ConversationManager.activeConversationId) ? ConversationManager.activeConversationId : null,
             }),
             dataType: 'json'
         });
@@ -1426,16 +1432,18 @@ var PKBManager = (function() {
     /**
      * Check for memory updates and show modal if any.
      * @param {string} conversationSummary - Conversation summary
-     * @param {string} userMessage - User message
-     * @param {string} assistantMessage - Optional assistant message
+     * @param {string} userMessage - User message (claims extracted from HERE only)
+     * @param {string} assistantMessage - Optional current assistant response
+     * @param {Array}  recentTurns - [{user, assistant}, ...] prior turns for context
      */
-    function checkMemoryUpdates(conversationSummary, userMessage, assistantMessage) {
+    function checkMemoryUpdates(conversationSummary, userMessage, assistantMessage, recentTurns) {
+        proposeUpdates(conversationSummary, userMessage, assistantMessage, recentTurns)
         proposeUpdates(conversationSummary, userMessage, assistantMessage)
             .done(function(response) {
                 if (response.has_updates && response.proposed_actions && response.proposed_actions.length > 0) {
                     currentPlanId = response.plan_id;
                     currentProposals = response.proposed_actions;
-                    showMemoryProposalModal(response);
+                    showBulkProposalModal(response.proposed_actions, 'conversation', response.plan_id, response.user_prompt);
                 }
             })
             .fail(function(err) {
@@ -1443,73 +1451,9 @@ var PKBManager = (function() {
             });
     }
     
-    /**
-     * Show the memory proposal modal.
-     * @param {Object} proposals - Proposal data from API
-     */
-    function showMemoryProposalModal(proposals) {
-        var $list = $('#memory-proposal-list');
-        var html = '';
-        
-        proposals.proposed_actions.forEach(function(action, index) {
-            var actionLabel = action.action === 'edit' ? 
-                '<span class="badge badge-warning">Update</span>' : 
-                '<span class="badge badge-success">New</span>';
-            
-            html += '<div class="form-check mb-3 p-2 bg-light rounded">' +
-                '<input class="form-check-input memory-proposal-checkbox" type="checkbox" ' +
-                    'value="' + index + '" id="proposal-' + index + '" checked>' +
-                '<label class="form-check-label" for="proposal-' + index + '">' +
-                    actionLabel + ' ' +
-                    '<strong>' + escapeHtml(action.statement) + '</strong>' +
-                    '<br><small class="text-muted">' + 
-                        action.claim_type + ' / ' + action.context_domain +
-                    '</small>' +
-                '</label>' +
-            '</div>';
-        });
-        
-        $list.html(html);
-        $('#memory-proposal-plan-id').val(proposals.plan_id);
-        
-        if (proposals.user_prompt) {
-            $('#memory-proposal-intro').text(proposals.user_prompt);
-        }
-        
-        $('#memory-proposal-modal').modal('show');
-    }
-    
-    /**
-     * Save the selected memory proposals.
-     */
-    function saveSelectedProposals() {
-        var planId = $('#memory-proposal-plan-id').val();
-        var approvedIndices = [];
-        
-        $('.memory-proposal-checkbox:checked').each(function() {
-            approvedIndices.push(parseInt($(this).val(), 10));
-        });
-        
-        if (approvedIndices.length === 0) {
-            $('#memory-proposal-modal').modal('hide');
-            return;
-        }
-        
-        executeUpdates(planId, approvedIndices)
-            .done(function(response) {
-                console.log('Memory updates saved:', response);
-                $('#memory-proposal-modal').modal('hide');
-                
-                // Show success message
-                if (response.executed_count > 0) {
-                    showToast('Saved ' + response.executed_count + ' memories!', 'success');
-                }
-            })
-            .fail(function(err) {
-                console.error('Failed to save memory updates:', err);
-                showToast('Failed to save memories. Please try again.', 'error');
-            });
-    }
+    // showMemoryProposalModal and its duplicate saveSelectedProposals were removed.
+    // showBulkProposalModal (below) is the canonical renderer; saveSelectedProposals
+    // at line ~2512 is the canonical save handler -- both use class .proposal-checkbox.
     
     // ===========================================================================
     // Modal Management
@@ -2527,12 +2471,9 @@ var PKBManager = (function() {
             plan_id: planId
         };
         
-        if (source === 'text_ingest') {
-            requestData.approved = approved;
-        } else {
-            // For conversation-based updates, use the simpler format
-            requestData.approved_indices = approved.map(function(a) { return a.index; });
-        }
+        // Always send full objects so edits made in the textarea are preserved.
+        // execute_updates handles the 'approved' list format for both sources.
+        requestData.approved = approved;
         
         $.ajax({
             url: endpoint,

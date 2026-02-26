@@ -81,7 +81,11 @@ var FileBrowserManager = (function () {
         aiEditEndLine: null,        // 1-indexed end line
         aiEditBaseHash: null,        // Hash from server response
         aiEditLastDiffText: null,    // Most-recent diff text (for Edit Instruction context)
-        wordWrap: false              // Whether line wrapping is enabled in the editor
+        wordWrap: false,              // Whether line wrapping is enabled in the editor
+        isPdf: false,                  // Whether current file is a PDF
+        pdfBlobUrl: null,              // Current PDF blob URL (for memory cleanup)
+        viewMode: 'raw',              // 'raw' | 'preview' | 'wysiwyg' (for markdown files)
+        fbEasyMDE: null                // EasyMDE instance (lazy-created, persisted)
     };
 
     // ═══════════════════════════════════════════════════════════════
@@ -180,11 +184,14 @@ var FileBrowserManager = (function () {
     function _showView(view, messageHtml) {
         var edEl = document.getElementById('file-browser-editor-container');
         var prEl = document.getElementById('file-browser-preview-container');
+        var wyEl = document.getElementById('file-browser-wysiwyg-container');
+        var pdEl = document.getElementById('file-browser-pdf-container');
         var emEl = document.getElementById('file-browser-empty-state');
         if (!edEl || !prEl || !emEl) return;
-
-        edEl.style.display = (view === 'editor') ? 'block' : 'none';
+        edEl.style.display = (view === 'editor')  ? 'block' : 'none';
         prEl.style.display = (view === 'preview') ? 'block' : 'none';
+        if (wyEl) wyEl.style.display = (view === 'wysiwyg') ? 'flex'  : 'none';
+        if (pdEl) pdEl.style.display = (view === 'pdf')     ? 'flex'  : 'none';
         emEl.style.display = (view === 'empty' || view === 'message') ? 'flex' : 'none';
         if (view === 'message' && messageHtml) {
             emEl.innerHTML = '<div class="text-center text-muted">' + messageHtml + '</div>';
@@ -196,6 +203,189 @@ var FileBrowserManager = (function () {
         }
         if (view === 'editor' && state.cmEditor) {
             setTimeout(function () { state.cmEditor.refresh(); }, 10);
+        }
+    }
+
+    /**
+     * Load a PDF file using PDF.js iframe viewer.
+     * Scoped version of showPDF() from common.js — all element lookups are
+     * scoped to #file-browser-pdf-container to avoid conflicts with the chat UI.
+     * @param {string} filePath - Relative path to the PDF file.
+     */
+    function _loadFilePDF(filePath) {
+        var progressWrap = document.getElementById('fb-pdf-progress');
+        var progressBar  = document.getElementById('fb-pdf-progressbar');
+        var progressStatus = document.getElementById('fb-pdf-progress-status');
+        var viewer = document.getElementById('fb-pdfjs-viewer');
+        if (!progressWrap || !viewer) return;
+
+        // Reset UI
+        progressBar.style.width = '0%';
+        progressStatus.textContent = '';
+        viewer.style.display = 'none';
+        progressWrap.style.display = 'block';
+
+        // Revoke previous blob URL to free memory
+        if (state.pdfBlobUrl) {
+            URL.revokeObjectURL(state.pdfBlobUrl);
+            state.pdfBlobUrl = null;
+        }
+
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', '/file-browser/serve?path=' + encodeURIComponent(filePath), true);
+        xhr.responseType = 'blob';
+
+        xhr.onprogress = function (e) {
+            if (e.lengthComputable) {
+                var pct = (e.loaded / e.total) * 100;
+                progressBar.style.width = pct + '%';
+                progressStatus.textContent = 'Downloaded ' + (e.loaded / 1024).toFixed(1) + ' / ' + (e.total / 1024).toFixed(1) + ' KB (' + Math.round(pct) + '%)';
+            } else {
+                progressStatus.textContent = 'Downloaded ' + (e.loaded / 1024).toFixed(1) + ' KB';
+            }
+        };
+
+        xhr.onload = function () {
+            progressWrap.style.display = 'none';
+            if (this.status === 200) {
+                state.pdfBlobUrl = URL.createObjectURL(this.response);
+                var originalSrc = viewer.getAttribute('data-original-src');
+                viewer.setAttribute('src', originalSrc + '?file=' + encodeURIComponent(state.pdfBlobUrl));
+                viewer.style.display = 'block';
+            } else {
+                _showView('message',
+                    '<i class="bi bi-exclamation-triangle" style="font-size:2rem; color:#ffc107;"></i>' +
+                    '<p class="mt-2">Failed to load PDF (HTTP ' + this.status + ')</p>'
+                );
+            }
+        };
+
+        xhr.onerror = function () {
+            progressWrap.style.display = 'none';
+            _showView('message',
+                '<i class="bi bi-exclamation-triangle" style="font-size:2rem; color:#ffc107;"></i>' +
+                '<p class="mt-2">Network error loading PDF</p>'
+            );
+        };
+
+        xhr.send();
+    }
+
+    /**
+     * Update toolbar button enabled/disabled state based on current file type and view mode.
+     * Called after every file load and view mode switch.
+     */
+    function _updateToolbarForFileType() {
+        var isPdf = state.isPdf;
+        var isWysiwyg = (state.viewMode === 'wysiwyg');
+
+        $('#file-browser-save-btn').prop('disabled', isPdf);
+        $('#file-browser-discard-btn').prop('disabled', isPdf);
+        $('#file-browser-ai-edit-btn').prop('disabled', isPdf || isWysiwyg);
+        $('#file-browser-wrap-btn').prop('disabled', isPdf || isWysiwyg);
+        $('#file-browser-reload-btn').prop('disabled', isPdf);
+        if (!isPdf) {
+            $('#file-browser-download-btn').prop('disabled', false);
+        }
+    }
+
+    /**
+     * Set the active view mode (raw | preview | wysiwyg) for the current file.
+     * Syncs EasyMDE → CodeMirror before leaving WYSIWYG mode.
+     * @param {string} mode - 'raw', 'preview', or 'wysiwyg'.
+     */
+    function _setViewMode(mode) {
+        // Sync WYSIWYG content back to CodeMirror before leaving
+        if (state.viewMode === 'wysiwyg' && mode !== 'wysiwyg') {
+            _syncWysiwygToCodeMirror();
+        }
+
+        state.viewMode = mode;
+
+        // Update button group active state
+        $('#fb-view-btngroup .btn').removeClass('active');
+        $('#fb-view-btngroup .btn[data-view="' + mode + '"]').addClass('active');
+        // Update select value
+        $('#file-browser-view-select').val(mode);
+
+        if (mode === 'raw') {
+            _showView('editor');
+            setTimeout(function () { if (state.cmEditor) state.cmEditor.refresh(); }, 10);
+        } else if (mode === 'preview') {
+            _renderPreview();
+            _showView('preview');
+        } else if (mode === 'wysiwyg') {
+            _showView('wysiwyg');
+            _initOrRefreshEasyMDE();
+        }
+
+        _updateToolbarForFileType();
+    }
+
+    /**
+     * Initialize the EasyMDE WYSIWYG editor instance lazily, or refresh it with current content.
+     * Creates EasyMDE inside #file-browser-wysiwyg-container on first call.
+     * On subsequent calls, just updates the content.
+     */
+    function _initOrRefreshEasyMDE() {
+        var content = state.cmEditor ? state.cmEditor.getValue() : '';
+        var container = document.getElementById('file-browser-wysiwyg-container');
+        if (!container) return;
+
+        if (!state.fbEasyMDE) {
+            // Create a textarea for EasyMDE to attach to
+            var ta = document.createElement('textarea');
+            ta.id = 'fb-easymde-textarea';
+            container.appendChild(ta);
+
+            state.fbEasyMDE = new EasyMDE({
+                element: ta,
+                spellChecker: false,
+                autofocus: false,
+                status: false,
+                minHeight: '300px',
+                toolbar: [
+                    'bold', 'italic', 'heading', '|',
+                    'quote', 'code', 'unordered-list', 'ordered-list', '|',
+                    'link', 'image', 'table', '|',
+                    'undo', 'redo'
+                ],
+                previewRender: function (plainText) {
+                    if (typeof marked !== 'undefined') {
+                        return marked.parse ? marked.parse(plainText) : marked(plainText);
+                    }
+                    return plainText;
+                },
+                shortcuts: {
+                    // Prevent EasyMDE intercepting Ctrl-S so our global save handler fires
+                    toggleSideBySide: null,
+                    toggleFullScreen: null
+                }
+            });
+
+            // Dirty tracking — EasyMDE changes mark the file as dirty
+            state.fbEasyMDE.codemirror.on('change', function () {
+                if (state.currentPath && !state.isDirty) {
+                    state.isDirty = true;
+                    _updateDirtyState();
+                }
+            });
+        }
+
+        state.fbEasyMDE.value(content);
+        setTimeout(function () {
+            state.fbEasyMDE.codemirror.refresh();
+        }, 50);
+    }
+
+    /**
+     * Sync EasyMDE content back into CodeMirror (source of truth).
+     * Called before save, file navigation, or switching away from WYSIWYG mode.
+     */
+    function _syncWysiwygToCodeMirror() {
+        if (state.fbEasyMDE && state.cmEditor) {
+            var content = state.fbEasyMDE.value();
+            state.cmEditor.setValue(content);
         }
     }
 
@@ -226,8 +416,8 @@ var FileBrowserManager = (function () {
                         cm.replaceSelection('    ', 'end');
                     }
                 },
-                'Cmd-K': function(cm) { _showAiEditModal(); },
-                'Ctrl-K': function(cm) { _showAiEditModal(); }
+                'Cmd-K': function(cm) { if (state.viewMode !== 'wysiwyg') _showAiEditModal(); },
+                'Ctrl-K': function(cm) { if (state.viewMode !== 'wysiwyg') _showAiEditModal(); }
             }
         });
         state.cmEditor.on('change', function () {
@@ -656,6 +846,16 @@ var FileBrowserManager = (function () {
         var params = { path: filePath };
         if (force) params.force = 'true';
 
+        // Clean up any previous PDF blob URL
+        if (state.pdfBlobUrl) {
+            URL.revokeObjectURL(state.pdfBlobUrl);
+            state.pdfBlobUrl = null;
+        }
+        // Clear EasyMDE stale content
+        if (state.fbEasyMDE) {
+            state.fbEasyMDE.value('');
+        }
+
         $.getJSON('/file-browser/read', params)
             .done(function (resp) {
                 if (resp.status !== 'success') {
@@ -711,6 +911,29 @@ var FileBrowserManager = (function () {
                     return;
                 }
 
+                // PDF files — render with PDF.js viewer instead of CodeMirror
+                var extCheck = _ext(filePath);
+                if (extCheck === '.pdf') {
+                    state.currentPath = filePath;
+                    state.currentDir = _parentDir(filePath);
+                    state.isPdf = true;
+                    state.isMarkdown = false;
+                    state.viewMode = 'raw';
+                    state.isDirty = false;
+                    state.originalContent = '';
+                    _updateDirtyState();
+                    _highlightTreeItem(filePath);
+                    $('#file-browser-address-bar').val(filePath);
+                    $('#file-browser-tab-bar').hide();
+                    $('#file-browser-download-btn').prop('disabled', false);
+                    $('#file-browser-reload-btn').prop('disabled', true);
+                    _updateToolbarForFileType();
+                    _showView('pdf');
+                    _loadFilePDF(filePath);
+                    return;
+                }
+                state.isPdf = false;
+
                 // Normal file — load into editor
                 _ensureEditor();
                 var ext = _ext(filePath);
@@ -731,16 +954,19 @@ var FileBrowserManager = (function () {
                 _highlightTreeItem(filePath);
                 $('#file-browser-address-bar').val(filePath);
 
-                // Markdown tabs
+                // View mode selector — shown only for markdown files; reset to Raw
+                state.viewMode = 'raw';
                 if (state.isMarkdown) {
-                    $('#file-browser-tab-bar').show();
-                    $('#file-browser-tab-bar .btn').removeClass('active');
-                    $('#file-browser-tab-bar .btn[data-tab="code"]').addClass('active');
+                    $('#fb-view-btngroup .btn').removeClass('active');
+                    $('#fb-view-btngroup .btn[data-view="raw"]').addClass('active');
+                    $('#file-browser-view-select').val('raw');
+                    if (state.sidebarVisible) { $('#file-browser-tab-bar').show(); }
                 } else {
                     $('#file-browser-tab-bar').hide();
                 }
 
                 _showView('editor');
+                _updateToolbarForFileType();
                 // Move cursor to top
                 state.cmEditor.setCursor(0, 0);
                 state.cmEditor.focus();
@@ -771,6 +997,10 @@ var FileBrowserManager = (function () {
      * Save the current file to the server.
      */
     function saveFile() {
+        // Sync WYSIWYG content to CodeMirror before reading for save
+        if (state.viewMode === 'wysiwyg') {
+            _syncWysiwygToCodeMirror();
+        }
         if (!state.currentPath || !state.isDirty) return;
 
         var content = state.cmEditor.getValue();
@@ -1210,9 +1440,15 @@ var FileBrowserManager = (function () {
         if (state.sidebarVisible) {
             $sidebar.removeClass('collapsed');
             $('#file-browser-sidebar-toggle i').attr('class', 'bi bi-layout-sidebar');
+            // Show the view-mode tab bar together with the sidebar (markdown only)
+            if (state.isMarkdown) {
+                $('#file-browser-tab-bar').show();
+            }
         } else {
             $sidebar.addClass('collapsed');
             $('#file-browser-sidebar-toggle i').attr('class', 'bi bi-layout-sidebar-inset');
+            // Hide the view-mode tab bar when sidebar collapses
+            $('#file-browser-tab-bar').hide();
         }
         // Refresh CodeMirror after CSS transition completes
         setTimeout(function () {
@@ -1336,6 +1572,15 @@ var FileBrowserManager = (function () {
                 modal.classList.remove('show');
                 modal.style.display = 'none';
                 modal.setAttribute('aria-hidden', 'true');
+            }
+            // Clean up PDF blob URL to free memory
+            if (state.pdfBlobUrl) {
+                URL.revokeObjectURL(state.pdfBlobUrl);
+                state.pdfBlobUrl = null;
+            }
+            // Sync WYSIWYG before close
+            if (state.viewMode === 'wysiwyg') {
+                _syncWysiwygToCodeMirror();
             }
             // Remove stale backdrop from old cached JS
             var staleBackdrop = document.getElementById('file-browser-backdrop');
@@ -2019,20 +2264,17 @@ var FileBrowserManager = (function () {
             }
         });
 
-        // --- Markdown tab switching ---
-        $('#file-browser-tab-bar').on('click', '.btn', function () {
-            var tab = $(this).attr('data-tab');
-            if (tab === state.activeTab) return;
-            state.activeTab = tab;
-            $('#file-browser-tab-bar .btn').removeClass('active');
-            $(this).addClass('active');
+        // --- View mode switching (Raw/Preview/WYSIWYG button group and select) ---
+        $(document).on('click', '#fb-view-btngroup .btn', function () {
+            var mode = $(this).attr('data-view');
+            if (mode === state.viewMode) return;
+            _setViewMode(mode);
+        });
 
-            if (tab === 'preview') {
-                _renderPreview();
-                _showView('preview');
-            } else {
-                _showView('editor');
-            }
+        $(document).on('change', '#file-browser-view-select', function () {
+            var mode = $(this).val();
+            if (mode === state.viewMode) return;
+            _setViewMode(mode);
         });
 
         // --- Keyboard shortcuts (global, scoped to modal visibility) ---

@@ -131,6 +131,21 @@ function parseMessageForCheckBoxes(text) {
     processCommand(/\/execute\b/i, "execute", true);
     processCommand(/\/draw\b/i, "draw", true);
 
+    // /clarify is special: it can appear on ANY line (not just first), still outside backticks.
+    // When found, set clarify_request=true and remove the token from wherever it appears.
+    const processClarifyCommand = () => {
+        const regex = /\/clarif(?:ications?|y)?\b/i;
+        for (let li = 0; li < lines.length; li++) {
+            const found = findFirstMatchOutsideInlineCode(lines[li], regex);
+            if (found) {
+                result['clarify_request'] = true;
+                lines[li] = replaceAtIndexWithSpace(lines[li], found.index, found.match[0].length);
+                break; // only need to find it once
+            }
+        }
+    };
+    processClarifyCommand();
+
     // Handle commands without numbers specifically, to ensure no leftover words like "then_no_number"
     // Only remove these bare tokens if they occur on the FIRST LINE and outside backticks.
     const removeBareTokenFromFirstLine = (regex) => {

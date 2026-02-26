@@ -158,9 +158,7 @@ function showAttachmentContextMenu(event, att, conversationId) {
             contentType: 'application/json',
             success: function(resp) {
                 showToast('Document promoted to conversation: ' + (resp.title || att.name), 'success');
-                ChatManager.listDocuments(conversationId).done(function(documents) {
-                    ChatManager.renderDocuments(conversationId, documents);
-                });
+                LocalDocsManager.refresh(conversationId);
             },
             error: function(xhr) {
                 var msg = 'Failed to promote document.';
@@ -601,6 +599,9 @@ var ConversationManager = {
         } catch (_e) { /* ignore */ }
 
         this.activeConversationId = conversationId;
+        // Reset PKB recent turns ring buffer when switching conversations
+        // so context from the old conversation doesn't bleed into the new one.
+        try { ConversationManager.recentTurns = []; } catch (_e) {}
         // Set the conversation_friendly_id from WorkspaceManager's cached conversation data
         this.activeConversationFriendlyId = '';
         try {
@@ -732,9 +733,7 @@ var ConversationManager = {
         this.fetchMemoryPad().fail(function () {
             alert('Error fetching memory pad');
         });
-        ChatManager.listDocuments(conversationId).done(function (documents) {
-            ChatManager.renderDocuments(conversationId, documents);
-        });
+        LocalDocsManager.refresh(conversationId);
         ChatManager.setupAddDocumentForm(conversationId);
         ChatManager.setupDownloadChatButton(conversationId);
         ChatManager.setupShareChatButton(conversationId);
@@ -1437,6 +1436,14 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                 // Re-setup event handlers now that we have the message ID
                 setupStreamingCardEventHandlers(card, response_message_id);
 
+                // Capture running_summary from backend so PKB memory extraction
+                // can pass conversation context to the LLM without a separate API call.
+                try {
+                    if (part['message_ids']['running_summary'] !== undefined) {
+                        ConversationManager.currentConversationSummary = part['message_ids']['running_summary'] || '';
+                    }
+                } catch (_e) {}
+
                 // Update message reference badges with short hashes from streaming
                 if (part['message_ids']['response_message_short_hash']) {
                     var rHash = part['message_ids']['response_message_short_hash'];
@@ -1506,6 +1513,23 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
             console.warn('[STREAM DIAG] Last 500 chars:', _rawBackendText.substring(Math.max(0, _rawBackendText.length - 500)));
             // Store on window for easy console access
             window._lastStreamDiag = { rawText: _rawBackendText, chunks: _rawBackendChunks, answer: answer, rendered_answer: rendered_answer };
+            // Store last 2 completed turns for PKB memory extraction context.
+            // Each entry is {user, assistant} with plain text (XML tags stripped).
+            try {
+                if (!ConversationManager.recentTurns) {
+                    ConversationManager.recentTurns = [];
+                }
+                // Strip XML wrapper tags the backend adds (e.g. <answer>...</answer>)
+                var _plainAnswer = answer.replace(/<\/?(?:answer|thinking|status|tool_use)[^>]*>/gi, '').trim();
+                ConversationManager.recentTurns.push({
+                    user: (typeof messageText === 'string' ? messageText : '').trim(),
+                    assistant: _plainAnswer.substring(0, 2000)  // cap at 2000 chars
+                });
+                // Keep only last 2 turns
+                if (ConversationManager.recentTurns.length > 2) {
+                    ConversationManager.recentTurns.shift();
+                }
+            } catch (e) { /* ignore */ }
             
             // Mark streaming as ended - used by ToC to distinguish live-streaming vs post-streaming renders
             try {
@@ -2014,15 +2038,87 @@ function updateUrlWithMessageId(conversationId, messageId) {
     window.history.pushState({conversationId: conversationId, messageId: messageId}, '', `/interface/${conversationId}/${messageId}`);
 }
 
+/**
+ * setupPaperclipAndPageDrop  —  module-level function (not a ChatManager method).
+ *
+ * Wires the paperclip icon click/file-input and the document-level drag-drop handler.
+ * These previously lived as closures inside setupAddDocumentForm so they shared the
+ * conversationId via closure.  Now they read ConversationManager.activeConversationId
+ * at event time, which is always up-to-date after openConversation sets it.
+ *
+ * Drag-onto-page drops call /attach_doc_to_message/ (message-attach path), NOT the
+ * conversation upload endpoint.  This flow is entirely unchanged from before.
+ *
+ * @param {string} conversationId  — passed in from setupAddDocumentForm for clarity,
+ *                                   but the handlers read activeConversationId at event time.
+ */
+function setupPaperclipAndPageDrop(conversationId) {
+    // Internal helper: upload a file as a message attachment (paperclip / page-drop).
+    // Posts to /attach_doc_to_message/ so it lands in message_attached_documents_list,
+    // NOT the conversation document panel.
+    function uploadFileAsAttachment(file, attId) {
+        var convId = ConversationManager.activeConversationId || conversationId;
+        if (!DocsManagerUtils.isValidFileType(file, $('#chat-file-upload'))) {
+            console.log('Invalid file type for attachment: ' + file.type);
+            return;
+        }
+        var formData = new FormData();
+        formData.append('pdf_file', file);
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', '/attach_doc_to_message/' + convId, true);
+        xhr.onload = function () {
+            if (xhr.status === 200) {
+                var response = JSON.parse(xhr.responseText);
+                if (attId && response.doc_id) {
+                    enrichAttachmentWithDocInfo(attId, response.doc_id, response.source, response.title);
+                }
+            } else {
+                console.error('Failed to attach document:', xhr.responseText);
+            }
+        };
+        xhr.onerror = function () {
+            console.error('Network error attaching document.');
+        };
+        xhr.send(formData);
+    }
+
+    // Paperclip click → hidden file input
+    $('#chat-file-upload-span').off('click').on('click', function () {
+        $('#chat-file-upload').click();
+    });
+
+    // Paperclip file selection
+    $('#chat-file-upload').off('change').on('change', function (e) {
+        var file = e.target.files[0];
+        if (file) {
+            var attId = addFileToAttachmentPreview(file);
+            uploadFileAsAttachment(file, attId);
+        }
+    });
+
+    // Document-level drag-and-drop (page drop → message attachment)
+    $(document).off('dragover').on('dragover', function (event) {
+        event.preventDefault();
+        $(this).css('background-color', '#eee');
+    });
+    $(document).off('dragleave').on('dragleave', function (e) {
+        $(this).css('background-color', 'transparent');
+    });
+    $(document).off('drop').on('drop', function (event) {
+        event.preventDefault();
+        $(this).css('background-color', 'transparent');
+        var files = event.originalEvent.dataTransfer.files;
+        for (var i = 0; i < files.length; i++) {
+            var file = files[i];
+            var attId = addFileToAttachmentPreview(file);
+            uploadFileAsAttachment(file, attId); // message-attach path → /attach_doc_to_message/
+        }
+    });
+}
+
 
 var ChatManager = {
     shownDoc: null,
-    listDocuments: function (conversationId) {
-        return $.ajax({
-            url: '/list_documents_by_conversation/' + conversationId,
-            type: 'GET'
-        });
-    },
     listMessages: function (conversationId) {
         return $.ajax({
             url: '/list_messages_by_conversation/' + conversationId,
@@ -2056,9 +2152,7 @@ var ChatManager = {
             type: 'DELETE',
             success: function (response) {
                 // Reload the conversation
-                ChatManager.listDocuments(conversationId).done(function (documents) {
-                    ChatManager.renderDocuments(conversationId, documents);
-                });
+                LocalDocsManager.refresh(conversationId);
             }
         });
     },
@@ -2076,386 +2170,10 @@ var ChatManager = {
         });
     },
     setupAddDocumentForm: function (conversationId) {
-        let doc_modal = $('#add-document-modal-chat')
-        $('#add-document-button-chat').off().click(function () {
-            $('#add-document-modal-chat').modal({ backdrop: 'static', keyboard: false }, 'show');
-        });
-        function success(response) {
-            doc_modal.find('#submit-button').prop('disabled', false);  // Re-enable the submit button
-            doc_modal.find('#submit-spinner').hide();  // Hide the spinner
-
-            
-            // Assuming you have a spinner element for feedback
-            let progressContainer = $('#uploadProgressContainer');
-            
-
-            if (response.status) {
-                ChatManager.listDocuments(conversationId)
-                    .done(function (documents) {
-                        doc_modal.modal('hide');
-                        ChatManager.renderDocuments(conversationId, documents);
-                        progressContainer.hide();
-                        $('#sendMessageButton').prop('disabled', false);
-                        $('#sendMessageButton').show();
-                    })
-                    .fail(function () {
-                        doc_modal.modal('hide');
-                        progressContainer.hide();
-                        $('#sendMessageButton').prop('disabled', false);
-                        $('#sendMessageButton').show();
-                        alert(response.error);
-                    })
-                // set the new document as the current document
-
-            } else {
-                progressContainer.hide();
-                $('#sendMessageButton').prop('disabled', false);
-                $('#sendMessageButton').show();
-                alert(response.error);
-            }
-        }
-        function failure(response) {
-            doc_modal.find('#submit-button').prop('disabled', false);  // Re-enable the submit button
-            doc_modal.find('#submit-spinner').hide();  // Hide the spinner
-            $('#sendMessageButton').prop('disabled', false);
-            $('#sendMessageButton').show();
-            // Assuming you have a spinner element for feedback
-            let progressContainer = $('#uploadProgressContainer');
-            progressContainer.hide();
-            alert('Error: ' + response.responseText);
-            doc_modal.modal('hide');
-        }
-
-        function uploadFile_internal(file, attId) {
-            let xhr = new XMLHttpRequest();
-            var formData = new FormData();
-            formData.append('pdf_file', file);
-            doc_modal.find('#submit-button').prop('disabled', true);  // Disable the submit button
-            doc_modal.find('#submit-spinner').show();  // Display the spinner
-            
-            $('#sendMessageButton').prop('disabled', true);
-            $('#sendMessageButton').hide();
-            let progressContainer = $('#uploadProgressContainer');
-            let progressText = $('#uploadProgressText');
-            progressContainer.show();
-            progressText.text('0%');
-            xhr.open('POST', '/upload_doc_to_conversation/' + conversationId, true);
-            xhr.upload.onprogress = function (e) {
-                if (e.lengthComputable) {
-                    let percentComplete = Math.round((e.loaded / e.total) * 70);
-                    progressText.text(percentComplete + '%'); // Update progress text
-                }
-            };
-
-            intrvl = setInterval(function () {
-                currentProgress = parseInt(progressText.text().replace('%', ''));
-                if (currentProgress < 100 && currentProgress >= 70) {
-                    progressText.text(currentProgress + 1 + '%');
-                }
-            }, 1000);
-
-            xhr.onload = function () {
-                
-                if (xhr.status == 200) {
-                    let response = JSON.parse(xhr.responseText);
-                    if (attId && response.doc_id) {
-                        enrichAttachmentWithDocInfo(attId, response.doc_id, response.source, response.title);
-                    }
-                    success(response);
-                } else {
-                    failure(xhr.response);
-                }
-
-                clearInterval(intrvl);
-            };
-
-            // Error event
-            xhr.onerror = function () {
-                failure(xhr.response); // Make sure to define this function
-                progressContainer.hide();
-                clearInterval(intrvl);
-            };
-
-            // Send the form data with the file
-            xhr.send(formData);
-        }
-
-
-        // Upload a file as a message attachment (drag-onto-page / paperclip icon).
-        // Posts to /attach_doc_to_message/ so it lands in message_attached_documents_list,
-        // NOT the conversation document panel.
-        function uploadFileAsAttachment(file, attId) {
-            if (!isValidFileType(file)) {
-                console.log('Invalid file type for attachment: ' + file.type);
-                return;
-            }
-            var formData = new FormData();
-            formData.append('pdf_file', file);
-            var xhr = new XMLHttpRequest();
-            xhr.open('POST', '/attach_doc_to_message/' + conversationId, true);
-            xhr.onload = function () {
-                if (xhr.status === 200) {
-                    var response = JSON.parse(xhr.responseText);
-                    if (attId && response.doc_id) {
-                        enrichAttachmentWithDocInfo(attId, response.doc_id, response.source, response.title);
-                    }
-                } else {
-                    console.error('Failed to attach document:', xhr.responseText);
-                }
-            };
-            xhr.onerror = function () {
-                console.error('Network error attaching document.');
-            };
-            xhr.send(formData);
-        }
-
-        function uploadFile(file, attId) {
-            if (isValidFileType(file)) {
-                uploadFile_internal(file, attId);  // Call the file upload function
-            } else {
-                console.log(`Invalid file type ${file.type}.`)
-                console.log(`Invalid file type ${getFileType(file, ()=>{})}.`)
-                console.log(`Invalid file type ${getMimeType(file)}.`)
-                const supportedTypes = fileInput.attr('accept')
-                    .replace(/, /g, ', ')
-                    .replace(/application\//g, '')
-                    .replace(/vnd.openxmlformats-officedocument.wordprocessingml.document/g, 'docx')
-                    .replace(/vnd.openxmlformats-officedocument.spreadsheetml.sheet/g, 'xlsx')
-                    .replace(/vnd.ms-excel/g, 'xls')
-                    .replace(/text\//g, '')
-                    .replace(/image\//g, '')
-                    .replace(/audio\//g, '')
-                    .replace(/video\//g, '')
-                    .replace(/svg\+xml/g, 'svg');
-                alert(`Invalid file type ${file.type}. Supported types are: ` + supportedTypes);
-            } 
-        }
-
-        doc_modal.find('#file-upload-button').off().on('click', function () {
-            doc_modal.find('#pdf-file').click();
-        });
-
-        // Handle file selection
-        doc_modal.find('#pdf-file').off().on('change', function (e) {
-            var file = $(this)[0].files[0];  // Get the selected file
-            // check pdf or doc docx
-            if (file) {
-                uploadFile(file);  // Call the file upload function
-            }
-        });
-
-        $('#chat-file-upload-span').off().on('click', function () {
-            $('#chat-file-upload').click();
-        });
-
-        $('#chat-file-upload').off().on('change', function (e) {
-            var file = e.target.files[0]; // Get the selected file
-            if (file) {
-                var attId = addFileToAttachmentPreview(file);
-                uploadFileAsAttachment(file, attId); // message-attach path → /attach_doc_to_message/
-            }
-        });
-
-        // Handle filedrop
-        var fileInput = $('#chat-file-upload');
-        let dropArea = doc_modal.find('#drop-area').off();
-        dropArea.off('dragover').on('dragover', function (e) {
-            e.preventDefault();  // Prevent the default dragover behavior
-            $(this).css('background-color', '#eee');  // Change the color of the drop area
-        });
-        dropArea.off('dragleave').on('dragleave', function (e) {
-            $(this).css('background-color', 'transparent');  // Change the color of the drop area back to its original color
-        });
-        dropArea.off('drop').on('drop', function (e) {
-            e.preventDefault();  // Prevent the default drop behavior
-            e.stopPropagation();  // Prevent bubbling to $(document).drop which would trigger a second upload
-            $(this).css('background-color', 'transparent');  // Change the color of the drop area back to its original color
-
-            // Check if the dropped item is a file
-            if (e.originalEvent.dataTransfer.items) {
-                for (var i = 0; i < e.originalEvent.dataTransfer.items.length; i++) {
-                    // If the dropped item is a file and it's a PDF, word doc docx
-                    if (e.originalEvent.dataTransfer.items[i].kind === 'file') {
-                        var file = e.originalEvent.dataTransfer.items[i].getAsFile();
-                        uploadFile(file);
-                    }
-                }
-            }
-        });
-        doc_modal.find('#add-document-form').off().on('submit', function (event) {
-            event.preventDefault();  // Prevents the default form submission action
-            var pdfUrl = doc_modal.find('#pdf-url').val();
-            if (pdfUrl) {
-                doc_modal.find('#submit-button').prop('disabled', true);  // Disable the submit button
-                doc_modal.find('#submit-spinner').show();  // Display the spinner
-                apiCall('/upload_doc_to_conversation/' + conversationId, 'POST', { pdf_url: pdfUrl }, useFetch = false)
-                    .done(success)
-                    .fail(failure);
-            } else {
-                alert('Please enter a PDF URL');
-            }
-        });
-
-        
-        // Function to check if the file type is valid  
-        function isValidFileType(file) {  
-            var validTypes = fileInput.attr('accept').split(', ').map(type => type.toLowerCase());  
-              
-            // Get file extension  
-            var fileName = file.name.toLowerCase();  
-            var fileExtension = fileName.substring(fileName.lastIndexOf('.'));  
-              
-            // MIME type from browser  
-            var mimeType = (file.type || getMimeType(file) || '').toLowerCase();  
-              
-            // Special handling for markdown files  
-            var isMarkdown = fileExtension === '.md' || fileExtension === '.markdown';  
-            var isMarkdownMime = mimeType === 'text/markdown' ||   
-                                mimeType === 'text/md' ||   
-                                mimeType === 'text/x-markdown' || mimeType === 'application/octet-stream';  
-              
-            // Check if it's a valid markdown file  
-            if (isMarkdown && (isMarkdownMime || mimeType === 'text/plain' || mimeType === '')) {  
-                return true;  
-            }  
-
-            var audioExtensions = ['.mp3', '.mpeg', '.wav', '.wave', '.m4a', '.aac', '.flac', '.ogg', '.oga', '.opus', '.webm', '.wma', '.aiff', '.aif', '.aifc', '.mp4'];  
-            var audioMimeTypes = ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/webm', 'audio/ogg', 'audio/flac', 'audio/x-flac', 'audio/aac', 'audio/m4a', 'audio/x-m4a', 'audio/mp4', 'video/mp4', 'audio/opus', 'audio/x-ms-wma', 'audio/aiff'];  
-
-            if (audioExtensions.includes(fileExtension) && (audioMimeTypes.includes(mimeType) || mimeType === '' || mimeType === 'application/octet-stream')) {  
-                return true;  
-            }  
-              
-            // Standard MIME type validation for other files  
-            return validTypes.includes(mimeType);  
-        } 
-
-        $(document).off('dragover').on('dragover', function (event) {
-            event.preventDefault(); // Prevent default behavior (Prevent file from being opened)  
-            $(this).css('background-color', '#eee');  // Change the color of the drop area
-        }); 
-
-        $(document).off('dragleave').on('dragleave', function (e) {
-            $(this).css('background-color', 'transparent');  // Change the color of the drop area back to its original color
-        });
-
-        $(document).off('drop').on('drop', function (event) {
-            event.preventDefault();
-            $(this).css('background-color', 'transparent');
-            var files = event.originalEvent.dataTransfer.files;
-            for (var i = 0; i < files.length; i++) {
-                var file = files[i];
-                var attId = addFileToAttachmentPreview(file);
-                uploadFileAsAttachment(file, attId); // message-attach path → /attach_doc_to_message/
-            }
-        });  
-    },
-    renderDocuments: function (conversation_id, documents) {
-        console.log(documents);
-        var chat_doc_view = $('#chat-doc-view');
-
-        // Clear existing documents
-        chat_doc_view.children('div').remove();
-
-        // Loop through documents
-        documents.forEach(function (doc, index) {
-            // Create buttons for each document
-            var docButton = $('<button></button>')
-                .addClass('btn btn-outline-primary btn-sm mr-2 mb-1')
-                .text(`#doc_${index + 1}`)
-                .attr('data-doc-id', doc.doc_id)
-                .attr('data-toggle', 'tooltip')
-                .attr('data-trigger', 'hover')
-                .attr('data-placement', 'top')
-                .attr('data-html', 'true')
-                .attr('title', `<b>${doc.title}</br>${doc.source}</b>`).tooltip({ delay: { show: 20 } });
-            // Create Delete 'x' Button
-            var deleteButton = $('<i></i>')
-                .addClass('fa fa-times')
-                .attr('aria-hidden', 'true')
-                .attr('aria-label', 'Delete document'); // Accessibility feature
-
-
-            var deleteDiv = $('<div></div>')
-                .addClass('btn p-0 btn-sm btn-danger ml-1')
-                .append(deleteButton);
-
-            var downloadButton = $('<i></i>')
-                .addClass('fa fa-download')
-                .attr('aria-hidden', 'true')
-                .attr('aria-label', 'Download document'); // Accessibility feature
-
-            var downloadDiv = $('<div></div>')
-                .addClass('btn p-0 btn-sm btn-primary ml-1')
-                .append(downloadButton);
-
-            // Attach download event to open in a new tab
-            downloadDiv.click(function () {
-                window.open(`/download_doc_from_conversation/${conversation_id}/${doc.doc_id}`, '_blank');
-            });
-
-            docButton.click(function () {
-                if (ChatManager.shownDoc === doc.source) {
-                    $("#chat-pdf-content").removeClass('d-none');
-                } else {
-                    showPDF(doc.source, "chat-pdf-content", "/proxy_shared");
-                    $("#chat-pdf-content").removeClass('d-none');
-                    if ($("#chat-content").length > 0) {
-                        $("#chat-content").addClass('d-none');
-                    }
-                    // set shownDoc in ChatManager
-                    ChatManager.shownDoc = doc.source;
-                }
-
-            });
-
-
-            // Attach delete event
-            deleteDiv.click(function (event) {
-                event.stopPropagation(); // Prevents the click event from bubbling up to the docButton
-                ChatManager.deleteDocument(conversation_id, $(this).parent().data('doc-id'))
-                    .catch(function () {
-                        alert("Error deleting the document.");
-                    });
-            });
-
-            var promoteButton = $('<i></i>')
-                .addClass('fa fa-globe')
-                .attr('aria-hidden', 'true')
-                .attr('aria-label', 'Promote to Global Document');
-
-            var promoteDiv = $('<div></div>')
-                .addClass('btn p-0 btn-sm btn-outline-info ml-1')
-                .append(promoteButton);
-
-            promoteDiv.click(function (event) {
-                event.stopPropagation();
-                if (confirm('Promote this document to a Global Document? It will be removed from this conversation and available across all conversations.')) {
-                    GlobalDocsManager.promote(conversation_id, doc.doc_id)
-                        .done(function () {
-                            ChatManager.listDocuments(conversation_id).done(function (documents) {
-                                ChatManager.renderDocuments(conversation_id, documents);
-                            });
-                            if (typeof showToast === 'function') showToast('Document promoted to Global Documents.');
-                        })
-                        .fail(function () {
-                            alert('Error promoting document.');
-                        });
-                }
-            });
-
-            docButton.append(promoteDiv);
-            docButton.append(downloadDiv);
-            docButton.append(deleteDiv);
-            // Create a container for each pair of document and delete buttons
-            var container = $('<div></div>')
-                .addClass('d-inline-block')
-                .append(docButton)
-
-
-            // Append the container to the chat_doc_view
-            chat_doc_view.append(container);
-        });
+        // Delegate local-doc modal wiring to LocalDocsManager.
+        LocalDocsManager.setup(conversationId);
+        // Paperclip and page-drop handlers (message attachment flow — unchanged).
+        setupPaperclipAndPageDrop(conversationId);
     },
     deleteMessage: function (conversationId, messageId, index) {
         return $.ajax({
@@ -3186,6 +2904,37 @@ function sendMessageCallback(skipAutoClarify) {
         return;
     }
 
+    // /clarify command interception: fires the clarification flow instead of sending.
+    // Triggered when the user types /clarify anywhere in the message (outside backticks).
+    try {
+        if (!skipAutoClarify && !!options.clarify_request && messageText.trim().length > 0 &&
+                typeof ClarificationsManager !== 'undefined' &&
+                typeof ClarificationsManager.requestAndShowClarifications === 'function') {
+            // Strip /clarify token(s) from the raw messageText preserving newlines.
+            // Remove the token + surrounding horizontal whitespace on its line only,
+            // then drop any lines that became entirely blank as a result.
+            var clarifyCleanText = messageText
+                .replace(/[ \t]*\/clarif(?:ications?|y)?\b[ \t]*/gi, '')
+                .replace(/^[ \t]*\n/mg, '');
+            // Trim only trailing whitespace — never leading (would eat start of message).
+            clarifyCleanText = clarifyCleanText.replace(/\s+$/, '');
+            if (clarifyCleanText.length > 0) {
+                $('#messageText').val(clarifyCleanText);
+                $('#messageText').trigger('input');
+            }
+            ClarificationsManager.requestAndShowClarifications(
+                ConversationManager.activeConversationId,
+                clarifyCleanText || messageText,
+                // forceClarify=true: always show questions (never auto-send on 'not-needed').
+                // autoSend=false: /clarify is explicit — user decides when to send.
+                { autoSend: false, forceClarify: true }
+            );
+            return;
+        }
+    } catch (e) {
+        console.warn('/clarify interception failed (proceeding without clarifications):', e);
+    }
+
     // Auto-clarify interception (optional, enabled via settings).
     // Important: this must run BEFORE we clear the textarea; otherwise the user loses their draft.
     try {
@@ -3253,15 +3002,13 @@ function sendMessageCallback(skipAutoClarify) {
         // Only check if PKBManager is available
         if (typeof PKBManager !== 'undefined' && PKBManager.checkMemoryUpdates) {
             setTimeout(function() {
-                // Get conversation summary if available
                 var conversationSummary = '';
+                var recentTurns = [];
                 try {
                     conversationSummary = ConversationManager.currentConversationSummary || '';
-                } catch (e) {
-                    conversationSummary = '';
-                }
-                
-                PKBManager.checkMemoryUpdates(conversationSummary, messageText, '');
+                    recentTurns = ConversationManager.recentTurns || [];
+                } catch (e) {}
+                PKBManager.checkMemoryUpdates(conversationSummary, messageText, '', recentTurns);
             }, 3000);  // 3 second delay to allow streaming to start
         }
     }).catch(function(error) {

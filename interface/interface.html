@@ -3,7 +3,7 @@
 <head>
     <!-- Required meta tags -->
     <meta charset="utf-8">
-    <link rel="manifest" href="/interface/manifest.json?v=10">
+    <link rel="manifest" href="/interface/manifest.json">
     <meta name="theme-color" content="#0b0f14">
     <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
@@ -276,7 +276,7 @@
                                   <div id="chat-doc-view" class="d-none d-md-flex align-items-center flex-wrap">
                                       <button id="get-chat-transcript" type="button" class="btn btn-primary mr-2 btn-sm mb-1"><i class="fa fa-download">&nbsp;</i></button>
                                       <button id="share-chat" type="button" class="btn btn-primary mr-2 btn-sm mb-1"><i class="fa fa-share-alt">&nbsp;</i></button>
-                                      <button id="add-document-button-chat" type="button" class="btn btn-primary mr-2 btn-sm mb-1"><i class="fa fa-plus">&nbsp; Add Doc</i></button>
+                                      <button id="conversation-docs-button" type="button" class="btn btn-outline-primary mr-2 btn-sm mb-1"><i class="fa fa-file">&nbsp; Docs</i></button>
                                       <button id="global-docs-button" type="button" class="btn btn-outline-info mr-2 btn-sm mb-1"><i class="fa fa-globe">&nbsp; Global Docs</i></button>
                                       <button id="ext-extract-page" class="btn btn-outline-info mr-2 btn-sm mb-1 ext-btn" style="display:none;" title="Extract content from current page"><i class="fa fa-globe"></i> Page</button>
                                       <button id="ext-refresh-page" class="btn btn-outline-info mr-2 btn-sm mb-1 ext-btn" style="display:none;" title="Refresh page context"><i class="fa fa-refresh"></i> Refresh</button>
@@ -375,39 +375,63 @@
 
     
 
-    <!-- Add Chat Document Modal -->
-    <div class="modal" tabindex="-1" id="add-document-modal-chat">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Add New Document</h5>
-                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
-                        <span aria-hidden="true">&times;</span>
-                    </button>
-                </div>
-                <div class="modal-body">
-                    <form id="add-document-form">
-                      <div class="form-group">
-                        <label for="pdf-url">PDF URL (Note: Indexing takes long time (~2 minute).)</label>
-                        <input type="text" class="form-control" id="pdf-url" placeholder="Enter PDF URL">
-                        <label>Or drop a PDF file here or<button type="button" id="file-upload-button" style="padding-left: 4px; padding-top:2px;" class="btn btn-link">browse</button></label>
-                        <div id="drop-area" style="border: 2px dashed #aaa; padding: 10px; text-align: center;">
-                          Drop a supported document or audio file here. Common formats (PDF, Word, HTML, Markdown, CSV, audio, etc.) can be uploaded directly.
-                        </div>
-                        <input type="file" class="form-control-file" id="pdf-file" accept="application/pdf, application/msword, application/vnd.openxmlformats-officedocument.wordprocessingml.document, text/plain, image/jpeg, image/png, image/svg+xml, image/bmp, application/rtf, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, text/csv, text/tab-separated-values, application/parquet, application/x-jsonlines, application/json, application/x-ndjson, audio/mpeg, audio/mp3, audio/wav, audio/x-wav, audio/webm, audio/ogg, audio/flac, audio/x-flac, audio/aac, audio/m4a, audio/x-m4a, audio/mp4, video/mp4" style="display: none;">  
-                      </div>
-                      
-                        <button id="submit-button" type="submit" class="btn btn-primary">Submit</button>
-                        <div id="submit-spinner" style="display: none">
-                            <div class="spinner-border text-primary" role="status">
-                                <span class="sr-only">Loading...</span>
-                            </div>
-                        </div>
-
-                    </form>
-                </div>
+    <!-- Conversation Documents Modal -->
+    <div class="modal fade" id="conversation-docs-modal" tabindex="-1" role="dialog" aria-labelledby="convDocsModalLabel" aria-hidden="true">
+      <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="convDocsModalLabel">Conversation Documents</h5>
+            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+              <span aria-hidden="true">&times;</span>
+            </button>
+          </div>
+          <div class="modal-body">
+            <div class="card mb-3">
+              <div class="card-header"><h6 class="mb-0">Add New Conversation Document</h6></div>
+              <div class="card-body">
+                <form id="conv-doc-upload-form">
+                  <div class="form-group">
+                    <label for="conv-doc-url">Document URL</label>
+                    <input type="text" class="form-control" id="conv-doc-url" placeholder="Enter URL (PDF, web page, YouTube, etc.)">
+                  </div>
+                  <div class="form-group">
+                    <label>Or drop a file here or <button type="button" id="conv-doc-browse-btn" class="btn btn-link" style="padding-left: 4px; padding-top: 2px;">browse</button></label>
+                    <div id="conv-doc-drop-area" style="border: 2px dashed #aaa; padding: 10px; text-align: center; cursor: pointer;">
+                      Drop a supported document or audio file here. Common formats (PDF, Word, HTML, Markdown, CSV, audio, etc.) can be uploaded directly.
+                    </div>
+                    <input type="file" class="form-control-file" id="conv-doc-file-input"
+                           accept="application/pdf, application/msword, application/vnd.openxmlformats-officedocument.wordprocessingml.document, text/html, text/markdown, text/md, text/plain, image/jpeg, image/png, image/svg+xml, image/bmp, application/rtf, application/vnd.ms-excel, application/vnd.openxmlformats-officedocument.spreadsheetml.sheet, text/csv, text/tab-separated-values, application/parquet, application/x-jsonlines, application/json, application/x-ndjson, audio/mpeg, audio/mp3, audio/wav, audio/x-wav, audio/webm, audio/ogg, audio/flac, audio/x-flac, audio/aac, audio/m4a, audio/x-m4a, audio/mp4, video/mp4"
+                           style="display: none;">
+                  </div>
+                  <div class="form-group">
+                    <label for="conv-doc-display-name">Display Name (optional)</label>
+                    <input type="text" class="form-control" id="conv-doc-display-name" placeholder="Custom name for this document">
+                  </div>
+                  <button type="submit" class="btn btn-primary" id="conv-doc-submit-btn">Upload</button>
+                  <span id="conv-doc-upload-spinner" style="display:none;">
+                    <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
+                    <span id="conv-doc-upload-progress">0%</span>
+                  </span>
+                </form>
+              </div>
             </div>
+            <div class="card">
+              <div class="card-header d-flex justify-content-between align-items-center">
+                <h6 class="mb-0">Uploaded Documents</h6>
+                <button class="btn btn-sm btn-outline-secondary" id="conv-doc-refresh-btn" title="Refresh list">
+                  <i class="fa fa-refresh"></i>
+                </button>
+              </div>
+              <div class="card-body p-0">
+                <div id="conv-docs-list" class="list-group list-group-flush"></div>
+                <div id="conv-docs-empty" class="p-3 text-center text-muted" style="display:none;">
+                  No documents yet. Upload one above.
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
+      </div>
     </div>
 
 
@@ -2094,6 +2118,15 @@
                                         </div>
                                     </div>
                                     <div class="col-md-3">
+                                        <div class="form-group mb-2">
+                                            <label class="small mb-1" for="settings-pkb-extraction-mode">Memory extraction</label>
+                                            <select class="form-control form-control-sm" id="settings-pkb-extraction-mode">
+                                                <option value="relaxed" selected>Relaxed &ndash; explicit facts only</option>
+                                                <option value="aggressive">Aggressive &ndash; capture everything</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
                                         <div class="form-check mb-2">
                                             <input class="form-check-input" id="settings-enable_opencode" type="checkbox">
                                             <label class="form-check-label" for="settings-enable_opencode">
@@ -2180,32 +2213,32 @@
                                 <div class="row">
                                     <div class="col">
                                         <button id="settings-deleteLastTurn" class="btn btn-danger btn-sm rounded-pill w-100">
-                                            <i class="fa fa-trash"></i> Last Turn
+                                            <i class="fa fa-trash"></i><span class="d-none d-sm-inline"> Last Turn</span>
                                         </button>
                                     </div>
                                     <div class="col">
                                         <button class="btn btn-info btn-sm rounded-pill w-100" id="settings-clarifyDraftButton" title="Generate clarification questions for the current draft message">
-                                            <i class="fa fa-question-circle"></i> Clarify Draft
+                                            <i class="fa fa-question-circle"></i> Clarify
                                         </button>
                                     </div>
                                     <div class="col">
                                         <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-memory-pad-text-open-button">
-                                            <i class="bi bi-pen"></i> Memory Pad
+                                            <i class="bi bi-pen"></i> Memory
                                         </button>
                                     </div>
                                     <div class="col">
                                         <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-pkb-modal-open-button">
-                                            <i class="bi bi-brain"></i> Personal Memory
+                                            <i class="bi bi-brain"></i> PKB
                                         </button>
                                     </div>
-                                    <div class="col">
+                                    <div class="col d-none d-sm-block">
                                         <button class="btn btn-outline-secondary btn-sm rounded-pill w-100" id="settings-user-details-modal-open-button" title="Legacy - Use Personal Memory instead">
                                             <i class="bi bi-pen"></i> User Details
                                         </button>
                                     </div>
                                     <div class="col">
                                         <button class="btn btn-warning btn-sm rounded-pill w-100" id="settings-clear-locks-modal-open-button" title="Check and clear stuck lock files">
-                                            <i class="fa fa-lock"></i> Clear Locks
+                                            <i class="fa fa-lock"></i> Clear
                                         </button>
                                     </div>
                                     <div class="col">
@@ -2215,7 +2248,7 @@
                                     </div>
                                     <div class="col">
                                         <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-code-editor-modal-open-button">  
-                                            <i class="bi bi-code-slash"></i> Code Editor  
+                                            <i class="bi bi-code-slash"></i> Code  
                                         </button>  
                                     </div>
                                     <div class="col">
@@ -2225,7 +2258,7 @@
                                     </div>
                                     <div class="col">
                                         <button class="btn btn-outline-primary btn-sm rounded-pill w-100" id="settings-model-overrides-modal-open-button">
-                                            <i class="bi bi-sliders"></i> Model Overrides
+                                            <i class="bi bi-sliders"></i> Model
                                         </button>
                                     </div>
                                     <div class="col">
@@ -2240,7 +2273,7 @@
                                     </div>
                                     <div class="col">
                                         <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-file-browser-modal-open-button" title="Open File Browser" type="button">
-                                            <i class="bi bi-folder2-open"></i> File Browser
+                                            <i class="bi bi-folder2-open"></i>
                                         </button>
                                 </div>
                             </div>
@@ -2478,6 +2511,13 @@ greet("World");</code></pre>
                         <select class="form-control" id="settings-doc-short-answer-model"></select>
                         <small class="form-text text-muted">Used for document Q&A and contextual readers.</small>
                     </div>
+                     <hr>
+                     <h6 class="text-primary mb-3"><i class="bi bi-question-circle"></i> Clarify Models</h6>
+                     <div class="form-group">
+                         <label for="settings-clarify-intent-model" class="form-label"><strong>Clarify Intent Model</strong></label>
+                         <select class="form-control" id="settings-clarify-intent-model"></select>
+                         <small class="form-text text-muted">Used when generating clarification questions (Clarify button and /clarify command).</small>
+                     </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
@@ -2620,7 +2660,7 @@ greet("World");</code></pre>
                           <option value="default">Light</option>
                       </select>
                        <button class="btn btn-sm btn-outline-secondary" id="file-browser-wrap-btn" title="Toggle word wrap" disabled>
-                           <i class="bi bi-text-wrap"></i> Wrap
+                           <i class="bi bi-text-wrap"></i><span class="d-none d-sm-inline"> Wrap</span>
                        </button>
                        <button class="btn btn-sm btn-outline-secondary" id="file-browser-download-btn" title="Download current file" disabled>
                            <i class="bi bi-download"></i>
@@ -2629,13 +2669,13 @@ greet("World");</code></pre>
                            <i class="bi bi-upload"></i>
                        </button>
                     <button class="btn btn-sm btn-outline-info" id="file-browser-ai-edit-btn" title="AI Edit (Cmd+K)" disabled>
-                        <i class="bi bi-magic"></i> AI Edit
+                        <i class="bi bi-magic"></i><span class="d-none d-sm-inline"> AI Edit</span>
                     </button>
                       <button class="btn btn-sm btn-outline-warning" id="file-browser-discard-btn" title="Discard changes" style="display: none;">
-                          <i class="bi bi-arrow-counterclockwise"></i> Discard
+                          <i class="bi bi-arrow-counterclockwise"></i><span class="d-none d-sm-inline"> Discard</span>
                       </button>
                       <button class="btn btn-sm btn-primary" id="file-browser-save-btn" title="Save (Ctrl+S)" disabled>
-                          <i class="bi bi-save"></i> Save
+                          <i class="bi bi-save"></i><span class="d-none d-sm-inline"> Save</span>
                       </button>
                       <button class="btn btn-sm btn-outline-secondary" id="file-browser-reload-btn" title="Reload from Disk" disabled>
                           <i class="bi bi-arrow-clockwise"></i>
@@ -2666,21 +2706,49 @@ greet("World");</code></pre>
                     <!-- Editor Wrapper -->
                     <div id="file-browser-editor-wrapper">
                         <!-- Markdown tab bar (hidden by default) -->
-                        <div id="file-browser-tab-bar">
-                            <button class="btn btn-sm btn-outline-secondary active" data-tab="code">Code</button>
-                            <button class="btn btn-sm btn-outline-secondary" data-tab="preview">Preview</button>
+                        <!-- View mode selector: button group (wide) + select (narrow) -->
+                        <!-- Shown only for markdown files; hidden by default -->
+                        <div id="file-browser-tab-bar" style="display:none;">
+                            <!-- Button group shown on sm+ screens -->
+                            <div id="fb-view-btngroup" class="btn-group btn-group-sm" role="group">
+                                <button type="button" class="btn btn-outline-secondary active" data-view="raw">Raw</button>
+                                <button type="button" class="btn btn-outline-secondary" data-view="preview">Preview</button>
+                                <button type="button" class="btn btn-outline-secondary" data-view="wysiwyg">WYSIWYG</button>
+                            </div>
+                            <!-- Select shown on xs screens only -->
+                            <select id="file-browser-view-select" class="form-control form-control-sm" style="width:auto;">
+                                <option value="raw">Raw</option>
+                                <option value="preview">Preview</option>
+                                <option value="wysiwyg">WYSIWYG</option>
+                            </select>
                         </div>
                         <!-- CodeMirror container -->
                         <div id="file-browser-editor-container"></div>
                         <!-- Markdown preview container -->
                         <div id="file-browser-preview-container"></div>
+                        <!-- WYSIWYG (EasyMDE) container -->
+                        <div id="file-browser-wysiwyg-container" style="display:none;"></div>
+                        <!-- PDF viewer container -->
+                        <div id="file-browser-pdf-container" style="display:none;">
+                            <div id="fb-pdf-progress" style="display:none; padding: 4px 8px;">
+                                <div class="progress" style="height:6px;">
+                                    <div id="fb-pdf-progressbar" class="progress-bar" role="progressbar" style="width:0%;"></div>
+                                </div>
+                                <small id="fb-pdf-progress-status" class="text-muted"></small>
+                            </div>
+                            <iframe id="fb-pdfjs-viewer"
+                                    src="/interface/pdf.js/web/viewer.html"
+                                    data-original-src="/interface/pdf.js/web/viewer.html"
+                                    style="display:none; border:none; width:100%; flex:1;"
+                                    allowfullscreen webkitallowfullscreen>
+                            </iframe>
+                        </div>
                         <!-- Welcome/empty state -->
                         <div id="file-browser-empty-state">
                             <div class="text-center text-muted">
                                 <i class="bi bi-folder2-open" style="font-size: 3rem;"></i>
                                 <p class="mt-2">Select a file from the tree to edit</p>
                             </div>
-                        </div>
                     </div>
                 </div>
             </div>
@@ -3558,6 +3626,7 @@ greet("World");</code></pre>
     <script src="interface/common.js"></script>
     <script src="interface/rendered-state-manager.js"></script>
     <script src="interface/gamification.js"></script>
+    <script src="interface/local-docs-manager.js"></script>
     <script src="interface/common-chat.js"></script>
     <script src="interface/markdown-editor.js"></script>
     <script src="interface/interface.js"></script>
@@ -3569,6 +3638,7 @@ greet("World");</code></pre>
     <script src="interface/prompt-manager.js"></script>
     <script src="interface/pkb-manager.js"></script>
     <script src="interface/artefacts-manager.js?v=20"></script>
+
     <script src="interface/global-docs-manager.js"></script>
     <script src="interface/chat.js"></script>
     <!-- Add to the <head> section -->
@@ -3590,7 +3660,7 @@ greet("World");</code></pre>
     <script src="interface/tab-picker-manager.js"></script>
     <script src="interface/workflow-manager.js"></script>
     <script src="interface/script-manager.js"></script>
-    <script src="interface/file-browser-manager.js?v=23"></script>
+    <script src="interface/file-browser-manager.js?v=24"></script>
     <script>
         document.addEventListener('click', function (event) {
             var button = event.target.closest('#settings-file-browser-modal-open-button');

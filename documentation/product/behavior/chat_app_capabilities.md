@@ -192,31 +192,76 @@ Server-side injection:
 ---
 
 ### 4) Document ingestion + document-grounded Q&A
-
 **What it does**
-- Attach documents to a conversation by:
-  - uploading a file (PDF, etc.)
-  - providing a URL
-- Retrieve documents by referencing `#doc_<n>` in the user message.
+- Attach documents to a conversation via the unified **Conversation Docs modal** (`#conversation-docs-modal`) or via drag-and-drop / paperclip attachment to the current message.
+- Documents are indexed and available for RAG: reference them in messages with `#doc_N`.
+- Three ingress paths:
+  1. **Conversation panel upload** — file picker or URL input in the modal; creates a `FastDocIndex` (BM25-only, 1-3 sec). Docs persist for the conversation lifetime.
+  2. **Message attachment** — drag-and-drop onto the page or click the paperclip icon; creates a `FastDocIndex`. Available for the current turn only.
+  3. **Promote message attachment** — one-click promote upgrades a message attachment to a conversation doc with a full `ImmediateDocIndex` (FAISS + LLM, 15-45 sec).
 - Supports both:
-  - “readable docs” (PDFs, HTML, images, small local files)
-  - “data docs” (CSV/TSV/XLSX/Parquet/JSON) with preview injection into prompts
-- Produces `doc_infos` that maps doc index references to titles/sources.
+  - "readable docs" (PDFs, HTML, images, small local files)
+  - "data docs" (CSV/TSV/XLSX/Parquet/JSON) with preview injection into prompts
+- Produces `doc_infos` that maps `#doc_N` references to titles/sources; injected into LLM system prompt.
+
+**UI — Conversation Docs Modal**
+- Entry point: `#conversation-docs-button` in the chat header (replaces old `#add-document-button-chat`).
+- Modal: `#conversation-docs-modal` — two-card layout:
+  - Upload card: file picker (`#conv-doc-file-input`), URL input, drag-and-drop area, XHR progress bar (0–70% upload, 70–99% indexing tick).
+  - List card: `#conv-docs-list` with per-doc actions: View (PDF viewer via `/proxy_shared`), Download, Promote to Global, Delete.
+- Manager class: `LocalDocsManager` (`interface/local-docs-manager.js`) — `setup()`, `upload()`, `list()`, `renderList()`, `refresh()`, `deleteDoc()`.
+- Shared upload utilities: `DocsManagerUtils` (`interface/local-docs-manager.js`) — `uploadWithProgress()`, `isValidFileType()`, `setupDropArea()`, `getMimeType()`.
+- Initialized via `ChatManager.setupAddDocumentForm()` (`interface/common-chat.js`, line 2144) when a conversation is opened.
+
+**UI — Message Attachment (Paperclip / Drag-and-Drop)**
+- Paperclip click → `#chat-file-upload` hidden file input.
+- Page-level drag-and-drop → same flow.
+- Both handled in `setupPaperclipAndPageDrop()` (`interface/common-chat.js`, line ~2027).
+- On success: `enrichAttachmentWithDocInfo()` updates the attachment strip above the message box.
 
 **API**
-- `POST /upload_doc_to_conversation/<conversation_id>`
-- `GET /list_documents_by_conversation/<conversation_id>`
-- `GET /download_doc_from_conversation/<conversation_id>/<doc_id>`
-- `DELETE /delete_document_from_conversation/<conversation_id>/<document_id>`
+- `POST /upload_doc_to_conversation/<conversation_id>` — upload file or URL with optional `display_name` → `FastDocIndex`; returns `{doc_id, source, title, display_name}`
+- `GET /list_documents_by_conversation/<conversation_id>` — returns array of `{doc_id, source, title, short_summary, visible, display_name}` (`display_name` is `null` if not set)
+- `GET /download_doc_from_conversation/<conversation_id>/<doc_id>` — serve or redirect file
+- `DELETE /delete_document_from_conversation/<conversation_id>/<document_id>` — remove from list (filesystem not deleted)
+- `POST /attach_doc_to_message/<conversation_id>` — paperclip/drag-drop attachment → `FastDocIndex`
+- `POST /promote_message_doc/<conversation_id>/<doc_id>` — promote attachment to conversation doc → `ImmediateDocIndex`
 
+**Display Name**
+- Optional field in the upload modal ("Display Name (optional)" input).
+- Sent as `display_name` in FormData (file upload) or JSON body (URL upload).
+- Stored as the 4th element of the tuple in `uploaded_documents_list`: `(doc_id, storage, source, display_name)`.
+- `get_uploaded_documents()` injects it back onto each loaded `DocIndex` as `_display_name` (backward-compatible with old 3-tuples — missing 4th element defaults to `None`).
+- `get_short_info()` returns `display_name` alongside title/source; UI shows it as a badge above the filename (same pattern as global docs).
 **User message conventions**
-- Reference doc N: `#doc_1`, `#doc_2`, ...
-- Reference all docs: `#doc_all` / `#all_docs` / similar aliases exist.
-- There are also “summary doc” directives in message text (e.g. `#summary_doc_...`) used for forced summary workflows.
+- Reference doc N: `#doc_1`, `#doc_2`, ... (1-based, combined numbering: uploaded docs first, then message-attached docs)
+- Reference all docs: `#doc_all` / `#all_docs` and similar aliases.
+- Summary directives: `#summary_doc_N`, etc.
+
+**Numbering**
+- Combined 1-based index: `#doc_1`..`#doc_M` = uploaded conversation docs; `#doc_M+1`..`#doc_N` = message-attached docs.
+- Rebuilt from the combined list on every add/delete/promote. Deletion renumbers subsequent docs.
+- `doc_infos` field on `Conversation` object holds the current mapping (format: `#doc_1: (Title)[source]`).
+
+**Indexing**
+- `FastDocIndex` (`DocIndex.py`, line 2104): BM25-only (rank_bm25), 1-3 sec. Used for initial uploads and message attachments.
+- `ImmediateDocIndex` / `DocIndex` (`DocIndex.py`, line 959): FAISS embeddings + LLM title/summary, 15-45 sec. Created on promote.
+- Factory functions: `create_fast_document_index()` (line 3066), `create_immediate_document_index()` (line 2793).
 
 **Persistence**
-- Conversation folder contains `uploaded_documents/` which stores `DocIndex` artifacts.
-- The conversation’s field `uploaded_documents_list` stores tuples `(doc_id, doc_storage_path, pdf_url)` persisted in conversation storage.
+- `{conv_storage}/uploaded_documents/{doc_id}/` — per-doc folder with `.index` pickle, FAISS indices, BM25 chunks, source file.
+- `{conv_storage}/{conv_id}-uploaded_documents_list.json` — list of `(doc_id, doc_storage, doc_source)` tuples.
+- `{conv_storage}/{conv_id}-message_attached_documents_list.json` — same format for attachment-scoped docs.
+
+**Key files**
+- `interface/local-docs-manager.js` — `LocalDocsManager` + `DocsManagerUtils` (new file, unified modal)
+- `interface/common-chat.js` — `setupPaperclipAndPageDrop()`, `setupAddDocumentForm()` (delegates to LocalDocsManager)
+- `interface/interface.html` — `#conversation-docs-modal`, `#conversation-docs-button`
+- `endpoints/documents.py` — all 6 conversation doc routes
+- `Conversation.py` — `add_fast_uploaded_document()` (line 1601), `add_message_attached_document()` (line 1741), `get_uploaded_documents()` (line 1698), `delete_uploaded_document()` (line 1723), `promote_message_attached_document()` (line 1854), `get_uploaded_documents_for_query()` (line 5447)
+- `DocIndex.py` — `DocIndex`, `FastDocIndex`, `create_fast_document_index()`, `create_immediate_document_index()`
+
+**See also**: `documentation/features/documents/doc_flow_reference.md` — full end-to-end flow reference with function names, line numbers, and storage layouts for all three document types.
 
 ---
 
@@ -226,8 +271,6 @@ Server-side injection:
 - Provides a user-scoped document library that lives outside any single conversation.
 - A document is uploaded and indexed once (via file or URL) and then available across every conversation the user opens.
 - Reference syntax is identical in spirit to conversation docs but uses the `#gdoc_N` / `#global_doc_N` prefix, or quoted display names:
-
-| Syntax | Effect |
 |--------|--------|
 | `#gdoc_1` or `#global_doc_1` | RAG-grounded answer from global doc 1 |
 | `"my doc name"` | Reference by display name (case-insensitive match) |
@@ -235,40 +278,43 @@ Server-side injection:
 | `#summary_gdoc_1` | Force summary of global doc 1 |
 | `#dense_summary_gdoc_1` | Force dense summary of global doc 1 |
 | `#full_gdoc_1` | Retrieve raw full text of global doc 1 |
+- Users can **promote** a conversation-scoped document to global via the Promote button in the conversation docs list. The doc is moved (not copied) — no re-indexing required.
 
-- Conversation docs (`#doc_N`) and global docs (`#gdoc_N` / `"name"`) can be mixed freely in one message.
-- Users can **promote** a conversation-scoped document to global in one click (globe icon on the doc button). The doc is moved (not copied) — no re-indexing required.
+**UI — Global Docs Modal**
+- Entry point: Global Docs button (globe icon) in the sidebar/toolbar → opens `#global-docs-modal`.
+- Upload card: file picker, URL input, drag-and-drop area, XHR progress bar (0–70% upload, 70–99% indexing tick, via `DocsManagerUtils.uploadWithProgress()`).
+- List card: per-doc actions: View (`showPDF()` via `/global_docs/serve`), Download, Delete. Each doc shows a `#gdoc_N` badge (1-based) and `display_name` badge.
+- Manager class: `GlobalDocsManager` (`interface/global-docs-manager.js`) — delegates upload/validation/drag-drop to `DocsManagerUtils` (from `interface/local-docs-manager.js`).
+- Promote from conversation docs list: `GlobalDocsManager.promote(conversationId, docId)` called from `LocalDocsManager.renderList()`.
 
 **API**
-- `POST /global_docs/upload` — upload a file or provide a URL; the server indexes via `create_immediate_document_index()` and creates a DB row. UI supports drag-and-drop with XHR progress (0-70% upload, 70-99% indexing).
+- `POST /global_docs/upload` — upload a file or provide a URL; the server indexes via `create_immediate_document_index()` and creates a DB row.
 - `GET /global_docs/list` — returns 1-indexed array of global docs for the current user (ordered by `created_at ASC`). Each entry includes `display_name` shown as a badge in the UI.
 - `GET /global_docs/info/<doc_id>` — detailed info including DocIndex metadata (type, filetype, visibility).
 - `GET /global_docs/download/<doc_id>` — download source file, with DocIndex fallback when DB `doc_source` is stale (e.g. after promote). Falls back to redirect for URL-based docs.
 - `GET /global_docs/serve?file=<doc_id>` — query-param wrapper for the PDF viewer. Used by `showPDF()` in the UI to render global docs with the same full-height viewer as conversation docs.
-- `DELETE /global_docs/<doc_id>` — delete DB row and remove filesystem storage.
-- `POST /global_docs/promote/<conversation_id>/<doc_id>` — copy doc storage to global directory, verify load, register in DB, remove from conversation. Uses copy-verify-delete for safety.
+- `DELETE /global_docs/<doc_id>` — delete DB row and remove filesystem storage (`shutil.rmtree`).
+- `POST /global_docs/promote/<conversation_id>/<doc_id>` — copy doc storage to global directory, update `DocIndex._storage`, register in DB, remove from conversation. Uses copy-verify-delete for safety.
 
 **Persistence**
 - **Database**: `GlobalDocuments` table in `users.db` with composite PK `(doc_id, user_email)`. Stores `display_name`, `doc_source`, `doc_storage`, cached `title`/`short_summary`, and timestamps.
-- **Filesystem**: `storage/global_docs/{user_email_md5_hash}/{doc_id}/` — identical layout to conversation docs (`{doc_id}.index`, `indices/`, `raw_data/`, `static_data/`, `review_data/`, `_paper_details/`, `locks/`).
-- Numbering is positional (1-based by `created_at`). Deleting a doc renumbers subsequent ones, matching conversation doc behavior.
+- **Filesystem**: `storage/global_docs/{md5(user_email)}/{doc_id}/` — identical layout to conversation docs (`{doc_id}.index`, `indices.partial`, `raw_data.partial`, `static_data.json`, `review_data.partial`, `_paper_details.partial`, `locks/`).
+- Numbering is positional (1-based by `created_at ASC`). Deleting a doc renumbers subsequent ones.
 
 **Key files**
 - `database/global_docs.py` — DB CRUD helpers (`add_global_doc`, `list_global_docs`, `get_global_doc`, `delete_global_doc`, `update_global_doc_metadata`).
-- `endpoints/global_docs.py` — Flask Blueprint (`global_docs_bp`) with 7 routes (upload, list, info, download, serve, delete, promote).
-- `Conversation.py` — `get_global_documents_for_query()` method with quoted display-name matching + 7 reply-flow integration points (parsing, quoted-name detection, all-docs check, summary pattern, full-text pattern, async launch, merge).
+- `endpoints/global_docs.py` — Flask Blueprint (`global_docs_bp`) with 7 routes (upload, list, info, download, serve, delete, promote). Helper `_user_hash(email)` = MD5(email) for directory naming.
+- `Conversation.py` — `get_global_documents_for_query()` (line 5535) with quoted display-name matching, `#gdoc_all` support, and 7 reply-flow integration points (parsing, quoted-name detection, all-docs check, summary pattern, full-text pattern, async launch, merge).
 - `endpoints/conversations.py` — injects `_user_email` and `_global_docs_dir` into the query dict for `Conversation.reply()`.
 - `endpoints/state.py` — `global_docs_dir` field on `AppState`.
-- `interface/global-docs-manager.js` — `GlobalDocsManager` class (drag-and-drop upload with XHR progress, file type validation, list, delete, view, promote).
-- `interface/interface.html` — Global Docs button (globe icon), management modal with drag-and-drop drop area.
-- `interface/common-chat.js` — promote button on conversation doc buttons.
+- `interface/global-docs-manager.js` — `GlobalDocsManager` class; delegates upload/validation/drag-drop to `DocsManagerUtils` from `local-docs-manager.js`.
+- `interface/local-docs-manager.js` — `DocsManagerUtils` (shared upload utilities used by both managers).
+- `interface/interface.html` — Global Docs button (globe icon), `#global-docs-modal` with drag-and-drop drop area.
 - `endpoints/static_routes.py` — `_is_missing_local_path()` guard on proxy routes (prevents crash on non-existent local file paths).
-
-**Differentiator from conversation docs**
-- Conversation docs are scoped to a single conversation and re-indexed each time. Global docs are indexed once and reusable across all conversations.
+- Global docs always use full `ImmediateDocIndex` (FAISS + LLM); conversation docs start as `FastDocIndex` (BM25-only) and can be promoted.
 - Global docs are user-scoped (keyed by email hash), not conversation-scoped.
 - The promote feature provides a migration path: start with a conversation doc, realize you need it elsewhere, promote it with one click.
-
+**See also**: `documentation/features/documents/doc_flow_reference.md` — full end-to-end flow reference.
 ---
 
 ### 5) Web search + “research augmentation”
@@ -575,6 +621,37 @@ The backend resolver (`resolve_reference()`) uses suffix-based routing for fast 
 
 **Key files:** `conversation_reference_utils.py`, `Conversation.py`, `database/conversations.py`, `interface/workspace-manager.js`, `interface/common-chat.js`
 **Docs:** `documentation/features/cross_conversation_references/README.md`
+
+---
+
+### 6c) Clarification Flow (`/clarify` Slash Command)
+
+**What it does**
+- User types `/clarify`, `/clarification`, or `/clarifications` anywhere in a message (outside backtick spans) and presses Enter.
+- Instead of sending the message, the app fires the clarification flow: calls the `/clarify_intent` endpoint, shows a modal with 1–3 clarifying questions, and appends the answered Q&A to the message composer in a `[Clarifications]` block.
+- Multiple rounds are supported — each `/clarify` call appends another block separated by `---`; Q numbering resets to Q1 per round.
+- Never auto-sends: the user always controls when to actually send the message.
+- **Auto Clarify checkbox** (`settings-auto_clarify`) also triggers the flow before sending (with `forceClarify: false`); in that mode, if the backend finds no questions needed, the modal auto-closes and the message sends normally.
+
+**`forceClarify` flag**
+- Slash command → `forceClarify: true` → backend MUST produce 1–3 questions, never returns "already clear"
+- Auto-clarify checkbox → `forceClarify: false` → backend may return `needs_clarification: false`; modal auto-closes
+
+**Context used by the clarification LLM**
+- Conversation summary (running summary field)
+- Last 3 turns of history (assistant capped 8k chars, user capped 6k chars)
+- Raw PKB claims (no LLM summarization step; capped at 6k chars)
+- Current message text (with `/clarify` tokens stripped)
+
+**API**
+- `POST /clarify_intent/<conversation_id>` — `{ messageText, checkboxes, forceClarify }` → `{ needs_clarification: bool, questions: [ { id, prompt, options: [ { id, label } ] } ] }`
+- Rate limit: 30/minute. Fail-open: always returns valid JSON.
+
+**Model override**
+- `clarify_intent_model` key in conversation model overrides controls which LLM generates the questions. Default: `VERY_CHEAP_LLM[0]`. Configurable per-conversation via the "Clarify Models" section in the Model Overrides modal.
+
+**Key files**: `interface/parseMessageForCheckBoxes.js` (`processClarifyCommand`), `interface/common-chat.js` (send intercept), `interface/clarifications-manager.js` (modal + multi-round append), `endpoints/conversations.py` (`clarify_intent` endpoint), `interface/chat.js` (`clarify_intent_model` persistence)
+**Full docs**: `documentation/product/behavior/CLARIFICATIONS_AND_AUTO_DOUBT_CONTEXT.md`
 
 ---
 
@@ -900,21 +977,22 @@ The extension uses two categories of endpoints:
 ---
 
 ## File Browser & Editor
-
 Full-screen modal file browser and code editor accessible from the chat-settings-modal **Actions** tab. Intended for server-side file management without leaving the chat interface.
 
 **Entry point**: Settings → Actions tab → **File Browser** button.
-
 **What it does**
  Displays a VS Code-like file tree of the server's working directory (lazy-loaded, depth-first expansion).
  Opens files in a CodeMirror 5 editor with syntax highlighting (Python, JS, TS, CSS, HTML, XML, Markdown, JSON).
- For `.md` / `.markdown` files: a **Code / Preview** tab bar toggles between raw editing and rendered markdown preview.
- Address bar with HTML5 `<datalist>` autocomplete populated from the loaded tree — typing a path or picking a suggestion navigates directly.
- Right-click context menu on tree items: **New File**, **New Folder**, **Rename**, **Delete**.
- **Ctrl+S / Cmd+S** saves the current file; **Escape** closes the modal (with a confirmation prompt if there are unsaved changes).
- Binary files are detected (null-byte scan in first 8 KB) and displayed with an informational message instead of garbled text.
- Files over 2 MB are blocked with a warning; a **Load Anyway** button overrides the guard.
-
+ For `.md` / `.markdown` files: a **Raw / Preview / WYSIWYG** view-mode selector appears above the editor. WYSIWYG embeds EasyMDE inline; CodeMirror is the source of truth and is synced before every save.
+ For `.pdf` files: renders inline using the bundled PDF.js viewer with a scoped download-progress bar. No download prompt.
+ Address bar with fuzzy autocomplete dropdown — substring + sequential character matching with filename-priority scoring and highlighted matches.
+ Right-click context menu and sidebar buttons: **New File**, **New Folder**, **Rename**, **Delete**.
+ In-modal confirm and naming dialogs (replaces native `confirm()` / `prompt()` which are blocked behind z-index:100000).
+ **Ctrl+S / Cmd+S** saves the current file; **Escape** closes the modal (with dirty-check confirmation). **Cmd+K / Ctrl+K** opens AI Edit overlay.
+ **AI Edit (Cmd+K)**: LLM-assisted inline editing — selection or whole file, unified diff preview, Accept / Reject / Edit Instruction flow, conversation context injection.
+ **Reload from Disk**, **Word Wrap** toggle, **Download**, and drag-and-drop **Upload** (XHR progress bar) toolbar buttons.
+ Binary files detected (null-byte scan in first 8 KB) and shown with informational message. Files over 2 MB blocked with a **Load Anyway** override.
+ Theme picker: Monokai (default) / Default light.
 **API** (`endpoints/file_browser.py`, all `@login_required`)
  `GET /file-browser/tree?path=.` — list directory (dirs first, sorted)
  `GET /file-browser/read?path=...&force=true` — read file content
@@ -922,11 +1000,14 @@ Full-screen modal file browser and code editor accessible from the chat-settings
  `POST /file-browser/mkdir` — create directory `{path}`
  `POST /file-browser/rename` — rename/move `{old_path, new_path}`
  `POST /file-browser/delete` — delete file/dir `{path, recursive}`
+ `GET /file-browser/download?path=...` — download file as attachment
+ `POST /file-browser/upload` — upload file (multipart, with overwrite flag)
+ `GET /file-browser/serve?path=...` — serve file inline (used by PDF.js viewer; MIME auto-detected)
+ `POST /file-browser/ai-edit` — LLM-assisted edit `{path, instruction, selection?, conversation_id?}`
 
 **Security**: all paths validated via `os.path.realpath()` + `startswith(SERVER_ROOT)` — cannot escape the server root.
 
-**Modal architecture**: The modal is a plain `position: fixed` `<div>` (not a Bootstrap `.modal`). It is opened/closed with raw DOM manipulation to avoid Bootstrap JS stacking conflicts when the settings modal is already open. No backdrop is used. View switching (`editor / preview / empty-state`) uses vanilla `element.style.display` rather than jQuery `.show()/.hide()` to avoid Bootstrap `!important` utility class conflicts.
-
+**Modal architecture**: The modal is a plain `position: fixed` `<div>` (not a Bootstrap `.modal`). Opened/closed with raw DOM manipulation to avoid Bootstrap JS stacking conflicts when the settings modal is already open. No backdrop. View switching (`editor / preview / wysiwyg / pdf / empty-state`) uses vanilla `element.style.display` (not jQuery `.show()/.hide()`) to avoid Bootstrap `!important` utility class conflicts.
 **Key files**: `endpoints/file_browser.py`, `interface/file-browser-manager.js`
 **Docs**: `documentation/features/file_browser/README.md`
 

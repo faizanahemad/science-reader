@@ -1012,6 +1012,7 @@ class DocIndex:
         self.doc_type = doc_type
         self._title = ""
         self._short_summary = ""
+        self._display_name = None
         folder = os.path.join(storage, f"{self.doc_id}")
         os.makedirs(folder, exist_ok=True)
         self._storage = folder
@@ -1956,6 +1957,7 @@ class DocIndex:
             title=self.title,
             short_summary=self.short_summary,
             summary=self.short_summary,
+            display_name=getattr(self, "_display_name", None) or None,
         )
 
     @property
@@ -2193,6 +2195,7 @@ class FastDocIndex(DocIndex):
 
         # ---- Summary from first 500 chars of text (no LLM call) ----
         self._short_summary = doc_text[:500].strip() if doc_text else ""
+        self._display_name = None
 
         # ---- Storage folder ----
         folder = os.path.join(storage, f"{self.doc_id}")

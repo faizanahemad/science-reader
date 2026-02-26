@@ -10,6 +10,14 @@ This doc explains how chat messages move from UI to server and back, and how the
   - `ChatManager.sendMessage(conversationId, messageText, options, links, search, attached_claim_ids, referenced_claim_ids, referenced_friendly_ids)`
 - Before sending, `parseMemoryReferences()` extracts `@references` from the message text. These can reference any PKB object type — claims, contexts, entities, tags, or domains.
 
+**Slash commands (pre-send intercepts)** — `parseMessageForCheckBoxes()` in `interface/parseMessageForCheckBoxes.js` scans the raw message for slash command tokens (outside backtick spans) and sets flags on the `options` object. `sendMessageCallback()` checks these flags before calling `ChatManager.sendMessage`:
+
+| Command | Aliases | Behavior |
+|---------|---------|----------|
+| `/clarify` | `/clarification`, `/clarifications` | Strips the token, sets `options.clarify_request = true`; `sendMessageCallback` fires `ClarificationsManager.requestAndShowClarifications()` with `forceClarify: true` and does NOT send the message. The clarification Q&A is appended to the textarea for the user to review and send manually. |
+
+See `documentation/product/behavior/CLARIFICATIONS_AND_AUTO_DOUBT_CONTEXT.md` for full clarification flow details.
+
 **PKB `@` autocomplete** (pre-submit UX):
 - Typing `@` in the chat input triggers `fetchAutocompleteResults()` in `interface/common-chat.js`.
 - The autocomplete dropdown calls `GET /pkb/autocomplete?prefix=...` and shows results in five categories:

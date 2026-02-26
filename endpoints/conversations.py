@@ -266,6 +266,7 @@ def set_conversation_settings(conversation_id: str):
         "doc_long_summary_model",
         "doc_long_summary_v2_model",
         "doc_short_answer_model",
+        "clarify_intent_model",
     }
     normalized_overrides = {}
     for key, value in model_overrides.items():
@@ -1807,6 +1808,7 @@ def clarify_intent(conversation_id: str):
     message_text = payload.get("messageText")
     if not isinstance(message_text, str) or not message_text.strip():
         return json_error("messageText is required", status=400, code="invalid_request")
+    force_clarify = bool(payload.get("forceClarify", False))
 
     if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
         return json_error(
@@ -1823,7 +1825,7 @@ def clarify_intent(conversation_id: str):
         from call_llm import CallLLm
         from common import VERY_CHEAP_LLM
 
-        # Context signals (bounded): summary + last turn.
+        # --- Conversation summary ---
         try:
             conversation_summary = (
                 conversation.running_summary
@@ -1836,80 +1838,108 @@ def clarify_intent(conversation_id: str):
         if not conversation_summary:
             conversation_summary = "(No summary available)"
         conversation_summary = conversation_summary[:10_000]
-
+        # --- Recent history: last 3 user+assistant turns ---
         try:
             messages = conversation.get_message_list() or []
         except Exception:
             messages = []
-
-        # Extract the most recent user+assistant pair (last turn).
-        last_user_text = ""
-        last_assistant_text = ""
+        recent_turns = []
         try:
+            pending_user = ""
+            pending_asst = ""
             for msg in reversed(messages):
-                if (
-                    isinstance(msg, dict)
-                    and not last_assistant_text
-                    and msg.get("sender") == "model"
-                ):
-                    last_assistant_text = str(msg.get("text", "") or "")
-                elif (
-                    isinstance(msg, dict)
-                    and not last_user_text
-                    and msg.get("sender") == "user"
-                ):
-                    last_user_text = str(msg.get("text", "") or "")
-                if last_user_text and last_assistant_text:
+                if not isinstance(msg, dict):
+                    continue
+                if not pending_asst and msg.get("sender") == "model":
+                    pending_asst = " ".join(str(msg.get("text", "") or "").split())[:8_000]
+                elif not pending_user and msg.get("sender") == "user":
+                    pending_user = " ".join(str(msg.get("text", "") or "").split())[:6_000]
+                if pending_user and pending_asst:
+                    recent_turns.append((pending_user, pending_asst))
+                    pending_user = ""
+                    pending_asst = ""
+                if len(recent_turns) >= 3:
                     break
+            recent_turns.reverse()  # chronological order for the prompt
         except Exception:
-            last_user_text = ""
-            last_assistant_text = ""
+            recent_turns = []
 
-        last_user_text = (
-            " ".join(last_user_text.split())[:18_000] if last_user_text else "(none)"
-        )
-        last_assistant_text = (
-            " ".join(last_assistant_text.split())[:22_000]
-            if last_assistant_text
-            else "(none)"
-        )
+        recent_turns_text = "(No recent turns)"
+        if recent_turns:
+            parts = []
+            for i, (u, a) in enumerate(recent_turns, 1):
+                parts.append(f"Turn {i}:\n  User: \"{u}\"\n  Assistant: \"{a}\"")
+            recent_turns_text = "\n".join(parts)
 
-        prompt = f"""
-You are an intent-clarification assistant. Given a user's draft message and brief conversation context, decide if clarifications are needed.
+        # --- PKB context (raw, no LLM summarization) ---
+        # _get_pkb_context does its own exception handling and returns "" on any failure.
+        pkb_context = ""
+        try:
+            state = get_state()
+            pkb_context = conversation._get_pkb_context(
+                user_email=email,
+                query=message_text,
+                conversation_summary=conversation_summary,
+                k=8,
+                conversation_id=conversation_id,
+                users_dir=state.users_dir,
+            )
+        except Exception:
+            pkb_context = ""
+        pkb_context = (pkb_context or "").strip()
 
-Conversation summary:
-\"\"\"{conversation_summary}\"\"\"
+        # Build PKB section for prompt (omit entirely if empty to keep prompt clean).
+        pkb_section = ""
+        if pkb_context:
+            pkb_section = (
+                "\nPersonal knowledge base (facts about the user — use to personalise questions):\n"
+                + pkb_context[:6_000]
+            )
+        prompt = (
+            "You are an intent-clarification assistant. Given a user's draft message"
+            " and conversation context, decide if clarifications are needed.\n"
+            "\n"
+            "Conversation summary:\n"
+            f'\'\'\'{ conversation_summary }\'\'\'\n'
+            "\n"
+            "Recent conversation history (up to last 3 turns, chronological):\n"
+            f"{ recent_turns_text }\n"
+            f"{ pkb_section }\n"
+            "\n"
+            "Draft message:\n"
+            f'\'\'\'{ message_text.strip() }\'\'\'\n'
+            "\n"
+            + "Rules:\n"
+            + (
+                "- The user has explicitly requested clarification questions. You MUST produce 1\u20133 questions.\n"
+                "- Do NOT set needs_clarification=false. Always set it to true and always return at least 1 question.\n"
+                "- If the draft already seems specific, ask questions that will improve depth or quality (e.g. tone, format, audience, scope).\n"
+                if force_clarify else
+                "- If the draft is already specific enough to answer, set needs_clarification=false and questions=[].\n"
+                + "- Otherwise, propose up to 3 multiple-choice questions to clarify intent/objective.\n"
+            )
+            + "- Each question must have 2 to 5 options.\n"
+            + "- The questions can be generic to clarify the intent of the user's message. Or specific to the conversation context and the user message.\n"
+            + "- Use facts from the personal knowledge base to avoid asking things already known about the user.\n"
+            + "- Keep questions short and practical.\n"
+            + "- Do NOT ask about facts that are already answered by the conversation summary or recent history.\n"
+            + "- Output MUST be STRICT JSON only (no markdown, no code fences, no extra text).\n"
+            + '- For Free form text option input, Put the option as "Other (please specify)" which when checked will show a text input field to enter the free form text.\n'
+            + "\n"
+            + "JSON schema:\n"
+            + '{\n'
+            + '  "needs_clarification": true|false,\n'
+            + '  "questions": [\n'
+            + '    {\n'
+            + '      "prompt": "question text",\n'
+            + '      "options": ["option 1", "option 2"]\n'
+            + '    }\n'
+            + '  ]\n'
+            + '}'
+        ).strip()
 
-Last turn (most recent):
-- Last user message: \"\"\"{last_user_text}\"\"\"
-- Last assistant message: \"\"\"{last_assistant_text}\"\"\"
-
-Draft message:
-\"\"\"{message_text.strip()}\"\"\"
-
-Rules:
-- If the draft is already specific enough to answer, set needs_clarification=false and questions=[].
-- Otherwise, propose up to 3 multiple-choice questions to clarify intent/objective.
-- Each question must have 2 to 5 options.
-- The questions can be generic to clarify the intent of the user's message. Or specific to the conversation context and the user message.
-- Keep questions short and practical.
-- Do NOT ask about facts that are already answered by the conversation summary or last turn.
-- Output MUST be STRICT JSON only (no markdown, no code fences, no extra text).
-- For Free form text option input, Put the option as "Other (please specify)" which when checked will show a text input field to enter the free form text. 
-
-JSON schema:
-{{
-  "needs_clarification": true|false,
-  "questions": [
-    {{
-      "prompt": "question text",
-      "options": ["option 1", "option 2"]
-    }}
-  ]
-}}
-""".strip()
-
-        llm = CallLLm(keys, model_name=VERY_CHEAP_LLM[0], use_gpt4=False, use_16k=False)
+        clarify_model = conversation.get_model_override("clarify_intent_model", VERY_CHEAP_LLM[0])
+        llm = CallLLm(keys, model_name=clarify_model, use_gpt4=False, use_16k=False)
         raw = llm(
             prompt,
             images=[],

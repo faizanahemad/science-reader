@@ -32,7 +32,8 @@ Stored on the conversation as:
     "context_action_model": "...",
     "doc_long_summary_model": "...",
     "doc_long_summary_v2_model": "...",
-    "doc_short_answer_model": "..."
+    "doc_short_answer_model": "...",
+    "clarify_intent_model": "..."
   }
 }
 ```
@@ -61,6 +62,7 @@ If a key is missing or empty, the server falls back to the existing default in c
   - `doc_long_summary_model` for `DocIndex.get_doc_long_summary()` and chain-of-density.
   - `doc_long_summary_v2_model` for `DocIndex.get_doc_long_summary_v2()`.
   - `doc_short_answer_model` for `DocIndex.streaming_get_short_answer()`.
+- **Clarify Intent**: `endpoints/conversations.py` `clarify_intent` endpoint uses `clarify_intent_model` when calling the LLM to generate clarification questions. Defaults to `VERY_CHEAP_LLM[0]`. Applied via `conversation.get_model_override("clarify_intent_model", VERY_CHEAP_LLM[0])`. UI dropdown: `#settings-clarify-intent-model` in the "Clarify Models" section of the Model Overrides modal.
 
 ## UI Implementation Details
 

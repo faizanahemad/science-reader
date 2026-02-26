@@ -12,7 +12,7 @@
 const DEBUG = false;
 
 // Bump cache when UI shell assets change.
-const CACHE_VERSION = "v23";
+const CACHE_VERSION = "v25";
 const UI_SHELL_CACHE = `ui-shell-${CACHE_VERSION}`;
 const META_CACHE = `meta-${CACHE_VERSION}`;
 
@@ -66,8 +66,8 @@ const PRECACHE_URLS = [
   "/interface/interface/file-browser-manager.js",
 
   // PWA icons
-  "/interface/icons/app-icon.svg?v=10",
-  "/interface/icons/maskable-icon.svg?v=10",
+  "/interface/icons/app-icon.svg",
+  "/interface/icons/maskable-icon.svg",
 ];
 
 const PWA_ASSET_PATHS = new Set([
@@ -264,9 +264,6 @@ self.addEventListener("fetch", (event) => {
   // PWA artifacts: always CacheFirst to avoid repeated icon/manifest fetches.
   if (PWA_ASSET_PATHS.has(url.pathname)) {
     var cacheKey = req;
-    if (url.pathname === "/interface/manifest.json") {
-      cacheKey = "/interface/manifest.json?v=10";
-    }
     event.respondWith(
       (async () => {
         const cache = await caches.open(UI_SHELL_CACHE);

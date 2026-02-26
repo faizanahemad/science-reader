@@ -1371,6 +1371,11 @@ def pkb_propose_updates_route():
         conversation_summary = data.get("conversation_summary", "")
         user_message = data.get("user_message", "")
         assistant_message = data.get("assistant_message", "")
+        extraction_mode = data.get("extraction_mode", "relaxed")
+        if extraction_mode not in ("relaxed", "aggressive"):
+            extraction_mode = "relaxed"
+        recent_turns = data.get("recent_turns", [])  # [{"user": ..., "assistant": ...}, ...]
+        conversation_id = data.get("conversation_id")  # Optional; used for logging and future context linking
 
         if not user_message:
             return json_error(
@@ -1384,11 +1389,12 @@ def pkb_propose_updates_route():
                 "Failed to initialize PKB", status=500, code="pkb_init_failed"
             )
 
-        distiller = ConversationDistiller(api, keys)
+        distiller = ConversationDistiller(api, keys, extraction_mode=extraction_mode)
         plan = distiller.extract_and_propose(
             conversation_summary=conversation_summary,
             user_message=user_message,
             assistant_message=assistant_message or "",
+            recent_turns=recent_turns,
         )
 
         if not plan or len(plan.candidates) == 0:
@@ -1400,24 +1406,20 @@ def pkb_propose_updates_route():
         _memory_update_plans[plan_id] = plan
 
         proposed_actions = []
+        # Build a lookup from candidate statement -> ProposedAction for O(1) access
+        pa_by_statement = {pa.candidate.statement: pa for pa in plan.proposed_actions}
         for i, candidate in enumerate(plan.candidates):
+            pa = pa_by_statement.get(candidate.statement)
             action = {
                 "index": i,
                 "statement": candidate.statement,
                 "claim_type": candidate.claim_type,
                 "context_domain": candidate.context_domain,
-                "action": "add",
+                "action": pa.action if pa else "add",
             }
-            if plan.matches and i < len(plan.matches) and plan.matches[i]:
-                match = plan.matches[i]
-                action["existing_claim_id"] = match.claim.claim_id
-                action["existing_statement"] = match.claim.statement
-                action["similarity_score"] = match.score
-                action["action"] = (
-                    plan.proposed_actions[i]
-                    if plan.proposed_actions and i < len(plan.proposed_actions)
-                    else "edit"
-                )
+            if pa and pa.existing_claim:
+                action["existing_claim_id"] = pa.existing_claim.claim_id
+                action["existing_statement"] = pa.existing_claim.statement
             proposed_actions.append(action)
 
         return jsonify(
@@ -1680,16 +1682,14 @@ def pkb_execute_updates_route():
             context_domain = item["context_domain"]
 
             action = "add"
+            existing_claim_id = None
             if plan.proposed_actions and idx < len(plan.proposed_actions):
-                action = plan.proposed_actions[idx]
+                pa = plan.proposed_actions[idx]
+                action = pa.action  # ProposedAction.action is the string
+                if pa.existing_claim:
+                    existing_claim_id = pa.existing_claim.claim_id
 
-            if (
-                action == "edit"
-                and plan.matches
-                and idx < len(plan.matches)
-                and plan.matches[idx]
-            ):
-                existing_claim_id = plan.matches[idx].claim.claim_id
+            if action == "edit" and existing_claim_id:
                 result = api.edit_claim(
                     existing_claim_id,
                     statement=statement,

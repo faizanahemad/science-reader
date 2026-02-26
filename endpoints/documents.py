@@ -31,13 +31,14 @@ def upload_doc_to_conversation_route(conversation_id: str):
     state, keys = get_state_and_keys()
 
     pdf_file = request.files.get("pdf_file")
+    display_name = (request.form.get("display_name") or "").strip() or None
     conversation = attach_keys(state.conversation_cache[conversation_id], keys)
 
     if pdf_file and conversation_id:
         try:
             pdf_file.save(os.path.join(state.pdfs_dir, pdf_file.filename))
             full_pdf_path = os.path.join(state.pdfs_dir, pdf_file.filename)
-            doc_index = conversation.add_fast_uploaded_document(full_pdf_path)
+            doc_index = conversation.add_fast_uploaded_document(full_pdf_path, display_name=display_name)
             conversation.save_local()
             result = {"status": "Indexing started"}
             if doc_index and hasattr(doc_index, "get_short_info"):
@@ -45,23 +46,24 @@ def upload_doc_to_conversation_route(conversation_id: str):
                 result["doc_id"] = info.get("doc_id", "")
                 result["source"] = info.get("source", "")
                 result["title"] = info.get("title", pdf_file.filename)
+                result["display_name"] = info.get("display_name", "")
             return jsonify(result)
         except Exception as e:
             traceback.print_exc()
             return json_error(str(e), status=400, code="bad_request")
-
     pdf_url = None
     if request.is_json and request.json:
         pdf_url = request.json.get("pdf_url")
+        if display_name is None:
+            display_name = (request.json.get("display_name") or "").strip() or None
 
     if pdf_url:
         from common import convert_to_pdf_link_if_needed
-
         pdf_url = convert_to_pdf_link_if_needed(pdf_url)
 
     if pdf_url:
         try:
-            doc_index = conversation.add_fast_uploaded_document(pdf_url)
+            doc_index = conversation.add_fast_uploaded_document(pdf_url, display_name=display_name)
             conversation.save_local()
             result = {"status": "Indexing started"}
             if doc_index and hasattr(doc_index, "get_short_info"):
@@ -69,11 +71,11 @@ def upload_doc_to_conversation_route(conversation_id: str):
                 result["doc_id"] = info.get("doc_id", "")
                 result["source"] = info.get("source", "")
                 result["title"] = info.get("title", "")
+                result["display_name"] = info.get("display_name", "")
             return jsonify(result)
         except Exception as e:
             traceback.print_exc()
             return json_error(str(e), status=400, code="bad_request")
-
     return json_error("No pdf_url or pdf_file provided", status=400, code="bad_request")
 
 

@@ -59,15 +59,33 @@ class DistillationResult:
 class ConversationDistiller:
     """Extract and manage claims from chat conversations."""
     
-    def __init__(self, api: StructuredAPI, keys: Dict[str, str], config: PKBConfig = None):
+    def __init__(self, api: StructuredAPI, keys: Dict[str, str], config: PKBConfig = None,
+                 extraction_mode: str = 'relaxed'):
+        """
+        Args:
+            api: StructuredAPI instance for claim storage/retrieval.
+            keys: LLM API keys dict.
+            config: PKBConfig instance (uses defaults if None).
+            extraction_mode: 'relaxed' (only clear concrete facts) or
+                             'aggressive' (eager, wide net -- opinions, goals,
+                             routines, preferences, anything personal).
+        """
         self.api = api
         self.keys = keys
         self.config = config or PKBConfig()
+        self.extraction_mode = extraction_mode
     
-    def extract_and_propose(self, conversation_summary: str, user_message: str, 
-                            assistant_message: str) -> MemoryUpdatePlan:
-        """Extract claims from conversation and propose updates."""
-        candidates = self._extract_claims_from_turn(conversation_summary, user_message, assistant_message)
+    def extract_and_propose(self, conversation_summary: str, user_message: str,
+                            assistant_message: str,
+                            recent_turns: list = None) -> MemoryUpdatePlan:
+        """
+        Extract claims from the current user utterance and propose memory updates.
+        recent_turns: list of {"user": str, "assistant": str} dicts, most-recent last.
+        """
+        candidates = self._extract_claims_from_turn(
+            conversation_summary, user_message, assistant_message,
+            recent_turns=recent_turns or [],
+        )
         
         if not candidates:
             return MemoryUpdatePlan(user_prompt="No memorable facts found.", requires_user_confirmation=False)
@@ -102,40 +120,107 @@ class ConversationDistiller:
         return DistillationResult(plan=plan, executed=True, execution_results=results)
     
     def _extract_claims_from_turn(self, conversation_summary: str, user_message: str,
-                                   assistant_message: str) -> List[CandidateClaim]:
-        """Use LLM to extract memorable claims from conversation."""
+                                   assistant_message: str,
+                                   recent_turns: list = None) -> List[CandidateClaim]:
+        """
+        Use LLM to extract memorable claims from the CURRENT USER UTTERANCE only.
+        recent_turns provides context so the LLM understands what is being discussed,
+        but extraction is scoped exclusively to user_message.
+        Prompt strategy differs by extraction_mode:
+          'relaxed'    -- 1 prior turn for context; explicit concrete facts only.
+          'aggressive' -- up to 2 prior turns for context; wide net.
+        """
         try:
             from code_common.call_llm import call_llm
         except ImportError:
             return []
         
-        prompt = f"""Extract memorable personal facts from this conversation that should be remembered.
+        recent_turns = recent_turns or []
+        
+        # Build prior-context block from the ring buffer.
+        # Relaxed uses the last 1 turn; aggressive uses up to 2.
+        context_depth = 1 if self.extraction_mode != 'aggressive' else 2
+        prior_turns = recent_turns[-context_depth:] if recent_turns else []
+        
+        prior_context_lines = []
+        if conversation_summary:
+            prior_context_lines.append(f"Conversation summary: {conversation_summary}")
+        for i, turn in enumerate(prior_turns, 1):
+            prior_context_lines.append(
+                f"Prior turn {i}:\n"
+                f"  User: {turn.get('user', '')[:500]}\n"
+                f"  Assistant: {turn.get('assistant', '')[:800]}"
+            )
+        prior_context = "\n\n".join(prior_context_lines) if prior_context_lines else "(none)"
+        if self.extraction_mode == 'aggressive':
+            prompt = f"""You are a personal memory assistant. Extract EVERYTHING worth remembering about the user from their latest message.
 
-User message: {user_message}
-Assistant response: {assistant_message}
+=== CONTEXT (for understanding only -- do NOT extract claims from here) ===
+{prior_context}
 
-Your task: Extract facts about the USER (not general knowledge) that should be stored in a personal memory system.
+=== CURRENT USER MESSAGE (extract claims FROM HERE ONLY) ===
+{user_message}
+
+What the assistant said this turn (may clarify meaning, do not extract from it):
+{assistant_message or '(none)'}"""
+            prompt += """
+
+Your task: extract any of the following about the USER from the CURRENT USER MESSAGE above:
+- Stated facts (job, location, age, health, diet, etc.)
+- Preferences and opinions (likes, dislikes, tastes)
+- Goals, plans, aspirations
+- Habits and routines
+- Decisions made
+- Tasks or reminders mentioned
+- Observations the user makes about themselves
+- Relationships mentioned
+Only extract facts FROM THE CURRENT USER MESSAGE -- not from prior turns or context.
 
 Valid claim_type values: fact, preference, decision, task, reminder, habit, memory, observation
 Valid context_domain values: personal, health, work, relationships, learning, life_ops, finance
 
 IMPORTANT: Return ONLY a valid JSON array with NO additional text before or after.
 Example format:
-[{{"statement": "User is vegetarian", "claim_type": "fact", "context_domain": "health", "confidence": 0.9}}]
+[{\"statement\": \"User prefers dark roast coffee\", \"claim_type\": \"preference\", \"context_domain\": \"personal\", \"confidence\": 0.85}]
 
-If no personal facts to remember, return exactly: []
+If nothing at all is worth remembering from the current message, return exactly: []
+
+Response:"""
+        else:  # relaxed (default)
+            prompt = f"""Extract clearly stated, concrete personal facts from the user's latest message.
+
+=== CONTEXT (for understanding only -- do NOT extract claims from here) ===
+{prior_context}
+
+=== CURRENT USER MESSAGE (extract claims FROM HERE ONLY) ===
+{user_message}
+
+What the assistant said this turn (may clarify meaning, do not extract from it):
+{assistant_message or '(none)'}"""
+            prompt += """
+Rules:
+- Only extract facts the user EXPLICITLY states about themselves in the CURRENT USER MESSAGE.
+- Use the context only to understand what topic is being discussed -- never extract from it.
+- Skip vague, generic, or conversational remarks.
+- Skip questions the user asks (unless the asking itself reveals a personal fact).
+- Only include high-confidence, specific, actionable memories.
+Valid claim_type values: fact, preference, decision, task, reminder, habit, memory, observation
+Valid context_domain values: personal, health, work, relationships, learning, life_ops, finance
+
+IMPORTANT: Return ONLY a valid JSON array with NO additional text before or after.
+Example format:
+[{\"statement\": \"User is vegetarian\", \"claim_type\": \"fact\", \"context_domain\": \"health\", \"confidence\": 0.9}]
+
+If no clear personal facts to remember from the current message, return exactly: []
 
 Response:"""
         
         try:
             response = call_llm(self.keys, self.config.llm_model, prompt, temperature=0.0)
             response_text = response.strip()
-            
-            # Try direct parse first
             try:
                 parsed = json.loads(response_text)
             except json.JSONDecodeError:
-                # Try to find JSON array in response
                 import re
                 array_match = re.search(r'\[.*\]', response_text, re.DOTALL)
                 if array_match:
@@ -143,7 +228,6 @@ Response:"""
                 else:
                     logger.warning(f"No JSON array found in response: {response_text[:100]}")
                     return []
-            
             if isinstance(parsed, list):
                 candidates = []
                 for item in parsed:
