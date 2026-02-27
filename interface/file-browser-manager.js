@@ -1041,55 +1041,10 @@ var FileBrowserManager = (function () {
                     return;
                 }
 
-                // Handle binary files
-                if (resp.is_binary) {
-                    state.currentPath = filePath;
-                    state.originalContent = '';
-                    state.isDirty = false;
-                    state.isMarkdown = false;
-                    _updateDirtyState();
-                    _highlightTreeItem(filePath);
-                    _$('addressBar').val(filePath);
-                    _$('tabBar').hide();
-                    _showView('message',
-                        '<i class="bi bi-file-earmark-binary" style="font-size: 3rem;"></i>' +
-                        '<p class="mt-2">Binary file — cannot edit</p>' +
-                        '<small class="text-muted">' + _basename(filePath) + ' (' + _formatSize(resp.size) + ')</small>'
-                    );
-                    _$('aiEditBtn').prop('disabled', true);
-                    _$('reloadBtn').prop('disabled', true);
-                    _$('wrapBtn').prop('disabled', true);
-                    _$('downloadBtn').prop('disabled', true);
-                    return;
-                }
-
-                // Handle too-large files
-                if (resp.too_large) {
-                    state.currentPath = filePath;
-                    state.originalContent = '';
-                    state.isDirty = false;
-                    state.isMarkdown = false;
-                    _updateDirtyState();
-                    _highlightTreeItem(filePath);
-                    _$('addressBar').val(filePath);
-                    _$('tabBar').hide();
-                    _showView('message',
-                        '<i class="bi bi-exclamation-triangle" style="font-size: 3rem; color: #ffc107;"></i>' +
-                        '<p class="mt-2">File is too large (' + _formatSize(resp.size) + ')</p>' +
-                        '<button class="btn btn-sm btn-outline-warning" id="file-browser-load-anyway-btn">Load Anyway</button>'
-                    );
-                    // Bind the Load Anyway button
-                    _$('loadAnywayBtn').off('click').on('click', function () {
-                        loadFile(filePath, true);
-                    });
-                    _$('aiEditBtn').prop('disabled', true);
-                    _$('reloadBtn').prop('disabled', true);
-                    _$('wrapBtn').prop('disabled', true);
-                    _$('downloadBtn').prop('disabled', true);
-                    return;
-                }
-
-                // PDF files — render with PDF.js viewer instead of CodeMirror
+                // PDF files — render with PDF.js viewer instead of CodeMirror.
+                // Must be checked BEFORE is_binary: PDFs contain null bytes so
+                // is_binary is true for them, which would incorrectly show the
+                // 'Binary file — cannot edit' message instead of the viewer.
                 var extCheck = _ext(filePath);
                 if (extCheck === '.pdf') {
                     state.currentPath = filePath;
@@ -1108,6 +1063,28 @@ var FileBrowserManager = (function () {
                     _updateToolbarForFileType();
                     _showView('pdf');
                     _loadFilePDF(filePath);
+                    return;
+                }
+
+                // Handle binary files
+                if (resp.is_binary) {
+                    state.currentPath = filePath;
+                    state.originalContent = '';
+                    state.isDirty = false;
+                    state.isMarkdown = false;
+                    _updateDirtyState();
+                    _highlightTreeItem(filePath);
+                    _$('addressBar').val(filePath);
+                    _$('tabBar').hide();
+                    _showView('message',
+                        '<i class="bi bi-file-earmark-binary" style="font-size: 3rem;"></i>' +
+                        '<p class="mt-2">Binary file \u2014 cannot edit</p>' +
+                        '<small class="text-muted">' + _basename(filePath) + ' (' + _formatSize(resp.size) + ')</small>'
+                    );
+                    _$('aiEditBtn').prop('disabled', true);
+                    _$('reloadBtn').prop('disabled', true);
+                    _$('wrapBtn').prop('disabled', true);
+                    _$('downloadBtn').prop('disabled', true);
                     return;
                 }
                 state.isPdf = false;

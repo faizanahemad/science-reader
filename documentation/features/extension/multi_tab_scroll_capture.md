@@ -2,7 +2,7 @@
 
 **Feature**: Multi-tab content capture with scroll+screenshot+OCR for document apps  
 **Status**: Implemented  
-**Last Updated**: February 15, 2026
+**Last Updated**: February 27, 2026
 
 ---
 
@@ -158,3 +158,99 @@ The user-initiated "New Chat" button correctly clears context (no save/restore t
 - **Pipelined OCR** (`captureAndOcrPipelined()` in `sidepanel.js`): Per-screenshot OCR dispatch during capture. Extended with `targetTabId` parameter for cross-tab use and `deferOcr` option for deferred OCR promises.
 - **OCR context preservation**: `isOcr` guards on 12+ `state.pageContext` assignment sites prevent accidental overwrite of OCR content.
 - **Content viewer**: Supports mixed DOM+OCR multi-tab results with per-tab pagination.
+
+---
+
+## Bug Fix: Cross-Origin Iframe Scroll Capture (Feb 2026)
+
+### Problem
+
+SharePoint Word Online (and similar document viewers) render content inside a **cross-origin iframe** (`usc-word-edit.officeapps.live.com`). The top-level SharePoint page has no scrollable container — the document lives in the subframe. The previous implementation only injected the extractor content script into the top frame, which returned `NO_SCROLL_TARGET` immediately and produced only the page title + URL as extracted content.
+
+Additionally, the OCR pipeline was using `google/gemini-2.5-flash-lite` as the default vision model, which does not support image input — causing all OCR calls to silently return empty strings.
+
+### Root Causes
+
+1. **Subframe not probed**: `captureTabFullOcr` sent `INIT_CAPTURE_CONTEXT` only to the top frame. When it failed, capture aborted without checking subframes.
+2. **Wrong OCR model**: `OCR_VISION_MODEL` defaulted to `google/gemini-2.5-flash-lite`, which the OpenRouter API rejects for image input.
+3. **Auto-checkbox**: The tab-picker modal was auto-checking tab checkboxes for known full-OCR sites, which should only auto-select the mode dropdown — not select which tabs to include.
+
+### Fix: Sub-frame Probe in `findCaptureContextInFrames`
+
+A new helper `findCaptureContextInFrames(tabId, chromeApi)` was added to `extension-shared/operations-handler.js`:
+
+```javascript
+// Enumerate all subframes via chrome.webNavigation.getAllFrames
+// For each subframe, inject extractor-core.js via chrome.scripting.executeScript
+//   with target: { tabId, frameIds: [frameId] }
+// Send INIT_CAPTURE_CONTEXT to each subframe until one succeeds
+// Return { captureFrameId, captureContextId, captureContextMetrics, captureContextTarget }
+```
+
+The `captureTabFullOcr` flow is now:
+
+```
+1. Inject extractor-core.js into top frame
+2. Send INIT_CAPTURE_CONTEXT to top frame
+3. If top frame returns NO_SCROLL_TARGET:
+   → Call findCaptureContextInFrames() to probe all subframes
+   → First subframe that returns ok:true wins
+4. Pass captureFrameId + pre-supplied context to captureFullPage()
+5. All subsequent SCROLL_CONTEXT_TO / RELEASE_CAPTURE_CONTEXT messages
+   are routed to that subframe via { frameId: captureFrameId }
+```
+
+This required `webNavigation` permission in both `extension/manifest.json` and `extension-iframe/manifest.json`.
+
+### Fix: `full-page-capture.js` Sub-frame Support
+
+`extension-shared/full-page-capture.js` was updated to accept:
+- `captureFrameId` — routes all `chrome.tabs.sendMessage` calls to the specific subframe
+- `captureContextId`, `captureContextMetrics`, `captureContextTarget` — pre-supplied context from the probe, skipping the `INIT_CAPTURE_CONTEXT` step entirely
+
+### Fix: `extractor-core.js` Probe Fallback
+
+`findKnownSelectorTarget()` in `extension-shared/extractor-core.js` was extended to try `canScrollByProbe()` as a fallback when `isScrollableCandidate()` rejects an element due to `overflow:hidden`. This covers `.WACViewPanel` in SharePoint Word Online, which uses `overflow:hidden` on the scroll container but is in fact scrollable via `scrollTop`.
+
+### Fix: OCR Model
+
+`OCR_VISION_MODEL` in `endpoints/ext_page_context.py` was changed from `google/gemini-2.5-flash-lite` to `google/gemini-2.5-flash`. The `-lite` model does not support image/vision input. Override via `EXT_OCR_MODEL` env var.
+
+### Fix: Tab-Picker Auto-Select Mode Only
+
+In `interface/tab-picker-manager.js`, the `_renderTabs()` function previously auto-checked the tab checkbox (`#tab-check-{idx}`) for any tab whose URL matched `FULL_OCR_SITES`. This was removed. The mode dropdown still auto-selects `Full OCR` for known sites — the user must still manually tick which tabs to include.
+
+### Fix: DOM/OCR/Full-Page OCR Split Button
+
+The single `#ext-extract-page` button in the page-context panel (`interface/interface.html`) was replaced with a Bootstrap 4.6 split-button dropdown group (`#ext-extract-page-group`) with three options:
+- **DOM** (`#ext-extract-dom`): fast DOM text extraction
+- **OCR** (`#ext-extract-ocr`): single viewport screenshot → OCR
+- **Full Page OCR** (`#ext-extract-full-ocr`): scroll + multi-screenshot + OCR
+
+Handlers wired in `interface/page-context-manager.js`.
+
+### Fix: Tab-Picker Modal Backdrop
+
+Two missing `</div>` closers were found in `interface/interface.html` — one for `#global-docs-modal` and one for `#chat-settings-modal`. These caused `#tab-picker-modal` to be nested inside hidden parents, making the Bootstrap backdrop div overlay everything while the modal content was invisible.
+
+### Fix: `content-viewer-modal` Height
+
+The `#content-viewer-modal` in `interface/interface.html` was too short when opened from the page-context panel because:
+- Modal container was `max-height:85vh` (shrinks to content) → changed to `height:90vh`
+- The flex scroll wrapper lacked `min-height:0` (required for flex shrink) → added
+- The textarea had a hard `max-height:55vh` cap → changed to `height:100%` with `resize:none`
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `extension-shared/operations-handler.js` | Added `findCaptureContextInFrames()`; updated `captureTabFullOcr` and `captureOneTab` to probe subframes; added `captureFrameId` threading through all message sends; comprehensive logging |
+| `extension-shared/full-page-capture.js` | Complete rewrite: accepts `captureFrameId`, `captureContextId`, `captureContextMetrics`, `captureContextTarget`; routes all `sendMessage` calls via `{ frameId }`; skips `INIT_CAPTURE_CONTEXT` when context pre-supplied; added logging throughout |
+| `extension-shared/extractor-core.js` | `findKnownSelectorTarget()` uses `canScrollByProbe()` fallback for `overflow:hidden` elements; logging added to all 5 stages of `findScrollTarget()` and `scrollContextTo()` |
+| `extension-iframe/background/service-worker.js` | Added `webNavigation.getAllFrames` to `chromeApi`; `tabs.sendMessage` accepts `opts` parameter for `{ frameId }`; port lifecycle logging |
+| `extension/manifest.json` | Added `webNavigation` permission |
+| `extension-iframe/manifest.json` | Added `webNavigation` permission |
+| `endpoints/ext_page_context.py` | `OCR_VISION_MODEL` default changed from `google/gemini-2.5-flash-lite` to `google/gemini-2.5-flash` |
+| `interface/tab-picker-manager.js` | Removed auto-checkbox logic from `_renderTabs()`; kept mode dropdown auto-select; added `FULL_OCR_SITES` array and `_getDefaultMode()` |
+| `interface/page-context-manager.js` | Split button handlers (`#ext-extract-dom`, `#ext-extract-ocr`, `#ext-extract-full-ocr`); added `_resolveCurrentTabId()`, `_captureAndOcrPipelined()`, `capturePageWithOcr()` |
+| `interface/interface.html` | `#ext-extract-page` → `#ext-extract-page-group` split-button; fixed 2 unclosed `</div>` before `#tab-picker-modal`; `#content-viewer-modal` height fixes |

@@ -248,3 +248,48 @@ def get_docs_in_folder(
         return []
     finally:
         conn.close()
+
+
+def get_folder_fs_path(
+    *, users_dir: str, user_email: str, folder_id: str, user_root: str
+) -> Optional[str]:
+    """
+    Reconstruct the filesystem path of a folder by walking its parent_id chain.
+
+    Traverses the GlobalDocFolders hierarchy from the given folder up to the
+    root, then joins the name segments onto user_root to produce a full OS path.
+
+    Parameters
+    ----------
+    users_dir : str
+        Path to users directory (for DB lookup).
+    user_email : str
+        Owner of the folder.
+    folder_id : str
+        UUID of the target folder.
+    user_root : str
+        Absolute path to the user's global docs root directory,
+        e.g. /abs/path/storage/global_docs/{md5(email)}/
+
+    Returns
+    -------
+    str or None
+        Absolute OS path to the folder directory, e.g.
+        /abs/path/storage/global_docs/{md5(email)}/Research/Papers/
+        Returns None if folder is not found or a cycle is detected.
+    """
+    path_parts = []
+    current_id = folder_id
+    visited = set()
+    while current_id:
+        if current_id in visited:
+            logger.error(f"Cycle detected in folder hierarchy for folder_id={folder_id}")
+            return None
+        visited.add(current_id)
+        folder = get_folder(users_dir=users_dir, user_email=user_email, folder_id=current_id)
+        if folder is None:
+            return None
+        path_parts.append(folder["name"])
+        current_id = folder.get("parent_id")
+    path_parts.reverse()
+    return os.path.join(user_root, *path_parts)

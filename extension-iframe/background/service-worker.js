@@ -245,12 +245,15 @@ var chromeApi = {
     tabs: {
         query: function(q) { return chrome.tabs.query(q); },
         get: function(id) { return chrome.tabs.get(id); },
-        sendMessage: function(id, msg) { return chrome.tabs.sendMessage(id, msg); },
+        sendMessage: function(id, msg, opts) { return chrome.tabs.sendMessage(id, msg, opts || {}); },
         update: function(id, props) { return chrome.tabs.update(id, props); },
         captureVisibleTab: function(wid, opts) { return chrome.tabs.captureVisibleTab(wid, opts || { format: 'png' }); }
     },
     scripting: {
         executeScript: function(opts) { return chrome.scripting.executeScript(opts); }
+    },
+    webNavigation: {
+        getAllFrames: function(tabId) { return chrome.webNavigation.getAllFrames({ tabId: tabId }); }
     },
     runtime: { id: chrome.runtime.id }
 };
@@ -295,31 +298,45 @@ chrome.runtime.onMessageExternal.addListener(function(msg, sender, sendResponse)
 // ==================== Streaming (onConnectExternal) ====================
 
 chrome.runtime.onConnectExternal.addListener(function(port) {
-    console.log(P, 'External port connected');
+    console.log(P, 'External port connected, name:', port.name);
+    port.onDisconnect.addListener(function() {
+        var lastErr = chrome.runtime.lastError;
+        console.log(P, 'External port DISCONNECTED, name:', port.name, 'lastError:', lastErr ? lastErr.message : 'none');
+    });
     port.onMessage.addListener(function(msg) {
         var type = msg.type;
         var payload = msg.payload;
         var requestId = msg.requestId;
+        console.log(P, 'port message received:', type, 'requestId:', requestId);
 
         var onProgress = function(progressPayload) {
             try {
+                console.log(P, 'sending PROGRESS for', type, 'step:', progressPayload && progressPayload.step, 'total:', progressPayload && progressPayload.total, 'hasScreenshot:', !!(progressPayload && progressPayload.screenshot));
                 port.postMessage({ type: 'PROGRESS', requestId: requestId, payload: progressPayload });
-            } catch (_) {}
+            } catch (e) {
+                console.warn(P, 'port.postMessage PROGRESS failed:', e.message);
+            }
         };
 
         handleOperation(type, payload, onProgress)
             .then(function(result) {
                 try {
+                    console.log(P, 'sending RESPONSE success for', type);
                     port.postMessage({ type: 'RESPONSE', requestId: requestId, success: true, payload: result });
-                } catch (_) {}
+                } catch (e) {
+                    console.warn(P, 'port.postMessage RESPONSE failed:', e.message);
+                }
             })
             .catch(function(err) {
                 try {
+                    console.warn(P, 'sending RESPONSE error for', type, 'code:', err.code, 'msg:', err.message);
                     port.postMessage({
                         type: 'RESPONSE', requestId: requestId, success: false,
                         error: { code: err.code || 'UNKNOWN', message: err.message || String(err) }
                     });
-                } catch (_) {}
+                } catch (e) {
+                    console.warn(P, 'port.postMessage RESPONSE error failed:', e.message);
+                }
             });
     });
 });

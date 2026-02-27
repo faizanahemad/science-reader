@@ -38,8 +38,8 @@ logger = logging.getLogger(__name__)
 # Configuration (env-overridable)
 # ---------------------------------------------------------------------------
 
-OCR_VISION_MODEL: str = os.getenv("EXT_OCR_MODEL", "google/gemini-2.5-flash-lite")
-"""Default vision model for OCR.  Lightweight and fast for text extraction."""
+OCR_VISION_MODEL: str = os.getenv("EXT_OCR_MODEL", "google/gemini-2.5-flash")
+"""Default vision model for OCR.  Must be a vision-capable model (gemini-2.5-flash-lite does NOT support image input)."""
 
 OCR_MAX_IMAGES: int = int(os.getenv("EXT_OCR_MAX_IMAGES", "30"))
 """Maximum number of images per OCR request (scrolling screenshots can produce many frames)."""
@@ -109,7 +109,7 @@ def _ocr_single_image(
     image_data_url : str
         Base64 data URL for the screenshot.
     model : str
-        Vision-capable model identifier (e.g. ``google/gemini-2.5-flash-lite``).
+        Vision-capable model identifier (e.g. ``google/gemini-2.5-flash``).
     keys : dict
         API keys from ``get_state_and_keys()``.
 

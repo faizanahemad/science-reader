@@ -9,6 +9,8 @@ parent_id and documents can be assigned to exactly one folder at a time.
 from __future__ import annotations
 
 import logging
+import os
+import shutil
 
 from flask import Blueprint, jsonify, request, session
 
@@ -26,8 +28,9 @@ from database.doc_folders import (
     get_folder,
     assign_doc_to_folder,
     get_docs_in_folder,
+    get_folder_fs_path,
 )
-from database.global_docs import delete_global_doc
+from database.global_docs import delete_global_doc, get_global_doc, update_doc_storage, get_docs_in_fs_path
 
 
 doc_folders_bp = Blueprint("doc_folders", __name__)
@@ -44,6 +47,12 @@ def _get_user_context():
     email = session.get("email", "")
     users_dir = state.users_dir if state else None
     return users_dir, email
+
+
+def _user_root(state, email: str) -> str:
+    """Absolute path to the user's global docs root directory."""
+    from endpoints.global_docs import _user_hash
+    return os.path.join(state.global_docs_dir, _user_hash(email))
 
 
 # ---------------------------------------------------------------------------
@@ -74,7 +83,9 @@ def list_folders_route():
 @login_required
 def create_folder_route():
     """Create a new folder. Body: {name: str, parent_id?: str}."""
-    users_dir, email = _get_user_context()
+    state, _ = get_state_and_keys()
+    email = session.get("email", "")
+    users_dir = state.users_dir if state else None
     if not email or not users_dir:
         return json_error("Not authenticated", 401)
 
@@ -91,6 +102,16 @@ def create_folder_route():
     if not folder_id:
         return json_error("Failed to create folder", 500)
 
+    # Create the OS directory for this folder
+    if folder_id and email:
+        user_root = _user_root(state, email)
+        folder_path = get_folder_fs_path(
+            users_dir=users_dir, user_email=email,
+            folder_id=folder_id, user_root=user_root,
+        )
+        if folder_path:
+            os.makedirs(folder_path, exist_ok=True)
+
     return jsonify({"status": "ok", "folder_id": folder_id})
 
 
@@ -104,7 +125,9 @@ def create_folder_route():
 @login_required
 def update_folder_route(folder_id: str):
     """Rename or reparent a folder. Body: {name?: str, parent_id?: str}."""
-    users_dir, email = _get_user_context()
+    state, _ = get_state_and_keys()
+    email = session.get("email", "")
+    users_dir = state.users_dir if state else None
     if not email or not users_dir:
         return json_error("Not authenticated", 401)
 
@@ -115,6 +138,15 @@ def update_folder_route(folder_id: str):
     data = request.get_json(force=True) or {}
     new_name = data.get("name")
     new_parent_id = data.get("parent_id")
+
+    # Capture old path before DB update
+    user_root_val = _user_root(state, email) if email else None
+    old_folder_path = None
+    if user_root_val:
+        old_folder_path = get_folder_fs_path(
+            users_dir=users_dir, user_email=email,
+            folder_id=folder_id, user_root=user_root_val,
+        )
 
     if new_name is not None:
         new_name = new_name.strip()
@@ -134,6 +166,27 @@ def update_folder_route(folder_id: str):
             folder_id=folder_id,
             new_parent_id=new_parent_id,
         )
+
+    # Rename OS directory if path changed
+    if user_root_val:
+        new_folder_path = get_folder_fs_path(
+            users_dir=users_dir, user_email=email,
+            folder_id=folder_id, user_root=user_root_val,
+        )
+        if old_folder_path and new_folder_path and old_folder_path != new_folder_path:
+            if os.path.isdir(old_folder_path):
+                os.makedirs(os.path.dirname(new_folder_path), exist_ok=True)
+                os.rename(old_folder_path, new_folder_path)
+            # Bulk-update doc_storage for all docs inside the renamed folder
+            affected = get_docs_in_fs_path(
+                users_dir=users_dir, user_email=email, path_prefix=old_folder_path
+            )
+            for doc in affected:
+                new_doc_storage = doc["doc_storage"].replace(old_folder_path, new_folder_path, 1)
+                update_doc_storage(
+                    users_dir=users_dir, user_email=email,
+                    doc_id=doc["doc_id"], new_storage=new_doc_storage,
+                )
 
     return jsonify({"status": "ok"})
 
@@ -155,7 +208,9 @@ def delete_folder_route(folder_id: str):
                 'delete_docs' — deletes docs in the direct folder, moves
                 sub-folder orphans to parent, then deletes the folder.
     """
-    users_dir, email = _get_user_context()
+    state, _ = get_state_and_keys()
+    email = session.get("email", "")
+    users_dir = state.users_dir if state else None
     if not email or not users_dir:
         return json_error("Not authenticated", 401)
 
@@ -166,12 +221,42 @@ def delete_folder_route(folder_id: str):
     action = request.args.get("action", "move_to_parent")
     parent_id = folder.get("parent_id")  # may be None (root)
 
+    # Capture folder FS path before DB delete
+    user_root_val = _user_root(state, email) if email else None
+    folder_fs_path = None
+    if user_root_val:
+        folder_fs_path = get_folder_fs_path(
+            users_dir=users_dir, user_email=email,
+            folder_id=folder_id, user_root=user_root_val,
+        )
+
     if action == "move_to_parent":
         # Move direct docs to parent folder
         direct_doc_ids = get_docs_in_folder(
             users_dir=users_dir, user_email=email, folder_id=folder_id, recursive=False
         )
+        parent_path = None
+        if user_root_val:
+            parent_path = (
+                get_folder_fs_path(
+                    users_dir=users_dir, user_email=email,
+                    folder_id=parent_id, user_root=user_root_val,
+                )
+                if parent_id else user_root_val
+            )
         for doc_id in direct_doc_ids:
+            if user_root_val and parent_path:
+                doc_row = get_global_doc(users_dir=users_dir, user_email=email, doc_id=doc_id)
+                if doc_row:
+                    old_storage = doc_row.get("doc_storage", "")
+                    new_storage = os.path.join(parent_path, doc_id)
+                    if old_storage and old_storage != new_storage and os.path.isdir(old_storage):
+                        os.makedirs(parent_path, exist_ok=True)
+                        os.rename(old_storage, new_storage)
+                        update_doc_storage(
+                            users_dir=users_dir, user_email=email,
+                            doc_id=doc_id, new_storage=new_storage,
+                        )
             assign_doc_to_folder(
                 users_dir=users_dir,
                 user_email=email,
@@ -212,6 +297,14 @@ def delete_folder_route(folder_id: str):
         return json_error(f"Unknown action: {action}", 400)
 
     delete_folder(users_dir=users_dir, user_email=email, folder_id=folder_id)
+
+    # Remove the now-empty OS directory
+    if folder_fs_path and os.path.isdir(folder_fs_path):
+        try:
+            os.rmdir(folder_fs_path)
+        except OSError:
+            logger.warning("Could not rmdir folder %s — may not be empty", folder_fs_path)
+
     return jsonify({"status": "ok"})
 
 
@@ -228,7 +321,9 @@ def assign_doc_route(folder_id: str):
 
     Special case: folder_id == 'root' means unfile the doc (folder_id=None).
     """
-    users_dir, email = _get_user_context()
+    state, _ = get_state_and_keys()
+    email = session.get("email", "")
+    users_dir = state.users_dir if state else None
     if not email or not users_dir:
         return json_error("Not authenticated", 401)
 
@@ -246,6 +341,28 @@ def assign_doc_route(folder_id: str):
         )
         if folder is None:
             return json_error("Folder not found", 404)
+
+    # Physically move the doc directory to the target folder
+    if email:
+        user_root_val = _user_root(state, email)
+        doc_row = get_global_doc(users_dir=users_dir, user_email=email, doc_id=doc_id)
+        if doc_row:
+            old_storage = doc_row.get("doc_storage", "")
+            if target_folder_id is None:
+                new_storage = os.path.join(user_root_val, doc_id)
+            else:
+                folder_path = get_folder_fs_path(
+                    users_dir=users_dir, user_email=email,
+                    folder_id=target_folder_id, user_root=user_root_val,
+                )
+                new_storage = os.path.join(folder_path, doc_id) if folder_path else None
+            if old_storage and new_storage and old_storage != new_storage and os.path.isdir(old_storage):
+                os.makedirs(os.path.dirname(new_storage), exist_ok=True)
+                os.rename(old_storage, new_storage)
+                update_doc_storage(
+                    users_dir=users_dir, user_email=email,
+                    doc_id=doc_id, new_storage=new_storage,
+                )
 
     assign_doc_to_folder(
         users_dir=users_dir, user_email=email, doc_id=doc_id, folder_id=target_folder_id

@@ -228,3 +228,84 @@ def update_global_doc_metadata(
         return False
     finally:
         conn.close()
+
+
+def update_doc_storage(
+    *, users_dir: str, user_email: str, doc_id: str, new_storage: str
+) -> bool:
+    """
+    Update the doc_storage path for a global doc after a filesystem move.
+
+    Parameters
+    ----------
+    users_dir : str
+        Path to users directory (for DB lookup).
+    user_email : str
+        Owner of the document.
+    doc_id : str
+        Document identifier.
+    new_storage : str
+        New filesystem path where the doc directory now lives.
+
+    Returns
+    -------
+    bool
+        True if a row was updated, False otherwise.
+    """
+    now = datetime.now().isoformat()
+    conn = create_connection(_db_path(users_dir=users_dir))
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE GlobalDocuments SET doc_storage=?, updated_at=? WHERE doc_id=? AND user_email=?",
+            (new_storage, now, doc_id, user_email),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    except Exception as e:
+        logger.error(f"Error updating doc_storage for {doc_id}: {e}")
+        return False
+    finally:
+        conn.close()
+
+
+def get_docs_in_fs_path(
+    *, users_dir: str, user_email: str, path_prefix: str
+) -> list:
+    """
+    Return all docs whose doc_storage starts with path_prefix.
+
+    Used after a folder rename/move to bulk-update doc_storage paths for
+    all documents contained within the renamed/moved directory tree.
+
+    Parameters
+    ----------
+    users_dir : str
+        Path to users directory (for DB lookup).
+    user_email : str
+        Owner of the documents.
+    path_prefix : str
+        Filesystem path prefix to match against doc_storage values.
+        The trailing separator is normalised internally.
+
+    Returns
+    -------
+    list[dict]
+        Each dict contains 'doc_id' and 'doc_storage' keys.
+    """
+    # Escape LIKE wildcards in the path prefix
+    escaped = path_prefix.rstrip(os.sep).replace('%', r'\%').replace('_', r'\_')
+    like_pattern = escaped + os.sep + '%'
+    conn = create_connection(_db_path(users_dir=users_dir))
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT doc_id, doc_storage FROM GlobalDocuments WHERE user_email=? AND doc_storage LIKE ? ESCAPE '\\'",
+            (user_email, like_pattern),
+        )
+        return [{"doc_id": row[0], "doc_storage": row[1]} for row in cur.fetchall()]
+    except Exception as e:
+        logger.error(f"Error getting docs in fs path {path_prefix}: {e}")
+        return []
+    finally:
+        conn.close()

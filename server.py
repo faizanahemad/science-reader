@@ -165,6 +165,117 @@ locks_dir: str = ""
 conversation_folder: str = ""
 
 
+
+def _run_global_docs_migration(*, global_docs_dir: str, users_dir: str) -> None:
+    """
+    One-time idempotent migration: move existing flat global docs into their
+    correct folder subdirectories based on DB folder assignments, and create
+    real OS directories for all GlobalDocFolders rows.
+
+    Safe to call on every startup — docs already in the correct location are
+    skipped. Old flat directories are removed after a successful copy.
+    """
+    import hashlib
+    import json
+    import shutil
+    import sqlite3
+    from datetime import datetime
+
+    db_path = os.path.join(users_dir, "users.db")
+    if not os.path.exists(db_path):
+        return  # DB not initialised yet; tables will be created right after
+
+    def _md5(s: str) -> str:
+        return hashlib.md5(s.encode()).hexdigest()
+
+    def _folder_parts(conn, user_email, folder_id):
+        parts, current, visited = [], folder_id, set()
+        while current:
+            if current in visited:
+                logger.warning("Global docs migration: cycle in folder hierarchy at %s", current)
+                break
+            visited.add(current)
+            row = conn.execute(
+                "SELECT name, parent_id FROM GlobalDocFolders WHERE folder_id=? AND user_email=?",
+                (current, user_email),
+            ).fetchone()
+            if not row:
+                break
+            parts.append(row[0])
+            current = row[1]
+        parts.reverse()
+        return parts
+
+    try:
+        conn = sqlite3.connect(db_path)
+
+        # Step 1 — create OS directories for all folders
+        for folder_id, user_email in conn.execute(
+            "SELECT folder_id, user_email FROM GlobalDocFolders"
+        ).fetchall():
+            user_root = os.path.join(global_docs_dir, _md5(user_email))
+            parts = _folder_parts(conn, user_email, folder_id)
+            if parts:
+                os.makedirs(os.path.join(user_root, *parts), exist_ok=True)
+
+        # Step 2 — move docs that are in wrong location
+        docs = conn.execute(
+            "SELECT doc_id, user_email, doc_storage, folder_id FROM GlobalDocuments"
+        ).fetchall()
+
+        updates = []
+        for doc_id, user_email, old_storage, folder_id in docs:
+            user_root = os.path.join(global_docs_dir, _md5(user_email))
+            if folder_id:
+                parts = _folder_parts(conn, user_email, folder_id)
+                if not parts:
+                    continue
+                new_storage = os.path.join(user_root, *parts, doc_id)
+            else:
+                new_storage = os.path.join(user_root, doc_id)
+
+            if old_storage == new_storage:
+                continue
+            if not os.path.isdir(old_storage):
+                continue
+            if os.path.exists(new_storage):
+                continue
+
+            try:
+                os.makedirs(os.path.dirname(new_storage), exist_ok=True)
+                shutil.copytree(old_storage, new_storage)
+                # Patch _storage in index.json if present
+                idx_path = os.path.join(new_storage, "index.json")
+                if os.path.exists(idx_path):
+                    with open(idx_path) as f:
+                        data = json.load(f)
+                    if "_storage" in data:
+                        data["_storage"] = new_storage
+                        with open(idx_path, "w") as f:
+                            json.dump(data, f, indent=2)
+                updates.append((doc_id, user_email, new_storage, old_storage))
+            except Exception as exc:
+                logger.error("Global docs migration: failed to move %s: %s", doc_id, exc)
+
+        # Step 3 — update DB and delete old flat dirs
+        if updates:
+            now = datetime.now().isoformat()
+            for doc_id, user_email, new_storage, old_storage in updates:
+                conn.execute(
+                    "UPDATE GlobalDocuments SET doc_storage=?, updated_at=? WHERE doc_id=? AND user_email=?",
+                    (new_storage, now, doc_id, user_email),
+                )
+                shutil.rmtree(old_storage, ignore_errors=True)
+            conn.commit()
+            logger.info("Global docs migration: moved %d doc(s) into folder subdirectories.", len(updates))
+        else:
+            logger.info("Global docs migration: nothing to migrate.")
+
+        conn.close()
+    except Exception as exc:
+        logger.error("Global docs migration failed (non-fatal): %s", exc)
+
+
 def create_app(argv: Optional[list[str]] = None) -> Flask:
     """
     Flask app factory.
@@ -386,6 +497,10 @@ def create_app(argv: Optional[list[str]] = None) -> Flask:
 
     # Ensure schema exists
     create_tables(users_dir=users_dir, logger=logger)
+
+    # One-time migration: move existing flat global docs into folder subdirectories.
+    # Safe to run on every startup — skips docs already in the correct location.
+    _run_global_docs_migration(global_docs_dir=global_docs_dir, users_dir=users_dir)
 
     # Register all endpoint groups
     register_blueprints(app)

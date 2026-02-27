@@ -10,6 +10,54 @@ var TabPickerManager = (function() {
     var _capturing = false;
     var _cancelRequested = false;
 
+    /**
+     * Sites that render content inside a scrollable inner container or cross-origin iframe
+     * and therefore require Full-Page OCR for complete extraction.
+     */
+    var FULL_OCR_SITES = [
+        // Microsoft Office Online (Word, Excel, PowerPoint via SharePoint or office.com)
+        { hostRe: /\.sharepoint\.com$/i },
+        { hostRe: /\.officeapps\.live\.com$/i },
+        { hostRe: /\.office\.com$/i },
+        { hostRe: /\.live\.com$/i, pathRe: /\/(edit|view|embed)/i },
+        // Google Workspace
+        { hostRe: /docs\.google\.com$/i },
+        // Notion
+        { hostRe: /\.notion\.so$/i },
+        { hostRe: /\.notion\.site$/i },
+        // Confluence
+        { hostRe: /\.atlassian\.net$/i, pathRe: /\/wiki\//i },
+        // Figma
+        { hostRe: /\.figma\.com$/i },
+        // Overleaf
+        { hostRe: /\.overleaf\.com$/i },
+        // Airtable
+        { hostRe: /\.airtable\.com$/i },
+        // Dropbox Paper
+        { hostRe: /\.dropboxpaper\.com$/i },
+        { hostRe: /paper\.dropbox\.com$/i },
+    ];
+
+    /**
+     * Return the recommended capture mode for a given tab URL.
+     * Returns 'full_ocr' for sites known to need scrolling capture, 'auto' otherwise.
+     * @param {string} url
+     * @returns {'full_ocr'|'auto'}
+     */
+    function _getDefaultMode(url) {
+        if (!url) return 'auto';
+        var hostname, pathname;
+        try { hostname = new URL(url).hostname; pathname = new URL(url).pathname; }
+        catch (_) { return 'auto'; }
+        for (var i = 0; i < FULL_OCR_SITES.length; i++) {
+            var entry = FULL_OCR_SITES[i];
+            if (!entry.hostRe.test(hostname)) continue;
+            if (entry.pathRe && !entry.pathRe.test(pathname)) continue;
+            return 'full_ocr';
+        }
+        return 'auto';
+    }
+
     function _renderTabs(tabs) {
         _tabs = tabs || [];
         var $list = $('#tab-picker-list');
@@ -26,6 +74,12 @@ var TabPickerManager = (function() {
                 ? '<img src="' + $('<span>').text(favicon).html() + '" alt="" class="mr-2" style="width:16px;height:16px;">'
                 : '<i class="fa fa-file-o mr-2" style="width:16px;"></i>';
 
+            var defaultMode = _getDefaultMode(tab.url || '');
+            var modeOptions = ['auto', 'dom', 'ocr', 'full_ocr'].map(function(v) {
+                var label = v === 'full_ocr' ? 'Full OCR' : (v.charAt(0).toUpperCase() + v.slice(1));
+                return '<option value="' + v + '"' + (v === defaultMode ? ' selected' : '') + '>' + label + '</option>';
+            }).join('');
+
             var html = '<div class="tab-picker-item d-flex align-items-center border-bottom" data-idx="' + idx + '">'
                 + '<div class="custom-control custom-checkbox mr-2">'
                 + '<input type="checkbox" class="custom-control-input tab-check" id="tab-check-' + idx + '" data-idx="' + idx + '">'
@@ -37,14 +91,15 @@ var TabPickerManager = (function() {
                 + '<small class="text-muted text-truncate d-block">' + $('<span>').text(tab.url || '').html() + '</small>'
                 + '</div>'
                 + '<select class="custom-select custom-select-sm ml-2 tab-mode-select" style="width:auto;" data-idx="' + idx + '">'
-                + '<option value="auto">Auto</option>'
-                + '<option value="dom">DOM</option>'
-                + '<option value="ocr">OCR</option>'
-                + '<option value="full_ocr">Full OCR</option>'
+                + modeOptions
                 + '</select>'
                 + '</div>';
             $list.append(html);
+
         });
+
+        // Update selection count
+        _updateSelectionCount();
     }
 
     /**
@@ -91,6 +146,7 @@ var TabPickerManager = (function() {
     }
 
     function _ocrSingleScreenshot(dataUrl, url, title) {
+        console.log('[TabPicker] _ocrSingleScreenshot: dataUrl.length:', dataUrl ? dataUrl.length : 0, 'url:', url, 'title:', title);
         return $.ajax({
             url: '/ext/ocr',
             method: 'POST',
@@ -98,8 +154,10 @@ var TabPickerManager = (function() {
             data: JSON.stringify({ images: [dataUrl], url: url, title: title }),
             timeout: 120000
         }).then(function(result) {
+            console.log('[TabPicker] OCR result:', result && result.text ? result.text.length + ' chars' : 'EMPTY', 'status:', result && result.status);
             return result && result.text ? result.text : '';
-        }).catch(function() {
+        }).catch(function(err) {
+            console.error('[TabPicker] OCR FAILED:', err.status, err.statusText, err.responseText);
             return '';
         });
     }
@@ -204,15 +262,21 @@ var TabPickerManager = (function() {
                     var tabTitle = tabInfo ? tabInfo.title : ('Tab ' + progress.step);
                     _setProgress(pct, 'Capturing: ' + tabTitle + ' (' + progress.mode + ')');
                 } else if (progress.type === 'screenshot' && progress.screenshot) {
+                    console.log('[TabPicker] screenshot: tabId:', progress.tabId, 'pageIndex:', progress.pageIndex,
+                        'dataUrl.length:', progress.screenshot.length, 'inMap:', !!ocrPromisesByTab[progress.tabId]);
                     var ocrP = _ocrSingleScreenshot(
                         progress.screenshot,
                         progress.pageUrl || '',
                         progress.pageTitle || ''
                     ).then(function(text) {
+                        console.log('[TabPicker] OCR resolved: text.length:', text ? text.length : 0);
                         return { index: progress.pageIndex || 0, text: text };
                     });
                     if (ocrPromisesByTab[progress.tabId]) {
                         ocrPromisesByTab[progress.tabId].push(ocrP);
+                        console.log('[TabPicker] pushed OCR promise for tab', progress.tabId, '— now', ocrPromisesByTab[progress.tabId].length, 'promises');
+                    } else {
+                        console.warn('[TabPicker] tabId', progress.tabId, 'NOT in ocrPromisesByTab! keys:', Object.keys(ocrPromisesByTab));
                     }
                     if (typeof showToast === 'function') {
                         showToast('OCR pipelining: tab ' + progress.tabId + ' screenshot ' + (progress.step || '?'), 'info');
@@ -226,11 +290,14 @@ var TabPickerManager = (function() {
                     );
                 }
             };
+            console.log('[TabPicker] progressHandler registered. uncachedTabIds:', uncachedTabs.map(function(t) { return t.tabId; }));
 
             ExtensionBridge.onProgress(progressHandler);
 
             ExtensionBridge.captureMultiTab(tabDescriptors).then(function(response) {
                 var captureResults = response.results || [];
+                console.log('[TabPicker] captureMultiTab done. promises per tab:',
+                    Object.keys(ocrPromisesByTab).map(function(k) { return k + ':' + ocrPromisesByTab[k].length; }));
                 _setProgress(90, 'Awaiting OCR results…');
                 _assembleResults(uncachedTabs, captureResults, ocrPromisesByTab, progressHandler, cachedResults);
             }).catch(function(err) {
@@ -254,6 +321,8 @@ var TabPickerManager = (function() {
     }
 
     function _assembleResults(selected, captureResults, ocrPromisesByTab, progressHandler, cachedResults) {
+        console.log('[TabPicker] _assembleResults: selected.length:', selected.length,
+            'promises:', Object.keys(ocrPromisesByTab).map(function(k) { return k + ':' + ocrPromisesByTab[k].length; }));
         var allOcrPromises = [];
         var ocrTabIds = [];
 
@@ -275,15 +344,17 @@ var TabPickerManager = (function() {
             }
         });
 
+        console.log('[TabPicker] waiting on', allOcrPromises.length, 'tab OCR groups, ocrTabIds:', ocrTabIds);
         Promise.all(allOcrPromises).then(function(ocrByTab) {
+            console.log('[TabPicker] all OCR done:', ocrByTab.map(function(r) { return 'tab' + r.tabId + ':' + r.text.length + 'ch'; }));
             var ocrMap = {};
             ocrByTab.forEach(function(r) { ocrMap[r.tabId] = r; });
-
             var results = [];
             for (var i = 0; i < selected.length; i++) {
                 var tab = selected[i];
                 var captureResult = captureResults[i] || {};
                 var ocrData = ocrMap[tab.tabId];
+                console.log('[TabPicker] result for tab', tab.tabId, '- ocrData?', !!ocrData, 'text.length:', ocrData ? ocrData.text.length : 0);
 
                 if (ocrData && ocrData.text) {
                     results.push({
@@ -315,10 +386,11 @@ var TabPickerManager = (function() {
             }
 
             var mergedResults = (cachedResults || []).concat(results);
-
+            console.log('[TabPicker] mergedResults:', mergedResults.length, 'content lengths:', mergedResults.map(function(r) { return (r.tabId || '?') + ':' + (r.content ? r.content.length : 0) + 'ch'; }));
             ExtensionBridge.offProgress(progressHandler);
             _finishCapture(mergedResults);
-        }).catch(function() {
+        }).catch(function(err) {
+            console.error('[TabPicker] _assembleResults Promise.all threw:', err);
             ExtensionBridge.offProgress(progressHandler);
             _finishCapture(cachedResults || []);
         });

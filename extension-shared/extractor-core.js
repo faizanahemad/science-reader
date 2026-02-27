@@ -1062,8 +1062,23 @@
                 var sel = entry.selectors[j];
                 try {
                     var el = document.querySelector(sel);
-                    if (el && isScrollableCandidate(el)) {
+                    if (!el) continue;
+                    if (isScrollableCandidate(el)) {
                         return { el: el, description: 'known:' + host + ':' + sel };
+                    }
+                    // Fallback: known selectors are trusted — try probe even if overflow:hidden
+                    // (covers apps like SharePoint Word Online that use JS-driven scroll
+                    //  with overflow:hidden + custom scrollbar libraries).
+                    var style = getComputedStyle(el);
+                    var rect = el.getBoundingClientRect();
+                    var visibleAndLarge = style.display !== 'none' &&
+                        style.visibility !== 'hidden' &&
+                        rect.width >= SCROLLABLE_MIN_WIDTH &&
+                        rect.height >= SCROLLABLE_MIN_HEIGHT &&
+                        el.scrollHeight - el.clientHeight > SCROLLABLE_MIN_OVERFLOW;
+                    if (visibleAndLarge && canScrollByProbe(el)) {
+                        console.log('[AI Assistant] Known selector probe-scroll match:', sel);
+                        return { el: el, description: 'known-probe:' + host + ':' + sel };
                     }
                 } catch (_) { /* invalid selector, skip */ }
             }
@@ -1239,19 +1254,25 @@
         // Stage 1: known selectors
         var known = findKnownSelectorTarget();
         if (known) {
+            console.log('[AI Assistant] findScrollTarget stage1 MATCH:', known.description);
             return { kind: 'element', el: known.el, description: known.description };
         }
+        console.log('[AI Assistant] findScrollTarget stage1: no known selector matched');
 
         // Stage 2: window scrollable?
         if (isWindowScrollable()) {
+            console.log('[AI Assistant] findScrollTarget stage2: window is scrollable');
             return { kind: 'window', el: null, description: 'window:scrollingElement' };
         }
+        console.log('[AI Assistant] findScrollTarget stage2: window NOT scrollable');
 
         // Stage 3: heuristic
         var heuristic = findBestScrollTarget();
         if (heuristic) {
+            console.log('[AI Assistant] findScrollTarget stage3 MATCH:', heuristic.description);
             return { kind: 'element', el: heuristic.el, description: heuristic.description };
         }
+        console.log('[AI Assistant] findScrollTarget stage3: heuristic found nothing');
 
         // Stage 4: probe fallback — re-scan with relaxed overflow check
         //   Some apps use overflow:hidden + JS-driven scroll (custom scrollbars).
@@ -1275,6 +1296,7 @@
                             if (canScrollByProbe(el)) {
                                 var tag = el.tagName.toLowerCase();
                                 var id = el.id ? '#' + el.id : '';
+                                console.log('[AI Assistant] findScrollTarget stage4 probe MATCH:', tag + id);
                                 return {
                                     kind: 'element',
                                     el: el,
@@ -1287,13 +1309,16 @@
                 el = el.parentElement;
             }
         }
+        console.log('[AI Assistant] findScrollTarget stage4: probe found nothing');
 
         // Stage 5: last resort — check if window is technically scrollable even by small amount
         var scrollEl = document.scrollingElement || document.documentElement;
         if (scrollEl.scrollHeight > scrollEl.clientHeight + 1) {
+            console.log('[AI Assistant] findScrollTarget stage5: window minimal scroll');
             return { kind: 'window', el: null, description: 'window:minimal' };
         }
 
+        console.log('[AI Assistant] findScrollTarget: NO scroll target found');
         return { kind: 'none', el: null, description: 'no-scroll-target-found' };
     }
 
@@ -1460,10 +1485,13 @@
     function scrollContextTo(contextId, top) {
         var ctx = captureContexts[contextId];
         if (!ctx) {
+            console.warn('[AI Assistant] scrollContextTo: INVALID contextId:', contextId, 'known:', Object.keys(captureContexts));
             return Promise.resolve({ ok: false, error: 'Invalid contextId' });
         }
 
         var safeTop = Math.max(0, Number.isFinite(top) ? top : 0);
+        var before = getScrollTop(ctx);
+        console.log('[AI Assistant] scrollContextTo:', contextId, 'kind:', ctx.kind, 'target:', top, 'safeTop:', safeTop, 'currentScrollTop:', before);
 
         if (ctx.kind === 'window') {
             window.scrollTo(0, safeTop);
@@ -1475,6 +1503,7 @@
             function() { return getScrollTop(ctx); },
             800
         ).then(function(settled) {
+            console.log('[AI Assistant] scrollContextTo settled:', settled, '(target was:', safeTop, ')');
             return { ok: true, scrollTop: settled };
         });
     }
@@ -1578,17 +1607,23 @@
                     break;
 
                 case 'INIT_CAPTURE_CONTEXT':
+                    console.log('[AI Assistant] INIT_CAPTURE_CONTEXT start, url:', window.location.href);
                     initCaptureContext(message.options || {}).then(function(result) {
+                        console.log('[AI Assistant] INIT_CAPTURE_CONTEXT result ok:', result.ok, 'kind:', result.target && result.target.kind, 'desc:', result.target && result.target.description);
                         sendResponse(result);
                     }).catch(function(err) {
+                        console.error('[AI Assistant] INIT_CAPTURE_CONTEXT error:', err.message);
                         sendResponse({ ok: false, reason: 'INIT_ERROR', debug: err.message });
                     });
                     break;
 
                 case 'SCROLL_CONTEXT_TO':
+                    console.log('[AI Assistant] SCROLL_CONTEXT_TO contextId:', message.contextId, 'top:', message.top);
                     scrollContextTo(message.contextId, message.top).then(function(result) {
+                        console.log('[AI Assistant] SCROLL_CONTEXT_TO done, scrollTop:', result.scrollTop);
                         sendResponse(result);
                     }).catch(function(err) {
+                        console.error('[AI Assistant] SCROLL_CONTEXT_TO error:', err.message);
                         sendResponse({ ok: false, error: err.message });
                     });
                     break;

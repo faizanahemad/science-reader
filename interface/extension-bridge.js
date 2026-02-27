@@ -69,21 +69,29 @@ var ExtensionBridge = (function() {
     }
 
     function _sendMessageExternalStreaming(type, payload, requestId, timeoutMs) {
-        console.log(P, '_sendMessageExternalStreaming:', type, 'extId:', _extId);
+        console.log(P, '_sendMessageExternalStreaming:', type, 'extId:', _extId, 'requestId:', requestId, 'timeout:', timeoutMs);
         return new Promise(function(resolve, reject) {
             var port = chrome.runtime.connect(_extId);
+            console.log(P, 'port created for', type);
             var timer = setTimeout(function() {
+                console.warn(P, 'TIMEOUT for', type, 'after', timeoutMs, 'ms');
                 try { port.disconnect(); } catch (_) {}
                 reject(new Error('Timeout: ' + type));
             }, timeoutMs);
             port.postMessage({ type: type, payload: payload || {}, requestId: requestId });
+            console.log(P, 'postMessage sent:', type);
             port.onMessage.addListener(function(msg) {
-                if (msg.requestId !== requestId) return;
+                if (msg.requestId !== requestId) {
+                    console.warn(P, 'ignoring msg with wrong requestId:', msg.requestId, 'expected:', requestId);
+                    return;
+                }
                 if (msg.type === 'PROGRESS') {
+                    console.log(P, 'PROGRESS received for', type, 'step:', msg.payload && msg.payload.step, 'total:', msg.payload && msg.payload.total, 'hasScreenshot:', !!(msg.payload && msg.payload.screenshot));
                     _progressCallbacks.forEach(function(cb) {
-                        try { cb(msg.payload); } catch (e) {}
+                        try { cb(msg.payload); } catch (e) { console.error(P, 'progressCallback threw:', e); }
                     });
                 } else if (msg.type === 'RESPONSE') {
+                    console.log(P, 'RESPONSE received for', type, 'success:', msg.success, msg.success ? '' : 'error:' + JSON.stringify(msg.error));
                     clearTimeout(timer);
                     try { port.disconnect(); } catch (_) {}
                     if (msg.success) {
@@ -91,13 +99,18 @@ var ExtensionBridge = (function() {
                     } else {
                         reject(msg.error || { message: 'Unknown error' });
                     }
+                } else {
+                    console.warn(P, 'unknown msg.type from port:', msg.type);
                 }
             });
             port.onDisconnect.addListener(function() {
+                var lastErr = chrome.runtime.lastError;
+                console.log(P, 'port DISCONNECTED for', type, 'lastError:', lastErr ? lastErr.message : 'none');
                 clearTimeout(timer);
-                if (chrome.runtime.lastError) {
-                    reject(new Error(chrome.runtime.lastError.message));
+                if (lastErr) {
+                    reject(new Error(lastErr.message));
                 }
+                // Note: if no lastError, disconnect was initiated by us (after RESPONSE) — do nothing.
             });
         });
     }

@@ -14,6 +14,7 @@ import shutil
 import traceback
 
 from flask import Blueprint, jsonify, redirect, request, send_from_directory, session
+from typing import Optional
 
 from endpoints.auth import login_required
 from endpoints.request_context import attach_keys, get_state_and_keys
@@ -38,11 +39,45 @@ def _user_hash(email: str) -> str:
     return hashlib.md5(email.encode()).hexdigest()
 
 
-def _ensure_user_global_dir(state, email: str) -> str:
-    """Return (and create if needed) the per-user global docs storage directory."""
-    user_dir = os.path.join(state.global_docs_dir, _user_hash(email))
-    os.makedirs(user_dir, exist_ok=True)
-    return user_dir
+def _ensure_user_global_dir(state, email: str, folder_id: Optional[str] = None) -> str:
+    """
+    Return (and create if needed) the target storage directory for a new doc.
+
+    If folder_id is provided and the folder exists in DB, returns that folder's
+    OS directory path so the doc is indexed directly inside it.
+    Falls back to the flat user root if folder_id is absent or cannot be resolved.
+
+    Parameters
+    ----------
+    state : AppState
+        Application state with global_docs_dir and users_dir attributes.
+    email : str
+        User email address.
+    folder_id : str, optional
+        UUID of the target folder. If provided, doc will be stored inside
+        the folder's OS directory.
+
+    Returns
+    -------
+    str
+        Absolute path to the parent directory where doc_id subdir will be created.
+    """
+    user_root = os.path.join(state.global_docs_dir, _user_hash(email))
+    os.makedirs(user_root, exist_ok=True)
+
+    if folder_id:
+        from database.doc_folders import get_folder_fs_path
+        folder_path = get_folder_fs_path(
+            users_dir=state.users_dir,
+            user_email=email,
+            folder_id=folder_id,
+            user_root=user_root,
+        )
+        if folder_path:
+            os.makedirs(folder_path, exist_ok=True)
+            return folder_path
+
+    return user_root
 
 
 @global_docs_bp.route("/global_docs/upload", methods=["POST"])
@@ -52,7 +87,7 @@ def upload_global_doc():
     state, keys = get_state_and_keys()
     email = session.get("email", "")
 
-    user_storage = _ensure_user_global_dir(state, email)
+
 
     pdf_file = request.files.get("pdf_file")
     display_name = ""
@@ -64,6 +99,9 @@ def upload_global_doc():
 
             if request.form:
                 display_name = request.form.get("display_name", "")
+
+            folder_id = request.form.get('folder_id') or None
+            user_storage = _ensure_user_global_dir(state, email, folder_id=folder_id)
 
             from DocIndex import create_immediate_document_index
 
@@ -102,6 +140,9 @@ def upload_global_doc():
     if pdf_url:
         try:
             from DocIndex import create_immediate_document_index
+
+            folder_id = request.form.get('folder_id') or (request.json.get('folder_id') if request.is_json and request.json else None)
+            user_storage = _ensure_user_global_dir(state, email, folder_id=folder_id)
 
             doc_index = create_immediate_document_index(pdf_url, user_storage, keys)
             doc_index.save_local()
@@ -297,7 +338,9 @@ def promote_doc_to_global(conversation_id: str, doc_id: str):
 
     _entry_doc_id, source_storage, pdf_url = source_entry
 
-    user_storage = _ensure_user_global_dir(state, email)
+    payload = request.get_json(silent=True) or {}
+    folder_id = payload.get('folder_id') or None
+    user_storage = _ensure_user_global_dir(state, email, folder_id=folder_id)
     target_storage = os.path.join(user_storage, doc_id)
 
     try:
@@ -318,8 +361,7 @@ def promote_doc_to_global(conversation_id: str, doc_id: str):
         doc_index.save_local()
 
         short_info = doc_index.get_short_info()
-        payload = request.get_json(silent=True) or {}
-        folder_id = payload.get('folder_id') or None
+
         add_global_doc(
             users_dir=state.users_dir,
             user_email=email,

@@ -17,12 +17,15 @@
  *     tabs: {
  *       query(q): Promise<Tab[]>,
  *       get(id): Promise<Tab>,
- *       sendMessage(id, msg): Promise<any>,
+ *       sendMessage(id, msg, opts?): Promise<any>,   // opts: { frameId? }
  *       update(id, props): Promise<Tab>,
  *       captureVisibleTab(windowId, opts): Promise<string>
  *     },
  *     scripting: {
  *       executeScript(opts): Promise<InjectionResult[]>
+ *     },
+ *     webNavigation: {
+ *       getAllFrames(tabId): Promise<FrameInfo[]>    // optional, used for sub-frame injection
  *     },
  *     runtime: {
  *       id: string
@@ -96,6 +99,72 @@ async function ensureExtractorInjected(tabId, chromeApi) {
     } catch (e) {
         throw { code: 'INJECTION_FAILED', message: 'Failed to inject extractor: ' + e.message };
     }
+}
+
+/**
+ * When the top-level frame reports NO_SCROLL_TARGET, enumerate all sub-frames,
+ * inject the extractor into each, and try INIT_CAPTURE_CONTEXT on each until
+ * one succeeds.  Returns { contextId, metrics, target, frameId } or null.
+ *
+ * Requires chromeApi.webNavigation.getAllFrames to be present (needs webNavigation
+ * permission in manifest).
+ *
+ * @param {number} tabId - Chrome tab ID
+ * @param {object} chromeApi - Chrome API adapter (must include webNavigation)
+ * @returns {Promise<{contextId:string, metrics:object, target:object, frameId:number}|null>}
+ */
+async function findCaptureContextInFrames(tabId, chromeApi) {
+    if (!chromeApi.webNavigation || !chromeApi.webNavigation.getAllFrames) {
+        console.warn(P, 'webNavigation not available — cannot probe sub-frames');
+        return null;
+    }
+    var frames;
+    try {
+        frames = await chromeApi.webNavigation.getAllFrames(tabId);
+    } catch (e) {
+        console.warn(P, 'getAllFrames failed:', e.message);
+        return null;
+    }
+    // Filter out main frame (frameId=0) and restricted URLs
+    var subFrames = (frames || []).filter(function(f) {
+        return f.frameId !== 0 && !isRestrictedUrl(f.url);
+    });
+    console.log(P, 'findCaptureContextInFrames: found', subFrames.length, 'sub-frames:', subFrames.map(function(f) { return f.frameId + ':' + f.url; }));
+
+    for (var i = 0; i < subFrames.length; i++) {
+        var frameId = subFrames[i].frameId;
+        var frameUrl = subFrames[i].url;
+        // Inject extractor into this specific frame
+        try {
+            await chromeApi.scripting.executeScript({
+                target: { tabId: tabId, frameIds: [frameId] },
+                files: ['content_scripts/extractor-core.js']
+            });
+            await new Promise(function(r) { setTimeout(r, 150); });
+        } catch (injErr) {
+            console.warn(P, 'frame injection failed frameId=' + frameId + ' url=' + frameUrl + ':', injErr.message);
+            continue;
+        }
+        // Try INIT_CAPTURE_CONTEXT in this frame
+        try {
+            var result = await chromeApi.tabs.sendMessage(tabId, {
+                type: 'INIT_CAPTURE_CONTEXT', options: {}
+            }, { frameId: frameId });
+            console.log(P, 'frame', frameId, 'INIT_CAPTURE_CONTEXT result ok:', result && result.ok, 'reason:', result && result.reason);
+            if (result && result.ok) {
+                return {
+                    contextId: result.contextId,
+                    metrics: result.metrics,
+                    target: result.target,
+                    frameId: frameId
+                };
+            }
+        } catch (msgErr) {
+            console.warn(P, 'INIT_CAPTURE_CONTEXT on frame', frameId, 'threw:', msgErr.message);
+        }
+    }
+    console.warn(P, 'findCaptureContextInFrames: no sub-frame found a scroll target');
+    return null;
 }
 
 /**
@@ -450,25 +519,30 @@ export async function handleCaptureFullPageWithOcr(chromeApi, payload, captureSt
         throw { code: 'RESTRICTED_PAGE', message: 'Cannot capture ' + tab.url };
     }
 
+    console.log(P, 'handleCaptureFullPageWithOcr START tabId:', tabId, 'url:', tab.url);
     captureState.inProgress = true;
     try {
         await chromeApi.tabs.update(tabId, { active: true });
         await new Promise(function(r) { setTimeout(r, 300); });
         await ensureExtractorInjected(tabId, chromeApi);
+        console.log(P, 'extractor injected into tab', tabId);
 
         var overlapRatio = (payload.options && payload.options.overlapRatio) || 0.1;
-        var delayMs = (payload.options && payload.options.scrollDelayMs) || 1000;
+        var delayMs = (payload.options && payload.options.scrollDelayMs) || 800;
 
         // Try modern capture context protocol (supports inner scroll containers)
         var contextId = null;
+        var captureFrameId = undefined; // undefined = top-level frame
         var scrollHeight, clientHeight, maxScrollTop, originalScrollTop;
         var targetKind = 'window';
-
+        var targetDescription = 'unknown';
         try {
+            console.log(P, 'sending INIT_CAPTURE_CONTEXT to tab', tabId);
             var ctxResult = await chromeApi.tabs.sendMessage(tabId, {
                 type: 'INIT_CAPTURE_CONTEXT',
                 options: {}
             });
+            console.log(P, 'INIT_CAPTURE_CONTEXT response:', JSON.stringify(ctxResult));
             if (ctxResult && ctxResult.ok) {
                 contextId = ctxResult.contextId;
                 scrollHeight = ctxResult.metrics.scrollHeight;
@@ -476,17 +550,44 @@ export async function handleCaptureFullPageWithOcr(chromeApi, payload, captureSt
                 maxScrollTop = ctxResult.metrics.maxScrollTop;
                 originalScrollTop = ctxResult.metrics.scrollTop;
                 targetKind = ctxResult.target.kind;
-                console.log(P, 'OCR capture context:', targetKind, 'scrollH:', scrollHeight, 'clientH:', clientHeight);
+                targetDescription = ctxResult.target.description;
+                console.log(P, 'OCR ctx OK:', targetKind, targetDescription,
+                    'scrollH:', scrollHeight, 'clientH:', clientHeight, 'maxScroll:', maxScrollTop);
+            } else {
+                console.warn(P, 'INIT_CAPTURE_CONTEXT not ok:', ctxResult && ctxResult.reason, ctxResult && ctxResult.debug);
             }
-        } catch (_) {}
-
-        // Fallback to legacy scroll metrics
+        } catch (ctxErr) {
+            console.warn(P, 'INIT_CAPTURE_CONTEXT threw:', ctxErr.message || ctxErr);
+        }
+        // If top-level frame found no scroll target, probe sub-frames.
+        // Handles sites like SharePoint Word Online where content is in a cross-origin iframe.
         if (!contextId) {
+            console.log(P, 'top frame: no scroll target — probing sub-frames...');
+            var frameCtx = await findCaptureContextInFrames(tabId, chromeApi);
+            if (frameCtx) {
+                contextId = frameCtx.contextId;
+                captureFrameId = frameCtx.frameId;
+                scrollHeight = frameCtx.metrics.scrollHeight;
+                clientHeight = frameCtx.metrics.clientHeight;
+                maxScrollTop = frameCtx.metrics.maxScrollTop;
+                originalScrollTop = frameCtx.metrics.scrollTop;
+                targetKind = frameCtx.target.kind;
+                targetDescription = frameCtx.target.description;
+                console.log(P, 'OCR ctx OK (frame ' + captureFrameId + '):', targetKind, targetDescription,
+                    'scrollH:', scrollHeight, 'clientH:', clientHeight, 'maxScroll:', maxScrollTop);
+            }
+        }
+
+        // Fallback to legacy window scroll metrics
+        if (!contextId) {
+            console.log(P, 'falling back to GET_PAGE_METRICS (legacy)');
             var metrics = await chromeApi.tabs.sendMessage(tabId, { type: 'GET_PAGE_METRICS' });
+            console.log(P, 'GET_PAGE_METRICS:', JSON.stringify(metrics));
             clientHeight = Math.max(1, metrics.viewportHeight || 1);
             scrollHeight = Math.max(clientHeight, metrics.scrollHeight || clientHeight);
             maxScrollTop = Math.max(0, scrollHeight - clientHeight);
             originalScrollTop = metrics.scrollY || 0;
+            console.log(P, 'legacy metrics: clientH:', clientHeight, 'scrollH:', scrollHeight, 'maxScroll:', maxScrollTop);
         }
 
         var overlapPx = Math.max(0, Math.round(clientHeight * overlapRatio));
@@ -499,36 +600,63 @@ export async function handleCaptureFullPageWithOcr(chromeApi, payload, captureSt
         if (positions.length === 0 || positions[positions.length - 1] !== maxScrollTop) {
             positions.push(maxScrollTop);
         }
+        console.log(P, 'scroll positions:', positions.length, 'step:', step, 'overlapPx:', overlapPx,
+            'captureFrameId:', captureFrameId, 'positions:', JSON.stringify(positions.slice(0, 5)), positions.length > 5 ? '...' : '');
+
+        var msgOpts = captureFrameId !== undefined ? { frameId: captureFrameId } : {};
 
         if (originalScrollTop > 0) {
             var scrollTopMsg = contextId
                 ? { type: 'SCROLL_CONTEXT_TO', contextId: contextId, top: 0 }
                 : { type: 'SCROLL_TO', y: 0 };
-            await chromeApi.tabs.sendMessage(tabId, scrollTopMsg);
+            try { await chromeApi.tabs.sendMessage(tabId, scrollTopMsg, msgOpts); } catch (_) {}
             await new Promise(function(r) { setTimeout(r, delayMs); });
         }
 
         var capturedCount = 0;
         for (var i = 0; i < positions.length; i++) {
             var scrollY = positions[i];
+            console.log(P, 'loop i=' + i + ' scrollY=' + scrollY + ' contextId=' + contextId + ' frameId=' + captureFrameId);
 
+            // Re-activate the target tab before each screenshot to ensure captureVisibleTab
+            // captures the correct window even if user switched focus.
+            try {
+                await chromeApi.tabs.update(tabId, { active: true });
+            } catch (activateErr) {
+                console.warn(P, 'could not activate tab before screenshot i=' + i + ':', activateErr.message);
+            }
+
+            // Scroll to position (using same frameId as INIT_CAPTURE_CONTEXT)
             var scrollMsg = contextId
                 ? { type: 'SCROLL_CONTEXT_TO', contextId: contextId, top: scrollY }
                 : { type: 'SCROLL_TO', y: scrollY };
-            await chromeApi.tabs.sendMessage(tabId, scrollMsg);
+            try {
+                var scrollResp = await chromeApi.tabs.sendMessage(tabId, scrollMsg, msgOpts);
+                if (scrollResp && scrollResp.ok === false) {
+                    console.warn(P, 'scroll response not ok at i=' + i + ':', JSON.stringify(scrollResp));
+                }
+            } catch (scrollErr) {
+                console.warn(P, 'sendMessage scroll failed at i=' + i + ':', scrollErr.message || scrollErr);
+            }
             await new Promise(function(r) { setTimeout(r, delayMs); });
 
             var dataUrl;
             try {
                 dataUrl = await chromeApi.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
+                console.log(P, 'captureVisibleTab OK i=' + i + ' dataUrl.length=' + (dataUrl ? dataUrl.length : 0));
             } catch (captureErr) {
-                if ((captureErr && captureErr.message || '').includes('MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND')) {
+                var captureErrMsg = (captureErr && captureErr.message) || String(captureErr);
+                if (captureErrMsg.includes('MAX_CAPTURE_VISIBLE_TAB_CALLS_PER_SECOND')) {
+                    console.log(P, 'rate limited at i=' + i + ', waiting 1200ms');
                     await new Promise(function(r) { setTimeout(r, 1200); });
                     try {
                         dataUrl = await chromeApi.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
-                    } catch (_) { continue; }
+                    } catch (retryErr) {
+                        console.warn(P, 'captureVisibleTab retry also failed at i=' + i + ':', retryErr.message);
+                        continue;
+                    }
                 } else {
-                    console.warn(P, 'OCR capture screenshot failed at', scrollY, captureErr.message);
+                    console.warn(P, 'captureVisibleTab FAILED at i=' + i + ' scrollY=' + scrollY + ':', captureErrMsg);
                     continue;
                 }
             }
@@ -546,30 +674,35 @@ export async function handleCaptureFullPageWithOcr(chromeApi, payload, captureSt
                         pageTitle: tab.title || '',
                         message: 'Screenshot ' + capturedCount + ' of ' + positions.length
                     });
-                } catch (_) {}
+                } catch (progressErr) {
+                    console.warn(P, 'onProgress threw at i=' + i + ':', progressErr.message);
+                }
             }
         }
+        console.log(P, 'loop done. capturedCount:', capturedCount, 'of', positions.length);
 
         // Restore scroll and release capture context
         try {
             var restoreMsg = contextId
                 ? { type: 'SCROLL_CONTEXT_TO', contextId: contextId, top: originalScrollTop }
                 : { type: 'SCROLL_TO', y: originalScrollTop };
-            await chromeApi.tabs.sendMessage(tabId, restoreMsg);
+            await chromeApi.tabs.sendMessage(tabId, restoreMsg, msgOpts);
             if (contextId) {
-                await chromeApi.tabs.sendMessage(tabId, { type: 'RELEASE_CAPTURE_CONTEXT', contextId: contextId });
+                await chromeApi.tabs.sendMessage(tabId, { type: 'RELEASE_CAPTURE_CONTEXT', contextId: contextId }, msgOpts);
             }
         } catch (_) {}
 
+        console.log(P, 'handleCaptureFullPageWithOcr DONE. captured:', capturedCount, '/', positions.length, 'frameId:', captureFrameId);
         return {
             tabId: tabId,
             capturedCount: capturedCount,
             total: positions.length,
             pageTitle: tab.title || '',
             pageUrl: tab.url || '',
-            meta: { scrollHeight: scrollHeight, clientHeight: clientHeight, step: step, overlapPx: overlapPx, targetKind: targetKind }
+            meta: { scrollHeight: scrollHeight, clientHeight: clientHeight, step: step, overlapPx: overlapPx, targetKind: targetKind, targetDescription: targetDescription, captureFrameId: captureFrameId }
         };
     } catch (e) {
+        console.error(P, 'handleCaptureFullPageWithOcr THREW:', e.code, e.message || String(e));
         throw { code: e.code || 'CAPTURE_FAILED', message: e.message || String(e) };
     } finally {
         captureState.inProgress = false;
@@ -589,6 +722,7 @@ export async function handleCaptureFullPageWithOcr(chromeApi, payload, captureSt
  * @returns {Promise<{ results: object[], completedCount: number, totalCount: number }>}
  */
 export async function handleCaptureMultiTab(chromeApi, payload, captureState, onProgress) {
+    console.log(P, 'handleCaptureMultiTab START tabs:', payload && payload.tabs && payload.tabs.map(function(t) { return t.tabId + ':' + t.mode; }));
     if (!payload || !Array.isArray(payload.tabs) || payload.tabs.length === 0) {
         throw { code: 'UNKNOWN', message: 'No tabs provided for multi-tab capture' };
     }
@@ -630,9 +764,11 @@ export async function handleCaptureMultiTab(chromeApi, payload, captureState, on
             }
 
             var tabResult = await captureOneTab(chromeApi, tabId, mode, onProgress);
+            console.log(P, 'captureOneTab result tabId:', tabId, 'mode:', tabResult.mode, 'content.length:', tabResult.content ? tabResult.content.length : 0, 'screenshotCount:', tabResult.screenshotCount || 0, 'error:', tabResult.error || 'none');
             results.push(tabResult);
         }
 
+        console.log(P, 'handleCaptureMultiTab DONE. completedCount:', results.filter(function(r) { return !r.error; }).length, '/', results.length);
         return {
             results: results,
             completedCount: results.filter(function(r) { return !r.error; }).length,
@@ -655,16 +791,21 @@ export async function handleCaptureMultiTab(chromeApi, payload, captureState, on
 // ==================== Multi-Tab Helpers (internal) ====================
 
 async function captureOneTab(chromeApi, tabId, mode, onProgress) {
+    console.log(P, 'captureOneTab START tabId:', tabId, 'mode:', mode);
     var tab;
     try {
         tab = await chromeApi.tabs.get(tabId);
     } catch (e) {
+        console.warn(P, 'captureOneTab: tab not found:', tabId);
         return { tabId: tabId, title: '', url: '', mode: mode, content: null, screenshots: null, error: 'Tab not found' };
     }
 
     if (isRestrictedUrl(tab.url)) {
+        console.warn(P, 'captureOneTab: restricted URL:', tab.url);
         return { tabId: tabId, title: tab.title || '', url: tab.url || '', mode: mode, content: null, screenshots: null, error: 'Restricted page' };
     }
+
+    console.log(P, 'captureOneTab:', tab.title, '|', tab.url, '| mode:', mode);
 
     try {
         if (mode === 'dom') {
@@ -674,26 +815,30 @@ async function captureOneTab(chromeApi, tabId, mode, onProgress) {
         } else if (mode === 'full-ocr') {
             return await captureTabFullOcr(chromeApi, tab, onProgress);
         } else {
-            // auto: try DOM first, fall back to OCR if content too short
+            // auto: try DOM first, fall back to full-OCR (not just single-shot OCR) if content too short
             var domResult = await captureTabDom(chromeApi, tab);
+            console.log(P, 'captureOneTab auto: DOM content.length:', domResult.content ? domResult.content.length : 0);
             if (domResult.content && domResult.content.length >= 100) {
+                console.log(P, 'captureOneTab auto: DOM sufficient, returning');
                 return domResult;
             }
-            var ocrResult = await captureTabOcr(chromeApi, tab, onProgress);
-            ocrResult.mode = 'ocr';
-            return ocrResult;
+            console.log(P, 'captureOneTab auto: DOM too short (' + (domResult.content ? domResult.content.length : 0) + ' chars), falling back to full-OCR');
+            return await captureTabFullOcr(chromeApi, tab, onProgress);
         }
     } catch (e) {
+        console.error(P, 'captureOneTab THREW for', tabId, ':', e.message || e);
         return { tabId: tabId, title: tab.title || '', url: tab.url || '', mode: mode, content: null, screenshots: null, error: e.message };
     }
 }
 
 async function captureTabDom(chromeApi, tab) {
+    console.log(P, 'captureTabDom START:', tab.title, tab.id);
     await ensureExtractorInjected(tab.id, chromeApi);
     var result = await chromeApi.tabs.sendMessage(tab.id, { type: 'EXTRACT_PAGE' });
     var content = result.content || '';
     var words = countWords(content);
-    console.log(P, 'captureTabDom:', tab.title, '|', content.length, 'chars |', words, 'words');
+    console.log(P, 'captureTabDom:', tab.title, '|', content.length, 'chars |', words, 'words |',
+        'extractionMethod:', result.extractionMethod || result.meta && result.meta.extractionMethod);
     return {
         tabId: tab.id,
         title: tab.title || '',
@@ -791,10 +936,51 @@ async function captureTabOcr(chromeApi, tab, onProgress) {
 }
 
 async function captureTabFullOcr(chromeApi, tab, onProgress) {
+    console.log(P, 'captureTabFullOcr START:', tab.title, tab.id, tab.url);
     await chromeApi.tabs.update(tab.id, { active: true });
     await new Promise(function(r) { setTimeout(r, 300); });
 
     await ensureExtractorInjected(tab.id, chromeApi);
+    console.log(P, 'captureTabFullOcr: extractor injected into tab', tab.id);
+
+    // Probe sub-frames when top-level frame has no scroll target.
+    // SharePoint Word Online and similar apps render content inside cross-origin iframes.
+    var captureFrameId = undefined;
+    var preSuppliedContextId = undefined;
+    var preSuppliedMetrics = undefined;
+    var preSuppliedTarget = undefined;
+
+    // Quick top-frame check first
+    try {
+        console.log(P, 'captureTabFullOcr: sending INIT_CAPTURE_CONTEXT to top frame...');
+        var topCtx = await chromeApi.tabs.sendMessage(tab.id, { type: 'INIT_CAPTURE_CONTEXT', options: {} });
+        console.log(P, 'captureTabFullOcr: top frame INIT result ok:', topCtx && topCtx.ok,
+            'reason:', topCtx && topCtx.reason, 'kind:', topCtx && topCtx.target && topCtx.target.kind,
+            'desc:', topCtx && topCtx.target && topCtx.target.description);
+        if (topCtx && topCtx.ok) {
+            // Release immediately — captureFullPage will re-init
+            try { await chromeApi.tabs.sendMessage(tab.id, { type: 'RELEASE_CAPTURE_CONTEXT', contextId: topCtx.contextId }); } catch (_) {}
+            console.log(P, 'captureTabFullOcr: top frame OK, proceeding normally');
+        } else {
+            // Top frame has no scroll target — probe sub-frames
+            console.log(P, 'captureTabFullOcr: top frame no scroll target, probing sub-frames...');
+            var frameCtx = await findCaptureContextInFrames(tab.id, chromeApi);
+            if (frameCtx) {
+                captureFrameId = frameCtx.frameId;
+                preSuppliedContextId = frameCtx.contextId;
+                preSuppliedMetrics = frameCtx.metrics;
+                preSuppliedTarget = frameCtx.target;
+                console.log(P, 'captureTabFullOcr: sub-frame found! frameId:', captureFrameId,
+                    'kind:', frameCtx.target.kind, 'scrollH:', frameCtx.metrics.scrollHeight,
+                    'clientH:', frameCtx.metrics.clientHeight, 'maxScroll:', frameCtx.metrics.maxScrollTop);
+            } else {
+                console.warn(P, 'captureTabFullOcr: no sub-frame found either, will try legacy scroll');
+            }
+        }
+    } catch (initErr) {
+        console.warn(P, 'captureTabFullOcr: INIT_CAPTURE_CONTEXT threw:', initErr.message || initErr);
+    }
+
     await injectCaptureToast(chromeApi, tab.id, tab.title || '', 'scroll');
 
     var screenshotIndex = 0;
@@ -817,15 +1003,38 @@ async function captureTabFullOcr(chromeApi, tab, onProgress) {
                 return dataUrl;
             });
         },
-        sendMessage: function(tid, message) {
-            return chromeApi.tabs.sendMessage(tid, message);
+        sendMessage: function(tid, message, opts) {
+            // Always route to the correct frame (top or sub-frame)
+            var effectiveOpts = opts || {};
+            if (captureFrameId !== undefined && !effectiveOpts.frameId) {
+                effectiveOpts = { frameId: captureFrameId };
+            }
+            return chromeApi.tabs.sendMessage(tid, message, effectiveOpts);
         },
         getTab: function(tid) {
             return chromeApi.tabs.get(tid);
         }
     };
 
-    var result = await captureFullPage(tab.id, captureApi, { overlapRatio: 0.1, delayMs: 200 }, function(step, total, msg) {
+    var captureOptions = {
+        overlapRatio: 0.1,
+        delayMs: 600,  // 600ms: enough for SharePoint iframe scroll settle + re-render
+        captureFrameId: captureFrameId
+    };
+    if (preSuppliedContextId) {
+        captureOptions.captureContextId = preSuppliedContextId;
+        captureOptions.captureContextMetrics = preSuppliedMetrics;
+        captureOptions.captureContextTarget = preSuppliedTarget;
+    }
+
+    console.log(P, 'captureTabFullOcr: calling captureFullPage with options:', JSON.stringify({
+        captureFrameId: captureOptions.captureFrameId,
+        hasPreSuppliedContext: !!preSuppliedContextId,
+        delayMs: captureOptions.delayMs
+    }));
+
+    var result = await captureFullPage(tab.id, captureApi, captureOptions, function(step, total, msg) {
+        console.log(P, 'captureTabFullOcr progress:', step + '/' + total, msg);
         if (onProgress) {
             try {
                 onProgress({
@@ -841,6 +1050,12 @@ async function captureTabFullOcr(chromeApi, tab, onProgress) {
     });
 
     await removeCaptureToast(chromeApi, tab.id);
+
+    console.log(P, 'captureTabFullOcr DONE:', tab.title,
+        '| screenshots:', result.screenshots ? result.screenshots.length : 0,
+        '| scrollH:', result.meta && result.meta.scrollHeight,
+        '| targetKind:', result.meta && result.meta.targetKind,
+        '| captureFrameId:', result.meta && result.meta.captureFrameId);
 
     return {
         tabId: tab.id,

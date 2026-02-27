@@ -59,34 +59,45 @@ var PageContextManager = (function() {
         var capturedCount = 0;
         var pageUrl = '';
         var pageTitle = '';
+        console.log(P, '_captureAndOcrPipelined START tabId:', tabId, '(type:', typeof tabId + ')');
 
         var progressHandler = function(progress) {
+            console.log(P, 'progressHandler invoked: progress.tabId:', progress && progress.tabId, '(type:', typeof (progress && progress.tabId) + ') expected tabId:', tabId, '(type:', typeof tabId + ') hasScreenshot:', !!(progress && progress.screenshot), 'step:', progress && progress.step, 'total:', progress && progress.total);
             if (progress && progress.screenshot && progress.tabId === tabId) {
                 capturedCount++;
                 pageUrl = progress.pageUrl || pageUrl;
                 pageTitle = progress.pageTitle || pageTitle;
                 var pageIndex = progress.pageIndex || (capturedCount - 1);
+                console.log(P, 'screenshot accepted: capturedCount:', capturedCount, 'pageIndex:', pageIndex, 'dataUrl.length:', progress.screenshot.length);
                 if (typeof showToast === 'function') {
-                    showToast('Capturing ' + capturedCount + '/' + (progress.total || '?') + ' (OCR pipelining...)', 'info');
+                    showToast('Capturing page ' + capturedCount + ' of ' + (progress.total || '?') + '\u2026', 'info');
                 }
                 var ocrP = _ocrSingleScreenshot(progress.screenshot, pageUrl, pageTitle).then(function(text) {
+                    console.log(P, 'OCR done for pageIndex:', pageIndex, 'text.length:', text ? text.length : 0);
                     return { index: pageIndex, text: text };
                 });
                 ocrPromises.push(ocrP);
+            } else if (progress && progress.screenshot) {
+                console.warn(P, 'screenshot FILTERED OUT — tabId mismatch: progress.tabId:', progress.tabId, 'expected:', tabId);
             }
         };
 
         ExtensionBridge.onProgress(progressHandler);
+        console.log(P, 'progressHandler registered, calling captureFullPageWithOcr...');
 
         return ExtensionBridge.captureFullPageWithOcr(tabId, {})
             .then(function(meta) {
+                console.log(P, 'captureFullPageWithOcr resolved. meta:', JSON.stringify(meta), 'ocrPromises.length:', ocrPromises.length);
+                ExtensionBridge.offProgress(progressHandler);
                 return Promise.all(ocrPromises).then(function(results) {
+                    console.log(P, 'all OCR done. results.length:', results.length);
                     results.sort(function(a, b) { return a.index - b.index; });
                     var combinedText = results
                         .filter(function(r) { return r.text; })
                         .map(function(r) { return r.text; })
                         .join('\n\n--- PAGE ---\n\n');
                     var pages = results.map(function(r) { return { index: r.index, text: r.text }; });
+                    console.log(P, 'combinedText.length:', combinedText.length, 'pages:', pages.length);
                     return {
                         url: meta.pageUrl || pageUrl,
                         title: meta.pageTitle || pageTitle,
@@ -96,6 +107,11 @@ var PageContextManager = (function() {
                         tabId: tabId
                     };
                 });
+            })
+            .catch(function(err) {
+                ExtensionBridge.offProgress(progressHandler);
+                console.error(P, '_captureAndOcrPipelined error:', err);
+                throw err;
             });
     }
 
@@ -419,6 +435,12 @@ var PageContextManager = (function() {
                     showToast('OCR extraction complete: ' + _formatCount(_countWords(data.content)) + ' words', 'success');
                 }
                 return data;
+            }).catch(function(err) {
+                console.error(P, 'capturePageWithOcr error:', err);
+                if (typeof showToast === 'function') {
+                    showToast('Full-page OCR failed: ' + (err.message || String(err)), 'danger');
+                }
+                throw err;
             });
         },
 
