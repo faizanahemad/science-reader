@@ -36,6 +36,7 @@ def add_global_doc(
     short_summary: str = "",
     display_name: str = "",
     folder_id: Optional[str] = None,
+    index_type: str = "full",
 ) -> bool:
     """
     Insert a new global doc row. Deduplicates on (doc_id, user_email).
@@ -50,13 +51,14 @@ def add_global_doc(
             """
             INSERT OR IGNORE INTO GlobalDocuments
             (doc_id, user_email, display_name, doc_source, doc_storage,
-             title, short_summary, folder_id, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             title, short_summary, folder_id, index_type, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (doc_id, user_email, display_name, doc_source, doc_storage,
                 title,
                 short_summary,
                 folder_id,
+                index_type,
                 now,
                 now,
             ),
@@ -84,6 +86,7 @@ def list_global_docs(*, users_dir: str, user_email: str) -> list[dict]:
             """
             SELECT gd.doc_id, gd.user_email, gd.display_name, gd.doc_source, gd.doc_storage,
                    gd.title, gd.short_summary, gd.created_at, gd.updated_at, gd.folder_id,
+                   gd.index_type,
                    GROUP_CONCAT(gt.tag, ',') as tags_csv
             FROM GlobalDocuments gd
             LEFT JOIN GlobalDocTags gt ON gd.doc_id = gt.doc_id AND gd.user_email = gt.user_email
@@ -105,6 +108,7 @@ def list_global_docs(*, users_dir: str, user_email: str) -> list[dict]:
             "created_at",
             "updated_at",
             "folder_id",
+            "index_type",
             "tags_csv",
         ]
         result = []

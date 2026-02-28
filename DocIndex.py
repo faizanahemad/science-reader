@@ -1958,6 +1958,7 @@ class DocIndex:
             short_summary=self.short_summary,
             summary=self.short_summary,
             display_name=getattr(self, "_display_name", None) or None,
+            is_fast_index=getattr(self, "_is_fast_index", False),
         )
 
     @property

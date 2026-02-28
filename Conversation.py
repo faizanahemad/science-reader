@@ -29,6 +29,7 @@ from prompts import (
     manager_to_manager_framework_prompt,
 )
 from filelock import FileLock
+import canonical_docs as _canonical_docs
 
 from agents import (
     LiteratureReviewAgent,
@@ -1598,7 +1599,7 @@ Compact list of bullet points:
             setattr(self, "_doc_infos", value)
         self.save_local()
 
-    def add_fast_uploaded_document(self, pdf_url, display_name=None):
+    def add_fast_uploaded_document(self, pdf_url, display_name=None, docs_folder=None):
         """Create a fast-indexed document (BM25, no FAISS/LLM) and store in uploaded_documents_list.
         Add Document modal.  Identical to add_message_attached_document() but stores
         the result in ``uploaded_documents_list`` so it appears in the conversation
@@ -1610,26 +1611,38 @@ Compact list of bullet points:
             Optional human-readable label shown in the UI (replaces raw filename in the
             doc list header).  Stored as the 4th element of the tuple in
             ``uploaded_documents_list`` and as ``_display_name`` on the DocIndex.
+        docs_folder : str or None
+            If provided, index is stored in the canonical store
+            (``storage/documents/{user_hash}/``) instead of the per-conversation
+            directory.  Pass ``state.docs_folder`` from the endpoint.
         Returns
         -------
         DocIndex or None
             The created ``FastDocIndex``/``FastImageDocIndex``, or ``None`` if the
             document was already uploaded.
         """
-        storage = self.documents_path
-        keys = self.get_api_keys()
-        keys["mathpixKey"] = None
-        keys["mathpixId"] = None
-        previous_docs = self.get_field("uploaded_documents_list")
-        previous_docs = previous_docs if previous_docs is not None else []
-        previous_msg_docs = self.get_field("message_attached_documents_list") or []
-        all_existing_paths = [d[2] for d in previous_docs] + [d[2] for d in previous_msg_docs]
-        all_existing_basenames = [os.path.basename(p) for p in all_existing_paths]
-        if pdf_url in all_existing_paths or os.path.basename(pdf_url) in all_existing_basenames:
-            return None
-        doc_index._visible = True
-        doc_index._display_name = display_name or None
-        doc_index.save_local()
+        if docs_folder is not None:
+            u_hash = _canonical_docs.user_hash(self.user_id)
+            _keys = keys  # close over keys for build_fn
+            _display_name = display_name
+            _pdf_url = pdf_url
+            def _build(canonical_parent):
+                idx = create_fast_document_index(_pdf_url, canonical_parent, _keys)
+                idx._visible = True
+                idx._display_name = _display_name or None
+                idx.save_local()
+                return idx
+            canonical_storage = _canonical_docs.store_or_get(docs_folder, u_hash, pdf_url, _build)
+            from DocIndex import DocIndex as _DocIndex
+            doc_index = _DocIndex.load_local(canonical_storage)
+            if doc_index is None:
+                return None
+            doc_index._display_name = display_name or None
+        else:
+            doc_index = create_fast_document_index(pdf_url, storage, keys)
+            doc_index._visible = True
+            doc_index._display_name = display_name or None
+            doc_index.save_local()
         doc_id = doc_index.doc_id
         doc_storage = doc_index._storage
         all_docs = previous_docs + [(doc_id, doc_storage, doc_index.doc_source, display_name)]
@@ -1645,30 +1658,26 @@ Compact list of bullet points:
         return doc_index
 
 
-    def add_uploaded_document(self, pdf_url):
+    def add_uploaded_document(self, pdf_url, docs_folder=None):
         # TODO: check file md5 hash to see if it is already uploaded
-        storage = self.documents_path
-        keys = self.get_api_keys()
-        keys["mathpixKey"] = None
-        keys["mathpixId"] = None
-        previous_docs = self.get_field("uploaded_documents_list")
-        previous_docs = previous_docs if previous_docs is not None else []
-        # deduplicate on basis of doc_id
-        previous_docs = [
-            d
-            for i, d in enumerate(previous_docs)
-            if d[0] not in [d[0] for d in previous_docs[:i]]
-        ]
-        pdf_urls = [d[2] for d in previous_docs]
-        if pdf_url in pdf_urls:
-            return None
-        current_documents: List[DocIndex] = self.get_uploaded_documents()
-        current_sources = [d.doc_source for d in current_documents]
-        if pdf_url in current_sources:
-            return None
-        doc_index: DocIndex = create_immediate_document_index(pdf_url, storage, keys)
-        doc_index._visible = False
-        doc_index.save_local()
+        if docs_folder is not None:
+            u_hash = _canonical_docs.user_hash(self.user_id)
+            _keys = keys
+            _pdf_url = pdf_url
+            def _build(canonical_parent):
+                idx = create_immediate_document_index(_pdf_url, canonical_parent, _keys)
+                idx._visible = False
+                idx.save_local()
+                return idx
+            canonical_storage = _canonical_docs.store_or_get(docs_folder, u_hash, pdf_url, _build)
+            from DocIndex import DocIndex as _DocIndex
+            doc_index = _DocIndex.load_local(canonical_storage)
+            if doc_index is None:
+                return None
+        else:
+            doc_index: DocIndex = create_immediate_document_index(pdf_url, storage, keys)
+            doc_index._visible = False
+            doc_index.save_local()
         doc_id = doc_index.doc_id
         doc_storage = doc_index._storage
         all_docs = previous_docs + [(doc_id, doc_storage, pdf_url)]
@@ -1687,7 +1696,7 @@ Compact list of bullet points:
         self.doc_infos = doc_infos
         self.set_field("uploaded_documents_list", all_docs, overwrite=True)
 
-    def get_uploaded_documents(self, doc_id=None, readonly=False) -> List[DocIndex]:
+    def get_uploaded_documents(self, doc_id=None, readonly=False, docs_folder=None) -> List[DocIndex]:
         try:
             doc_list = self.get_field("uploaded_documents_list")
         except ValueError as e:
@@ -1695,15 +1704,32 @@ Compact list of bullet points:
             self.set_field("uploaded_documents_list", [])
         if doc_list is not None:
             docs = []
+            updated_list = []
+            list_changed = False
             for entry in doc_list:
                 # Support both old 3-tuple (doc_id, doc_storage, pdf_url) and
                 # new 4-tuple (doc_id, doc_storage, pdf_url, display_name).
                 doc_storage = entry[1]
                 _display_name = entry[3] if len(entry) > 3 else None
+                # Lazy migration: move old per-conversation path to canonical store
+                if docs_folder is not None and not _canonical_docs.is_canonical_path(docs_folder, doc_storage):
+                    _entry_doc_id = entry[0]
+                    u_hash = _canonical_docs.user_hash(self.user_id)
+                    new_storage = _canonical_docs.migrate_doc_to_canonical(
+                        docs_folder, u_hash, str(_entry_doc_id), doc_storage,
+                        source_path=entry[2] if len(entry) > 2 else "",
+                    )
+                    if new_storage != doc_storage:
+                        doc_storage = new_storage
+                        entry = (entry[0], new_storage) + tuple(entry[2:])
+                        list_changed = True
+                updated_list.append(entry)
                 loaded = DocIndex.load_local(doc_storage)
                 if loaded is not None:
                     loaded._display_name = _display_name
                 docs.append(loaded)
+            if list_changed:
+                self.set_field("uploaded_documents_list", updated_list, overwrite=True)
         else:
             docs = []
         if doc_id is not None:
@@ -1736,7 +1762,7 @@ Compact list of bullet points:
         )
         self.doc_infos = doc_infos
 
-    def add_message_attached_document(self, pdf_url):
+    def add_message_attached_document(self, pdf_url, docs_folder=None):
         """Create a fast-indexed document for a message attachment (no FAISS/LLM).
 
         Uses ``create_fast_document_index`` to build a lightweight BM25-only index.
@@ -1756,27 +1782,24 @@ Compact list of bullet points:
             The created ``FastDocIndex``/``FastImageDocIndex``, or ``None`` if the
             document was already attached.
         """
-        storage = self.documents_path
-        keys = self.get_api_keys()
-        keys["mathpixKey"] = None
-        keys["mathpixId"] = None
-
-        # ---- Deduplicate against both lists ----
-        previous_msg_docs = self.get_field("message_attached_documents_list")
-        previous_msg_docs = previous_msg_docs if previous_msg_docs is not None else []
-        previous_uploaded_docs = self.get_field("uploaded_documents_list")
-        previous_uploaded_docs = (
-            previous_uploaded_docs if previous_uploaded_docs is not None else []
-        )
-
-        all_existing_paths = [d[2] for d in previous_msg_docs] + [d[2] for d in previous_uploaded_docs]
-        all_existing_basenames = [os.path.basename(p) for p in all_existing_paths]
-        if pdf_url in all_existing_paths or os.path.basename(pdf_url) in all_existing_basenames:
-            return None
-
-        doc_index = create_fast_document_index(pdf_url, storage, keys)
-        doc_index._visible = False
-        doc_index.save_local()
+        if docs_folder is not None:
+            u_hash = _canonical_docs.user_hash(self.user_id)
+            _keys = keys
+            _pdf_url = pdf_url
+            def _build(canonical_parent):
+                idx = create_fast_document_index(_pdf_url, canonical_parent, _keys)
+                idx._visible = False
+                idx.save_local()
+                return idx
+            canonical_storage = _canonical_docs.store_or_get(docs_folder, u_hash, pdf_url, _build)
+            from DocIndex import DocIndex as _DocIndex
+            doc_index = _DocIndex.load_local(canonical_storage)
+            if doc_index is None:
+                return None
+        else:
+            doc_index = create_fast_document_index(pdf_url, storage, keys)
+            doc_index._visible = False
+            doc_index.save_local()
         doc_id = doc_index.doc_id
         doc_storage = doc_index._storage
         all_msg_docs = previous_msg_docs + [(doc_id, doc_storage, doc_index.doc_source)]
@@ -1849,7 +1872,7 @@ Compact list of bullet points:
         self.set_field("message_attached_documents_list", all_docs, overwrite=True)
         self.save_local()
 
-    def promote_message_attached_document(self, doc_id):
+    def promote_message_attached_document(self, doc_id, docs_folder=None):
         """Promote a message-attached doc to a full conversation document.
 
         Removes the document from ``message_attached_documents_list``, creates a full
@@ -1882,13 +1905,24 @@ Compact list of bullet points:
         remaining = [d for d in msg_docs if d[0] != doc_id]
         self.set_field("message_attached_documents_list", remaining, overwrite=True)
         # ---- Create full index (slow path — FAISS + LLM) ----
-        storage = self.documents_path
-        keys = self.get_api_keys()
-        keys["mathpixKey"] = None
-        keys["mathpixId"] = None
-        full_doc_index = create_immediate_document_index(actual_source, storage, keys)
-        full_doc_index._visible = True
-        full_doc_index.save_local()
+        if docs_folder is not None:
+            u_hash = _canonical_docs.user_hash(self.user_id)
+            _keys = keys
+            _actual_source = actual_source
+            def _build(canonical_parent):
+                idx = create_immediate_document_index(_actual_source, canonical_parent, _keys)
+                idx._visible = True
+                idx.save_local()
+                return idx
+            canonical_storage = _canonical_docs.store_or_get(docs_folder, u_hash, actual_source, _build)
+            from DocIndex import DocIndex as _DocIndex
+            full_doc_index = _DocIndex.load_local(canonical_storage)
+            if full_doc_index is None:
+                return None
+        else:
+            full_doc_index = create_immediate_document_index(actual_source, storage, keys)
+            full_doc_index._visible = True
+            full_doc_index.save_local()
 
         # ---- Add to uploaded_documents_list (same logic as add_uploaded_document) ----
         previous_docs = self.get_field("uploaded_documents_list")
@@ -1962,16 +1996,9 @@ Compact list of bullet points:
 
         # Clone uploaded documents
         uploaded_docs = self.get_field("uploaded_documents_list") or []
-        new_docs_path = os.path.join(new_storage, "uploaded_documents")
-        os.makedirs(new_docs_path, exist_ok=True)
-        if uploaded_docs:
-            # Copy document files to new storage
-            for doc_id, doc_storage, pdf_url in uploaded_docs:
-                if os.path.exists(doc_storage):
-                    new_doc_storage = os.path.join(
-                        new_docs_path, os.path.basename(doc_storage)
-                    )
-                    shutil.copytree(doc_storage, new_doc_storage, dirs_exist_ok=True)
+        # Canonical store: doc tuples point to shared canonical paths, no file copying needed.
+        # Per-conversation docs (legacy) are not copied either — they will be lazy-migrated
+        # on first access if docs_folder is configured.
         new_conversation.set_field("uploaded_documents_list", uploaded_docs)
 
         # Clone artefacts metadata + files

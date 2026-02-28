@@ -323,6 +323,13 @@ def create_tables(*, users_dir: str, logger: Optional[logging.Logger] = None) ->
     except Exception:
         pass  # Column already exists
 
+    # index_type column on GlobalDocuments — 'fast' for FastDocIndex, 'full' for DocIndex
+    try:
+        cur.execute("ALTER TABLE GlobalDocuments ADD COLUMN index_type TEXT DEFAULT 'full'")
+        log.info("Added index_type column to GlobalDocuments table")
+    except Exception:
+        pass  # Column already exists
+
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_GlobalDocFolders_user ON GlobalDocFolders (user_email)"
     )

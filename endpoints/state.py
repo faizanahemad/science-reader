@@ -36,6 +36,8 @@ class AppState:
         Directory where conversation artifacts are stored.
     global_docs_dir:
         Directory where global document storage lives.
+    docs_folder:
+        Directory for canonical per-user document storage (store-once, referenced-from-many).
     login_not_needed:
         Whether auth is bypassed.
     conversation_cache:
@@ -55,6 +57,7 @@ class AppState:
     cache_dir: str
     conversation_folder: str
     global_docs_dir: str
+    docs_folder: str
     login_not_needed: bool
 
     conversation_cache: Any
@@ -76,6 +79,7 @@ def init_state(
     cache_dir: str,
     conversation_folder: str,
     global_docs_dir: str,
+    docs_folder: str,
     login_not_needed: bool,
     conversation_cache: Any,
     pinned_claims: Any,
@@ -97,6 +101,7 @@ def init_state(
         cache_dir=cache_dir,
         conversation_folder=conversation_folder,
         global_docs_dir=global_docs_dir,
+        docs_folder=docs_folder,
         login_not_needed=login_not_needed,
         conversation_cache=conversation_cache,
         pinned_claims=pinned_claims,

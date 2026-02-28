@@ -368,6 +368,16 @@ def promote_doc_to_global(conversation_id: str, doc_id: str):
     target_storage = os.path.join(user_storage, doc_id)
 
     try:
+        import canonical_docs as _canonical_docs
+
+        # Determine if source is in the canonical store (shared across conversations).
+        # If it is, we must NOT delete the source after promoting — other conversations
+        # may still reference it.
+        source_is_canonical = (
+            hasattr(state, 'docs_folder') and
+            _canonical_docs.is_canonical_path(state.docs_folder, source_storage)
+        )
+
         if os.path.exists(target_storage):
             shutil.rmtree(target_storage)
         shutil.copytree(source_storage, target_storage)
@@ -381,10 +391,24 @@ def promote_doc_to_global(conversation_id: str, doc_id: str):
                 "Failed to verify copied document", status=500, code="verify_failed"
             )
 
+        # If it was a fast index, upgrade to full index now for global quality
+        is_fast = getattr(doc_index, '_is_fast_index', False)
+        if is_fast:
+            from DocIndex import create_immediate_document_index
+            keys = get_state_and_keys()[1]
+            upgraded = create_immediate_document_index(pdf_url, _ensure_user_global_dir(state, email, folder_id=folder_id), keys)
+            if upgraded is not None:
+                shutil.rmtree(target_storage, ignore_errors=True)
+                shutil.copytree(upgraded._storage, target_storage)
+                doc_index = DocIndex.load_local(target_storage)
+                if doc_index is None:
+                    return json_error("Failed to upgrade index", status=500, code="upgrade_failed")
+
         doc_index._storage = target_storage
         doc_index.save_local()
 
         short_info = doc_index.get_short_info()
+        index_type = 'fast' if getattr(doc_index, '_is_fast_index', False) else 'full'
 
         add_global_doc(
             users_dir=state.users_dir,
@@ -395,6 +419,7 @@ def promote_doc_to_global(conversation_id: str, doc_id: str):
             title=short_info.get("title", ""),
             short_summary=short_info.get("short_summary", ""),
             folder_id=folder_id,
+            index_type=index_type,
         )
 
         new_doc_list = [e for e in doc_list if e[0] != doc_id]
@@ -409,7 +434,10 @@ def promote_doc_to_global(conversation_id: str, doc_id: str):
         )
         conversation.doc_infos = doc_infos
 
-        shutil.rmtree(source_storage, ignore_errors=True)
+        # Only delete source if it is NOT in the canonical store
+        # (canonical paths are shared across conversations and must not be removed).
+        if not source_is_canonical:
+            shutil.rmtree(source_storage, ignore_errors=True)
         conversation.save_local()
 
         return jsonify({"status": "ok", "doc_id": doc_id})

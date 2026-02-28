@@ -38,7 +38,7 @@ def upload_doc_to_conversation_route(conversation_id: str):
         try:
             pdf_file.save(os.path.join(state.pdfs_dir, pdf_file.filename))
             full_pdf_path = os.path.join(state.pdfs_dir, pdf_file.filename)
-            doc_index = conversation.add_fast_uploaded_document(full_pdf_path, display_name=display_name)
+            doc_index = conversation.add_fast_uploaded_document(full_pdf_path, display_name=display_name, docs_folder=getattr(state, 'docs_folder', None))
             conversation.save_local()
             result = {"status": "Indexing started"}
             if doc_index and hasattr(doc_index, "get_short_info"):
@@ -63,7 +63,7 @@ def upload_doc_to_conversation_route(conversation_id: str):
 
     if pdf_url:
         try:
-            doc_index = conversation.add_fast_uploaded_document(pdf_url, display_name=display_name)
+            doc_index = conversation.add_fast_uploaded_document(pdf_url, display_name=display_name, docs_folder=getattr(state, 'docs_folder', None))
             conversation.save_local()
             result = {"status": "Indexing started"}
             if doc_index and hasattr(doc_index, "get_short_info"):
@@ -103,7 +103,7 @@ def attach_doc_to_message_route(conversation_id: str):
         try:
             pdf_file.save(os.path.join(state.pdfs_dir, pdf_file.filename))
             full_pdf_path = os.path.join(state.pdfs_dir, pdf_file.filename)
-            doc_index = conversation.add_message_attached_document(full_pdf_path)
+            doc_index = conversation.add_message_attached_document(full_pdf_path, docs_folder=getattr(state, 'docs_folder', None))
             conversation.save_local()
             result = {"status": "Attached"}
             if doc_index and hasattr(doc_index, "get_short_info"):
@@ -129,7 +129,7 @@ def promote_message_doc_route(conversation_id: str, document_id: str):
     conversation = attach_keys(state.conversation_cache[conversation_id], keys)
     if document_id:
         try:
-            promoted = conversation.promote_message_attached_document(document_id)
+            promoted = conversation.promote_message_attached_document(document_id, docs_folder=getattr(state, 'docs_folder', None))
             if promoted is None:
                 return json_error(
                     "Document not found in message attachments",
@@ -187,7 +187,7 @@ def list_documents_by_conversation_route(conversation_id: str):
     conversation = attach_keys(state.conversation_cache[conversation_id], keys)
 
     if conversation:
-        docs: List = conversation.get_uploaded_documents(readonly=True)
+        docs: List = conversation.get_uploaded_documents(readonly=True, docs_folder=getattr(state, 'docs_folder', None))
         docs = [d for d in docs if d is not None]
         docs = attach_keys(docs, keys)
         docs = [d.get_short_info() for d in docs]
@@ -223,3 +223,62 @@ def download_doc_from_conversation_route(conversation_id: str, doc_id: str):
     return json_error(
         "Conversation not found", status=404, code="conversation_not_found"
     )
+
+
+
+@documents_bp.route(
+    "/upgrade_doc_index/<conversation_id>/<doc_id>", methods=["POST"]
+)
+@limiter.limit("10 per minute")
+@login_required
+def upgrade_doc_index_route(conversation_id: str, doc_id: str):
+    """Upgrade a FastDocIndex to a full DocIndex (with FAISS embeddings + LLM summaries).
+
+    Used by the "Analyze" button in the local docs panel.  The upgrade happens
+    in-place in the canonical store so all conversations referencing the same
+    doc automatically get the upgraded index on next load.
+
+    Returns 200 {"status": "ok", "is_fast_index": false} on success.
+    """
+    state, keys = get_state_and_keys()
+    conversation = attach_keys(state.conversation_cache[conversation_id], keys)
+    if conversation is None:
+        return json_error("Conversation not found", status=404, code="not_found")
+
+    docs = conversation.get_uploaded_documents(
+        doc_id=doc_id,
+        readonly=False,
+        docs_folder=getattr(state, "docs_folder", None),
+    )
+    if not docs:
+        return json_error("Document not found", status=404, code="not_found")
+
+    doc_index = docs[0]
+    if not getattr(doc_index, "_is_fast_index", False):
+        return jsonify({"status": "ok", "is_fast_index": False, "message": "Already a full index"})
+
+    try:
+        from DocIndex import create_immediate_document_index
+
+        storage = doc_index._storage
+        # Build full index in the same parent directory (canonical parent)
+        parent_dir = os.path.dirname(storage)
+        full_doc_index = create_immediate_document_index(doc_index.doc_source, parent_dir, keys)
+        full_doc_index._visible = doc_index.visible
+        full_doc_index._display_name = getattr(doc_index, "_display_name", None)
+        full_doc_index.save_local()
+
+        # Update the tuple in uploaded_documents_list to point to the new storage
+        doc_list = conversation.get_field("uploaded_documents_list") or []
+        updated = []
+        for entry in doc_list:
+            if entry[0] == doc_id:
+                entry = (full_doc_index.doc_id, full_doc_index._storage) + entry[2:]
+            updated.append(entry)
+        conversation.set_field("uploaded_documents_list", updated, overwrite=True)
+        conversation.save_local()
+
+        return jsonify({"status": "ok", "is_fast_index": False})
+    except Exception as e:
+        traceback.print_exc()
+        return json_error(str(e), status=500, code="upgrade_failed")

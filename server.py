@@ -488,6 +488,7 @@ def create_app(argv: Optional[list[str]] = None) -> Flask:
         cache_dir=cache_dir,
         conversation_folder=conversation_folder,
         global_docs_dir=global_docs_dir,
+        docs_folder=docs_folder,
         login_not_needed=login_not_needed,
         conversation_cache=conversation_cache,
         pinned_claims=pinned_claims,
@@ -501,6 +502,16 @@ def create_app(argv: Optional[list[str]] = None) -> Flask:
     # One-time migration: move existing flat global docs into folder subdirectories.
     # Safe to run on every startup — skips docs already in the correct location.
     _run_global_docs_migration(global_docs_dir=global_docs_dir, users_dir=users_dir)
+
+    # One-time migration: move per-conversation docs into the canonical store.
+    # Runs in parallel, logs progress, idempotent via sentinel file.
+    from migrate_docs import run_local_docs_migration
+    run_local_docs_migration(
+        conversation_folder=conversation_folder,
+        docs_folder=docs_folder,
+        log=logger,
+        max_workers=4,
+    )
 
     # Register all endpoint groups
     register_blueprints(app)
