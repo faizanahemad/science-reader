@@ -180,7 +180,7 @@
     
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
-    <link rel="stylesheet" href="interface/style.css">
+    <link rel="stylesheet" href="interface/style.css?v=29">
 
     <title>Document Index Interface</title>
 </head>
@@ -447,28 +447,21 @@
     <div class="modal fade" id="global-docs-modal" tabindex="-1" role="dialog" aria-labelledby="globalDocsModalLabel" aria-hidden="true">
       <div class="modal-dialog modal-lg" id="global-docs-dialog" role="document">
         <div class="modal-content">
-          <div class="modal-header">
+          <div class="modal-header d-flex align-items-center" style="gap: 8px;">
             <h5 class="modal-title" id="globalDocsModalLabel">Global Documents</h5>
-            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+            <div class="btn-group btn-group-sm ml-2" id="global-docs-view-switcher" role="group">
+              <button type="button" class="btn btn-outline-secondary active" data-view="list">
+                <i class="fa fa-list"></i> List
+              </button>
+              <button type="button" class="btn btn-outline-secondary" data-view="folder">
+                <i class="fa fa-folder"></i> Folders
+              </button>
+            </div>
+            <button type="button" class="close ml-auto" data-dismiss="modal" aria-label="Close">
               <span aria-hidden="true">&times;</span>
             </button>
           </div>
           <div class="modal-body">
-            <!-- View switcher -->
-            <div class="d-flex justify-content-between align-items-center mb-2">
-              <div class="btn-group btn-group-sm" id="global-docs-view-switcher" role="group">
-                <button type="button" class="btn btn-outline-secondary active" data-view="list">
-                  <i class="fa fa-list"></i> List
-                </button>
-                <button type="button" class="btn btn-outline-secondary" data-view="folder">
-                  <i class="fa fa-folder"></i> Folders
-                </button>
-              </div>
-              <button class="btn btn-sm btn-outline-info" id="global-docs-manage-folders-btn"
-                      title="Manage folders in File Browser" style="display:none;">
-                <i class="fa fa-folder-open"></i> Manage Folders
-              </button>
-            </div>
             <!-- List view container -->
             <div id="global-docs-view-list">
             <div class="card mb-3">
@@ -497,6 +490,10 @@
                     <select class="form-control form-control-sm" id="global-doc-folder-select">
                       <option value="">Unfiled</option>
                     </select>
+                  </div>
+                  <div class="form-group">
+                    <label for="global-doc-tags-input">Tags (optional, comma-separated)</label>
+                    <input type="text" class="form-control form-control-sm" id="global-doc-tags-input" placeholder="e.g. ai, ml, research">
                   </div>
                   <button type="submit" class="btn btn-primary" id="global-doc-submit-btn">Upload</button>
                   <span id="global-doc-upload-spinner" style="display:none;">
@@ -527,7 +524,7 @@
             <!-- Folder view container -->
             <div id="global-docs-view-folder" style="display:none;" class="p-3 text-center text-muted">
               <i class="fa fa-folder-open fa-2x mb-2 d-block"></i>
-              <p>Click <strong>Manage Folders</strong> above to organize your global docs in the File Browser.</p>
+              <p>Opening File Browser to manage your global doc folders&hellip;</p>
               <p class="small text-muted">Drag doc folders to reorganize. Changes sync automatically.</p>
           </div>
         </div>
@@ -2680,105 +2677,106 @@ greet("World");</code></pre>
     </div>
 
 
-    <!-- ═══════════════ File Browser Modal (fullscreen) ═══════════════ -->
-    <div id="file-browser-modal" tabindex="-1" role="dialog"
+    <!-- ═══════════════ File Browser Modal Template ═══════════════ -->
+    <template id="file-browser-modal-template">
+    <div data-fb-key="file-browser-modal" class="fb-modal" tabindex="-1" role="dialog"
          style="display:none; z-index: 100000 !important; position:fixed; top:0; left:0; right:0; bottom:0; overflow-x:hidden; overflow-y:auto;">
         <div class="modal-dialog" role="document" style="max-width: 99vw; margin: 0.5vh auto;">
             <div class="modal-content" style="height: 99vh; display: flex; flex-direction: column;">
                 <!-- Header -->
                 <small>
                   <div class="modal-header py-1" style="border-bottom: 1px solid #dee2e6; gap: 4px;">
-                      <button class="btn btn-sm btn-outline-secondary" id="file-browser-sidebar-toggle" title="Toggle sidebar">
+                      <button class="btn btn-sm btn-outline-secondary" data-fb-key="file-browser-sidebar-toggle" title="Toggle sidebar">
                           <i class="bi bi-layout-sidebar"></i>
                       </button>
                       <div style="position: relative; flex: 1;">
-                      <input type="text" class="form-control form-control-sm" id="file-browser-address-bar" autocomplete="off"
+                      <input type="text" class="form-control form-control-sm fb-address-bar" data-fb-key="file-browser-address-bar" autocomplete="off"
                             placeholder="Path relative to server root..." style="font-family: monospace; font-size: 0.85rem;">
-                      <div id="file-browser-suggestion-dropdown" class="fb-suggestion-dropdown" style="display: none;"></div>
+                      <div data-fb-key="file-browser-suggestion-dropdown" class="fb-suggestion-dropdown" style="display: none;"></div>
                       </div>
-                      <span class="file-browser-dirty-indicator" id="file-browser-dirty-indicator" title="Unsaved changes">*</span>
-                      <select class="form-control form-control-sm" id="file-browser-theme-select" title="Editor theme">
+                      <span class="file-browser-dirty-indicator" data-fb-key="file-browser-dirty-indicator" title="Unsaved changes">*</span>
+                      <select class="form-control form-control-sm fb-theme-select" data-fb-key="file-browser-theme-select" title="Editor theme">
                           <option value="monokai">Monokai</option>
                           <option value="default">Light</option>
                       </select>
-                       <button class="btn btn-sm btn-outline-secondary" id="file-browser-wrap-btn" title="Toggle word wrap" disabled>
+                       <button class="btn btn-sm btn-outline-secondary" data-fb-key="file-browser-wrap-btn" title="Toggle word wrap" disabled>
                            <i class="bi bi-text-wrap"></i><span class="d-none d-sm-inline"> Wrap</span>
                        </button>
-                       <button class="btn btn-sm btn-outline-secondary" id="file-browser-download-btn" title="Download current file" disabled>
+                       <button class="btn btn-sm btn-outline-secondary" data-fb-key="file-browser-download-btn" title="Download current file" disabled>
                            <i class="bi bi-download"></i>
                        </button>
-                       <button class="btn btn-sm btn-outline-secondary" id="file-browser-upload-btn" title="Upload file to current directory">
+                       <button class="btn btn-sm btn-outline-secondary" data-fb-key="file-browser-upload-btn" title="Upload file to current directory">
                            <i class="bi bi-upload"></i>
                        </button>
-                    <button class="btn btn-sm btn-outline-info" id="file-browser-ai-edit-btn" title="AI Edit (Cmd+K)" disabled>
+                    <button class="btn btn-sm btn-outline-info" data-fb-key="file-browser-ai-edit-btn" title="AI Edit (Cmd+K)" disabled>
                         <i class="bi bi-magic"></i><span class="d-none d-sm-inline"> AI Edit</span>
                     </button>
-                      <button class="btn btn-sm btn-outline-warning" id="file-browser-discard-btn" title="Discard changes" style="display: none;">
+                      <button class="btn btn-sm btn-outline-warning" data-fb-key="file-browser-discard-btn" title="Discard changes" style="display: none;">
                           <i class="bi bi-arrow-counterclockwise"></i><span class="d-none d-sm-inline"> Discard</span>
                       </button>
-                      <button class="btn btn-sm btn-primary" id="file-browser-save-btn" title="Save (Ctrl+S)" disabled>
+                      <button class="btn btn-sm btn-primary" data-fb-key="file-browser-save-btn" title="Save (Ctrl+S)" disabled>
                           <i class="bi bi-save"></i><span class="d-none d-sm-inline"> Save</span>
                       </button>
-                      <button class="btn btn-sm btn-outline-secondary" id="file-browser-reload-btn" title="Reload from Disk" disabled>
+                      <button class="btn btn-sm btn-outline-secondary" data-fb-key="file-browser-reload-btn" title="Reload from Disk" disabled>
                           <i class="bi bi-arrow-clockwise"></i>
                       </button>
-                      <button type="button" class="close" id="file-browser-close-btn" aria-label="Close">
+                      <button type="button" class="close" data-fb-key="file-browser-close-btn" aria-label="Close">
                           <span aria-hidden="true">&times;</span>
                       </button>
                   </div>
                 </small>
                 <!-- Body -->
-                <div class="modal-body p-0" style="flex: 1; overflow: hidden;">
+                <div class="modal-body p-0" style="flex: 1; overflow: hidden; display: flex;">
                     <!-- Sidebar -->
-                    <div id="file-browser-sidebar">
+                    <div data-fb-key="file-browser-sidebar" class="fb-sidebar">
                         <div class="p-1 d-flex align-items-center" style="border-bottom: 1px solid #dee2e6; background: #f1f3f5;">
                             <small class="font-weight-bold text-muted flex-grow-1 pl-1">FILES</small>
-                            <button class="btn btn-sm btn-link text-muted p-0 mr-1" id="file-browser-new-file-btn" title="New File">
+                            <button class="btn btn-sm btn-link text-muted p-0 mr-1" data-fb-key="file-browser-new-file-btn" title="New File">
                                 <i class="bi bi-file-earmark-plus" style="font-size: 0.8rem;"></i>
                             </button>
-                            <button class="btn btn-sm btn-link text-muted p-0 mr-1" id="file-browser-new-folder-btn" title="New Folder">
+                            <button class="btn btn-sm btn-link text-muted p-0 mr-1" data-fb-key="file-browser-new-folder-btn" title="New Folder">
                                 <i class="bi bi-folder-plus" style="font-size: 0.8rem;"></i>
                             </button>
-                            <button class="btn btn-sm btn-link text-muted p-0 mr-1" id="file-browser-refresh-btn" title="Refresh">
+                            <button class="btn btn-sm btn-link text-muted p-0 mr-1" data-fb-key="file-browser-refresh-btn" title="Refresh">
                                 <i class="bi bi-arrow-clockwise" style="font-size: 0.8rem;"></i>
                             </button>
                         </div>
-                        <div id="file-browser-tree" style="overflow-y: auto; overflow-x: hidden; height: calc(100% - 30px);"></div>
+                        <div data-fb-key="file-browser-tree" class="fb-tree" style="overflow-y: auto; overflow-x: hidden; height: calc(100% - 30px);"></div>
                     </div>
                     <!-- Editor Wrapper -->
-                    <div id="file-browser-editor-wrapper">
+                    <div data-fb-key="file-browser-editor-wrapper" class="fb-editor-wrapper">
                         <!-- Markdown tab bar (hidden by default) -->
                         <!-- View mode selector: button group (wide) + select (narrow) -->
                         <!-- Shown only for markdown files; hidden by default -->
-                        <div id="file-browser-tab-bar" style="display:none;">
+                        <div data-fb-key="file-browser-tab-bar" class="fb-tab-bar" style="display:none;">
                             <!-- Button group shown on sm+ screens -->
-                            <div id="fb-view-btngroup" class="btn-group btn-group-sm" role="group">
+                            <div data-fb-key="fb-view-btngroup" class="btn-group btn-group-sm fb-view-btngroup" role="group">
                                 <button type="button" class="btn btn-outline-secondary active" data-view="raw">Raw</button>
                                 <button type="button" class="btn btn-outline-secondary" data-view="preview">Preview</button>
                                 <button type="button" class="btn btn-outline-secondary" data-view="wysiwyg">WYSIWYG</button>
                             </div>
                             <!-- Select shown on xs screens only -->
-                            <select id="file-browser-view-select" class="form-control form-control-sm" style="width:auto;">
+                            <select data-fb-key="file-browser-view-select" class="form-control form-control-sm fb-view-select" style="width:auto;">
                                 <option value="raw">Raw</option>
                                 <option value="preview">Preview</option>
                                 <option value="wysiwyg">WYSIWYG</option>
                             </select>
                         </div>
                         <!-- CodeMirror container -->
-                        <div id="file-browser-editor-container"></div>
+                        <div data-fb-key="file-browser-editor-container" class="fb-editor-container"></div>
                         <!-- Markdown preview container -->
-                        <div id="file-browser-preview-container"></div>
+                        <div data-fb-key="file-browser-preview-container" class="fb-preview-container"></div>
                         <!-- WYSIWYG (EasyMDE) container -->
-                        <div id="file-browser-wysiwyg-container" style="display:none;"></div>
+                        <div data-fb-key="file-browser-wysiwyg-container" class="fb-wysiwyg-container" style="display:none;"></div>
                         <!-- PDF viewer container -->
-                        <div id="file-browser-pdf-container" style="display:none;">
-                            <div id="fb-pdf-progress" style="display:none; padding: 4px 8px;">
+                        <div data-fb-key="file-browser-pdf-container" class="fb-pdf-container" style="display:none;">
+                            <div data-fb-key="fb-pdf-progress" style="display:none; padding: 4px 8px;">
                                 <div class="progress" style="height:6px;">
-                                    <div id="fb-pdf-progressbar" class="progress-bar" role="progressbar" style="width:0%;"></div>
+                                    <div data-fb-key="fb-pdf-progressbar" class="progress-bar" role="progressbar" style="width:0%;"></div>
                                 </div>
-                                <small id="fb-pdf-progress-status" class="text-muted"></small>
+                                <small data-fb-key="fb-pdf-progress-status" class="text-muted"></small>
                             </div>
-                            <iframe id="fb-pdfjs-viewer"
+                            <iframe data-fb-key="fb-pdfjs-viewer" class="fb-pdfjs-viewer"
                                     src="/interface/pdf.js/web/viewer.html"
                                     data-original-src="/interface/pdf.js/web/viewer.html"
                                     style="display:none; border:none; width:100%; flex:1;"
@@ -2786,7 +2784,7 @@ greet("World");</code></pre>
                             </iframe>
                         </div>
                         <!-- Welcome/empty state -->
-                        <div id="file-browser-empty-state">
+                        <div data-fb-key="file-browser-empty-state" class="fb-empty-state">
                             <div class="text-center text-muted">
                                 <i class="bi bi-folder2-open" style="font-size: 3rem;"></i>
                                 <p class="mt-2">Select a file from the tree to edit</p>
@@ -2798,7 +2796,7 @@ greet("World");</code></pre>
     </div>
 
     <!-- File Browser Context Menu -->
-    <div id="file-browser-context-menu" style="display:none; position:fixed; z-index:100005;">
+    <div data-fb-key="file-browser-context-menu" class="fb-context-menu" style="display:none; position:fixed; z-index:100005;">
         <div class="dropdown-menu show" style="position: static;">
             <a class="dropdown-item" href="#" data-action="new-file"><i class="bi bi-file-plus"></i> New File</a>
             <a class="dropdown-item" href="#" data-action="new-folder"><i class="bi bi-folder-plus"></i> New Folder</a>
@@ -2810,63 +2808,80 @@ greet("World");</code></pre>
     </div>
 
     <!-- File Browser Naming Modal (inline overlay for New File / New Folder) -->
-    <div id="file-browser-name-modal" style="display:none; position:fixed; inset:0; z-index:100001; background:rgba(0,0,0,0.35); align-items:center; justify-content:center;">
+    <div data-fb-key="file-browser-name-modal" style="display:none; position:fixed; inset:0; z-index:100001; background:rgba(0,0,0,0.35); align-items:center; justify-content:center;">
         <div style="background:#fff; border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,0.25); width:340px; max-width:90vw; padding:0;">
-            <div style="padding:10px 16px; border-bottom:1px solid #dee2e6; font-weight:600; font-size:0.9rem;" id="file-browser-name-modal-title">New File</div>
+            <div style="padding:10px 16px; border-bottom:1px solid #dee2e6; font-weight:600; font-size:0.9rem;" data-fb-key="file-browser-name-modal-title">New File</div>
             <div style="padding:16px;">
-                <input type="text" id="file-browser-name-input" class="form-control form-control-sm" placeholder="Enter name..." autocomplete="off">
-                <small class="text-muted mt-1 d-block" id="file-browser-name-modal-hint">Will be created in: <span id="file-browser-name-modal-dir">.</span></small>
+                <input type="text" data-fb-key="file-browser-name-input" class="form-control form-control-sm" placeholder="Enter name..." autocomplete="off">
+                <small class="text-muted mt-1 d-block" data-fb-key="file-browser-name-modal-hint">Will be created in: <span data-fb-key="file-browser-name-modal-dir">.</span></small>
             </div>
             <div style="padding:8px 16px; border-top:1px solid #dee2e6; text-align:right;">
-                <button class="btn btn-sm btn-secondary mr-1" id="file-browser-name-cancel-btn">Cancel</button>
-                <button class="btn btn-sm btn-primary" id="file-browser-name-ok-btn">Create</button>
+                <button class="btn btn-sm btn-secondary mr-1" data-fb-key="file-browser-name-cancel-btn">Cancel</button>
+                <button class="btn btn-sm btn-primary" data-fb-key="file-browser-name-ok-btn">Create</button>
             </div>
         </div>
     </div>
 
 
     <!-- File Browser Confirm Dialog (inline overlay for delete, discard, dirty-check) -->
-    <div id="file-browser-confirm-modal" style="display:none; position:fixed; inset:0; z-index:100002; background:rgba(0,0,0,0.35); align-items:center; justify-content:center;">
+    <div data-fb-key="file-browser-confirm-modal" style="display:none; position:fixed; inset:0; z-index:100002; background:rgba(0,0,0,0.35); align-items:center; justify-content:center;">
         <div style="background:#fff; border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,0.25); width:380px; max-width:90vw; padding:0;">
-            <div style="padding:10px 16px; border-bottom:1px solid #dee2e6; font-weight:600; font-size:0.9rem;" id="file-browser-confirm-title">Confirm</div>
-            <div style="padding:16px;" id="file-browser-confirm-body">Are you sure?</div>
+            <div style="padding:10px 16px; border-bottom:1px solid #dee2e6; font-weight:600; font-size:0.9rem;" data-fb-key="file-browser-confirm-title">Confirm</div>
+            <div style="padding:16px;" data-fb-key="file-browser-confirm-body">Are you sure?</div>
             <div style="padding:8px 16px; border-top:1px solid #dee2e6; text-align:right;">
-                <button class="btn btn-sm btn-secondary mr-1" id="file-browser-confirm-cancel-btn">Cancel</button>
-                <button class="btn btn-sm btn-danger" id="file-browser-confirm-ok-btn">OK</button>
+                <button class="btn btn-sm btn-secondary mr-1" data-fb-key="file-browser-confirm-cancel-btn">Cancel</button>
+                <button class="btn btn-sm btn-danger" data-fb-key="file-browser-confirm-ok-btn">OK</button>
             </div>
         </div>
     </div>
 
     <!-- File Browser Upload Modal -->
-    <div id="file-browser-upload-modal" style="display:none; position:fixed; inset:0; z-index:100003; background:rgba(0,0,0,0.4); align-items:center; justify-content:center;">
+    <div data-fb-key="file-browser-upload-modal" style="display:none; position:fixed; inset:0; z-index:100003; background:rgba(0,0,0,0.4); align-items:center; justify-content:center;">
         <div style="background:#fff; border-radius:8px; box-shadow:0 4px 20px rgba(0,0,0,0.3); width:460px; max-width:94vw; padding:0;">
             <div style="padding:12px 16px; border-bottom:1px solid #dee2e6; font-weight:600; font-size:0.9rem; display:flex; align-items:center; justify-content:space-between;">
                 <span><i class="bi bi-upload mr-1"></i>Upload File</span>
-                <button type="button" class="close" id="fb-upload-close" style="font-size:1.2rem;">&times;</button>
+                <button type="button" class="close" data-fb-key="fb-upload-close" style="font-size:1.2rem;">&times;</button>
             </div>
             <div style="padding:16px;">
-                <div id="fb-upload-dir-hint" class="text-muted small mb-2">Uploading to: /</div>
+                <div data-fb-key="fb-upload-dir-hint" class="text-muted small mb-2">Uploading to: /</div>
                 <!-- Drag-and-drop zone -->
-                <div id="fb-upload-dropzone"
+                <div data-fb-key="fb-upload-dropzone"
                      style="border:2px dashed #adb5bd; border-radius:6px; padding:24px 16px; text-align:center; cursor:pointer; margin-bottom:12px; transition:background 0.15s;">
                     <i class="bi bi-cloud-upload" style="font-size:1.8rem; color:#6c757d;"></i>
-                    <div class="mt-1 text-muted small">Drop a file here, or <a href="#" id="fb-upload-browse-link">browse</a></div>
-                    <div id="fb-upload-filename" class="mt-1 small font-weight-bold" style="color:#495057;"></div>
+                    <div class="mt-1 text-muted small">Drop a file here, or <a href="#" data-fb-key="fb-upload-browse-link">browse</a></div>
+                    <div data-fb-key="fb-upload-filename" class="mt-1 small font-weight-bold" style="color:#495057;"></div>
                 </div>
                 <!-- Hidden file input -->
-                <input type="file" id="fb-upload-input" style="display:none;">
-                <!-- Progress -->
-                <div id="fb-upload-progress-wrap" style="display:none; margin-bottom:10px;">
-                    <div class="progress" style="height:6px;">
-                        <div id="fb-upload-progress-bar" class="progress-bar" role="progressbar" style="width:0%;"></div>
+                <input type="file" data-fb-key="fb-upload-input" style="display:none;">
+                <!-- Optional metadata fields (shown via config.uploadFields) -->
+                <div data-fb-key="fb-upload-extra-fields" style="display:none;">
+                    <div class="form-group mb-2">
+                        <label class="small mb-1">Display Name (optional)</label>
+                        <input type="text" class="form-control form-control-sm" data-fb-key="fb-upload-display-name" placeholder="Custom name for this document">
                     </div>
-                    <small id="fb-upload-progress-text" class="text-muted">0%</small>
+                    <div class="form-group mb-2" data-fb-key="fb-upload-folder-group">
+                        <label class="small mb-1">Folder (optional)</label>
+                        <select class="form-control form-control-sm" data-fb-key="fb-upload-folder-select">
+                            <option value="">Unfiled</option>
+                        </select>
+                    </div>
+                    <div class="form-group mb-2">
+                        <label class="small mb-1">Tags (optional, comma-separated)</label>
+                        <input type="text" class="form-control form-control-sm" data-fb-key="fb-upload-tags" placeholder="e.g. ai, ml, research">
+                    </div>
+                </div>
+                <!-- Progress -->
+                <div data-fb-key="fb-upload-progress-wrap" style="display:none; margin-bottom:10px;">
+                    <div class="progress" style="height:6px;">
+                        <div data-fb-key="fb-upload-progress-bar" class="progress-bar" role="progressbar" style="width:0%;"></div>
+                    </div>
+                    <small data-fb-key="fb-upload-progress-text" class="text-muted">0%</small>
                 </div>
             </div>
             <div style="padding:8px 16px; border-top:1px solid #dee2e6; text-align:right;">
-                <button class="btn btn-sm btn-secondary mr-1" id="fb-upload-cancel-btn">Cancel</button>
-                <button class="btn btn-sm btn-primary" id="fb-upload-submit-btn" disabled>
-                    <span id="fb-upload-spinner" class="spinner-border spinner-border-sm mr-1" style="display:none;"></span>
+                <button class="btn btn-sm btn-secondary mr-1" data-fb-key="fb-upload-cancel-btn">Cancel</button>
+                <button class="btn btn-sm btn-primary" data-fb-key="fb-upload-submit-btn" disabled>
+                    <span data-fb-key="fb-upload-spinner" class="spinner-border spinner-border-sm mr-1" style="display:none;"></span>
                     Upload
                 </button>
             </div>
@@ -2874,51 +2889,51 @@ greet("World");</code></pre>
     </div>
 
     <!-- File Browser Move Modal -->
-    <div id="file-browser-move-modal" style="display:none; position:fixed; inset:0; z-index:100004; background:rgba(0,0,0,0.35); align-items:center; justify-content:center;">
+    <div data-fb-key="file-browser-move-modal" style="display:none; position:fixed; inset:0; z-index:100004; background:rgba(0,0,0,0.35); align-items:center; justify-content:center;">
         <div style="background:#fff; border-radius:8px; box-shadow:0 4px 16px rgba(0,0,0,0.25); width:420px; max-width:94vw; padding:0; display:flex; flex-direction:column; max-height:80vh;">
-            <div style="padding:10px 16px; border-bottom:1px solid #dee2e6; font-weight:600; font-size:0.9rem;">Move: <span id="fb-move-src-name" style="font-weight:400; font-style:italic;"></span></div>
+            <div style="padding:10px 16px; border-bottom:1px solid #dee2e6; font-weight:600; font-size:0.9rem;">Move: <span data-fb-key="fb-move-src-name" style="font-weight:400; font-style:italic;"></span></div>
             <div style="padding:6px 14px 4px; font-size:0.8rem; color:#6c757d;">Select destination folder:</div>
-            <div id="fb-move-folder-tree" style="flex:1; overflow-y:auto; padding:4px 8px; min-height:120px; max-height:45vh; border-top:1px solid #f0f0f0;"></div>
-            <div id="fb-move-dest-hint" style="padding:5px 14px; font-size:0.78rem; color:#495057; border-top:1px solid #f0f0f0; min-height:26px; background:#fafafa;"></div>
+            <div data-fb-key="fb-move-folder-tree" class="fb-move-folder-tree" style="flex:1; overflow-y:auto; padding:4px 8px; min-height:120px; max-height:45vh; border-top:1px solid #f0f0f0;"></div>
+            <div data-fb-key="fb-move-dest-hint" style="padding:5px 14px; font-size:0.78rem; color:#495057; border-top:1px solid #f0f0f0; min-height:26px; background:#fafafa;"></div>
             <div style="padding:10px 14px; border-top:1px solid #dee2e6; display:flex; justify-content:flex-end; gap:8px;">
-                <button id="fb-move-cancel-btn" class="btn btn-sm btn-secondary">Cancel</button>
-                <button id="fb-move-ok-btn" class="btn btn-sm btn-primary" disabled>Move Here</button>
+                <button data-fb-key="fb-move-cancel-btn" class="btn btn-sm btn-secondary">Cancel</button>
+                <button data-fb-key="fb-move-ok-btn" class="btn btn-sm btn-primary" disabled>Move Here</button>
             </div>
         </div>
     </div>
 
                 <!-- AI Edit instruction overlay -->
-                <div id="file-browser-ai-edit-modal" style="display:none; position:fixed; inset:0; z-index:100001; background:rgba(0,0,0,0.4); align-items:center; justify-content:center;">
+                <div data-fb-key="file-browser-ai-edit-modal" style="display:none; position:fixed; inset:0; z-index:100001; background:rgba(0,0,0,0.4); align-items:center; justify-content:center;">
                     <div style="background:#fff; border-radius:8px; padding:20px; width:500px; max-width:90%; box-shadow:0 4px 20px rgba(0,0,0,0.3);">
                         <h6 class="mb-2" style="font-weight:600;">AI Edit</h6>
-                        <div id="fb-ai-edit-info" class="text-muted small mb-2">Editing: entire file</div>
-                        <textarea id="fb-ai-edit-instruction" class="form-control mb-2" rows="3" placeholder="Describe the changes you want..."></textarea>
+                        <div data-fb-key="fb-ai-edit-info" class="text-muted small mb-2">Editing: entire file</div>
+                        <textarea data-fb-key="fb-ai-edit-instruction" class="form-control mb-2" rows="3" placeholder="Describe the changes you want..."></textarea>
                         <div class="mb-2">
                             <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="fb-ai-edit-include-summary">
-                                <label class="form-check-label small" for="fb-ai-edit-include-summary">Include summary</label>
+                                <input class="form-check-input" type="checkbox" data-fb-key="fb-ai-edit-include-summary">
+                                <label class="form-check-label small" data-fb-for="fb-ai-edit-include-summary">Include summary</label>
                             </div>
                             <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="fb-ai-edit-include-messages">
-                                <label class="form-check-label small" for="fb-ai-edit-include-messages">Include recent messages</label>
+                                <input class="form-check-input" type="checkbox" data-fb-key="fb-ai-edit-include-messages">
+                                <label class="form-check-label small" data-fb-for="fb-ai-edit-include-messages">Include recent messages</label>
                             </div>
                             <div class="form-check">
-                                <input class="form-check-input" type="checkbox" id="fb-ai-edit-include-memory">
-                                <label class="form-check-label small" for="fb-ai-edit-include-memory">Include memory pad</label>
+                                <input class="form-check-input" type="checkbox" data-fb-key="fb-ai-edit-include-memory">
+                                <label class="form-check-label small" data-fb-for="fb-ai-edit-include-memory">Include memory pad</label>
                             </div>
                             <div class="form-inline mt-1">
-                                <label class="mr-1 text-muted small" for="fb-ai-edit-history-count">History</label>
-                                <input id="fb-ai-edit-history-count" type="number" class="form-control form-control-sm" style="width: 60px;" value="10" min="0" max="50">
+                                <label class="mr-1 text-muted small" data-fb-for="fb-ai-edit-history-count">History</label>
+                                <input data-fb-key="fb-ai-edit-history-count" type="number" class="form-control form-control-sm" style="width: 60px;" value="10" min="0" max="50">
                             </div>
                             <div class="form-check mt-1">
-                                <input class="form-check-input" type="checkbox" id="fb-ai-edit-deep-context">
-                                <label class="form-check-label small" for="fb-ai-edit-deep-context">Deep context extraction <span class="text-muted">(adds 2-5s)</span></label>
+                                <input class="form-check-input" type="checkbox" data-fb-key="fb-ai-edit-deep-context">
+                                <label class="form-check-label small" data-fb-for="fb-ai-edit-deep-context">Deep context extraction <span class="text-muted">(adds 2-5s)</span></label>
                             </div>
                         </div>
                         <div class="d-flex justify-content-end" style="gap:8px;">
-                            <button class="btn btn-sm btn-secondary" id="fb-ai-edit-cancel">Cancel</button>
-                            <button class="btn btn-sm btn-primary" id="fb-ai-edit-generate">
-                                <span id="fb-ai-edit-spinner" class="spinner-border spinner-border-sm mr-1" role="status" style="display:none;"></span>
+                            <button class="btn btn-sm btn-secondary" data-fb-key="fb-ai-edit-cancel">Cancel</button>
+                            <button class="btn btn-sm btn-primary" data-fb-key="fb-ai-edit-generate">
+                                <span data-fb-key="fb-ai-edit-spinner" class="spinner-border spinner-border-sm mr-1" role="status" style="display:none;"></span>
                                 Generate
                             </button>
                         </div>
@@ -2926,19 +2941,20 @@ greet("World");</code></pre>
                 </div>
 
                 <!-- AI Edit diff preview overlay -->
-                <div id="file-browser-ai-diff-modal" style="display:none; position:fixed; inset:0; z-index:100002; background:rgba(0,0,0,0.4); align-items:center; justify-content:center;">
+                <div data-fb-key="file-browser-ai-diff-modal" style="display:none; position:fixed; inset:0; z-index:100002; background:rgba(0,0,0,0.4); align-items:center; justify-content:center;">
                     <div style="background:#fff; border-radius:8px; padding:20px; width:80vw; max-width:900px; max-height:80vh; display:flex; flex-direction:column; box-shadow:0 4px 20px rgba(0,0,0,0.3);">
                         <h6 class="mb-2" style="font-weight:600;">AI Edit Preview</h6>
-                        <div id="fb-ai-diff-content" class="ai-diff-view mb-3" style="flex:1; overflow:auto; border:1px solid #dee2e6; border-radius:4px; padding:8px; min-height:100px; max-height:60vh; white-space:pre-wrap; word-break:break-all; font-family:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,monospace; font-size:0.82rem;"></div>
+                        <div data-fb-key="fb-ai-diff-content" class="ai-diff-view mb-3" style="flex:1; overflow:auto; border:1px solid #dee2e6; border-radius:4px; padding:8px; min-height:100px; max-height:60vh; white-space:pre-wrap; word-break:break-all; font-family:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,monospace; font-size:0.82rem;"></div>
                         <div class="d-flex justify-content-end" style="gap:8px;">
-                            <button class="btn btn-sm btn-outline-primary" id="fb-ai-diff-edit">
+                            <button class="btn btn-sm btn-outline-primary" data-fb-key="fb-ai-diff-edit">
                                 <i class="bi bi-pencil"></i> Edit Instruction
                             </button>
-                            <button class="btn btn-sm btn-secondary" id="fb-ai-diff-reject">Reject</button>
-                            <button class="btn btn-sm btn-success" id="fb-ai-diff-accept">Accept</button>
+                            <button class="btn btn-sm btn-secondary" data-fb-key="fb-ai-diff-reject">Reject</button>
+                            <button class="btn btn-sm btn-success" data-fb-key="fb-ai-diff-accept">Accept</button>
                         </div>
                     </div>
                 </div>
+    </template>
 
     <!-- Modal Z-Index CSS Fix -->
     <style>
@@ -3717,17 +3733,7 @@ greet("World");</code></pre>
     <script src="interface/tab-picker-manager.js"></script>
     <script src="interface/workflow-manager.js"></script>
     <script src="interface/script-manager.js"></script>
-    <script src="interface/file-browser-manager.js?v=26"></script>
-    <script>
-        document.addEventListener('click', function (event) {
-            var button = event.target.closest('#settings-file-browser-modal-open-button');
-            if (!button) return;
-            event.preventDefault();
-            if (window.FileBrowserManager && typeof window.FileBrowserManager.open === 'function') {
-                window.FileBrowserManager.open();
-            }
-        });
-    </script>
+    <script src="interface/file-browser-manager.js?v=27"></script>
     <script>
         // Document-level delegated handler for Terminal button.
         // Same pattern as file browser above — works reliably inside

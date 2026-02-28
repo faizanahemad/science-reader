@@ -210,9 +210,10 @@ def create_docs_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[ASGIApp,
         """List all documents attached to a conversation.
 
         Returns a JSON array of document metadata objects, each containing:
-        ``doc_id``, ``title``, ``short_summary``, ``doc_storage_path``, and
-        ``source``.  Use ``doc_storage_path`` with other docs tools to query
-        or retrieve the document content.
+        ``doc_id``, ``title``, ``short_summary``, ``doc_storage_path``,
+        ``source``, and ``display_name`` (may be null).  Use
+        ``doc_storage_path`` with other docs tools to query or retrieve
+        the document content.
 
         Args:
             user_email: The user's email address.
@@ -223,7 +224,7 @@ def create_docs_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[ASGIApp,
             if conv is None:
                 return json.dumps({"error": f"Conversation '{conversation_id}' not found."})
 
-            # uploaded_documents_list stores tuples of (doc_id, doc_storage, pdf_url)
+            # uploaded_documents_list stores tuples of (doc_id, doc_storage, pdf_url, display_name)
             doc_list = conv.get_field("uploaded_documents_list")
             if not doc_list:
                 return json.dumps([])
@@ -241,6 +242,7 @@ def create_docs_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[ASGIApp,
                         "short_summary": "",
                         "doc_storage_path": doc_storage,
                         "source": pdf_url,
+                        "display_name": entry[3] if len(entry) > 3 else None,
                     })
                     continue
                 results.append({
@@ -250,6 +252,7 @@ def create_docs_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[ASGIApp,
                     "short_summary": doc.short_summary,
                     "doc_storage_path": doc_storage,
                     "source": pdf_url,
+                    "display_name": entry[3] if len(entry) > 3 else None,
                 })
             return json.dumps(results)
         except Exception as exc:
@@ -265,9 +268,12 @@ def create_docs_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[ASGIApp,
         """List all global documents for a user.
 
         Global documents are indexed once and can be referenced from any
-        conversation using ``#gdoc_N`` syntax.  Returns a JSON array of
-        metadata objects with ``doc_id``, ``display_name``, ``title``,
-        ``short_summary``, ``doc_storage_path``, and ``source``.
+        conversation using ``#gdoc_N`` syntax, by quoted display name
+        (``\"my doc name\"``), by folder (``#folder:Name``), or by tag
+        (``#tag:name``).  Returns a JSON array of metadata objects with
+        ``index``, ``doc_id``, ``display_name``, ``title``,
+        ``short_summary``, ``doc_storage_path``, ``source``,
+        ``folder_id`` (nullable), and ``tags`` (array of strings).
 
         Args:
             user_email: The user's email address.
@@ -289,6 +295,8 @@ def create_docs_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[ASGIApp,
                     "short_summary": row.get("short_summary", ""),
                     "doc_storage_path": row.get("doc_storage", ""),
                     "source": row.get("doc_source", ""),
+                    "folder_id": row.get("folder_id"),
+                    "tags": row.get("tags", []),
                 })
             return json.dumps(results)
         except Exception as exc:

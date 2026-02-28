@@ -276,17 +276,62 @@ CodeMirror does not render correctly inside hidden containers. `_ensureEditor()`
 
 ### JS Module Structure
 
-`file-browser-manager.js` is an **IIFE** (Immediately Invoked Function Expression) that returns a plain object `FileBrowserManager` exposed on `window`. It uses no ES module syntax (`import`/`export`) and no classes — plain `var` declarations and named inner functions, consistent with the project's jQuery + Bootstrap 4.6 legacy style.
+`file-browser-manager.js` uses a **factory function** `createFileBrowser(instanceId, initialCfg)` that returns an independent file browser instance. It uses no ES module syntax (`import`/`export`) and no classes — plain `var` declarations and named inner functions, consistent with the project's jQuery + Bootstrap 4.6 legacy style.
 
 ```javascript
-var FileBrowserManager = (function () {
+function createFileBrowser(instanceId, initialCfg) {
     'use strict';
+    // instanceId: 'fb' (default, CSS-compatible IDs) or e.g. 'global-docs-fb' (prefixed IDs)
+    // initialCfg: deep-merged into _config defaults at creation time
     // ... private state and functions ...
-    return { init, open, loadFile, saveFile, discardChanges };
-})();
+    return { init, open, configure, loadFile, saveFile, discardChanges };
+}
+// Default instance for Settings > Actions > File Browser:
+window.FileBrowserManager = createFileBrowser('fb');
 ```
 
-All event handlers are bound in `FileBrowserManager.init()`, which is called once on DOM ready. The module's internal state is held in a single `state` object (see State Object section).
+All event handlers are bound in the instance's `init()`, which is called once on DOM ready. The module's internal state is held in a single `state` object per instance (see State Object section).
+
+The `<template id="file-browser-template">` element in `interface.html` holds the single shared HTML markup. `_mountDom()` clones it and replaces all `data-fb-key` attribute values with prefixed IDs before inserting into the document. For `instanceId='fb'`, IDs match the CSS rules exactly (e.g. `file-browser-modal`). For other instance IDs, `_prefixId(key)` substitutes the prefix (e.g. `global-docs-fb-editor-wrapper`).
+
+---
+
+### Multi-Instance Architecture
+
+The file browser follows a **one template, one set of CSS rules, N instances** philosophy. Any number of independent file browser instances can be created from the single `<template>` without forking HTML or CSS.
+
+#### How it works
+
+1. **One `<template>`**: `interface.html` has a single `<template id="file-browser-template">` with `data-fb-key` attributes on every significant element (e.g. `data-fb-key="modal"`, `data-fb-key="tree"`, `data-fb-key="editor-wrapper"`).
+
+2. **`_mountDom()`**: Called during `init()`. Clones the template content. For each element with a `data-fb-key` attribute, calls `_prefixId(key)` to compute the actual DOM `id`. For `instanceId='fb'`, `_prefixId('modal')` → `'file-browser-modal'`. For `instanceId='global-docs-fb'`, `_prefixId('modal')` → `'global-docs-fb-modal'`. The cloned fragment is appended to `document.body`.
+
+3. **`_$(key)`**: Internal helper that looks up a cached jQuery selector for a given key. All internal code uses `_$('modal')`, `_$('tree')`, etc. — never hardcoded IDs.
+
+4. **CSS class-based theming**: Every layout-critical element in the template has an `fb-*` class in addition to its unique `id`. All CSS rules in `style.css` target `.fb-*` class selectors — never `#file-browser-*` IDs. This ensures both the default instance and any additional instance get the correct layout regardless of their prefixed IDs.
+
+   CSS classes added to template elements: `.fb-modal`, `.fb-sidebar`, `.fb-tree`, `.fb-editor-wrapper`, `.fb-editor-container`, `.fb-tab-bar`, `.fb-view-btngroup`, `.fb-view-select`, `.fb-preview-container`, `.fb-wysiwyg-container`, `.fb-pdf-container`, `.fb-pdfjs-viewer`, `.fb-empty-state`, `.fb-address-bar`, `.fb-theme-select`, `.fb-context-menu`, `.fb-move-folder-tree`.
+
+5. **`openBtn: null`**: Non-default instances pass `openBtn: null` in their config so `init()` does not bind a click handler to a non-existent button. The guard `if (_config.dom.openBtn) { ... }` in `init()` prevents double-binding.
+
+#### Creating a new embedded instance
+
+```javascript
+var myFb = createFileBrowser('my-fb', {
+    rootPath: 'storage/my_data/',
+    openBtn: null,           // no auto-open button
+    onUpload: function(file, targetDir, done) {
+        // custom upload logic
+        myApi.upload(file, targetDir)
+            .then(function() { done(null); })
+            .catch(function(err) { done(err.message); });
+    }
+});
+myFb.init();
+myFb.open();
+```
+
+The default `window.FileBrowserManager = createFileBrowser('fb')` instance is created at the bottom of `file-browser-manager.js` for backward compatibility with all existing call sites.
 
 ---
 
@@ -469,13 +514,13 @@ Opens `#file-browser-upload-modal` (`position:fixed; inset:0; z-index:100003`).
 ### Files Created
 
 - `endpoints/file_browser.py` — Flask Blueprint (`file_browser_bp`) with 11 endpoints (tree, read, write, mkdir, rename, **move**, delete, download, upload, serve, ai-edit), path traversal prevention, binary detection, 2 MB size guard. Move endpoint: `POST /file-browser/move`, validates both paths via `_safe_resolve()`, prevents self-moves, returns 400/404/409 errors.
-- `interface/file-browser-manager.js` — IIFE module (`FileBrowserManager`) with full tree rendering, CodeMirror integration, fuzzy address bar autocomplete, CRUD operations, keyboard shortcuts, modal lifecycle, confirm modal, reload from disk, word wrap toggle, download, upload modal, AI edit with diff context, context menu z-index fix, **drag-and-drop move** (tree item drag onto folder), **context-menu Move modal** (lazy folder tree), **`_config.onMove` decoupled callback**, `configure()` public API method.
+- `interface/file-browser-manager.js` — **Factory function** `createFileBrowser(instanceId, initialCfg)` replacing IIFE singleton. Single `<template>` extraction. `_mountDom()`, `_prefixId()`, `_$(key)` helpers for multi-instance DOM management. `window.FileBrowserManager = createFileBrowser('fb')` for backward compatibility. Full CRUD, CodeMirror integration, all existing features preserved. **PDF fix**: `.pdf` extension check now runs before `is_binary` check in `_doLoadFile()` to prevent PDFs being shown as binary content.
 
 ### Files Modified
 
 - `endpoints/__init__.py` — Registered `file_browser_bp` blueprint
-- `interface/interface.html` — Added File Browser button in Actions section; full-screen modal HTML (no Bootstrap modal classes/attributes); context menu HTML + **Move to… item** (`data-action="move"`); naming modal (`#file-browser-name-modal`); confirm modal (`#file-browser-confirm-modal`); **move modal** (`#file-browser-move-modal`, z-index 100004) with lazy folder tree; fuzzy dropdown; reload/wrap/download/upload buttons; AI edit modal; AI diff modal; Bootstrap Icons CDN upgraded to 1.11.3; `<script>` tag v25; fallback click handler
-- `interface/style.css` — Added file browser CSS: sidebar layout, tree item styling, editor/preview containers, tab bar, context menu, dirty indicator, empty state, AI diff line colour classes, upload modal styles, **drag-and-drop feedback** (`.fb-drag-source`, `.fb-drag-over`), **root drag-over feedback** (`.fb-drag-over-root` — dashed blue outline + faint blue tint on `#file-browser-tree` when dragging over tree background), **move modal folder tree** (`.fb-move-dir-item`, `.fb-move-selected`, `.fb-move-children`), **move modal root item** (`.fb-move-root-item` — bottom border separator + bolder label for the `/ (root)` item)
+- `interface/interface.html` — `<template id="file-browser-template">` extracted from inline HTML. All layout elements have `fb-*` classes added. View switcher moved to modal header for global-docs instance. `window.FileBrowserManager = createFileBrowser('fb')` initialization.
+- `interface/style.css` — **All layout rules migrated from `#file-browser-*` ID selectors to `.fb-*` class selectors** to support multi-instance architecture. All `fb-*` classes added to template elements.
 - `interface/service-worker.js` — Added `file-browser-manager.js` to precache list; cache version bumped on each JS update
 - `interface/audio_process.js` — Added guard to skip Cmd+K / Ctrl+K voice shortcut when file browser modal is open
 
@@ -691,7 +736,7 @@ Each CRUD operation checks for a custom callback before falling back to the defa
 | `onRename` | `(oldPath, newPath, done)` | POST to `endpoints.rename` |
 | `onCreateFolder` | `(path, done)` | POST to `endpoints.mkdir` |
 | `onCreateFile` | `(path, done)` | POST to `endpoints.write` |
-| `onUpload` | `(file, targetDir, done)` | XHR POST to `endpoints.upload` |
+| `onUpload` | `(file, targetDir, done)` | XHR POST to `endpoints.upload`. Override to route uploads to a different backend (e.g. global docs upload endpoint). `targetDir` is the resolved upload directory path. Call `done(null)` on success or `done(errorMsg)` on failure. |
 | `onSave` | `(path, content, done)` | POST to `endpoints.write` |
 
 Set to `null` (default) to use the default endpoint-based implementation.
@@ -770,6 +815,36 @@ FileBrowserManager.configure({
 | `interface/service-worker.js` | `CACHE_VERSION` bump |
 
 No HTML structure changes. No new DOM elements. No backend changes. All existing `/file-browser/*` endpoints unchanged.
+
+---
+
+## CSS Class System
+
+All layout-critical file browser elements carry `fb-*` CSS classes in addition to their instance-specific `id` attributes. Style rules in `style.css` target only the `.fb-*` classes — never `#file-browser-*` IDs for layout.
+
+**Why**: When a second instance is created with a different `instanceId` (e.g. `'global-docs-fb'`), its elements get different IDs (`#global-docs-fb-editor-wrapper` etc.) that would not match any `#file-browser-*` CSS rules. By targeting class selectors, all instances share the same layout styles automatically.
+
+**Rule**: Never add a layout or sizing rule that targets a `#file-browser-*` ID selector. Always add or use the corresponding `.fb-*` class.
+
+| Element | Class | Purpose |
+|---------|-------|---------|
+| Main modal div | `.fb-modal` | Full-screen overlay positioning |
+| Sidebar | `.fb-sidebar` | 250px collapsible panel |
+| File tree container | `.fb-tree` | Flex tree layout |
+| Editor wrapper | `.fb-editor-wrapper` | Flex column fills remaining width |
+| Editor container (CM) | `.fb-editor-container` | CodeMirror host sizing |
+| Tab bar (view selector) | `.fb-tab-bar` | Raw/Preview/WYSIWYG selector row |
+| View btn-group | `.fb-view-btngroup` | Bootstrap btn-group for wide screens |
+| View select | `.fb-view-select` | `<select>` for narrow screens |
+| Preview container | `.fb-preview-container` | Markdown preview flex sizing |
+| WYSIWYG container | `.fb-wysiwyg-container` | EasyMDE host sizing |
+| PDF container | `.fb-pdf-container` | PDF.js iframe host |
+| PDF viewer iframe | `.fb-pdfjs-viewer` | Full-height iframe |
+| Empty state | `.fb-empty-state` | "No file open" placeholder |
+| Address bar | `.fb-address-bar` | Path input styling |
+| Theme select | `.fb-theme-select` | Theme picker dropdown |
+| Context menu | `.fb-context-menu` | Right-click menu positioning |
+| Move folder tree | `.fb-move-folder-tree` | Folder-only tree in move modal |
 
 ## Known Issues and Historical Fixes
 

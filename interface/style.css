@@ -1359,16 +1359,16 @@ table, tr, thead, th, td {
 #file-browser-modal {
     z-index: 100000 !important;
 }
-#file-browser-modal .modal-body {
+.fb-modal .modal-body {
     display: flex;
     padding: 0;
     overflow: hidden;
 }
-#file-browser-modal .modal-content {
+.fb-modal .modal-content {
     display: flex;
     flex-direction: column;
 }
-#file-browser-modal .modal-header {
+.fb-modal .modal-header {
     padding: 0.35rem 0.75rem;
     display: flex;
     align-items: center;
@@ -1377,7 +1377,7 @@ table, tr, thead, th, td {
 }
 
 /* Address bar */
-#file-browser-address-bar {
+.fb-address-bar {
     flex: 1;
     font-family: monospace;
     font-size: 0.85rem;
@@ -1385,7 +1385,7 @@ table, tr, thead, th, td {
 }
 
 /* Sidebar */
-#file-browser-sidebar {
+.fb-sidebar {
     width: 250px;
     min-width: 0;
     border-right: 1px solid #dee2e6;
@@ -1396,21 +1396,21 @@ table, tr, thead, th, td {
     flex-shrink: 0;
     height: 100%;
 }
-#file-browser-sidebar.collapsed {
+.fb-sidebar.collapsed {
     width: 0;
     border-right: none;
 }
 
 /* File tree */
-#file-browser-tree ul {
+.fb-tree ul {
     list-style: none;
     padding-left: 16px;
     margin: 0;
 }
-#file-browser-tree > ul {
+.fb-tree > ul {
     padding-left: 4px;
 }
-#file-browser-tree li {
+.fb-tree li {
     cursor: pointer;
     padding: 2px 6px;
     white-space: nowrap;
@@ -1418,14 +1418,14 @@ table, tr, thead, th, td {
     border-radius: 3px;
     user-select: none;
 }
-#file-browser-tree li:hover {
+.fb-tree li:hover {
     background: #e9ecef;
 }
-#file-browser-tree li.active {
+.fb-tree li.active {
     background: #007bff;
     color: #fff;
 }
-#file-browser-tree li .tree-icon {
+.fb-tree li .tree-icon {
     width: 16px;
     display: inline-block;
     text-align: center;
@@ -1433,7 +1433,7 @@ table, tr, thead, th, td {
 }
 
 /* Editor area */
-#file-browser-editor-wrapper {
+.fb-editor-wrapper {
     flex: 1;
     display: flex;
     flex-direction: column;
@@ -1442,15 +1442,15 @@ table, tr, thead, th, td {
     height: 100%;
     position: relative;
 }
-#file-browser-editor-container {
+.fb-editor-container {
     flex: 1;
     overflow: hidden;
 }
-#file-browser-editor-container .CodeMirror {
+.fb-editor-container .CodeMirror {
     height: 100%;
     font-size: 13px;
 }
-#file-browser-preview-container {
+.fb-preview-container {
     flex: 1;
     overflow-y: auto;
     padding: 16px 24px;
@@ -1459,51 +1459,51 @@ table, tr, thead, th, td {
 }
 
 /* Markdown tab bar */
-#file-browser-tab-bar {
+.fb-tab-bar {
     display: none;
     padding: 2px 8px;
     background: #f1f3f5;
     border-bottom: 1px solid #dee2e6;
 }
-#file-browser-tab-bar .btn {
+.fb-tab-bar .btn {
     font-size: 0.78rem;
     padding: 1px 10px;
 }
-#file-browser-tab-bar .btn.active {
+.fb-tab-bar .btn.active {
     font-weight: 600;
 }
 
 /* WYSIWYG (EasyMDE) container — fills flex column */
-#file-browser-wysiwyg-container {
+.fb-wysiwyg-container {
     flex: 1;
     display: flex;
     flex-direction: column;
     overflow: hidden;
     background: #fff;
 }
-#file-browser-wysiwyg-container .EasyMDEContainer {
+.fb-wysiwyg-container .EasyMDEContainer {
     flex: 1;
     display: flex;
     flex-direction: column;
     overflow: hidden;
 }
-#file-browser-wysiwyg-container .EasyMDEContainer .CodeMirror {
+.fb-wysiwyg-container .EasyMDEContainer .CodeMirror {
     flex: 1;
     height: 100%;
     font-size: 13px;
 }
-#file-browser-wysiwyg-container .editor-toolbar {
+.fb-wysiwyg-container .editor-toolbar {
     flex-shrink: 0;
 }
 
 /* PDF viewer container */
-#file-browser-pdf-container {
+.fb-pdf-container {
     flex: 1;
     display: flex;
     flex-direction: column;
     overflow: hidden;
 }
-#fb-pdfjs-viewer {
+.fb-pdfjs-viewer {
     flex: 1;
     width: 100%;
     border: none;
@@ -1512,11 +1512,11 @@ table, tr, thead, th, td {
 
 /* Responsive view-mode selector */
 /* xs: hide button group, show select; sm+: show button group, hide select */
-#fb-view-btngroup { display: none; }
-#file-browser-view-select { display: inline-block; }
+.fb-view-btngroup { display: none; }
+.fb-view-select { display: inline-block; }
 @media (min-width: 576px) {
-    #fb-view-btngroup { display: inline-flex !important; }
-    #file-browser-view-select { display: none !important; }
+    .fb-view-btngroup { display: inline-flex !important; }
+    .fb-view-select { display: none !important; }
 }
 
 /* Dirty indicator */
@@ -1532,22 +1532,22 @@ table, tr, thead, th, td {
 }
 
 /* Context menu */
-#file-browser-context-menu {
+.fb-context-menu {
     position: fixed;
     z-index: 9999;
 }
-#file-browser-context-menu .dropdown-item {
+.fb-context-menu .dropdown-item {
     font-size: 0.82rem;
     padding: 4px 12px;
 }
-#file-browser-context-menu .dropdown-item i {
+.fb-context-menu .dropdown-item i {
     width: 16px;
     text-align: center;
     margin-right: 6px;
 }
 
 /* Theme picker */
-#file-browser-theme-select {
+.fb-theme-select {
     font-size: 0.75rem;
     padding: 1px 4px;
     width: auto;
@@ -1555,7 +1555,7 @@ table, tr, thead, th, td {
 }
 
 /* Empty state */
-#file-browser-empty-state {
+.fb-empty-state {
     position: absolute;
     top: 0; left: 0; right: 0; bottom: 0;
     display: flex;
@@ -1594,12 +1594,12 @@ table, tr, thead, th, td {
 /* ── File Browser: drag-and-drop move ──────────────────────────────── */
 
 /* Item being dragged gets reduced opacity */
-#file-browser-tree li.fb-drag-source {
+.fb-tree li.fb-drag-source {
     opacity: 0.45;
 }
 
 /* Valid drop target folder highlights with dashed border + blue tint */
-#file-browser-tree li.fb-drag-over {
+.fb-tree li.fb-drag-over {
     outline: 1.5px dashed #4a90e2;
     outline-offset: -1px;
     border-radius: 3px;
@@ -1607,7 +1607,7 @@ table, tr, thead, th, td {
 }
 
 /* Dragging over the tree background = drop onto root */
-#file-browser-tree.fb-drag-over-root {
+.fb-tree.fb-drag-over-root {
     outline: 2px dashed #4a90e2;
     outline-offset: -2px;
     background: rgba(74, 144, 226, 0.06);
@@ -1615,13 +1615,13 @@ table, tr, thead, th, td {
 
 /* ── File Browser: move destination modal folder tree ──────────────── */
 
-#fb-move-folder-tree ul {
+.fb-move-folder-tree ul {
     list-style: none;
     padding-left: 0;
     margin: 0;
 }
 
-#fb-move-folder-tree .fb-move-dir-item {
+.fb-move-folder-tree .fb-move-dir-item {
     padding: 4px 6px;
     cursor: pointer;
     border-radius: 4px;
@@ -1633,26 +1633,24 @@ table, tr, thead, th, td {
     display: block;
 }
 
-#fb-move-folder-tree .fb-move-dir-item:hover {
+.fb-move-folder-tree .fb-move-dir-item:hover {
     background: #f0f4ff;
 }
 
-#fb-move-folder-tree .fb-move-dir-item.fb-move-selected {
+.fb-move-folder-tree .fb-move-dir-item.fb-move-selected {
     background: #d0e4ff;
     font-weight: 600;
 }
 
-#fb-move-folder-tree .fb-move-children {
+.fb-move-folder-tree .fb-move-children {
     padding-left: 16px;
 }
 
 /* Root item in move modal — visually distinct, slight bottom separator */
-#fb-move-folder-tree .fb-move-root-item {
+.fb-move-folder-tree .fb-move-root-item {
     border-bottom: 1px solid #e9ecef;
     margin-bottom: 4px;
     padding-bottom: 6px;
     font-size: 0.85rem;
-}
-    padding-left: 16px;
 }
 

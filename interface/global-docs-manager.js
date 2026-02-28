@@ -11,6 +11,7 @@ var GlobalDocsManager = {
     _viewMode: 'list',
     _folderCache: [],
     _userHash: null,
+    _fileBrowser: null,
 
 
     /* ------------------------------------------------------------------ */
@@ -53,14 +54,16 @@ var GlobalDocsManager = {
      *
      * @param {File|string} fileOrUrl - File object for file upload, string for URL upload.
      * @param {string} displayName - Optional display name.
+     * @param {string} folderId - Optional folder ID.
+     * @param {string} tags - Optional comma-separated tags string.
      */
-    upload: function (fileOrUrl, displayName, folderId) {
+    upload: function (fileOrUrl, displayName, folderId, tags) {
         DocsManagerUtils.uploadWithProgress('/global_docs/upload', fileOrUrl, {
             $btn:        $('#global-doc-submit-btn'),
             $spinner:    $('#global-doc-upload-spinner'),
             $progress:   $('#global-doc-upload-progress'),
             displayName: displayName,
-            extraFields: { folder_id: folderId || '' },
+            extraFields: { folder_id: folderId || '', tags: tags || '' },
             onSuccess: function () {
                 GlobalDocsManager._resetForm();
                 GlobalDocsManager.refresh();
@@ -76,6 +79,8 @@ var GlobalDocsManager = {
         $('#global-doc-url').val('');
         $('#global-doc-display-name').val('');
         $('#global-doc-file-input').val('');
+        $('#global-doc-tags-input').val('');
+        $('#global-doc-folder-select').val('');
         // Restore default drop area text
         $('#global-doc-drop-area').text(
             'Drop a supported document or audio file here. Common formats (PDF, Word, HTML, Markdown, CSV, audio, etc.) can be uploaded directly.'
@@ -226,6 +231,132 @@ var GlobalDocsManager = {
         });
     },
 
+    /**
+     * Open the global-docs file browser. Creates the instance on first call,
+     * reuses it on subsequent calls. Hides the global-docs modal.
+     */
+    _openFileBrowser: function() {
+        if (typeof createFileBrowser === 'undefined') {
+            alert('File browser not available.');
+            return;
+        }
+        var startPath = GlobalDocsManager._userHash
+            ? 'storage/global_docs/' + GlobalDocsManager._userHash
+            : 'storage/global_docs';
+
+        if (!GlobalDocsManager._fileBrowser) {
+            GlobalDocsManager._fileBrowser = createFileBrowser('global-docs-fb', {
+                rootPath: startPath,
+                uploadFields: {
+                    populateFolders: function() {
+                        return GlobalDocsManager._folderCache || [];
+                    }
+                },
+                onMove: function(srcPath, destPath, done) {
+                    var srcParts = srcPath.replace(/\\/g, '/').split('/');
+                    var docId = srcParts[srcParts.length - 1];
+                    var destParts = destPath.replace(/\\/g, '/').split('/');
+                    var parentName = destParts.length >= 2 ? destParts[destParts.length - 2] : null;
+                    var folder = parentName
+                        ? (GlobalDocsManager._folderCache || []).find(function(f) { return f.name === parentName; })
+                        : null;
+                    var folderId = folder ? folder.folder_id : 'root';
+                    if (!docId || docId.length < 8) { done('Cannot determine doc_id'); return; }
+                    $.ajax({
+                        url: '/doc_folders/' + folderId + '/assign',
+                        method: 'POST',
+                        contentType: 'application/json',
+                        data: JSON.stringify({ doc_id: docId }),
+                        success: function(r) {
+                            GlobalDocsManager.refresh();
+                            done(r.status === 'ok' ? null : (r.error || 'Assign failed'));
+                        },
+                        error: function(xhr) {
+                            var msg = 'Assign failed';
+                            try { msg = JSON.parse(xhr.responseText).error || msg; } catch(e) {}
+                            done(msg);
+                        }
+                    });
+                },
+                onDelete: function(path, done) {
+                    var parts = path.replace(/\\/g, '/').split('/').filter(Boolean);
+                    var last = parts[parts.length - 1];
+
+                    function _fallbackFsDelete(p, cb) {
+                        $.ajax({
+                            url: '/file-browser/delete',
+                            method: 'POST',
+                            contentType: 'application/json',
+                            data: JSON.stringify({ path: p, recursive: true }),
+                            success: function() { cb(null); },
+                            error: function() { cb('Delete failed'); }
+                        });
+                    }
+
+                    if (last && last.length >= 8 && last.indexOf(' ') === -1) {
+                        $.ajax({
+                            url: '/global_docs/' + last,
+                            method: 'DELETE',
+                            success: function(r) {
+                                GlobalDocsManager.refresh();
+                                done(r.status === 'ok' ? null : (r.error || 'Delete failed'));
+                            },
+                            error: function(xhr) {
+                                if (xhr.status === 404) {
+                                    _fallbackFsDelete(path, done);
+                                } else {
+                                    var msg = 'Delete failed';
+                                    try { msg = JSON.parse(xhr.responseText).error || msg; } catch(e) {}
+                                    done(msg);
+                                }
+                            }
+                        });
+                    } else {
+                        _fallbackFsDelete(path, done);
+                    }
+                },
+            onUpload: function(file, targetDir, done, meta) {
+                // Delegate to the global docs upload pipeline so the file is
+                // indexed as a global document, not just stored as a raw file.
+                meta = meta || {};
+                var displayName = meta.displayName || file.name;
+                var folderId = meta.folderId;
+                if (!folderId) {
+                    // Fallback: infer folder from current directory if possible.
+                    var dir = targetDir.replace(/\\/g, '/');
+                    var parts = dir.split('/').filter(Boolean);
+                    var folderName = parts.length > 0 ? parts[parts.length - 1] : null;
+                    var folder = folderName
+                        ? (GlobalDocsManager._folderCache || []).find(function(f) { return f.name === folderName; })
+                        : null;
+                    folderId = folder ? folder.folder_id : '';
+                }
+                var extraFields = { folder_id: folderId };
+                if (meta.tags) extraFields.tags = meta.tags;
+                DocsManagerUtils.uploadWithProgress('/global_docs/upload', file, {
+                    $btn:        $(),   // no UI btn to disable — file browser owns the spinner
+                    $spinner:    $(),
+                    $progress:   $(),
+                    displayName: displayName,
+                    extraFields: extraFields,
+                    onSuccess: function() {
+                        GlobalDocsManager.refresh();
+                        done(null);
+                    },
+                    onError: function(msg) {
+                        done(msg);
+                    }
+                });
+            }
+        });
+            GlobalDocsManager._fileBrowser.init();
+        } else {
+            GlobalDocsManager._fileBrowser.configure({ rootPath: startPath });
+        }
+        GlobalDocsManager._fileBrowser.open(startPath);
+        $('#global-docs-modal').modal('hide');
+    },
+
     refresh: function () {
         GlobalDocsManager.list().done(function (docs) {
             GlobalDocsManager.renderList(docs);
@@ -277,7 +408,9 @@ var GlobalDocsManager = {
             $('#global-doc-file-input'),
             function (file) {
                 var displayName = $('#global-doc-display-name').val().trim();
-                GlobalDocsManager.upload(file, displayName);
+                var folderId = $('#global-doc-folder-select').val() || null;
+                var tags = $('#global-doc-tags-input').val().trim();
+                GlobalDocsManager.upload(file, displayName, folderId, tags);
             }
         );
 
@@ -302,7 +435,7 @@ var GlobalDocsManager = {
                 return;
             }
 
-            GlobalDocsManager.upload(fileOrUrl, displayName, $('#global-doc-folder-select').val() || null);
+            GlobalDocsManager.upload(fileOrUrl, displayName, $('#global-doc-folder-select').val() || null, $('#global-doc-tags-input').val().trim());
         });
 
         // Refresh button
@@ -310,7 +443,7 @@ var GlobalDocsManager = {
             GlobalDocsManager.refresh();
         });
 
-        // View switcher
+        // View switcher — Folders view directly opens the file browser
         $('#global-docs-view-switcher').on('click', 'button[data-view]', function() {
             var view = $(this).data('view');
             GlobalDocsManager._viewMode = view;
@@ -320,70 +453,14 @@ var GlobalDocsManager = {
             if (view === 'list') {
                 $('#global-docs-view-list').show();
                 $('#global-docs-view-folder').hide();
-                $('#global-docs-manage-folders-btn').hide();
                 $('#global-docs-dialog').removeClass('modal-xl').addClass('modal-lg');
             } else {
                 $('#global-docs-view-list').hide();
                 $('#global-docs-view-folder').show();
-                $('#global-docs-manage-folders-btn').show();
                 $('#global-docs-dialog').removeClass('modal-lg').addClass('modal-xl');
+                GlobalDocsManager._openFileBrowser();
             }
         });
-
-        // Restore saved view mode
-        var savedView = localStorage.getItem('globalDocsViewMode') || 'list';
-        if (savedView !== 'list') {
-            $('#global-docs-view-switcher button[data-view="' + savedView + '"]').trigger('click');
-        }
-
-        // Filter bar
-        $('#global-docs-filter').on('input', function() {
-            GlobalDocsManager.filterDocList($(this).val());
-        });
-
-        // Manage Folders button
-        $('#global-docs-manage-folders-btn').on('click', function() {
-            if (typeof FileBrowserManager === 'undefined') {
-                alert('File browser not available.');
-                return;
-            }
-            FileBrowserManager.configure({
-                onMove: function(srcPath, destPath, done) {
-                    var srcParts = srcPath.replace(/\\/g, '/').split('/');
-                    var docId = srcParts[srcParts.length - 1];
-                    var destParts = destPath.replace(/\\/g, '/').split('/');
-                    // destParts last element = docId basename, second-to-last = parent folder name
-                    var parentName = destParts.length >= 2 ? destParts[destParts.length - 2] : null;
-                    var folder = parentName
-                        ? (GlobalDocsManager._folderCache || []).find(function(f) { return f.name === parentName; })
-                        : null;
-                    var folderId = folder ? folder.folder_id : 'root';
-                    if (!docId || docId.length < 8) { done('Cannot determine doc_id'); return; }
-                    $.ajax({
-                        url: '/doc_folders/' + folderId + '/assign',
-                        method: 'POST',
-                        contentType: 'application/json',
-                        data: JSON.stringify({ doc_id: docId }),
-                        success: function(r) {
-                            GlobalDocsManager.refresh();
-                            done(r.status === 'ok' ? null : (r.error || 'Assign failed'));
-                        },
-                        error: function(xhr) {
-                            var msg = 'Assign failed';
-                            try { msg = JSON.parse(xhr.responseText).error || msg; } catch(e) {}
-                            done(msg);
-                        }
-                    });
-                }
-            });
-            // Navigate to global docs storage root
-            var startPath = GlobalDocsManager._userHash
-                ? 'storage/global_docs/' + GlobalDocsManager._userHash
-                : 'storage/global_docs';
-            FileBrowserManager.open(startPath);
-            $('#global-docs-modal').modal('hide');
-        });
-
         // Load folder cache when modal opens
         $('#global-docs-button').off('click.folders').on('click.folders', function() {
             GlobalDocsManager._loadFolderCache();

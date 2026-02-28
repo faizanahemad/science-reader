@@ -15,8 +15,50 @@
  */
 /* global $, CodeMirror, showToast, marked, hljs, renderMarkdownToHtml */
 
-var FileBrowserManager = (function () {
+/**
+ * Creates an independent FileBrowserManager instance.
+ * @param {string} instanceId - e.g. 'fb' (default) or 'global-docs-fb'
+ * @param {object} [initialCfg] - Optional config overrides
+ */
+function createFileBrowser(instanceId, initialCfg) {
     'use strict';
+
+    // ─── Clone HTML template and assign IDs for this instance ───
+    (function _mountDom() {
+        var tpl = document.getElementById('file-browser-modal-template');
+        if (!tpl) { console.error('FileBrowserManager: template not found'); return; }
+        var frag = tpl.content.cloneNode(true);
+        frag.querySelectorAll('[data-fb-key]').forEach(function(el) {
+            var key = el.getAttribute('data-fb-key');
+            var id;
+            if (instanceId === 'fb') {
+                id = key;
+            } else {
+                id = key.replace(/^file-browser-/, instanceId + '-')
+                         .replace(/^fb-/, instanceId + '-');
+            }
+            el.id = id;
+        });
+        frag.querySelectorAll('[data-fb-for]').forEach(function(el) {
+            var key = el.getAttribute('data-fb-for');
+            var id;
+            if (instanceId === 'fb') {
+                id = key;
+            } else {
+                id = key.replace(/^file-browser-/, instanceId + '-')
+                         .replace(/^fb-/, instanceId + '-');
+            }
+            el.setAttribute('for', id);
+        });
+        document.body.appendChild(frag);
+    })();
+
+    // ─── Build dom config for this instance ───
+    function _prefixId(key) {
+        if (instanceId === 'fb') return key;
+        return key.replace(/^file-browser-/, instanceId + '-')
+                   .replace(/^fb-/, instanceId + '-');
+    }
 
     // ─── Mode map: file extension → CodeMirror mode (pre-loaded only) ───
     var MODE_MAP = {
@@ -84,56 +126,102 @@ var FileBrowserManager = (function () {
         // set of elements (e.g. inside a different modal).
         dom: {
             // Main containers
-            modal:              'file-browser-modal',
-            openBtn:            'settings-file-browser-modal-open-button',
-            tree:               'file-browser-tree',
-            sidebar:            'file-browser-sidebar',
-            addressBar:         'file-browser-address-bar',
-            suggestionDropdown: 'file-browser-suggestion-dropdown',
-            editorContainer:    'file-browser-editor-container',
-            previewContainer:   'file-browser-preview-container',
-            wysiwygContainer:   'file-browser-wysiwyg-container',
-            pdfContainer:       'file-browser-pdf-container',
-            emptyState:         'file-browser-empty-state',
-            dirtyIndicator:     'file-browser-dirty-indicator',
-            tabBar:             'file-browser-tab-bar',
-            viewBtnGroup:       'fb-view-btngroup',
-            viewSelect:         'file-browser-view-select',
+            modal:              _prefixId('file-browser-modal'),
+            openBtn:            instanceId === 'fb' ? 'settings-file-browser-modal-open-button' : null,
+            tree:               _prefixId('file-browser-tree'),
+            sidebar:            _prefixId('file-browser-sidebar'),
+            addressBar:         _prefixId('file-browser-address-bar'),
+            suggestionDropdown: _prefixId('file-browser-suggestion-dropdown'),
+            editorContainer:    _prefixId('file-browser-editor-container'),
+            previewContainer:   _prefixId('file-browser-preview-container'),
+            wysiwygContainer:   _prefixId('file-browser-wysiwyg-container'),
+            pdfContainer:       _prefixId('file-browser-pdf-container'),
+            emptyState:         _prefixId('file-browser-empty-state'),
+            dirtyIndicator:     _prefixId('file-browser-dirty-indicator'),
+            tabBar:             _prefixId('file-browser-tab-bar'),
+            viewBtnGroup:       _prefixId('fb-view-btngroup'),
+            viewSelect:         _prefixId('file-browser-view-select'),
+            editorWrapper:      _prefixId('file-browser-editor-wrapper'),
             // Toolbar buttons
-            saveBtn:            'file-browser-save-btn',
-            discardBtn:         'file-browser-discard-btn',
-            reloadBtn:          'file-browser-reload-btn',
-            wrapBtn:            'file-browser-wrap-btn',
-            downloadBtn:        'file-browser-download-btn',
-            uploadBtn:          'file-browser-upload-btn',
-            aiEditBtn:          'file-browser-ai-edit-btn',
-            refreshBtn:         'file-browser-refresh-btn',
-            newFileBtn:         'file-browser-new-file-btn',
-            newFolderBtn:       'file-browser-new-folder-btn',
-            sidebarToggle:      'file-browser-sidebar-toggle',
-            closeBtn:           'file-browser-close-btn',
-            themeSelect:        'file-browser-theme-select',
+            saveBtn:            _prefixId('file-browser-save-btn'),
+            discardBtn:         _prefixId('file-browser-discard-btn'),
+            reloadBtn:          _prefixId('file-browser-reload-btn'),
+            wrapBtn:            _prefixId('file-browser-wrap-btn'),
+            downloadBtn:        _prefixId('file-browser-download-btn'),
+            uploadBtn:          _prefixId('file-browser-upload-btn'),
+            aiEditBtn:          _prefixId('file-browser-ai-edit-btn'),
+            refreshBtn:         _prefixId('file-browser-refresh-btn'),
+            newFileBtn:         _prefixId('file-browser-new-file-btn'),
+            newFolderBtn:       _prefixId('file-browser-new-folder-btn'),
+            sidebarToggle:      _prefixId('file-browser-sidebar-toggle'),
+            closeBtn:           _prefixId('file-browser-close-btn'),
+            themeSelect:        _prefixId('file-browser-theme-select'),
             // Context menu
-            contextMenu:        'file-browser-context-menu',
+            contextMenu:        _prefixId('file-browser-context-menu'),
             // Sub-modals
-            confirmModal:       'file-browser-confirm-modal',
-            confirmTitle:       'file-browser-confirm-title',
-            confirmBody:        'file-browser-confirm-body',
-            confirmOkBtn:       'file-browser-confirm-ok-btn',
-            confirmCancelBtn:   'file-browser-confirm-cancel-btn',
-            nameModal:          'file-browser-name-modal',
-            nameTitle:          'file-browser-name-modal-title',
-            nameHint:           'file-browser-name-modal-hint',
-            nameDirHint:        'file-browser-name-modal-dir',
-            nameOkBtn:          'file-browser-name-ok-btn',
-            nameCancelBtn:      'file-browser-name-cancel-btn',
-            nameInput:          'file-browser-name-input',
-            moveModal:          'file-browser-move-modal',
-            uploadModal:        'file-browser-upload-modal',
-            aiEditModal:        'file-browser-ai-edit-modal',
-            aiDiffModal:        'file-browser-ai-diff-modal',
-            backdrop:           'file-browser-backdrop',
-            loadAnywayBtn:      'file-browser-load-anyway-btn'
+            confirmModal:       _prefixId('file-browser-confirm-modal'),
+            confirmTitle:       _prefixId('file-browser-confirm-title'),
+            confirmBody:        _prefixId('file-browser-confirm-body'),
+            confirmOkBtn:       _prefixId('file-browser-confirm-ok-btn'),
+            confirmCancelBtn:   _prefixId('file-browser-confirm-cancel-btn'),
+            nameModal:          _prefixId('file-browser-name-modal'),
+            nameTitle:          _prefixId('file-browser-name-modal-title'),
+            nameHint:           _prefixId('file-browser-name-modal-hint'),
+            nameDirHint:        _prefixId('file-browser-name-modal-dir'),
+            nameOkBtn:          _prefixId('file-browser-name-ok-btn'),
+            nameCancelBtn:      _prefixId('file-browser-name-cancel-btn'),
+            nameInput:          _prefixId('file-browser-name-input'),
+            moveModal:          _prefixId('file-browser-move-modal'),
+            uploadModal:        _prefixId('file-browser-upload-modal'),
+            aiEditModal:        _prefixId('file-browser-ai-edit-modal'),
+            aiDiffModal:        _prefixId('file-browser-ai-diff-modal'),
+            backdrop:           _prefixId('file-browser-backdrop'),
+            loadAnywayBtn:      _prefixId('file-browser-load-anyway-btn'),
+            // PDF viewer elements
+            pdfProgress:        _prefixId('fb-pdf-progress'),
+            pdfProgressBar:     _prefixId('fb-pdf-progressbar'),
+            pdfProgressStatus:  _prefixId('fb-pdf-progress-status'),
+            pdfjsViewer:        _prefixId('fb-pdfjs-viewer'),
+            // Upload modal elements
+            uploadDirHint:      _prefixId('fb-upload-dir-hint'),
+            uploadFilename:     _prefixId('fb-upload-filename'),
+            uploadProgressWrap: _prefixId('fb-upload-progress-wrap'),
+            uploadProgressBar:  _prefixId('fb-upload-progress-bar'),
+            uploadProgressText: _prefixId('fb-upload-progress-text'),
+            uploadSubmitBtn:    _prefixId('fb-upload-submit-btn'),
+            uploadSpinner:      _prefixId('fb-upload-spinner'),
+            uploadInput:        _prefixId('fb-upload-input'),
+            uploadCancelBtn:    _prefixId('fb-upload-cancel-btn'),
+            uploadCloseBtn:     _prefixId('fb-upload-close'),
+            uploadBrowseLink:   _prefixId('fb-upload-browse-link'),
+            uploadDropzone:     _prefixId('fb-upload-dropzone'),
+            uploadExtraFields:  _prefixId('fb-upload-extra-fields'),
+            uploadDisplayName:  _prefixId('fb-upload-display-name'),
+            uploadFolderGroup:  _prefixId('fb-upload-folder-group'),
+            uploadFolderSelect: _prefixId('fb-upload-folder-select'),
+            uploadTags:         _prefixId('fb-upload-tags'),
+            // Move modal elements
+            moveOkBtn:          _prefixId('fb-move-ok-btn'),
+            moveSrcName:        _prefixId('fb-move-src-name'),
+            moveDestHint:       _prefixId('fb-move-dest-hint'),
+            moveFolderTree:     _prefixId('fb-move-folder-tree'),
+            moveCancelBtn:      _prefixId('fb-move-cancel-btn'),
+            // AI Edit modal elements
+            aiEditInfo:         _prefixId('fb-ai-edit-info'),
+            aiEditIncludeSummary:  _prefixId('fb-ai-edit-include-summary'),
+            aiEditIncludeMessages: _prefixId('fb-ai-edit-include-messages'),
+            aiEditIncludeMemory:   _prefixId('fb-ai-edit-include-memory'),
+            aiEditDeepContext:     _prefixId('fb-ai-edit-deep-context'),
+            aiEditHistoryCount:    _prefixId('fb-ai-edit-history-count'),
+            aiEditInstruction:     _prefixId('fb-ai-edit-instruction'),
+            aiEditSpinner:         _prefixId('fb-ai-edit-spinner'),
+            aiEditGenerate:        _prefixId('fb-ai-edit-generate'),
+            aiEditCancel:          _prefixId('fb-ai-edit-cancel'),
+            // AI Diff modal elements
+            aiDiffAccept:       _prefixId('fb-ai-diff-accept'),
+            aiDiffReject:       _prefixId('fb-ai-diff-reject'),
+            aiDiffEdit:         _prefixId('fb-ai-diff-edit'),
+            aiDiffContent:      _prefixId('fb-ai-diff-content')
         },
 
         // ── Group 3: Behavior Flags ────────────────────────────────────────
@@ -363,10 +451,10 @@ var FileBrowserManager = (function () {
      * @param {string} filePath - Relative path to the PDF file.
      */
     function _loadFilePDF(filePath) {
-        var progressWrap = document.getElementById('fb-pdf-progress');
-        var progressBar  = document.getElementById('fb-pdf-progressbar');
-        var progressStatus = document.getElementById('fb-pdf-progress-status');
-        var viewer = document.getElementById('fb-pdfjs-viewer');
+        var progressWrap = document.getElementById(_config.dom.pdfProgress);
+        var progressBar  = document.getElementById(_config.dom.pdfProgressBar);
+        var progressStatus = document.getElementById(_config.dom.pdfProgressStatus);
+        var viewer = document.getElementById(_config.dom.pdfjsViewer);
         if (!progressWrap || !viewer) return;
 
         // Reset UI
@@ -1113,7 +1201,7 @@ var FileBrowserManager = (function () {
                 state.viewMode = 'raw';
                 if (state.isMarkdown) {
                     _$('viewBtnGroup').find('.btn').removeClass('active');
-                    $('#fb-view-btngroup .btn[data-view="raw"]').addClass('active');
+                    _$('viewBtnGroup').find('.btn[data-view="raw"]').addClass('active');
                     _$('viewSelect').val('raw');
                     if (state.sidebarVisible) { _$('tabBar').show(); }
                 } else {
@@ -1366,11 +1454,11 @@ var FileBrowserManager = (function () {
      * @param {string} destPath - Full new relative path (destDir + '/' + basename).
      */
     function _moveItem(srcPath, destPath) {
-        $('#fb-move-ok-btn').prop('disabled', true).text('Moving…');
+        _$('moveOkBtn').prop('disabled', true).text('Moving…');
         _config.onMove(srcPath, destPath, function (err) {
             if (err) {
                 showToast(err, 'error');
-                $('#fb-move-ok-btn').prop('disabled', false).text('Move Here');
+                _$('moveOkBtn').prop('disabled', false).text('Move Here');
                 return;
             }
             // If the currently open file was moved, update its path
@@ -1391,10 +1479,10 @@ var FileBrowserManager = (function () {
     function _showMoveModal() {
         if (!state.moveTarget) return;
         state.moveDest = null;
-        $('#fb-move-src-name').text(state.moveTarget.name);
-        $('#fb-move-dest-hint').text('');
-        $('#fb-move-ok-btn').prop('disabled', true).text('Move Here');
-        var $tree = $('#fb-move-folder-tree').empty();
+        _$('moveSrcName').text(state.moveTarget.name);
+        _$('moveDestHint').text('');
+        _$('moveOkBtn').prop('disabled', true).text('Move Here');
+        var $tree = _$('moveFolderTree').empty();
 
         // Always show a selectable root item at the top
         var $root = $('<div></div>')
@@ -1506,12 +1594,12 @@ var FileBrowserManager = (function () {
 
         if (type === 'rename') {
             $title.text('Rename');
-            $hint.html('In: <span id="file-browser-name-modal-dir">' + (dir === '.' ? '/ (root)' : _escHtml(dir)) + '</span>');
+            $hint.html('In: <span id="' + _config.dom.nameDirHint + '">' + (dir === '.' ? '/ (root)' : _escHtml(dir)) + '</span>');
             $input.val(opts.currentName || '');
             $okBtn.text('Rename');
         } else {
             $title.text(type === 'file' ? 'New File' : 'New Folder');
-            $hint.html('Will be created in: <span id="file-browser-name-modal-dir">' + (dir === '.' ? '/ (root)' : _escHtml(dir)) + '</span>');
+            $hint.html('Will be created in: <span id="' + _config.dom.nameDirHint + '">' + (dir === '.' ? '/ (root)' : _escHtml(dir)) + '</span>');
             $input.val('');
             $okBtn.text('Create');
         }
@@ -1775,7 +1863,8 @@ var FileBrowserManager = (function () {
      * Refresh the entire file tree, preserving expanded directories.
      */
     function _refreshTree() {
-        loadTree('.', null);
+        var root = _config.rootPath || '.';
+        loadTree(root, null);
     }
 
     // ═══════════════════════════════════════════════════════════════
@@ -2001,7 +2090,7 @@ var FileBrowserManager = (function () {
             state.aiEditStartLine = from.line + 1;  // 1-indexed
             state.aiEditEndLine = to.line + 1;
             state.aiEditIsSelection = true;
-            $('#fb-ai-edit-info').text('Editing: lines ' + state.aiEditStartLine + '-' + state.aiEditEndLine + ' (selected)');
+            _$('aiEditInfo').text('Editing: lines ' + state.aiEditStartLine + '-' + state.aiEditEndLine + ' (selected)');
         } else {
             state.aiEditSelection = null;
             state.aiEditStartLine = null;
@@ -2012,54 +2101,54 @@ var FileBrowserManager = (function () {
                 showToast('File too large for whole-file AI edit (' + totalLines + ' lines). Please select a region.', 'warning');
                 return;
             }
-            $('#fb-ai-edit-info').text('Editing: entire file');
+            _$('aiEditInfo').text('Editing: entire file');
         }
 
         // Check if conversation is available
         var convId = (typeof getConversationIdFromUrl === 'function') ? getConversationIdFromUrl() : null;
         if (convId) {
-            $('#fb-ai-edit-include-summary, #fb-ai-edit-include-messages, #fb-ai-edit-include-memory, #fb-ai-edit-deep-context').prop('disabled', false).closest('.form-check').css('opacity', '1');
-            $('#fb-ai-edit-history-count').prop('disabled', false);
+            _$('aiEditIncludeSummary').add(_$('aiEditIncludeMessages')).add(_$('aiEditIncludeMemory')).add(_$('aiEditDeepContext')).prop('disabled', false).closest('.form-check').css('opacity', '1');
+            _$('aiEditHistoryCount').prop('disabled', false);
         } else {
-            $('#fb-ai-edit-include-summary, #fb-ai-edit-include-messages, #fb-ai-edit-include-memory, #fb-ai-edit-deep-context').prop('disabled', true).prop('checked', false).closest('.form-check').css('opacity', '0.5');
-            $('#fb-ai-edit-history-count').prop('disabled', true);
+            _$('aiEditIncludeSummary').add(_$('aiEditIncludeMessages')).add(_$('aiEditIncludeMemory')).add(_$('aiEditDeepContext')).prop('disabled', true).prop('checked', false).closest('.form-check').css('opacity', '0.5');
+            _$('aiEditHistoryCount').prop('disabled', true);
         }
 
         // Show the modal
         var modal = document.getElementById(_config.dom.aiEditModal);
         modal.style.display = 'flex';
         setTimeout(function() {
-            $('#fb-ai-edit-instruction').focus();
+            _$('aiEditInstruction').focus();
         }, 50);
     }
 
     function _hideAiEditModal() {
         var modal = document.getElementById(_config.dom.aiEditModal);
         modal.style.display = 'none';
-        $('#fb-ai-edit-spinner').hide();
-        $('#fb-ai-edit-generate').prop('disabled', false);
+        _$('aiEditSpinner').hide();
+        _$('aiEditGenerate').prop('disabled', false);
     }
 
     function _generateAiEdit() {
-        var instruction = ($('#fb-ai-edit-instruction').val() || '').trim();
+        var instruction = (_$('aiEditInstruction').val() || '').trim();
         if (!instruction) {
             showToast('Please enter an instruction', 'warning');
             return;
         }
 
         // Show spinner
-        $('#fb-ai-edit-spinner').show();
-        $('#fb-ai-edit-generate').prop('disabled', true);
+        _$('aiEditSpinner').show();
+        _$('aiEditGenerate').prop('disabled', true);
 
         var convId = (typeof getConversationIdFromUrl === 'function') ? getConversationIdFromUrl() : null;
         var payload = {
             path: state.currentPath,
             instruction: instruction,
-            include_summary: $('#fb-ai-edit-include-summary').is(':checked'),
-            include_messages: $('#fb-ai-edit-include-messages').is(':checked'),
-            include_memory_pad: $('#fb-ai-edit-include-memory').is(':checked'),
-            history_count: parseInt($('#fb-ai-edit-history-count').val() || '10', 10),
-            deep_context: $('#fb-ai-edit-deep-context').is(':checked')
+            include_summary: _$('aiEditIncludeSummary').is(':checked'),
+            include_messages: _$('aiEditIncludeMessages').is(':checked'),
+            include_memory_pad: _$('aiEditIncludeMemory').is(':checked'),
+            history_count: parseInt(_$('aiEditHistoryCount').val() || '10', 10),
+            deep_context: _$('aiEditDeepContext').is(':checked')
         };
         var anyContextRequested = payload.include_summary || payload.include_messages || payload.include_memory_pad || payload.deep_context;
         if (convId && anyContextRequested) {
@@ -2104,7 +2193,7 @@ var FileBrowserManager = (function () {
 
     function _showAiDiffModal(diffText) {
         state.aiEditLastDiffText = diffText || null;
-        var container = document.getElementById('fb-ai-diff-content');
+        var container = document.getElementById(_config.dom.aiDiffContent);
         container.innerHTML = _renderDiffPreview(diffText);
         var modal = document.getElementById(_config.dom.aiDiffModal);
         modal.style.display = 'flex';
@@ -2113,7 +2202,7 @@ var FileBrowserManager = (function () {
     function _hideAiDiffModal() {
         var modal = document.getElementById(_config.dom.aiDiffModal);
         modal.style.display = 'none';
-        document.getElementById('fb-ai-diff-content').innerHTML = '';
+        document.getElementById(_config.dom.aiDiffContent).innerHTML = '';
     }
 
     function _acceptAiEdit() {
@@ -2152,7 +2241,7 @@ var FileBrowserManager = (function () {
     function _editAiInstruction() {
         _hideAiDiffModal();
         // Append the previous diff as context so the user can give follow-up instructions.
-        var $ta = $('#fb-ai-edit-instruction');
+        var $ta = _$('aiEditInstruction');
         var prev = ($ta.val() || '').replace(/\s+$/, '');
         if (prev && state.aiEditLastDiffText) {
             // Build a compact summary: count added/removed lines
@@ -2242,14 +2331,34 @@ var FileBrowserManager = (function () {
     function _showUploadModal() {
         _uploadPendingFile = null;
         var dir = _getUploadDir();
-        $('#fb-upload-dir-hint').text('Uploading to: ' + (dir === '.' ? '/ (root)' : dir));
-        $('#fb-upload-filename').text('');
-        $('#fb-upload-progress-wrap').hide();
-        $('#fb-upload-progress-bar').css('width', '0%');
-        $('#fb-upload-progress-text').text('0%');
-        $('#fb-upload-submit-btn').prop('disabled', true);
-        $('#fb-upload-spinner').hide();
-        $('#fb-upload-input').val('');
+        _$('uploadDirHint').text('Uploading to: ' + (dir === '.' ? '/ (root)' : dir));
+        _$('uploadFilename').text('');
+        _$('uploadProgressWrap').hide();
+        _$('uploadProgressBar').css('width', '0%');
+        _$('uploadProgressText').text('0%');
+        _$('uploadSubmitBtn').prop('disabled', true);
+        _$('uploadSpinner').hide();
+        _$('uploadInput').val('');
+        // Show/hide extra metadata fields based on config
+        if (_config.uploadFields) {
+            _$('uploadExtraFields').show();
+            _$('uploadDisplayName').val('');
+            _$('uploadTags').val('');
+            // Populate folder dropdown if populateFolders callback is provided
+            if (_config.uploadFields.populateFolders) {
+                var $sel = _$('uploadFolderSelect');
+                $sel.find('option:not(:first)').remove();
+                var folders = _config.uploadFields.populateFolders();
+                folders.forEach(function(f) {
+                    $sel.append($('<option></option>').val(f.folder_id).text(f.name));
+                });
+                _$('uploadFolderGroup').show();
+            } else {
+                _$('uploadFolderGroup').hide();
+            }
+        } else {
+            _$('uploadExtraFields').hide();
+        }
         _$('uploadModal').css('display', 'flex');
     }
 
@@ -2261,8 +2370,8 @@ var FileBrowserManager = (function () {
     function _setUploadFile(file) {
         if (!file) return;
         _uploadPendingFile = file;
-        $('#fb-upload-filename').text(file.name);
-        $('#fb-upload-submit-btn').prop('disabled', false);
+        _$('uploadFilename').text(file.name);
+        _$('uploadSubmitBtn').prop('disabled', false);
     }
 
     function _doUpload() {
@@ -2271,11 +2380,11 @@ var FileBrowserManager = (function () {
         var dir = _getUploadDir();
 
         var done = function(err) {
-            $('#fb-upload-spinner').hide();
-            $('#fb-upload-cancel-btn').prop('disabled', false);
+            _$('uploadSpinner').hide();
+            _$('uploadCancelBtn').prop('disabled', false);
             if (err) {
                 showToast('Upload failed: ' + err, 'error');
-                $('#fb-upload-submit-btn').prop('disabled', false);
+                _$('uploadSubmitBtn').prop('disabled', false);
                 return;
             }
             _hideUploadModal();
@@ -2283,13 +2392,20 @@ var FileBrowserManager = (function () {
             showToast('Uploaded: ' + (_uploadPendingFile ? _uploadPendingFile.name : ''), 'success');
         };
 
-        $('#fb-upload-spinner').show();
-        $('#fb-upload-submit-btn').prop('disabled', true);
-        $('#fb-upload-cancel-btn').prop('disabled', true);
-        $('#fb-upload-progress-wrap').show();
+        _$('uploadSpinner').show();
+        _$('uploadSubmitBtn').prop('disabled', true);
+        _$('uploadCancelBtn').prop('disabled', true);
+        _$('uploadProgressWrap').show();
 
         if (_config.onUpload) {
-            _config.onUpload(_uploadPendingFile, dir, done);
+            // Collect extra metadata fields if visible
+            var meta = {};
+            if (_config.uploadFields) {
+                meta.displayName = _$('uploadDisplayName').val().trim();
+                meta.folderId    = _$('uploadFolderSelect').val() || '';
+                meta.tags        = _$('uploadTags').val().trim();
+            }
+            _config.onUpload(_uploadPendingFile, dir, done, meta);
         } else {
             if (!_ep('upload')) { done('Not supported'); return; }
             var formData = new FormData();
@@ -2301,8 +2417,8 @@ var FileBrowserManager = (function () {
             xhr.upload.onprogress = function(e) {
                 if (e.lengthComputable) {
                     var pct = Math.round((e.loaded / e.total) * 100);
-                    $('#fb-upload-progress-bar').css('width', pct + '%');
-                    $('#fb-upload-progress-text').text(pct + '%');
+                    _$('uploadProgressBar').css('width', pct + '%');
+                    _$('uploadProgressText').text(pct + '%');
                 }
             };
             xhr.onload = function() {
@@ -2333,14 +2449,14 @@ var FileBrowserManager = (function () {
         state.initialized = true;
         // Merge caller-supplied config (e.g. custom onMove) with defaults
         if (cfg) { $.extend(true, _config, cfg); }
-        console.log('[FileBrowser] init() called');
-        console.log('[FileBrowser] Button element found:', _$('openBtn').length);
+        console.log('[FileBrowser] init() called, instanceId:', instanceId);
         console.log('[FileBrowser] Modal element found:', _$('modal').length);
-        // --- Button to open file browser ---
-        _$('openBtn').on('click', function () {
-            console.log('[FileBrowser] Button clicked!');
-            open();
-        });
+        // --- Button to open file browser (only for the primary 'fb' instance) ---
+        if (_config.dom.openBtn) {
+            _$('openBtn').on('click', function () {
+                open();
+            });
+        }
 
         // NOTE: shown.bs.modal won't fire because we bypass Bootstrap's modal JS.
         // Editor init and tree loading are handled in _showFileBrowserModal() instead.
@@ -2366,30 +2482,30 @@ var FileBrowserManager = (function () {
 
         // --- Upload button & modal ---
         _$('uploadBtn').on('click', _showUploadModal);
-        $('#fb-upload-close, #fb-upload-cancel-btn').on('click', _hideUploadModal);
-        $('#fb-upload-submit-btn').on('click', _doUpload);
+        _$('uploadCloseBtn').add(_$('uploadCancelBtn')).on('click', _hideUploadModal);
+        _$('uploadSubmitBtn').on('click', _doUpload);
 
         // Browse link / file input
-        $('#fb-upload-browse-link').on('click', function(e) {
+        _$('uploadBrowseLink').on('click', function(e) {
             e.preventDefault();
-            $('#fb-upload-input').click();
+            _$('uploadInput').click();
         });
-        $('#fb-upload-dropzone').on('click', function() {
-            $('#fb-upload-input').click();
+        _$('uploadDropzone').on('click', function() {
+            _$('uploadInput').click();
         });
-        $('#fb-upload-input').on('change', function() {
+        _$('uploadInput').on('change', function() {
             if (this.files && this.files[0]) _setUploadFile(this.files[0]);
         });
 
         // Drag-and-drop onto the dropzone
-        $('#fb-upload-dropzone').on('dragover', function(e) {
+        _$('uploadDropzone').on('dragover', function(e) {
             e.preventDefault();
             $(this).css('background', '#f0f4ff');
         });
-        $('#fb-upload-dropzone').on('dragleave', function() {
+        _$('uploadDropzone').on('dragleave', function() {
             $(this).css('background', '');
         });
-        $('#fb-upload-dropzone').on('drop', function(e) {
+        _$('uploadDropzone').on('drop', function(e) {
             e.preventDefault();
             $(this).css('background', '');
             var files = e.originalEvent.dataTransfer.files;
@@ -2402,24 +2518,24 @@ var FileBrowserManager = (function () {
         });
 
         // --- Move modal: button wiring ---
-        $('#fb-move-cancel-btn').on('click', _hideMoveModal);
-        $('#fb-move-ok-btn').on('click', _confirmMove);
+        _$('moveCancelBtn').on('click', _hideMoveModal);
+        _$('moveOkBtn').on('click', _confirmMove);
         // Backdrop click cancels
         _$('moveModal').on('click', function (e) {
             if (e.target === this) _hideMoveModal();
         });
         // Folder click inside move tree (delegated)
-        $('#fb-move-folder-tree').on('click', '.fb-move-dir-item', function (e) {
+        _$('moveFolderTree').on('click', '.fb-move-dir-item', function (e) {
             e.stopPropagation();
             var $li = $(this);
             var dirPath = $li.attr('data-path');
             // Select this item
-            $('#fb-move-folder-tree .fb-move-dir-item').removeClass('fb-move-selected');
+            _$('moveFolderTree').find('.fb-move-dir-item').removeClass('fb-move-selected');
             $li.addClass('fb-move-selected');
             state.moveDest = dirPath;
             var hint = dirPath === '.' ? '/ (root)' : dirPath;
-            $('#fb-move-dest-hint').text('Destination: ' + hint);
-            $('#fb-move-ok-btn').prop('disabled', false);
+            _$('moveDestHint').text('Destination: ' + hint);
+            _$('moveOkBtn').prop('disabled', false);
             // Toggle sub-folders
             var $children = $li.children('.fb-move-children');
             var $toggle = $li.children('.fb-move-toggle');
@@ -2510,19 +2626,19 @@ var FileBrowserManager = (function () {
         _$('aiEditBtn').on('click', function() {
             _showAiEditModal();
         });
-        $('#fb-ai-edit-cancel').on('click', function() {
+        _$('aiEditCancel').on('click', function() {
             _hideAiEditModal();
         });
-        $('#fb-ai-edit-generate').on('click', function() {
+        _$('aiEditGenerate').on('click', function() {
             _generateAiEdit();
         });
-        $('#fb-ai-diff-accept').on('click', function() {
+        _$('aiDiffAccept').on('click', function() {
             _acceptAiEdit();
         });
-        $('#fb-ai-diff-reject').on('click', function() {
+        _$('aiDiffReject').on('click', function() {
             _rejectAiEdit();
         });
-        $('#fb-ai-diff-edit').on('click', function() {
+        _$('aiDiffEdit').on('click', function() {
             _editAiInstruction();
         });
 
@@ -2547,7 +2663,7 @@ var FileBrowserManager = (function () {
         });
 
         // Ctrl+Enter / Cmd+Enter in instruction textarea triggers generate
-        $('#fb-ai-edit-instruction').on('keydown', function(e) {
+        _$('aiEditInstruction').on('keydown', function(e) {
             if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
                 e.preventDefault();
                 _generateAiEdit();
@@ -2829,12 +2945,18 @@ var FileBrowserManager = (function () {
     }
 
     // ═══════════════════════════════════════════════════════════════
+    //  Apply initial config overrides
+    // ═══════════════════════════════════════════════════════════════
+
+    if (initialCfg) { $.extend(true, _config, initialCfg); }
+
+    // ═══════════════════════════════════════════════════════════════
     //  Public API
     // ═══════════════════════════════════════════════════════════════
 
     return {
         /**
-         * Initialize event handlers. Call once on page load.
+         * Initialize event handlers. Call once after creation.
          * @param {object} [cfg] - Config overrides (endpoints, dom, flags, callbacks).
          */
         init: init,
@@ -2853,10 +2975,12 @@ var FileBrowserManager = (function () {
          */
         configure: function (cfg) { $.extend(true, _config, cfg); }
     };
+}
 
-})();
+window.createFileBrowser = createFileBrowser;
 
-// Initialize on DOM ready
+// Initialize default instance on DOM ready
 $(document).ready(function () {
-    FileBrowserManager.init();
+    window.FileBrowserManager = createFileBrowser('fb');
+    window.FileBrowserManager.init();
 });

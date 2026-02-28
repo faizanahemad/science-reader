@@ -51,8 +51,8 @@ Open the Global Docs modal to:
 - **Download**: Click the download icon.
 - **Delete**: Click the trash icon (confirmation required).
 - **Tag**: Click the tag icon (or tag chip area) on any doc row to open the tag editor and add/remove free-form tags.
-- **Switch views**: Use the **List / Folder** toggle at the top of the modal to switch between the flat list view and the hierarchical folder view.
-- **Manage Folders**: In Folder view, click the **Manage Folders** button to open the pluggable file browser for drag-and-drop folder organization.
+- **Switch views**: Use the **List / Folder** toggle in the **modal header** (between the title and close button) to switch between the flat list view and the hierarchical folder view.
+- **Folder view**: Clicking the **Folders** button in the header view switcher directly opens the embedded file browser for drag-and-drop folder organization. There is no separate "Manage Folders" button.
 - **Filter**: Use the filter bar (List view) to filter by tag, display name, or title.
 - **Upload to folder**: When a folder is selected in the folder picker (`#global-doc-folder-select`) before uploading, the new doc is assigned to that folder automatically.
 
@@ -60,7 +60,7 @@ Open the Global Docs modal to:
 
 Folders are hierarchical (parent/child), stored in the `GlobalDocFolders` DB table. They are **pure metadata** — the filesystem storage paths for doc indices are unchanged regardless of folder assignments. A doc can be in at most one folder.
 
-- Create, rename, move, and delete folders via the **Manage Folders** file browser (opens the pluggable `FileBrowserManager` configured with `onMove` pointing to `POST /doc_folders/<id>/assign`).
+- Create, rename, move, and delete folders via the **Folder view** file browser (opened via the Folders button in the modal header; powered by an independent `createFileBrowser('global-docs-fb', ...)` instance with `onMove` pointing to `POST /doc_folders/<id>/assign`).
 - `#folder:Name` references resolve to all docs directly assigned to that folder (non-recursive).
 
 ### Tagging
@@ -76,7 +76,42 @@ Tags are free-form strings (e.g., `arxiv`, `2026`, `ml`, `reference`). A doc can
 The Global Docs modal (`#global-docs-modal`) has two views controlled by `#global-docs-view-switcher`:
 
 - **List view** (`#global-docs-view-list`): Flat list with `#gdoc_N` badge, display name, title, source, tag chips, and action buttons. Filter bar (`#global-docs-filter`) filters rows in real time.
-- **Folder view** (`#global-docs-view-folder`): Folder tree embedded via `FileBrowserManager.configure({onMove: fn, ...})`. A **Manage Folders** button opens the file browser for drag-and-drop folder moves.
+- **Folder view** (`#global-docs-view-folder`): An **independent file browser instance** (`createFileBrowser('global-docs-fb', {...})`) is embedded directly in this view. Clicking the **Folders** button in the modal header view switcher calls `GlobalDocsManager._openFileBrowser()`, which opens this embedded instance. There is no separate "Manage Folders" button — the Folders button IS the entry point to the file browser. The `onMove` callback routes to `POST /doc_folders/<id>/assign`.
+
+### File Browser Instance Details
+
+The global docs file browser is a separate instance from the Settings → Actions → File Browser. It is created via:
+
+```javascript
+var _globalDocsFb = createFileBrowser('global-docs-fb', {
+    rootPath: 'storage/global_docs/{userHash}/',
+    openBtn: null,          // no auto-open button; opened programmatically
+    onMove: function(srcPath, destPath, done) {
+        // routes to POST /doc_folders/<folder_id>/assign
+    },
+    onUpload: function(file, targetDir, done) {
+        // infers folder_id from targetDir via _folderCache
+        // POSTs to /global_docs/upload via DocsManagerUtils.uploadWithProgress()
+        // on success: GlobalDocsManager.refresh(); done(null)
+        // on error: done(errorMsg)
+    },
+    onDelete: function(path, done) {
+        // routes to DELETE /global_docs/<doc_id>
+    }
+});
+```
+
+**`onUpload` hook**: When a file is dropped or uploaded via the embedded file browser, the `onUpload` callback fires instead of the default `POST /file-browser/upload`. The callback:
+1. Infers `folder_id` from `targetDir` by matching against `GlobalDocsManager._folderCache`
+2. POSTs to `/global_docs/upload` using `DocsManagerUtils.uploadWithProgress()`
+3. On success: calls `GlobalDocsManager.refresh()` then `done(null)`
+4. On error: calls `done(errorMsg)` which shows the error via the file browser's own error toast
+
+**`_openFileBrowser()` method**: `GlobalDocsManager._openFileBrowser()` is the single entry point for opening the embedded file browser. Called by:
+- The **Folders** button click handler in the view switcher
+- Any future code that needs to open the file browser programmatically
+
+**Instance IDs**: All DOM elements for this instance use the `global-docs-fb-` prefix (e.g. `#global-docs-fb-modal`, `#global-docs-fb-tree`). CSS layout is applied via `.fb-*` class selectors that apply equally to both instances.
 
 ### Promoting Conversation Documents
 
@@ -419,6 +454,13 @@ All endpoints use `endpoints.responses.json_error()` for structured error respon
 - `interface/common-chat.js` — `hashDebounceTimer`; `#folder:`/`#tag:` autocomplete before `@` in `handleInput()`; `fetchHashAutocomplete()`, `showHashAutocompleteDropdown()`
 - `interface/local-docs-manager.js` — `extraFields` support in `DocsManagerUtils.uploadWithProgress` FormData builder
 - `interface/service-worker.js` — `CACHE_VERSION` bumped `v26` → `v27`
+
+### Modified Files (v3 — Multi-Instance File Browser + UX Refactor)
+- `interface/file-browser-manager.js` — Refactored from IIFE singleton to **factory function** `createFileBrowser(instanceId, initialCfg)`. Single `<template>` extraction + `_mountDom()`/`_prefixId()`/`_$(key)` helpers. `openBtn: null` + guard in `init()` for non-default instances. PDF binary check fixed (`.pdf` extension checked before `is_binary`).
+- `interface/global-docs-manager.js` — Creates independent file browser instance via `createFileBrowser('global-docs-fb', {...})`. `_openFileBrowser()` method extracted as reusable entry point. `onUpload` hook wired for context-specific global docs upload. View switcher wired to call `_openFileBrowser()` on Folders button click.
+- `interface/interface.html` — `<template id="file-browser-template">` extracts shared file browser HTML. All layout elements have `fb-*` classes. View switcher moved to modal header (`ml-auto` positioning). `#global-docs-manage-folders-btn` removed. `display:flex` added as inline style on `.modal-body` for sidebar layout fix.
+- `interface/style.css` — All file browser layout rules migrated from `#file-browser-*` ID selectors to `.fb-*` class selectors. Applies to both file browser instances automatically.
+- `interface/service-worker.js` — `CACHE_VERSION` bumped to `v29`
 
 ## Known Limitations
 

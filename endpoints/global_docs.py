@@ -122,6 +122,17 @@ def upload_global_doc():
                 display_name=display_name,
                 folder_id=request.form.get('folder_id') or None,
             )
+            # Set tags if provided (comma-separated string from form)
+            tags_raw = request.form.get('tags', '').strip()
+            if tags_raw:
+                tag_list = [t.strip().lower() for t in tags_raw.split(',') if t.strip()]
+                if tag_list:
+                    _set_tags(
+                        users_dir=state.users_dir,
+                        user_email=email,
+                        doc_id=doc_index.doc_id,
+                        tags=tag_list,
+                    )
             return jsonify({"status": "ok", "doc_id": doc_index.doc_id})
         except Exception as e:
             traceback.print_exc()
@@ -159,6 +170,19 @@ def upload_global_doc():
                 display_name=display_name,
                 folder_id=request.form.get('folder_id') or (request.json.get('folder_id') if request.is_json and request.json else None),
             )
+            # Set tags if provided (comma-separated form field or JSON array)
+            tags_raw = request.form.get('tags', '').strip()
+            if not tags_raw and request.is_json and request.json:
+                tags_raw = ','.join(request.json.get('tags', []))
+            if tags_raw:
+                tag_list = [t.strip().lower() for t in tags_raw.split(',') if t.strip()]
+                if tag_list:
+                    _set_tags(
+                        users_dir=state.users_dir,
+                        user_email=email,
+                        doc_id=doc_index.doc_id,
+                        tags=tag_list,
+                    )
             return jsonify({"status": "ok", "doc_id": doc_index.doc_id})
         except Exception as e:
             traceback.print_exc()

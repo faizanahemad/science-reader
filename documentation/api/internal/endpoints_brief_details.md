@@ -392,3 +392,51 @@ Source file: `/Users/ahemf/Documents/Backup_2025/Research/chatgpt-iterative/serv
   - Response now includes `doc_id`, `source`, and `title` fields (in addition to status) so the UI can enrich attachment metadata for persistent rendering and context menu actions.
 
 
+## File Browser endpoints (`file_browser_bp`)
+
+All endpoints require `@login_required`. Registered via `file_browser_bp` Blueprint in `endpoints/file_browser.py`.
+
+- **GET** `/file-browser/tree` → `list_tree()` — List directory entries. Query param: `path` (default `.`). Returns `{ status, entries: [{name, type}] }` sorted dirs-first.
+- **GET** `/file-browser/read` → `read_file()` — Read file content. Query params: `path`, `force` (bypass 2 MB guard). Returns `{ status, content, size, is_binary, too_large }`.
+- **POST** `/file-browser/write` → `write_file()` — Write file content. Body: `{ path, content }`.
+- **POST** `/file-browser/mkdir` → `make_dir()` — Create directory. Body: `{ path }`.
+- **POST** `/file-browser/rename` → `rename_item()` — Rename file or directory. Body: `{ old_path, new_path }`.
+- **POST** `/file-browser/move` → `move_item()` — Move file or directory. Body: `{ src_path, dest_path }`. Returns 409 if dest exists, 400 if moving folder into itself.
+- **POST** `/file-browser/delete` → `delete_item()` — Delete file or directory. Body: `{ path, recursive }`.
+- **GET** `/file-browser/download` → `download_file()` — Download file as attachment. Query param: `path`. Uses `send_file(..., as_attachment=True)`.
+- **POST** `/file-browser/upload` → `upload_file()` — Upload file. Multipart form-data: `file`, `path` (target dir), `overwrite` (optional). Returns `{ path, size }`. 409 if file exists without `overwrite`.
+- **GET** `/file-browser/serve` → `serve_file()` — Serve file inline (e.g. PDF). Query param: `path`. Uses `send_file(..., as_attachment=False)`. MIME auto-detected via `mimetypes.guess_type()`.
+- **POST** `/file-browser/ai-edit` → `ai_edit()` — LLM-assisted file editing. Body: `{ path, instruction, selection (optional), conversation_id, include_context, deep_context }`. Returns `{ proposed, diff_text, base_hash }`.
+
+All paths are sandboxed to server root via `_safe_resolve()` (realpath + prefix check). 403 if path escapes root.
+
+---
+
+## Global Docs endpoints (`global_docs_bp`)
+
+All endpoints require `@login_required`. Registered via `global_docs_bp` Blueprint in `endpoints/global_docs.py`.
+
+- **POST** `/global_docs/upload` → `upload_global_doc()` — Upload file or URL as global doc. Multipart (file: `pdf_file` field, optional `display_name`, optional `folder_id`) or JSON (`{ pdf_url, display_name }`). Indexes via `create_immediate_document_index()`. Returns `{ status: "ok", doc_id }`.
+- **GET** `/global_docs/list` → `list_global_docs_route()` — List all global docs for current user. Returns array with `index` (1-based), `doc_id`, `display_name`, `title`, `short_summary`, `source`, `created_at`, `tags` array, `folder_id`.
+- **GET** `/global_docs/info/<doc_id>` → `get_global_doc_info()` — Detailed info for a single global doc.
+- **GET** `/global_docs/download/<doc_id>` → `download_global_doc_route()` — Download source file. Falls back to DocIndex `doc_source` if DB path is stale (common after promote).
+- **GET** `/global_docs/serve` → `serve_global_doc()` — Serve doc for PDF viewer. Query param: `file` (doc_id). Delegates to download logic.
+- **DELETE** `/global_docs/<doc_id>` → `delete_global_doc_route()` — Delete DB row + filesystem storage.
+- **POST** `/global_docs/promote/<conv_id>/<doc_id>` → `promote_doc_to_global()` — Promote conversation doc to global storage. Copy-verify-delete flow. Returns `{ status: "ok", doc_id }`.
+- **POST** `/global_docs/<doc_id>/tags` → `set_doc_tags()` — Set tags. Body: `{ tags: ["t1", "t2"] }` (replaces all existing tags).
+- **GET** `/global_docs/tags` → `list_tags()` — List all distinct tags for current user.
+- **GET** `/global_docs/autocomplete` → `autocomplete_tags()` — Tag autocomplete for `#tag:` references. Query param: `q` (prefix).
+
+---
+
+## Doc Folders endpoints (`doc_folders_bp`)
+
+All endpoints require `@login_required`. Registered via `doc_folders_bp` Blueprint in `endpoints/doc_folders.py`.
+
+- **GET** `/doc_folders` → `list_folders()` — List all folders (flat, with `folder_id`, `parent_id`, `name`, `created_at`).
+- **POST** `/doc_folders` → `create_folder()` — Create folder. Body: `{ name, parent_id (null for root) }`.
+- **PATCH** `/doc_folders/<folder_id>` → `update_folder()` — Rename or re-parent folder. Body: `{ name?, parent_id? }`.
+- **DELETE** `/doc_folders/<folder_id>` → `delete_folder_route()` — Delete folder. Query param: `action` (`move_docs_to_parent` or `delete_docs`).
+- **POST** `/doc_folders/<folder_id>/assign` → `assign_doc()` — Assign doc to folder. Body: `{ doc_id }`. Pass `doc_id: null` to remove assignment.
+- **GET** `/doc_folders/<folder_id>/docs` → `get_folder_docs()` — List docs in folder.
+- **GET** `/doc_folders/autocomplete` → `autocomplete_folders()` — Folder autocomplete for `#folder:` references. Query param: `q` (prefix).

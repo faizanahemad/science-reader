@@ -15,7 +15,7 @@ python server.py
   ├── Flask web app (port 5000)
   ├── Web Search MCP    (port 8100)  — mcp_server/mcp_app.py
   ├── PKB MCP           (port 8101)  — mcp_server/pkb.py
-  ├── Documents MCP     (port 8102)  — mcp_server/docs.py
+  ├── Documents MCP     (port 8102)  — mcp_server/docs.py          [4 or 9 tools, see MCP_TOOL_TIER]
   ├── Artefacts MCP     (port 8103)  — mcp_server/artefacts.py
   ├── Conversation MCP  (port 8104)  — mcp_server/conversation.py
   ├── Prompts MCP       (port 8105)  — mcp_server/prompts_actions.py
@@ -137,6 +137,7 @@ python server.py
 | `MCP_PORT` | No | `8100` | Port for the Web Search MCP server |
 | `MCP_RATE_LIMIT` | No | `10` | Max requests per token per minute |
 | `MCP_ENABLED` | No | `true` | Set to `false` to disable all MCP servers |
+| `MCP_TOOL_TIER` | No | `baseline` | `"baseline"` (4 tools) or `"full"` (all 9 tools) for the Documents MCP. Controls which docs tools are registered at startup. |
 
 **Per-server port overrides (all optional):**
 
@@ -321,7 +322,7 @@ Repeat for each server (ports 8101-8106) with appropriate names.
 | `pkb_add_claim` | Add a new fact/preference/decision to PKB | `statement`, `claim_type`, `context_domain` |
 | `pkb_edit_claim` | Edit an existing claim | `claim_id`, `statement`, `tags` |
 
-### Documents (port 8102) — 4 tools
+### Documents (port 8102) — 4 or 9 tools (see `MCP_TOOL_TIER`)
 
 | Tool | Description | Key params |
 |------|-------------|------------|
@@ -329,6 +330,41 @@ Repeat for each server (ports 8101-8106) with appropriate names.
 | `docs_list_global_docs` | List all global documents | — |
 | `docs_query` | Semantic search within a document | `doc_storage_path`, `query` |
 | `docs_get_full_text` | Retrieve full document text | `doc_storage_path`, `token_limit` |
+
+### Documents MCP tools (`MCP_TOOL_TIER`)
+
+The Documents MCP server (port 8102) exposes different tool sets depending on the `MCP_TOOL_TIER` environment variable:
+
+**Baseline tier (default, 4 tools):**
+
+| Tool | Parameters | Purpose |
+|------|-----------|---------|
+| `docs_list_conversation_docs` | `user_email`, `conversation_id` | List docs attached to a conversation. Returns `doc_id`, `title`, `short_summary`, `doc_storage_path`, `source`, `display_name`. |
+| `docs_list_global_docs` | `user_email` | List all global docs. Returns `index`, `doc_id`, `display_name`, `title`, `short_summary`, `doc_storage_path`, `source`, `folder_id`, `tags`. |
+| `docs_query` | `user_email`, `doc_storage_path`, `query`, `token_limit` | Semantic search within a doc using its `doc_storage_path`. |
+| `docs_get_full_text` | `user_email`, `doc_storage_path`, `token_limit` | Get full text of a doc using its `doc_storage_path`. |
+
+**Full tier (`MCP_TOOL_TIER=full`, 5 additional tools):**
+
+| Tool | Parameters | Purpose |
+|------|-----------|---------|
+| `docs_get_info` | `user_email`, `doc_storage_path` | Metadata (title, summary, text_len) without loading full text. |
+| `docs_answer_question` | `user_email`, `doc_storage_path`, `question` | RAG Q&A — retrieves relevant passages and generates an answer. |
+| `docs_get_global_doc_info` | `user_email`, `doc_id` | Global doc metadata including `doc_storage_path`, `created_at`, `updated_at`. |
+| `docs_query_global_doc` | `user_email`, `doc_id`, `query`, `token_limit` | Semantic search in a global doc via `doc_id` (no path needed). |
+| `docs_get_global_doc_full_text` | `user_email`, `doc_id`, `token_limit` | Full text of a global doc via `doc_id` (no path needed). |
+
+**Typical usage pattern:**
+1. Call `docs_list_global_docs(user_email)` to get the list with `doc_storage_path` values.
+2. Use `doc_storage_path` with `docs_query` or `docs_get_full_text` to read content.
+3. If only `doc_id` is known: call `docs_list_global_docs`, match by `doc_id`, use the `doc_storage_path`.
+
+**Global doc reference syntax** (in chat messages — not MCP, for reference):
+- `#gdoc_1`, `#global_doc_1` — by index (1-based, ordered by `created_at`)
+- `"my doc name"` — by display name (case-insensitive)
+- `#gdoc_all` — reference all global docs
+- `#folder:Research` — all docs in folder "Research"
+- `#tag:arxiv` — all docs tagged "arxiv"
 
 ### Artefacts (port 8103) — 8 tools
 

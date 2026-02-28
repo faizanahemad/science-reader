@@ -10,7 +10,7 @@ Complete reference for how all three document types flow through the system: mes
 |------|-----------------|-------|------------|-----------|-------------|
 | Message Attachment | `#doc_N` (combined) | Current turn only | FastDocIndex (BM25) | 1-3 sec | Temporary |
 | Conversation (Local) Doc | `#doc_N` (combined) | Conversation lifetime | FastDocIndex → promoted to ImmediateDocIndex | 15-45 sec (full) | Persistent |
-| Global Doc | `#gdoc_N` or `"display name"` | All conversations, all time | ImmediateDocIndex (FAISS) | 15-45 sec | Permanent |
+| Global Doc | `#gdoc_N`, `"display name"`, `#folder:Name`, `#tag:name`, `#gdoc_all` | All conversations, all time | ImmediateDocIndex (FAISS) | 15-45 sec | Permanent |
 
 Combined `#doc_N` numbering: uploaded conversation docs are numbered first (1..M), then message-attached docs (M+1..N).
 
@@ -53,7 +53,7 @@ Function: `attach_doc_to_message_route(conversation_id)`
 
 1. Deduplicates by path + basename (lines 1774-1777)
 2. Calls `create_fast_document_index(pdf_url, folder, keys)` → `FastDocIndex`
-3. Appends `(doc_id, doc_storage, doc_source)` to `message_attached_documents_list`
+3. Appends `(doc_id, doc_storage, doc_source, display_name)` to `message_attached_documents_list` (`display_name` is `None` for message attachments)
 4. Rebuilds `doc_infos` from combined uploaded + message-attached list (lines 1787-1799)
 5. Saves conversation state
 
@@ -462,9 +462,13 @@ Numbering is **positional and 1-based** from `list_global_docs()` result (ordere
 
 **Not stable on deletion**: Removing `#gdoc_2` from a 3-doc list makes old `#gdoc_3` become new `#gdoc_2`.
 
-**Alternative reference syntax**: Users can reference by quoted display name in a message:
+**Alternative reference syntax**: Users can reference global docs in several ways:
 ```
-"my paper name"   → matched case-insensitively against display_name column
+"my paper name"        → matched case-insensitively against display_name column
+#folder:Name           → references all docs in the named folder (non-recursive)
+#tag:name              → references all docs with that tag
+#gdoc_all              → references all global docs at once
+#global_doc_all        → alias for #gdoc_all
 ```
 
 ### 3.6 Search / Query Resolution: #gdoc_N

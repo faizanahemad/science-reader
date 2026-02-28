@@ -250,7 +250,7 @@ Server-side injection:
 
 **Persistence**
 - `{conv_storage}/uploaded_documents/{doc_id}/` — per-doc folder with `.index` pickle, FAISS indices, BM25 chunks, source file.
-- `{conv_storage}/{conv_id}-uploaded_documents_list.json` — list of `(doc_id, doc_storage, doc_source)` tuples.
+- `{conv_storage}/{conv_id}-uploaded_documents_list.json` — list of `(doc_id, doc_storage, doc_source, display_name)` 4-tuples (`display_name` may be `None` for older entries; code is backward-compatible with 3-tuples).
 - `{conv_storage}/{conv_id}-message_attached_documents_list.json` — same format for attachment-scoped docs.
 
 **Key files**
@@ -287,9 +287,9 @@ Server-side injection:
 
 **UI — Global Docs Modal**
 - Entry point: Global Docs button (globe icon) in the sidebar/toolbar → opens `#global-docs-modal`.
-- **Two views** controlled by `#global-docs-view-switcher`:
+- **Two views** controlled by `#global-docs-view-switcher` (located in the **modal header** between the title and close button):
   - **List view**: flat doc list with `#gdoc_N` badge, display name, tag chips, action buttons. Filter bar (`#global-docs-filter`) filters in real time by tag or display name.
-  - **Folder view**: embedded `FileBrowserManager.configure({onMove: fn, ...})` panel. A **Manage Folders** button opens the file browser for drag-and-drop folder organization.
+  - **Folder view**: independent `createFileBrowser('global-docs-fb', {...})` instance embedded directly. The **Folders** button in the modal header view switcher directly opens this embedded file browser via `GlobalDocsManager._openFileBrowser()`. No separate "Manage Folders" button exists.
 - Upload card: file picker (`#global-doc-file-input`), URL input, drag-and-drop area, folder picker (`#global-doc-folder-select`), XHR progress bar (0–70% upload, 70–99% indexing tick, via `DocsManagerUtils.uploadWithProgress()`).
 - Per-doc actions: View (`showPDF()` via `/global_docs/serve`), Download, Delete, Edit Tags (opens tag editor).
 - Manager class: `GlobalDocsManager` (`interface/global-docs-manager.js`) with `_viewMode`, `_folderCache`, `_userHash` state; `filterDocList()`, `openTagEditor()`, `_loadFolderCache()` methods.
@@ -321,7 +321,7 @@ Server-side injection:
 - `endpoints/global_docs.py` — Flask Blueprint (`global_docs_bp`) with 10 routes.
 - `endpoints/doc_folders.py` — Flask Blueprint (`doc_folders_bp`) with 7 folder routes.
 - `Conversation.py` — `get_global_documents_for_query()` with display-name matching, `#gdoc_all` support, `#folder:` + `#tag:` resolution (lines 5561–5593), and 7 reply-flow integration points.
-- `interface/global-docs-manager.js` — `GlobalDocsManager` with dual-view, tag editor, folder cache, file browser integration.
+- `interface/global-docs-manager.js` — `GlobalDocsManager` with dual-view, tag editor, folder cache, independent `createFileBrowser('global-docs-fb', ...)` instance, `_openFileBrowser()` method, `onUpload` hook for global docs upload routing.
 - `interface/common-chat.js` — `#folder:`/`#tag:` autocomplete in `handleInput()` before `@` check.
 - `interface/local-docs-manager.js` — `DocsManagerUtils` shared upload utilities.
 - `endpoints/static_routes.py` — `_is_missing_local_path()` guard on proxy routes.
@@ -376,8 +376,16 @@ Server-side injection:
 - MCP server failure never affects the Flask server (isolated daemon thread).
 
 **Key files:** `mcp_server/__init__.py`, `mcp_server/auth.py`, `mcp_server/mcp_app.py`, `server.py` (3-line integration).
+**Documents MCP Server (port 8102)**
+- Exposes document listing, querying, and full-text retrieval as MCP tools.
+- **`MCP_TOOL_TIER`** env var controls tool set: `"baseline"` (4 tools, default) or `"full"` (9 tools).
+- Baseline tools: `docs_list_conversation_docs`, `docs_list_global_docs`, `docs_query`, `docs_get_full_text`.
+- Full-tier adds: `docs_get_info`, `docs_answer_question`, `docs_get_global_doc_info`, `docs_query_global_doc`, `docs_get_global_doc_full_text`.
+- `docs_list_global_docs` returns: `index`, `doc_id`, `display_name`, `title`, `short_summary`, `doc_storage_path`, `source`, `folder_id`, `tags`.
+- `docs_list_conversation_docs` returns: `index`, `doc_id`, `title`, `short_summary`, `doc_storage_path`, `source`, `display_name`.
+- Key file: `mcp_server/docs.py`
 **Docs:** `documentation/features/mcp_web_search_server/README.md`, `documentation/planning/plans/mcp_web_search_server.plan.md`
-**Ops:** `documentation/product/ops/mcp_server_setup.md` (full 8-server architecture, all 37 tools, JWT setup, Jina timeouts, nginx), `documentation/product/ops/server_restart_guide.md` (restart procedures for all 3 screen sessions)
+**Ops:** `documentation/product/ops/mcp_server_setup.md` (full 8-server architecture, all 37 tools, JWT setup, Documents MCP tool tiers, Jina timeouts, nginx), `documentation/product/ops/server_restart_guide.md` (restart procedures for all 3 screen sessions)
 
 **Differentiator**
 - Allows the same powerful search agents available in the chat UI to be invoked directly from coding tools. No other chat system exposes its search pipeline as MCP tools for developer workflows.
