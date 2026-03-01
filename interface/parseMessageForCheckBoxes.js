@@ -130,6 +130,7 @@ function parseMessageForCheckBoxes(text) {
     processCommand(/\/ensemble\b/i, "ensemble", true);
     processCommand(/\/execute\b/i, "execute", true);
     processCommand(/\/draw\b/i, "draw", true);
+    processCommand(/\/image\b/i, "generate_image", true);
 
     // /clarify is special: it can appear on ANY line (not just first), still outside backticks.
     // When found, set clarify_request=true and remove the token from wherever it appears.

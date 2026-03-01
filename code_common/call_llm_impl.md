@@ -31,6 +31,19 @@ Optional:
 | `call_with_stream()` | Stream/non-stream unification |
 | `get_openai_embedding()` | Raw embedding API call |
 
+### Image Generation (Separate Module)
+
+Image generation (`/image` command, image gen modal) is **not** part of `code_common/call_llm.py`. It uses a standalone HTTP call to OpenRouter's chat completions endpoint with `modalities: ["image", "text"]`, implemented in `endpoints/image_gen.py`.
+
+Key functions:
+- `generate_image_from_prompt(prompt, keys, model)` — core generation call, returns `{images, text, error}`
+- `_refine_prompt_with_llm(raw_prompt, context_parts, keys)` — intermediate LLM refinement step using `CHEAP_LLM[0]`
+- `_build_image_prompt(prompt, context_parts)` — plain concatenation fallback
+
+The `/image` chat command calls these from `Conversation._handle_image_generation()`. Generated images are stored as PNG files in `{conv_storage}/images/` and served via `GET /api/conversation-image/{conv_id}/{filename}`.
+
+See `documentation/features/image_generation/README.md` for full details.
+
 ### Embedding Model
 
 Uses `openai/text-embedding-3-small` via OpenRouter. The `OpenAIEmbeddingsParallel` class handles batching and parallel execution with a 256-worker thread pool.

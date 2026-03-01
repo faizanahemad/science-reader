@@ -12,9 +12,19 @@ This doc explains how chat messages move from UI to server and back, and how the
 
 **Slash commands (pre-send intercepts)** — `parseMessageForCheckBoxes()` in `interface/parseMessageForCheckBoxes.js` scans the raw message for slash command tokens (outside backtick spans) and sets flags on the `options` object. `sendMessageCallback()` checks these flags before calling `ChatManager.sendMessage`:
 
-| Command | Aliases | Behavior |
-|---------|---------|----------|
-| `/clarify` | `/clarification`, `/clarifications` | Strips the token, sets `options.clarify_request = true`; `sendMessageCallback` fires `ClarificationsManager.requestAndShowClarifications()` with `forceClarify: true` and does NOT send the message. The clarification Q&A is appended to the textarea for the user to review and send manually. |
+| Command | Flag set | Behavior |
+|---------|----------|----------|
+| `/clarify` | `clarify_request: true` | Does NOT send. Fires `ClarificationsManager.requestAndShowClarifications()` with `forceClarify: true`; Q&A is appended to textarea for the user to review and send manually. |
+| `/search` | `perform_web_search: true` | Enables web search augmentation for this message. |
+| `/scholar` | `googleScholar: true` | Enables Google Scholar search. |
+| `/draw` | `draw: true` | Instructs the LLM to produce Mermaid / draw.io diagrams. |
+| `/execute` | `execute: true` | Instructs the LLM to emit and execute code server-side. |
+| `/history N` | `enable_previous_messages: "N"` | Includes the last N messages in context. |
+| `/detailed N` | `provide_detailed_answers: "N"` | Sets response detail level (1–4). |
+| `/more` | `tell_me_more: true` | Requests a longer continuation. |
+| `/ensemble` | `ensemble: true` | Forces multi-model ensemble response. |
+| `/delete` | `delete_last_turn: true` | Deletes the last conversation turn. |
+| `/image <prompt>` | `generate_image: true` | **Image generation.** Strips `/image`, uses remaining text as the image prompt. Backend intercepts in `Conversation.reply()` and calls `_handle_image_generation()` instead of the normal LLM path. Gathers conversation context (summary + last 2 messages + deep context), refines the prompt via a cheap LLM, calls Nano Banana 2, stores the PNG in `{conv_storage}/images/`, and streams a markdown image card. Image is downloadable inline and included in LLM vision context on subsequent turns. See `documentation/features/image_generation/README.md`. |
 
 See `documentation/product/behavior/CLARIFICATIONS_AND_AUTO_DOUBT_CONTEXT.md` for full clarification flow details.
 
@@ -338,3 +348,8 @@ Location: `interface/shared.js`
 - `math_formatting.py` (stream_text_with_math_formatting, stream_with_math_formatting, process_math_formatting, ensure_display_math_newlines)
 - `call_llm.py` (CallLLm, CallMultipleLLM, MockCallLLm — thin shim over `code_common/call_llm.py`; applies math formatting to responses)
 - `code_common/call_llm.py` (call_llm, VISION_CAPABLE_MODELS — core LLM engine used by shim, TMS, and extension)
+- `endpoints/image_gen.py` (`generate_image_from_prompt`, `_refine_prompt_with_llm`, `DEFAULT_IMAGE_MODEL`, `/api/generate-image` modal endpoint, `/api/conversation-image/<conv_id>/<filename>` serve endpoint)
+- `interface/image-gen-manager.js` (standalone image generation modal — Settings → Image button)
+- `Conversation._handle_image_generation()` (`Conversation.py` — handles `/image` command: context gathering, prompt refinement, image gen, file storage, streaming, persistence)
+
+**See also:** `documentation/features/image_generation/README.md`

@@ -6665,6 +6665,15 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         if checkboxes["need_diagram"]:
             permanent_instructions += "User has requested to draw diagrams in our available drawing/charting/plotting methods.\n"
 
+        # ── /image command: generate image and return early ──────────────
+        if checkboxes.get("generate_image"):
+            yield from self._handle_image_generation(
+                query, checkboxes, persist_or_not, users_dir,
+                enablePreviousMessages, previous_messages_long,
+                past_message_ids,
+            )
+            return
+
         google_scholar = checkboxes["googleScholar"]
         searches = [
             s.strip() for s in query["search"] if s is not None and len(s.strip()) > 0
@@ -8833,6 +8842,26 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     f"[PAGE-CONTEXT] Merged {len(valid_query_images)} inline images from query"
                 )
 
+        # Include recently generated images from conversation history so the LLM
+        # can "see" images produced by the /image command in prior turns.
+        try:
+            recent_msgs = (self.get_field("messages") or [])[-6:]  # last 3 turns
+            for msg in recent_msgs:
+                gen_imgs = msg.get("generated_images", [])
+                if gen_imgs and msg.get("sender") == "model":
+                    for img_info in gen_imgs[:2]:  # max 2 images per message
+                        img_path = os.path.join(self._storage, "images", img_info.get("filename", ""))
+                        if os.path.isfile(img_path):
+                            import base64 as _b64
+                            with open(img_path, "rb") as _f:
+                                img_data = _b64.b64encode(_f.read()).decode("utf-8")
+                            images.append(f"data:image/png;base64,{img_data}")
+                            time_logger.info(
+                                f"[IMAGE-CONTEXT] Included generated image {img_info.get('filename', '')} from history"
+                            )
+        except Exception:
+            pass  # Non-critical; don't break the reply flow
+
         # If page_context has a screenshot (canvas app), add it to images for
         # vision LLM processing.  This handles the case where isScreenshot=True
         # and the screenshot is provided as a base64 data URL.
@@ -9711,6 +9740,155 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 "status": "saving answer ...",
                 "message_ids": message_ids,
             }
+        yield {
+            "text": "\n\n",
+            "status": "saving answer ...",
+            "message_ids": message_ids,
+        }
+
+    # ── /image command handler ────────────────────────────────────────────
+
+    def _handle_image_generation(
+        self, query, checkboxes, persist_or_not, users_dir,
+        enablePreviousMessages, previous_messages_long, past_message_ids,
+    ):
+        """Handle the /image slash-command inside reply().
+
+        Flow:
+        1. Gather conversation context (summary + last 2 messages + deep context).
+        2. Run the "better context" LLM refinement step.
+        3. Call the image model via generate_image_from_prompt().
+        4. Store the image as a PNG file in the conversation's images/ directory.
+        5. Yield the response as markdown with an <img> reference.
+        6. Persist the turn (user message + assistant image response).
+        """
+        import hashlib as _hashlib
+        import base64 as _base64
+        from endpoints.image_gen import (
+            DEFAULT_IMAGE_MODEL,
+            _build_image_prompt,
+            _refine_prompt_with_llm,
+            generate_image_from_prompt,
+        )
+        from endpoints.llm_edit_utils import gather_conversation_context
+
+        prompt = query["messageText"].strip()
+        if not prompt:
+            yield {"text": "Please provide a prompt after /image.\n", "status": "done"}
+            return
+
+        yield {"text": "", "status": "Generating image..."}
+
+        # 1. Gather context: summary + last 2 messages + deep context (defaults for /image)
+        context_parts = None
+        try:
+            context_parts = gather_conversation_context(
+                self, prompt,
+                include_context=True,
+                deep_context=True,
+                include_summary=True,
+                include_messages=True,
+                include_memory_pad=False,
+                history_count=2,
+            )
+        except Exception:
+            logger.warning("Image gen: failed to gather context", exc_info=True)
+
+        # 2. Refine prompt via LLM ("better context")
+        yield {"text": "", "status": "Refining image prompt..."}
+        try:
+            refined_prompt = _refine_prompt_with_llm(prompt, context_parts, self.api_keys)
+        except Exception:
+            logger.warning("Image gen: LLM refinement failed, using raw", exc_info=True)
+            refined_prompt = _build_image_prompt(prompt, context_parts)
+
+        # 3. Call image model
+        yield {"text": "", "status": "Calling image model..."}
+        result = generate_image_from_prompt(
+            refined_prompt,
+            self.api_keys,
+            model=DEFAULT_IMAGE_MODEL,
+        )
+
+        if result.get("error") or not result.get("images"):
+            error_msg = result.get("error", "No images returned.")
+            yield {"text": f"Image generation failed: {error_msg}\n", "status": "error"}
+            return
+
+        # 4. Store image file
+        images_dir = os.path.join(self._storage, "images")
+        os.makedirs(images_dir, exist_ok=True)
+
+        answer = ""
+        image_paths = []  # relative paths for storage in message metadata
+        for i, data_uri in enumerate(result["images"]):
+            # Extract base64 data from data URI
+            if data_uri.startswith("data:"):
+                # data:image/png;base64,XXXXX
+                header, b64_data = data_uri.split(",", 1)
+            else:
+                b64_data = data_uri
+
+            img_bytes = _base64.b64decode(b64_data)
+            img_hash = _hashlib.sha256(img_bytes).hexdigest()[:16]
+            filename = f"img_{img_hash}.png"
+            filepath = os.path.join(images_dir, filename)
+
+            with open(filepath, "wb") as f:
+                f.write(img_bytes)
+
+            # Build the URL for serving this image
+            img_url = f"/api/conversation-image/{self.conversation_id}/{filename}"
+            image_paths.append({"filename": filename, "url": img_url})
+
+            # Build markdown response with image
+            answer += f"\n\n![Generated Image]({img_url})\n\n"
+
+        # Yield the answer
+        yield {"text": answer, "status": "Image generated."}
+
+        # 5. Persist the turn
+        yield {"text": "", "status": "saving answer ..."}
+        summary = ""
+        config = {
+            "render_close_to_source": False,
+            "agent_config": None,
+        }
+
+        # Store image references in the response message for future LLM context
+        response_to_store = answer.strip()
+
+        from concurrent.futures import Future
+        get_async_future = lambda fn, *a, **kw: self._executor.submit(fn, *a, **kw) if hasattr(self, '_executor') else fn(*a, **kw)
+
+        try:
+            self.persist_current_turn(
+                query["messageText"],
+                response_to_store,
+                dict(**checkboxes),
+                previous_messages_long,
+                summary,
+                {},
+                persist_or_not,
+                past_message_ids,
+                users_dir=users_dir,
+                display_attachments=query.get("display_attachments"),
+            )
+        except Exception:
+            logger.warning("Image gen: persist failed", exc_info=True)
+
+        # Store image metadata on the last assistant message
+        try:
+            messages = self.get_field("messages")
+            if messages and len(messages) >= 1:
+                last_msg = messages[-1]
+                if last_msg.get("sender") == "model":
+                    last_msg["generated_images"] = image_paths
+                    self.save_local()
+        except Exception:
+            logger.warning("Image gen: failed to store image metadata", exc_info=True)
+
+        message_ids = self.get_message_ids(query["messageText"], response_to_store)
         yield {
             "text": "\n\n",
             "status": "saving answer ...",

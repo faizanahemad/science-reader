@@ -204,6 +204,63 @@ emb = getJointDocumentEmbedding("Golden Retriever", "/path/dog.jpg", keys,
 
 ---
 
+## Image Generation (OpenRouter)
+
+Image generation is **not** handled by `call_llm`. It uses a dedicated HTTP call to OpenRouter's chat completions endpoint with `modalities: ["image", "text"]`.
+
+See `endpoints/image_gen.py` for the implementation:
+
+```python
+from endpoints.image_gen import generate_image_from_prompt, DEFAULT_IMAGE_MODEL
+
+result = generate_image_from_prompt(
+    prompt="A futuristic city at sunset",
+    keys=keys,                         # must contain OPENROUTER_API_KEY
+    model=DEFAULT_IMAGE_MODEL,         # "google/gemini-3.1-flash-image-preview"
+)
+
+# result = {"images": ["data:image/png;base64,..."], "text": "...", "error": None}
+if result["error"]:
+    print("Failed:", result["error"])
+else:
+    data_uri = result["images"][0]     # base64 PNG data URI, ready to embed in <img src>
+```
+
+### Available Image Models (via OpenRouter)
+
+| OpenRouter Name | Model ID | Notes |
+|---|---|---|
+| Nano Banana 2 (default) | `google/gemini-3.1-flash-image-preview` | Best quality, recommended |
+| Nano Banana | `google/gemini-2.5-flash-image` | Faster, slightly lower quality |
+| Nano Banana Pro | `google/gemini-3-pro-image-preview` | Highest quality, slower |
+| GPT-5 Image Mini | `openai/gpt-5-image-mini` | OpenAI alternative |
+| GPT-5 Image | `openai/gpt-5-image` | OpenAI highest quality |
+
+### Prompt Refinement (Better Context)
+
+An intermediate LLM call can refine the raw prompt before sending to the image model:
+
+```python
+from endpoints.image_gen import _refine_prompt_with_llm, _build_image_prompt
+from endpoints.llm_edit_utils import gather_conversation_context
+
+# 1. Gather conversation context
+context_parts = gather_conversation_context(
+    conversation, prompt,
+    include_context=True, deep_context=True,
+    include_summary=True, include_messages=True,
+    history_count=2,
+)
+
+# 2. Refine via cheap LLM (claude-haiku)
+refined_prompt = _refine_prompt_with_llm(prompt, context_parts, keys)
+
+# 3. Generate
+result = generate_image_from_prompt(refined_prompt, keys)
+```
+
+---
+
 ## Image Input Formats
 
 All image parameters accept:

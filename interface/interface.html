@@ -364,9 +364,10 @@
                                 <!-- Old slide-up controls removed - now using settings modal -->
                               </div>
                           </div>
-                        </div>
-                      
-                      
+    </div>  
+
+
+
                       
                       
                       </div>
@@ -2313,6 +2314,11 @@
                                         <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-file-browser-modal-open-button" title="Open File Browser" type="button">
                                             <i class="bi bi-folder2-open"></i>
                                         </button>
+                                    </div>
+                                    <div class="col">
+                                        <button class="btn btn-success btn-sm rounded-pill w-100" id="settings-generate-image-button" title="Generate Image with AI">
+                                            <i class="bi bi-image"></i> Image
+                                        </button>
                                 </div>
                             </div>
                         </div>
@@ -3686,6 +3692,137 @@ greet("World");</code></pre>
     </div>  
 
 
+    <!-- ══════════════════════════════════════════════════════════════════
+         Image Generation Modal
+         ══════════════════════════════════════════════════════════════════ -->
+    <div id="image-gen-modal" style="display:none; position:fixed; inset:0; z-index:100001; background:rgba(0,0,0,0.5); align-items:center; justify-content:center;">
+        <div style="background:#fff; border-radius:10px; padding:24px; width:620px; max-width:95vw; max-height:90vh; display:flex; flex-direction:column; box-shadow:0 8px 32px rgba(0,0,0,0.3);">
+            <!-- Header -->
+            <div class="d-flex align-items-center justify-content-between mb-3">
+                <h6 style="font-weight:600; margin:0;"><i class="bi bi-image" style="margin-right:6px;"></i>Generate Image</h6>
+                <button type="button" class="close" id="image-gen-close-x" aria-label="Close" style="font-size:1.3rem; opacity:0.7; background:none; border:none; cursor:pointer;">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+
+            <!-- Prompt -->
+            <textarea id="image-gen-prompt" class="form-control mb-2" rows="3" placeholder="Describe the image you want to generate..." style="resize:vertical;"></textarea>
+
+            <!-- Model selection -->
+            <div class="d-flex align-items-center mb-2" style="gap:8px;">
+                <label class="text-muted small mb-0" for="image-gen-model" style="white-space:nowrap;">Model:</label>
+                <select id="image-gen-model" class="form-control form-control-sm" style="max-width:320px;"></select>
+            </div>
+
+            <!-- Context options (same pattern as AI edit modals) -->
+            <div class="mb-2" style="border:1px solid #e9ecef; border-radius:6px; padding:8px 10px; background:#f8f9fa;">
+                <div class="text-muted small mb-1" style="font-weight:600;">Conversation Context</div>
+                <div class="d-flex flex-wrap align-items-center" style="gap:4px 14px;">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="image-gen-include-summary">
+                        <label class="form-check-label small" for="image-gen-include-summary">Include summary</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="image-gen-include-messages">
+                        <label class="form-check-label small" for="image-gen-include-messages">Include recent messages</label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="image-gen-include-memory">
+                        <label class="form-check-label small" for="image-gen-include-memory">Include memory pad</label>
+                    </div>
+                    <div class="form-inline">
+                        <label class="mr-1 text-muted small" for="image-gen-history-count">History</label>
+                        <input id="image-gen-history-count" type="number" class="form-control form-control-sm" style="width:60px;" value="10" min="0" max="50">
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="image-gen-deep-context">
+                        <label class="form-check-label small" for="image-gen-deep-context">Deep context <span class="text-muted">(+2-5s)</span></label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="image-gen-better-context" checked>
+                        <label class="form-check-label small" for="image-gen-better-context">Better context <span class="text-muted">(LLM refines prompt)</span></label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Status -->
+            <div id="image-gen-status" class="text-muted small mb-2" style="display:none;">
+                <span class="spinner-border spinner-border-sm mr-1" role="status"></span>
+                Generating image...
+            </div>
+
+            <!-- Image preview area -->
+            <div id="image-gen-preview" style="flex:1; overflow-y:auto; min-height:60px; max-height:50vh;"></div>
+
+            <!-- Footer buttons -->
+            <div class="d-flex justify-content-between align-items-center mt-3" style="gap:8px;">
+                <div style="gap:8px; display:flex;">
+                    <button class="btn btn-sm btn-outline-success" id="image-gen-download-btn" style="display:none;" title="Download image">
+                        <i class="bi bi-download"></i> Download
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary" id="image-gen-clear-btn" style="display:none;" title="Clear result">
+                        <i class="bi bi-x-circle"></i> Clear
+                    </button>
+                </div>
+                <div style="gap:8px; display:flex;">
+                    <button class="btn btn-sm btn-secondary" id="image-gen-cancel-btn">Close</button>
+                    <button class="btn btn-sm btn-success" id="image-gen-generate-btn">
+                        <span id="image-gen-spinner" class="spinner-border spinner-border-sm mr-1" role="status" style="display:none;"></span>
+                        Generate
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <style>
+        /* ── Image Generation Modal ── */
+        #image-gen-modal img { transition: opacity 0.3s ease; }
+        #image-gen-modal img:hover { opacity: 0.85; }
+        @media (max-width: 767.98px) {
+            #image-gen-modal > div {
+                width: 98% !important;
+                max-width: 98% !important;
+                max-height: 95vh !important;
+                padding: 16px !important;
+            }
+        }
+
+        /* ── Generated images in chat message cards ── */
+        .chat-card-body img[src*="/api/conversation-image/"] {
+            max-width: 100%;
+            border-radius: 8px;
+            border: 1px solid #dee2e6;
+            margin: 8px 0;
+            cursor: pointer;
+            transition: opacity 0.2s ease;
+        }
+        .chat-card-body img[src*="/api/conversation-image/"]:hover {
+            opacity: 0.9;
+        }
+        .generated-image-wrapper {
+            position: relative;
+            display: inline-block;
+            max-width: 100%;
+        }
+        .generated-image-download-btn {
+            position: absolute;
+            top: 14px;
+            right: 6px;
+            background: rgba(255,255,255,0.85);
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            padding: 4px 8px;
+            font-size: 0.75rem;
+            cursor: pointer;
+            opacity: 0;
+            transition: opacity 0.2s ease;
+            z-index: 2;
+        }
+        .generated-image-wrapper:hover .generated-image-download-btn {
+            opacity: 1;
+        }
+    </style>
 
 
 
@@ -3733,6 +3870,7 @@ greet("World");</code></pre>
     <script src="interface/tab-picker-manager.js"></script>
     <script src="interface/workflow-manager.js"></script>
     <script src="interface/script-manager.js"></script>
+    <script src="interface/image-gen-manager.js?v=1"></script>
     <script src="interface/file-browser-manager.js?v=27"></script>
     <script>
         // Document-level delegated handler for Terminal button.
@@ -3750,6 +3888,81 @@ greet("World");</code></pre>
                 console.error('[Terminal] _showTerminalModal not defined yet');
             }
         });
+    </script>
+    <script>
+        // Document-level delegated handler for Generate Image button.
+        document.addEventListener('click', function (event) {
+            var button = event.target.closest('#settings-generate-image-button');
+            if (!button) return;
+            event.preventDefault();
+            event.stopPropagation();
+            if (typeof ImageGenManager !== 'undefined' && ImageGenManager.show) {
+                ImageGenManager.show();
+            } else {
+                console.error('[ImageGen] ImageGenManager not loaded');
+            }
+        });
+        // Also wire up the X close button inside the modal
+        document.addEventListener('click', function (event) {
+            var button = event.target.closest('#image-gen-close-x');
+            if (!button) return;
+            if (typeof ImageGenManager !== 'undefined' && ImageGenManager.hide) {
+                ImageGenManager.hide();
+            }
+        });
+    </script>
+    <script>
+        // Post-render: wrap generated images in chat cards with download buttons
+        // and click-to-open-in-new-tab behavior.
+        (function() {
+            function enhanceGeneratedImages(root) {
+                var imgs = (root || document).querySelectorAll(
+                    '.chat-card-body img[src*="/api/conversation-image/"]'
+                );
+                imgs.forEach(function(img) {
+                    if (img.parentElement && img.parentElement.classList.contains('generated-image-wrapper')) return;
+                    var wrapper = document.createElement('div');
+                    wrapper.className = 'generated-image-wrapper';
+                    img.parentNode.insertBefore(wrapper, img);
+                    wrapper.appendChild(img);
+
+                    var dlBtn = document.createElement('button');
+                    dlBtn.className = 'generated-image-download-btn';
+                    dlBtn.innerHTML = '<i class="bi bi-download"></i> Download';
+                    dlBtn.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        var a = document.createElement('a');
+                        a.href = img.src;
+                        a.download = img.src.split('/').pop() || 'generated-image.png';
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                    });
+                    wrapper.appendChild(dlBtn);
+
+                    img.addEventListener('click', function() {
+                        window.open(img.src, '_blank');
+                    });
+                });
+            }
+
+            // Run on DOM mutations (covers streaming renders and page loads)
+            var observer = new MutationObserver(function(mutations) {
+                var shouldCheck = false;
+                for (var i = 0; i < mutations.length; i++) {
+                    if (mutations[i].addedNodes.length > 0) { shouldCheck = true; break; }
+                }
+                if (shouldCheck) enhanceGeneratedImages();
+            });
+            document.addEventListener('DOMContentLoaded', function() {
+                observer.observe(document.getElementById('chatView') || document.body, {
+                    childList: true, subtree: true
+                });
+                enhanceGeneratedImages();
+            });
+            // Also expose globally for manual calls after render
+            window._enhanceGeneratedImages = enhanceGeneratedImages;
+        })();
     </script>
     <script type="text/x-mathjax-config">
       MathJax.Hub.Config({

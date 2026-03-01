@@ -746,6 +746,123 @@ The backend resolver (`resolve_reference()`) uses suffix-based routing for fast 
 
 ---
 
+### 9b) Image Generation
+
+**What it does**
+
+Two entry points for AI image generation via OpenRouter (Nano Banana 2 / `google/gemini-3.1-flash-image-preview`):
+
+**A. `/image` slash command (inline chat)**
+
+- User types `/image <prompt>` in the chat input (e.g. `/image a cat on a rainbow`).
+- `parseMessageForCheckBoxes()` strips `/image` and sets `generate_image: true` in `checkboxes`.
+- `Conversation.reply()` detects the flag and calls `_handle_image_generation()` instead of the normal LLM path.
+- The handler:
+  1. Gathers conversation context (summary + last 2 messages + deep context extraction).
+  2. Refines the raw prompt via a cheap LLM (`CHEAP_LLM[0]`) acting as an image-prompt engineer.
+  3. Calls Nano Banana 2 via OpenRouter's chat completions API with `modalities: ["image", "text"]`.
+  4. Saves the PNG to `{conv_storage}/images/img_{sha256_16}.png`.
+  5. Streams the response as `![Generated Image](/api/conversation-image/{conv_id}/{filename})`.
+  6. Persists the turn; stores `generated_images` metadata on the assistant message.
+- The image renders as a full inline image in the message card with a hover-reveal **Download** button.
+- Clicking the image opens it full-size in a new tab.
+- On the **next user turn**, the stored PNG is loaded and included as a base64 `image_url` content part in the LLM call, so vision-capable models can "see" and reason about the generated image.
+
+**B. Image Generation Modal (Settings → Image button)**
+
+- Accessible from Settings → Actions → **Image** button (green).
+- Full form UI: prompt textarea, model dropdown, conversation context checkboxes, "Better context" refinement toggle.
+- Not tied to conversation streaming — fires a direct `POST /api/generate-image` and renders the result in the modal with a download button.
+
+**API**
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/send_message/<conversation_id>` | `POST` (streaming) | `/image` command flow — same endpoint as normal chat |
+| `/api/generate-image` | `POST` | Modal image generation (non-streaming JSON) |
+| `/api/conversation-image/<conv_id>/<filename>` | `GET` | Serve a stored conversation image (auth-protected) |
+
+**Request payload additions for `/image` command** (within `checkboxes`):
+
+```json
+{
+  "generate_image": true
+}
+```
+
+**`POST /api/generate-image` payload:**
+
+```json
+{
+  "prompt": "A futuristic city at dusk",
+  "model": "google/gemini-3.1-flash-image-preview",
+  "conversation_id": "...",
+  "include_summary": true,
+  "include_messages": true,
+  "include_memory_pad": false,
+  "history_count": 10,
+  "deep_context": false,
+  "better_context": true
+}
+```
+
+**Response:**
+
+```json
+{
+  "status": "success",
+  "images": ["data:image/png;base64,..."],
+  "text": "Here is the generated image.",
+  "model": "google/gemini-3.1-flash-image-preview",
+  "refined_prompt": "A hyper-detailed futuristic cityscape..."
+}
+```
+
+**Image storage**
+
+- **Location**: `storage/conversations/{conv_id}/images/img_{sha256_16}.png` (per-conversation directory).
+- **Not** stored inline in the conversation JSON — keeps history files small regardless of image count.
+- **Served** via an auth-protected Flask endpoint; never exposed publicly.
+- **Message metadata**: `msg["generated_images"] = [{"filename": "img_abc.png", "url": "/api/..."}]` on the assistant message dict.
+
+**Available models**
+
+| OpenRouter name | Model ID | Notes |
+|---|---|---|
+| Nano Banana 2 (default) | `google/gemini-3.1-flash-image-preview` | Best quality |
+| Nano Banana | `google/gemini-2.5-flash-image` | Faster |
+| Nano Banana Pro | `google/gemini-3-pro-image-preview` | Highest quality |
+| GPT-5 Image Mini | `openai/gpt-5-image-mini` | OpenAI alternative |
+| GPT-5 Image | `openai/gpt-5-image` | OpenAI highest quality |
+
+**Better Context (prompt refinement)**
+
+When "Better context" is enabled (default on for the modal; always on for the `/image` command), an intermediate LLM call (`CHEAP_LLM[0]` — currently `anthropic/claude-haiku-4.5`) acts as an image-prompt engineer:
+- Takes the raw user prompt + conversation context (summary, recent messages, memory pad, extracted context).
+- Produces a concrete, visually-specific 1–4 sentence prompt optimised for the image model.
+- Falls back to plain concatenation on any failure — the image generation itself is never blocked.
+
+**Persistence**
+
+- The PNG file persists in `{conv_storage}/images/` for the lifetime of the conversation.
+- The assistant message includes the image as a markdown `![...](url)` — renders correctly on history reload.
+- The `generated_images` metadata on the message dict enables future LLM turns to include the image as a vision input.
+
+**Key files**
+
+- `endpoints/image_gen.py` — `image_gen_bp` blueprint with `/api/generate-image`, `/api/conversation-image/<conv_id>/<filename>`, `generate_image_from_prompt()`, `_refine_prompt_with_llm()`, `BETTER_CONTEXT_SYSTEM` prompt, `DEFAULT_IMAGE_MODEL`
+- `Conversation._handle_image_generation()` (`Conversation.py`) — `/image` command handler
+- `Conversation.reply()` (`Conversation.py` line ~6668) — `generate_image` flag intercept
+- `Conversation._reply()` image context injection (~line 8843) — includes stored PNGs in LLM vision context
+- `interface/image-gen-manager.js` — modal frontend (`ImageGenManager` IIFE)
+- `interface/interface.html` — modal HTML (`#image-gen-modal`), "Image" button (`#settings-generate-image-button`), MutationObserver for download buttons, CSS for chat card images
+- `interface/parseMessageForCheckBoxes.js` line 133 — `/image` command registration
+- `endpoints/__init__.py` — `image_gen_bp` blueprint registration
+
+**See also:** `documentation/features/image_generation/README.md`
+
+---
+
 ### 10) Slides / presentations
 
 **What it does**
