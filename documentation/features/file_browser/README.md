@@ -37,6 +37,7 @@ Full-screen modal file browser and code editor accessible from the chat-settings
 - **Drag-and-drop move**: any tree item can be dragged onto a folder in the sidebar to move it. Dropping onto the tree background (outside any folder `<li>`) moves the item to the **root directory**. Visual feedback: dragged item dims (`.fb-drag-source`), valid drop targets highlight with a dashed blue outline (`.fb-drag-over`), the entire tree panel highlights with a dashed blue outline and faint blue tint (`.fb-drag-over-root`) when the cursor is over the tree background. Prevents moving a folder into itself or its own descendant.
 - **Context-menu move**: right-click → "Move to…" opens a destination picker modal (`#file-browser-move-modal`) with a lazy-expanding folder-only tree. A **/ (root)** item (icon `bi-house-door`, class `fb-move-root-item`, `data-path="."`) is prepended above the sub-folder tree so the user can explicitly move the item to the root directory. Move button enables once a destination folder is selected.
 - **Decoupled move backend**: move operations are routed through `_config.onMove(srcPath, destPath, done)`. Default implementation calls `POST /file-browser/move`. Override at `FileBrowserManager.init({onMove: fn})` or `FileBrowserManager.configure({onMove: fn})` for different embedding contexts.
+- **Global Docs integration**: the file browser supports DB-aware document management through configurable operation callbacks (`onMove`, `onUpload`, `onDelete`). A second instance (`'global-docs-fb'`) is embedded in the global docs modal, routing moves to folder assignment, uploads to `/global_docs/upload`, and deletes to `/global_docs/{docId}` instead of the default filesystem endpoints.
 
 ---
 
@@ -332,6 +333,22 @@ myFb.open();
 ```
 
 The default `window.FileBrowserManager = createFileBrowser('fb')` instance is created at the bottom of `file-browser-manager.js` for backward compatibility with all existing call sites.
+
+#### Global Docs vs Default Instance: Differences
+
+| Aspect | Default instance (`'fb'`) | Global Docs instance (`'global-docs-fb'`) |
+|---|---|---|
+| Created in | `file-browser-manager.js` (end of file) | `global-docs-manager.js` line ~248 |
+| `rootPath` | `'.'` (server root) | `'storage/global_docs/' + userHash` |
+| `openBtn` | `'settings-file-browser-modal-open-button'` | `null` (opened programmatically via `_openFileBrowser()`) |
+| `onMove` | Default: AJAX to `/file-browser/move` | Custom: looks up `destPath` in `_folderCache`, calls `POST /doc_folders/{folderId}/assign` |
+| `onUpload` | Default: AJAX to `/file-browser/upload` | Custom: calls `POST /global_docs/upload` with `folder_id` inferred from `targetDir` |
+| `onDelete` | Default: AJAX to `/file-browser/delete` | Custom: calls `DELETE /global_docs/{docId}`, falls back to FS delete |
+| File semantics | Generic files and folders | Documents with DB metadata (tags, folders, display names) |
+| Folder semantics | Filesystem directories | Metadata-only DB folders (physical files never move on folder assignment) |
+| Tag support | None | Full tag support via GlobalDocTags DB table |
+
+The key design insight is that the file browser's operation callbacks (onMove, onUpload, onDelete) are the integration seams. Replacing them with DB-aware implementations turns a generic filesystem browser into a document management UI without changing the browser's rendering or interaction code.
 
 ---
 
@@ -845,6 +862,68 @@ All layout-critical file browser elements carry `fb-*` CSS classes in addition t
 | Theme select | `.fb-theme-select` | Theme picker dropdown |
 | Context menu | `.fb-context-menu` | Right-click menu positioning |
 | Move folder tree | `.fb-move-folder-tree` | Folder-only tree in move modal |
+
+## Global Docs Integration
+
+The global docs feature embeds a second, independently configured file browser instance
+alongside the default file browser. This section documents how that integration works.
+
+### Instance Creation
+
+GlobalDocsManager creates its file browser instance in `interface/global-docs-manager.js`:
+
+    GlobalDocsManager._fileBrowser = createFileBrowser('global-docs-fb', {
+        rootPath: 'storage/global_docs/' + userHash,
+        onMove:   function(srcPath, destPath, done) { /* folder assignment */ },
+        onDelete: function(path, done)               { /* global doc delete  */ },
+        onUpload: function(file, targetDir, done)    { /* global doc upload  */ }
+    });
+    GlobalDocsManager._fileBrowser.init();
+
+The instance is created lazily, only when the user first opens the Folders view.
+
+### Opening the Browser
+
+The Folders button in the global docs modal header calls `GlobalDocsManager._openFileBrowser()`,
+which calls `GlobalDocsManager._fileBrowser.open(rootPath)`.
+
+### Folder Assignment via onMove
+
+When the user drags a doc to a folder directory in the tree:
+1. `onMove(srcPath, destPath, done)` fires.
+2. The destination folder name is extracted from `destPath`.
+3. `_folderCache` (populated on init from `GET /doc_folders`) maps folder names to folder IDs.
+4. `POST /doc_folders/{folderId}/assign` is called with `{doc_id}`.
+5. The physical file is NOT moved, only the DB `folder_id` column is updated.
+6. `done()` is called; the tree refreshes showing the doc in its new folder location.
+
+### Upload via onUpload
+
+When a file is dropped or browsed in the global-docs-fb upload modal:
+1. `onUpload(file, targetDir, done)` fires.
+2. `targetDir` is matched against `_folderCache` to infer `folder_id`.
+3. A `FormData` object is built with `file`, `display_name` (from `meta`), and `folder_id` (if found).
+4. `POST /global_docs/upload` is called (NOT `/file-browser/upload`).
+5. On success, `GlobalDocsManager.refresh()` updates the list view.
+6. `done()` is called; the file browser tree refreshes.
+
+### Delete via onDelete
+
+When a doc is deleted via context menu in the file browser:
+1. `onDelete(path, done)` fires.
+2. `doc_id` is extracted as the basename of the parent directory (each doc lives in `{docId}/`).
+3. `DELETE /global_docs/{docId}` is called to remove DB row + filesystem storage.
+4. If `doc_id` extraction fails, falls back to `DELETE /file-browser/delete`.
+5. `done()` is called; the tree and list view refresh.
+
+### Tags and Folder Metadata
+
+Tags and folders are DB-only features, the file browser has no awareness of them at the
+rendering layer. They are managed through separate UI (tag editor in list view, folder
+hierarchy via the file browser tree + onMove callback). The `enrichEntry` callback is NOT
+used in the global docs instance; tag and folder metadata is shown only in the list view,
+not in the tree.
+
 
 ## Known Issues and Historical Fixes
 

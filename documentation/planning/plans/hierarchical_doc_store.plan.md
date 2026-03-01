@@ -1,8 +1,9 @@
 # Hierarchical Doc Store + Folder Hierarchy + Summary View
 
-**Status:** Planning — Clarifications Finalized (2026-02-26)
+**Status:** Phases 0-3 Implemented (2026-02-28) — Canonical store, SHA-256 dedup, lazy+eager migration, upload/clone/promote rewrite, upgrade endpoint. Phases 4-8 (folders, UI, chat expansion, orphan cleanup) pending.
 **Created:** 2026-02-26  
 **Scope:** DocIndex canonical storage, per-user folder hierarchy, doc summary view, index upgrade UX
+**Implementation:** `canonical_docs.py`, `migrate_docs.py`, updates to `Conversation.py`, `endpoints/documents.py`, `endpoints/global_docs.py`, `endpoints/state.py`, `database/connection.py`, `database/global_docs.py`, `DocIndex.py`, `server.py`
 
 ---
 

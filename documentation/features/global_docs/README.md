@@ -63,6 +63,21 @@ Folders are hierarchical (parent/child), stored in the `GlobalDocFolders` DB tab
 - Create, rename, move, and delete folders via the **Folder view** file browser (opened via the Folders button in the modal header; powered by an independent `createFileBrowser('global-docs-fb', ...)` instance with `onMove` pointing to `POST /doc_folders/<id>/assign`).
 - `#folder:Name` references resolve to all docs directly assigned to that folder (non-recursive).
 
+### Folder Metadata vs Filesystem
+
+Global doc folders are **metadata-only**. They exist as rows in the `GlobalDocFolders` table (with `folder_id`, `name`, `parent_id`, `user_email`) and have no corresponding directories on disk.
+
+- The file browser's tree view for global docs shows the `storage/global_docs/{user_hash}/` filesystem path. This is the doc's **physical storage location**, not the logical folder hierarchy. Each doc lives at `storage/global_docs/{user_hash}/{doc_id}/` regardless of which folder it belongs to.
+- Folder assignment is a pure DB operation: `POST /doc_folders/{folderId}/assign` sets the `folder_id` column on the `GlobalDocuments` row. No files are copied or moved.
+- The file browser's `onMove` callback bridges the gap between the two models: when a user drags a doc onto a folder in the tree, the callback intercepts the move and converts it into a metadata-only DB update (`POST /doc_folders/{folderId}/assign`) instead of performing an actual filesystem rename.
+- **Physical files never move** when a doc is assigned to a different folder. The `doc_storage` path in the DB stays the same, the FAISS indices stay in place, and the serialized DocIndex doesn't change. Only the `folder_id` foreign key on the `GlobalDocuments` row is updated.
+- This design keeps storage simple (flat per-user directory) while giving users a hierarchical organization layer through the UI.
+- Unassigning a doc from a folder (setting `folder_id` to `null` via `POST /doc_folders/{folderId}/assign` with `{"doc_id": "...", "folder_id": null}`) also leaves the physical file untouched.
+- When a folder is deleted, the endpoint offers two strategies via query parameter: `?action=move_docs_to_parent` reassigns all docs to the parent folder (or unassigns if root), while `?action=delete_docs` deletes the docs themselves. Neither strategy moves files on disk -- both are pure DB operations.
+
+
+**Why metadata-only?** Moving large DocIndex directories (which contain FAISS vector stores, raw chunks, and serialized indices) on every folder reassignment would be slow and error-prone. The metadata approach means folder operations are instant DB writes, and the storage layer stays flat and simple to back up or migrate.
+
 ### Tagging
 
 Tags are free-form strings (e.g., `arxiv`, `2026`, `ml`, `reference`). A doc can have any number of tags. Tags are stored in the `GlobalDocTags` DB table (composite PK: `doc_id`, `user_email`, `tag`).
@@ -70,6 +85,20 @@ Tags are free-form strings (e.g., `arxiv`, `2026`, `ml`, `reference`). A doc can
 - Add/remove tags via the tag editor in the doc row.
 - Tags appear as badge chips on each doc row in List view.
 - `#tag:name` references resolve to all docs tagged with that exact tag.
+
+### Tag Storage Details
+
+Tags are persisted in the `GlobalDocTags` table with a composite primary key of `(doc_id, user_email, tag)` plus a `created_at` timestamp.
+
+- **Normalization**: Tags are normalized to lowercase on write (`str.strip().lower()`). This means `"ArXiv"`, `" arxiv "`, and `"ARXIV"` all resolve to the same stored tag `"arxiv"`.
+- **`set_tags()` is atomic**: In `database/doc_tags.py`, `set_tags(doc_id, user_email, tags)` deletes all existing tags for the doc, then inserts the new set, all within a single SQLite transaction. If any insert fails, the entire operation rolls back.
+- **`add_tag()` is idempotent**: Uses `INSERT OR IGNORE`, so adding a tag that already exists is a no-op.
+- **Tag inclusion in list endpoint**: `list_global_docs_route()` includes tags for each doc via a `LEFT JOIN` on `GlobalDocTags` with `GROUP_CONCAT(tag)` producing a `tags_csv` column. The endpoint splits this comma-separated string back into a `tags` array in the JSON response.
+- **Querying by tag**: `list_docs_by_tag(user_email, tag)` performs a case-insensitive lookup (`LOWER(tag) = LOWER(?)`) and returns all matching `doc_id` values.
+- **`remove_tag()` behavior**: Deletes the single `(doc_id, user_email, tag)` row. If the tag doesn't exist for that doc, the DELETE is a no-op (no error raised).
+- **`list_all_tags(user_email)`**: Returns all distinct tags for a user across all their global docs, sorted alphabetically. Used by the tag filter dropdown in the List view.
+- **Tag deletion cascade**: When a global doc is deleted via `DELETE /global_docs/{docId}`, the endpoint calls `delete_global_doc()` which removes the `GlobalDocuments` row. Tags are cleaned up separately -- `set_tags(doc_id, user_email, [])` is called before the doc row is deleted to clear the `GlobalDocTags` entries.
+- **No tag rename**: There's no endpoint to rename a tag across all docs. To rename, you'd remove the old tag and add the new one on each doc individually.
 
 ### Dual-View UI
 
@@ -112,6 +141,45 @@ var _globalDocsFb = createFileBrowser('global-docs-fb', {
 - Any future code that needs to open the file browser programmatically
 
 **Instance IDs**: All DOM elements for this instance use the `global-docs-fb-` prefix (e.g. `#global-docs-fb-modal`, `#global-docs-fb-tree`). CSS layout is applied via `.fb-*` class selectors that apply equally to both instances.
+
+### Callback Wiring (onMove, onUpload, onDelete)
+
+The three callback hooks on the global-docs file browser instance override the default file browser behavior so that filesystem-style interactions (drag, drop, delete) route to the global docs API instead of the generic `/file-browser/*` endpoints.
+
+**`onMove(srcPath, destPath, done)`** -- called when the user drags a doc onto a folder in the file browser tree.
+
+- Extracts `folderName` from `destPath` (the basename of the target directory).
+- Looks up `folderName` in `GlobalDocsManager._folderCache` (a `Map` of `folderName` to `folder_id`, populated by `_loadFolderCache()`).
+- If a matching folder is found, calls `POST /doc_folders/{folderId}/assign` with `{"doc_id": "..."}` to update the folder assignment in the DB.
+- If no matching folder is found in `_folderCache`, falls back to the default file-browser move behavior (filesystem rename).
+- Calls `done()` on success to let the file browser update its tree.
+
+**`onUpload(file, targetDir, done, meta)`** -- called on every file drop or browse-select in the embedded file browser.
+
+- Infers `folder_id` by looking up `targetDir` (the current directory path in the tree) against `_folderCache`. If the target directory name matches a known folder, the `folder_id` is included in the upload.
+- Builds a `FormData` with the file, `display_name` (from `meta`, if provided), and `folder_id` (if resolved from the target directory).
+- Calls `POST /global_docs/upload` via `DocsManagerUtils.uploadWithProgress()` for XHR progress tracking.
+- On success: calls `GlobalDocsManager.refresh()` to reload the doc list, then `done()` to signal completion to the file browser.
+- On error: calls `done(errorMsg)` which surfaces the error through the file browser's own toast mechanism.
+
+**`onDelete(path, done)`** -- called when the user deletes a doc via the file browser's right-click context menu.
+
+- Extracts `doc_id` from `path`. The doc_id is the basename of the parent directory in the storage layout (`storage/global_docs/{userHash}/{doc_id}/`).
+- Calls `DELETE /global_docs/{docId}` to remove the doc from the DB and filesystem.
+- If `doc_id` extraction fails (e.g., the path doesn't match the expected layout), falls back to the default filesystem delete.
+- Calls `done()` on success.
+
+**`openBtn: null`** -- the global-docs-fb instance does NOT auto-wire to any button. Unlike the default file browser (which binds to a Settings button), this instance is opened programmatically. `GlobalDocsManager._openFileBrowser()` is called explicitly by the "Folders" view toggle button in the modal header.
+
+**Callback summary:**
+
+| Callback | Trigger | API Call | Fallback |
+|----------|---------|----------|----------|
+| `onMove` | Drag doc to folder | `POST /doc_folders/{folderId}/assign` | Default filesystem move |
+| `onUpload` | Drop/browse file | `POST /global_docs/upload` | None (always uses global docs endpoint) |
+| `onDelete` | Context menu delete | `DELETE /global_docs/{docId}` | Default filesystem delete |
+
+All three callbacks follow the same `done()` contract: call `done()` (or `done(null)`) on success, call `done(errorMsg)` on failure. The file browser uses this to update its tree and show error toasts.
 
 ### Promoting Conversation Documents
 
@@ -273,6 +341,47 @@ When a user sends a message containing `#gdoc_N`, `#global_doc_N`, or `"display 
    - During `replace_reference`, replaces both `#gdoc_N` tags and the original `"quoted name"` text in the message with the resolved doc title info.
    - Returns the same 5-tuple as `get_uploaded_documents_for_query()`: `(query, attached_docs, attached_docs_names, (readable, readable_names), (data, data_names))`.
 7. **Merge** (line ~6536): When `gdocs_future` resolves, its results are appended to the conversation doc results — `attached_docs`, `attached_docs_readable`, `attached_docs_data` lists are concatenated. The downstream RAG pipeline then treats all docs uniformly.
+
+### Reference Resolution: #folder: and #tag:
+
+The `#folder:` and `#tag:` reference types are resolved alongside `#gdoc_N` and display-name references during `Conversation.reply()`. Both are extracted by the same regex pass that handles numeric and quoted-name references (lines ~5561-5593 in `Conversation.py`).
+
+**`#folder:Name` resolution:**
+
+1. When a message contains `#folder:Name`, `Conversation.get_global_documents_for_query()` calls `GET /doc_folders?name=Name` to find the matching `folder_id`.
+2. All docs directly assigned to that folder are fetched. Resolution is **non-recursive** -- only direct children of the named folder are included, not docs in sub-folders.
+3. Each returned doc is loaded via `DocIndex.load_local()` and merged into the attached docs list, same as any `#gdoc_N` reference.
+
+**`#tag:name` resolution:**
+
+1. When a message contains `#tag:name`, the reply flow calls `database.doc_tags.list_docs_by_tag()` with the tag string. Matching is **case-insensitive** (tags are stored lowercase).
+2. The function returns all `doc_id` values tagged with that string. Each doc is then loaded from the `GlobalDocuments` table and its DocIndex is loaded from storage.
+3. Resolved docs are merged into the same attached docs pipeline as folder and numeric references.
+
+**Autocomplete:**
+
+- `GET /global_docs/autocomplete?type=folder&prefix=X` returns folder names matching the prefix.
+- `GET /global_docs/autocomplete?type=tag&prefix=X` returns tag strings matching the prefix.
+- The chat input's `handleInput()` in `common-chat.js` triggers these calls when the user types `#folder:` or `#tag:` followed by characters. Results appear in a dropdown (debounced via `hashDebounceTimer`).
+
+**Extraction:** Both `#folder:` and `#tag:` patterns are pulled from the message text by the same regex pass that finds `#gdoc_N`, `#global_doc_N`, and quoted display-name strings. The extracted references are normalized and deduplicated before resolution begins.
+
+**Combining references:** A single message can mix `#folder:`, `#tag:`, `#gdoc_N`, and quoted display-name references freely. All resolved docs are deduplicated by `doc_id` before being passed to the RAG pipeline, so referencing the same doc through multiple paths (e.g., `#gdoc_1` and `#tag:arxiv` where doc 1 has the `arxiv` tag) won't cause duplicate context injection.
+
+**Error handling for folder/tag references:**
+
+- If `#folder:Name` doesn't match any folder in the DB, the reference is silently ignored (no error shown to the user). The rest of the message still processes normally.
+- If `#tag:name` matches zero docs, the reference is also silently ignored.
+- If a matched doc's DocIndex fails to load (corrupt index, missing files), that individual doc is skipped. Other docs from the same folder or tag reference still resolve.
+
+**Key files for folder/tag resolution:**
+
+- `Conversation.py` lines ~5561-5593: regex extraction of `#folder:` and `#tag:` patterns
+- `Conversation.py:get_global_documents_for_query()`: folder and tag resolution logic
+- `database/doc_tags.py:list_docs_by_tag()`: tag-to-doc lookup
+- `database/doc_folders.py:get_folder_by_name()`: folder name-to-id lookup
+- `database/doc_folders.py:get_docs_in_folder()`: folder-to-docs lookup
+- `interface/common-chat.js:fetchHashAutocomplete()`: frontend autocomplete for `#folder:` and `#tag:`
 
 ### Promote Flow
 

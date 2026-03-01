@@ -54,6 +54,7 @@ Function: `attach_doc_to_message_route(conversation_id)`
 1. Deduplicates by path + basename (lines 1774-1777)
 2. Calls `create_fast_document_index(pdf_url, folder, keys)` → `FastDocIndex`
 3. Appends `(doc_id, doc_storage, doc_source, display_name)` to `message_attached_documents_list` (`display_name` is `None` for message attachments)
+   - `doc_storage` points to the canonical path (`storage/documents/{user_hash}/{doc_id}/`) for new uploads. Legacy per-conversation paths are updated to canonical on first load.
 4. Rebuilds `doc_infos` from combined uploaded + message-attached list (lines 1787-1799)
 5. Saves conversation state
 
@@ -99,6 +100,8 @@ storage/conversations/{user_email}_{conv_id}/
         └── file.pdf                (document file)
 ```
 
+> **Legacy path.** The layout above is the pre-canonical per-conversation path. New uploads are stored in the canonical doc store at `storage/documents/{user_hash}/{doc_id}/` (see Part 2 section 2.5a). Existing per-conversation paths are lazily migrated on first access and eagerly migrated at startup by `migrate_docs.py`. The tuple's `doc_storage` field always points to the current location, so callers don't need to know which layout is in use.
+
 ### 1.6 Promote to Conversation Doc
 
 **UI**: Promote button on attachment strip entry → POST `/promote_message_doc/{conv_id}/{doc_id}`
@@ -143,6 +146,9 @@ Conversation documents are persistent within a conversation. They are uploaded v
    - 100%: success
 5. On success: reset form, `LocalDocsManager.refresh(conversationId)`
 
+**`display_name` handling in the upload form:**
+The upload form accepts an optional `display_name` field. If provided, it is stored in the 4-tuple as `entry[3]` and returned by `get_short_info()` as the `display_name` key. The UI shows `display_name` as a `badge badge-secondary` chip before the doc title when rendering the doc list. If absent, the doc title is used instead.
+
 **List rendering** (`LocalDocsManager.renderList(conversationId, docs)`) renders each doc in `#conv-docs-list` with:
 - View button (eye icon) → `showPDF()` via `/proxy_shared?url=...`
 - Download button → `/download_doc_from_conversation/{id}/{docId}`
@@ -162,6 +168,15 @@ Conversation documents are persistent within a conversation. They are uploaded v
 - `DocsManagerUtils.isValidFileType(file, $fileInput)` — validate against accept attribute
 - `DocsManagerUtils.uploadWithProgress(endpoint, fileOrUrl, opts)` — XHR upload with progress (0→70% upload, 70→99% indexing tick)
 - `DocsManagerUtils.setupDropArea($dropArea, $modal, $fileInput, onFileDrop)` — wire drag-and-drop
+
+**DocsManagerUtils shared utility detail:**
+Both `LocalDocsManager` and `GlobalDocsManager` share utility functions from `DocsManagerUtils` (defined at the top of `interface/local-docs-manager.js`, lines 23-273):
+- `getMimeType(filename)` returns MIME type from extension, falling back to `application/octet-stream`.
+- `isValidFileType(file)` validates against allowed PDF/image/doc types listed in the file input's `accept` attribute.
+- `uploadWithProgress(opts)` is a unified XHR upload with progress callback. It handles both file uploads (multipart form data) and URL uploads (JSON body), returns a jQuery Deferred, and drives the 0-70% upload / 70-99% indexing tick progress pattern used by both managers.
+- `setupDropArea(element, onDrop)` wires drag-and-drop events on a DOM element, toggling a visual highlight class during dragover.
+
+Both managers call `DocsManagerUtils.uploadWithProgress()` for all uploads, so upload behavior (progress reporting, error handling, timeout) is consistent across local and global doc flows.
 
 ### 2.2 API Endpoints
 
@@ -199,11 +214,12 @@ Function: `download_doc_from_conversation(conversation_id, doc_id)`
 2. Calls `create_fast_document_index(pdf_url, folder, keys)` → `FastDocIndex`
 3. Sets `doc_index._display_name = display_name`
 4. Stores 4-tuple `(doc_id, doc_storage, doc_source, display_name)` in `uploaded_documents_list`
+   - For new uploads, `doc_storage` is the canonical path `storage/documents/{user_hash}/{doc_id}/`. Legacy per-conversation paths are migrated transparently.
 5. Rebuilds `doc_infos`
 6. Saves conversation
 
 **`Conversation.get_uploaded_documents(doc_id=None, readonly=False)`** (`Conversation.py`, line 1698)
-- Iterates `uploaded_documents_list` entries; supports both old 3-tuples and new 4-tuples (backward-compatible).
+- Iterates `uploaded_documents_list` entries; supports both old 3-tuples and new 4-tuples (backward-compatible). If a tuple's `doc_storage` points to a legacy per-conversation path, it is lazily migrated to the canonical store and the tuple is updated in place.
 - Extracts `display_name` from `entry[3]` if present, else `None`.
 - After loading each `DocIndex` from disk, sets `loaded._display_name = display_name` so `get_short_info()` returns it.
 - Optional filter by `doc_id`
@@ -212,7 +228,7 @@ Function: `download_doc_from_conversation(conversation_id, doc_id)`
 1. Filters `uploaded_documents_list` to remove entry
 2. Rebuilds `doc_infos` with renumbered entries (lines 1733-1739)
 3. Saves conversation
-4. Does NOT delete filesystem storage
+4. Does NOT delete filesystem storage (intentional: canonical files may be shared across conversations)
 
 ### 2.4 Indexing: FastDocIndex → ImmediateDocIndex
 
@@ -225,6 +241,19 @@ Conversation docs start as `FastDocIndex` (see Part 1 §1.4 for details). Full p
 - Launches LLM title/summary generation in background threads
 - Returns after all async tasks complete
 
+**Upgrade endpoint: FastDocIndex to full DocIndex**
+
+`POST /upgrade_doc_index/<conversation_id>/<doc_id>` (`endpoints/documents.py`, line 230)
+
+Upgrades a `FastDocIndex` to a full `DocIndex` in place. The flow:
+1. Loads the existing `FastDocIndex` from the conversation's `uploaded_documents_list`.
+2. Creates a new full `DocIndex` at the same canonical storage path via `create_immediate_document_index()`.
+3. Copies `_display_name` from the old index to the new one.
+4. Updates the conversation's tuple list to point at the new index.
+5. Returns `{status: "ok", doc_id, info}` on success.
+
+Intended for the "Analyze" button in the local docs panel (not yet wired in UI as of this writing).
+
 **`ImmediateDocIndex` (class `DocIndex`)** (`DocIndex.py`, line 959 / alias line 2100):
 - `_raw_index` — FAISS index over full chunks
 - `_raw_index_small` — FAISS index over smaller chunks
@@ -236,6 +265,22 @@ Conversation docs start as `FastDocIndex` (see Part 1 §1.4 for details). Full p
 **Key DocIndex methods:**
 - `get_short_info()` (line 1946) → `{visible, doc_id, source, title, short_summary, summary, display_name}`
   - `display_name` uses `getattr(self, "_display_name", None)` — safe for pickled instances predating this field
+
+**Full `get_short_info()` return fields (8 keys):**
+
+```
+DocIndex.get_short_info() returns a dict with:
+  visible       - bool; whether the doc is visible in the doc list
+  doc_id        - str; mmh3 hash of (source + filetype + doc_type)
+  source        - str; relative file path (absolute stripped to repo-relative)
+  title         - str; auto-generated or cached LLM-generated title
+  short_summary - str; auto-generated or cached brief summary
+  summary       - str; alias for short_summary
+  display_name  - str or None; user-provided name from upload form
+  is_fast_index - bool; True for FastDocIndex/ImmediateDocIndex, False for full DocIndex
+```
+
+The `is_fast_index` field reflects the `_is_fast_index` class attribute: `True` on `FastDocIndex` (line 2170) and `ImmediateDocIndex` (line 2385), `False` on the base `DocIndex`. This lets the UI distinguish lightweight BM25-only indices from fully indexed docs without loading the full object.
 - `semantic_search_document(query, token_limit)` — FAISS semantic search
 - `streaming_get_short_answer(query, mode, save_answer)` (line 1828) — FAISS + LLM answer
 - `get_doc_data(top_key, inner_key)` (line 1167) — lazy-load persisted data
@@ -271,6 +316,82 @@ storage/conversations/{user_email}_{conv_id}/
 ```
 
 Large data stores use `.partial` (binary dill) + `.json` (metadata/small) pair format. File locking is handled via `locks/{doc_id}.lock`.
+
+> **Legacy path.** The `uploaded_documents/` tree shown above is the pre-canonical per-conversation layout. New uploads go to the canonical doc store at `storage/documents/{user_hash}/{doc_id}/` (see section 2.5a below). The `/abs/path/` values in the JSON tuples now point to canonical paths for new docs. Old per-conversation paths are lazily migrated on first load and eagerly migrated at startup by `migrate_docs.py`. The file structure inside each `{doc_id}/` directory is identical regardless of which parent it lives under.
+
+
+### 2.5a Canonical Doc Store (storage/documents/)
+
+Since the canonical doc store was introduced, all new document uploads (conversation docs and message attachments) are stored in a shared, user-scoped directory instead of under each conversation. This means multiple conversations can reference the same physical files without duplication.
+
+**Canonical layout:**
+
+```
+storage/documents/
+└── {user_hash}/                          # md5(user_email), 32-char hex
+    ├── _sha256_index.json                # SHA-256 content dedup index
+    ├── _sha256_index.json.lock           # FileLock for index writes
+    ├── {doc_id_1}/                       # one directory per document
+    │   ├── {doc_id_1}.index              # Serialized DocIndex (dill)
+    │   ├── {doc_id_1}-raw_data.json
+    │   ├── {doc_id_1}-indices.partial    # (if promoted to ImmediateDocIndex)
+    │   └── original_file.pdf
+    └── {doc_id_2}/
+        └── ...
+```
+
+**Key concepts:**
+
+- `doc_id` is an mmh3 hash of (source + filetype + doc_type). It serves as the directory name and the primary key within a user's store.
+- `user_hash` is `hashlib.md5(email.encode()).hexdigest()`, the same hash used for global docs.
+- SHA-256 is a separate, content-based hash used purely for dedup. Two files with different names but identical bytes will map to the same `doc_id` via the SHA-256 index.
+
+**`_sha256_index.json` structure:**
+
+```json
+{
+  "<sha256_hex>": "<doc_id>",
+  "<sha256_hex>": "<doc_id>"
+}
+```
+
+Written atomically (temp file + `os.replace`). Protected by a FileLock at `_sha256_index.json.lock` (30s timeout).
+
+**`store_or_get()` flow (canonical_docs.py):**
+
+1. If `source_path` is a local file, compute its SHA-256 hash.
+2. Look up the hash in `_sha256_index.json`. If a matching `doc_id` exists and its canonical directory is present, return immediately (dedup hit).
+3. Acquire a per-SHA file lock at `{canonical_parent}/.sha_{sha256[:16]}.lock` to prevent races on identical concurrent uploads.
+4. Call the provided `build_fn(canonical_parent)` to create the DocIndex inside `{user_hash}/{doc_id}/`.
+5. Register the SHA-256 to doc_id mapping in the index for future lookups.
+6. Return the canonical storage path.
+
+URL sources bypass the SHA-256 check (no local file to hash) but still go through the canonical directory structure.
+
+**Lazy migration (on first access):**
+
+When `Conversation.get_uploaded_documents()` loads a tuple whose `doc_storage` points to a legacy per-conversation path (detected by `is_canonical_path()` returning `False`), it calls `migrate_doc_to_canonical()`. This function:
+
+1. Moves the per-conversation `{doc_id}/` directory into `storage/documents/{user_hash}/{doc_id}/`.
+2. Registers the file's SHA-256 hash in the dedup index.
+3. Updates the tuple's `doc_storage` in the conversation's JSON list.
+4. If the canonical directory already exists (another conversation migrated the same doc first), removes the old directory and returns the existing canonical path.
+5. Falls back to the old path if anything goes wrong, so reads never break.
+
+**Eager startup migration (`migrate_docs.py`):**
+
+At server startup, `run_local_docs_migration()` walks every conversation directory in parallel (default 4 threads via `ThreadPoolExecutor`) and migrates both `uploaded_documents_list` and `message_attached_documents_list` entries that still point to legacy paths. A sentinel file at `storage/documents/.local_migration_done` prevents re-scanning on subsequent restarts. If any conversation fails, the sentinel is not written and migration retries on the next startup.
+
+**Backward compatibility summary:**
+
+| Scenario | Behavior |
+|----------|----------|
+| New upload | Stored directly in `storage/documents/{user_hash}/{doc_id}/` via `store_or_get()` |
+| Old conversation loaded | Lazy migration moves doc to canonical store on first `get_uploaded_documents()` call |
+| Server startup | Eager migration via `migrate_docs.py` processes all conversations in parallel |
+| Clone conversation | Tuples are copied as-is; both conversations share the same canonical files |
+| Promote to global | Copies from canonical store to `storage/global_docs/`; does NOT delete the canonical source |
+| Tuple format | 4-tuple `(doc_id, doc_storage, doc_source, display_name)` unchanged; `doc_storage` now points to canonical path |
 
 ### 2.6 Numbering: #doc_N
 
@@ -398,7 +519,7 @@ Promote conversation doc → global doc:
 6. Register in `GlobalDocuments` table via `add_global_doc()`
 7. Remove from `conversation.uploaded_documents_list`
 8. Rebuild `conversation.doc_infos`
-9. Delete original source storage dir
+9. Delete original source storage dir **only if it is NOT a canonical path**. If the source lives in `storage/documents/` (canonical store), it is kept intact because other conversations may reference it. The check uses `is_canonical_path()` from `canonical_docs.py`.
 10. Save conversation
 
 ### 3.3 Database Schema
@@ -550,6 +671,7 @@ File locking: `locks/{doc_id}.lock` (FileLock) prevents concurrent write corrupt
 
 **`AppState`** (`endpoints/state.py`, line 18):
 - `global_docs_dir: str` (line 57) — path to `storage/global_docs/`
+- `docs_folder: str` — path to `storage/documents/` (canonical doc store root, added for canonical store support)
 
 **Initialization** (`server.py`, lines 343, 351, 379):
 ```python
@@ -557,6 +679,14 @@ global_docs_dir = os.path.join(os.getcwd(), folder, "global_docs")
 os.makedirs(global_docs_dir, exist_ok=True)
 init_state(..., global_docs_dir=global_docs_dir, ...)
 ```
+
+```python
+docs_folder = os.path.join(os.getcwd(), folder, "documents")
+os.makedirs(docs_folder, exist_ok=True)
+init_state(..., docs_folder=docs_folder, ...)
+```
+
+At startup, `run_local_docs_migration()` from `migrate_docs.py` is also called to eagerly migrate legacy per-conversation docs into the canonical store (see section 2.5a).
 
 ---
 
@@ -567,6 +697,7 @@ init_state(..., global_docs_dir=global_docs_dir, ...)
 
 ### Modified Files (Unified Doc Modal)
 - `interface/global-docs-manager.js` — refactored to delegate to DocsManagerUtils
+- `interface/local-docs-manager.js` — contains `DocsManagerUtils` (shared upload, validation, drop-area utilities used by both `LocalDocsManager` and `GlobalDocsManager`)
 - `interface/interface.html` — `#conversation-docs-modal`, `#conversation-docs-button`, script tag
 - `interface/common-chat.js` — `setupAddDocumentForm` stub, `setupPaperclipAndPageDrop`, deleted `renderDocuments` and `listDocuments`
 
@@ -578,6 +709,10 @@ init_state(..., global_docs_dir=global_docs_dir, ...)
 - `database/global_docs.py` — GlobalDocuments CRUD
 - `database/connection.py` — GlobalDocuments table schema
 - `endpoints/state.py` — AppState with global_docs_dir
+
+### New Files (Canonical Doc Store)
+- `canonical_docs.py` — `store_or_get()`, `migrate_doc_to_canonical()`, SHA-256 dedup index, `is_canonical_path()`
+- `migrate_docs.py` — eager parallel migration of legacy per-conversation docs at startup
 
 ---
 
@@ -592,6 +727,7 @@ User → #conversation-docs-button → #conversation-docs-modal
    extracts display_name from request.form (file) or request.json (URL)
 → conversation.add_fast_uploaded_document(path, display_name=display_name)   [Conversation.py:1601]
    sets doc_index._display_name, stores 4-tuple (doc_id, storage, source, display_name)
+   storage path is canonical: storage/documents/{user_hash}/{doc_id}/ via store_or_get()
 → create_fast_document_index()   [DocIndex.py:3066]
 → FastDocIndex   (BM25, 1-3s; _display_name=None by default, set after construction)
 → get_short_info() returns {doc_id, source, title, short_summary, display_name}
@@ -634,7 +770,7 @@ User → promote button in #conv-docs-list
 → update DocIndex._storage, save_local()
 → add_global_doc()   [database/global_docs.py:28]
 → remove from conversation.uploaded_documents_list
-→ rebuild doc_infos, delete original storage dir
+→ rebuild doc_infos, delete original storage dir only if NOT canonical (shared source preserved)
 ```
 
 ### Upload global doc
@@ -657,7 +793,7 @@ User → delete button in #conv-docs-list
 → conversation.delete_uploaded_document(docId)   [Conversation.py:1723]
 → filter uploaded_documents_list, rebuild doc_infos
 → LocalDocsManager.refresh()
-Note: filesystem storage NOT deleted by this route
+Note: filesystem storage NOT deleted by this route (canonical files may be shared across conversations)
 ```
 
 ### Delete global doc

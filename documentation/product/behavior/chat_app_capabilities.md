@@ -226,6 +226,7 @@ Server-side injection:
 - `DELETE /delete_document_from_conversation/<conversation_id>/<document_id>` — remove from list (filesystem not deleted)
 - `POST /attach_doc_to_message/<conversation_id>` — paperclip/drag-drop attachment → `FastDocIndex`
 - `POST /promote_message_doc/<conversation_id>/<doc_id>` — promote attachment to conversation doc → `ImmediateDocIndex`
+- `POST /upgrade_doc_index/<conversation_id>/<doc_id>` — upgrade a `FastDocIndex` to full `DocIndex` (FAISS + LLM) in-place; the upgrade applies to the canonical store, so all conversations referencing the same doc benefit automatically
 
 **Display Name**
 - Optional field in the upload modal ("Display Name (optional)" input).
@@ -248,20 +249,29 @@ Server-side injection:
 - `ImmediateDocIndex` / `DocIndex` (`DocIndex.py`, line 959): FAISS embeddings + LLM title/summary, 15-45 sec. Created on promote.
 - Factory functions: `create_fast_document_index()` (line 3066), `create_immediate_document_index()` (line 2793).
 
-**Persistence**
-- `{conv_storage}/uploaded_documents/{doc_id}/` — per-doc folder with `.index` pickle, FAISS indices, BM25 chunks, source file.
-- `{conv_storage}/{conv_id}-uploaded_documents_list.json` — list of `(doc_id, doc_storage, doc_source, display_name)` 4-tuples (`display_name` may be `None` for older entries; code is backward-compatible with 3-tuples).
+**Persistence (Canonical Doc Store)**
+- **Canonical store**: `storage/documents/{md5(user_email)}/{doc_id}/` — single source of truth for all document indices.  Conversations and global docs hold *references* (tuples with `doc_storage` pointing here), not copies.
+- **SHA-256 dedup index**: `storage/documents/{md5(user_email)}/_sha256_index.json` — maps content hashes to `doc_id` values, catching the same file uploaded under different names.
+- **Dedup behavior**: Same file uploaded to N conversations → indexed once, referenced N times.  Same file under a different name → SHA-256 catches the duplicate.  "Analyze" upgrade in one conversation propagates to all conversations referencing the same doc.
+- **Clone**: Copies only the tuple list — no `shutil.copytree` of doc folders.
+- **Legacy path** (pre-migration): `{conv_storage}/uploaded_documents/{doc_id}/` — lazily migrated to canonical on first access; eager parallel migration at server startup via `migrate_docs.py` (sentinel file `storage/documents/.local_migration_done`).
+- **Tuple format**: `(doc_id, doc_storage, doc_source, display_name)` 4-tuple; `doc_storage` now points to canonical path.
+- `{conv_storage}/{conv_id}-uploaded_documents_list.json` — list of reference tuples (backward-compatible with old 3-tuples).
 - `{conv_storage}/{conv_id}-message_attached_documents_list.json` — same format for attachment-scoped docs.
 
 **Key files**
-- `interface/local-docs-manager.js` — `LocalDocsManager` + `DocsManagerUtils` (new file, unified modal)
+- `canonical_docs.py` — canonical store module: `store_or_get()`, `compute_file_hash()`, SHA-256 index management, lazy migration helper
+- `migrate_docs.py` — eager startup migration: parallel `ThreadPoolExecutor`, progress logging, sentinel file
+- `interface/local-docs-manager.js` — `LocalDocsManager` + `DocsManagerUtils` (unified modal)
 - `interface/common-chat.js` — `setupPaperclipAndPageDrop()`, `setupAddDocumentForm()` (delegates to LocalDocsManager)
 - `interface/interface.html` — `#conversation-docs-modal`, `#conversation-docs-button`
-- `endpoints/documents.py` — all 6 conversation doc routes
-- `Conversation.py` — `add_fast_uploaded_document()` (line 1601), `add_message_attached_document()` (line 1741), `get_uploaded_documents()` (line 1698), `delete_uploaded_document()` (line 1723), `promote_message_attached_document()` (line 1854), `get_uploaded_documents_for_query()` (line 5447)
-- `DocIndex.py` — `DocIndex`, `FastDocIndex`, `create_fast_document_index()`, `create_immediate_document_index()`
+- `endpoints/documents.py` — 7 conversation doc routes (including `/upgrade_doc_index`)
+- `endpoints/state.py` — `AppState` with `docs_folder` field
+- `Conversation.py` — `add_fast_uploaded_document()`, `add_message_attached_document()`, `get_uploaded_documents()`, `delete_uploaded_document()`, `promote_message_attached_document()`, `clone_conversation()` (all accept `docs_folder` param for canonical store)
+- `DocIndex.py` — `DocIndex`, `FastDocIndex`, `create_fast_document_index()`, `create_immediate_document_index()`, `get_short_info()` (now returns `is_fast_index`)
 
-**See also**: `documentation/features/documents/doc_flow_reference.md` — full end-to-end flow reference with function names, line numbers, and storage layouts for all three document types.
+**See also**: `documentation/features/canonical_docs/README.md` — full canonical doc store architecture, SHA-256 dedup, migration strategy.
+**See also**: `documentation/features/documents/doc_flow_reference.md` — full end-to-end flow reference with function names and storage layouts for all three document types.
 
 ---
 
@@ -281,7 +291,7 @@ Server-side injection:
 | `#summary_gdoc_1` | Force summary of global doc 1 |
 | `#dense_summary_gdoc_1` | Force dense summary of global doc 1 |
 | `#full_gdoc_1` | Retrieve raw full text of global doc 1 |
-- Users can **promote** a conversation-scoped document to global via the Promote button in the conversation docs list. The doc is moved (not copied) — no re-indexing required.
+- Users can **promote** a conversation-scoped document to global via the Promote button in the conversation docs list. Promotion is now **canonical-aware**: if the source doc is in the canonical store (`storage/documents/`), it is copied to global docs storage but the canonical source is preserved (not deleted), since other conversations may still reference it. FastDocIndex sources are auto-upgraded to full DocIndex on promote.
 - Docs can be **organized into hierarchical folders** (pure DB metadata — storage paths unchanged) and **tagged** (free-form, many-to-many).
 - Chat input autocomplete: type `#folder:` or `#tag:` to get a dropdown of matching names (debounced).
 
@@ -312,9 +322,10 @@ Server-side injection:
 - `GET /doc_folders/autocomplete?q=<prefix>` — folder name autocomplete for `#folder:` in chat input.
 
 **Persistence**
-- **Database**: `GlobalDocuments` table in `users.db` (composite PK `(doc_id, user_email)`). Added `folder_id` column via idempotent `ALTER TABLE` migration. `GlobalDocFolders` table for folder hierarchy. `GlobalDocTags` table for tag assignments (composite PK `(doc_id, user_email, tag)`).
+- **Database**: `GlobalDocuments` table in `users.db` (composite PK `(doc_id, user_email)`). Columns: `folder_id` (folder assignment), `index_type` (`'fast'` or `'full'` — tracks whether the doc uses `FastDocIndex` or full `DocIndex`). `GlobalDocFolders` table for folder hierarchy. `GlobalDocTags` table for tag assignments (composite PK `(doc_id, user_email, tag)`).
 - **Filesystem**: `storage/global_docs/{md5(user_email)}/{doc_id}/` — storage paths unchanged by folder metadata.
-- Numbering is positional (1-based by `created_at ASC`). Deleting a doc renumbers subsequent ones.
+- **Canonical store integration**: When promoting a conversation doc to global, the canonical source (`storage/documents/`) is preserved if other conversations reference it. Promote copies to global storage; `index_type` is set based on whether the source was a `FastDocIndex` (auto-upgraded on promote) or full `DocIndex`.
+- Numbering is positional (1-based by `created_at DESC`). Deleting a doc renumbers subsequent ones.
 
 **Key files**
 - `database/global_docs.py`, `database/doc_folders.py`, `database/doc_tags.py` — DB CRUD layers.
