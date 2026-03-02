@@ -15,6 +15,8 @@ var ImageGenManager = (function () {
         lastText: '',
         lastPrompt: '',
         lastModel: '',
+        inputImageDataUrl: null,   // base64 data URI of image to edit (optional)
+        inputImageFilename: null,  // original filename of the uploaded input image
     };
 
     var MODELS = [
@@ -93,12 +95,137 @@ var ImageGenManager = (function () {
             });
         }
 
+        // ── Image upload / drag-drop ──────────────────────────────────────
+        _initUploadZone();
+
         console.log('[ImageGenManager] Initialized');
     }
 
     function _bindClick(id, fn) {
         var el = _$(id);
         if (el) el.addEventListener('click', fn);
+    }
+
+    // ── Upload zone ──────────────────────────────────────────────────────
+
+    function _initUploadZone() {
+        var area       = _$('image-gen-upload-area');
+        var fileInput  = _$('image-gen-file-input');
+        if (!area || !fileInput) return;
+
+        // Click on area: if no image loaded → open picker; if collapsed strip → expand
+        area.addEventListener('click', function (e) {
+            var removeBtn     = _$('image-gen-remove-input');
+            var removeBtnFull = _$('image-gen-remove-input-full');
+            var collapseBtn   = _$('image-gen-input-collapse-btn');
+            // Ignore clicks on action buttons (handled separately)
+            if (e.target === removeBtn || e.target === removeBtnFull ||
+                e.target === collapseBtn || (collapseBtn && collapseBtn.contains(e.target))) return;
+            if (state.inputImageDataUrl) {
+                // Toggle collapsed ↔ expanded
+                _setInputImageExpanded(
+                    _$('image-gen-input-collapsed').style.display !== 'none'
+                );
+            } else {
+                fileInput.click();
+            }
+        });
+
+        // File input change
+        fileInput.addEventListener('change', function () {
+            if (this.files && this.files[0]) _loadInputImage(this.files[0]);
+        });
+
+        // Remove button (collapsed strip)
+        _bindClick('image-gen-remove-input', function (e) {
+            e.stopPropagation();
+            _clearInputImage();
+        });
+        // Remove button (expanded view)
+        _bindClick('image-gen-remove-input-full', function (e) {
+            e.stopPropagation();
+            _clearInputImage();
+        });
+        // Collapse button (in expanded view)
+        _bindClick('image-gen-input-collapse-btn', function (e) {
+            e.stopPropagation();
+            _setInputImageExpanded(false);
+        });
+
+        // Drag-and-drop
+        area.addEventListener('dragover', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            area.classList.add('drag-over');
+        });
+        area.addEventListener('dragleave', function (e) {
+            e.stopPropagation();
+            area.classList.remove('drag-over');
+        });
+        area.addEventListener('drop', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            area.classList.remove('drag-over');
+            var files = e.dataTransfer && e.dataTransfer.files;
+            if (files && files[0] && files[0].type.startsWith('image/')) {
+                _loadInputImage(files[0]);
+            }
+        });
+    }
+
+    function _loadInputImage(file) {
+        var reader = new FileReader();
+        reader.onload = function (e) {
+            state.inputImageDataUrl = e.target.result;
+            state.inputImageFilename = file.name || 'image';
+            // Populate all image elements
+            var mini  = _$('image-gen-input-mini');
+            var thumb = _$('image-gen-input-thumb');
+            if (mini)  mini.src  = e.target.result;
+            if (thumb) thumb.src = e.target.result;
+            var fnEl     = _$('image-gen-input-filename');
+            var fnElFull = _$('image-gen-input-filename-full');
+            if (fnEl)     fnEl.textContent     = file.name || '';
+            if (fnElFull) fnElFull.textContent = file.name || '';
+            // Hide placeholder, show collapsed strip (not expanded)
+            var placeholder = _$('image-gen-upload-placeholder');
+            if (placeholder) placeholder.style.display = 'none';
+            _setInputImageExpanded(false);
+            // Shrink the upload area border to match compact strip
+            var area = _$('image-gen-upload-area');
+            if (area) area.style.padding = '6px 10px';
+        };
+        reader.readAsDataURL(file);
+    }
+
+    /** Toggle between collapsed mini-strip and expanded full-thumbnail states. */
+    function _setInputImageExpanded(expand) {
+        var collapsed = _$('image-gen-input-collapsed');
+        var expanded  = _$('image-gen-input-preview');
+        if (collapsed) collapsed.style.display = expand ? 'none'  : 'flex';
+        if (expanded)  expanded.style.display  = expand ? 'block' : 'none';
+    }
+
+    function _clearInputImage() {
+        state.inputImageDataUrl = null;
+        state.inputImageFilename = null;
+        var fileInput = _$('image-gen-file-input');
+        if (fileInput) fileInput.value = '';
+        // Reset all elements
+        var mini  = _$('image-gen-input-mini');
+        var thumb = _$('image-gen-input-thumb');
+        if (mini)  mini.src  = '';
+        if (thumb) thumb.src = '';
+        // Restore placeholder, hide both image states
+        var placeholder = _$('image-gen-upload-placeholder');
+        if (placeholder) placeholder.style.display = '';
+        var collapsed = _$('image-gen-input-collapsed');
+        var expanded  = _$('image-gen-input-preview');
+        if (collapsed) collapsed.style.display = 'none';
+        if (expanded)  expanded.style.display  = 'none';
+        // Restore original upload area padding
+        var area = _$('image-gen-upload-area');
+        if (area) area.style.padding = '10px 12px';
     }
 
     // ── Show / Hide ──────────────────────────────────────────────────────
@@ -235,6 +362,10 @@ var ImageGenManager = (function () {
             deep_context: !!(_$('image-gen-deep-context') || {}).checked,
             better_context: !!(_$('image-gen-better-context') || {}).checked,
         };
+        // Attach input image for editing if one was uploaded
+        if (state.inputImageDataUrl) {
+            payload.input_image = state.inputImageDataUrl;
+        }
 
         var anyContext = payload.include_summary || payload.include_messages ||
                          payload.include_memory_pad || payload.deep_context;
@@ -351,6 +482,7 @@ var ImageGenManager = (function () {
         state.lastImages = [];
         state.lastText = '';
         _clearPreview();
+        _clearInputImage();
     }
 
     // ── Download ─────────────────────────────────────────────────────────

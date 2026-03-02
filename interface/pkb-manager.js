@@ -2231,6 +2231,90 @@ var PKBManager = (function() {
     // ===========================================================================
     // Text Ingestion Functions
     // ===========================================================================
+    // /create-simple-memory Command
+    // ===========================================================================
+
+    /**
+     * Silently analyze statement text and add it as a PKB claim without opening a modal.
+     * Called by the /create-simple-memory slash command.
+     *
+     * Flow:
+     *   1. POST /pkb/analyze_statement to get type/domain/tags via LLM
+     *   2. POST /pkb/claims with tag 'create-simple' appended
+     *   3. showToast with success or failure
+     * If analysis fails, falls back to type='fact', domain='personal'.
+     *
+     * @param {string} text - The statement to store as a memory.
+     */
+    function createSimpleMemory(text) {
+        if (!text || !text.trim()) {
+            showToast('No text provided for /create-simple-memory.', 'warning');
+            return;
+        }
+        var statement = text.trim();
+        var shortPreview = statement.length > 60
+            ? statement.substring(0, 60) + '\u2026'
+            : statement;
+
+        /**
+         * Inner helper: call POST /pkb/claims and show result toast.
+         * @param {string} claimType
+         * @param {string} contextDomain
+         * @param {string[]} tags - already includes 'create-simple'
+         */
+        function doAdd(claimType, contextDomain, tags) {
+            addClaim({
+                statement: statement,
+                claim_type: claimType,
+                context_domain: contextDomain,
+                tags: tags,
+                meta_json: { source: 'manual' }
+            }).done(function(resp) {
+                if (resp.success) {
+                    showToast('\u2713 Memory saved: \u201c' + shortPreview + '\u201d', 'success');
+                } else {
+                    showToast('Failed to save memory: ' + (resp.error || 'unknown error'), 'error');
+                }
+            }).fail(function(err) {
+                var msg = (err.responseJSON && err.responseJSON.error)
+                    ? err.responseJSON.error
+                    : 'Failed to save memory.';
+                showToast(msg, 'error');
+            });
+        }
+
+        // Step 1: analyze statement
+        $.ajax({
+            url: '/pkb/analyze_statement',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ statement: statement }),
+            dataType: 'json'
+        }).done(function(response) {
+            var claimType = 'fact';
+            var contextDomain = 'personal';
+            var tags = ['create-simple'];
+
+            if (response.success && response.analysis) {
+                var a = response.analysis;
+                if (a.claim_type) claimType = a.claim_type;
+                if (a.context_domain) contextDomain = a.context_domain;
+                if (a.tags && a.tags.length > 0) {
+                    // Merge LLM tags + 'create-simple', deduplicating
+                    tags = a.tags.concat(['create-simple']).filter(function(v, i, arr) {
+                        return arr.indexOf(v) === i;
+                    });
+                }
+            }
+            doAdd(claimType, contextDomain, tags);
+        }).fail(function() {
+            // Analysis failed — fall back to safe defaults
+            doAdd('fact', 'personal', ['create-simple']);
+        });
+    }
+
+
+    // ===========================================================================
     
     var currentIngestPlanId = null;
     var currentIngestProposals = [];
@@ -3422,8 +3506,12 @@ var PKBManager = (function() {
         openPKBModal: openPKBModal,
         openAddClaimModal: openAddClaimModal,
         openAddClaimModalWithText: openAddClaimModalWithText,
+        autofillClaimFields: autofillClaimFields,
         checkMemoryUpdates: checkMemoryUpdates,
         showMemoryProposalModal: showMemoryProposalModal,
+
+        // /create-simple-memory slash command
+        createSimpleMemory: createSimpleMemory,
         
         // Data loading
         loadClaims: loadClaims,

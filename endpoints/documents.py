@@ -282,3 +282,49 @@ def upgrade_doc_index_route(conversation_id: str, doc_id: str):
     except Exception as e:
         traceback.print_exc()
         return json_error(str(e), status=500, code="upgrade_failed")
+
+
+@documents_bp.route("/cleanup_orphan_docs", methods=["POST"])
+@limiter.limit("5 per minute")
+@login_required
+def cleanup_orphan_docs_route():
+    """Delete canonical doc folders with zero references across all conversations and global docs.
+
+    Accepts optional JSON body: ``{"dry_run": true}`` to preview without deleting.
+
+    Returns::
+
+        {
+            "status": "ok",
+            "referenced": <int>,   # doc_ids still referenced somewhere
+            "orphaned": <int>,    # orphan folders found
+            "deleted": <int>,    # folders actually deleted (0 if dry_run)
+            "errors": <int>,     # non-fatal errors encountered
+            "dry_run": <bool>
+        }
+    """
+    from flask import session
+    import canonical_docs as _cd
+
+    state = get_state_and_keys()[0]
+    email = session.get("email", "")
+    if not email:
+        return json_error("Not authenticated", status=401, code="not_authenticated")
+
+    body = request.get_json(silent=True) or {}
+    dry_run = bool(body.get("dry_run", False))
+
+    u_hash = _cd.user_hash(email)
+    try:
+        result = _cd.cleanup_orphan_docs(
+            docs_folder=state.docs_folder,
+            u_hash=u_hash,
+            conversation_folder=state.conversation_folder,
+            user_email=email,
+            users_dir=state.users_dir,
+            dry_run=dry_run,
+        )
+        return jsonify({"status": "ok", **result})
+    except Exception as e:
+        traceback.print_exc()
+        return json_error(str(e), status=500, code="cleanup_failed")

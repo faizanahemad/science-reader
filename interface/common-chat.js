@@ -2948,6 +2948,74 @@ function sendMessageCallback(skipAutoClarify) {
         console.warn('Auto-clarify interception failed (proceeding without clarifications):', e);
     }
 
+    // PKB slash command interceptions: /create-memory, /create-entity, /create-context, /create-simple-memory
+    // These must run BEFORE the textarea is cleared so they can grab the parsed text argument.
+    // Each command clears the textarea and returns early (no AI message sent).
+    try {
+        // /create-memory <text>: open claim modal pre-filled + auto-fire LLM analysis
+        if (options.create_memory_text && typeof PKBManager !== 'undefined') {
+            var _cmText = options.create_memory_text.trim();
+            if (_cmText) {
+                PKBManager.openAddClaimModalWithText(_cmText);
+                // Fire autofill after Bootstrap has finished showing the modal (~300 ms)
+                setTimeout(function() {
+                    if (typeof PKBManager.autofillClaimFields === 'function') {
+                        PKBManager.autofillClaimFields();
+                    }
+                }, 350);
+                $('#messageText').val('').trigger('change');
+                return;
+            }
+        }
+
+        // /create-entity <name>: open PKB modal on Entities tab, pre-fill name
+        if (options.create_entity_name && typeof PKBManager !== 'undefined') {
+            var _ceName = options.create_entity_name.trim();
+            if (_ceName) {
+                PKBManager.openPKBModal();
+                // Switch to Entities tab and pre-fill once modal is visible
+                $('#pkb-modal').one('shown.bs.modal', function() {
+                    $('#pkb-entities-tab').tab('show');
+                    setTimeout(function() {
+                        $('#pkb-new-entity-name').val(_ceName).focus();
+                    }, 50);
+                });
+                $('#messageText').val('').trigger('change');
+                return;
+            }
+        }
+
+        // /create-context <name>: open PKB modal on Contexts tab, pre-fill name
+        if (options.create_context_name && typeof PKBManager !== 'undefined') {
+            var _ccName = options.create_context_name.trim();
+            if (_ccName) {
+                PKBManager.openPKBModal();
+                // Switch to Contexts tab and pre-fill once modal is visible
+                $('#pkb-modal').one('shown.bs.modal', function() {
+                    $('#pkb-contexts-tab').tab('show');
+                    setTimeout(function() {
+                        $('#pkb-new-context-name').val(_ccName).focus();
+                    }, 50);
+                });
+                $('#messageText').val('').trigger('change');
+                return;
+            }
+        }
+
+        // /create-simple-memory <text>: silent analyze+add, toast result
+        if (options.create_simple_memory_text && typeof PKBManager !== 'undefined') {
+            var _csmText = options.create_simple_memory_text.trim();
+            if (_csmText) {
+                PKBManager.createSimpleMemory(_csmText);
+                $('#messageText').val('').trigger('change');
+                return;
+            }
+        }
+    } catch (e) {
+        console.warn('PKB slash command interception failed:', e);
+    }
+
+
     // Clear the messageText field only when we are actually sending.
     $('#messageText').val('');
     $('#messageText').trigger('change');
@@ -3854,10 +3922,12 @@ function initializeChatControlsToggleHandler() {
 
 
 // =============================================================================
-// Slash Command Autocomplete (OpenCode)
+// Slash Command Autocomplete (OpenCode + PKB)
 // Provides inline autocomplete for /command references in chat input.
-// Triggered after typing '/' followed by 3+ characters when OpenCode is enabled.
-// =============================================================================
+// - PKB commands (create-memory, create-entity, create-context, create-simple-memory)
+//   are always available (no OpenCode requirement).
+// - OpenCode commands are shown only when OpenCode is enabled.
+// Triggered after typing '/' followed by 3+ characters.
 (function initSlashAutocomplete() {
     'use strict';
 
@@ -3874,6 +3944,14 @@ function initializeChatControlsToggleHandler() {
         { command: 'mcp', description: 'Show MCP server status', icon: 'bi-hdd-network' },
         { command: 'models', description: 'Show available models', icon: 'bi-cpu' },
         { command: 'help', description: 'Show available commands', icon: 'bi-question-circle' }
+    ];
+
+    /** PKB memory commands — always available regardless of OpenCode. */
+    var PKB_COMMANDS = [
+        { command: 'create-memory',        description: 'Open modal to add a memory (with AI auto-fill)',      icon: 'bi-brain',       badge: 'pkb' },
+        { command: 'create-simple-memory', description: 'Silently add a memory via AI (no modal)',             icon: 'bi-lightning',   badge: 'pkb' },
+        { command: 'create-entity',        description: 'Open modal to create an entity (person, org…)',    icon: 'bi-person-plus', badge: 'pkb' },
+        { command: 'create-context',       description: 'Open modal to create a context / memory group',       icon: 'bi-folder-plus', badge: 'pkb' }
     ];
 
     var slashState = {
@@ -3949,8 +4027,10 @@ function initializeChatControlsToggleHandler() {
      * Detects / character and filters commands by prefix.
      */
     function handleSlashInput(textarea) {
-        // Only active when OpenCode is enabled
-        if (!$('#settings-enable_opencode').is(':checked')) {
+        // PKB commands are always available.
+        // OpenCode commands only shown when OpenCode is enabled.
+        var opencodeEnabled = $('#settings-enable_opencode').is(':checked');
+        if (!opencodeEnabled && PKB_COMMANDS.length === 0) {
             hideSlashAutocomplete();
             return;
         }
@@ -3988,11 +4068,22 @@ function initializeChatControlsToggleHandler() {
             return;
         }
 
-        // Filter commands by prefix (case-insensitive)
+        // Filter commands by prefix (case-insensitive).
+        // PKB commands always included; OpenCode commands only when enabled.
         var lowerPrefix = prefix.toLowerCase();
-        var filtered = OPENCODE_COMMANDS.filter(function(cmd) {
-            return cmd.command.indexOf(lowerPrefix) === 0;
+        var filtered = [];
+        PKB_COMMANDS.forEach(function(cmd) {
+            if (cmd.command.indexOf(lowerPrefix) === 0) {
+                filtered.push(cmd); // badge already set to 'pkb' on the object
+            }
         });
+        if (opencodeEnabled) {
+            OPENCODE_COMMANDS.forEach(function(cmd) {
+                if (cmd.command.indexOf(lowerPrefix) === 0) {
+                    filtered.push(cmd); // badge field absent — renderer defaults to 'opencode'
+                }
+            });
+        }
 
         slashState.slashPosition = lastSlashIndex;
         slashState.query = prefix;
@@ -4035,7 +4126,7 @@ function initializeChatControlsToggleHandler() {
                     '<div class="flex-grow-1" style="min-width:0;">' +
                         '<div style="font-size:13px;">' +
                             '<code>/' + escapeHtml(item.command) + '</code>' +
-                            '<span class="badge badge-purple badge-sm ml-1" style="background-color:#6f42c1; color:white;">opencode</span>' +
+                            (item.badge === 'pkb' ? '<span class="badge badge-sm ml-1" style="background-color:#20c997; color:white;">pkb</span>' : '<span class="badge badge-purple badge-sm ml-1" style="background-color:#6f42c1; color:white;">opencode</span>') +
                         '</div>' +
                         '<div style="font-size:11px; color:#6c757d;">' +
                             escapeHtml(item.description) +

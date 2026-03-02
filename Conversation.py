@@ -9779,6 +9779,40 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
         yield {"text": "", "status": "Generating image..."}
 
+        # ── Detect input image for editing ─────────────────────────────────
+        # Priority 1: image(s) attached directly to this chat message (query["images"])
+        # Priority 2: image(s) generated in the immediately preceding assistant turn
+        # We take only the first image found — pass it as input_image to the model.
+        input_image = None
+        try:
+            # Check current message attachments first
+            query_images = query.get("images", []) if isinstance(query, dict) else []
+            if query_images and isinstance(query_images, list):
+                for img in query_images:
+                    if isinstance(img, str) and img.strip().startswith("data:"):
+                        input_image = img.strip()
+                        logger.info("Image gen: using user-uploaded image from current message as input")
+                        break
+            # Fallback: last assistant turn's generated image
+            if not input_image:
+                messages = self.get_field("messages") or []
+                # Walk backwards to find the last assistant message with generated_images
+                for msg in reversed(messages):
+                    if msg.get("sender") == "model":
+                        gen_imgs = msg.get("generated_images", [])
+                        if gen_imgs:
+                            img_info = gen_imgs[0]
+                            img_path = os.path.join(self._storage, "images", img_info.get("filename", ""))
+                            if os.path.isfile(img_path):
+                                import base64 as _b64_edit
+                                with open(img_path, "rb") as _f:
+                                    img_data = _b64_edit.b64encode(_f.read()).decode("utf-8")
+                                input_image = f"data:image/png;base64,{img_data}"
+                                logger.info("Image gen: using last-turn generated image '%s' as input", img_info.get("filename"))
+                        break  # Only check the immediately preceding assistant message
+        except Exception:
+            logger.warning("Image gen: failed to detect input image, proceeding without", exc_info=True)
+
         # 1. Gather context: summary + last 2 messages + deep context (defaults for /image)
         context_parts = None
         try:
@@ -9793,7 +9827,6 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             )
         except Exception:
             logger.warning("Image gen: failed to gather context", exc_info=True)
-
         # 2. Refine prompt via LLM ("better context")
         yield {"text": "", "status": "Refining image prompt..."}
         try:
@@ -9808,6 +9841,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             refined_prompt,
             self.api_keys,
             model=DEFAULT_IMAGE_MODEL,
+            input_image=input_image,
         )
 
         if result.get("error") or not result.get("images"):

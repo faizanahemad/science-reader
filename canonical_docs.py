@@ -419,3 +419,164 @@ def _register_hash_for_doc(
         register_sha256(docs_folder, u_hash, sha256, doc_id)
     except Exception as exc:
         logger.debug("canonical_docs: SHA-256 registration failed for %s: %s", doc_id, exc)
+
+
+# ---------------------------------------------------------------------------
+# Orphan cleanup
+# ---------------------------------------------------------------------------
+
+
+def cleanup_orphan_docs(
+    docs_folder: str,
+    u_hash: str,
+    conversation_folder: str,
+    user_email: str,
+    users_dir: str,
+    dry_run: bool = False,
+) -> dict:
+    """Delete canonical doc folders that are not referenced by any conversation or global doc.
+
+    Scans all conversations for the given user (by matching ``u_hash`` from
+    ``Conversation.user_id``) and all global docs, then deletes any canonical
+    directory under ``docs_folder/<u_hash>/`` whose name (doc_id) is not in the
+    referenced set.  The SHA-256 index is also pruned of entries pointing at
+    deleted doc_ids.
+
+    Parameters
+    ----------
+    docs_folder:
+        Absolute path to ``storage/documents/``.
+    u_hash:
+        MD5 hex digest of the user's email (``user_hash(email)``).
+    conversation_folder:
+        Absolute path to ``storage/conversations/``.
+    user_email:
+        The user's email address, used to query global docs.
+    users_dir:
+        Directory where user DB files live (passed to list_global_docs).
+    dry_run:
+        If True, log what *would* be deleted but do not actually delete.
+
+    Returns
+    -------
+    dict
+        ``{referenced: int, orphaned: int, deleted: int, errors: int, dry_run: bool}``
+    """
+    stats = {"referenced": 0, "orphaned": 0, "deleted": 0, "errors": 0, "dry_run": dry_run}
+
+    canonical_parent = get_canonical_parent(docs_folder, u_hash)
+    if not os.path.isdir(canonical_parent):
+        logger.info("canonical_docs.cleanup: no canonical parent at %s — nothing to clean", canonical_parent)
+        return stats
+
+    # ------------------------------------------------------------------
+    # 1. Collect all referenced doc_ids from conversations
+    # ------------------------------------------------------------------
+    referenced: set[str] = set()
+
+    if os.path.isdir(conversation_folder):
+        for conv_name in os.listdir(conversation_folder):
+            conv_path = os.path.join(conversation_folder, conv_name)
+            if not os.path.isdir(conv_path):
+                continue
+            try:
+                from Conversation import Conversation
+                conv = Conversation.load_local(conv_path)
+                if conv is None:
+                    continue
+                # Only process conversations belonging to this user
+                if user_hash(conv.user_id) != u_hash:
+                    continue
+                for entry in (conv.get_field("uploaded_documents_list") or []):
+                    if entry and len(entry) >= 1:
+                        referenced.add(str(entry[0]))
+                for entry in (conv.get_field("message_attached_documents_list") or []):
+                    if entry and len(entry) >= 1:
+                        referenced.add(str(entry[0]))
+            except Exception as exc:
+                logger.warning(
+                    "canonical_docs.cleanup: could not load conversation %s: %s",
+                    conv_name, exc,
+                )
+                stats["errors"] += 1
+
+    # ------------------------------------------------------------------
+    # 2. Collect referenced doc_ids from global docs
+    # ------------------------------------------------------------------
+    try:
+        from database.global_docs import list_global_docs
+        global_docs = list_global_docs(users_dir=users_dir, user_email=user_email)
+        for row in global_docs:
+            if row.get("doc_id"):
+                referenced.add(str(row["doc_id"]))
+    except Exception as exc:
+        logger.warning("canonical_docs.cleanup: could not load global docs: %s", exc)
+        stats["errors"] += 1
+
+    stats["referenced"] = len(referenced)
+    logger.info(
+        "canonical_docs.cleanup: found %d referenced doc_id(s) for user %s",
+        len(referenced), u_hash,
+    )
+
+    # ------------------------------------------------------------------
+    # 3. Scan canonical parent and find orphans
+    # ------------------------------------------------------------------
+    # Files (sentinel, lock, tmp) that are not subdirectories — skip them
+    _SKIP_NAMES = {_SHA256_INDEX_FILENAME, _SHA256_INDEX_FILENAME + ".lock"}
+
+    for entry_name in os.listdir(canonical_parent):
+        entry_path = os.path.join(canonical_parent, entry_name)
+        if not os.path.isdir(entry_path):
+            continue  # skip files like _sha256_index.json
+        if entry_name in _SKIP_NAMES:
+            continue
+        if entry_name in referenced:
+            continue  # still in use
+
+        stats["orphaned"] += 1
+        if dry_run:
+            logger.info(
+                "canonical_docs.cleanup [DRY RUN]: would delete orphan doc_id=%s at %s",
+                entry_name, entry_path,
+            )
+        else:
+            try:
+                import shutil as _shutil
+                _shutil.rmtree(entry_path)
+                stats["deleted"] += 1
+                logger.info(
+                    "canonical_docs.cleanup: deleted orphan doc_id=%s at %s",
+                    entry_name, entry_path,
+                )
+            except Exception as exc:
+                logger.error(
+                    "canonical_docs.cleanup: failed to delete %s: %s",
+                    entry_path, exc,
+                )
+                stats["errors"] += 1
+
+    # ------------------------------------------------------------------
+    # 4. Prune SHA-256 index of entries pointing at deleted doc_ids
+    # ------------------------------------------------------------------
+    if not dry_run and stats["deleted"] > 0:
+        lock = FileLock(_sha256_lock_path(docs_folder, u_hash), timeout=30)
+        try:
+            with lock:
+                index = _load_sha256_index(docs_folder, u_hash)
+                pruned = {k: v for k, v in index.items() if v in referenced}
+                if len(pruned) < len(index):
+                    _save_sha256_index(docs_folder, u_hash, pruned)
+                    logger.info(
+                        "canonical_docs.cleanup: pruned SHA-256 index from %d to %d entries",
+                        len(index), len(pruned),
+                    )
+        except Exception as exc:
+            logger.warning("canonical_docs.cleanup: failed to prune SHA-256 index: %s", exc)
+            stats["errors"] += 1
+
+    logger.info(
+        "canonical_docs.cleanup: done — referenced=%d orphaned=%d deleted=%d errors=%d dry_run=%s",
+        stats["referenced"], stats["orphaned"], stats["deleted"], stats["errors"], dry_run,
+    )
+    return stats

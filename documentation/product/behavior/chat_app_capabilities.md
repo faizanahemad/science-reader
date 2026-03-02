@@ -687,6 +687,43 @@ The backend resolver (`resolve_reference()`) uses suffix-based routing for fast 
 
 ---
 
+### 6d) PKB Memory Slash Commands
+
+**What it does**
+
+Four slash commands for creating PKB memories and objects directly from the chat input, without leaving the conversation.
+
+| Command | Behavior |
+|---|---|
+| `/create-memory <text>` | Opens the Add Memory modal pre-filled with `<text>`, then auto-fires the LLM analysis (same as clicking "Auto-fill") to populate type, domain, tags, and possible questions. User reviews in modal and clicks Save. |
+| `/create-simple-memory <text>` | Silently calls `POST /pkb/analyze_statement` to classify `<text>`, then calls `POST /pkb/claims` to add it immediately — no modal. Appends the tag `create-simple` to all such claims. Shows a fixed-position toast: ✓ Memory saved / failure message. Falls back to `fact`/`personal` if analysis fails. |
+| `/create-entity <name>` | Opens the PKB modal on the Entities tab with `<name>` pre-filled in the entity name field. User selects entity type and clicks Add Entity. |
+| `/create-context <name>` | Opens the PKB modal on the Contexts tab with `<name>` pre-filled in the context name field. User optionally adds `@friendly_id` and description, then clicks Create Context. |
+
+**Key behaviors**
+- All four commands are intercepted in `sendMessageCallback()` before the textarea is cleared — the message is **never sent to the AI**.
+- Commands are parsed from the **first line only** (outside backtick spans), matching the pattern of other chat slash commands.
+- Bare commands without arguments (e.g. `/create-memory` alone) are silently stripped with no action.
+- `/create-memory` uses `PKBManager.openAddClaimModalWithText()` then calls `PKBManager.autofillClaimFields()` after a 350 ms delay to let Bootstrap finish showing the modal.
+- `/create-entity` and `/create-context` use Bootstrap's `shown.bs.modal` event to switch tabs and pre-fill the name field after the modal is fully visible.
+
+**Autocomplete**
+- All four commands appear in the slash command autocomplete dropdown (triggered by typing `/` followed by 3+ characters).
+- They show with a green **pkb** badge (teal `#20c997`) to visually distinguish them from OpenCode commands (purple **opencode** badge).
+- PKB commands are always visible in autocomplete regardless of whether OpenCode is enabled.
+
+**API used**
+- `/create-simple-memory`: `POST /pkb/analyze_statement` → `POST /pkb/claims`
+- `/create-memory`: `POST /pkb/analyze_statement` (via auto-fill button inside modal)
+- `/create-entity`, `/create-context`: use existing UI modal forms — no new API calls
+
+**Key files**
+- `interface/parseMessageForCheckBoxes.js` — 4 `processCommand()` calls parse the text argument from the first line
+- `interface/common-chat.js` — PKB command interception block in `sendMessageCallback()`; `PKB_COMMANDS` array in the autocomplete IIFE with `badge: 'pkb'`; badge color branching in `showSlashAutocomplete()`
+- `interface/pkb-manager.js` — `createSimpleMemory(text)` function; public exports of `autofillClaimFields` and `createSimpleMemory`
+
+---
+
 ### 7) “Doubt clearing” as a first-class workflow
 
 **What it does**
@@ -750,7 +787,7 @@ The backend resolver (`resolve_reference()`) uses suffix-based routing for fast 
 
 **What it does**
 
-Two entry points for AI image generation via OpenRouter (Nano Banana 2 / `google/gemini-3.1-flash-image-preview`):
+Two entry points for AI image generation **and editing** via OpenRouter (Nano Banana 2 / `google/gemini-3.1-flash-image-preview`):
 
 **A. `/image` slash command (inline chat)**
 
@@ -758,12 +795,18 @@ Two entry points for AI image generation via OpenRouter (Nano Banana 2 / `google
 - `parseMessageForCheckBoxes()` strips `/image` and sets `generate_image: true` in `checkboxes`.
 - `Conversation.reply()` detects the flag and calls `_handle_image_generation()` instead of the normal LLM path.
 - The handler:
-  1. Gathers conversation context (summary + last 2 messages + deep context extraction).
-  2. Refines the raw prompt via a cheap LLM (`CHEAP_LLM[0]`) acting as an image-prompt engineer.
-  3. Calls Nano Banana 2 via OpenRouter's chat completions API with `modalities: ["image", "text"]`.
-  4. Saves the PNG to `{conv_storage}/images/img_{sha256_16}.png`.
-  5. Streams the response as `![Generated Image](/api/conversation-image/{conv_id}/{filename})`.
-  6. Persists the turn; stores `generated_images` metadata on the assistant message.
+  1. **Detects an input image** (for editing) via two priority rules:
+     - Priority 1: image(s) attached to the current message (`query["images"]`) — first `data:` URI used.
+     - Priority 2: last preceding assistant message with `generated_images` metadata — loaded from disk.
+     - If neither found: plain text-to-image generation.
+  2. Gathers conversation context (summary + last 2 messages + deep context extraction).
+  3. Refines the raw prompt via a cheap LLM (`CHEAP_LLM[0]`) acting as an image-prompt engineer.
+  4. Calls the image model via OpenRouter's chat completions API with `modalities: ["image", "text"]`.
+     - If an input image was found: message content is a multipart array `[{image_url}, {text}]` so the model can edit/transform.
+     - If no input image: message content is a plain string (pure generation).
+  5. Saves the PNG to `{conv_storage}/images/img_{sha256_16}.png`.
+  6. Streams the response as `![Generated Image](/api/conversation-image/{conv_id}/{filename})`.
+  7. Persists the turn; stores `generated_images` metadata on the assistant message.
 - The image renders as a full inline image in the message card with a hover-reveal **Download** button.
 - Clicking the image opens it full-size in a new tab.
 - On the **next user turn**, the stored PNG is loaded and included as a base64 `image_url` content part in the LLM call, so vision-capable models can "see" and reason about the generated image.
@@ -771,7 +814,9 @@ Two entry points for AI image generation via OpenRouter (Nano Banana 2 / `google
 **B. Image Generation Modal (Settings → Image button)**
 
 - Accessible from Settings → Actions → **Image** button (green).
-- Full form UI: prompt textarea, model dropdown, conversation context checkboxes, "Better context" refinement toggle.
+- Full form UI: prompt textarea, **image upload/drop zone** (optional — for editing), model dropdown, conversation context checkboxes, "Better context" refinement toggle.
+- **Image upload zone** (between prompt and model selector): dashed drop area. Drag-and-drop or click-to-upload any image. After upload, the zone collapses to a compact mini-strip (thumbnail + filename + click-to-expand). Clicking the strip expands it to the full thumbnail; clicking "collapse" or × removes it.
+- When an input image is present, it is sent as `input_image` (base64 data URI) in the `POST /api/generate-image` payload, and the model receives it alongside the prompt for editing.
 - Not tied to conversation streaming — fires a direct `POST /api/generate-image` and renders the result in the modal with a download button.
 
 **API**
@@ -796,6 +841,7 @@ Two entry points for AI image generation via OpenRouter (Nano Banana 2 / `google
 {
   "prompt": "A futuristic city at dusk",
   "model": "google/gemini-3.1-flash-image-preview",
+  "input_image": "data:image/png;base64,...  (optional — base64 data URI of image to edit)",
   "conversation_id": "...",
   "include_summary": true,
   "include_messages": true,
@@ -804,7 +850,6 @@ Two entry points for AI image generation via OpenRouter (Nano Banana 2 / `google
   "deep_context": false,
   "better_context": true
 }
-```
 
 **Response:**
 
@@ -850,12 +895,12 @@ When "Better context" is enabled (default on for the modal; always on for the `/
 
 **Key files**
 
-- `endpoints/image_gen.py` — `image_gen_bp` blueprint with `/api/generate-image`, `/api/conversation-image/<conv_id>/<filename>`, `generate_image_from_prompt()`, `_refine_prompt_with_llm()`, `BETTER_CONTEXT_SYSTEM` prompt, `DEFAULT_IMAGE_MODEL`
-- `Conversation._handle_image_generation()` (`Conversation.py`) — `/image` command handler
+- `endpoints/image_gen.py` — `generate_image_from_prompt(prompt, keys, model, referer, input_image=None)` (editing via multipart content when `input_image` set), `/api/generate-image` endpoint (accepts `input_image` field)
+- `Conversation._handle_image_generation()` (`Conversation.py`) — `/image` command handler; detects input image from current message attachments or last-turn `generated_images`
 - `Conversation.reply()` (`Conversation.py` line ~6668) — `generate_image` flag intercept
 - `Conversation._reply()` image context injection (~line 8843) — includes stored PNGs in LLM vision context
-- `interface/image-gen-manager.js` — modal frontend (`ImageGenManager` IIFE)
-- `interface/interface.html` — modal HTML (`#image-gen-modal`), "Image" button (`#settings-generate-image-button`), MutationObserver for download buttons, CSS for chat card images
+- `interface/image-gen-manager.js` — modal frontend: `_initUploadZone()`, `_loadInputImage()`, `_clearInputImage()`, `_setInputImageExpanded()`, `state.inputImageDataUrl`
+- `interface/interface.html` — `#image-gen-upload-area` (drop zone), `#image-gen-input-collapsed` (mini-strip), `#image-gen-input-preview` (expanded thumb), `#image-gen-modal`
 - `interface/parseMessageForCheckBoxes.js` line 133 — `/image` command registration
 - `endpoints/__init__.py` — `image_gen_bp` blueprint registration
 

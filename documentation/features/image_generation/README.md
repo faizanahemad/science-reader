@@ -258,6 +258,7 @@ Rate limit: 10/minute. Auth required.
 {
   "prompt": "string (required)",
   "model": "google/gemini-3.1-flash-image-preview",
+  "input_image": "data:image/png;base64,...  (optional — base64 data URI of image to edit)",
   "conversation_id": "optional, for context gathering",
   "include_summary": false,
   "include_messages": false,
@@ -344,3 +345,74 @@ Returns `image/png` binary. Used as the `src` in rendered `<img>` tags.
 - **Automatic vision context**: Generated images are silently included in the next LLM call, enabling natural follow-up questions ("make it darker", "add a mountain in the background") using the model's vision capability.
 - **Conversation-aware prompts**: The "better context" refinement step incorporates conversation summary, recent messages, deep extracted context, and memory pad — producing prompts grounded in the user's actual conversation rather than just the raw text input.
 - **Two workflows**: The `/image` command for in-flow generation (no context switching) and the modal for standalone generation with granular control over context and model.
+- **Image editing**: Both entry points support image editing — the modal via a drag-and-drop or click-to-upload zone, the `/image` command by automatically detecting the last generated image or a user-uploaded image in the current message as an `input_image` for the model.
+
+---
+
+## Image Editing
+
+Image editing allows passing an existing image to the model alongside the prompt. The model decides whether to edit the image, use it as a style reference, or generate something new based on both.
+
+### Modal (drag-drop or upload)
+
+A dashed upload zone appears between the prompt textarea and model selector. You can:
+- **Drag and drop** any image file onto the zone
+- **Click the zone** to open a file picker
+
+Once an image is loaded, a thumbnail is shown with an ×  remove button. When Generate is clicked, the image is included as `input_image` in the API request.
+
+**Clearing**: the Clear button clears both the output preview and the uploaded input image.
+
+### `/image` Command (auto-detect)
+
+The `/image` command automatically detects an input image to pass via two priority rules:
+
+1. **Current message attachment** (priority 1): if the user attached image(s) to the message that contains the `/image` command (via `query["images"]`), the first one is used.
+2. **Last-turn generated image** (priority 2): if the immediately preceding assistant message has `generated_images` metadata, its first image is loaded from disk and used.
+
+If neither is found, the command behaves as plain text-to-image generation.
+
+Example flow:
+
+```
+/image a mountain at sunrise          ← generates a new image
+[assistant shows an image]
+/image make it night time              ← auto-detects last image, edits it
+```
+
+### API change
+
+`POST /api/generate-image` now accepts an optional `input_image` field:
+
+```json
+{
+  "prompt": "make the sky purple",
+  "input_image": "data:image/png;base64,...",
+  "model": "google/gemini-3.1-flash-image-preview",
+  ...
+}
+```
+
+When provided, the OpenRouter call changes from a plain string `content` to a multipart array:
+
+```json
+{
+  "messages": [{
+    "role": "user",
+    "content": [
+      {"type": "image_url", "image_url": {"url": "data:image/png;base64,..."}},
+      {"type": "text", "text": "make the sky purple"}
+    ]
+  }],
+  "modalities": ["image", "text"]
+}
+```
+
+### Files modified
+
+| File | Change |
+|---|---|
+| `endpoints/image_gen.py` | `generate_image_from_prompt()` gains `input_image` param; endpoint parses `input_image` from request JSON; OpenRouter call builds multipart content when `input_image` present; endpoint body refactored to call shared function |
+| `Conversation.py` | `_handle_image_generation()` detects input image (current message attachment → last-turn generated → None); passes `input_image` to `generate_image_from_prompt()` |
+| `interface/interface.html` | Upload zone HTML added to `#image-gen-modal`; CSS for drag-over state |
+| `interface/image-gen-manager.js` | `_initUploadZone()`, `_loadInputImage()`, `_clearInputImage()` added; `state.inputImageDataUrl` tracked; payload includes `input_image` when set; `clearResult()` clears input image |

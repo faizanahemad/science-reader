@@ -103,7 +103,7 @@ Defined in `endpoints/documents.py` (line 230). This endpoint upgrades a `FastDo
 ### Behavior Notes
 
 - **Idempotent**: If the doc already has a full `DocIndex`, the endpoint returns success without re-indexing.
-- **Intended UI trigger**: The "Analyze" button in the local docs panel. UI wiring for this button is pending as of this writing.
+- **Intended UI trigger**: The "Analyze" button in the local docs panel. Clicking the button calls `LocalDocsManager.analyzeDoc(conversationId, docId)` in `interface/local-docs-manager.js`, which POSTs to this endpoint. The button is only rendered when `doc.is_fast_index === true`.
 - **Duration**: Upgrade takes 15-45 seconds. The endpoint blocks until completion.
 - **Error handling**: If the upgrade fails (LLM timeout, parsing error), the original `FastDocIndex` remains intact. The endpoint returns a 500 with an error message.
 

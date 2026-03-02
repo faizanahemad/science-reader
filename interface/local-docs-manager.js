@@ -303,6 +303,19 @@ var LocalDocsManager = {
     },
 
     /**
+     * POST upgrade_doc_index — upgrades a FastDocIndex to a full DocIndex.
+     * @param {string} conversationId
+     * @param {string} docId
+     * @returns {jQuery.Deferred} resolves with {status, is_fast_index}
+     */
+    analyzeDoc: function (conversationId, docId) {
+        return $.ajax({
+            url: '/upgrade_doc_index/' + conversationId + '/' + docId,
+            type: 'POST'
+        });
+    },
+
+    /**
      * Upload a File or URL to a conversation using XHR with progress.
      * On success, resets the form and refreshes the list.
      *
@@ -421,6 +434,29 @@ var LocalDocsManager = {
                 });
             }(doc));
 
+            // Analyze button — upgrade FastDocIndex to full DocIndex (shown only when is_fast_index is true)
+            var $analyzeBtn = null;
+            if (doc.is_fast_index) {
+                $analyzeBtn = $('<button class="btn btn-sm btn-outline-warning mr-1" title="Analyze: build full index with embeddings and summaries"></button>')
+                    .append('<i class="fa fa-flask"></i>');
+                (function (docRef) {
+                    $analyzeBtn.click(function () {
+                        var $btn = $(this);
+                        $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i>');
+                        LocalDocsManager.analyzeDoc(conversationId, docRef.doc_id)
+                            .done(function () {
+                                LocalDocsManager.refresh(conversationId);
+                                if (typeof showToast === 'function') showToast('Document analysis complete. Full index built.', 'success');
+                            })
+                            .fail(function (xhr) {
+                                $btn.prop('disabled', false).html('<i class="fa fa-flask"></i>');
+                                var msg = (xhr.responseJSON && xhr.responseJSON.error) ? xhr.responseJSON.error : 'Error analyzing document.';
+                                alert(msg);
+                            });
+                    });
+                }(doc));
+            }
+
             // Delete button
             var $deleteBtn = $('<button class="btn btn-sm btn-outline-danger" title="Delete"></button>')
                 .append('<i class="fa fa-trash"></i>');
@@ -439,7 +475,9 @@ var LocalDocsManager = {
                 });
             }(doc));
 
-            $actions.append($viewBtn).append($downloadBtn).append($promoteBtn).append($deleteBtn);
+            $actions.append($viewBtn).append($downloadBtn).append($promoteBtn);
+            if ($analyzeBtn) { $actions.append($analyzeBtn); }
+            $actions.append($deleteBtn);
             $item.append($info).append($actions);
             $list.append($item);
         });

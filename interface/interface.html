@@ -3708,6 +3708,34 @@ greet("World");</code></pre>
             <!-- Prompt -->
             <textarea id="image-gen-prompt" class="form-control mb-2" rows="3" placeholder="Describe the image you want to generate..." style="resize:vertical;"></textarea>
 
+            <!-- Input image upload (for editing) -->
+            <div id="image-gen-upload-area" class="mb-2" style="border:2px dashed #ced4da; border-radius:6px; padding:10px 12px; background:#f8f9fa; cursor:pointer; transition:border-color 0.15s, background 0.15s;">
+                <input type="file" id="image-gen-file-input" accept="image/*" style="display:none;">
+                <!-- Empty state: drop / click prompt -->
+                <div id="image-gen-upload-placeholder" class="text-muted small text-center" style="pointer-events:none;">
+                    <i class="bi bi-cloud-upload" style="font-size:1.1rem; margin-right:4px;"></i>
+                    <span>Drop an image here or <u>click to upload</u> <span class="text-muted">(optional &mdash; for editing)</span></span>
+                </div>
+                <!-- Collapsed state: compact strip shown after upload -->
+                <div id="image-gen-input-collapsed" style="display:none; align-items:center; gap:8px;">
+                    <img id="image-gen-input-mini" src="" alt="" style="width:28px; height:28px; object-fit:cover; border-radius:3px; border:1px solid #dee2e6; flex-shrink:0;">
+                    <span id="image-gen-input-filename" class="text-muted small" style="flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;"></span>
+                    <span class="text-muted small" style="flex-shrink:0; pointer-events:none;"><i class="bi bi-arrows-expand" style="font-size:0.75rem;"></i> click to expand</span>
+                    <button type="button" id="image-gen-remove-input" title="Remove image" style="flex-shrink:0; background:#dc3545; color:#fff; border:none; border-radius:50%; width:18px; height:18px; font-size:10px; line-height:18px; text-align:center; cursor:pointer; padding:0;">&times;</button>
+                </div>
+                <!-- Expanded state: full thumbnail shown when user clicks the strip -->
+                <div id="image-gen-input-preview" style="display:none; position:relative; text-align:center;">
+                    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+                        <span id="image-gen-input-filename-full" class="text-muted small" style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:80%;"></span>
+                        <div style="display:flex; gap:6px; flex-shrink:0;">
+                            <span id="image-gen-input-collapse-btn" title="Collapse" style="cursor:pointer; font-size:0.75rem; color:#6c757d;"><i class="bi bi-arrows-collapse"></i> collapse</span>
+                            <button type="button" id="image-gen-remove-input-full" title="Remove image" style="background:#dc3545; color:#fff; border:none; border-radius:50%; width:18px; height:18px; font-size:10px; line-height:18px; text-align:center; cursor:pointer; padding:0;">&times;</button>
+                        </div>
+                    </div>
+                    <img id="image-gen-input-thumb" src="" alt="Input image" style="max-height:120px; max-width:100%; border-radius:4px; border:1px solid #dee2e6;">
+                </div>
+            </div>
+
             <!-- Model selection -->
             <div class="d-flex align-items-center mb-2" style="gap:8px;">
                 <label class="text-muted small mb-0" for="image-gen-model" style="white-space:nowrap;">Model:</label>
@@ -3779,6 +3807,10 @@ greet("World");</code></pre>
         /* ── Image Generation Modal ── */
         #image-gen-modal img { transition: opacity 0.3s ease; }
         #image-gen-modal img:hover { opacity: 0.85; }
+        #image-gen-upload-area:hover, #image-gen-upload-area.drag-over {
+            border-color: #6c757d;
+            background: #e9ecef;
+        }
         @media (max-width: 767.98px) {
             #image-gen-modal > div {
                 width: 98% !important;

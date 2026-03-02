@@ -298,10 +298,10 @@ The `run_local_docs_migration()` function accepts a `max_workers` parameter (def
 
 | File | Description |
 |------|-------------|
-| `canonical_docs.py` | Core module. SHA-256 hashing, index management, `store_or_get`, `migrate_doc_to_canonical`, path helpers. |
+| `canonical_docs.py` | Core module. SHA-256 hashing, index management, `store_or_get`, `migrate_doc_to_canonical`, path helpers. `cleanup_orphan_docs()` for orphan folder removal. |
 | `migrate_docs.py` | Eager startup migration. `ThreadPoolExecutor`-based parallel migration of all conversations, sentinel file mechanism. |
-| `Conversation.py` | Five methods updated with `docs_folder` parameter: `add_fast_uploaded_document`, `add_uploaded_document`, `add_message_attached_document`, `promote_message_attached_document`, `get_uploaded_documents`. Clone logic updated to skip file copying. |
-| `endpoints/documents.py` | `POST /upgrade_doc_index/<conversation_id>/<doc_id>` endpoint. In-place upgrade from FastDocIndex to full DocIndex at canonical path. |
+| `Conversation.py` | Six methods updated with `docs_folder` parameter: `add_fast_uploaded_document`, `add_uploaded_document`, `add_message_attached_document`, `promote_message_attached_document`, `get_uploaded_documents`. Clone logic updated to skip file copying. |
+| `endpoints/documents.py` | `POST /upgrade_doc_index/<conversation_id>/<doc_id>` — in-place upgrade from FastDocIndex to full DocIndex. `POST /cleanup_orphan_docs` — delete unreferenced canonical folders. |
 | `endpoints/global_docs.py` | Promote-to-global endpoint updated with canonical path awareness. Skips source deletion for shared canonical paths. |
 | `endpoints/state.py` | `AppState` dataclass with `docs_folder` field. |
 | `database/connection.py` | `index_type` column migration on `GlobalDocuments` table. |
@@ -356,3 +356,90 @@ During migration, if the original source file no longer exists on disk (common f
 ### Sentinel File Guarantees
 
 The sentinel file is only written when `total_failed == 0`. If even one conversation fails to migrate, the sentinel is withheld and migration re-runs on next startup. Since `migrate_doc_to_canonical` is idempotent (it checks whether the canonical directory already exists before copying), re-runs are safe and only process the remaining failures.
+
+
+## Analyze Button (UI)
+
+The Analyze button appears in the conversation docs list for any document where `is_fast_index` is `true`. It lets the user upgrade a `FastDocIndex` (BM25-only) to a full `DocIndex` (FAISS embeddings + LLM summaries) on demand.
+
+### How It Works
+
+1. The `/list_documents_by_conversation/<conversation_id>` endpoint returns `get_short_info()` for each doc, which includes the `is_fast_index` field (set in `DocIndex.py`).
+2. `LocalDocsManager.renderList()` (in `interface/local-docs-manager.js`) checks `doc.is_fast_index`. If `true`, it renders a yellow outlined flask button (`btn-outline-warning`, Font Awesome `fa-flask` icon) with tooltip "Analyze: build full index with embeddings and summaries".
+3. Clicking the button calls `LocalDocsManager.analyzeDoc(conversationId, docId)`, which POSTs to `/upgrade_doc_index/<conversation_id>/<doc_id>`.
+4. While the request is in flight, the button is disabled and shows a spinner. On success, the docs list refreshes and a success toast is shown. On failure, the error from the response JSON is displayed.
+
+### Why This Is Canonical-Aware
+
+Because the upgrade runs in-place at the canonical path, upgrading a doc in one conversation automatically upgrades it for every other conversation that references the same `doc_id`. The next time any conversation loads that doc, it gets the full index without any additional action.
+
+### Relevant Code
+
+| Location | What | Notes |
+|----------|------|-------|
+| `interface/local-docs-manager.js` ~line 305 | `analyzeDoc(conversationId, docId)` | jQuery AJAX POST to `/upgrade_doc_index` |
+| `interface/local-docs-manager.js` ~line 437 | Analyze button in `renderList()` | Shown only when `doc.is_fast_index === true` |
+| `endpoints/documents.py` `upgrade_doc_index_route` | Backend endpoint | In-place upgrade, updates conversation tuple |
+| `DocIndex.py` `get_short_info()` | `is_fast_index` field | Used by list endpoint to flag fast-index docs |
+
+
+## Orphan Cleanup
+
+Over time, canonical doc folders can become unreferenced — for example if a conversation is deleted, or a document is removed from all conversations and global docs but the canonical folder was not cleaned up. The orphan cleanup function identifies and removes these stale folders.
+
+### cleanup_orphan_docs() (canonical_docs.py)
+
+```python
+def cleanup_orphan_docs(
+    docs_folder: str,
+    u_hash: str,
+    conversation_folder: str,
+    user_email: str,
+    users_dir: str,
+    dry_run: bool = False,
+) -> dict:
+```
+
+**Algorithm:**
+
+1. **Collect referenced doc_ids from conversations.** Iterates all directories under `conversation_folder`. For each directory, loads the conversation via `Conversation.load_local()`. Skips conversations whose `user_id` MD5 does not match `u_hash` (i.e., belonging to a different user). Extracts `entry[0]` (doc_id) from both `uploaded_documents_list` and `message_attached_documents_list`.
+
+2. **Collect referenced doc_ids from global docs.** Calls `list_global_docs(users_dir, user_email)` and adds each `doc_id` to the referenced set.
+
+3. **Scan canonical parent.** Lists all subdirectories under `docs_folder/<u_hash>/`. Skips files (`_sha256_index.json`, `.lock`). Any subdirectory whose name is not in the referenced set is an orphan.
+
+4. **Delete orphans.** Calls `shutil.rmtree()` on each orphan directory. Logs success or error for each. If `dry_run=True`, logs what would be deleted without actually deleting.
+
+5. **Prune SHA-256 index.** After deletion, acquires the index lock and removes entries from `_sha256_index.json` whose `doc_id` values are no longer in the referenced set.
+
+**Return value:** `{referenced: int, orphaned: int, deleted: int, errors: int, dry_run: bool}`
+
+### POST /cleanup_orphan_docs Endpoint
+
+Rate-limited to 5 per minute. Requires authentication.
+
+**Request body (optional JSON):**
+```json
+{"dry_run": true}
+```
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "referenced": 12,
+  "orphaned": 3,
+  "deleted": 3,
+  "errors": 0,
+  "dry_run": false
+}
+```
+
+**dry_run usage:** Send `{"dry_run": true}` to preview which folders would be deleted without actually removing them. Check the server logs for the detailed list of orphan paths.
+
+### Safety Notes
+
+- Only cleans the caller's own canonical folder (`docs_folder/<u_hash>/`). Other users' data is never touched.
+- Conversation loading errors (e.g., corrupt conversation.json) are counted in `errors` but do not abort the run. The referenced set may be incomplete in that case, so orphan identification is conservative: a doc that cannot be confirmed as unreferenced is not deleted.
+- The SHA-256 index prune only runs if at least one folder was actually deleted (`deleted > 0`), and only removes entries whose `doc_id` is not in the final referenced set.
+- `dry_run=True` is safe to call at any time and produces no side effects.

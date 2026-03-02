@@ -196,6 +196,15 @@ Ways to force specific memories into LLM context:
 4. Conversation pinning (medium priority)
 5. Auto-retrieval via search (normal priority)
 
+### PKB Slash Commands
+Create memories and PKB objects directly from the chat input without leaving the conversation:
+- **`/create-memory <text>`** — opens Add Memory modal pre-filled with text and auto-fires LLM analysis (auto-fill) to classify type, domain, tags, possible questions. User reviews and saves.
+- **`/create-simple-memory <text>`** — silently classifies text via `POST /pkb/analyze_statement`, then saves via `POST /pkb/claims`. No modal. Tag `create-simple` is always appended. Toast confirms success or failure. Falls back to `fact`/`personal` if analysis fails.
+- **`/create-entity <name>`** — opens PKB modal on Entities tab with name pre-filled.
+- **`/create-context <name>`** — opens PKB modal on Contexts tab with name pre-filled.
+
+All four commands abort the normal send flow (message never sent to AI). They appear in the autocomplete dropdown with a green **pkb** badge, available regardless of OpenCode mode.
+
 ---
 
 ## File Locations
@@ -247,9 +256,15 @@ interface/interface.html     # UI components
 
 ## Version Information
 
-**Current Version:** v0.7 (Schema v7)
+**Current Version:** v0.8 (Schema v7)
 
-**Recent Changes (v0.7):**
+**Recent Changes (v0.8):**
+- **PKB slash commands**: Four new slash commands for creating memories and PKB objects from the chat input — `/create-memory`, `/create-simple-memory`, `/create-entity`, `/create-context`
+- **`createSimpleMemory()`**: New `PKBManager.createSimpleMemory(text)` function: calls `POST /pkb/analyze_statement` then `POST /pkb/claims`, appends `create-simple` tag, shows toast, falls back to defaults if analysis fails
+- **Autocomplete extended**: `PKB_COMMANDS` array added to autocomplete IIFE in `common-chat.js`; PKB commands shown with green **pkb** badge and always visible (not gated by OpenCode setting)
+- **`autofillClaimFields` exported**: `PKBManager.autofillClaimFields` now part of public API so external callers (slash command interception) can trigger modal auto-fill
+
+**Previous Changes (v0.7):**
 - **Universal @references** (schema v7): Entities, tags, and domains can now be referenced in chat using `@` syntax with type suffixes (`_entity`, `_tag`, `_domain`, `_context`)
 - **Type-suffixed friendly IDs**: All non-claim objects get a type suffix to eliminate namespace clashes (e.g., `@john_smith_person_entity`, `@fitness_tag`, `@health_domain`, `@health_goals_context`)
 - **Entity friendly_id** (new): `friendly_id TEXT` column added to entities table, auto-generated as `{name}_{type}_entity`
@@ -289,6 +304,7 @@ interface/interface.html     # UI components
 - Bug fixes: schema migration robustness, IngestProposal attribute fix, text ingestion performance
 
 **Version History:**
+- v0.8: PKB slash commands (`/create-memory`, `/create-simple-memory`, `/create-entity`, `/create-context`); autocomplete `PKB_COMMANDS`; `createSimpleMemory()` public API; `autofillClaimFields` export
 - v0.7: Universal @references for entities, tags, domains; type-suffixed friendly IDs; suffix-based routing (schema v7)
 - v0.6: QnA possible_questions, numeric claim_number, unified search endpoint, universal resolver (schema v5-v6)
 - v0.5.1: Expandable views, context linking in modals, dynamic types/domains catalog (schema v4)
@@ -383,4 +399,4 @@ logging.getLogger("truth_management_system").setLevel(logging.DEBUG)
 
 ---
 
-**Last Updated:** 2026-02-07
+**Last Updated:** 2026-03-02

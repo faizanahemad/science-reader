@@ -152,8 +152,9 @@ def generate_image_from_prompt(
     keys: dict,
     model: str = DEFAULT_IMAGE_MODEL,
     referer: str = "https://localhost",
+    input_image: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Generate an image via OpenRouter. Returns dict with 'images', 'text', 'error'.
+    """Generate (or edit) an image via OpenRouter. Returns dict with 'images', 'text', 'error'.
 
     This function is intended to be called from Conversation.reply() for the
     /image command, as well as from the modal endpoint.
@@ -168,6 +169,10 @@ def generate_image_from_prompt(
         OpenRouter model ID.
     referer : str
         HTTP-Referer header value.
+    input_image : str, optional
+        Base64 data URI of an existing image to edit/transform.
+        When provided the model receives the image + prompt together so it
+        can perform image editing rather than pure generation.
 
     Returns
     -------
@@ -179,7 +184,16 @@ def generate_image_from_prompt(
         return {"images": [], "text": "", "error": "OpenRouter API key not configured."}
 
     try:
-        logger.info("generate_image_from_prompt: model=%s prompt_len=%d", model, len(prompt))
+        logger.info("generate_image_from_prompt: model=%s prompt_len=%d has_input_image=%s",
+                    model, len(prompt), bool(input_image))
+        # Build the user content: multipart if editing an image, plain string if generating
+        if input_image:
+            user_content = [
+                {"type": "image_url", "image_url": {"url": input_image}},
+                {"type": "text", "text": prompt},
+            ]
+        else:
+            user_content = prompt
         resp = http_requests.post(
             "https://openrouter.ai/api/v1/chat/completions",
             headers={
@@ -190,7 +204,7 @@ def generate_image_from_prompt(
             },
             json={
                 "model": model,
-                "messages": [{"role": "user", "content": prompt}],
+                "messages": [{"role": "user", "content": user_content}],
                 "modalities": ["image", "text"],
                 "max_tokens": 4096,
             },
@@ -262,11 +276,12 @@ def generate_image_from_prompt(
 @limiter.limit("10 per minute")
 @login_required
 def generate_image():
-    """Generate an image using OpenRouter's image-capable models.
+    """Generate (or edit) an image using OpenRouter's image-capable models.
 
     Expects JSON body:
-        prompt: str              - the image description
+        prompt: str              - the image description / edit instruction
         model: str (optional)    - OpenRouter model ID (default: Nano Banana 2)
+        input_image: str         - (optional) base64 data URI of image to edit
         conversation_id: str     - (optional) for gathering context
         include_summary: bool    - include conversation summary
         include_messages: bool   - include recent messages
@@ -283,6 +298,7 @@ def generate_image():
 
     model = (data.get("model") or "").strip() or DEFAULT_IMAGE_MODEL
     conversation_id = (data.get("conversation_id") or "").strip()
+    input_image = (data.get("input_image") or "").strip() or None  # optional base64 data URI
     include_summary = bool(data.get("include_summary"))
     include_messages = bool(data.get("include_messages"))
     include_memory_pad = bool(data.get("include_memory_pad"))
@@ -335,112 +351,46 @@ def generate_image():
             code="missing_api_key",
         )
 
-    # Call OpenRouter chat completions with image modality
-    try:
-        logger.info("Image gen: calling OpenRouter model=%s prompt_len=%d", model, len(full_prompt))
-        resp = http_requests.post(
-            "https://openrouter.ai/api/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-                "HTTP-Referer": request.host_url or "https://localhost",
-                "X-Title": "ScienceReader",
-            },
-            json={
-                "model": model,
-                "messages": [{"role": "user", "content": full_prompt}],
-                "modalities": ["image", "text"],
-                "max_tokens": 4096,
-            },
-            timeout=120,
-        )
+    # Delegate to the shared generation function (handles input_image too)
+    logger.info("Image gen endpoint: model=%s has_input_image=%s", model, bool(input_image))
+    result = generate_image_from_prompt(
+        full_prompt,
+        keys,
+        model=model,
+        referer=request.host_url or "https://localhost",
+        input_image=input_image,
+    )
 
-        if resp.status_code != 200:
-            error_detail = ""
-            try:
-                error_detail = resp.json().get("error", {}).get("message", resp.text[:500])
-            except Exception:
-                error_detail = resp.text[:500]
-            logger.error("Image gen: OpenRouter returned %d: %s", resp.status_code, error_detail)
-            return json_error(
-                f"OpenRouter API error ({resp.status_code}): {error_detail}",
-                status=502,
-                code="openrouter_error",
-            )
+    if result.get("error"):
+        # Map known error types to appropriate HTTP status codes
+        err = result["error"]
+        if "API key" in err:
+            return json_error(err, status=500, code="missing_api_key")
+        if "timed out" in err:
+            return json_error(err, status=504, code="timeout")
+        if "OpenRouter error" in err:
+            return json_error(err, status=502, code="openrouter_error")
+        return json_error(err, status=500, code="internal_error")
 
-        result = resp.json()
-        choices = result.get("choices", [])
-        if not choices:
-            return json_error(
-                "No response from image model.",
-                status=502,
-                code="empty_response",
-            )
+    images = result.get("images", [])
+    content = result.get("text", "")
 
-        message = choices[0].get("message", {})
-        content = message.get("content", "")
-
-        # Extract images from the response
-        images = []
-
-        # Check for images array (OpenRouter multimodal response format)
-        if "images" in message:
-            for img_obj in message["images"]:
-                url = img_obj.get("image_url", {}).get("url", "")
-                if url:
-                    images.append(url)
-
-        # Also check content parts if content is a list (multipart response)
-        if isinstance(content, list):
-            text_parts = []
-            for part in content:
-                if isinstance(part, dict):
-                    if part.get("type") == "image_url":
-                        url = part.get("image_url", {}).get("url", "")
-                        if url:
-                            images.append(url)
-                    elif part.get("type") == "text":
-                        text_parts.append(part.get("text", ""))
-                elif isinstance(part, str):
-                    text_parts.append(part)
-            content = "\n".join(text_parts)
-
-        # Check for inline base64 in text content (some models embed data URIs)
-        if isinstance(content, str) and not images:
-            data_uri_pattern = r'(data:image/[^;]+;base64,[A-Za-z0-9+/=]+)'
-            found = re.findall(data_uri_pattern, content)
-            if found:
-                images.extend(found)
-
-        if not images:
-            return json_ok({
-                "images": [],
-                "text": content if isinstance(content, str) else str(content),
-                "warning": "Model did not return any images. Try a different prompt or model.",
-                "model": model,
-                "refined_prompt": full_prompt if better_context else None,
-            })
-
+    if not images:
         return json_ok({
-            "images": images,
-            "text": content if isinstance(content, str) else "",
+            "images": [],
+            "text": content,
+            "warning": "Model did not return any images. Try a different prompt or model.",
             "model": model,
             "refined_prompt": full_prompt if better_context else None,
         })
 
-    except http_requests.Timeout:
-        return json_error(
-            "Image generation timed out (120s). Try a simpler prompt.",
-            status=504,
-            code="timeout",
-        )
-    except Exception as e:
-        logger.error("Image generation failed", exc_info=True)
-        return json_error(
-            f"Image generation failed: {str(e)}",
-            status=500,
-            code="internal_error",
-        )
+    return json_ok({
+        "images": images,
+        "text": content,
+        "model": model,
+        "refined_prompt": full_prompt if better_context else None,
+    })
+
 
 
 # ---------------------------------------------------------------------------
