@@ -103,6 +103,7 @@ EXPENSIVE_LLM = [
     "gpt-5.2-codex",
     "google/gemini-3-pro-preview",
     "anthropic/claude-opus-4.5",
+    "anthropic/claude-opus-4.6",
     "openai/gpt-5.2-pro",
     "x-ai/grok-3",
     "moonshotai/kimi-k2.5",

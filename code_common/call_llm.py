@@ -174,6 +174,7 @@ VISION_CAPABLE_MODELS = frozenset(
         "anthropic/claude-sonnet-4",
         "anthropic/claude-opus-4",
         "anthropic/claude-opus-4.5",
+        "anthropic/claude-opus-4.6",
         "mistralai/pixtral-large-2411",
         "google/gemini-pro-1.5",
         "google/gemini-flash-1.5",
@@ -192,6 +193,7 @@ VISION_CAPABLE_MODELS = frozenset(
         "anthropic/claude-sonnet-4.5",
         "anthropic/claude-sonnet-4.6",
         "google/gemini-3.1-pro-preview",
+        "google/gemini-3.1-flash-image-preview",
     }
 )
 
