@@ -274,7 +274,31 @@ def make_stream(res, do_stream: bool):
     return res
 
 
+
+def _filter_str_only(gen):
+    """Yield only ``str`` items from *gen*, silently dropping ``dict`` tool-call events."""
+    for item in gen:
+        if isinstance(item, str):
+            yield item
+
 def call_with_stream(fn, do_stream, *args, **kwargs):
+    """
+    Call ``fn`` and adapt the result to match the requested streaming mode.
+
+    When ``tools`` is present in *kwargs* it is passed through to *fn*.
+    If ``tools is None`` (the default), only ``str`` items are yielded from the
+    generator — any ``dict`` items (tool-call events) are silently filtered out
+    so existing callers that expect pure-text streams are unaffected.
+
+    Parameters
+    ----------
+    fn : callable
+        The underlying LLM function (e.g. ``call_chat_model``).
+    do_stream : bool
+        Whether the caller wants a streaming generator or a collected result.
+    *args, **kwargs
+        Forwarded to *fn*.
+    """
     _cws_start = time.perf_counter()
     # Get function/model name for logging
     _fn_name = getattr(fn, "__name__", str(fn))
@@ -287,6 +311,12 @@ def call_with_stream(fn, do_stream, *args, **kwargs):
         do_stream,
         _cws_start,
     )
+
+    # Track whether tools were requested so we can filter output for backward compat
+    _tools_requested = kwargs.get('tools', None) is not None
+    logger.warning('[call_with_stream] tools_requested=%s | tool_count=%d | fn=%s | model=%s',
+                    _tools_requested, len(kwargs.get('tools') or []), _fn_name, _model_hint)
+    _tools_requested = kwargs.get("tools", None) is not None
 
     backup = kwargs.pop("backup_function", None)
     try:
@@ -321,8 +351,13 @@ def call_with_stream(fn, do_stream, *args, **kwargs):
         return convert_iterable_to_stream(res)
     elif not do_stream and is_generator:
         return convert_stream_to_iterable(res)
-    return res
 
+    # Backward compatibility: when tools were NOT requested, filter out any dict items
+    # so existing callers only see str chunks.
+    if not _tools_requested and is_generator:
+        return _filter_str_only(res)
+
+    return res
 
 def convert_iterable_to_stream(iterable):
     for t in iterable:
@@ -357,32 +392,107 @@ def convert_stream_to_iterable(stream, join_strings=True):
     return ans
 
 
-def _extract_text_from_openai_response(response: Any) -> Generator[str, None, None]:
+def _extract_text_from_openai_response(response: Any) -> Generator[Union[str, Dict], None, None]:
     """
-    Extract text from an OpenAI-style chunk.
+    Extract text and tool calls from an OpenAI-style streaming response.
+
+    Yields
+    ------
+    str
+        Text chunks from delta.content.
+    dict
+        Tool call dicts when the model invokes tools. Each dict has shape:
+        {"type": "tool_call", "id": str, "function": {"name": str, "arguments": str}}.
+
+    When tools are not requested by the caller, only str items will be emitted
+    (tool_calls in the delta are simply ignored by the API when tools param is absent).
+    Backward compatibility: existing callers that only expect str should filter or
+    rely on the call_with_stream layer to strip dict items.
     """
 
+    # Accumulator for streaming tool calls keyed by index
+    pending_tool_calls = {}  # {index: {"id": str, "function": {"name": str, "arguments": str}}}
+
+    _chunk_count = 0
+    _text_chunks = 0
+    _tc_chunks = 0
     for chk in response:
         # 'chk' is the streamed chunk response from the LLM
-        chunk = chk.model_dump()
-
-        if (
-            "choices" not in chunk
-            or len(chunk["choices"]) == 0
-            or "delta" not in chunk["choices"][0]
-        ):
-            continue
-        # Some completions might not have 'content' in the delta:
-        if "content" not in chunk["choices"][0]["delta"]:
+        choice = chk.choices[0] if chk.choices else None
+        if choice is None:
             continue
 
-        text_content = chunk["choices"][0]["delta"]["content"]
-        if not isinstance(text_content, str):
+        delta = choice.delta
+        if delta is None:
             continue
-        yield text_content
+            _chunk_count += 1
 
+        # --- Text content (existing behavior) ---
+        text_content = getattr(delta, 'content', None)
+        if isinstance(text_content, str):
+            yield text_content
+            _text_chunks += 1
 
-def call_chat_model(model, text, images, temperature, system, keys, messages=None):
+        # --- Tool calls (new behavior) ---
+        if hasattr(delta, 'tool_calls') and delta.tool_calls:
+            for tc in delta.tool_calls:
+                idx = tc.index
+                _tc_chunks += 1
+                logger.warning('[_extract_text] Tool call chunk detected at index=%d | id=%s | fn_name=%s',
+                                idx, getattr(tc, 'id', None), getattr(tc.function, 'name', None) if tc.function else None)
+                if idx not in pending_tool_calls:
+                    pending_tool_calls[idx] = {
+                        "id": getattr(tc, 'id', None) or "",
+                        "function": {
+                            "name": getattr(tc.function, 'name', None) or "",
+                            "arguments": getattr(tc.function, 'arguments', None) or ""
+                        }
+                    }
+                else:
+                    # Accumulate incremental data
+                    if getattr(tc, 'id', None):
+                        pending_tool_calls[idx]["id"] = tc.id
+                    if tc.function:
+                        if getattr(tc.function, 'name', None):
+                            pending_tool_calls[idx]["function"]["name"] = tc.function.name
+                        if getattr(tc.function, 'arguments', None):
+                            pending_tool_calls[idx]["function"]["arguments"] += tc.function.arguments
+
+        # Check if this chunk signals tool calls are complete
+        finish_reason = getattr(choice, 'finish_reason', None)
+        if finish_reason == 'tool_calls' and pending_tool_calls:
+            logger.warning('[_extract_text] finish_reason=tool_calls | yielding %d tool call dicts', len(pending_tool_calls))
+            for idx in sorted(pending_tool_calls.keys()):
+                tc_data = pending_tool_calls[idx]
+                logger.warning('[_extract_text] Yielding tool_call: name=%s id=%s args_len=%d',
+                                tc_data['function']['name'], tc_data['id'], len(tc_data['function']['arguments']))
+                yield {
+                    'type': 'tool_call',
+                    'id': tc_data['id'],
+                    'function': {
+                        'name': tc_data['function']['name'],
+                        'arguments': tc_data['function']['arguments']
+                    }
+                }
+            pending_tool_calls.clear()
+        elif finish_reason is not None:
+            logger.warning('[_extract_text] finish_reason=%s (not tool_calls) | pending_tc=%d | text_chunks=%d',
+                            finish_reason, len(pending_tool_calls), _text_chunks)
+
+    # Flush any remaining pending tool calls (edge case: stream ends without finish_reason="tool_calls")
+    if pending_tool_calls:
+        for idx in sorted(pending_tool_calls.keys()):
+            tc_data = pending_tool_calls[idx]
+            yield {
+                "type": "tool_call",
+                "id": tc_data["id"],
+                "function": {
+                    "name": tc_data["function"]["name"],
+                    "arguments": tc_data["function"]["arguments"]
+                }
+            }
+
+def call_chat_model(model, text, images, temperature, system, keys, messages=None, stop=None, tools=None, tool_choice=None):
     """
     Core chat model function that calls OpenRouter/OpenAI-compatible APIs.
 
@@ -408,6 +518,9 @@ def call_chat_model(model, text, images, temperature, system, keys, messages=Non
     ------
     str
         Text chunks from the streaming response.
+    dict
+        Tool call dicts when the model invokes tools (only when tools is not None).
+        Each dict has the shape: {"type": "tool_call", "id": str, "function": {"name": str, "arguments": str}}.
     """
     api_key = keys["OPENROUTER_API_KEY"]
     extras = dict(
@@ -457,7 +570,7 @@ def call_chat_model(model, text, images, temperature, system, keys, messages=Non
         )
 
     try:
-        response = client.chat.completions.create(
+        create_kwargs = dict(
             model=model,
             messages=messages,
             temperature=temperature,
@@ -466,6 +579,20 @@ def call_chat_model(model, text, images, temperature, system, keys, messages=Non
             # max_tokens=300,
             **extras_2,
         )
+        if stop is not None:
+            create_kwargs["stop"] = stop
+        if tools is not None:
+            create_kwargs['tools'] = tools
+            logger.warning('[call_chat_model] Adding %d tools to API request for model=%s (first 3: %s)',
+                            len(tools), model, [t['function']['name'] for t in tools[:3]])
+        else:
+            logger.warning('[call_chat_model] No tools provided for model=%s', model)
+        if tool_choice is not None:
+            create_kwargs['tool_choice'] = tool_choice
+            logger.warning('[call_chat_model] tool_choice=%s', tool_choice)
+        logger.warning('[call_chat_model] Calling OpenRouter API | model=%s | keys_in_create_kwargs=%s',
+                        model, list(create_kwargs.keys()))
+        response = client.chat.completions.create(**create_kwargs)
 
         for formatted_chunk in _extract_text_from_openai_response(response):
             yield formatted_chunk
@@ -892,6 +1019,8 @@ def call_llm(
     stream: bool = False,
     system: Optional[str] = None,
     messages: Optional[List[Dict[str, Any]]] = None,
+    tools: Optional[List[Dict[str, Any]]] = None,
+    tool_choice: Optional[Any] = None,
 ):
     """
     Call an LLM via OpenRouter (OpenAI-compatible API).
@@ -923,27 +1052,22 @@ def call_llm(
         If False, returns a single string. If True, returns a generator of text chunks.
     system : str or None
         System prompt (ignored if `messages` is provided).
-    messages : list or None
-        OpenAI-style messages array. Each message is a dict with 'role' and 'content'.
-        Content can be a string or a list of content parts (for multimodal).
-        Example:
-            [
-                {"role": "system", "content": "You are helpful."},
-                {"role": "user", "content": "Hello!"},
-                {"role": "assistant", "content": "Hi there!"},
-                {"role": "user", "content": [
-                    {"type": "text", "text": "What's in this image?"},
-                    {"type": "image_url", "image_url": {"url": "/path/to/image.jpg"}}
-                ]}
-            ]
-        Local file paths and raw base64 in image_url items are automatically encoded.
+    tools : list or None
+        OpenAI-compatible tool definitions. When provided, the model may return
+        tool-call events alongside (or instead of) text. When ``None`` (default),
+        no tools are sent to the API and only text is returned.
+    tool_choice : str, dict, or None
+        Controls how the model selects tools. Common values: ``"auto"``,
+        ``"required"``, ``"none"``, or a dict to force a specific tool.
+        Only used when ``tools`` is not None.
 
     Returns
     -------
     str or generator
-        If `stream=False`: returns the full response as a string.
-        If `stream=True`: returns a generator yielding text chunks.
-
+        If ``stream=False``: returns the full response as a string.
+        If ``stream=True``: returns a generator yielding text chunks (``str``).
+        When ``tools`` is provided and ``stream=True``, the generator may also yield
+        ``dict`` items representing tool calls.
     Examples
     --------
     # Simple mode (text only)
@@ -1008,6 +1132,8 @@ def call_llm(
             None,
             keys,
             processed_messages,
+            tools=tools,
+            tool_choice=tool_choice,
         )
         return streaming_solution
 
@@ -1032,7 +1158,8 @@ def call_llm(
         assertion_error_message = f"Model {model_name} is selected. Please reduce the context window. Current context window is {tok_count} tokens."
         raise AssertionError(assertion_error_message)
     streaming_solution = call_with_stream(
-        call_chat_model, stream, model_name, text, images, temperature, system, keys
+        call_chat_model, stream, model_name, text, images, temperature, system, keys,
+        tools=tools, tool_choice=tool_choice,
     )
     return streaming_solution
 

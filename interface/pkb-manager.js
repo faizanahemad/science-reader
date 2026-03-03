@@ -536,7 +536,7 @@ var PKBManager = (function() {
                 user_message: userMessage,
                 assistant_message: assistantMessage || '',
                 recent_turns: recentTurns || [],
-                extraction_mode: extractionMode
+                extraction_mode: extractionMode,
                 conversation_id: (typeof ConversationManager !== 'undefined' && ConversationManager.activeConversationId) ? ConversationManager.activeConversationId : null,
             }),
             dataType: 'json'
@@ -1438,7 +1438,6 @@ var PKBManager = (function() {
      */
     function checkMemoryUpdates(conversationSummary, userMessage, assistantMessage, recentTurns) {
         proposeUpdates(conversationSummary, userMessage, assistantMessage, recentTurns)
-        proposeUpdates(conversationSummary, userMessage, assistantMessage)
             .done(function(response) {
                 if (response.has_updates && response.proposed_actions && response.proposed_actions.length > 0) {
                     currentPlanId = response.plan_id;
@@ -3508,7 +3507,6 @@ var PKBManager = (function() {
         openAddClaimModalWithText: openAddClaimModalWithText,
         autofillClaimFields: autofillClaimFields,
         checkMemoryUpdates: checkMemoryUpdates,
-        showMemoryProposalModal: showMemoryProposalModal,
 
         // /create-simple-memory slash command
         createSimpleMemory: createSimpleMemory,

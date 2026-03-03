@@ -61,6 +61,7 @@ See `documentation/product/behavior/CLARIFICATIONS_AND_AUTO_DOUBT_CONTEXT.md` fo
 - **Cross-conversation message references** (`@conversation_<fid>_message_<hash>`) are also detected here. Before PKB resolution, `_get_pkb_context()` separates conversation refs from PKB friendly IDs using `CONV_REF_PATTERN`, resolves them via `_resolve_conversation_message_refs()`, and injects the referenced message text as `[REFERENCED @conversation_...]` blocks. These survive post-distillation re-injection alongside PKB claims.
 - For complete details on how PKB references are parsed, resolved, and injected, see [PKB Reference Resolution Flow](../truth_management_system/pkb_reference_resolution_flow.md).
 - For cross-conversation message references, see [Cross-Conversation Message References](../cross_conversation_references/README.md).
+- **Tool calling branch**: When `checkboxes.enable_tool_use` is true and `checkboxes.enabled_tools` has at least one enabled category, `reply()` calls `_get_enabled_tools()` to build the tools config and then `_run_tool_loop()` instead of the normal LLM path. `_run_tool_loop()` is a generator that yields the same dict format as the normal path, plus tool-specific event types (`tool_call`, `tool_status`, `tool_input_request`, `tool_result`). The loop runs up to 5 iterations; on the final iteration, `tool_choice="none"` forces text output. Interactive tools use `threading.Event` synchronization via `POST /tool_response/<conv_id>/<tool_id>` (60s timeout). See `documentation/features/tool_calling/README.md`.
 
 4) **Streaming render**
 - `sendMessageCallback()` calls `renderStreamingResponse(response, ...)` in `interface/common-chat.js`.
@@ -107,6 +108,8 @@ Settings are managed via the **chat-settings-modal** in `interface/interface.htm
 | LLM Right-Click Menu | `settings-enable_custom_context_menu` | on (desktop) | `enable_custom_context_menu` | Context menu on selected text |
 | Planner | `settings-enable_planner` | off | `enable_planner` | Multi-step planner agent (hidden) |
 
+| Enable Tool Use | `settings-enable_tool_use` | off | `enable_tool_use` | Master toggle for LLM tool calling (requires at least one category enabled) |
+| Enabled Tools | `settings-enabled_tools` (per-category checkboxes) | all off | `enabled_tools` | Per-category tool toggles: clarification, search, documents, pkb, memory, code_runner, artefacts, prompts. See `documentation/features/tool_calling/README.md` |
 ## Server-Side Streaming
 
 ### Endpoint
@@ -228,6 +231,7 @@ Location: `interface/common-chat.js`
   - `renderNextQuestionSuggestions(conversationId)`
   - optional scroll-to-hash for deep links
 - Mermaid blocks are normalized and rendered after the stream completes.
+- **Tool call events**: When tool calling is active, `renderStreamingResponse()` detects tool event types (`tool_call`, `tool_status`, `tool_input_request`, `tool_result`) in JSON-line chunks by checking `typeof item === 'object' && item.type` in the stream handler. These events are dispatched to `ToolCallManager` methods (from `interface/tool-call-manager.js`), which shows inline status pills for server-side tools and a Bootstrap modal for interactive tools requiring user input.
 
 **Math-aware rendering gate** (Feb 2026):
 - Before each render, `isInsideDisplayMath(rendered_answer)` checks for unclosed `$$` or `\\[` blocks. If inside one, rendering is **deferred** until the math block closes. This prevents MathJax from attempting to typeset incomplete expressions.
@@ -339,6 +343,7 @@ Location: `interface/shared.js`
 - `interface/common.js` (renderInnerContentAsMarkdown, normalizeOverIndentedLists)
 - `interface/parseMessageForCheckBoxes.js` (parseMemoryReferences — extracts `@references` from message text)
 - `endpoints/conversations.py` (`/send_message` streaming endpoint)
+- `endpoints/conversations.py` (`POST /tool_response/<conversation_id>/<tool_id>` — submit user response for interactive tool calls)
 - `endpoints/pkb.py` (`/pkb/autocomplete` — returns memories, contexts, entities, tags, domains)
 - `Conversation.py` (reply, streaming yield, persistence, `_get_pkb_context`, `_extract_referenced_claims`, `_resolve_conversation_message_refs`, `_ensure_conversation_friendly_id`)
 - `conversation_reference_utils.py` (cross-conversation reference ID generation: `generate_conversation_friendly_id`, `generate_message_short_hash`, `CONV_REF_PATTERN`)
@@ -351,5 +356,120 @@ Location: `interface/shared.js`
 - `endpoints/image_gen.py` (`generate_image_from_prompt`, `_refine_prompt_with_llm`, `DEFAULT_IMAGE_MODEL`, `/api/generate-image` modal endpoint, `/api/conversation-image/<conv_id>/<filename>` serve endpoint)
 - `interface/image-gen-manager.js` (standalone image generation modal — Settings → Image button)
 - `Conversation._handle_image_generation()` (`Conversation.py` — handles `/image` command: context gathering, prompt refinement, image gen, file storage, streaming, persistence)
+- `code_common/tools.py` (tool registry + 48 tool handlers across 8 categories; `ToolRegistry`, `@register_tool` decorator)
+- `interface/tool-call-manager.js` (ToolCallManager — tool call UI rendering: inline status pills, interactive modal, `threading.Event` response submission)
 
 **See also:** `documentation/features/image_generation/README.md`
+
+---
+
+## Tool Calling Pipeline (Agentic Loop)
+
+When the "Enable Tools" master toggle is ON and tools are selected in the Bootstrap Select dropdown, the conversation pipeline branches into an agentic tool-calling loop.
+
+### Settings Flow (UI → Backend)
+
+1. **UI**: User opens chat settings modal → checks "Enable Tools" → selects individual tools from the Bootstrap Select dropdown (`#settings-tool-selector`, 48 tools across 8 `<optgroup>` categories).
+2. **JS persistence**: `collectSettingsFromModal()` / `getStateFromModal()` reads selected tool names via `getSelectPickerValue('#settings-tool-selector', [])` → stored as `state.enabled_tools` (array of tool name strings).
+3. **Request payload**: `getOptions()` in `common.js` includes `enable_tool_use: true` and `enabled_tools: ["ask_clarification", "web_search", ...]` in the `checkboxes` object sent with `POST /send_message/<conversation_id>`.
+4. **Backend parsing**: `Conversation._get_enabled_tools(checkboxes)` reads the payload:
+   - If `enabled_tools` is a **list** → uses tool names directly (new format)
+   - If `enabled_tools` is a **dict** → maps category booleans to tool names (legacy format)
+   - If `None` but master toggle ON → enables all tools
+   - Returns OpenAI-format `tools` parameter via `TOOL_REGISTRY.get_openai_tools_param(enabled_names)`
+
+### Tool-Enabled Reply Flow
+
+```
+User sends message
+  → POST /send_message/<conversation_id>
+    → Conversation.reply()
+      → tools_config = _get_enabled_tools(checkboxes)
+      → IF tools_config is not None:
+          → _run_tool_loop(prompt, preamble, images, model, keys, tools_config, ...)
+            → Iteration 1 (of max 5):
+              → call_llm(..., tools=tools_config, tool_choice="auto")
+                → call_chat_model(..., tools=tools_config, tool_choice="auto")
+                  → client.chat.completions.create(model, messages, tools=tools_config, stream=True)
+                  → _extract_text_from_openai_response(response)
+                    → yields str chunks (streamed text)
+                    → yields dict chunks (tool_call objects when finish_reason="tool_calls")
+              
+              → IF tool_call dicts received:
+                  → Stream tool_call event to UI: {"type": "tool_call", "tool_id": "...", "tool_name": "...", "tool_input": {...}}
+                  → Stream tool_status "executing" event
+                  → TOOL_REGISTRY.execute(name, args, context, tool_call_id)
+                  
+                  → IF tool is interactive (ask_clarification):
+                      → Stream tool_input_request event with ui_schema (questions + MCQ options)
+                      → Stream tool_status "waiting_for_user" event
+                      → wait_for_tool_response(tool_id, timeout=60)
+                        → Creates threading.Event, stores in _tool_response_events[tool_id]
+                        → event.wait(timeout=60)
+                        → UI renders modal → user submits answers
+                        → POST /tool_response/<conv_id>/<tool_id> unblocks event
+                        → Returns user response dict (or None on timeout)
+                  
+                  → Stream tool_status "completed" event
+                  → Stream tool_result event with summary
+                  → Append {"role": "tool", "tool_call_id": "...", "content": result_text} to messages
+                  → Continue to next iteration
+              
+              → IF text only received:
+                  → Stream text to client
+                  → Break loop (done)
+            
+            → Iteration 5 (final):
+              → call_llm(..., tools=tools_config, tool_choice="none")  ← forces text-only response
+              → Stream final text response
+        
+        → ELSE (tools_config is None):
+          → Existing non-tool reply path (unchanged)
+```
+
+### UI Stream Handling for Tool Events
+
+The stream handler in `common-chat.js` (`renderStreamingResponse()`) processes JSON-line chunks. When a chunk has a `type` field matching a tool event type, it dispatches to `ToolCallManager`:
+
+| Event Type | Handler | UI Effect |
+|---|---|---|
+| `tool_call` | `ToolCallManager.handleToolCall()` | Shows inline status pill with tool name |
+| `tool_status` | `ToolCallManager.showToolCallStatus()` | Updates pill (spinner → checkmark) |
+| `tool_input_request` | `ToolCallManager.handleToolInputRequest()` | Renders Bootstrap modal with MCQ form |
+| `tool_result` | `ToolCallManager.showToolResult()` | Shows brief inline completion indicator |
+
+### Interactive Tool Synchronization (ask_clarification)
+
+```
+Backend thread                              UI (browser)
+───────────────                              ────────────
+_run_tool_loop() executes tool
+  → tool returns needs_user_input=True
+  → yields tool_input_request event  ──────→  Stream handler receives event
+  → calls wait_for_tool_response()             ToolCallManager renders modal
+    → creates threading.Event                  User sees MCQ questions
+    → event.wait(timeout=60)                   User selects answers, clicks Submit
+       ↓ (blocking)                            ↓
+       ↓                              POST /tool_response/<conv_id>/<tool_id>
+       ↓                                ──────→ submit_tool_response()
+       ↓                                         stores response in _tool_response_data
+       ↓                                         calls event.set()
+    event unblocks  ←──────────────────────
+  → reads response from _tool_response_data
+  → formats as tool result message
+  → continues loop with LLM continuation call
+```
+
+### Key Files in the Tool Calling Flow
+
+| File | Role in Flow |
+|---|---|
+| `interface/interface.html` | Bootstrap Select dropdown (`#settings-tool-selector`) with 48 tool options in 8 optgroups; `#tool-call-modal` for interactive tools |
+| `interface/chat.js` | Settings read/write via `getSelectPickerValue()`, dual-format state restoration in `setModalFromState()` |
+| `interface/common.js` | `getOptions()` includes `enable_tool_use` and `enabled_tools` array in request payload |
+| `interface/common-chat.js` | Stream handler dispatches tool event types to `ToolCallManager` |
+| `interface/tool-call-manager.js` | `ToolCallManager` singleton — status pills, modal rendering, response submission |
+| `Conversation.py` | `_get_enabled_tools()` (dual-format), `_run_tool_loop()` (agentic loop), preamble injection |
+| `code_common/tools.py` | `ToolRegistry`, `@register_tool`, 48 tool definitions + handlers |
+| `code_common/call_llm.py` | `tools`/`tool_choice` passthrough, `_extract_text_from_openai_response()` yields tool_call dicts |
+| `endpoints/conversations.py` | `POST /tool_response` endpoint, `wait_for_tool_response()`, thread-safe storage |

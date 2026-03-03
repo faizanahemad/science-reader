@@ -576,7 +576,7 @@ function loadSettingsIntoModal() {
     setModalFromState(state);
     // Refresh select pickers after loading values
     if (typeof $.fn.selectpicker !== 'undefined') {
-        $('#settings-preamble-selector, #settings-main-model-selector').selectpicker('refresh');
+        $('#settings-preamble-selector, #settings-main-model-selector, #settings-tool-selector').selectpicker('refresh');
     }
 }
 
@@ -606,7 +606,9 @@ function buildSettingsStateFromControlsOrDefaults() {
         field: $('#field-selector').length ? $('#field-selector').val() : (getDefaultAgentForTab(currentTab)),
         permanentText: $('#permanentText').length ? $('#permanentText').val() : ($('#settings-permanentText').val() || ''),
         links: $('#linkInput').length ? $('#linkInput').val() : ($('#settings-linkInput').val() || ''),
-        search: $('#searchInput').length ? $('#searchInput').val() : ($('#settings-searchInput').val() || '')
+        search: $('#searchInput').length ? $('#searchInput').val() : ($('#settings-searchInput').val() || ''),
+        enable_tool_use: $('#settings-enable_tool_use').is(':checked') || false,
+        enabled_tools: getSelectPickerValue('#settings-tool-selector', []),
     };
     return state;
 }
@@ -644,6 +646,34 @@ function setModalFromState(state) {
     $('#settings-permanentText').val(state.permanentText || '');
     $('#settings-linkInput').val(state.links || '');
     $('#settings-searchInput').val(state.search || '');
+    $('#settings-enable_tool_use').prop('checked', state.enable_tool_use || false);
+    $('#tool-use-options').toggle(!!state.enable_tool_use);
+    // Restore tool selector — handle both new array format and legacy dict format
+    if (Array.isArray(state.enabled_tools)) {
+        $('#settings-tool-selector').val(state.enabled_tools);
+    } else if (state.enabled_tools && typeof state.enabled_tools === 'object') {
+        // Legacy dict format — convert categories to tool names
+        var legacyTools = [];
+        var categoryDefaults = {
+            clarification: ['ask_clarification'],
+            search: ['web_search', 'perplexity_search', 'jina_search', 'deep_search', 'jina_read_page', 'read_link'],
+            documents: ['document_lookup', 'docs_list_conversation_docs', 'docs_list_global_docs', 'docs_query', 'docs_get_full_text', 'docs_get_info', 'docs_answer_question', 'docs_get_global_doc_info', 'docs_query_global_doc', 'docs_get_global_doc_full_text'],
+            pkb: ['pkb_search', 'pkb_get_claim', 'pkb_resolve_reference', 'pkb_get_pinned_claims', 'pkb_add_claim', 'pkb_edit_claim', 'pkb_get_claims_by_ids', 'pkb_autocomplete', 'pkb_resolve_context', 'pkb_pin_claim'],
+            memory: ['conv_get_memory_pad', 'conv_set_memory_pad', 'conv_get_history', 'conv_get_user_detail', 'conv_get_user_preference', 'conv_get_messages', 'conv_set_user_detail'],
+            code_runner: ['run_python_code'],
+            artefacts: ['artefacts_list', 'artefacts_create', 'artefacts_get', 'artefacts_get_file_path', 'artefacts_update', 'artefacts_delete', 'artefacts_propose_edits', 'artefacts_apply_edits'],
+            prompts: ['prompts_list', 'prompts_get', 'temp_llm_action', 'prompts_create', 'prompts_update']
+        };
+        Object.keys(state.enabled_tools).forEach(function(cat) {
+            if (state.enabled_tools[cat] && categoryDefaults[cat]) {
+                legacyTools = legacyTools.concat(categoryDefaults[cat]);
+            }
+        });
+        $('#settings-tool-selector').val(legacyTools);
+    }
+    if (typeof $.fn.selectpicker !== 'undefined') {
+        $('#settings-tool-selector').selectpicker('refresh');
+    }
 }
 
 function populateCustomPromptsInDOM() {
@@ -698,7 +728,7 @@ function collectSettingsFromModal() {
     // This fixes a bug where deselected options (like "Filler") would remain
     // in the saved state because SelectPicker hadn't synced to the <select> element
     if (typeof $.fn.selectpicker !== 'undefined') {
-        $('#settings-preamble-selector, #settings-main-model-selector').selectpicker('refresh');
+        $('#settings-preamble-selector, #settings-main-model-selector, #settings-tool-selector').selectpicker('refresh');
     }
     
     return {
@@ -721,6 +751,8 @@ function collectSettingsFromModal() {
         permanentText: $('#settings-permanentText').val() || '',
         links: $('#settings-linkInput').val() || '',
         search: $('#settings-searchInput').val() || '',
+        enable_tool_use: $('#settings-enable_tool_use').is(':checked'),
+        enabled_tools: getSelectPickerValue('#settings-tool-selector', []),
         model_overrides: (window.chatSettingsState && window.chatSettingsState.model_overrides)
             ? window.chatSettingsState.model_overrides
             : undefined

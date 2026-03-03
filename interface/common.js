@@ -4260,6 +4260,16 @@ function getOptions(parentElementId, type) {
         render_close_to_source: $('#settings-render-close-to-source').is(':checked'),
         use_pkb: $('#settings-use_pkb').length ? $('#settings-use_pkb').is(':checked') : true,
         opencode_enabled: $('#settings-enable_opencode').length ? $('#settings-enable_opencode').is(':checked') : false,
+        enable_tool_use: $('#settings-enable_tool_use').length ? $('#settings-enable_tool_use').is(':checked') : false,
+        enabled_tools: (function() {
+            var $sel = $('#settings-tool-selector');
+            if (!$sel.length) return [];
+            if (typeof $.fn.selectpicker !== 'undefined' && $sel.data('selectpicker')) {
+                $sel.selectpicker('refresh');
+                return $sel.selectpicker('val') || [];
+            }
+            return $sel.val() || [];
+        })(),
     };
     let speedValue = $("#depthSelector").length ? $("#depthSelector").val() : ($("#settings-depthSelector").val() || '2');
     values['provide_detailed_answers'] = speedValue;

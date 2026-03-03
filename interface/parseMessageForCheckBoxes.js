@@ -139,11 +139,6 @@ function parseMessageForCheckBoxes(text) {
     processCommand(/\/create-entity\s+(.+)/i, "create_entity_name");
     processCommand(/\/create-context\s+(.+)/i, "create_context_name");
     processCommand(/\/create-simple-memory\s+([\s\S]+)/i, "create_simple_memory_text");
-    // bare tokens (command without argument): strip from first line silently
-    removeBareTokenFromFirstLine(/\/create-memory\b/i);
-    removeBareTokenFromFirstLine(/\/create-entity\b/i);
-    removeBareTokenFromFirstLine(/\/create-context\b/i);
-    removeBareTokenFromFirstLine(/\/create-simple-memory\b/i);
 
     // /clarify is special: it can appear on ANY line (not just first), still outside backticks.
     // When found, set clarify_request=true and remove the token from wherever it appears.
@@ -171,6 +166,11 @@ function parseMessageForCheckBoxes(text) {
     };
     removeBareTokenFromFirstLine(/\/history\b/i);
     removeBareTokenFromFirstLine(/\/detailed\b/i);
+    // bare tokens (command without argument): strip from first line silently
+    removeBareTokenFromFirstLine(/\/create-memory\b/i);
+    removeBareTokenFromFirstLine(/\/create-entity\b/i);
+    removeBareTokenFromFirstLine(/\/create-context\b/i);
+    removeBareTokenFromFirstLine(/\/create-simple-memory\b/i);
 
     processedText = lines.join("\n");
 

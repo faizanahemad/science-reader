@@ -1077,6 +1077,11 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
     $('#stopResponseButton').show();
     $('#sendMessageButton').hide();
     
+    // Reset tool call manager state for the new response
+    if (typeof ToolCallManager !== 'undefined') {
+        ToolCallManager.reset();
+    }
+    
     var reader = streamingResponse.body.getReader();
     var decoder = new TextDecoder();
     let buffer = '';
@@ -1254,6 +1259,34 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
             const part = JSON.parse(buffer.slice(0, boundary));
             buffer = buffer.slice(boundary + 1);
             boundary = buffer.indexOf('\n');
+
+            // Handle tool events (from agentic tool loop)
+            if (part['type'] === 'tool_call') {
+                if (typeof ToolCallManager !== 'undefined') {
+                    ToolCallManager.showToolCallStatus(part['tool_id'], part['tool_name'], 'calling');
+                }
+                continue;
+            } else if (part['type'] === 'tool_input_request') {
+                console.log('[renderStreamingResponse] tool_input_request received', {conversationId: conversationId, tool_id: part['tool_id'], tool_name: part['tool_name'], ui_schema: part['ui_schema']});
+                if (typeof ToolCallManager !== 'undefined') {
+                    ToolCallManager.handleToolInputRequest(
+                        conversationId, part['tool_id'], part['tool_name'], part['ui_schema']
+                    );
+                } else {
+                    console.error('[renderStreamingResponse] ToolCallManager is undefined!');
+                }
+                continue;
+            } else if (part['type'] === 'tool_status') {
+                if (typeof ToolCallManager !== 'undefined') {
+                    ToolCallManager.showToolCallStatus(part['tool_id'], part['tool_name'], part['tool_status'] || part['status']);
+                }
+                continue;
+            } else if (part['type'] === 'tool_result') {
+                if (typeof ToolCallManager !== 'undefined') {
+                    ToolCallManager.showToolResult(part['tool_id'], part['result_summary']);
+                }
+                continue;
+            }
 
 
             // ── Diagnostic: capture raw text BEFORE newline replacement ──

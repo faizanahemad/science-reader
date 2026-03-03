@@ -29,17 +29,27 @@ var PageContextManager = (function() {
         return n.toLocaleString();
     }
 
-    function _ocrSingleScreenshot(dataUrl, url, title) {
+    function _ocrSingleScreenshot(dataUrl, url, title, extractComments) {
+        console.log(P, '_ocrSingleScreenshot: dataUrl.length:', dataUrl ? dataUrl.length : 0,
+            'dataUrl.prefix:', dataUrl ? dataUrl.substring(0, 80) : 'null',
+            'url:', url, 'title:', title, 'extractComments:', extractComments);
         return $.ajax({
             url: '/ext/ocr',
             method: 'POST',
             contentType: 'application/json',
-            data: JSON.stringify({ images: [dataUrl], url: url, title: title }),
+            data: JSON.stringify({ images: [dataUrl], url: url, title: title, extract_comments: !!extractComments }),
             timeout: 120000
         }).then(function(result) {
-            return result && result.text ? result.text : '';
-        }).catch(function() {
-            return '';
+            console.log(P, '_ocrSingleScreenshot response: text.length:', result && result.text ? result.text.length : 0,
+                'pages:', result && result.pages ? result.pages.length : 0,
+                'extract_comments:', result && result.extract_comments,
+                'page0.comments:', result && result.pages && result.pages[0] ? JSON.stringify(result.pages[0].comments) : 'none');
+            if (!result) return { text: '', comments: [] };
+            return { text: result.text || '', comments: (result.pages && result.pages[0] && result.pages[0].comments) || [] };
+        }).catch(function(err) {
+            console.error(P, '_ocrSingleScreenshot FAILED: status:', err && err.status, 'statusText:', err && err.statusText,
+                'responseText:', err && err.responseText ? err.responseText.substring(0, 300) : 'none');
+            return { text: '', comments: [] };
         });
     }
 
@@ -54,12 +64,12 @@ var PageContextManager = (function() {
         });
     }
 
-    function _captureAndOcrPipelined(tabId) {
+    function _captureAndOcrPipelined(tabId, extractComments) {
         var ocrPromises = [];
         var capturedCount = 0;
         var pageUrl = '';
         var pageTitle = '';
-        console.log(P, '_captureAndOcrPipelined START tabId:', tabId, '(type:', typeof tabId + ')');
+        console.log(P, '_captureAndOcrPipelined START tabId:', tabId, '(type:', typeof tabId + ')', 'extractComments:', extractComments);
 
         var progressHandler = function(progress) {
             console.log(P, 'progressHandler invoked: progress.tabId:', progress && progress.tabId, '(type:', typeof (progress && progress.tabId) + ') expected tabId:', tabId, '(type:', typeof tabId + ') hasScreenshot:', !!(progress && progress.screenshot), 'step:', progress && progress.step, 'total:', progress && progress.total);
@@ -72,13 +82,13 @@ var PageContextManager = (function() {
                 if (typeof showToast === 'function') {
                     showToast('Capturing page ' + capturedCount + ' of ' + (progress.total || '?') + '\u2026', 'info');
                 }
-                var ocrP = _ocrSingleScreenshot(progress.screenshot, pageUrl, pageTitle).then(function(text) {
-                    console.log(P, 'OCR done for pageIndex:', pageIndex, 'text.length:', text ? text.length : 0);
-                    return { index: pageIndex, text: text };
+                var ocrP = _ocrSingleScreenshot(progress.screenshot, pageUrl, pageTitle, extractComments).then(function(result) {
+                    console.log(P, 'OCR done for pageIndex:', pageIndex, 'text.length:', result.text ? result.text.length : 0, 'comments:', result.comments ? result.comments.length : 0);
+                    return { index: pageIndex, text: result.text, comments: result.comments };
                 });
                 ocrPromises.push(ocrP);
             } else if (progress && progress.screenshot) {
-                console.warn(P, 'screenshot FILTERED OUT — tabId mismatch: progress.tabId:', progress.tabId, 'expected:', tabId);
+                console.warn(P, 'screenshot FILTERED OUT \u2014 tabId mismatch: progress.tabId:', progress.tabId, 'expected:', tabId);
             }
         };
 
@@ -96,7 +106,7 @@ var PageContextManager = (function() {
                         .filter(function(r) { return r.text; })
                         .map(function(r) { return r.text; })
                         .join('\n\n--- PAGE ---\n\n');
-                    var pages = results.map(function(r) { return { index: r.index, text: r.text }; });
+                    var pages = results.map(function(r) { return { index: r.index, text: r.text, comments: r.comments || [] }; });
                     console.log(P, 'combinedText.length:', combinedText.length, 'pages:', pages.length);
                     return {
                         url: meta.pageUrl || pageUrl,
@@ -104,6 +114,7 @@ var PageContextManager = (function() {
                         content: combinedText,
                         isOcr: true,
                         ocrPagesData: pages,
+                        extractComments: !!extractComments,
                         tabId: tabId
                     };
                 });
@@ -253,16 +264,21 @@ var PageContextManager = (function() {
         // OCR extraction — single viewport screenshot + LLM OCR
         $('#ext-extract-ocr').on('click', function(e) {
             e.preventDefault();
+            var extractComments = $('#ext-extract-comments-toggle').is(':checked');
             var $btn = $('#ext-extract-page');
             $btn.prop('disabled', true).find('i').removeClass('fa-globe').addClass('fa-spinner fa-spin');
-            if (typeof showToast === 'function') showToast('Taking screenshot for OCR…', 'info');
+            if (typeof showToast === 'function') showToast('Taking screenshot for OCR\u2026', 'info');
             _resolveCurrentTabId().then(function(tabId) {
                 return ExtensionBridge.captureScreenshot(tabId).then(function(result) {
-                    return _ocrSingleScreenshot(result.dataUrl, '', '').then(function(text) {
+                    return _ocrSingleScreenshot(result.dataUrl, '', '', extractComments).then(function(ocrResult) {
                         return ExtensionBridge.getTabInfo().then(function(info) {
-                            return { url: info.url, title: info.title, content: text, isOcr: true };
+                            return { url: info.url, title: info.title, content: ocrResult.text, isOcr: true,
+                                     ocrPagesData: [{ index: 0, text: ocrResult.text, comments: ocrResult.comments }],
+                                     extractComments: extractComments };
                         }).catch(function() {
-                            return { url: '', title: '', content: text, isOcr: true };
+                            return { url: '', title: '', content: ocrResult.text, isOcr: true,
+                                     ocrPagesData: [{ index: 0, text: ocrResult.text, comments: ocrResult.comments }],
+                                     extractComments: extractComments };
                         });
                     });
                 });
@@ -279,11 +295,12 @@ var PageContextManager = (function() {
         // Full Page OCR — scrolling capture + LLM OCR pipelined
         $('#ext-extract-full-ocr').on('click', function(e) {
             e.preventDefault();
+            var extractComments = $('#ext-extract-comments-toggle').is(':checked');
             var $btn = $('#ext-extract-page');
             $btn.prop('disabled', true).find('i').removeClass('fa-globe').addClass('fa-spinner fa-spin');
-            if (typeof showToast === 'function') showToast('Starting full-page OCR…', 'info');
+            if (typeof showToast === 'function') showToast('Starting full-page OCR\u2026', 'info');
             _resolveCurrentTabId().then(function(tabId) {
-                return PageContextManager.capturePageWithOcr(tabId);
+                return PageContextManager.capturePageWithOcr(tabId, extractComments);
             }).catch(function(err) {
                 if (typeof showToast === 'function') showToast('Full-page OCR failed: ' + (err.message || err), 'danger');
             }).finally(function() {
@@ -351,6 +368,7 @@ var PageContextManager = (function() {
                 isOcr: data.isOcr || false,
                 sources: [],
                 ocrPagesData: data.ocrPagesData || [],
+                extractComments: data.extractComments || false,
                 mergeType: 'single',
                 wordCount: words,
                 charCount: content.length,
@@ -428,8 +446,8 @@ var PageContextManager = (function() {
             return _context;
         },
 
-        capturePageWithOcr: function(tabId) {
-            return _captureAndOcrPipelined(tabId).then(function(data) {
+        capturePageWithOcr: function(tabId, extractComments) {
+            return _captureAndOcrPipelined(tabId, extractComments).then(function(data) {
                 PageContextManager.setSingleContext(data);
                 if (typeof showToast === 'function') {
                     showToast('OCR extraction complete: ' + _formatCount(_countWords(data.content)) + ' words', 'success');

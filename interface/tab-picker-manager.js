@@ -145,24 +145,32 @@ var TabPickerManager = (function() {
         }
     }
 
-    function _ocrSingleScreenshot(dataUrl, url, title) {
-        console.log('[TabPicker] _ocrSingleScreenshot: dataUrl.length:', dataUrl ? dataUrl.length : 0, 'url:', url, 'title:', title);
+    function _ocrSingleScreenshot(dataUrl, url, title, extractComments) {
+        console.log('[TabPicker] _ocrSingleScreenshot: dataUrl.length:', dataUrl ? dataUrl.length : 0,
+            'dataUrl.prefix:', dataUrl ? dataUrl.substring(0, 80) : 'null',
+            'url:', url, 'title:', title, 'extractComments:', extractComments);
         return $.ajax({
             url: '/ext/ocr',
             method: 'POST',
             contentType: 'application/json',
-            data: JSON.stringify({ images: [dataUrl], url: url, title: title }),
+            data: JSON.stringify({ images: [dataUrl], url: url, title: title, extract_comments: !!extractComments }),
             timeout: 120000
         }).then(function(result) {
-            console.log('[TabPicker] OCR result:', result && result.text ? result.text.length + ' chars' : 'EMPTY', 'status:', result && result.status);
-            return result && result.text ? result.text : '';
+            console.log('[TabPicker] _ocrSingleScreenshot response: text.length:', result && result.text ? result.text.length : 0,
+                'pages:', result && result.pages ? result.pages.length : 0,
+                'extract_comments:', result && result.extract_comments,
+                'page0.comments:', result && result.pages && result.pages[0] ? JSON.stringify(result.pages[0].comments) : 'none');
+            if (!result) return { text: '', comments: [] };
+            return { text: result.text || '', comments: (result.pages && result.pages[0] && result.pages[0].comments) || [] };
         }).catch(function(err) {
-            console.error('[TabPicker] OCR FAILED:', err.status, err.statusText, err.responseText);
-            return '';
+            console.error('[TabPicker] OCR FAILED:', err.status, err.statusText,
+                'responseText:', err && err.responseText ? err.responseText.substring(0, 300) : 'none');
+            return { text: '', comments: [] };
         });
     }
 
     function _startCapture() {
+        var extractComments = $('#tab-picker-extract-comments').is(':checked');
         var selected = _getSelectedTabs();
         if (selected.length === 0) return;
 
@@ -267,14 +275,15 @@ var TabPickerManager = (function() {
                     var ocrP = _ocrSingleScreenshot(
                         progress.screenshot,
                         progress.pageUrl || '',
-                        progress.pageTitle || ''
-                    ).then(function(text) {
-                        console.log('[TabPicker] OCR resolved: text.length:', text ? text.length : 0);
-                        return { index: progress.pageIndex || 0, text: text };
+                        progress.pageTitle || '',
+                        extractComments
+                    ).then(function(result) {
+                        console.log('[TabPicker] OCR resolved: text.length:', result.text ? result.text.length : 0, 'comments:', result.comments ? result.comments.length : 0);
+                        return { index: progress.pageIndex || 0, text: result.text, comments: result.comments || [] };
                     });
                     if (ocrPromisesByTab[progress.tabId]) {
                         ocrPromisesByTab[progress.tabId].push(ocrP);
-                        console.log('[TabPicker] pushed OCR promise for tab', progress.tabId, '— now', ocrPromisesByTab[progress.tabId].length, 'promises');
+                        console.log('[TabPicker] pushed OCR promise for tab', progress.tabId, '\u2014 now', ocrPromisesByTab[progress.tabId].length, 'promises');
                     } else {
                         console.warn('[TabPicker] tabId', progress.tabId, 'NOT in ocrPromisesByTab! keys:', Object.keys(ocrPromisesByTab));
                     }
@@ -299,7 +308,7 @@ var TabPickerManager = (function() {
                 console.log('[TabPicker] captureMultiTab done. promises per tab:',
                     Object.keys(ocrPromisesByTab).map(function(k) { return k + ':' + ocrPromisesByTab[k].length; }));
                 _setProgress(90, 'Awaiting OCR results…');
-                _assembleResults(uncachedTabs, captureResults, ocrPromisesByTab, progressHandler, cachedResults);
+                _assembleResults(uncachedTabs, captureResults, ocrPromisesByTab, progressHandler, cachedResults, extractComments);
             }).catch(function(err) {
                 ExtensionBridge.offProgress(progressHandler);
                 if (cachedResults.length > 0) {
@@ -320,7 +329,7 @@ var TabPickerManager = (function() {
         });
     }
 
-    function _assembleResults(selected, captureResults, ocrPromisesByTab, progressHandler, cachedResults) {
+    function _assembleResults(selected, captureResults, ocrPromisesByTab, progressHandler, cachedResults, extractComments) {
         console.log('[TabPicker] _assembleResults: selected.length:', selected.length,
             'promises:', Object.keys(ocrPromisesByTab).map(function(k) { return k + ':' + ocrPromisesByTab[k].length; }));
         var allOcrPromises = [];
@@ -336,7 +345,7 @@ var TabPickerManager = (function() {
                             .filter(function(r) { return r.text; })
                             .map(function(r) { return r.text; })
                             .join('\n\n--- PAGE ---\n\n');
-                        var pages = ocrResults.map(function(r) { return { index: r.index, text: r.text }; });
+                        var pages = ocrResults.map(function(r) { return { index: r.index, text: r.text, comments: r.comments || [] }; });
                         return { tabId: tab.tabId, text: text, pages: pages };
                     })
                 );
@@ -363,7 +372,8 @@ var TabPickerManager = (function() {
                         title: captureResult.title || tab.title,
                         content: ocrData.text,
                         isOcr: true,
-                        ocrPagesData: ocrData.pages
+                        ocrPagesData: ocrData.pages,
+                        extractComments: !!extractComments
                     });
                     // Fire-and-forget: store OCR text in extraction cache
                     ExtensionBridge.cacheStore(tab.url, tab.mode, {

@@ -104,10 +104,23 @@ var ContentViewer = (function () {
                 pages.push(header + (src.content || ''));
             }
         } else if (ctx.isOcr && ctx.ocrPagesData && ctx.ocrPagesData.length > 0) {
-            // Case 2: OCR — one page per OCR page
+            // Case 2: OCR — one page per OCR page, comments appended inline if present
             for (var j = 0; j < ctx.ocrPagesData.length; j++) {
                 var ocrPage = ctx.ocrPagesData[j];
-                pages.push(ocrPage.text || '');
+                var pageText = ocrPage.text || '';
+                var pageComments = ocrPage.comments || [];
+                if (pageComments.length > 0) {
+                    var commentLines = ['', '--- COMMENTS ---'];
+                    for (var c = 0; c < pageComments.length; c++) {
+                        var cm = pageComments[c];
+                        if (cm.anchor) {
+                            commentLines.push('[Re: ' + cm.anchor + ']');
+                        }
+                        commentLines.push(cm.body || '');
+                    }
+                    pageText = pageText + commentLines.join('\n');
+                }
+                pages.push(pageText);
             }
         } else if (ctx.sources && ctx.sources.length > 1) {
             // Case 3: multiple sources — one page per source

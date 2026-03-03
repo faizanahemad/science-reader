@@ -94,9 +94,34 @@ Avoid writing code unless asked to or if needed explicitly.
         stream=False,
         max_tokens=None,
         system=None,
+        tools=None,
+        tool_choice=None,
         *args,
         **kwargs,
     ):
+        """
+        Call the LLM with optional tool support.
+
+        Parameters
+        ----------
+        text : str
+            User prompt text.
+        images : list
+            Image references.
+        temperature : float
+            Sampling temperature.
+        stream : bool
+            If True return a streaming generator; if False return a string.
+        max_tokens : int or None
+            Not currently used (reserved for future).
+        system : str or None
+            Additional system prompt appended to base_system.
+        tools : list or None
+            OpenAI-compatible tool definitions. When provided the model may
+            return tool-call dicts alongside text.
+        tool_choice : str, dict or None
+            Controls tool selection (e.g. ``"auto"``, ``"required"``).
+        """
         sys_init = self.base_system
         system = (
             f"{sys_init}\n{system.strip()}"
@@ -118,14 +143,47 @@ Avoid writing code unless asked to or if needed explicitly.
             temperature=temperature,
             stream=stream,
             system=system,
+            tools=tools,
+            tool_choice=tool_choice,
         )
 
-        if stream:
+        if stream and tools is not None:
+            # Mixed generator: apply math formatting only to text chunks,
+            # pass dict items (tool calls) through unchanged.
+            def _mixed_math_stream(gen):
+                buffer = ""
+                for chunk in gen:
+                    if isinstance(chunk, dict):
+                        # Flush any buffered text before yielding the tool call
+                        if buffer:
+                            formatted = process_math_formatting(buffer)
+                            formatted = ensure_display_math_newlines(formatted)
+                            if formatted:
+                                yield formatted
+                            buffer = ""
+                        yield chunk
+                    elif isinstance(chunk, str):
+                        buffer += chunk
+                        # Use the same safe-split logic as stream_text_with_math_formatting
+                        from math_formatting import _find_safe_split_point
+                        split_point = _find_safe_split_point(buffer)
+                        if split_point > 0:
+                            to_process = buffer[:split_point]
+                            buffer = buffer[split_point:]
+                            processed = process_math_formatting(to_process)
+                            processed = ensure_display_math_newlines(processed)
+                            yield processed
+                # Flush remaining buffer
+                if buffer:
+                    final = process_math_formatting(buffer)
+                    final = ensure_display_math_newlines(final)
+                    yield final
+            return _mixed_math_stream(result)
+        elif stream:
             return stream_text_with_math_formatting(result)
         else:
             formatted = process_math_formatting(result)
             return ensure_display_math_newlines(formatted)
-
 
 class CallMultipleLLM:
     def __init__(self, keys, model_names: List[str], merge=False, merge_model=None):

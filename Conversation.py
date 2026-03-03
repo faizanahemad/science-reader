@@ -146,6 +146,18 @@ except ImportError:
     OPENCODE_AVAILABLE = False
 
 
+# =============================================================================
+# Tool Calling Framework (agentic tool loop)
+# =============================================================================
+try:
+    from code_common.tools import TOOL_REGISTRY, ToolContext, ToolCallResult
+    TOOLS_AVAILABLE = True
+except ImportError:
+    TOOL_REGISTRY = None
+    ToolContext = None
+    ToolCallResult = None
+    TOOLS_AVAILABLE = False
+
 # Bedrock model ID mapping: OpenRouter-style names -> AWS Bedrock model IDs.
 # Only Claude 4.5 and 4.6 models are mapped (the ones we actually use).
 # When provider is 'amazon-bedrock', _resolve_opencode_model() translates via this map.
@@ -3737,6 +3749,20 @@ Give 4 suggestions.
         except Exception:
             # Fail-open: never break persistence due to TLDR storage logic
             response_to_store = response
+
+        # Strip tool call summaries — they are display-only, not persisted.
+        # The <tool_calls_summary> wrapper is injected by _run_tool_loop so the
+        # user can see which tools ran during streaming, but we don't want it in
+        # the saved message text.
+        try:
+            if isinstance(response_to_store, str) and '<tool_calls_summary>' in response_to_store.lower():
+                _tc_pattern = r'<\s*tool_calls_summary\s*>.*?<\s*/\s*tool_calls_summary\s*>'
+                response_to_store = re.sub(
+                    _tc_pattern, '', response_to_store,
+                    flags=re.IGNORECASE | re.DOTALL,
+                )
+        except Exception:
+            pass  # Fail-open: never break persistence
         prompt = get_first_last_parts(prompt, 28000, 16_000)
         system = f"""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
 You will write a new summary for this conversation which takes the last 2 recent messages into account. 
@@ -6335,6 +6361,399 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             self.set_next_question_suggestions(nqs)
         return self.next_question_suggestions
 
+    # =========================================================================
+    # Tool Calling Framework — settings reader and agentic loop
+    # =========================================================================
+
+    def _get_enabled_tools(self, checkboxes):
+        """Read tool settings from query checkboxes and return OpenAI tools param.
+        
+        Reads 'enable_tool_use' master toggle and 'enabled_tools' from
+        the checkboxes. Supports two formats:
+        - List of tool names: ["ask_clarification", "web_search", ...]
+        - Dict of category booleans: {"clarification": True, "search": True, ...}
+        
+        Returns None if tools are disabled.
+        
+        Parameters
+        ----------
+        checkboxes : dict
+            The checkboxes dict from query["checkboxes"].
+        
+        Returns
+        -------
+        list[dict] or None
+            OpenAI-format tools list, or None if tools disabled.
+        """
+        if not TOOLS_AVAILABLE or TOOL_REGISTRY is None:
+            logger.warning('[_get_enabled_tools] Tools not available: TOOLS_AVAILABLE=%s, TOOL_REGISTRY=%s', TOOLS_AVAILABLE, TOOL_REGISTRY)
+            return None
+        if not checkboxes:
+            logger.warning('[_get_enabled_tools] No checkboxes provided')
+            return None
+        
+        enable_tool_use = checkboxes.get('enable_tool_use', False)
+        if not enable_tool_use:
+            logger.warning('[_get_enabled_tools] enable_tool_use is False/missing. checkboxes keys: %s', list(checkboxes.keys()))
+            return None
+        logger.warning('[_get_enabled_tools] enable_tool_use=%s', enable_tool_use)
+        
+        enabled_tools_config = checkboxes.get("enabled_tools", None)
+        logger.warning('[_get_enabled_tools] enabled_tools_config type=%s, value=%s', type(enabled_tools_config).__name__, str(enabled_tools_config)[:200])
+        
+        if isinstance(enabled_tools_config, list):
+            # New format: list of individual tool names
+            enabled_names = [name for name in enabled_tools_config if name]
+        elif isinstance(enabled_tools_config, dict):
+            # Legacy format: dict of category booleans
+            category_to_enabled = {
+                "clarification": enabled_tools_config.get("clarification", True),
+                "search": enabled_tools_config.get("search", True),
+                "documents": enabled_tools_config.get("documents", True),
+                "pkb": enabled_tools_config.get("pkb", False),
+                "memory": enabled_tools_config.get("memory", False),
+                "code_runner": enabled_tools_config.get("code_runner", False),
+                "artefacts": enabled_tools_config.get("artefacts", False),
+                "prompts": enabled_tools_config.get("prompts", False),
+            }
+            enabled_names = []
+            for tool_def in TOOL_REGISTRY.get_all_tools():
+                if category_to_enabled.get(tool_def.category, True):
+                    enabled_names.append(tool_def.name)
+        else:
+            # No config provided but master toggle is on — enable all
+            enabled_names = [t.name for t in TOOL_REGISTRY.get_all_tools()]
+        
+        if not enabled_names:
+            logger.warning('[_get_enabled_tools] No enabled tool names found')
+            return None
+        
+        tools_param = TOOL_REGISTRY.get_openai_tools_param(enabled_names)
+        logger.warning('[_get_enabled_tools] Returning %d tools (first 5: %s)', len(tools_param) if tools_param else 0, [t["function"]["name"] for t in (tools_param or [])[:5]])
+        return tools_param if tools_param else None
+
+    def _run_tool_loop(self, prompt, preamble, images, model_name, keys, tools_config,
+                       max_iterations=5, tool_response_waiter=None,
+                       conversation_id="", user_email=""):
+        """Run the agentic tool loop — LLM calls with tool support.
+        
+        This generator yields dict chunks for the streaming response.
+        All yielded dicts include 'text' and 'status' keys for compatibility
+        with the existing streaming loop. Tool event dicts additionally include
+        a 'type' field and tool-specific metadata.
+        
+        Chunk types:
+        - {"text": "...", "status": "..."} — text from the LLM
+        - {"text": "", "status": "...", "type": "tool_call", "tool_id": "...",
+          "tool_name": "...", "tool_input": {...}}
+        - {"text": "", "status": "...", "type": "tool_status", "tool_id": "...",
+          "tool_status": "..."}
+        - {"text": "", "status": "...", "type": "tool_result", "tool_id": "...",
+          "result_summary": "..."}
+        - {"text": "", "status": "...", "type": "tool_input_request",
+          "tool_id": "...", "tool_name": "...", "ui_schema": {...}}
+        
+        The loop:
+        1. Call LLM with tools
+        2. If LLM returns text only → yield text, exit
+        3. If LLM returns tool_calls → execute tools, feed results back, repeat
+        4. Hard cap at max_iterations tool rounds
+        
+        Parameters
+        ----------
+        prompt : str
+            The user's prompt text.
+        preamble : str
+            System prompt (with tool awareness already injected).
+        images : list
+            Image URLs/data for vision models.
+        model_name : str
+            Model to use.
+        keys : dict
+            API keys.
+        tools_config : list[dict]
+            OpenAI-format tools list.
+        max_iterations : int
+            Maximum tool call rounds before forcing text-only response.
+        tool_response_waiter : callable or None
+            Function(tool_id, timeout) -> dict or None. For interactive tools.
+            Will be provided by the endpoint layer. If None, interactive tools
+            get 'No response handler available' as result.
+        conversation_id : str
+            For ToolContext.
+        user_email : str
+            For ToolContext.
+        """
+        from call_llm import CallLLm
+        
+        logger.warning('[_run_tool_loop] Starting tool loop | model=%s | tools_count=%d | tool_names=%s',
+                        model_name, len(tools_config) if tools_config else 0,
+                        [t['function']['name'] for t in (tools_config or [])[:5]])
+        
+        llm = CallLLm(keys, model_name=model_name)
+        
+        # Build ToolContext for handlers
+        tool_context = ToolContext(
+            conversation_id=conversation_id,
+            user_email=user_email,
+            keys=keys,
+        )
+        
+        # Messages array for continuation (built up across iterations)
+        messages = [
+            {"role": "system", "content": preamble},
+            {"role": "user", "content": prompt},
+        ]
+        # If there are images, add them to the user message
+        if images:
+            messages[-1] = {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt},
+                ] + [{"type": "image_url", "image_url": {"url": img}} for img in images]
+            }
+        
+        iteration = 0
+        use_messages_mode = False  # First call uses simple mode; continuations use messages mode
+        
+        while iteration <= max_iterations:
+            # Determine tool_choice for this iteration
+            current_tool_choice = None
+            if iteration == max_iterations:
+                # Final iteration: force text-only response
+                current_tool_choice = "none"
+                yield {"text": "", "status": "Generating final response (tool iteration limit reached)..."}
+            
+            # Make the LLM call
+            logger.warning('[_run_tool_loop] iter=%d | use_messages_mode=%s | tool_choice=%s | tools_count=%d',
+                            iteration, use_messages_mode, current_tool_choice, len(tools_config) if tools_config else 0)
+            if not use_messages_mode:
+                # First call: simple mode (text + system)
+                gen = llm(prompt, images=images, system=preamble, temperature=0.3,
+                          stream=True, tools=tools_config, tool_choice=current_tool_choice)
+            else:
+                # Continuation calls: messages mode
+                from code_common.call_llm import call_llm as _cc_call_llm
+                gen = _cc_call_llm(
+                    keys=keys, model_name=model_name,
+                    messages=messages, temperature=0.3, stream=True,
+                    tools=tools_config if current_tool_choice != "none" else None,
+                    tool_choice=current_tool_choice,
+                )
+            
+            # Consume the generator, collecting text and tool calls
+            accumulated_text = ""
+            tool_calls_in_round = []
+            
+            for chunk in gen:
+                if isinstance(chunk, str):
+                    # Text chunk — yield to stream
+                    accumulated_text += chunk
+                    yield {"text": chunk, "status": "Generating response..."}
+                elif isinstance(chunk, dict) and chunk.get("type") == "tool_call":
+                    # Tool call dict from _extract_text_from_openai_response
+                    tool_calls_in_round.append(chunk)
+            
+            # If no tool calls were made, we're done (LLM gave text-only response)
+            logger.warning('[_run_tool_loop] iter=%d | accumulated_text_len=%d | tool_calls_count=%d',
+                            iteration, len(accumulated_text), len(tool_calls_in_round))
+            if not tool_calls_in_round:
+                logger.warning('[_run_tool_loop] No tool calls in round %d — LLM gave text-only response, exiting loop', iteration)
+                break
+            
+            # Process tool calls
+            # Build the assistant message with tool_calls for the messages array
+            assistant_msg = {"role": "assistant"}
+            if accumulated_text:
+                assistant_msg["content"] = accumulated_text
+            else:
+                assistant_msg["content"] = None
+            
+            assistant_msg["tool_calls"] = []
+            for tc in tool_calls_in_round:
+                assistant_msg["tool_calls"].append({
+                    "id": tc["id"],
+                    "type": "function",
+                    "function": {
+                        "name": tc["function"]["name"],
+                        "arguments": tc["function"]["arguments"],
+                    }
+                })
+            
+            messages.append(assistant_msg)
+            
+            # Execute each tool call
+            tool_round_details = []  # Collect (name, args_summary, result_summary) for collapsible summary
+            for tc in tool_calls_in_round:
+                tc_id = tc["id"]
+                tc_name = tc["function"]["name"]
+                try:
+                    tc_args = json.loads(tc["function"]["arguments"])
+                except (json.JSONDecodeError, TypeError):
+                    tc_args = {}
+
+                # Force detail_level=1 for tools that support it (keep responses concise)
+                if tc_name in ('perplexity_search', 'jina_search', 'deep_search') and 'detail_level' not in tc_args:
+                    tc_args['detail_level'] = 1
+                if tc_name == 'read_link' and 'detailed' not in tc_args:
+                    tc_args['detailed'] = False
+                # Notify UI about the tool call
+                yield {
+                    "text": "", "status": f"Tool call: {tc_name}",
+                    "type": "tool_call",
+                    "tool_id": tc_id,
+                    "tool_name": tc_name,
+                    "tool_input": tc_args,
+                }
+                
+                # Execute the tool
+                yield {
+                    "text": "", "status": f"Executing tool: {tc_name}...",
+                    "type": "tool_status", "tool_id": tc_id,
+                    "tool_name": tc_name,
+                    "tool_status": "executing",
+                }
+                result = TOOL_REGISTRY.execute(tc_name, tc_args, tool_context, tool_call_id=tc_id)
+                user_response = None  # Only set for interactive tools
+                
+                if result.needs_user_input:
+                    # Interactive tool — need user input
+                    yield {
+                        "text": "", "status": f"Waiting for user input: {tc_name}",
+                        "type": "tool_input_request",
+                        "tool_id": tc_id,
+                        "tool_name": tc_name,
+                        "ui_schema": result.ui_schema,
+                    }
+                    yield {
+                        "text": "", "status": f"Waiting for user response...",
+                        "type": "tool_status", "tool_id": tc_id,
+                        "tool_name": tc_name,
+                        "tool_status": "waiting_for_user",
+                    }
+                    
+                    # Wait for user response
+                    user_response = None
+                    if tool_response_waiter:
+                        user_response = tool_response_waiter(tc_id, timeout=60)
+                    
+                    if user_response:
+                        # Format the user's response as tool result text
+                        if tc_name == "ask_clarification":
+                            # Format clarification answers
+                            answers = user_response.get("answers", [])
+                            answer_lines = []
+                            for ans in answers:
+                                q = ans.get("question", "")
+                                a = ans.get("selected_option", "")
+                                answer_lines.append(f"Q: {q}\nA: {a}")
+                            tool_result_text = "[Clarifications from user]\n" + "\n\n".join(answer_lines)
+                        else:
+                            tool_result_text = json.dumps(user_response)
+                    else:
+                        tool_result_text = "User did not respond within timeout."
+                else:
+                    # Server-side tool — result is ready
+                    tool_result_text = result.result
+                
+                # Yield result summary to UI
+                result_len = len(tool_result_text)
+                result_summary = tool_result_text[:200] + '...' if result_len > 200 else tool_result_text
+                logger.warning('[_run_tool_loop] Tool %s completed | result_len=%d chars | result_preview=%s',
+                                tc_name, result_len, tool_result_text[:100].replace('\n', ' '))
+                yield {
+                    'text': '', 'status': f'Tool {tc_name} completed (result: {result_len} chars)',
+                    'type': 'tool_result',
+                    'tool_id': tc_id,
+                    'result_summary': result_summary,
+                }
+                yield {
+                    "text": "", "status": f"Tool {tc_name} completed",
+                    "type": "tool_status", "tool_id": tc_id,
+                    "tool_name": tc_name,
+                    "tool_status": "completed",
+                }
+                
+                # Add tool result to messages for continuation
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc_id,
+                    "content": tool_result_text,
+                })
+
+                # Track tool details for the round summary (include result length)
+                result_len = len(tool_result_text)
+                args_brief = json.dumps(tc_args, ensure_ascii=False)[:150]
+                result_brief = tool_result_text[:200] + ('...' if result_len > 200 else '')
+                # For ask_clarification, also store the original questions and formatted Q&A
+                clarification_qa = None
+                if tc_name == 'ask_clarification' and user_response and user_response.get('answers'):
+                    questions_from_llm = tc_args.get('questions', [])
+                    answers_from_user = user_response.get('answers', [])
+                    qa_lines = []
+                    for idx, ans in enumerate(answers_from_user):
+                        q_text = ans.get('question', '')
+                        a_text = ans.get('selected_option', '')
+                        # Try to get the original options from the LLM's questions
+                        original_options = []
+                        if idx < len(questions_from_llm):
+                            original_options = questions_from_llm[idx].get('options', [])
+                        options_str = ', '.join(f'`{o}`' for o in original_options) if original_options else ''
+                        qa_lines.append({'question': q_text, 'answer': a_text, 'options': options_str})
+                    clarification_qa = qa_lines
+                tool_round_details.append((tc_name, args_brief, result_brief, result_len, clarification_qa))
+
+            # Yield a collapsible tool-call summary for this round (visible in UI, stripped before save)
+            if tool_round_details:
+                round_label = f'Round {iteration + 1}' if max_iterations > 1 else ''
+                summary_lines = []
+                persistent_qa_blocks = []
+                for t_name, t_args, t_result, t_len, t_clarification_qa in tool_round_details:
+                    if t_name == 'ask_clarification' and t_clarification_qa:
+                        # Rich Q&A format for ask_clarification
+                        qa_summary = f'- **{t_name}** ({t_len} chars)\n'
+                        for qa in t_clarification_qa:
+                            qa_summary += f'  - **Q:** {qa["question"]}\n'
+                            if qa['options']:
+                                qa_summary += f'    - Options: {qa["options"]}\n'
+                            qa_summary += f'    - **A:** {qa["answer"]}\n'
+                        summary_lines.append(qa_summary)
+                        # Also build a persistent block (not stripped on save)
+                        persist_lines = []
+                        for qi, qa in enumerate(t_clarification_qa, 1):
+                            persist_lines.append(f'**Q{qi}:** {qa["question"]}')
+                            if qa['options']:
+                                persist_lines.append(f'  - Options: {qa["options"]}')
+                            persist_lines.append(f'  - **Selected:** {qa["answer"]}\n')
+                        persistent_qa_blocks.append('\n'.join(persist_lines))
+                    else:
+                        summary_lines.append(f'- **{t_name}** ({t_len} chars) — `{t_args}`\n  > {t_result}')
+                summary_body = '\n'.join(summary_lines)
+                header_text = f'🔧 Tools Called {round_label}'.strip()
+                details_html = (
+                    f'\n<tool_calls_summary>\n'
+                    f'<details>\n'
+                    f'<summary><strong>{header_text}</strong></summary>\n\n'
+                    f'{summary_body}\n\n'
+                    f'</details>\n'
+                    f'</tool_calls_summary>\n'
+                )
+                yield {"text": details_html, "status": f"Tool round {iteration + 1} complete"}
+                # Yield persistent Q&A blocks OUTSIDE tool_calls_summary so they survive save-stripping
+                for pqa in persistent_qa_blocks:
+                    persist_block = (
+                        f'\n<details open>\n'
+                        f'<summary><strong>💬 Clarification Q&A</strong></summary>\n\n'
+                        f'{pqa}\n\n'
+                        f'</details>\n'
+                    )
+                    yield {"text": persist_block, "status": "Clarification Q&A"}
+
+            # Next iteration uses messages mode
+            use_messages_mode = True
+            iteration += 1
+
+
     def reply(self, query, userData=None):
         time_logger.info(f"[Conversation] reply called for chat Assistant.")
         logger.warning(
@@ -7140,6 +7559,47 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             ppt_answer=checkboxes["ppt_answer"],
         )
         yield {"text": "", "status": "Preamble got ..."}
+        
+        # Inject tool awareness into preamble when tools are enabled
+        tools_config = self._get_enabled_tools(checkboxes)
+        logger.warning('[reply] tools_config from _get_enabled_tools: %s (count=%d)', 'present' if tools_config else 'None', len(tools_config) if tools_config else 0)
+        if tools_config and TOOLS_AVAILABLE:
+            tool_descriptions = []
+            for t in TOOL_REGISTRY.get_all_tools():
+                # Only include enabled tools
+                if any(tc["function"]["name"] == t.name for tc in tools_config):
+                    tool_descriptions.append(f"- {t.name}: {t.description}")
+            
+            tool_awareness_text = (
+                "\n\n## Available Tools\n"
+                "You have access to the following tools that you can invoke "
+                "during your response:\n"
+                + "\n".join(tool_descriptions)
+                + "\n\n"
+                "### Tool Usage Tips\n"
+                "- **perplexity_search**: Accepts a rich `context` parameter alongside the query. "
+                "Provide as much relevant background, intent, and specifics as possible in the context "
+                "field — perplexity can leverage a good amount of context to give better, more targeted results. "
+                "Use a single well-crafted query rather than multiple vague ones.\n"
+                "- **web_search**: Good for quick factual lookups with short queries.\n"
+                "- **document_lookup**: Search user's uploaded documents by semantic query.\n\n"
+                "Use tools when:\n"
+                "- The user explicitly asks you to ask clarifying questions "
+                "or says 'ask me questions'.\n"
+                "- You need to search the web for current information not in "
+                "the conversation.\n"
+                "- You need to look up content from the user's documents.\n\n"
+                "Do NOT use tools when:\n"
+                "- The user's request is clear and you can answer directly.\n"
+                "- The information is already in the conversation context.\n"
+                "- The task is simple and doesn't benefit from tool use.\n\n"
+                "When you invoke a tool, the conversation will pause briefly "
+                "while it executes.\n"
+                "For interactive tools (like ask_clarification), the user will "
+                "be prompted for input.\n"
+            )
+            preamble = (preamble or "") + tool_awareness_text
+            yield {"text": "", "status": "Tool awareness injected into preamble ..."}
         previous_context = (
             summary if len(summary.strip()) > 0 and message_lookback >= 0 else ""
         )
@@ -9212,57 +9672,80 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                         + str(model_name)
                         + f" done, time from start = {(time.time() - st):.2f} ...",
                     }
-                    try:
-                        stream_setup_start = time.perf_counter()
-                        logger.warning(
-                            "[STREAM] calling CallLLm for stream | model=%s | t=%.2fs",
-                            str(model_name),
-                            time.time() - st,
-                        )
-                        time_logger.warning(
-                            "[STREAM] calling CallLLm for stream | model=%s | t=%.2fs",
-                            str(model_name),
-                            time.time() - st,
-                        )
-                        log.warning(
-                            "[STREAM] calling CallLLm for stream | model=%s | t=%.2fs",
-                            str(model_name),
-                            time.time() - st,
-                        )
-                        main_ans_gen = llm(
-                            prompt,
+                    if tools_config:
+                        # Agentic tool loop path
+                        yield {
+                            "text": "",
+                            "status": "Starting agentic tool loop with model "
+                            + str(model_name)
+                            + " ...",
+                        }
+                        tool_response_waiter = query.get("_tool_response_waiter", None)
+                        main_ans_gen = self._run_tool_loop(
+                            prompt=prompt,
+                            preamble=preamble,
                             images=images,
-                            system=preamble,
-                            temperature=0.3,
-                            stream=True,
+                            model_name=model_name,
+                            keys=self.get_api_keys(),
+                            tools_config=tools_config,
+                            max_iterations=5,
+                            tool_response_waiter=tool_response_waiter,
+                            conversation_id=self.conversation_id,
+                            user_email=query.get("_user_email", ""),
                         )
-                        logger.warning(
-                            "[STREAM] CallLLm returned stream | model=%s | dt=%.2fs | t=%.2fs",
-                            str(model_name),
-                            time.perf_counter() - stream_setup_start,
-                            time.time() - st,
-                        )
-                        time_logger.warning(
-                            "[STREAM] CallLLm returned stream | model=%s | dt=%.2fs | t=%.2fs",
-                            str(model_name),
-                            time.perf_counter() - stream_setup_start,
-                            time.time() - st,
-                        )
-                        log.warning(
-                            "[STREAM] CallLLm returned stream | model=%s | dt=%.2fs | t=%.2fs",
-                            str(model_name),
-                            time.perf_counter() - stream_setup_start,
-                            time.time() - st,
-                        )
-                    except Exception as e:
-                        traceback.print_exc()
-                        raise e
-                    yield {
-                        "text": "",
-                        "status": "Calling LLM for answer generation with model name "
-                        + str(model_name)
-                        + f" stream started, time from start =  {(time.time() - st):.2f}   ...",
-                    }
+                    else:
+                        # Existing non-tool LLM call path (unchanged)
+                        try:
+                            stream_setup_start = time.perf_counter()
+                            logger.warning(
+                                "[STREAM] calling CallLLm for stream | model=%s | t=%.2fs",
+                                str(model_name),
+                                time.time() - st,
+                            )
+                            time_logger.warning(
+                                "[STREAM] calling CallLLm for stream | model=%s | t=%.2fs",
+                                str(model_name),
+                                time.time() - st,
+                            )
+                            log.warning(
+                                "[STREAM] calling CallLLm for stream | model=%s | t=%.2fs",
+                                str(model_name),
+                                time.time() - st,
+                            )
+                            main_ans_gen = llm(
+                                prompt,
+                                images=images,
+                                system=preamble,
+                                temperature=0.3,
+                                stream=True,
+                            )
+                            logger.warning(
+                                "[STREAM] CallLLm returned stream | model=%s | dt=%.2fs | t=%.2fs",
+                                str(model_name),
+                                time.perf_counter() - stream_setup_start,
+                                time.time() - st,
+                            )
+                            time_logger.warning(
+                                "[STREAM] CallLLm returned stream | model=%s | dt=%.2fs | t=%.2fs",
+                                str(model_name),
+                                time.perf_counter() - stream_setup_start,
+                                time.time() - st,
+                            )
+                            log.warning(
+                                "[STREAM] CallLLm returned stream | model=%s | dt=%.2fs | t=%.2fs",
+                                str(model_name),
+                                time.perf_counter() - stream_setup_start,
+                                time.time() - st,
+                            )
+                        except Exception as e:
+                            traceback.print_exc()
+                            raise e
+                        yield {
+                            "text": "",
+                            "status": "Calling LLM for answer generation with model name "
+                            + str(model_name)
+                            + f" stream started, time from start =  {(time.time() - st):.2f}   ...",
+                        }
             else:
                 main_ans_gen = iter([])  # empty generator of string
 
@@ -9523,6 +10006,13 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 }
                 break
             if isinstance(dcit, dict):
+                # Pass through tool events intact so the UI receives type, tool_id,
+                # tool_name, ui_schema etc. These events have text="" so they
+                # don't affect answer accumulation.
+                event_type = dcit.get('type')
+                if event_type in ('tool_call', 'tool_input_request', 'tool_status', 'tool_result'):
+                    yield dcit
+                    continue
                 txt = dcit["text"]
                 status = (
                     dcit["status"]

@@ -12,7 +12,7 @@
 const DEBUG = false;
 
 // Bump cache when UI shell assets change.
-const CACHE_VERSION = "v29";
+const CACHE_VERSION = "v30";
 const UI_SHELL_CACHE = `ui-shell-${CACHE_VERSION}`;
 const META_CACHE = `meta-${CACHE_VERSION}`;
 
@@ -64,6 +64,7 @@ const PRECACHE_URLS = [
   "/interface/interface/workspace-manager.js",
   "/interface/interface/audio_process.js",
   "/interface/interface/file-browser-manager.js",
+  "/interface/interface/tool-call-manager.js",
 
   // PWA icons
   "/interface/icons/app-icon.svg",

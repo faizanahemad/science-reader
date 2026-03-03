@@ -516,6 +516,70 @@ location /ws/terminal {
 
 ---
 
+
+### 5e) LLM Tool Calling Framework (Native Mid-Response Tool Use)
+
+**What it does**
+ Adds native, mid-response tool calling to the chat pipeline — the LLM can autonomously invoke tools during a conversation turn.
+ 48 tools across 8 categories: clarification (1), search (6), documents (10), pkb (10), memory (7), code_runner (1), artefacts (8), prompts (5).
+ Multi-step agentic loop: up to 5 tool-call iterations per turn, with `tool_choice="none"` on the final iteration to force text output.
+ Interactive tools (ask_clarification) pause streaming, show a Bootstrap modal for MCQ input, wait up to 60s via `threading.Event`, then resume.
+ Server-side tools (web search, document lookup, PKB operations, code execution, etc.) execute silently with inline status indicators.
+ Master toggle + Bootstrap Select multi-select dropdown with per-tool granularity (8 category optgroups, 48 individual tool options, search filtering, select all/deselect all). Write-capable categories default to OFF.
+ Backward-compatible: when tools disabled (`tools=None`), the entire call stack is unchanged.
+ All 48 handlers have real implementations — mirrors the MCP server logic (DocIndex, StructuredAPI, Conversation methods, HTTP delegation for propose_edits/apply_edits/temp_llm_action).
+
+**Architecture**
+ Tool registry: `code_common/tools.py` — `ToolRegistry`, `ToolDefinition`, `ToolContext`, `ToolCallResult`, `@register_tool` decorator, `TOOL_REGISTRY` singleton.
+ LLM integration: `call_chat_model()` and `call_llm()` accept `tools`/`tool_choice` params; `_extract_text_from_openai_response()` yields both `str` (text) and `dict` (tool_call) from streaming.
+ Agentic loop: `Conversation._run_tool_loop()` generator — iterates up to 5 times, executes tools, handles interactive pausing, builds continuation messages.
+ Tool awareness: preamble injection when tools enabled tells the LLM about available tools.
+ Interactive sync: `threading.Event` per tool_call_id, `POST /tool_response/<conv_id>/<tool_id>` endpoint unblocks the waiting thread.
+ Streaming protocol: extends existing JSON-lines with `tool_call`, `tool_status`, `tool_input_request`, `tool_result` event types.
+
+**Tool Categories**
+
+| Category | Tools | Default | Key Operations |
+|---|---|---|---|
+| `clarification` | 1 | ON | MCQ clarification questions with modal UI |
+| `search` | 6 | ON | Web search (Perplexity, Jina, deep search), page reading |
+| `documents` | 10 | ON | List/query/retrieve conversation docs and global docs |
+| `pkb` | 10 | OFF | Search claims, get/add/edit/pin claims, resolve @-references |
+| `memory` | 7 | OFF | Memory pad, conversation history, user details/preferences |
+| `code_runner` | 1 | OFF | Python code execution (120s timeout, IPython) |
+| `artefacts` | 8 | OFF | List/create/get/update/delete artefacts, LLM-powered edits |
+| `prompts` | 5 | OFF | List/get/create/update prompts, ephemeral LLM actions |
+
+**API**
+ Settings: `checkboxes.enable_tool_use` (master toggle), `checkboxes.enabled_tools` (array of tool name strings, e.g. `["ask_clarification", "web_search", ...]`; legacy per-category dict format also accepted for backward compatibility).
+ New endpoint: `POST /tool_response/<conversation_id>/<tool_id>` — submit interactive tool response `{ "response": { "answers": [...] } }` → 200/400/404.
+ Main flow: `POST /send_message/<conversation_id>` — same endpoint, tools activated when enabled.
+
+**Streaming response extensions**
+ New event types in JSON-lines: `tool_call` (LLM requests tool), `tool_status` (executing/waiting/completed), `tool_input_request` (modal needed), `tool_result` (completion summary).
+
+**Persistence**
+ Tool settings persisted per-conversation via existing chat settings mechanism (`checkboxes` payload).
+ Tool results not separately persisted — they become part of the conversation messages.
+
+**Key files**
+`code_common/tools.py` — Tool registry + 48 tool definitions with real handlers
+`code_common/call_llm.py` — `tools`/`tool_choice` passthrough, streaming tool_call parsing
+`call_llm.py` (root) — `CallLLm` tools passthrough
+`Conversation.py` — `_get_enabled_tools()`, `_run_tool_loop()`, preamble injection, `reply()` tool branching
+`endpoints/conversations.py` — `POST /tool_response` endpoint, thread-safe response store
+`interface/tool-call-manager.js` — `ToolCallManager` singleton (inline status, modal, response submission)
+`interface/interface.html` — Bootstrap Select 1.13.18 CDN, tool settings `<select multiple>` with 8 optgroups and 48 options, `#tool-call-modal`
+`interface/chat.js`, `interface/common.js`, `interface/common-chat.js` — settings persistence (selectpicker read/write with dual-format legacy support), stream handler
+`interface/service-worker.js` — cache version bump, precache
+
+**Docs:** `documentation/features/tool_calling/README.md`, `documentation/planning/plans/llm_tool_calling_framework.plan.md`
+
+**Differentiator**
+ Transforms the chat from a single-turn request-response system into an agentic system where the LLM can chain multiple tool calls (search, lookup documents, query PKB, execute code, manage artefacts) within a single response turn. No other chat system integrates document RAG, PKB memory, code execution, and web search as native LLM tools with a per-category permission model and interactive UI.
+
+---
+
 ### 6) Multi-model responses and formatting
 
 **What it does**
@@ -1020,6 +1084,7 @@ The Chrome extension provides an AI assistant sidepanel integrated into the brow
 | **Page Context Grounding** | "Include page" button extracts current tab content (site-specific extractors for 16 apps: Google Docs, Gmail, Sheets, Twitter/X, Reddit, GitHub, YouTube, Wikipedia, Stack Overflow, LinkedIn, Medium/Substack, Notion, Quip, Overleaf, Confluence, Slack). Content injected as grounding messages in LLM prompt (64K char limit single page, 128K multi-tab). |
 | **Multi-Tab Scroll Capture** | Capture content from other tabs using scroll+screenshot+OCR. 4 per-tab capture modes: Auto, DOM, OCR, Full OCR. Auto-detects document apps via URL patterns. Deferred OCR with immediate tab restoration. On-page toast overlays during capture. |
 | **Screenshots + OCR** | Viewport screenshots, full-page scrolling screenshots. Vision-LLM OCR (gemini-2.5-flash-lite, 8 workers). Inner scroll container auto-detection for web apps with fixed shells (Office Word Online, Google Docs, Notion, etc.). Pipelined OCR (40-60% faster than batch). |
+| **Extract Comments Mode** | When the "Extract Comments" checkbox is enabled (in the split-button dropdown for single-tab capture, or in the tab-picker modal footer for multi-tab capture), the OCR pipeline uses a separate comments-aware LLM prompt (`_build_ocr_messages_with_comments`) that returns a JSON object `{"text": ..., "comments": [{anchor, body}]}` instead of plain text. Main document content and annotation comments are extracted in a single LLM call per screenshot. Comments are stored per-page in `ocrPagesData[i].comments` and displayed inline after the page text in the content viewer under a `--- COMMENTS ---` header, with each comment prefixed by `[Re: <anchor>]`. When the checkbox is unchecked (default), the clean prompt (`_build_ocr_messages_clean`) is used, which explicitly ignores comment bubbles. |
 | **Voice Input** | MediaRecorder + `/transcribe` endpoint. Recording state UI indicator. |
 | **Workspace Sidebar** | jsTree-based hierarchical workspace tree matching main UI. Workspace folders with color indicators. Expand/collapse. Domain switching (assistant/search/finchat). "Browser Extension" workspace auto-created per domain. |
 | **Conversation Management** | "New Chat" (permanent) + "Quick Chat" (temporary) buttons. 8-item right-click context menu: Copy Reference, Open in New Window, Clone, Toggle Stateless, Set Flag (7 colors), Move to Workspace, Save, Delete. |
@@ -1084,9 +1149,10 @@ The extension uses two categories of endpoints:
   - message stream rendering
   - “status” progress line support
   - attach documents
-  - toggle options (web search, memory pad, PKB memory, planner, reward dialer, model selection, preamble)
+  - toggle options (web search, memory pad, PKB memory, planner, reward dialer, model selection, preamble, tool use (enable_tool_use + per-category toggles))
   - next question suggestions
   - per-message actions: doubt clearing, TTS, edit/delete, show/hide, edit as artefact, save to memory, table of contents
+  - tool call status indicators and interactive tool modal
 - PKB screen:
   - claims CRUD
   - auto-fill button (LLM extracts type, domain, tags, questions, friendly_id from statement)
@@ -1126,6 +1192,11 @@ The extension uses two categories of endpoints:
 - Code execution in a persistent environment + automatic embedding of outputs.
 - Diagram generation and publishing (Mermaid + Draw.io) with shareable links.
 
+### Native agentic tool calling
+- LLM can autonomously invoke 48 tools mid-response (search, document lookup, PKB queries, code execution, artefact management, prompts).
+- Multi-step tool chains (up to 5 iterations per turn) with interactive pausing for user input.
+- Per-category permission toggles — write operations require explicit opt-in.
+- Same tool implementations power both the MCP server (for external coding assistants) and the native tool calling framework.
 ### Accessibility + repurposing
 - TTS and podcast conversions (including code-aware variants).
 - Transcription endpoint for audio input.
@@ -1139,7 +1210,7 @@ The extension uses two categories of endpoints:
 ## Sales pitch material (templates)
 
 ### 15-second pitch
-“It’s a research-grade chat assistant that can **ingest your documents**, **search the web**, and **pull from a personal knowledge base**, then stream answers while producing **artifacts**—code outputs, diagrams, slides, and audio—so teams can go from question → deliverable in one workflow.”
+"It's a research-grade chat assistant that can **ingest your documents**, **search the web**, **pull from a personal knowledge base**, and **autonomously invoke 48 tools mid-response** (document search, code execution, artefact creation, PKB management), then stream answers while producing **artifacts**—code outputs, diagrams, slides, and audio—so teams can go from question → deliverable in one workflow."
 
 ### Persona-based value props
 - **Researchers/Students**: doc-grounded answers, literature review agents, summaries, citations-like link surfacing.
@@ -1154,6 +1225,7 @@ The extension uses two categories of endpoints:
 - Built-in **execution + artifacts** (plots/files/diagrams) and **streaming** UX for long tasks.
 - Built-in **specialized agents** for research, interviews, slides, and more.
 
+- Built-in **native tool calling** with 48 tools — the LLM autonomously searches, queries docs, manages PKB, runs code, and creates artefacts within a single response turn.
 ---
 
 ## Notes / known implementation behaviors (useful for parity)

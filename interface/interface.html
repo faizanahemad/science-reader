@@ -177,8 +177,10 @@
     
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/4.6.2/css/bootstrap.min.css" integrity="sha512-rt/SrQ4UNIaGfDyEXZtNcyWvQeOq0QLygHluFQcSjaGB04IxWhal71tKuzP6K8eYXYB6vJV4pHkXcmFGGQ1/0w==" crossorigin="anonymous" referrerpolicy="no-referrer" />
     <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/4.6.2/js/bootstrap.bundle.min.js" integrity="sha512-igl8WEUuas9k5dtnhKqyyld6TzzRjvMqLC79jkgT3z02FvJyHAuUtyemm/P/jYSne1xwFI06ezQxEwweaiV7VA==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap-select@1.13.18/dist/js/bootstrap-select.min.js"></script>
     
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-select@1.13.18/dist/css/bootstrap-select.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
     <link rel="stylesheet" href="interface/style.css?v=29">
 
@@ -285,6 +287,13 @@
                                               <a class="dropdown-item" href="#" id="ext-extract-dom"><i class="fa fa-code mr-1"></i> DOM (text)</a>
                                               <a class="dropdown-item" href="#" id="ext-extract-ocr"><i class="fa fa-camera mr-1"></i> OCR (screenshot)</a>
                                               <a class="dropdown-item" href="#" id="ext-extract-full-ocr"><i class="fa fa-file-image-o mr-1"></i> Full Page OCR (scroll)</a>
+                                              <div class="dropdown-divider"></div>
+                                              <div class="dropdown-item px-3 py-1" style="cursor:default;">
+                                                  <div class="custom-control custom-checkbox">
+                                                      <input type="checkbox" class="custom-control-input" id="ext-extract-comments-toggle">
+                                                      <label class="custom-control-label small" for="ext-extract-comments-toggle">Extract Comments</label>
+                                                  </div>
+                                              </div>
                                           </div>
                                       </div>
                                       <button id="ext-refresh-page" class="btn btn-outline-info mr-2 btn-sm mb-1 ext-btn" style="display:none;" title="Refresh page context"><i class="fa fa-refresh"></i> Refresh</button>
@@ -1634,6 +1643,43 @@
         </div>
     </div>
 
+    <!-- Tool Call Interaction Modal (mid-stream tool responses) -->
+    <div id="tool-call-modal" class="modal fade" tabindex="-1" role="dialog" aria-labelledby="tool-call-modal-title" aria-hidden="true" style="z-index: 1082;">
+        <div class="modal-dialog modal-dialog-centered modal-lg" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="tool-call-modal-title">Tool Response</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body" id="tool-call-modal-body">
+                    <!-- Dynamic content rendered by ToolCallManager -->
+                    <div id="tool-call-modal-loading" style="display: none;">
+                        <div class="text-center py-3">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="sr-only">Loading...</span>
+                            </div>
+                            <p class="mt-2 text-muted">Processing...</p>
+                        </div>
+                    </div>
+                    <div id="tool-call-modal-content">
+                        <!-- Questions/form rendered here -->
+                    </div>
+                    <div id="tool-call-modal-error" style="display: none;" class="alert alert-danger mt-2">
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-dismiss="modal">Skip</button>
+                    <button type="button" class="btn btn-primary" id="tool-call-submit-btn">
+                        <span id="tool-call-submit-text">Submit</span>
+                        <span id="tool-call-submit-spinner" class="spinner-border spinner-border-sm ml-1" style="display: none;" role="status"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- LLM Context Menu -->
     <div id="llm-context-menu" class="llm-context-menu" style="display: none;">
         <ul class="list-unstyled mb-0">
@@ -2179,7 +2225,99 @@
                                             <label class="form-check-label" for="settings-enable_planner">Planner</label>
                                         </div>
                                     </div>
+                                    <div class="col-md-3">
+                                        <div class="form-check mb-2">
+                                            <input class="form-check-input" id="settings-enable_tool_use" type="checkbox">
+                                            <label class="form-check-label" for="settings-enable_tool_use">Enable Tools</label>
+                                        </div>
+                                    </div>
                                 </div>
+                                <div id="tool-use-options" class="mt-2" style="display: none;">
+                                    <label class="small text-muted mb-1 d-block">Select which tools the LLM can use:</label>
+                                    <div style="border: 1px solid #ccc; padding: 8px; border-radius: 12px;">
+                                        <select class="form-control" id="settings-tool-selector" multiple data-live-search="true" data-actions-box="true" data-selected-text-format="count > 3" data-count-selected-text="{0} tools selected" title="Select tools...">
+                                            <optgroup label="Clarification">
+                                                <option value="ask_clarification" selected>Ask Clarification</option>
+                                            </optgroup>
+                                            <optgroup label="Web Search">
+                                                <option value="web_search" selected>Web Search</option>
+                                                <option value="perplexity_search" selected>Perplexity Search</option>
+                                                <option value="jina_search" selected>Jina Search</option>
+                                                <option value="deep_search" selected>Deep Search</option>
+                                                <option value="jina_read_page" selected>Jina Read Page</option>
+                                                <option value="read_link" selected>Read Link</option>
+                                            </optgroup>
+                                            <optgroup label="Documents">
+                                                <option value="document_lookup" selected>Document Lookup</option>
+                                                <option value="docs_list_conversation_docs" selected>List Conversation Docs</option>
+                                                <option value="docs_list_global_docs" selected>List Global Docs</option>
+                                                <option value="docs_query" selected>Query Document</option>
+                                                <option value="docs_get_full_text" selected>Get Full Text</option>
+                                                <option value="docs_get_info" selected>Get Doc Info</option>
+                                                <option value="docs_answer_question" selected>Answer from Doc</option>
+                                                <option value="docs_get_global_doc_info" selected>Get Global Doc Info</option>
+                                                <option value="docs_query_global_doc" selected>Query Global Doc</option>
+                                                <option value="docs_get_global_doc_full_text" selected>Get Global Doc Full Text</option>
+                                            </optgroup>
+                                            <optgroup label="Knowledge Base (PKB)">
+                                                <option value="pkb_search">PKB Search</option>
+                                                <option value="pkb_get_claim">Get Claim</option>
+                                                <option value="pkb_resolve_reference">Resolve Reference</option>
+                                                <option value="pkb_get_pinned_claims">Get Pinned Claims</option>
+                                                <option value="pkb_add_claim">Add Claim</option>
+                                                <option value="pkb_edit_claim">Edit Claim</option>
+                                                <option value="pkb_get_claims_by_ids">Get Claims by IDs</option>
+                                                <option value="pkb_autocomplete">Autocomplete</option>
+                                                <option value="pkb_resolve_context">Resolve Context</option>
+                                                <option value="pkb_pin_claim">Pin Claim</option>
+                                            </optgroup>
+                                            <optgroup label="Memory">
+                                                <option value="conv_get_memory_pad">Get Memory Pad</option>
+                                                <option value="conv_set_memory_pad">Set Memory Pad</option>
+                                                <option value="conv_get_history">Get History</option>
+                                                <option value="conv_get_user_detail">Get User Detail</option>
+                                                <option value="conv_get_user_preference">Get User Preference</option>
+                                                <option value="conv_get_messages">Get Messages</option>
+                                                <option value="conv_set_user_detail">Set User Detail</option>
+                                            </optgroup>
+                                            <optgroup label="Code Runner">
+                                                <option value="run_python_code">Run Python Code</option>
+                                            </optgroup>
+                                            <optgroup label="Artefacts">
+                                                <option value="artefacts_list">List Artefacts</option>
+                                                <option value="artefacts_create">Create Artefact</option>
+                                                <option value="artefacts_get">Get Artefact</option>
+                                                <option value="artefacts_get_file_path">Get File Path</option>
+                                                <option value="artefacts_update">Update Artefact</option>
+                                                <option value="artefacts_delete">Delete Artefact</option>
+                                                <option value="artefacts_propose_edits">Propose Edits</option>
+                                                <option value="artefacts_apply_edits">Apply Edits</option>
+                                            </optgroup>
+                                            <optgroup label="Prompts">
+                                                <option value="prompts_list">List Prompts</option>
+                                                <option value="prompts_get">Get Prompt</option>
+                                                <option value="temp_llm_action">Temp LLM Action</option>
+                                                <option value="prompts_create">Create Prompt</option>
+                                                <option value="prompts_update">Update Prompt</option>
+                                            </optgroup>
+                                        </select>
+                                    </div>
+                                </div>
+                                <script>
+                                $(document).ready(function() {
+                                    // Initialize tool selector selectpicker
+                                    if (typeof $.fn.selectpicker !== 'undefined') {
+                                        $('#settings-tool-selector').selectpicker();
+                                    }
+                                    // Master toggle for tool use options
+                                    $('#settings-enable_tool_use').on('change', function() {
+                                        $('#tool-use-options').toggle($(this).is(':checked'));
+                                        if ($(this).is(':checked') && typeof $.fn.selectpicker !== 'undefined') {
+                                            $('#settings-tool-selector').selectpicker('refresh');
+                                        }
+                                    });
+                                });
+                                </script>
                             </div>
                         </div>
 
@@ -2465,7 +2603,11 @@ greet("World");</code></pre>
                         <small id="tab-picker-progress-text" class="text-muted"></small>
                     </div>
                 </div>
-                <div class="modal-footer">
+                <div class="modal-footer d-flex align-items-center">
+                    <div class="custom-control custom-checkbox mr-auto">
+                        <input type="checkbox" class="custom-control-input" id="tab-picker-extract-comments">
+                        <label class="custom-control-label" for="tab-picker-extract-comments">Extract Comments</label>
+                    </div>
                     <button id="tab-picker-cancel-btn" class="btn btn-warning" style="display: none;">Cancel</button>
                     <button id="tab-picker-capture-btn" class="btn btn-primary" disabled>Capture Selected</button>
                     <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
@@ -3089,6 +3231,13 @@ greet("World");</code></pre>
         #chat-settings-modal .row {
             margin-left: -6px;
             margin-right: -6px;
+        }
+        /* Tool selector dropdown */
+        #chat-settings-modal .bootstrap-select .dropdown-menu {
+            max-height: 300px !important;
+        }
+        #chat-settings-modal .bootstrap-select .dropdown-menu .inner {
+            max-height: 280px !important;
         }
 
         /* Secondary Modals - Higher level to appear above chat settings */
@@ -3875,6 +4024,7 @@ greet("World");</code></pre>
     <script src="interface/codemirror.js"></script>
     <script src="interface/doubt-manager.js"></script>
     <script src="interface/clarifications-manager.js"></script>
+    <script src="interface/tool-call-manager.js?v=1"></script>
     <script src="interface/temp-llm-manager.js"></script>
     <script src="interface/context-menu-manager.js"></script>
     <script src="interface/prompt-manager.js"></script>
@@ -4629,6 +4779,9 @@ greet("World");</code></pre>
         $('#chat-settings-modal').on('shown.bs.modal', function() {
             updatePreviewHighlight();
             loadCustomPrompts();
+            if (typeof $.fn.selectpicker !== 'undefined') {
+                $('#settings-tool-selector').selectpicker('refresh');
+            }
         });
         
         // Apply saved theme on page load

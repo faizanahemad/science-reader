@@ -2,7 +2,7 @@
 
 **Feature**: Multi-tab content capture with scroll+screenshot+OCR for document apps  
 **Status**: Implemented  
-**Last Updated**: February 27, 2026
+**Last Updated**: March 3, 2026
 
 ---
 
@@ -254,3 +254,78 @@ The `#content-viewer-modal` in `interface/interface.html` was too short when ope
 | `interface/tab-picker-manager.js` | Removed auto-checkbox logic from `_renderTabs()`; kept mode dropdown auto-select; added `FULL_OCR_SITES` array and `_getDefaultMode()` |
 | `interface/page-context-manager.js` | Split button handlers (`#ext-extract-dom`, `#ext-extract-ocr`, `#ext-extract-full-ocr`); added `_resolveCurrentTabId()`, `_captureAndOcrPipelined()`, `capturePageWithOcr()` |
 | `interface/interface.html` | `#ext-extract-page` → `#ext-extract-page-group` split-button; fixed 2 unclosed `</div>` before `#tab-picker-modal`; `#content-viewer-modal` height fixes |
+
+---
+
+## Feature: OCR Comment Extraction (Mar 2026)
+
+### Overview
+
+All three OCR capture modes (single screenshot, full-page scroll, multi-tab) now support an optional **Extract Comments** mode that captures document review annotations alongside the main document content.
+
+This is particularly useful for SharePoint Word Online and PDFs where reviewers leave comments in the margins — the extracted comments are kept structurally separate from the main content but co-located (appended inline after each page).
+
+### UI
+
+Two checkboxes were added, one per entry point:
+
+- **Split-button dropdown** (`#ext-extract-page-group`): an `#ext-extract-comments-toggle` checkbox appears below a divider after the "Full Page OCR" item. Applies to all three single-tab modes.
+- **Tab-picker modal footer** (`#tab-picker-modal`): a `#tab-picker-extract-comments` checkbox appears left-aligned (`mr-auto`) in the footer. Applies to all selected tabs in the multi-tab capture.
+
+Both default to **unchecked** (clean mode). The selection is read once at capture-start and applies to all screenshots in that run.
+
+### Two OCR Prompt Strategies
+
+| Mode | Prompt Function | LLM Response Format | When Used |
+|------|-----------------|---------------------|-----------|
+| Clean (default) | `_build_ocr_messages_clean()` | Plain text — main content only, comment bubbles explicitly ignored | `extract_comments=false` |
+| Comments | `_build_ocr_messages_with_comments()` | JSON `{"text": "...", "comments": [{"anchor": "...", "body": "..."}]}` | `extract_comments=true` |
+
+The `anchor` field is a short quote of the document text the comment refers to; `body` is the comment text itself.
+
+### Backend: `/ext/ocr` Endpoint
+
+New request field:
+```json
+{ "images": ["data:image/png;base64,..."], "extract_comments": true }
+```
+
+New response shape (when `extract_comments=true`):
+```json
+{
+  "text": "combined text from all pages",
+  "pages": [
+    { "index": 0, "text": "page text", "comments": [{"anchor": "nearby text", "body": "comment body"}] }
+  ],
+  "extract_comments": true
+}
+```
+
+### Comment Rendering in Content Viewer
+
+The `content-viewer.js` `_buildPages()` function appends a comment block inline after each page's text when `ocrPage.comments` is non-empty:
+
+```
+<main document text for page N>
+
+--- COMMENTS ---
+[Re: nearby anchor text]
+Comment body text here
+
+[Re: another anchor]
+Another comment body
+```
+
+### Error Handling
+
+If the model returns non-JSON for the comments prompt, the raw response is used as `text` and `comments` defaults to `[]`. A warning is logged: `OCR image N: comments prompt returned non-JSON, falling back to raw text`.
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `endpoints/ext_page_context.py` | `import json`; `_build_ocr_messages_clean()`; `_build_ocr_messages_with_comments()`; `_ocr_single_image(extract_comments)` with JSON parse + fallback; `/ext/ocr` reads + propagates `extract_comments` |
+| `interface/interface.html` | `#ext-extract-comments-toggle` in split-button dropdown; `#tab-picker-extract-comments` in tab-picker footer |
+| `interface/page-context-manager.js` | All OCR flows read checkbox + pass flag; `ocrPagesData` stores `comments[]` per page |
+| `interface/tab-picker-manager.js` | `_startCapture()` reads checkbox; `_assembleResults()` preserves `comments[]`; results carry `extractComments` flag |
+| `interface/content-viewer.js` | `_buildPages()` appends `--- COMMENTS ---` block when page has comments |

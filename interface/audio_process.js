@@ -205,4 +205,5 @@ $(document).ready(function () {
                 mainChatVoice.toggleRecording();
             }
         }
+    });
 });  

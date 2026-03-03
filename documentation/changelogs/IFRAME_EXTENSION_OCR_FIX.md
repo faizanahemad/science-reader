@@ -158,3 +158,64 @@ When opened from the page-context panel, `#content-viewer-modal` was very short 
 | `interface/tab-picker-manager.js` | Removed auto-checkbox; kept mode dropdown auto-select |
 | `interface/page-context-manager.js` | Split button handlers; `_resolveCurrentTabId()`; `capturePageWithOcr()` |
 | `interface/interface.html` | Split button group; 2 missing `</div>` fixes; content-viewer-modal height fixes |
+
+---
+
+## Feature: OCR Comment Extraction (Mar 2026)
+
+### Overview
+
+OCR capture now supports extracting document comments, review annotations, margin notes, and sticky-note overlays (e.g. Microsoft Word/PDF review comments) alongside the main document content. This applies to all three OCR modes: single screenshot OCR, full-page scroll OCR, and multi-tab OCR.
+
+### Design
+
+Two separate LLM prompt strategies are used:
+
+- **Clean mode** (default, `extract_comments=false`): uses `_build_ocr_messages_clean()` which explicitly instructs the model to ignore comment bubbles and return only the main document text as plain text. This is the same fast path as before.
+- **Comments mode** (`extract_comments=true`): uses `_build_ocr_messages_with_comments()` which instructs the model to return a JSON object `{"text": "...", "comments": [{"anchor": "...", "body": "..."}]}`. The `text` key holds the clean main content; `comments` is an array of annotation objects where `anchor` is a short quote of the nearby text the comment refers to, and `body` is the comment text itself.
+
+The backend parses the JSON response from the comments prompt, strips markdown fences if the model wraps the JSON, and falls back gracefully to treating the whole response as plain text if parsing fails.
+
+### UI: Extract Comments Toggle
+
+Two checkboxes were added, one per entry point:
+
+- **`#ext-extract-comments-toggle`** — inside the `#ext-extract-page-group` split-button dropdown (below a divider, after the Full Page OCR item). Applies to all three modes in the single-tab flow: DOM (ignored), OCR (screenshot), and Full Page OCR (scroll).
+- **`#tab-picker-extract-comments`** — in the tab-picker modal footer (left-aligned, `mr-auto`). Applies to all selected tabs in the multi-tab capture flow.
+
+Both checkboxes default to unchecked (clean mode). The state is read at the moment the capture button is clicked and applies uniformly to all screenshots in that capture run.
+
+### Data Flow
+
+```
+UI checkbox → extractComments flag
+    ↓
+POST /ext/ocr  { images: [...], extract_comments: true }
+    ↓
+_ocr_single_image(extract_comments=True)
+    → _build_ocr_messages_with_comments(image_data_url)
+    → call_llm(..., stream=False)
+    → JSON parse { text, comments[] }
+    ↓
+Response: { text: combined_text, pages: [{index, text, comments: [{anchor, body}]}], extract_comments: true }
+    ↓
+JS: ocrPagesData[i].comments stored on each page
+    ↓
+content-viewer.js _buildPages():
+    pageText + "\n--- COMMENTS ---\n[Re: anchor]\nbody\n..."
+```
+
+### Error Handling
+
+- If the model returns non-JSON (prose, partial JSON, fenced markdown): the raw response is used as `text`, `comments` defaults to `[]`, and a warning is logged: `OCR image N: comments prompt returned non-JSON, falling back to raw text`.
+- Markdown fences (`` ```json ... ``` ``) are stripped before JSON parsing.
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `endpoints/ext_page_context.py` | Added `import json`; added `_build_ocr_messages_clean()` (plain text prompt) and `_build_ocr_messages_with_comments()` (JSON prompt); updated `_ocr_single_image()` to accept `extract_comments` param; updated `/ext/ocr` endpoint to read `extract_comments` from request, pass it through, and include it in response; updated docstrings |
+| `interface/interface.html` | Added `#ext-extract-comments-toggle` checkbox in `#ext-extract-page-group` dropdown (after divider); added `#tab-picker-extract-comments` checkbox in tab-picker modal footer |
+| `interface/page-context-manager.js` | `_ocrSingleScreenshot()` accepts and sends `extractComments`; `_captureAndOcrPipelined()` stores `comments` per page in `ocrPagesData`; OCR and Full OCR click handlers read checkbox; `setSingleContext()` stores `extractComments` flag; `capturePageWithOcr()` accepts `extractComments` |
+| `interface/tab-picker-manager.js` | `_ocrSingleScreenshot()` accepts and sends `extractComments`; `_startCapture()` reads checkbox; screenshot progress handler passes flag; `_assembleResults()` accepts flag, preserves `comments` per page, adds `extractComments` to result objects |
+| `interface/content-viewer.js` | `_buildPages()` OCR case: appends `--- COMMENTS ---` block with `[Re: anchor]` + body lines after page text when `ocrPage.comments` is non-empty |

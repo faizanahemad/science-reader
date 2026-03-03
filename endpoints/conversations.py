@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import time
+import threading
 import logging
 import secrets
 import string
@@ -59,6 +60,50 @@ conversations_bp = Blueprint("conversations", __name__)
 logger = logging.getLogger(__name__)
 _ALPHABET = string.ascii_letters + string.digits
 
+# ---------------------------------------------------------------------------
+# Thread-safe storage for interactive tool responses.
+# Used by the agentic tool loop in Conversation._run_tool_loop() to pause
+# and wait for user input that arrives via POST /tool_response.
+# ---------------------------------------------------------------------------
+_tool_response_events = {}   # {tool_id: threading.Event}
+_tool_response_data = {}     # {tool_id: dict}
+_tool_response_lock = threading.Lock()
+
+
+def wait_for_tool_response(tool_id, timeout=60):
+    """Wait for a user's tool response submitted via POST /tool_response.
+    
+    Called by the background thread running Conversation._run_tool_loop().
+    Blocks until the user submits a response or timeout expires.
+    
+    Parameters
+    ----------
+    tool_id : str
+        The tool call ID to wait for.
+    timeout : int
+        Maximum seconds to wait (default 60).
+    
+    Returns
+    -------
+    dict or None
+        The user's response data, or None if timeout.
+    """
+    event = threading.Event()
+    
+    with _tool_response_lock:
+        _tool_response_events[tool_id] = event
+    
+    # Block until response arrives or timeout
+    got_response = event.wait(timeout=timeout)
+    
+    # Cleanup and return
+    with _tool_response_lock:
+        _tool_response_events.pop(tool_id, None)
+        if got_response:
+            return _tool_response_data.pop(tool_id, None)
+        else:
+            _tool_response_data.pop(tool_id, None)
+            return None
 
 @conversations_bp.route(
     "/list_messages_by_conversation/<conversation_id>", methods=["GET"]
@@ -1580,6 +1625,7 @@ def send_message(conversation_id: str):
     query["_user_email"] = email
     query["_global_docs_dir"] = state.global_docs_dir
     query["_conversation_loader"] = lambda cid: state.conversation_cache[cid]
+    query["_tool_response_waiter"] = wait_for_tool_response
 
     from queue import Queue
     from flask import copy_current_request_context
@@ -1769,6 +1815,45 @@ def _normalize_clarifications_payload(raw: dict) -> dict:
         needs = False
 
     return {"needs_clarification": needs, "questions": questions_out}
+
+
+
+
+@conversations_bp.route("/tool_response/<conversation_id>/<tool_id>", methods=["POST"])
+@limiter.limit("60 per minute")
+@login_required
+def submit_tool_response(conversation_id, tool_id):
+    """Receive user's response for an interactive tool call.
+    
+    Called by the UI (ToolCallManager.submitToolResponse) when the user
+    answers a tool's questions (e.g., clarification MCQ). The response
+    unblocks the background thread running the agentic tool loop.
+    
+    Request body: {"response": { ... user's response data ... }}
+    
+    Returns 200 on success, 404 if no pending request for this tool_id,
+    400 on malformed request.
+    """
+    try:
+        data = request.get_json()
+        if not data or "response" not in data:
+            return jsonify({"error": "Missing 'response' field"}), 400
+        
+        response_data = data["response"]
+        
+        with _tool_response_lock:
+            event = _tool_response_events.get(tool_id)
+            if event is None:
+                return jsonify({"error": f"No pending tool request for tool_id: {tool_id}"}), 404
+            
+            _tool_response_data[tool_id] = response_data
+            event.set()  # Unblock the waiting background thread
+        
+        return jsonify({"status": "ok"}), 200
+        
+    except Exception as e:
+        logger.error(f"Error in submit_tool_response: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 @conversations_bp.route("/clarify_intent/<conversation_id>", methods=["POST"])
