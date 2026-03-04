@@ -6,7 +6,7 @@ The LLM Tool Calling Framework adds native, mid-response tool calling to the cha
 
 This transforms the application from a "configure then send" model to a truly agentic one where the LLM reasons about what it needs and acts accordingly. The framework supports multi-step tool chains (up to 5 iterations per turn), interactive tools that pause for user input, and server-side tools that execute silently.
 
-**Key numbers**: 47 tools across 8 categories. 1 interactive tool (`ask_clarification`). Master toggle + per-category toggles. 60-second interactive timeout. 5-iteration hard cap. 12000-character result truncation.
+**Key numbers**: 47 tools across 8 categories. 1 interactive tool (`ask_clarification`). Master toggle + per-category toggles. 60-second interactive timeout. 5-iteration hard cap. 12000-character result truncation. Tool use enabled by default with `ask_clarification` pre-selected. Search-intent auto-detection dynamically adds web search tools based on message keywords.
 
 **Plan reference**: `documentation/planning/plans/llm_tool_calling_framework.plan.md`
 
@@ -16,14 +16,16 @@ This transforms the application from a "configure then send" model to a truly ag
 
 Tool calling is controlled via the chat settings panel (gear icon in the chat input area):
 
-1. **Master toggle**: "Enable Tools" checkbox -- gates all tool functionality. When OFF, the LLM behaves exactly as before (plain text responses, no tool invocations).
-2. **Tool selector dropdown**: When the master toggle is ON, a Bootstrap Select multi-select dropdown appears (`#settings-tool-selector`). This dropdown lists all 48 tools grouped by category using `<optgroup>` elements. Users can:
+1. **Master toggle**: "Enable Tools" checkbox -- gates all tool functionality. When OFF, the LLM behaves exactly as before (plain text responses, no tool invocations). **Enabled by default** for new sessions.
+2. **Tool selector dropdown**: When the master toggle is ON, a Bootstrap Select multi-select dropdown appears (`#settings-tool-selector`). This dropdown lists all 47 tools grouped by category using `<optgroup>` elements. Users can:
    - **Select/deselect individual tools** -- granular per-tool control
    - **Select/deselect entire categories** -- via the optgroup headers (Bootstrap Select `data-actions-box`)
    - **Search tools by name** -- via `data-live-search` filter
    - **See selection count** -- shows "{N} tools selected" when more than 3 are selected
 
-Default selections: All tools in Clarification, Web Search, and Documents categories are selected. PKB, Memory, Code Runner, Artefacts, and Prompts categories are deselected by default.
+**Default selections**: `ask_clarification` is selected by default. Web search tools are **not** selected by default in the UI but are **automatically injected** when the user's message contains search-intent keywords (see "Search-Intent Auto-Detection" below). PKB, Memory, Code Runner, Artefacts, and Prompts categories are deselected by default.
+
+**Search-intent auto-detection**: When the user types a message containing phrases like "search the web", "google", "latest news about", "find me recent info", etc., the frontend automatically enables tool use and injects the 5 web search tools (`web_search`, `perplexity_search`, `jina_search`, `jina_read_page`, `read_link`) into the enabled tools list — even if the user hadn't manually selected them. This happens transparently in `sendMessageCallback()` after option merging, using `detectSearchIntent()` and `mergeWebSearchTools()` in `common-chat.js`. Code blocks in the message are stripped before keyword matching to avoid false positives. The detection does NOT return early or modify the message text — it only modifies the `options` object in-place.
 
 Settings are persisted per-conversation via the existing chat settings mechanism (`checkboxes` payload in the `/reply` request). The dropdown uses Bootstrap Select 1.13.18 (compatible with Bootstrap 4.6).
 
@@ -32,7 +34,7 @@ Settings are persisted per-conversation via the existing chat settings mechanism
 | Category | Tools | Default | Description |
 |---|---|---|---|
 | `clarification` | 1 | ON | Interactive clarification questions with MCQ options. Pauses stream, shows modal, collects user answers, resumes. |
-| `search` | 5 | ON | Web search (standard, Perplexity, Jina), page reading (Jina Reader, generic link reader). `deep_search` (`InterleavedWebSearchAgent`) is available only via the main UI, not as a tool. |
+| `search` | 5 | ON | Web search (standard, Perplexity, Jina), page reading (Jina Reader, generic link reader). |
 | `documents` | 10 | ON | Search/query conversation docs and global docs. List, get metadata, get full text, semantic search, LLM-answered questions. |
 | `pkb` | 10 | OFF | Personal Knowledge Base operations. Search claims (hybrid/FTS/embedding), resolve `@`-references, get/add/edit/pin claims, autocomplete. |
 | `memory` | 7 | OFF | Conversation memory access. Memory pad read/write, conversation history, user detail/preferences, raw message retrieval. |
@@ -490,7 +492,7 @@ Manual testing checklist:
 | `interface/tool-call-manager.js` | **New** | `ToolCallManager` singleton: inline status indicators, interactive tool modal rendering, MCQ form, response submission, event handler wiring |
 | `interface/interface.html` | Modified | Added Bootstrap Select 1.13.18 CDN (CSS + JS), master "Enable Tools" toggle, `<select multiple id="settings-tool-selector">` with 8 `<optgroup>` categories and 48 tool `<option>` elements, `#tool-call-modal` Bootstrap modal for interactive tools, CSS for dropdown max-height |
 | `interface/chat.js` | Modified | Settings persistence for `enable_tool_use` and `enabled_tools` (reads from selectpicker as array of tool names), `setModalFromState()` with dual-format support (new array + legacy dict via `categoryDefaults` mapping), selectpicker refresh on modal open |
-| `interface/common-chat.js` | Modified | Extended `renderStreamingResponse()` to detect and dispatch tool event types (`tool_call`, `tool_status`, `tool_input_request`, `tool_result`) to `ToolCallManager` |
+| `interface/common-chat.js` | Modified | Extended `renderStreamingResponse()` to detect and dispatch tool event types (`tool_call`, `tool_status`, `tool_input_request`, `tool_result`) to `ToolCallManager`. Added search-intent auto-detection: `WEB_SEARCH_TOOLS` constant, `SEARCH_INTENT_PATTERNS` (27 regex patterns), `detectSearchIntent()` and `mergeWebSearchTools()` functions, plus inline interception in `sendMessageCallback()` after `mergeOptions()`. |
 | `interface/common.js` | Modified | `getOptions()` reads tool settings from `#settings-tool-selector` selectpicker via IIFE with fallback |
 | `interface/service-worker.js` | Modified | Added `tool-call-manager.js` to precache file list |
 
@@ -648,9 +650,20 @@ Manual testing checklist:
 
 12. **Headless mode and query bypass for search tools**: All search tool handlers (`web_search`, `perplexity_search`, `jina_search`) run their underlying agents in **headless mode** (`headless=True`). In headless mode, the agent skips the combiner LLM step and returns raw search results directly. Additionally, the tool handlers pre-format the `query` and `context` parameters as a Python code block containing a list of `(query, context)` tuples. This format is recognized by the agent's `extract_queries_contexts()` method (in `WebSearchWithAgent.__call__`), which parses the code block directly and bypasses the internal LLM query-generation step. This is important because the calling LLM has already crafted a good query — there is no need for a second LLM call inside the agent to re-generate queries. The same pattern is used in the MCP server tools (`mcp_server/mcp_app.py`). When adding a new search tool, follow this pattern: accept a `context` parameter, format as `"```python\n[({repr(query)}, {repr(context)})]\n```"`, and pass the formatted string to the agent.
 
-13. **`deep_search` is UI-only**: The `InterleavedWebSearchAgent` (multi-hop iterative search) is intentionally excluded from the tool-calling framework and MCP server. It is designed for direct UI use where the streaming multi-step search→answer loop is rendered progressively. It is invoked from the main chat UI (`Conversation.py`) and the extension server (`extension_server.py`), not as a tool call.
+13. **`deep_search` removed from MCP server**: The `InterleavedWebSearchAgent` (multi-hop iterative search) was removed from the MCP server. It remains available via the main chat UI (`Conversation.py`) and the extension server (`extension_server.py`) where the streaming multi-step search→answer loop is rendered progressively, but is not exposed as an MCP tool or tool-calling framework tool.
 
 14. **MCP server search tool alignment**: The MCP server tools in `mcp_server/mcp_app.py` for `perplexity_search` and `jina_search` follow the same patterns as the tool-calling handlers: accept a `context` parameter, pre-format query+context as a Python code block for `extract_queries_contexts()` bypass, and run in headless mode. All MCP search tools operate headless (no combiner LLM, raw results returned to the MCP client).
+
+15. **Default tool enablement**: Tool use is enabled by default for new sessions. `computeDefaultStateForTab()` in `chat.js` sets `enable_tool_use: true` and `enabled_tools: ['ask_clarification']`. `resetSettingsToDefaults()` also enables tool use and selects `ask_clarification`. The HTML dropdown has `<option value="ask_clarification" selected>` as the only pre-selected tool. The backend already defaults `clarification: True` in `_get_enabled_tools()`. This means every new conversation starts with the LLM able to ask clarifying questions via the `ask_clarification` tool without the user needing to configure anything.
+
+16. **Search-intent auto-detection**: The frontend automatically injects web search tools when the user's message contains search-intent keywords. This is implemented entirely in `interface/common-chat.js` with three components:
+    - **`WEB_SEARCH_TOOLS`**: constant array of the 5 search tool names (`web_search`, `perplexity_search`, `jina_search`, `jina_read_page`, `read_link`).
+    - **`SEARCH_INTENT_PATTERNS`**: array of 27 regex patterns organized by category (explicit search commands, recency/currency phrases, browse/check, research, news, direct tool references). All patterns use `\b` word boundaries and `/i` case-insensitive flags to minimize false positives.
+    - **`detectSearchIntent(messageText)`**: strips fenced code blocks (```` ``` ... ``` ````) and inline code (`` ` ... ` ``) from the message, then tests against all patterns. Returns `true` on first match.
+    - **`mergeWebSearchTools(options)`**: sets `options.enable_tool_use = true` and de-duplicates the 5 search tools into `options.enabled_tools`.
+    - **Interception point**: runs in `sendMessageCallback()` immediately after `mergeOptions()` (before `/clarify`, auto-clarify, and PKB slash command interceptions). Wrapped in try/catch with fail-open behavior — if detection throws, the message sends normally without search tools.
+    - **No early return**: unlike `/clarify` interception, search-intent detection modifies `options` in-place and lets the send proceed normally.
+    - **Example trigger phrases**: "search the web for X", "google Y", "latest news about Z", "find me recent info on", "what's the latest on", "look up", "check online", "news about", "headlines about", "enable web search".
 
 ## UI Implementation Details
 

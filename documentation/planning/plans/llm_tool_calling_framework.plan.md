@@ -1003,7 +1003,7 @@ To maximize the LLM's capabilities, ALL MCP tools are also registered in the `co
 | Category | Module | Tools | Default | Notes |
 |----------|--------|-------|---------|-------|
 | `clarification` | (built-in) | ask_clarification | ON | Interactive, pauses for user input |
-| `search` | mcp_app.py | web_search, perplexity_search, jina_search, deep_search, jina_read_page, read_link | ON | Web search and page reading |
+| `search` | mcp_app.py | web_search, perplexity_search, jina_search, jina_read_page, read_link | ON | Web search and page reading |
 | `documents` | docs.py | document_lookup + 9 MCP doc tools | ON | Conversation and global doc search |
 | `pkb` | pkb.py | 10 tools (search, get, add, edit, resolve, pin, etc.) | OFF | Personal Knowledge Base |
 | `memory` | conversation.py | 7 tools (memory pad, history, user detail, preferences) | OFF | Conversation memory access |

@@ -1,6 +1,6 @@
 # MCP Web Search Server
 
-Expose the project's web search agents (Perplexity, Jina, Interleaved deep search) as MCP tools accessible from external coding assistants like OpenCode and Claude Code, over streamable HTTP with JWT bearer-token authentication and per-token rate limiting. Also exposes page-reader tools (`jina_read_page`, `read_link`) for fetching web page, PDF, and image content.
+Expose the project's web search agents (Perplexity, Jina) as MCP tools accessible from external coding assistants like OpenCode and Claude Code, over streamable HTTP with JWT bearer-token authentication and per-token rate limiting. Also exposes page-reader tools (`jina_read_page`, `read_link`) for fetching web page, PDF, and image content.
 
 ## Overview
 
@@ -25,7 +25,6 @@ python server.py
             |               |
             |               +-- perplexity_search tool
             |               +-- jina_search tool
-            |               +-- deep_search tool
             |               +-- jina_read_page tool
             |               +-- read_link tool
             |
@@ -38,41 +37,33 @@ The MCP server is started from `server.py:main()` via `start_mcp_server()`. It r
 
 ### perplexity_search
 
-Search using Perplexity AI models (sonar-pro, sonar). Higher `detail_level` progressively adds reasoning and deep-research models.
+Search using Perplexity AI models (sonar-pro, sonar). Higher `detail_level` progressively adds reasoning and deep-research models. Provide additional `context` to help produce more relevant results.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `query` | str | required | The search query or question |
+| `context` | str | `""` | Additional context (background, intent, what information is needed). Provide as much relevant context as possible for better results. |
 | `detail_level` | int | 1 | Search depth: 1=fast (2 models), 3=+reasoning, 4=+deep-research |
-| `model_name` | str | "default" | LLM model for query generation/combining. "default" uses `CHEAP_LLM[0]` |
+| `model_name` | str | `"default"` | LLM model for combining. `"default"` uses `CHEAP_LLM[0]` |
 
 Wraps `PerplexitySearchAgent` from `agents/search_and_information_agents.py`.
 
 ### jina_search
 
-Search using Jina AI with full web content retrieval. Fetches actual page content, summarises long pages, handles PDFs.
+Search using Jina AI with full web content retrieval. Fetches actual page content, summarises long pages, handles PDFs. Provide additional `context` to help guide extraction and produce more relevant results.
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `query` | str | required | The search query or question |
+| `context` | str | `""` | Additional context (background, intent, what information is needed). Provide as much relevant context as possible for better results. |
 | `detail_level` | int | 1 | Search depth: 1=5 results, 2=8 results, 3+=20 results |
-| `model_name` | str | "default" | LLM model for query generation/combining |
+| `model_name` | str | `"default"` | LLM model for combining |
 
 Wraps `JinaSearchAgent` from `agents/search_and_information_agents.py`.
 
-### deep_search
+### deep_search (REMOVED)
 
-Multi-hop iterative search with interleaved search-answer cycles. Runs N rounds of: plan queries, search, write partial answer, repeat. Best for complex research questions.
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `query` | str | required | The search query or question |
-| `detail_level` | int | 2 | Search depth passed to sub-agents (1-4) |
-| `model_name` | str | "default" | LLM model for answer writing |
-| `interleave_steps` | int | 3 | Number of search-answer cycles (1-5) |
-| `sources` | str | "web,perplexity,jina" | Comma-separated list of sources to use |
-
-Wraps `InterleavedWebSearchAgent` from `agents/search_and_information_agents.py`.
+> **Note:** `deep_search` was removed from the MCP server. The `InterleavedWebSearchAgent` (multi-hop iterative search) remains available via the main chat UI (`Conversation.py`) and the extension server (`extension_server.py`) where the streaming multi-step search→answer loop is rendered progressively.
 
 ### jina_read_page
 
@@ -319,11 +310,13 @@ Tools are synchronous functions (not async) because the underlying search agents
 
 ```python
 @mcp.tool()
-def perplexity_search(query: str, detail_level: int = 1, model_name: str = "default") -> str:
+def perplexity_search(query: str, context: str = "", detail_level: int = 1, model_name: str = "default") -> str:
     keys = _get_keys()          # cached env-var lookup via keyParser({})
     model = _resolve_model(model_name)  # "default" -> CHEAP_LLM[0]
-    agent = PerplexitySearchAgent(keys, model_name=model, detail_level=detail_level, timeout=90)
-    return _collect_agent_output(agent, query)  # runs generator, collects text
+    agent = PerplexitySearchAgent(keys, model_name=model, detail_level=detail_level, timeout=120, headless=True)
+    # Pre-format query+context as code block for extract_queries_contexts() bypass
+    agent_input = f"```python\n[({repr(query)}, {repr(context)})]\n```"
+    return _collect_agent_output(agent, agent_input)
 ```
 
 ### API key caching

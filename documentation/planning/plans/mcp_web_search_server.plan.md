@@ -76,7 +76,7 @@ The project has powerful web search agents (`PerplexitySearchAgent`, `JinaSearch
 
 ### Functional
 
-- **FR-1:** MCP server exposes `perplexity_search`, `jina_search`, and `deep_search` tools.
+- **FR-1:** MCP server exposes `perplexity_search` and `jina_search` tools (both accept a `context` parameter). `deep_search` was removed.
 - **FR-2:** Each tool accepts a `query` (str), `detail_level` (int, 1-4), and optional `model_name` (str).
 - **FR-3:** Server validates bearer token on every request using PyJWT.
 - **FR-4:** Invalid/expired/missing tokens return 401 Unauthorized.
@@ -228,7 +228,7 @@ if __name__ == "__main__":
 │  │  conversations        │    │  Tools:                        │ │
 │  │                       │    │   - perplexity_search          │ │
 │  │                       │    │   - jina_search                │ │
-│  │                       │    │   - deep_search                │ │
+│  │                       │    │                                │ │
 │  │                       │    │                                │ │
 │  │                       │    │  Auth: JWT TokenVerifier       │ │
 │  │                       │    │  Rate Limit: Starlette MW      │ │
@@ -425,38 +425,9 @@ async def jina_search(
     return _collect_agent_output(agent, query)
 ```
 
-### Tool 3: `deep_search`
+### Tool 3: `deep_search` (REMOVED)
 
-```python
-@mcp.tool()
-async def deep_search(
-    query: str,
-    detail_level: int = 2,
-    model_name: str = "default",
-    interleave_steps: int = 3,
-    sources: str = "web,perplexity,jina",
-) -> str:
-    """Multi-hop iterative search with interleaved search-answer cycles.
-    Runs N rounds of: plan queries -> search -> write partial answer -> repeat.
-    Best for complex questions requiring deep research.
-
-    Args:
-        query: The search query or question.
-        detail_level: Search depth passed to sub-agents (1-4).
-        model_name: LLM model for answer writing. Use "default" for auto-selection.
-        interleave_steps: Number of search-answer cycles (1-5). More steps = deeper but slower.
-        sources: Comma-separated list of sources: "web", "perplexity", "jina". Default uses all three.
-    """
-    keys = _get_keys()
-    model = _resolve_model(model_name)
-    source_list = [s.strip() for s in sources.split(",") if s.strip()]
-    agent = InterleavedWebSearchAgent(
-        keys, model_name=model, detail_level=detail_level, timeout=120,
-        interleave_steps=interleave_steps, sources=source_list,
-        show_intermediate_results=False, headless=True,
-    )
-    return _collect_agent_output(agent, query)
-```
+> **Note:** `deep_search` was removed from the MCP server. The `InterleavedWebSearchAgent` remains available via the main chat UI only.
 
 ### Helper Functions
 
@@ -784,7 +755,7 @@ mcp_server/
    - `_get_keys()` helper (calls `keyParser({})`).
    - `_resolve_model(model_name)` helper.
    - `_collect_agent_output(agent, query)` helper.
-   - 3 tool functions: `perplexity_search`, `jina_search`, `deep_search`.
+   - 2 tool functions: `perplexity_search`, `jina_search` (both with `context` parameter). `deep_search` removed.
 2. Wire up auth: pass `JWTTokenVerifier` and `AuthSettings` to `FastMCP` constructor.
 3. Test locally without Flask integration:
    - Run standalone: `MCP_JWT_SECRET=test python -c "from mcp_server.mcp_app import create_mcp_app; m = create_mcp_app('test', 10); m.run(transport='streamable-http', port=8100)"`

@@ -158,6 +158,7 @@ Before any chat message can be sent, a conversation must be selected in the side
 ### How a conversation gets selected
 
 - **Click in sidebar**: jsTree `select_node.jstree` event fires. If the selected node ID starts with `cv_`, extracts the conversation ID and calls `ConversationManager.setActiveConversation(conversationId)`.
+- **Click in Recent section**: The "Recent" section above the workspace tree shows the 5 most recently updated conversations (plain DOM, not jsTree). Clicking an item calls `ConversationManager.setActiveConversation(convId)` — same as the jsTree click handler. Does NOT call `highlightActiveConversation()` separately (that is called internally by `setActiveConversation()` → `highLightActiveConversation()` → `WorkspaceManager.highlightActiveConversation()`). On mobile (<=768px), closes the sidebar before switching. Context menu (right-click) constructs a fake jsTree-like node object (`{ id: 'cv_' + convId, li_attr: {...} }`) and passes it to `buildConversationContextMenu()` for full feature parity.
 - **Deep link** (`/interface/<conversation_id>`): `getConversationIdFromUrl()` extracts the ID. `loadConversationsWithWorkspaces(true)` calls `ConversationManager.setActiveConversation(id)` and `highlightActiveConversation(id)`.
 - **Resume from localStorage**: On page load without a deep link, the UI reads `lastActiveConversationId:{email}:{domain}` from localStorage and resumes that conversation.
 - **Auto-select first**: Falls back to the first conversation in the sorted list.

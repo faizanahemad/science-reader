@@ -57,6 +57,7 @@ Conversations are organized into **hierarchical workspaces** per user and domain
 - **New Temporary Chat button** (`fa-eye-slash`, `btn-outline-secondary`) in the top-right chat bar: creates a conversation in the default workspace and immediately marks it stateless. The conversation works normally during the session but is permanently deleted on next page reload. No confirmation modal is shown (since the user explicitly chose temporary mode).
 - Expand/collapse state persisted to server.
 - Active conversation highlighted with auto-expand of parent workspaces.
+- **Recent Conversations section**: Collapsible "Recent" section above the workspace tree showing the 5 most recently updated conversations across all workspaces. One-click access to active conversations without navigating the workspace hierarchy. Right-click context menu reuses the same conversation menu as jsTree nodes (via fake node construction). Active conversation highlighted in both the Recent section and jsTree simultaneously. Collapse/expand state persisted to `localStorage` (scoped by user+domain). Pure front-end feature — no backend changes, data sourced from the existing `WorkspaceManager.conversations` array (already sorted by `last_updated` DESC).
 
 **API endpoints:**
 - `POST /create_workspace/<domain>/<name>` — optional `parent_workspace_id` in JSON body
@@ -359,8 +360,8 @@ Server-side injection:
 ### 5b) MCP Web Search Server (External Tool Access)
 
 **What it does**
-- Exposes 3 of the project's web search agents as MCP (Model Context Protocol) tools accessible from external coding assistants like OpenCode and Claude Code.
-- Tools: `perplexity_search` (Perplexity AI models), `jina_search` (Jina AI with full web content retrieval), `deep_search` (multi-hop iterative search with interleaved search-answer cycles).
+- Exposes 2 of the project's web search agents as MCP (Model Context Protocol) tools accessible from external coding assistants like OpenCode and Claude Code.
+- Tools: `perplexity_search` (Perplexity AI models, accepts `context` parameter), `jina_search` (Jina AI with full web content retrieval, accepts `context` parameter).
 - Page-reader tools: `jina_read_page` (lightweight Jina Reader API for web pages), `read_link` (multi-format reader for web pages, PDFs, images, and YouTube via `download_link_data`).
 - Runs alongside the Flask server in a daemon thread on a separate port (default 8100) using streamable-HTTP transport.
 
@@ -521,13 +522,14 @@ location /ws/terminal {
 
 **What it does**
  Adds native, mid-response tool calling to the chat pipeline — the LLM can autonomously invoke tools during a conversation turn.
- 48 tools across 8 categories: clarification (1), search (6), documents (10), pkb (10), memory (7), code_runner (1), artefacts (8), prompts (5).
+ 47 tools across 8 categories: clarification (1), search (5), documents (10), pkb (10), memory (7), code_runner (1), artefacts (8), prompts (5).
  Multi-step agentic loop: up to 5 tool-call iterations per turn, with `tool_choice="none"` on the final iteration to force text output.
  Interactive tools (ask_clarification) pause streaming, show a Bootstrap modal for MCQ input, wait up to 60s via `threading.Event`, then resume.
  Server-side tools (web search, document lookup, PKB operations, code execution, etc.) execute silently with inline status indicators.
- Master toggle + Bootstrap Select multi-select dropdown with per-tool granularity (8 category optgroups, 48 individual tool options, search filtering, select all/deselect all). Write-capable categories default to OFF.
+ Master toggle + Bootstrap Select multi-select dropdown with per-tool granularity (8 category optgroups, 47 individual tool options, search filtering, select all/deselect all). **Tool use enabled by default** with `ask_clarification` pre-selected. Write-capable categories default to OFF.
  Backward-compatible: when tools disabled (`tools=None`), the entire call stack is unchanged.
- All 48 handlers have real implementations — mirrors the MCP server logic (DocIndex, StructuredAPI, Conversation methods, HTTP delegation for propose_edits/apply_edits/temp_llm_action).
+ All 47 handlers have real implementations — mirrors the MCP server logic (DocIndex, StructuredAPI, Conversation methods, HTTP delegation for propose_edits/apply_edits/temp_llm_action).
+ **Search-intent auto-detection**: the frontend automatically injects web search tools (`web_search`, `perplexity_search`, `jina_search`, `jina_read_page`, `read_link`) when the user's message contains search-intent keywords (e.g. "search the web", "google", "latest news about", "find me recent info"). Implemented via `detectSearchIntent()` and `mergeWebSearchTools()` in `common-chat.js` — 27 regex patterns with code-block stripping to avoid false positives. Fail-open: if detection throws, the message sends normally.
 
 **Architecture**
  Tool registry: `code_common/tools.py` — `ToolRegistry`, `ToolDefinition`, `ToolContext`, `ToolCallResult`, `@register_tool` decorator, `TOOL_REGISTRY` singleton.
@@ -542,7 +544,7 @@ location /ws/terminal {
 | Category | Tools | Default | Key Operations |
 |---|---|---|---|
 | `clarification` | 1 | ON | MCQ clarification questions with modal UI |
-| `search` | 6 | ON | Web search (Perplexity, Jina, deep search), page reading |
+| `search` | 5 | ON | Web search (Perplexity, Jina), page reading. Web search tools auto-injected on search-intent keywords. |
 | `documents` | 10 | ON | List/query/retrieve conversation docs and global docs |
 | `pkb` | 10 | OFF | Search claims, get/add/edit/pin claims, resolve @-references |
 | `memory` | 7 | OFF | Memory pad, conversation history, user details/preferences |
@@ -563,14 +565,14 @@ location /ws/terminal {
  Tool results not separately persisted — they become part of the conversation messages.
 
 **Key files**
-`code_common/tools.py` — Tool registry + 48 tool definitions with real handlers
+`code_common/tools.py` — Tool registry + 47 tool definitions with real handlers
 `code_common/call_llm.py` — `tools`/`tool_choice` passthrough, streaming tool_call parsing
 `call_llm.py` (root) — `CallLLm` tools passthrough
 `Conversation.py` — `_get_enabled_tools()`, `_run_tool_loop()`, preamble injection, `reply()` tool branching
 `endpoints/conversations.py` — `POST /tool_response` endpoint, thread-safe response store
 `interface/tool-call-manager.js` — `ToolCallManager` singleton (inline status, modal, response submission)
-`interface/interface.html` — Bootstrap Select 1.13.18 CDN, tool settings `<select multiple>` with 8 optgroups and 48 options, `#tool-call-modal`
-`interface/chat.js`, `interface/common.js`, `interface/common-chat.js` — settings persistence (selectpicker read/write with dual-format legacy support), stream handler
+`interface/interface.html` — Bootstrap Select 1.13.18 CDN, tool settings `<select multiple>` with 8 optgroups and 47 options, `#tool-call-modal`
+`interface/chat.js`, `interface/common.js`, `interface/common-chat.js` — settings persistence (selectpicker read/write with dual-format legacy support), stream handler, search-intent auto-detection (`detectSearchIntent`, `mergeWebSearchTools`, `SEARCH_INTENT_PATTERNS`), default tool enablement (`computeDefaultStateForTab` with `enable_tool_use: true`)
 `interface/service-worker.js` — cache version bump, precache
 
 **Docs:** `documentation/features/tool_calling/README.md`, `documentation/planning/plans/llm_tool_calling_framework.plan.md`

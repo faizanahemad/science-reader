@@ -34,7 +34,7 @@ The front-end already loads all conversations sorted by `last_updated` DESC into
 ### Functional Goals
 
 4. Collapsible "Recent" section header above the jsTree workspace folders, expanded by default on first visit.
-5. Show the last N conversations (configurable constant, default 10) sorted by `last_updated` descending.
+5. Show the last N conversations (configurable constant, default 5) sorted by `last_updated` descending.
 6. Conversations appear in both the Recent section and their workspace folder (duplicates are intentional — removing from the tree would be confusing).
 7. Clicking a recent item switches conversations and highlights the corresponding node in the jsTree below (full cross-highlight sync).
 8. Right-click context menu on recent items — same menu as jsTree conversation nodes (delete, move, clone, flag, etc.).
@@ -154,7 +154,7 @@ No backend files changed. No new files created.
 Add to the `WorkspaceManager` object (near the top, after `_contextMenuOpenedAt: 0`):
 
 ```javascript
-_recentSectionCount: 10,             // Default number of recent conversations to show
+_recentSectionCount: 5,             // Default number of recent conversations to show
 _recentSectionCollapsed: false,      // In-memory collapse state
 _recentSectionLocalStorageKey: 'recentSectionCollapsed',  // localStorage key base
 ```
@@ -543,7 +543,7 @@ Add new section at the end of the file (or after the sidebar-toolbar section):
 
 2. **Conversation title changes**: If a conversation's title is updated (e.g., auto-generated after first message), the Recent section shows the stale title until the next `loadConversationsWithWorkspaces()` call. **Mitigation**: Acceptable — same behavior as the jsTree currently. Could add a targeted update later.
 
-3. **Performance with many conversations**: `WorkspaceManager.conversations` can be large (hundreds). But `renderRecentConversations()` only renders N items (default 10), so DOM cost is trivial. The `.slice(0, N)` operation is O(1) on the sorted array.
+3. **Performance with many conversations**: `WorkspaceManager.conversations` can be large (hundreds). But `renderRecentConversations()` only renders N items (default 5), so DOM cost is trivial. The `.slice(0, N)` operation is O(1) on the sorted array.
 
 4. **Fake node for context menu**: The `buildConversationContextMenu()` method accesses `node.id` and `node.li_attr`. If any future context menu item accesses other jsTree node properties (e.g., `node.parent`, `node.state`), the fake node would need updating. **Mitigation**: Review `buildConversationContextMenu()` — currently only uses `node.id` and `node.li_attr`, which the fake node provides. If new properties are needed later, they're easy to add.
 
@@ -568,7 +568,7 @@ All decisions below were explicitly confirmed during planning.
 
 | Question | Decision | Rationale |
 |----------|----------|-----------|
-| How many recent conversations? | Configurable constant, default 10 | Easy to change later; 10 covers most active working sets |
+| How many recent conversations? | Configurable constant, default 5 | Easy to change later; 5 covers most active working sets |
 | Duplicates in tree? | Yes, same conversation in Recent AND workspace folder | Removing from tree would be confusing — "where did my conversation go?" |
 | Cross-highlight? | Yes, clicking Recent highlights in jsTree too | Full visual sync, consistent with single-source-of-truth selection |
 | Default state? | Expanded by default, persisted to localStorage | Users should see recent conversations immediately on first visit |

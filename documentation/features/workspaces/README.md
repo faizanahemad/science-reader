@@ -2,7 +2,7 @@
 
 ## Summary
 
-Workspaces support unlimited nesting depth. Any workspace can contain sub-workspaces and conversations at the same level. The sidebar uses **jsTree 3.3.17** (jQuery plugin) to render a VS Code-style file explorer with right-click and triple-dot context menus, wholerow selection, folder/file icons, and workspace color indicators.
+Workspaces support unlimited nesting depth. Any workspace can contain sub-workspaces and conversations at the same level. The sidebar uses **jsTree 3.3.17** (jQuery plugin) to render a VS Code-style file explorer with right-click and triple-dot context menus, wholerow selection, folder/file icons, and workspace color indicators. A **Recent Conversations** section above the workspace tree provides one-click access to the 5 most recently updated conversations across all workspaces.
 
 Previously workspaces were flat (one level only). This feature adds a `parent_workspace_id` column to `WorkspaceMetadata`, rewrites the sidebar rendering from custom jQuery DOM manipulation to jsTree, and adds backend APIs for moving workspaces, querying paths, and cascade-safe deletion.
 
@@ -333,6 +333,9 @@ Uses `btn-outline-secondary` to visually distinguish from primary action buttons
 | `defaultWorkspaceId` | String (getter) | Computed: `"default_" + userDetails.email + "_" + currentDomain.domain` |
 | `_suppressExpandPersist` | Boolean | Guard flag — when true, `open_node`/`close_node` handlers skip AJAX persist calls. Used during programmatic collapse/expand in `highlightActiveConversation()` |
 | `_contextMenuOpenedAt` | Number | Timestamp (`Date.now()`) recorded when the context menu opens via long-press or right-click. Both the mobile conversation interceptor and the `select_node.jstree` handler check whether `Date.now() - _contextMenuOpenedAt < 800ms` to suppress navigation events that fire in the aftermath of a context menu open. Using a timestamp instead of a boolean ensures all three cascading events (`touchend`, `pointerup`, `click`) are suppressed within the window. |
+| `_recentSectionCount` | Number | Maximum number of conversations to show in the Recent section (default 5). Configurable constant. |
+| `_recentSectionCollapsed` | Boolean | In-memory collapse state for the Recent section. |
+| `_recentSectionLocalStorageKey` | String | Base key for localStorage persistence of Recent section collapse state. |
 
 #### Workspace data object shape (in `workspacesMap`)
 
@@ -348,9 +351,10 @@ Uses `btn-outline-secondary` to visually distinguish from primary action buttons
 ```
 
 #### `init()`
-Called on `$(document).ready()`. Does two things:
+Called on `$(document).ready()`. Does three things:
 1. `installMobileConversationInterceptor()` — capture-phase event listener for mobile touch handling.
 2. `setupToolbarHandlers()` — binds click handlers for `#add-new-workspace` and `#add-new-chat`.
+3. Binds the `#recent-section-toggle` click handler for collapse/expand of the Recent Conversations section (uses `slideUp`/`slideDown` with 150ms animation, persists state to `localStorage` via `getRecentSectionStorageKey()`).
 
 #### `installMobileConversationInterceptor()`
 
@@ -401,6 +405,7 @@ Extracted data processing and tree rendering logic, reusable by both `loadConver
 3. Ensures default workspace exists in the map (client-side fallback).
 4. Groups conversations by `workspace_id` (conversations without a workspace go to default).
 5. Calls `renderTree(convByWs)`.
+6. Calls `renderRecentConversations()` — renders the Recent Conversations section from the first N items of the sorted conversations array.
 
 #### `getWorkspaceDisplayName(workspace) -> string`
 
@@ -581,7 +586,8 @@ Special behaviors:
 
 #### `highlightActiveConversation(conversationId, collapseOthers)`
 
-1. If `_jsTreeReady` is false or tree instance not available, queues the ID in `_pendingHighlight` and `collapseOthers` in `_pendingHighlightCollapse`, then returns.
+1. **Always** calls `highlightRecentConversation(conversationId)` first — this updates the Recent section highlight (pure DOM, no jsTree dependency). This runs even when `_jsTreeReady` is false.
+2. If `_jsTreeReady` is false or tree instance not available, queues the ID in `_pendingHighlight` and `collapseOthers` in `_pendingHighlightCollapse`, then returns.
 2. Deselects all nodes: `tree.deselect_all(true)` (suppress event).
 3. Gets the node `cv_{conversationId}`.
 4. Collects all parent node IDs by walking up `node.parent` until reaching `#` (root).
@@ -733,6 +739,80 @@ Disabled: `color: #666; cursor: default; no hover highlight`.
 
 Flag color picker popover styles are preserved for any remnant DOM (`.flag-color-picker-popover`, `.flag-color-option`). These use the same dark theme colors.
 
+
+## Recent Conversations Section
+
+### Overview
+
+A collapsible "Recent" section at the top of the sidebar — above the jsTree workspace tree — showing a flat, chronologically-ordered list of the N most recently active conversations (default 5), regardless of which workspace they live in. Provides one-click access to active conversations without navigating the workspace hierarchy.
+
+**Analogy**: VS Code's "Recently Opened" in the File menu, or the "Recent" section in Finder/Explorer. Hierarchical organization and temporal access are complementary, not competing.
+
+### Architecture
+
+- **Data source**: `WorkspaceManager.conversations` — already sorted by `last_updated` DESC in `_processAndRenderData()`. The Recent section slices the first N items from this array. No new API endpoint, no new database query.
+- **Rendering**: Plain DOM (not jsTree). Items are `<div class="recent-conversation-item">` elements styled to match jsTree conversation nodes (same font size, padding, icon, flag colors, hover/selection styles). All user-provided values (title, conversation_id) are escaped via jQuery `.text()` and `.attr()` to prevent XSS.
+- **Context menu**: Constructs a "fake node" object matching jsTree node shape (`{ id: 'cv_' + convId, li_attr: {...} }`) and passes it to `buildConversationContextMenu()`. All menu actions (delete, move, flag, clone, etc.) trigger `loadConversationsWithWorkspaces(false)` which calls `_processAndRenderData()` which calls `renderRecentConversations()` — so the section auto-refreshes after CRUD operations.
+- **Highlight sync**: `highlightActiveConversation()` calls `highlightRecentConversation(conversationId)` at the top, before the jsTree-ready check. This ensures the Recent section highlight works even when jsTree hasn't initialized yet. Both the Recent section and jsTree show the active conversation simultaneously.
+- **Collapse persistence**: Collapse/expand state is stored in `localStorage` with key `recentSectionCollapsed:{email}:{domain}`, scoped per user+domain (same pattern as `lastActiveConversationId`). Default state is expanded on first visit.
+
+### HTML structure (`interface/interface.html`)
+
+Inserted between `.sidebar-toolbar` and `#workspaces-container`:
+
+```html
+<div id="recent-conversations-section" style="margin-top: 4px;">
+    <div class="recent-section-header" id="recent-section-toggle">
+        <span class="recent-section-title">
+            <i class="fa fa-chevron-down recent-chevron"></i>
+            Recent
+            <span class="recent-count-badge" id="recent-count-badge"></span>
+        </span>
+    </div>
+    <div id="recent-conversations-list"></div>
+</div>
+```
+
+### New WorkspaceManager methods
+
+**`getRecentSectionStorageKey()`** — Returns `'recentSectionCollapsed:' + email + ':' + domain'`. Same scoping pattern as `lastActiveConversationId`.
+
+**`renderRecentConversations()`** — Core render method. Called from `_processAndRenderData()` after `renderTree()`. Slices first `_recentSectionCount` conversations, builds DOM items with jQuery (XSS-safe), attaches click and contextmenu handlers, restores collapse state from localStorage. Badge shows count only when less than max (informational). Empty state shows "No conversations yet" message.
+
+**`highlightRecentConversation(conversationId)`** — Updates active highlight class on Recent items. Called from `highlightActiveConversation()` at the top (before jsTree-ready check).
+
+### CSS styles (`interface/workspace-styles.css`)
+
+All classes prefixed with `recent-` to avoid jsTree specificity conflicts.
+
+- Section: `border-bottom: 1px solid #333` separator, `margin-bottom: 2px`
+- Header: uppercase `0.78rem`, `#888` color, clickable with hover highlight
+- Chevron: `fa-chevron-down`, rotates -90deg when collapsed (CSS `transform` transition 150ms)
+- Items: `0.76rem` font (matches jsTree), `line-height: 17px`, word-break for long titles
+- Active: `rgba(0, 120, 212, 0.35)` background (matches `.jstree-wholerow-clicked`)
+- Hover: `rgba(255, 255, 255, 0.06)` background (matches `.jstree-wholerow-hovered`)
+- Icon: `fa-comment-o`, `#75beff` (matches jsTree conversation icon)
+- Flags: `border-left: 3px solid {color}` matching jsTree flag colors (red, blue, green, yellow, orange, purple)
+
+### UX decisions
+
+| Decision | Resolution | Rationale |
+|----------|------------|-----------|
+| Max items | 5 (configurable constant `_recentSectionCount`) | Covers most active working sets |
+| Duplicates in tree | Yes — same conversation in Recent AND workspace folder | Removing from tree would confuse users |
+| Cross-highlight | Clicking Recent highlights in jsTree too (and vice versa) | Full visual sync |
+| Default state | Expanded, persisted to localStorage | Users should see recent conversations immediately |
+| Context menu | Right-click reuses `buildConversationContextMenu()` via fake node | Full feature parity without code duplication |
+| Triple-dot button | Not included on Recent items | Keep items clean; right-click sufficient |
+| Count badge | Shown only when count < max | "(5)" when always 5 is noise |
+
+### Implementation notes
+
+1. **Click handler only calls `setActiveConversation()`** — NOT `highlightActiveConversation()` separately. This matches the jsTree click handler pattern. `setActiveConversation()` internally calls `highLightActiveConversation()` (common-chat.js) which calls `WorkspaceManager.highlightActiveConversation()`. Calling highlight separately would cause double processing.
+2. **Fake node for context menu**: `buildConversationContextMenu(node)` accesses `node.id` and `node.li_attr`. The fake node provides these with the same shape: `{ id: 'cv_' + convId, li_attr: { 'data-conversation-id': convId, 'data-conversation-friendly-id': ..., 'data-flag': ... } }`.
+3. **Mobile sidebar close**: The Recent section click handler duplicates the mobile sidebar close logic from the jsTree handler (hide sidebar on <=768px width). Could be extracted to a shared helper in the future.
+4. **No backend changes**: All data comes from `WorkspaceManager.conversations` which is populated by the existing `GET /list_conversation_by_user/{domain}` endpoint. The `.slice(0, N)` operation is O(1) on the already-sorted array.
+
 ## Backward Compatibility
 
 - All existing conversations and workspaces continue to work without any data migration.
@@ -775,9 +855,9 @@ Flag color picker popover styles are preserved for any remnant DOM (`.flag-color
 | `database/workspaces.py` | ~613 total | `parent_workspace_id` in all queries/INSERTs, new functions: `_is_ancestor`, `workspaceExistsForUser`, `moveWorkspaceToParent`, `getWorkspacePath`. Modified: `moveConversationToWorkspace` (PK-based), `deleteWorkspace` (cascade), `createWorkspace` (parent param) |
 | `endpoints/workspaces.py` | ~279 total | `parent_workspace_id` in create endpoint, new endpoints: `PUT /move_workspace/<id>`, `GET /get_workspace_path/<id>`. New imports |
 | `endpoints/conversations.py` | ~140 lines added | New endpoint: `POST /create_temporary_conversation/<domain>` — atomic temp conversation creation with cleanup, stateless marking, and full list return |
-| `interface/interface.html` | ~15 lines changed | jsTree CDN links, simplified sidebar HTML, removed old context menu divs, responsive top-right bar restructure (3-column layout: mobile toggle, chat-doc buttons, always-visible `#new-temp-chat`) |
-| `interface/workspace-manager.js` | ~1167 total (full rewrite) | jsTree init, tree data builder, triple-dot buttons, vakata context menus, pending highlight queue, CRUD methods, `createTemporaryConversation()`, modal dialogs, mobile interceptor |
-| `interface/workspace-styles.css` | ~296 total (full rewrite) | jsTree width containment, anchor text wrapping, triple-dot visibility, workspace color borders, flag borders, vakata dark styling with text-shadow fix |
+| `interface/interface.html` | ~30 lines changed | jsTree CDN links, simplified sidebar HTML, removed old context menu divs, responsive top-right bar restructure (3-column layout: mobile toggle, chat-doc buttons, always-visible `#new-temp-chat`), **Recent Conversations section HTML** (header with chevron + badge, list container) |
+| `interface/workspace-manager.js` | ~1360 total | jsTree init, tree data builder, triple-dot buttons, vakata context menus, pending highlight queue, CRUD methods, `createTemporaryConversation()`, modal dialogs, mobile interceptor, **Recent Conversations section** (`renderRecentConversations()`, `highlightRecentConversation()`, `getRecentSectionStorageKey()`, collapse/expand handler, context menu via fake node) |
+| `interface/workspace-styles.css` | ~400 total | jsTree width containment, anchor text wrapping, triple-dot visibility, workspace color borders, flag borders, vakata dark styling with text-shadow fix, **Recent Conversations styles** (section header, item layout, active/hover highlights, flag indicators, chevron rotation, empty state) |
 | `interface/common-chat.js` | ~2 lines changed | Added `suppressModal` parameter to `statelessConversation()` to skip modal when creating temporary chats |
 | `documentation/features/workspaces/README.md` | This file | Exhaustive documentation |
 | `documentation/product/behavior/chat_app_capabilities.md` | ~30 lines changed | Updated Workspaces section |

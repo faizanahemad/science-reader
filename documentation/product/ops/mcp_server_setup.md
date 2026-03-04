@@ -299,15 +299,14 @@ Repeat for each server (ports 8101-8106) with appropriate names.
 
 ---
 
-## 5. Tool Reference (All 37 Tools)
+## 5. Tool Reference (All 36 Tools)
 
-### Web Search (port 8100) — 5 tools
+### Web Search (port 8100) — 4 tools
 
 | Tool | Description | Key params |
 |------|-------------|------------|
-| `perplexity_search` | Search via Perplexity AI models | `query`, `detail_level` (1-4) |
-| `jina_search` | Search via Jina AI with full page content | `query`, `detail_level` (1-3) |
-| `deep_search` | Multi-hop iterative research across sources | `query`, `interleave_steps` (1-5), `sources` |
+| `perplexity_search` | Search via Perplexity AI models | `query`, `context`, `detail_level` (1-4) |
+| `jina_search` | Search via Jina AI with full page content | `query`, `context`, `detail_level` (1-3) |
 | `jina_read_page` | Read a URL via Jina Reader (fast, markdown) | `url` |
 | `read_link` | Read any URL — pages, PDFs, images, YouTube | `url`, `context`, `detailed` |
 

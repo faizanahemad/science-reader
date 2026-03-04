@@ -122,7 +122,7 @@ Expected: all return `200` (health endpoint is unauthenticated).
 
 | Port | MCP Server | Tools |
 |------|-----------|-------|
-| 8100 | Web Search | `perplexity_search`, `jina_search`, `deep_search`, `jina_read_page`, `read_link` |
+| 8100 | Web Search | `perplexity_search`, `jina_search`, `jina_read_page`, `read_link` |
 | 8101 | PKB (Personal Knowledge Base) | `pkb_search`, `pkb_get_claim`, `pkb_resolve_reference`, `pkb_get_pinned_claims`, `pkb_add_claim`, `pkb_edit_claim` |
 | 8102 | Documents | `docs_list_conversation_docs`, `docs_list_global_docs`, `docs_query`, `docs_get_full_text` |
 | 8103 | Artefacts | `artefacts_list`, `artefacts_create`, `artefacts_get`, `artefacts_get_file_path`, `artefacts_update`, `artefacts_delete`, `artefacts_propose_edits`, `artefacts_apply_edits` |
