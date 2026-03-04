@@ -21,7 +21,7 @@ var WorkspaceManager = {
     _pendingHighlightCollapse: false,
     _suppressExpandPersist: false,
     _contextMenuOpenedAt: 0,
-    _recentSectionCount: 10,
+    _recentSectionCount: 5,
     _recentSectionCollapsed: false,
     _recentSectionLocalStorageKey: 'recentSectionCollapsed',
 
