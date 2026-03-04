@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Restart Manager</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #1a1d21; }
+        .service-card {
+            border: 1px solid #2d3238;
+            border-radius: 12px;
+            background: #22262b;
+            transition: border-color 0.2s;
+        }
+        .service-card:hover { border-color: #4a5568; }
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+        .status-running  { background: rgba(34,197,94,0.15); color: #22c55e; }
+        .status-stopped  { background: rgba(239,68,68,0.15); color: #ef4444; }
+        .status-no_screen { background: rgba(234,179,8,0.15); color: #eab308; }
+        .status-dot {
+            width: 8px; height: 8px;
+            border-radius: 50%;
+            display: inline-block;
+        }
+        .status-running .status-dot  { background: #22c55e; animation: pulse 2s infinite; }
+        .status-stopped .status-dot  { background: #ef4444; }
+        .status-no_screen .status-dot { background: #eab308; }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.4; }
+        }
+        .meta-label { color: #6b7280; font-size: 0.8rem; }
+        .meta-value { color: #d1d5db; font-size: 0.9rem; font-family: monospace; }
+        .log-area {
+            background: #0d1117;
+            border: 1px solid #21262d;
+            border-radius: 8px;
+            padding: 12px;
+            font-family: 'SF Mono', 'Fira Code', monospace;
+            font-size: 0.8rem;
+            color: #8b949e;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+        .log-area .log-entry { margin-bottom: 2px; }
+        .log-area .log-success { color: #22c55e; }
+        .log-area .log-error   { color: #ef4444; }
+        .log-area .log-info    { color: #58a6ff; }
+        .diagnosis-area {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 8px;
+            padding: 16px;
+            color: #c9d1d9;
+            font-size: 0.88rem;
+            line-height: 1.6;
+        }
+        .btn-restart {
+            min-width: 120px;
+        }
+        .toast-container { z-index: 9999; }
+        .navbar { background: #161b22 !important; border-bottom: 1px solid #21262d; }
+        .command-preview {
+            font-family: monospace;
+            font-size: 0.78rem;
+            color: #8b949e;
+            background: #0d1117;
+            padding: 6px 10px;
+            border-radius: 6px;
+            max-height: 60px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            cursor: pointer;
+        }
+        .command-preview:hover { color: #c9d1d9; }
+        .spinner-border-sm { width: 1rem; height: 1rem; border-width: 0.15em; }
+    </style>
+</head>
+<body>
+    <!-- Navbar -->
+    <nav class="navbar navbar-dark px-3">
+        <span class="navbar-brand mb-0 h5">
+            <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="currentColor" class="bi bi-arrow-repeat me-2" viewBox="0 0 16 16">
+                <path d="M11.534 7h3.932a.25.25 0 0 1 .192.41l-1.966 2.36a.25.25 0 0 1-.384 0l-1.966-2.36a.25.25 0 0 1 .192-.41m-11 2h3.932a.25.25 0 0 0 .192-.41L2.692 6.23a.25.25 0 0 0-.384 0L.342 8.59A.25.25 0 0 0 .534 9"/>
+                <path fill-rule="evenodd" d="M8 3c-1.552 0-2.94.707-3.857 1.818a.5.5 0 1 1-.771-.636A6.002 6.002 0 0 1 13.917 7H12.9A5 5 0 0 0 8 3M3.1 9a5.002 5.002 0 0 0 8.757 2.182.5.5 0 1 1 .771.636A6.002 6.002 0 0 1 2.083 9z"/>
+            </svg>
+            Restart Manager
+        </span>
+        <div class="d-flex align-items-center gap-3">
+            <span class="text-muted small" id="last-refresh">—</span>
+            <button class="btn btn-sm btn-outline-secondary" onclick="refreshAll()" title="Refresh now">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="currentColor" viewBox="0 0 16 16">
+                    <path fill-rule="evenodd" d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2z"/>
+                    <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466"/>
+                </svg>
+            </button>
+            <a href="/logout" class="btn btn-sm btn-outline-danger">Logout</a>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <div class="container-fluid py-4 px-4">
+        <div class="row g-4" id="services-container">
+            <!-- Cards injected by JS -->
+        </div>
+    </div>
+
+    <!-- Logs Modal -->
+    <div class="modal fade" id="logsModal" tabindex="-1">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content" style="background:#1a1d21; border:1px solid #30363d;">
+                <div class="modal-header border-bottom border-secondary">
+                    <h5 class="modal-title" id="logsModalTitle">Screen Output</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <pre class="log-area" id="logsModalBody" style="max-height:500px;">Loading...</pre>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Set Command Modal -->
+    <div class="modal fade" id="cmdModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content" style="background:#1a1d21; border:1px solid #30363d;">
+                <div class="modal-header border-bottom border-secondary">
+                    <h5 class="modal-title">Set Startup Command</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <p class="text-muted small">Paste the full startup command (including env vars) for <strong id="cmdModalService"></strong>.</p>
+                    <textarea class="form-control bg-dark text-light border-secondary" id="cmdModalInput" rows="6"
+                              placeholder="ENV_VAR=value python server.py ..." style="font-family:monospace; font-size:0.85rem;"></textarea>
+                </div>
+                <div class="modal-footer border-top border-secondary">
+                    <button class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                    <button class="btn btn-primary" id="cmdModalSave" onclick="saveCommand()">Save</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Container -->
+    <div class="toast-container position-fixed top-0 end-0 p-3" id="toasts"></div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+    // ======================================================================
+    // State
+    // ======================================================================
+    const SERVICE_ORDER = ["opencode_web", "opencode_serve", "main_server"];
+    let currentStatuses = {};
+    let restartLogs = {};   // service_name -> [log lines]
+    let _cmdModalTarget = null;
+    let _refreshTimer = null;
+
+    // ======================================================================
+    // Init
+    // ======================================================================
+    document.addEventListener("DOMContentLoaded", () => {
+        buildCards();
+        refreshAll();
+        _refreshTimer = setInterval(refreshAll, 10000);
+    });
+
+    // ======================================================================
+    // Card building
+    // ======================================================================
+    function buildCards() {
+        const container = document.getElementById("services-container");
+        container.innerHTML = SERVICE_ORDER.map(svc => `
+            <div class="col-12 col-lg-4" id="card-wrapper-${svc}">
+                <div class="service-card p-4">
+                    <div class="d-flex justify-content-between align-items-start mb-3">
+                        <div>
+                            <h5 class="mb-1 text-light" id="name-${svc}">—</h5>
+                            <span class="text-muted small" id="desc-${svc}"></span>
+                        </div>
+                        <span class="status-badge" id="badge-${svc}">
+                            <span class="status-dot"></span> —
+                        </span>
+                    </div>
+
+                    <div class="row mb-3">
+                        <div class="col-6">
+                            <div class="meta-label">Screen</div>
+                            <div class="meta-value" id="screen-${svc}">—</div>
+                        </div>
+                        <div class="col-6">
+                            <div class="meta-label">Port</div>
+                            <div class="meta-value" id="port-${svc}">—</div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3" id="cmd-section-${svc}" style="display:none;">
+                        <div class="meta-label mb-1">Cached Command</div>
+                        <div class="command-preview" id="cmd-${svc}" title="Click to edit"
+                             onclick="openCmdModal('${svc}')">—</div>
+                    </div>
+
+                    <div class="d-flex gap-2 mb-3 flex-wrap">
+                        <button class="btn btn-primary btn-sm btn-restart" id="btn-restart-${svc}"
+                                onclick="restartService('${svc}')">
+                            Restart
+                        </button>
+                        <button class="btn btn-outline-secondary btn-sm" onclick="viewLogs('${svc}')">
+                            View Logs
+                        </button>
+                        <button class="btn btn-outline-info btn-sm" id="btn-diagnose-${svc}"
+                                onclick="diagnoseService('${svc}')">
+                            Diagnose
+                        </button>
+                        <button class="btn btn-outline-warning btn-sm" onclick="openCmdModal('${svc}')"
+                                title="Set startup command manually">
+                            Set Cmd
+                        </button>
+                    </div>
+
+                    <div class="log-area" id="log-${svc}" style="display:none;"></div>
+                    <div class="diagnosis-area mt-2" id="diagnosis-${svc}" style="display:none;"></div>
+                </div>
+            </div>
+        `).join("");
+    }
+
+    // ======================================================================
+    // Status refresh
+    // ======================================================================
+    async function refreshAll() {
+        try {
+            const res = await fetch("/api/status");
+            if (res.status === 302 || res.redirected) { window.location = "/login"; return; }
+            const data = await res.json();
+            currentStatuses = data;
+            SERVICE_ORDER.forEach(svc => updateCard(svc, data[svc]));
+            document.getElementById("last-refresh").textContent =
+                "Updated " + new Date().toLocaleTimeString();
+        } catch (err) {
+            console.error("Refresh failed:", err);
+        }
+    }
+
+    function updateCard(svc, status) {
+        if (!status) return;
+        document.getElementById(`name-${svc}`).textContent = status.display_name;
+        document.getElementById(`desc-${svc}`).textContent = status.description || "";
+        document.getElementById(`screen-${svc}`).textContent = status.screen_name;
+        document.getElementById(`port-${svc}`).textContent = ":" + status.port;
+
+        const badge = document.getElementById(`badge-${svc}`);
+        const labels = { running: "Running", stopped: "Stopped", no_screen: "No Screen" };
+        badge.className = `status-badge status-${status.status}`;
+        badge.innerHTML = `<span class="status-dot"></span> ${labels[status.status] || status.status}`;
+
+        // Show cached command section
+        const cmdSection = document.getElementById(`cmd-section-${svc}`);
+        if (status.has_cached_command) {
+            cmdSection.style.display = "block";
+            // Fetch the actual command text (truncated for display)
+            fetchCachedCommand(svc);
+        } else {
+            cmdSection.style.display = "none";
+        }
+    }
+
+    async function fetchCachedCommand(svc) {
+        try {
+            const res = await fetch(`/api/discover_command/${svc}`);
+            const data = await res.json();
+            if (data.command) {
+                const el = document.getElementById(`cmd-${svc}`);
+                // Show first 120 chars
+                const preview = data.command.length > 120
+                    ? data.command.substring(0, 120) + "…"
+                    : data.command;
+                el.textContent = preview;
+                el.title = "Click to edit — " + data.source;
+                document.getElementById(`cmd-section-${svc}`).style.display = "block";
+            }
+        } catch (_) {}
+    }
+
+    // ======================================================================
+    // Restart
+    // ======================================================================
+    async function restartService(svc) {
+        const btn = document.getElementById(`btn-restart-${svc}`);
+        const logEl = document.getElementById(`log-${svc}`);
+        const diagEl = document.getElementById(`diagnosis-${svc}`);
+
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Restarting…`;
+        logEl.style.display = "block";
+        logEl.innerHTML = '<span class="log-info">Starting restart…</span>\n';
+        diagEl.style.display = "none";
+
+        try {
+            const res = await fetch(`/api/restart/${svc}`, { method: "POST" });
+            const data = await res.json();
+
+            // Render logs
+            if (data.logs && data.logs.length) {
+                logEl.innerHTML = data.logs.map(l =>
+                    `<span class="log-entry log-info">▸ ${escHtml(l)}</span>`
+                ).join("\n");
+            }
+
+            if (data.success) {
+                logEl.innerHTML += `\n<span class="log-success">✓ ${escHtml(data.message)}</span>`;
+                showToast(data.message, "success");
+            } else {
+                logEl.innerHTML += `\n<span class="log-error">✗ ${escHtml(data.message)}</span>`;
+                showToast(data.message, "danger");
+
+                // Show diagnosis if available
+                if (data.diagnosis) {
+                    diagEl.style.display = "block";
+                    diagEl.innerHTML = `<strong class="text-info">LLM Diagnosis:</strong><br>` +
+                        escHtml(data.diagnosis).replace(/\n/g, "<br>");
+                }
+            }
+        } catch (err) {
+            logEl.innerHTML += `\n<span class="log-error">Network error: ${escHtml(err.message)}</span>`;
+            showToast("Restart request failed", "danger");
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = "Restart";
+            refreshAll();
+        }
+    }
+
+    // ======================================================================
+    // View Logs
+    // ======================================================================
+    async function viewLogs(svc) {
+        const status = currentStatuses[svc];
+        const title = status ? status.display_name : svc;
+        document.getElementById("logsModalTitle").textContent = `Screen Output — ${title}`;
+        document.getElementById("logsModalBody").textContent = "Loading…";
+        new bootstrap.Modal(document.getElementById("logsModal")).show();
+
+        try {
+            const res = await fetch(`/api/logs/${svc}`);
+            const data = await res.json();
+            document.getElementById("logsModalBody").textContent = data.output || "(empty)";
+        } catch (err) {
+            document.getElementById("logsModalBody").textContent = `Error: ${err.message}`;
+        }
+    }
+
+    // ======================================================================
+    // Diagnose
+    // ======================================================================
+    async function diagnoseService(svc) {
+        const btn = document.getElementById(`btn-diagnose-${svc}`);
+        const diagEl = document.getElementById(`diagnosis-${svc}`);
+
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Diagnosing…`;
+        diagEl.style.display = "block";
+        diagEl.innerHTML = '<span class="text-muted">Sending to LLM…</span>';
+
+        try {
+            const res = await fetch(`/api/diagnose/${svc}`, { method: "POST" });
+            const data = await res.json();
+            diagEl.innerHTML = `<strong class="text-info">LLM Diagnosis:</strong><br>` +
+                escHtml(data.diagnosis || "No diagnosis returned").replace(/\n/g, "<br>");
+        } catch (err) {
+            diagEl.innerHTML = `<span class="text-danger">Error: ${escHtml(err.message)}</span>`;
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = "Diagnose";
+        }
+    }
+
+    // ======================================================================
+    // Set Command Modal
+    // ======================================================================
+    function openCmdModal(svc) {
+        _cmdModalTarget = svc;
+        const status = currentStatuses[svc];
+        document.getElementById("cmdModalService").textContent =
+            status ? status.display_name : svc;
+
+        // Pre-fill with cached command
+        const input = document.getElementById("cmdModalInput");
+        input.value = "";
+        fetch(`/api/discover_command/${svc}`)
+            .then(r => r.json())
+            .then(d => { if (d.command) input.value = d.command; })
+            .catch(() => {});
+
+        new bootstrap.Modal(document.getElementById("cmdModal")).show();
+    }
+
+    async function saveCommand() {
+        if (!_cmdModalTarget) return;
+        const command = document.getElementById("cmdModalInput").value.trim();
+        if (!command) { showToast("Command cannot be empty", "warning"); return; }
+
+        try {
+            const res = await fetch(`/api/set_command/${_cmdModalTarget}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ command }),
+            });
+            const data = await res.json();
+            if (data.success) {
+                showToast("Command saved", "success");
+                bootstrap.Modal.getInstance(document.getElementById("cmdModal")).hide();
+                refreshAll();
+            } else {
+                showToast(data.error || "Failed to save", "danger");
+            }
+        } catch (err) {
+            showToast("Network error", "danger");
+        }
+    }
+
+    // ======================================================================
+    // Toasts
+    // ======================================================================
+    function showToast(message, type = "info") {
+        const colors = {
+            success: "text-bg-success", danger: "text-bg-danger",
+            warning: "text-bg-warning", info: "text-bg-info",
+        };
+        const id = "toast-" + Date.now();
+        const html = `
+            <div id="${id}" class="toast align-items-center ${colors[type] || colors.info} border-0" role="alert">
+                <div class="d-flex">
+                    <div class="toast-body">${escHtml(message)}</div>
+                    <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+                </div>
+            </div>`;
+        document.getElementById("toasts").insertAdjacentHTML("beforeend", html);
+        const toastEl = document.getElementById(id);
+        new bootstrap.Toast(toastEl, { delay: 5000 }).show();
+        toastEl.addEventListener("hidden.bs.toast", () => toastEl.remove());
+    }
+
+    // ======================================================================
+    // Util
+    // ======================================================================
+    function escHtml(str) {
+        const d = document.createElement("div");
+        d.textContent = str;
+        return d.innerHTML;
+    }
+    </script>
+</body>
+</html>
