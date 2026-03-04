@@ -21,6 +21,9 @@ var WorkspaceManager = {
     _pendingHighlightCollapse: false,
     _suppressExpandPersist: false,
     _contextMenuOpenedAt: 0,
+    _recentSectionCount: 10,
+    _recentSectionCollapsed: false,
+    _recentSectionLocalStorageKey: 'recentSectionCollapsed',
 
     get defaultWorkspaceId() {
         var email = (typeof userDetails !== 'undefined' && userDetails.email) ? userDetails.email : 'unknown';
@@ -34,8 +37,29 @@ var WorkspaceManager = {
     // Initialisation
     // ---------------------------------------------------------------
     init: function () {
+        var self = this;
         this.installMobileConversationInterceptor();
         this.setupToolbarHandlers();
+
+        // Recent section collapse/expand toggle
+        $('#recent-section-toggle').off('click').on('click', function () {
+            var list = $('#recent-conversations-list');
+            var chevron = $(this).find('.recent-chevron');
+
+            if (list.is(':visible')) {
+                list.slideUp(150);
+                chevron.addClass('collapsed');
+                self._recentSectionCollapsed = true;
+            } else {
+                list.slideDown(150);
+                chevron.removeClass('collapsed');
+                self._recentSectionCollapsed = false;
+            }
+
+            try {
+                localStorage.setItem(self.getRecentSectionStorageKey(), String(self._recentSectionCollapsed));
+            } catch (_e) {}
+        });
     },
 
     // ---------------------------------------------------------------
@@ -253,7 +277,174 @@ var WorkspaceManager = {
 
         this.workspaces = workspacesMap;
         this.renderTree(convByWs);
+        this.renderRecentConversations();
     },
+
+    // ---------------------------------------------------------------
+    // Recent Conversations Section
+    // ---------------------------------------------------------------
+
+    /**
+     * Get the localStorage key for the recent section collapse state,
+     * scoped by user email and domain.
+     */
+    getRecentSectionStorageKey: function () {
+        var email = (typeof userDetails !== 'undefined' && userDetails.email) ? userDetails.email : 'unknown';
+        var domain = (typeof currentDomain !== 'undefined' && currentDomain['domain']) ? currentDomain['domain'] : 'unknown';
+        return 'recentSectionCollapsed:' + email + ':' + domain;
+    },
+
+    /**
+     * Render the Recent Conversations section in the sidebar.
+     * Takes the first N conversations from this.conversations (already sorted
+     * by last_updated DESC) and renders them as plain DOM items with click,
+     * right-click, and highlight support.
+     */
+    renderRecentConversations: function () {
+        var self = this;
+        var container = $('#recent-conversations-list');
+        var badge = $('#recent-count-badge');
+        container.empty();
+
+        // 1. Slice recent conversations
+        var recentConversations = this.conversations.slice(0, this._recentSectionCount);
+
+        // 2. Update badge (only show when count < max — otherwise it's noise)
+        if (recentConversations.length > 0 && recentConversations.length < self._recentSectionCount) {
+            badge.text('(' + recentConversations.length + ')');
+        } else {
+            badge.text('');
+        }
+
+        // 3. If no conversations, show empty state
+        if (recentConversations.length === 0) {
+            container.append('<div class="recent-empty-message">No conversations yet</div>');
+            return;
+        }
+
+        // 4. Get current active conversation for highlighting
+        var activeConvId = (ConversationManager.getActiveConversation && ConversationManager.getActiveConversation()) || null;
+
+        // 5. Render each item
+        recentConversations.forEach(function (conv) {
+            var title = conv.title ? conv.title.trim() : '(untitled)';
+            var isActive = activeConvId && String(activeConvId) === String(conv.conversation_id);
+            var flagClass = (conv.flag && conv.flag !== 'none') ? 'recent-flag-' + conv.flag : '';
+
+            // Build item using jQuery to avoid XSS via string concatenation.
+            // Display text is escaped via .text(), attributes via .attr().
+            var item = $('<div class="recent-conversation-item"></div>');
+            if (isActive) item.addClass('recent-active');
+            if (flagClass) item.addClass(flagClass);
+            item.attr({
+                'data-conversation-id': conv.conversation_id,
+                'data-conversation-friendly-id': conv.conversation_friendly_id || '',
+                'data-flag': conv.flag || 'none',
+                'title': conv.title || ''
+            });
+            item.append('<i class="fa fa-comment-o recent-conv-icon"></i>');
+            item.append($('<span class="recent-conv-title"></span>').text(title));
+
+            // Click handler — switch conversation
+            item.on('click', function (e) {
+                if (e.which === 2 || e.metaKey || e.ctrlKey) return;
+                e.preventDefault();
+                e.stopPropagation();
+
+                var convId = $(this).data('conversation-id');
+                if (!convId) return;
+
+                // Skip if already active
+                var currentActive = ConversationManager.getActiveConversation();
+                if (currentActive && String(currentActive) === String(convId)) return;
+
+                // Mobile: close sidebar
+                try {
+                    if (window.matchMedia && window.matchMedia('(max-width: 768px)').matches) {
+                        var sidebar = $('#chat-assistant-sidebar');
+                        var contentCol = $('#chat-assistant');
+                        if (sidebar.length && contentCol.length && !sidebar.hasClass('d-none')) {
+                            sidebar.addClass('d-none');
+                            contentCol.removeClass('col-md-10').addClass('col-md-12');
+                            $(window).trigger('resize');
+                        }
+                    }
+                } catch (_e) {}
+
+                // Switch conversation.
+                // IMPORTANT: Do NOT call highlightActiveConversation() separately.
+                // setActiveConversation() internally calls highLightActiveConversation()
+                // which already calls WorkspaceManager.highlightActiveConversation().
+                ConversationManager.setActiveConversation(convId);
+            });
+
+            // Right-click handler — show context menu (reuse workspace-manager's)
+            item.on('contextmenu', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                var convId = $(this).data('conversation-id');
+                if (!convId) return;
+
+                // Build a fake jsTree-like node for buildConversationContextMenu()
+                var fakeNode = {
+                    id: 'cv_' + convId,
+                    li_attr: {
+                        'data-conversation-id': convId,
+                        'data-conversation-friendly-id': $(this).data('conversation-friendly-id') || '',
+                        'data-flag': $(this).data('flag') || 'none'
+                    }
+                };
+
+                var items = self.buildConversationContextMenu(fakeNode);
+                var vakataItems = self._convertToVakataItems(items, fakeNode);
+                $.vakata.context.hide();
+
+                // Position menu (same logic as showNodeContextMenu)
+                var sidebar = $('#chat-assistant-sidebar');
+                var sidebarRight = 0;
+                if (sidebar.length) {
+                    var sidebarOffset = sidebar.offset();
+                    sidebarRight = sidebarOffset.left + sidebar.outerWidth();
+                }
+                var menuX = Math.max(e.pageX, sidebarRight + 2);
+                var menuY = e.pageY;
+
+                var posEl = $('<span>').css({
+                    position: 'absolute', left: menuX + 'px', top: menuY + 'px',
+                    width: '1px', height: '1px'
+                });
+                $('body').append(posEl);
+                $.vakata.context.show(posEl, { x: menuX, y: menuY }, vakataItems);
+                setTimeout(function () { posEl.remove(); }, 200);
+            });
+
+            container.append(item);
+        });
+
+        // 6. Restore collapse state
+        var collapsed = false;
+        try { collapsed = localStorage.getItem(self.getRecentSectionStorageKey()) === 'true'; } catch (_e) {}
+        self._recentSectionCollapsed = collapsed;
+        if (collapsed) {
+            container.hide();
+            $('#recent-section-toggle .recent-chevron').addClass('collapsed');
+        } else {
+            container.show();
+            $('#recent-section-toggle .recent-chevron').removeClass('collapsed');
+        }
+    },
+
+    /**
+     * Update the active highlight in the Recent Conversations section.
+     * Called from highlightActiveConversation() to keep both sections in sync.
+     */
+    highlightRecentConversation: function (conversationId) {
+        $('#recent-conversations-list .recent-conversation-item').removeClass('recent-active');
+        if (conversationId) {
+            $('#recent-conversations-list .recent-conversation-item[data-conversation-id="' + conversationId + '"]').addClass('recent-active');
+        }
+    },
+
 
     // ---------------------------------------------------------------
     // Helpers
@@ -1039,6 +1230,9 @@ var WorkspaceManager = {
      *     workspaces.
      */
     highlightActiveConversation: function (conversationId, collapseOthers) {
+        // Always update Recent section highlight (pure DOM, no jsTree dependency)
+        this.highlightRecentConversation(conversationId);
+
         if (!this._jsTreeReady) {
             this._pendingHighlight = conversationId;
             this._pendingHighlightCollapse = !!collapseOthers;

@@ -2864,6 +2864,119 @@ function moveMessagesUpOrDownCallback(direction, messageId=null, messageIndex=nu
 }
 
 
+// ---------------------------------------------------------------------------
+// Search-intent auto-detection: when the user's message contains keywords
+// indicating web-search intent, automatically enable the web search tool set.
+// This mirrors the /clarify interception pattern but does NOT return early —
+// it modifies `options` in-place and lets the send proceed normally.
+// ---------------------------------------------------------------------------
+
+/**
+ * Web search tool names auto-enabled when search intent is detected.
+ * Matches the 'search' category from chat.js categoryDefaults.
+ */
+var WEB_SEARCH_TOOLS = [
+    'web_search', 'perplexity_search', 'jina_search', 'jina_read_page', 'read_link'
+];
+
+/**
+ * Regex patterns that indicate web-search intent in a user message.
+ * Checked case-insensitively against message text with code blocks stripped.
+ * Organised by category for readability; each uses word boundaries to
+ * minimise false positives.
+ */
+var SEARCH_INTENT_PATTERNS = [
+    // ---- Explicit search commands ----
+    /\bsearch\s+the\s+(web|internet|net)\b/i,
+    /\b(web|internet|online)\s+search\b/i,
+    /\bgoogle\b/i,
+    /\blook\s*up\b/i,
+    /\bsearch\s+online\b/i,
+    /\bsearch\s+about\b/i,
+    /\bsearch\s+for\s+(recent|latest|current)\b/i,
+
+    // ---- Information seeking with recency / currency ----
+    /\bfind\s+(me\s+)?recent\b/i,
+    /\bfind\s+(me\s+)?(the\s+)?latest\b/i,
+    /\bfind\s+(me\s+)?current\b/i,
+    /\blatest\s+(news|info(rmation)?|updates?|developments?|research|data|stats|statistics|numbers|figures|reports?)\b/i,
+    /\brecent\s+(news|info(rmation)?|updates?|developments?|research|data|stats|statistics|numbers|figures|reports?)\b/i,
+    /\bcurrent\s+(news|events?|info(rmation)?|data|stats|statistics)\b/i,
+    /\bwhat['\u2019]?s\s+(the\s+)?latest\b/i,
+    /\bwhat['\u2019]?s\s+new\s+(with|about|in|on|for)\b/i,
+    /\bwhat['\u2019]?s\s+happening\s+(with|in|on|around)\b/i,
+    /\bup[\s-]to[\s-]date\s+(info(rmation)?|data|news|on|about)\b/i,
+    /\breal[\s-]time\s+(data|info(rmation)?|updates?|news|feed)\b/i,
+
+    // ---- Browse / check / look online ----
+    /\b(look|check|find|search)\s+online\b/i,
+    /\bbrowse\s+the\s+(web|internet)\b/i,
+    /\bcheck\s+the\s+(web|internet)\b/i,
+
+    // ---- Research / find info ----
+    /\bfind\s+(me\s+)?info(rmation)?\s+(on|about|regarding|for)\b/i,
+    /\bfind\s+out\s+(about|what|who|where|when|how|why|if|whether)\b/i,
+    /\bresearch\s+(online|on\s+the\s+web)\b/i,
+
+    // ---- News-specific ----
+    /\bnews\s+(about|on|regarding|for|around)\b/i,
+    /\bheadlines?\s+(about|on|regarding|for)\b/i,
+
+    // ---- Direct tool references ----
+    /\buse\s+(the\s+)?(web\s+)?search\s+tool\b/i,
+    /\busing\s+(the\s+)?(web\s+)?search\b/i,
+    /\bwith\s+web\s+search\b/i,
+    /\benable\s+web\s+search\b/i,
+];
+
+/**
+ * Detect whether the user's message expresses web-search intent.
+ * Code blocks (fenced and inline) are stripped before matching so that
+ * keywords inside code examples do not trigger false positives.
+ *
+ * @param {string} messageText - Raw user message.
+ * @returns {boolean} true when at least one search-intent pattern matches.
+ */
+function detectSearchIntent(messageText) {
+    if (!messageText || messageText.trim().length === 0) return false;
+
+    // Strip fenced code blocks (``` … ```) and inline code (` … `)
+    var stripped = messageText
+        .replace(/```[\s\S]*?```/g, '')
+        .replace(/`[^`]+`/g, '');
+
+    // lowercase the stripped text
+    stripped = stripped.toLowerCase();
+
+    for (var i = 0; i < SEARCH_INTENT_PATTERNS.length; i++) {
+        if (SEARCH_INTENT_PATTERNS[i].test(stripped)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Merge web-search tools into options.enabled_tools (de-duplicated).
+ * Also flips enable_tool_use to true so the tool-calling path is active.
+ *
+ * @param {object} options - The mutable options dict built by getOptions + mergeOptions.
+ */
+function mergeWebSearchTools(options) {
+    options.enable_tool_use = true;
+
+    if (!Array.isArray(options.enabled_tools)) {
+        options.enabled_tools = [];
+    }
+
+    WEB_SEARCH_TOOLS.forEach(function (tool) {
+        if (options.enabled_tools.indexOf(tool) === -1) {
+            options.enabled_tools.push(tool);
+        }
+    });
+}
+
+
 function sendMessageCallback(skipAutoClarify) {
     // Remove any existing suggestions when sending a new message
     $('#chatView .next-question-suggestions').remove();
@@ -2920,6 +3033,17 @@ function sendMessageCallback(skipAutoClarify) {
 
     // messageText = parsed_message.text;
     options = mergeOptions(parsed_message, options)
+
+    // Auto-enable web search tools when message contains search intent keywords.
+    // Does NOT return early — modifies options in-place and lets the send proceed.
+    try {
+        if (detectSearchIntent(messageText)) {
+            mergeWebSearchTools(options);
+            console.log('Search intent detected — web search tools auto-enabled');
+        }
+    } catch (e) {
+        console.warn('Search intent detection failed (proceeding without auto-enable):', e);
+    }
     if (options['tell_me_more'] && messageText.trim().length == 0) {
         messageText = 'Tell me more';
     }

@@ -303,3 +303,103 @@
 .flag-color-option.selected {
     background: rgba(0, 120, 212, 0.25);
 }
+
+
+/* ---- Recent Conversations Section ---- */
+
+#recent-conversations-section {
+    border-bottom: 1px solid #333;
+    margin-bottom: 2px;
+    padding-bottom: 2px;
+}
+
+/* Section header — clickable, matches sidebar-toolbar feel */
+.recent-section-header {
+    padding: 3px 8px;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+}
+
+.recent-section-header:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.recent-section-title {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #888;
+    font-weight: 400;
+}
+
+.recent-chevron {
+    font-size: 0.6rem;
+    margin-right: 4px;
+    transition: transform 0.15s ease;
+    display: inline-block;
+}
+
+.recent-chevron.collapsed {
+    transform: rotate(-90deg);
+}
+
+.recent-count-badge {
+    font-size: 0.7rem;
+    color: #666;
+    margin-left: 4px;
+    font-weight: normal;
+}
+
+/* Conversation items — match jsTree node styling */
+.recent-conversation-item {
+    display: flex;
+    align-items: flex-start;
+    padding: 2px 8px 2px 12px;
+    cursor: pointer;
+    font-size: 0.76rem;
+    line-height: 17px;
+    color: #ccc;
+    position: relative;
+    word-break: break-word;
+    overflow-wrap: break-word;
+}
+
+.recent-conversation-item:hover {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.recent-conversation-item.recent-active {
+    background: rgba(0, 120, 212, 0.35);
+    color: #fff;
+}
+
+.recent-conv-icon {
+    font-size: 0.75rem;
+    color: #75beff;
+    margin-right: 4px;
+    margin-top: 2px;
+    flex-shrink: 0;
+}
+
+.recent-conv-title {
+    overflow: hidden;
+    white-space: normal;
+    word-break: break-word;
+}
+
+/* Flag indicators — match jsTree flag colors */
+.recent-flag-red    { border-left: 3px solid #dc3545; padding-left: 9px; }
+.recent-flag-blue   { border-left: 3px solid #007bff; padding-left: 9px; }
+.recent-flag-green  { border-left: 3px solid #28a745; padding-left: 9px; }
+.recent-flag-yellow { border-left: 3px solid #ffc107; padding-left: 9px; }
+.recent-flag-orange { border-left: 3px solid #fd7e14; padding-left: 9px; }
+.recent-flag-purple { border-left: 3px solid #6f42c1; padding-left: 9px; }
+
+/* Empty state */
+.recent-empty-message {
+    font-size: 0.73rem;
+    color: #555;
+    padding: 4px 12px;
+    font-style: italic;
+}

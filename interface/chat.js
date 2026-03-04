@@ -1231,6 +1231,14 @@ function resetSettingsToDefaults() {
     $('#settings-use_pkb').prop('checked', true);
     $('#settings-pkb-extraction-mode').val('relaxed');
     $('#settings-enable_custom_context_menu').prop('checked', !isProbablyMobileDevice());
+
+    // Tool Use
+    $('#settings-enable_tool_use').prop('checked', true);
+    $('#tool-use-options').show();
+    $('#settings-tool-selector').val(['ask_clarification']);
+    if (typeof $.fn.selectpicker !== 'undefined') {
+        $('#settings-tool-selector').selectpicker('refresh');
+    }
     
     // Advanced Settings
     $('#settings-depthSelector').val('2');
@@ -1321,6 +1329,8 @@ function computeDefaultStateForTab(tab) {
         depth: '2',
         history: '2',
         reward: '0',
+        enable_tool_use: true,
+        enabled_tools: ['ask_clarification'],
         preamble_options: getDefaultPreambleForTab(tab),
         main_model: getDefaultModelForTab(tab),
         field: getDefaultAgentForTab(tab),
