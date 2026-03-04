@@ -2,7 +2,7 @@
 MCP web search server application.
 
 Creates a ``FastMCP`` instance that exposes search-agent tools
-(``perplexity_search``, ``jina_search``, ``deep_search``) and page-reader
+(``perplexity_search``, ``jina_search``) and page-reader
 tools (``jina_read_page``, ``read_link``) over the streamable-HTTP
 transport.
 
@@ -287,18 +287,21 @@ def create_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[ASGIApp, Any]
     @mcp.tool()
     def perplexity_search(
         query: str,
+        context: str = "",
         detail_level: int = 1,
         model_name: str = "default",
     ) -> str:
         """Search using Perplexity AI models (sonar-pro, sonar).
 
         Higher detail_level (1-4) progressively adds reasoning and
-        deep-research models for more thorough results.
+        deep-research models for more thorough results. Provide additional
+        context to help produce more relevant results.
 
         Args:
             query: The search query or question.
+            context: Additional context (background, intent, what information is needed). Provide as much relevant context as possible for better results.
             detail_level: Search depth. 1=fast (2 models), 3=+reasoning, 4=+deep-research.
-            model_name: LLM model for query generation and combining. Use "default" for auto-selection.
+            model_name: LLM model for combining. Use "default" for auto-selection.
         """
         from agents.search_and_information_agents import PerplexitySearchAgent
 
@@ -311,7 +314,15 @@ def create_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[ASGIApp, Any]
             timeout=120,
             headless=True,
         )
-        return _collect_agent_output(agent, query)
+        # Pre-format query+context as a code block so the agent's
+        # extract_queries_contexts() picks it up directly, bypassing the
+        # internal LLM query-generation step entirely.
+        agent_input = (
+            f"```python\n"
+            f"[({repr(query)}, {repr(context)})]\n"
+            f"```"
+        )
+        return _collect_agent_output(agent, agent_input)
 
     # -----------------------------------------------------------------
     # Tool 2: jina_search
@@ -320,18 +331,21 @@ def create_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[ASGIApp, Any]
     @mcp.tool()
     def jina_search(
         query: str,
+        context: str = "",
         detail_level: int = 1,
         model_name: str = "default",
     ) -> str:
         """Search using Jina AI with full web content retrieval.
 
         Fetches actual page content (not just snippets), summarises
-        long pages, and handles PDFs.
+        long pages, and handles PDFs. Provide additional context to
+        help guide extraction and produce more relevant results.
 
         Args:
             query: The search query or question.
+            context: Additional context (background, intent, what information is needed). Provide as much relevant context as possible for better results.
             detail_level: Search depth. 1=5 results, 2=8 results, 3+=20 results.
-            model_name: LLM model for query generation and combining. Use "default" for auto-selection.
+            model_name: LLM model for combining. Use "default" for auto-selection.
         """
         from agents.search_and_information_agents import JinaSearchAgent
 
@@ -344,49 +358,16 @@ def create_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[ASGIApp, Any]
             timeout=240,
             headless=True,
         )
-        return _collect_agent_output(agent, query)
-
-    # -----------------------------------------------------------------
-    # Tool 3: deep_search
-    # -----------------------------------------------------------------
-
-    @mcp.tool()
-    def deep_search(
-        query: str,
-        detail_level: int = 2,
-        model_name: str = "default",
-        interleave_steps: int = 3,
-        sources: str = "web,perplexity,jina",
-    ) -> str:
-        """Multi-hop iterative search with interleaved search-answer cycles.
-
-        Runs N rounds of: plan queries -> search -> write partial
-        answer -> repeat.  Best for complex questions requiring deep
-        research across multiple sources.
-
-        Args:
-            query: The search query or question.
-            detail_level: Search depth passed to sub-agents (1-4).
-            model_name: LLM model for answer writing. Use "default" for auto-selection.
-            interleave_steps: Number of search-answer cycles (1-5). More steps = deeper but slower.
-            sources: Comma-separated list of sources: "web", "perplexity", "jina". Default uses all three.
-        """
-        from agents.search_and_information_agents import InterleavedWebSearchAgent
-
-        keys = _get_keys()
-        model = _resolve_model(model_name)
-        source_list = [s.strip() for s in sources.split(",") if s.strip()]
-        agent = InterleavedWebSearchAgent(
-            keys,
-            model_name=model,
-            detail_level=detail_level,
-            timeout=240,
-            interleave_steps=interleave_steps,
-            sources=source_list,
-            show_intermediate_results=False,
-            headless=True,
+        # Pre-format query+context as a code block so the agent's
+        # extract_queries_contexts() picks it up directly, bypassing the
+        # internal LLM query-generation step entirely.
+        agent_input = (
+            f"```python\n"
+            f"[({repr(query)}, {repr(context)})]\n"
+            f"```"
         )
-        return _collect_agent_output(agent, query)
+        return _collect_agent_output(agent, agent_input)
+
 
     # -----------------------------------------------------------------
     # Tool 4: jina_read_page

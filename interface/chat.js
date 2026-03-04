@@ -656,7 +656,7 @@ function setModalFromState(state) {
         var legacyTools = [];
         var categoryDefaults = {
             clarification: ['ask_clarification'],
-            search: ['web_search', 'perplexity_search', 'jina_search', 'deep_search', 'jina_read_page', 'read_link'],
+            search: ['web_search', 'perplexity_search', 'jina_search', 'jina_read_page', 'read_link'],
             documents: ['document_lookup', 'docs_list_conversation_docs', 'docs_list_global_docs', 'docs_query', 'docs_get_full_text', 'docs_get_info', 'docs_answer_question', 'docs_get_global_doc_info', 'docs_query_global_doc', 'docs_get_global_doc_full_text'],
             pkb: ['pkb_search', 'pkb_get_claim', 'pkb_resolve_reference', 'pkb_get_pinned_claims', 'pkb_add_claim', 'pkb_edit_claim', 'pkb_get_claims_by_ids', 'pkb_autocomplete', 'pkb_resolve_context', 'pkb_pin_claim'],
             memory: ['conv_get_memory_pad', 'conv_set_memory_pad', 'conv_get_history', 'conv_get_user_detail', 'conv_get_user_preference', 'conv_get_messages', 'conv_set_user_detail'],
@@ -863,7 +863,7 @@ function loadOpencodeSettings(conversationId) {
         $('#opencode-always-enabled').prop('checked', oc.always_enabled || false);
         $('#opencode-injection-level').val(oc.injection_level || 'medium');
         $('#opencode-provider').val(oc.opencode_provider || 'openrouter');
-        $('#opencode-model').val(oc.opencode_model || 'anthropic/claude-sonnet-4.5');
+        $('#opencode-model').val(oc.opencode_model || 'anthropic/claude-sonnet-4.6');
         $('#opencode-session-id').text(oc.active_session_id || 'None');
         $('#opencode-session-count').text((oc.session_ids || []).length);
     });
@@ -1293,11 +1293,11 @@ function getDefaultModelForTab(tab) {
     switch(tab) {
         case 'chat':
         case 'search':
-            return ['Sonnet 4.5'];
+            return ['Sonnet 4.6'];
         case 'finchat':
-            return ['Sonnet 4.5'];
+            return ['Sonnet 4.6'];
         default:
-            return ['Sonnet 4.5'];
+            return ['Sonnet 4.6'];
     }
 }
 

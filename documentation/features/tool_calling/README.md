@@ -6,7 +6,7 @@ The LLM Tool Calling Framework adds native, mid-response tool calling to the cha
 
 This transforms the application from a "configure then send" model to a truly agentic one where the LLM reasons about what it needs and acts accordingly. The framework supports multi-step tool chains (up to 5 iterations per turn), interactive tools that pause for user input, and server-side tools that execute silently.
 
-**Key numbers**: 48 tools across 8 categories. 1 interactive tool (`ask_clarification`). Master toggle + per-category toggles. 60-second interactive timeout. 5-iteration hard cap. 4000-character result truncation.
+**Key numbers**: 47 tools across 8 categories. 1 interactive tool (`ask_clarification`). Master toggle + per-category toggles. 60-second interactive timeout. 5-iteration hard cap. 12000-character result truncation.
 
 **Plan reference**: `documentation/planning/plans/llm_tool_calling_framework.plan.md`
 
@@ -32,7 +32,7 @@ Settings are persisted per-conversation via the existing chat settings mechanism
 | Category | Tools | Default | Description |
 |---|---|---|---|
 | `clarification` | 1 | ON | Interactive clarification questions with MCQ options. Pauses stream, shows modal, collects user answers, resumes. |
-| `search` | 6 | ON | Web search (standard, Perplexity, Jina), deep multi-hop search, page reading (Jina Reader, generic link reader). |
+| `search` | 5 | ON | Web search (standard, Perplexity, Jina), page reading (Jina Reader, generic link reader). `deep_search` (`InterleavedWebSearchAgent`) is available only via the main UI, not as a tool. |
 | `documents` | 10 | ON | Search/query conversation docs and global docs. List, get metadata, get full text, semantic search, LLM-answered questions. |
 | `pkb` | 10 | OFF | Personal Knowledge Base operations. Search claims (hybrid/FTS/embedding), resolve `@`-references, get/add/edit/pin claims, autocomplete. |
 | `memory` | 7 | OFF | Conversation memory access. Memory pad read/write, conversation history, user detail/preferences, raw message retrieval. |
@@ -67,7 +67,7 @@ User doesn't respond to a clarification modal within 60 seconds. The LLM receive
 | Per-tool selector | `checkboxes.enabled_tools` | Array of enabled tool name strings. Sent as `["ask_clarification", "web_search", ...]`. Legacy dict format `{category: bool}` also accepted for backward compatibility. |
 | Iteration cap | 5 | Hard maximum tool-call rounds per turn. On the final iteration, `tool_choice="none"` forces a text-only response. |
 | Interactive timeout | 60 seconds | `threading.Event.wait(timeout=60)`. Unblocks with timeout message if user doesn't respond. |
-| Result truncation | 4000 characters | `MAX_TOOL_RESULT_LENGTH` in `code_common/tools.py`. Oversized results are truncated with `"... [truncated, result too long]"`. |
+| Result truncation | 12000 characters | `TOOL_RESULT_TRUNCATION_LIMIT` in `code_common/tools.py`. Oversized results are truncated with `"\n... [truncated, result too long]"` suffix. |
 | Fail-open execution | Always | `ToolRegistry.execute()` catches all exceptions. Tool errors produce an error message fed back to the LLM, never crash the response. |
 | Backward compatibility | Full | When `tools=None` (default), the entire call stack is unchanged. No overhead for non-tool conversations. |
 
@@ -308,7 +308,7 @@ Tool settings are sent as part of the `checkboxes` object in the `/reply` reques
     "enable_tool_use": true,
     "enabled_tools": [
       "ask_clarification",
-      "web_search", "perplexity_search", "jina_search", "deep_search", "jina_read_page", "read_link",
+      "web_search", "perplexity_search", "jina_search", "jina_read_page", "read_link",
       "document_lookup", "docs_list_conversation_docs", "docs_list_global_docs", "docs_query",
       "docs_get_full_text", "docs_get_info", "docs_answer_question",
       "docs_get_global_doc_info", "docs_query_global_doc", "docs_get_global_doc_full_text"
@@ -418,7 +418,7 @@ def handle_my_new_tool(args: dict, context: ToolContext) -> ToolCallResult:
 - `parameters` must be a valid JSON Schema object
 - Handler must return `ToolCallResult` (or the registry wraps the return value)
 - Handler must never raise -- catch exceptions internally and return error in `ToolCallResult.error`
-- Results are auto-truncated to 4000 characters by `_truncate_result()`
+- Results are auto-truncated to 12000 characters by `_truncate_result()` (configurable via `TOOL_RESULT_TRUNCATION_LIMIT`)
 
 ### Step 2: Implement the handler logic
 
@@ -504,22 +504,20 @@ Manual testing checklist:
 
 **Parameters** (`ask_clarification`): `questions` (required) -- array of objects, each with `question` (string) and `options` (array of 2-5 strings, MCQ choices).
 
-### search (6 tools)
+### search (5 tools)
 
 | Tool | Description | Interactive |
 |---|---|---|
-| `web_search` | Search the web for current information. Use when you need up-to-date facts, news, or information not in training data. | No |
-| `perplexity_search` | Search using Perplexity AI models for web information. | No |
-| `jina_search` | Search using Jina AI with full web content retrieval. | No |
-| `deep_search` | Multi-hop iterative search with interleaved search-answer cycles. For complex research queries. | No |
+| `web_search` | Search the web for current information. Provide query and context for best results. Runs in headless mode with query bypass (see Note 12). | No |
+| `perplexity_search` | Search using Perplexity AI for web information. Provide query and context for best results. Runs in headless mode with query bypass (see Note 12). | No |
+| `jina_search` | Search using Jina AI with full web content retrieval. Provide query and context for best results. Runs in headless mode with query bypass (see Note 12). | No |
 | `jina_read_page` | Read a web page using Jina Reader API, returns clean markdown. | No |
 | `read_link` | Read any link (web page, PDF, image, YouTube) and return text content. | No |
 
 **Key parameters**:
-- `web_search`: `query` (required), `num_results` (int, default 5)
-- `perplexity_search`: `query` (required), `detail_level` (int 1-4, default 1)
-- `jina_search`: `query` (required), `detail_level` (int, default 1)
-- `deep_search`: `query` (required), `detail_level` (int 1-4, default 2), `interleave_steps` (int 1-5, default 3), `sources` (string, default "web,perplexity,jina")
+- `web_search`: `query` (required), `context` (string, default ""), `num_results` (int, default 5)
+- `perplexity_search`: `query` (required), `context` (string, default ""), `detail_level` (int 1-4, default 1)
+- `jina_search`: `query` (required), `context` (string, default ""), `detail_level` (int, default 1)
 - `jina_read_page`: `url` (required)
 - `read_link`: `url` (required), `context` (string, default "Read and extract all content"), `detailed` (bool, default false)
 
@@ -636,7 +634,7 @@ Manual testing checklist:
 
 5. **Write operations**: Tools marked as write operations (PKB add/edit/pin, memory pad set, artefact create/update/delete, prompt create/update) modify persistent state. Their categories default to OFF to prevent unintended writes.
 
-6. **Result truncation**: All tool results are passed through `_truncate_result()` which caps at `MAX_TOOL_RESULT_LENGTH = 4000` characters. This prevents oversized tool results from consuming too much of the LLM's context window.
+6. **Result truncation**: All tool results are passed through `_truncate_result()` which caps at `TOOL_RESULT_TRUNCATION_LIMIT = 12000` characters (defined in `code_common/tools.py`). The suffix length is now computed dynamically (`max_len - len(suffix)`), so the truncated output is exactly `max_len` characters. Truncation is applied in two places: (a) most handlers call `_truncate_result()` on their result text before returning, and (b) `ToolRegistry.execute()` calls it again as a safety net. The double application is idempotent. Previously the limit was 4000 characters with a suffix math bug that produced 4003-char outputs; both issues are now fixed.
 
 7. **Fail-open design**: `ToolRegistry.execute()` wraps all handler calls in try/except. On any exception, it returns a `ToolCallResult` with the error message. The LLM receives the error and can decide how to proceed (retry, skip, or inform the user). The streaming response never crashes due to a tool error.
 
@@ -647,6 +645,12 @@ Manual testing checklist:
 10. **Handler implementation status**: All 48 tool handlers have real implementations wired to the underlying business logic. No stubs remain. The handlers mirror the exact logic from the MCP server modules (`mcp_server/docs.py`, `mcp_server/pkb.py`, `mcp_server/conversation.py`, `mcp_server/code_runner_mcp.py`, `mcp_server/artefacts.py`, `mcp_server/prompts_actions.py`) and call the same underlying functions (e.g. `DocIndex.semantic_search_document()`, `StructuredAPI.for_user().search()`, `Conversation.list_artefacts()`) directly without going through MCP transport. Helper functions per category (e.g. `_docs_load_doc_index()`, `_get_pkb_api()`, `_conv_load()`, `_art_load_conversation()`, `_get_prompt_manager()`) are defined inline in `code_common/tools.py` before each category's tool registrations.
 
 11. **HTTP-delegated tools**: Two artefact tools (`artefacts_propose_edits`, `artefacts_apply_edits`) and one prompt tool (`temp_llm_action`) delegate to Flask HTTP endpoints rather than calling business logic directly. This is because these operations involve complex LLM streaming or optimistic concurrency that is already implemented in the Flask endpoints.
+
+12. **Headless mode and query bypass for search tools**: All search tool handlers (`web_search`, `perplexity_search`, `jina_search`) run their underlying agents in **headless mode** (`headless=True`). In headless mode, the agent skips the combiner LLM step and returns raw search results directly. Additionally, the tool handlers pre-format the `query` and `context` parameters as a Python code block containing a list of `(query, context)` tuples. This format is recognized by the agent's `extract_queries_contexts()` method (in `WebSearchWithAgent.__call__`), which parses the code block directly and bypasses the internal LLM query-generation step. This is important because the calling LLM has already crafted a good query — there is no need for a second LLM call inside the agent to re-generate queries. The same pattern is used in the MCP server tools (`mcp_server/mcp_app.py`). When adding a new search tool, follow this pattern: accept a `context` parameter, format as `"```python\n[({repr(query)}, {repr(context)})]\n```"`, and pass the formatted string to the agent.
+
+13. **`deep_search` is UI-only**: The `InterleavedWebSearchAgent` (multi-hop iterative search) is intentionally excluded from the tool-calling framework and MCP server. It is designed for direct UI use where the streaming multi-step search→answer loop is rendered progressively. It is invoked from the main chat UI (`Conversation.py`) and the extension server (`extension_server.py`), not as a tool call.
+
+14. **MCP server search tool alignment**: The MCP server tools in `mcp_server/mcp_app.py` for `perplexity_search` and `jina_search` follow the same patterns as the tool-calling handlers: accept a `context` parameter, pre-format query+context as a Python code block for `extract_queries_contexts()` bypass, and run in headless mode. All MCP search tools operate headless (no combiner LLM, raw results returned to the MCP client).
 
 ## UI Implementation Details
 

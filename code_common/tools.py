@@ -44,11 +44,11 @@ logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers
 # Constants
 # ---------------------------------------------------------------------------
 
-MAX_TOOL_RESULT_LENGTH = 4000
-"""Hard cap on the length of a tool result string sent back to the LLM."""
+TOOL_RESULT_TRUNCATION_LIMIT = 12000
+"""Hard cap (in characters) on the length of a tool result string sent back to the LLM."""
 
 
-def _truncate_result(text: str, max_len: int = MAX_TOOL_RESULT_LENGTH) -> str:
+def _truncate_result(text: str, max_len: int = TOOL_RESULT_TRUNCATION_LIMIT) -> str:
     """Truncate *text* to *max_len* characters, appending an ellipsis marker.
 
     Parameters
@@ -56,7 +56,7 @@ def _truncate_result(text: str, max_len: int = MAX_TOOL_RESULT_LENGTH) -> str:
     text:
         The raw tool result string.
     max_len:
-        Maximum allowed character length.
+        Maximum allowed character length (default ``TOOL_RESULT_TRUNCATION_LIMIT``).
 
     Returns
     -------
@@ -65,7 +65,8 @@ def _truncate_result(text: str, max_len: int = MAX_TOOL_RESULT_LENGTH) -> str:
     """
     if len(text) <= max_len:
         return text
-    return text[: max_len - 30] + "\n... [truncated, result too long]"
+    suffix = "\n... [truncated, result too long]"
+    return text[: max_len - len(suffix)] + suffix
 
 
 # ---------------------------------------------------------------------------
@@ -476,7 +477,9 @@ def handle_ask_clarification(args: dict, context: ToolContext) -> ToolCallResult
     description=(
         "Search the web for current information. Use when you need up-to-date "
         "facts, news, or information not in your training data or the "
-        "conversation context."
+        "conversation context. Provide a focused search query and additional "
+        "context describing what information is needed and why. The context "
+        "helps the search agent produce more relevant results."
     ),
     parameters={
         "type": "object",
@@ -484,6 +487,15 @@ def handle_ask_clarification(args: dict, context: ToolContext) -> ToolCallResult
             "query": {
                 "type": "string",
                 "description": "The search query",
+            },
+            "context": {
+                "type": "string",
+                "description": (
+                    "Additional context to help the search (background, intent, "
+                    "what kind of information is needed). Provide as much relevant "
+                    "context as possible for better results."
+                ),
+                "default": "",
             },
             "num_results": {
                 "type": "integer",
@@ -501,13 +513,19 @@ def handle_web_search(args: dict, context: ToolContext) -> ToolCallResult:
 
     Instantiates a ``PerplexitySearchAgent`` (falling back to ``JinaSearchAgent``)
     from ``agents/search_and_information_agents.py`` and collects the streamed
-    output.  Keys are taken from ``context.keys``; if those are empty the
+    output.  The query and context are pre-formatted as a code block so that
+    ``extract_queries_contexts()`` picks them up directly, bypassing the internal
+    LLM query-generation step.  The agent runs in headless mode (no combiner LLM,
+    raw search results returned).
+
+    Keys are taken from ``context.keys``; if those are empty the
     environment-variable-based ``keyParser`` is used as a fallback.
 
     Parameters
     ----------
     args:
-        Parsed arguments containing ``query`` and optionally ``num_results``.
+        Parsed arguments containing ``query``, optionally ``context`` and
+        ``num_results``.
     context:
         Tool execution context.
 
@@ -517,6 +535,7 @@ def handle_web_search(args: dict, context: ToolContext) -> ToolCallResult:
         Search results or an error description.
     """
     query = args.get("query", "")
+    search_context = args.get("context", "") or ""
     num_results = args.get("num_results", 5)
     logger.info("web_search invoked: query=%r, num_results=%d", query, num_results)
 
@@ -568,9 +587,20 @@ def handle_web_search(args: dict, context: ToolContext) -> ToolCallResult:
                     error=f"No search agent available: {inner_exc}",
                 )
 
+        # Pre-format query+context as a code block so the agent's
+        # extract_queries_contexts() picks it up directly, bypassing the
+        # internal LLM query-generation step entirely.
+        # Use repr() to safely escape quotes for ast.literal_eval.
+        agent_input = (
+            f"```python\n"
+            f"[({repr(query)}, {repr(search_context)})]\n"
+            f"```"
+        )
+        logger.info('web_search: bypassing LLM query gen, agent_input=%s', agent_input[:200])
+
         # Collect streamed output (agents yield dicts with 'text' key)
         result_parts: list[str] = []
-        for chunk in agent(query, stream=True):
+        for chunk in agent(agent_input, stream=True):
             text = chunk.get("text", "") if isinstance(chunk, dict) else str(chunk)
             if text:
                 result_parts.append(text)
@@ -879,12 +909,23 @@ def handle_perplexity_search(args: dict, context: ToolContext) -> ToolCallResult
     description=(
         "Search using Jina AI with full web content retrieval. "
         "Fetches actual page content (not just snippets), summarises "
-        "long pages, and handles PDFs."
+        "long pages, and handles PDFs. Provide a focused search query and "
+        "additional context describing what information is needed. The context "
+        "helps produce more relevant results by guiding extraction and summarization."
     ),
     parameters={
         "type": "object",
         "properties": {
             "query": {"type": "string", "description": "The search query or question"},
+            "context": {
+                "type": "string",
+                "description": (
+                    "Additional context to help the search (background, intent, "
+                    "what kind of information is needed). Provide as much relevant "
+                    "context as possible for better results."
+                ),
+                "default": "",
+            },
             "detail_level": {
                 "type": "integer",
                 "description": "Search depth. 1=5 results, 2=8 results, 3+=20 results",
@@ -901,13 +942,19 @@ def handle_jina_search(args: dict, context: ToolContext) -> ToolCallResult:
 
     Instantiates a ``JinaSearchAgent`` from
     ``agents/search_and_information_agents.py`` and collects streamed output.
+    The query and context are pre-formatted as a code block so that
+    ``extract_queries_contexts()`` picks them up directly, bypassing the internal
+    LLM query-generation step.  The agent runs in headless mode (no combiner LLM,
+    raw search results returned).
+
     Keys are taken from ``context.keys``; if empty, ``keyParser`` is used as
     a fallback.
 
     Parameters
     ----------
     args:
-        Parsed arguments containing ``query`` and optionally ``detail_level``.
+        Parsed arguments containing ``query``, optionally ``context`` and
+        ``detail_level``.
     context:
         Tool execution context.
 
@@ -917,6 +964,7 @@ def handle_jina_search(args: dict, context: ToolContext) -> ToolCallResult:
         Search results or an error description.
     """
     query = args.get("query", "")
+    search_context = args.get("context", "") or ""
     detail_level = args.get("detail_level", 1)
     logger.info("jina_search invoked: query=%r, detail_level=%d", query, detail_level)
 
@@ -946,9 +994,20 @@ def handle_jina_search(args: dict, context: ToolContext) -> ToolCallResult:
             headless=True,
         )
 
+        # Pre-format query+context as a code block so the agent's
+        # extract_queries_contexts() picks it up directly, bypassing the
+        # internal LLM query-generation step entirely.
+        # Use repr() to safely escape quotes for ast.literal_eval.
+        agent_input = (
+            f"```python\n"
+            f"[({repr(query)}, {repr(search_context)})]\n"
+            f"```"
+        )
+        logger.info('jina_search: bypassing LLM query gen, agent_input=%s', agent_input[:200])
+
         # Collect streamed output
         result_parts: list[str] = []
-        for chunk in agent(query, stream=True):
+        for chunk in agent(agent_input, stream=True):
             text = chunk.get("text", "") if isinstance(chunk, dict) else str(chunk)
             if text:
                 result_parts.append(text)
@@ -958,7 +1017,7 @@ def handle_jina_search(args: dict, context: ToolContext) -> ToolCallResult:
             result_text = "Jina search returned no results."
 
         return ToolCallResult(
-        tool_id="", tool_name="jina_search",
+            tool_id="", tool_name="jina_search",
             result=_truncate_result(result_text),
         )
 
@@ -967,120 +1026,6 @@ def handle_jina_search(args: dict, context: ToolContext) -> ToolCallResult:
         return ToolCallResult(
             tool_id="", tool_name="jina_search",
             error=f"Jina search failed: {exc}",
-        )
-
-
-@register_tool(
-    name="deep_search",
-    description=(
-        "Multi-hop iterative search with interleaved search-answer cycles. "
-        "Runs N rounds of: plan queries -> search -> write partial answer -> repeat. "
-        "Best for complex questions requiring deep research across multiple sources."
-    ),
-    parameters={
-        "type": "object",
-        "properties": {
-            "query": {"type": "string", "description": "The search query or question"},
-            "detail_level": {
-                "type": "integer",
-                "description": "Search depth passed to sub-agents (1-4)",
-                "default": 2,
-            },
-            "interleave_steps": {
-                "type": "integer",
-                "description": "Number of search-answer cycles (1-5). More steps = deeper but slower",
-                "default": 3,
-            },
-            "sources": {
-                "type": "string",
-                "description": "Comma-separated list of sources: web, perplexity, jina. Default uses all three",
-                "default": "web,perplexity,jina",
-            },
-        },
-        "required": ["query"],
-    },
-    is_interactive=False,
-    category="search",
-)
-def handle_deep_search(args: dict, context: ToolContext) -> ToolCallResult:
-    """Multi-hop iterative deep search.
-
-    Attempts to use ``DeepSearch`` from ``agents/search_and_information_agents.py``.
-    If ``DeepSearch`` is not available, falls back to ``handle_web_search``.
-
-    Parameters
-    ----------
-    args:
-        Parsed arguments containing ``query``, ``detail_level``, ``interleave_steps``,
-        and ``sources``.
-    context:
-        Tool execution context.
-
-    Returns
-    -------
-    ToolCallResult
-        Search results or an error description.
-    """
-    query = args.get("query", "")
-    detail_level = args.get("detail_level", 2)
-    interleave_steps = args.get("interleave_steps", 3)
-    sources = args.get("sources", "web,perplexity,jina")
-    logger.info(
-        "deep_search invoked: query=%r, detail_level=%d, interleave_steps=%d, sources=%r",
-        query, detail_level, interleave_steps, sources,
-    )
-
-    if not query.strip():
-        return ToolCallResult(
-            tool_id="", tool_name="deep_search",
-            error="query is required and must not be empty.",
-        )
-
-    try:
-        # Resolve API keys: prefer context.keys, fall back to env vars
-        keys = context.keys if context.keys else {}
-        if not keys.get("openAIKey"):
-            from endpoints.utils import keyParser
-            keys = keyParser({})
-
-        # Resolve model name
-        from common import CHEAP_LLM
-        model_name = CHEAP_LLM[0]
-
-        # Try importing DeepSearch; fall back to web_search if unavailable
-        try:
-            from agents.search_and_information_agents import DeepSearch
-        except (ImportError, AttributeError):
-            logger.warning("DeepSearch unavailable, falling back to handle_web_search")
-            return handle_web_search({"query": query, "num_results": 5}, context)
-
-        agent = DeepSearch(
-            keys,
-            model_name=model_name,
-            detail_level=detail_level,
-        )
-
-        # Collect streamed output
-        result_parts: list[str] = []
-        for chunk in agent(query, stream=True):
-            text = chunk.get("text", "") if isinstance(chunk, dict) else str(chunk)
-            if text:
-                result_parts.append(text)
-
-        result_text = "".join(result_parts)
-        if not result_text.strip():
-            result_text = "Deep search returned no results."
-
-        return ToolCallResult(
-        tool_id="", tool_name="deep_search",
-            result=_truncate_result(result_text),
-        )
-
-    except Exception as exc:
-        logger.exception("deep_search failed: %s", exc)
-        return ToolCallResult(
-            tool_id="", tool_name="deep_search",
-            error=f"Deep search failed: {exc}",
         )
 
 

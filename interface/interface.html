@@ -2227,12 +2227,12 @@
                                     </div>
                                     <div class="col-md-3">
                                         <div class="form-check mb-2">
-                                            <input class="form-check-input" id="settings-enable_tool_use" type="checkbox">
+                                            <input class="form-check-input" id="settings-enable_tool_use" type="checkbox" checked>
                                             <label class="form-check-label" for="settings-enable_tool_use">Enable Tools</label>
                                         </div>
                                     </div>
                                 </div>
-                                <div id="tool-use-options" class="mt-2" style="display: none;">
+                                <div id="tool-use-options" class="mt-2">
                                     <label class="small text-muted mb-1 d-block">Select which tools the LLM can use:</label>
                                     <div style="border: 1px solid #ccc; padding: 8px; border-radius: 12px;">
                                         <select class="form-control" id="settings-tool-selector" multiple data-live-search="true" data-actions-box="true" data-selected-text-format="count > 3" data-count-selected-text="{0} tools selected" title="Select tools...">
@@ -2243,7 +2243,6 @@
                                                 <option value="web_search" selected>Web Search</option>
                                                 <option value="perplexity_search" selected>Perplexity Search</option>
                                                 <option value="jina_search" selected>Jina Search</option>
-                                                <option value="deep_search" selected>Deep Search</option>
                                                 <option value="jina_read_page" selected>Jina Read Page</option>
                                                 <option value="read_link" selected>Read Link</option>
                                             </optgroup>

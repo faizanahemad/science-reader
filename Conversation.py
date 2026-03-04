@@ -6593,7 +6593,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     tc_args = {}
 
                 # Force detail_level=1 for tools that support it (keep responses concise)
-                if tc_name in ('perplexity_search', 'jina_search', 'deep_search') and 'detail_level' not in tc_args:
+                if tc_name in ('perplexity_search', 'jina_search') and 'detail_level' not in tc_args:
                     tc_args['detail_level'] = 1
                 if tc_name == 'read_link' and 'detailed' not in tc_args:
                     tc_args['detailed'] = False
