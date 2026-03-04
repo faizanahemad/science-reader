@@ -137,13 +137,43 @@ class ScreenManager:
         return result.returncode == 0
 
     def send_command(self, screen_name: str, command: str) -> bool:
-        """Type *command* followed by Enter into the screen session."""
-        result = subprocess.run(
-            ["screen", "-S", screen_name, "-X", "stuff", f"{command}\n"],
-            capture_output=True,
-            text=True,
-        )
-        return result.returncode == 0
+        """Type *command* into the screen session.
+
+        For long commands (>700 chars), writes the command to a temp
+        script and sends ``bash /tmp/restart_cmd_<screen>.sh`` instead,
+        avoiding screen's ``stuff`` character limit (~768 bytes).
+        """
+        _STUFF_LIMIT = 700  # conservative; screen limit is ~768
+
+        if len(command) <= _STUFF_LIMIT:
+            result = subprocess.run(
+                ["screen", "-S", screen_name, "-X", "stuff", f"{command}\n"],
+                capture_output=True,
+                text=True,
+            )
+            return result.returncode == 0
+
+        # Long command — write to a temp script and execute that instead.
+        script_path = f"/tmp/restart_cmd_{screen_name}.sh"
+        try:
+            with open(script_path, "w") as fh:
+                fh.write("#!/usr/bin/env bash\n")
+                fh.write(command + "\n")
+            os.chmod(script_path, 0o700)
+            logger.info(
+                "Command is %d chars (>%d), wrote to %s",
+                len(command), _STUFF_LIMIT, script_path,
+            )
+            short_cmd = f"bash {script_path}"
+            result = subprocess.run(
+                ["screen", "-S", screen_name, "-X", "stuff", f"{short_cmd}\n"],
+                capture_output=True,
+                text=True,
+            )
+            return result.returncode == 0
+        except Exception as exc:
+            logger.error("Failed to write command script %s: %s", script_path, exc)
+            return False
 
     def get_scrollback(self, screen_name: str, lines: int = 5000) -> Optional[str]:
         """Dump the screen scrollback buffer and return its text.
@@ -286,17 +316,84 @@ class ScreenManager:
     def _parse_command_from_scrollback(
         scrollback: str, patterns: List[str]
     ) -> Optional[str]:
-        """Search scrollback (most-recent-first) for a line matching *patterns*."""
+        """Search scrollback (most-recent-first) for a line matching *patterns*.
+
+        Terminal scrollback wraps long commands across multiple visual lines.
+        When a match is found (e.g. ``python server.py``), we walk backwards
+        to collect preceding lines that are part of the same command —
+        typically ``KEY=VALUE`` env-var prefixes or line continuations.
+
+        Heuristic for wrapped command lines (walk backwards while):
+        - Line contains ``=`` (env var assignment like ``FOO=bar``)
+        - Line ends with ``\\`` (explicit line continuation)
+        - Line is non-empty and has no shell prompt (``$``, ``#``, ``%``)
+        """
         lines = scrollback.strip().split("\n")
-        for line in reversed(lines):
-            line = line.strip()
+        # Use raw (non-stripped) lines for index tracking, strip for matching
+        stripped = [l.strip() for l in lines]
+
+        # Search from the end (most recent) backwards
+        for i in range(len(stripped) - 1, -1, -1):
+            line = stripped[i]
             if not line:
                 continue
             for pattern in patterns:
-                if re.search(pattern, line):
-                    # Strip common shell prompts
-                    cleaned = re.sub(r"^[\w@:\-~/.\\]+[#$%>]\s*", "", line)
-                    return cleaned if cleaned else line
+                if not re.search(pattern, line):
+                    continue
+
+                # Found the command line. Strip shell prompt from it.
+                cleaned = re.sub(r"^[\w@:\-~/.\\]+[#$%>]\s*", "", line)
+                command_parts = [cleaned if cleaned else line]
+
+                # Walk backwards to collect wrapped/continuation lines
+                j = i - 1
+                while j >= 0:
+                    prev = stripped[j]
+                    if not prev:
+                        break  # empty line = different command
+
+                    # Stop if line looks like a shell prompt output
+                    # (e.g. "user@host:~$" or command output)
+                    has_prompt = re.match(
+                        r"^[\w@:\-~/.\\]+[#$%>]\s", prev
+                    )
+                    if has_prompt:
+                        # The prompt line itself might start with env vars
+                        after_prompt = re.sub(
+                            r"^[\w@:\-~/.\\]+[#$%>]\s*", "", prev
+                        )
+                        if after_prompt and "=" in after_prompt.split()[0]:
+                            command_parts.insert(0, after_prompt)
+                        break
+
+                    # Continuation heuristics:
+                    # - contains KEY=VALUE (env var prefix)
+                    # - ends with \\ (explicit continuation)
+                    # - looks like a token continuation of the command
+                    first_token = prev.split()[0] if prev.split() else ""
+                    is_env_var = "=" in first_token
+                    is_continuation = prev.endswith("\\")
+                    # Also accept lines that are purely word chars / paths
+                    # (part of a wrapped command, no output-like patterns)
+                    is_word_fragment = bool(
+                        re.match(r"^[\w=\-./\"\':;,{}\[\]@+]+", prev)
+                    )
+
+                    if is_env_var or is_continuation or is_word_fragment:
+                        # Strip trailing backslash from continuation
+                        part = prev.rstrip("\\" ).rstrip()
+                        command_parts.insert(0, part)
+                        j -= 1
+                    else:
+                        break
+
+                # Join all parts into a single command string.
+                # Parts are visual line fragments, so join with space.
+                full_command = " ".join(command_parts)
+                # Clean up any double spaces from joining
+                full_command = re.sub(r"\s{2,}", " ", full_command).strip()
+                return full_command
+
         return None
 
     # -- /tmp script discovery --

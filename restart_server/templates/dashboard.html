@@ -215,6 +215,11 @@
                                 onclick="restartService('${svc}')">
                             Restart
                         </button>
+                        <button class="btn btn-success btn-sm" id="btn-recover-${svc}"
+                                onclick="recoverService('${svc}')"
+                                title="LLM agent that diagnoses and fixes issues by running commands">
+                            Recover
+                        </button>
                         <button class="btn btn-outline-secondary btn-sm" onclick="viewLogs('${svc}')">
                             View Logs
                         </button>
@@ -310,22 +315,37 @@
             const res = await fetch(`/api/restart/${svc}`, { method: "POST" });
             const data = await res.json();
 
-            // Render logs
+            // Render restart logs
             if (data.logs && data.logs.length) {
                 logEl.innerHTML = data.logs.map(l =>
                     `<span class="log-entry log-info">▸ ${escHtml(l)}</span>`
                 ).join("\n");
             }
 
+            // If recovery agent ran, show its actions
+            if (data.recovery_ran && data.recovery_actions) {
+                logEl.innerHTML += '\n<span class="log-info">─── LLM Recovery Agent ───</span>';
+                logEl.innerHTML += data.recovery_actions.map(a =>
+                    `\n<span class="log-entry" style="color:#a5d6ff;">▸ ${escHtml(a)}</span>`
+                ).join("");
+            }
+
             if (data.success) {
-                logEl.innerHTML += `\n<span class="log-success">✓ ${escHtml(data.message)}</span>`;
-                showToast(data.message, "success");
+                const msg = data.recovery_ran
+                    ? `Recovered: ${data.recovery_summary || data.message}`
+                    : data.message;
+                logEl.innerHTML += `\n<span class="log-success">✓ ${escHtml(msg)}</span>`;
+                showToast(msg, "success");
             } else {
                 logEl.innerHTML += `\n<span class="log-error">✗ ${escHtml(data.message)}</span>`;
                 showToast(data.message, "danger");
 
-                // Show diagnosis if available
-                if (data.diagnosis) {
+                // Show diagnosis or recovery summary
+                if (data.recovery_summary) {
+                    diagEl.style.display = "block";
+                    diagEl.innerHTML = `<strong class="text-warning">Recovery Agent:</strong><br>` +
+                        escHtml(data.recovery_summary).replace(/\n/g, "<br>");
+                } else if (data.diagnosis) {
                     diagEl.style.display = "block";
                     diagEl.innerHTML = `<strong class="text-info">LLM Diagnosis:</strong><br>` +
                         escHtml(data.diagnosis).replace(/\n/g, "<br>");
@@ -337,6 +357,51 @@
         } finally {
             btn.disabled = false;
             btn.innerHTML = "Restart";
+            refreshAll();
+        }
+    }
+
+    // ======================================================================
+    // Standalone Recovery
+    // ======================================================================
+    async function recoverService(svc) {
+        const btn = document.getElementById(`btn-recover-${svc}`);
+        const logEl = document.getElementById(`log-${svc}`);
+        const diagEl = document.getElementById(`diagnosis-${svc}`);
+
+        btn.disabled = true;
+        btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Recovering…`;
+        logEl.style.display = "block";
+        logEl.innerHTML = '<span class="log-info">LLM recovery agent starting… (this may take a minute)</span>\n';
+        diagEl.style.display = "none";
+
+        try {
+            const res = await fetch(`/api/recover/${svc}`, { method: "POST" });
+            const data = await res.json();
+
+            // Render agent actions
+            if (data.actions && data.actions.length) {
+                logEl.innerHTML = data.actions.map(a =>
+                    `<span class="log-entry" style="color:#a5d6ff;">▸ ${escHtml(a)}</span>`
+                ).join("\n");
+            }
+
+            if (data.success) {
+                logEl.innerHTML += `\n<span class="log-success">✓ ${escHtml(data.summary)}</span>`;
+                showToast(`Recovered: ${data.summary}`, "success");
+            } else {
+                logEl.innerHTML += `\n<span class="log-error">✗ ${escHtml(data.summary)}</span>`;
+                showToast("Recovery failed", "danger");
+                diagEl.style.display = "block";
+                diagEl.innerHTML = `<strong class="text-warning">Recovery Result:</strong><br>` +
+                    escHtml(data.summary).replace(/\n/g, "<br>");
+            }
+        } catch (err) {
+            logEl.innerHTML += `\n<span class="log-error">Network error: ${escHtml(err.message)}</span>`;
+            showToast("Recovery request failed", "danger");
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = "Recover";
             refreshAll();
         }
     }

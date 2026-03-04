@@ -10,7 +10,8 @@ Routes
 GET  /                          Dashboard (requires login)
 GET  /api/status                JSON status of all services
 GET  /api/status/<svc>          JSON status of one service
-POST /api/restart/<svc>         Trigger a restart
+POST /api/restart/<svc>         Trigger a restart (with auto-recovery on failure)
+POST /api/recover/<svc>         Standalone LLM recovery agent
 GET  /api/logs/<svc>            Recent screen output
 GET  /api/discover_command/<svc>  Show discovered startup command
 POST /api/set_command/<svc>     Manually set startup command
@@ -26,7 +27,7 @@ from datetime import timedelta
 from flask import Flask, jsonify, render_template, request
 
 from restart_server.auth import auth_bp, login_required
-from restart_server.llm_helper import diagnose_restart_failure
+from restart_server.llm_helper import diagnose_restart_failure, recover_service
 from restart_server.screen_manager import SERVICES, ScreenManager
 
 logger = logging.getLogger(__name__)
@@ -105,7 +106,12 @@ def create_app() -> Flask:
     @app.route("/api/restart/<service_name>", methods=["POST"])
     @login_required
     def api_restart(service_name: str):
-        """Restart a service.  Optionally accepts ``{"command": "..."}`` body."""
+        """Restart a service.  Optionally accepts ``{"command": "..."}`` body.
+
+        If the basic restart fails and ``OPENROUTER_API_KEY`` is set, the
+        LLM recovery agent automatically takes over — executing commands,
+        reading logs, and retrying until the service is up or it gives up.
+        """
         if service_name not in SERVICES:
             return jsonify({"error": f"Unknown service: {service_name}"}), 404
 
@@ -129,8 +135,35 @@ def create_app() -> Flask:
                 "logs": logs,
             }
 
-            # On failure, automatically run LLM diagnosis
-            if not success:
+            # On failure, run the LLM recovery agent (not just diagnosis)
+            if not success and os.getenv("OPENROUTER_API_KEY"):
+                cfg = SERVICES[service_name]
+                screen_output = screen_mgr.get_recent_output(service_name)
+                cached_cmd = screen_mgr.get_cached_command(service_name)
+
+                logs.append("Basic restart failed — handing off to LLM recovery agent…")
+                rec_ok, rec_summary, rec_actions = recover_service(
+                    service_name=service_name,
+                    display_name=cfg["display_name"],
+                    screen_name=cfg["screen_name"],
+                    port=cfg["port"],
+                    restart_logs=logs,
+                    screen_output=screen_output,
+                    cached_command=cached_cmd,
+                )
+
+                result["recovery_ran"] = True
+                result["recovery_success"] = rec_ok
+                result["recovery_summary"] = rec_summary
+                result["recovery_actions"] = rec_actions
+
+                if rec_ok:
+                    result["success"] = True
+                    result["message"] = f"Recovered by LLM agent: {rec_summary}"
+                    success = True
+
+            elif not success:
+                # No API key — fall back to read-only diagnosis
                 screen_output = screen_mgr.get_recent_output(service_name)
                 diagnosis = diagnose_restart_failure(
                     service_name=service_name,
@@ -146,6 +179,51 @@ def create_app() -> Flask:
         finally:
             _restart_in_progress[service_name] = False
 
+    @app.route("/api/recover/<service_name>", methods=["POST"])
+    @login_required
+    def api_recover(service_name: str):
+        """Standalone LLM recovery agent endpoint.
+
+        Runs the recovery agent independently of the restart flow.
+        Useful when the service is in a broken state and you want the
+        LLM to diagnose and fix it from scratch.
+        """
+        if service_name not in SERVICES:
+            return jsonify({"error": f"Unknown service: {service_name}"}), 404
+
+        if _restart_in_progress.get(service_name):
+            return jsonify(
+                {"error": "A restart/recovery is already in progress"}
+            ), 409
+
+        cfg = SERVICES[service_name]
+        _restart_in_progress[service_name] = True
+        try:
+            screen_output = screen_mgr.get_recent_output(service_name)
+            cached_cmd = screen_mgr.get_cached_command(service_name)
+
+            data = request.get_json(silent=True) or {}
+            extra_context = data.get("context", "")
+            context_logs = [extra_context] if extra_context else []
+
+            rec_ok, rec_summary, rec_actions = recover_service(
+                service_name=service_name,
+                display_name=cfg["display_name"],
+                screen_name=cfg["screen_name"],
+                port=cfg["port"],
+                restart_logs=context_logs,
+                screen_output=screen_output,
+                cached_command=cached_cmd,
+            )
+
+            return jsonify({
+                "success": rec_ok,
+                "summary": rec_summary,
+                "actions": rec_actions,
+            }), 200 if rec_ok else 500
+
+        finally:
+            _restart_in_progress[service_name] = False
     @app.route("/api/logs/<service_name>")
     @login_required
     def api_logs(service_name: str):
