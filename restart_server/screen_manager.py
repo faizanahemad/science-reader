@@ -34,6 +34,7 @@ SERVICES: Dict[str, dict] = {
         "screen_name": "opencode_server",
         "display_name": "OpenCode Web",
         "description": "opencode web UI (port 3000)",
+        "url": "https://opencode.assist-chat.site",
         "port": 3000,
         "command_patterns": [r"opencode\s+web"],
     },
@@ -48,13 +49,19 @@ SERVICES: Dict[str, dict] = {
         "screen_name": "science-reader",
         "display_name": "Main Python Server",
         "description": "Flask server.py (port 5000)",
+        "url": "https://assist-chat.site",
         "port": 5000,
         "command_patterns": [r"python\s+server\.py"],
+        "supports_git_pull": True,
     },
 }
 
 CACHE_FILE = os.path.join(
     os.path.dirname(os.path.abspath(__file__)), "command_cache.json"
+)
+
+WORKDIR_CONFIG_FILE = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "workdir_config.json"
 )
 
 
@@ -70,6 +77,7 @@ class ScreenManager:
 
     def __init__(self) -> None:
         self._command_cache: dict = self._load_cache()
+        self._workdir_config: dict = self._load_workdir_config()
 
     # ------------------------------------------------------------------
     # Command cache
@@ -106,6 +114,58 @@ class ScreenManager:
         """Remove a cached command."""
         self._command_cache.pop(service_name, None)
         self._save_cache()
+
+    # ------------------------------------------------------------------
+    # Working directory config
+    # ------------------------------------------------------------------
+
+    def _load_workdir_config(self) -> dict:
+        """Load working directory configuration from disk."""
+        if os.path.exists(WORKDIR_CONFIG_FILE):
+            try:
+                with open(WORKDIR_CONFIG_FILE, "r") as fh:
+                    return json.load(fh)
+            except Exception:
+                logger.warning("Corrupt workdir config, starting fresh")
+        return {}
+
+    def _save_workdir_config(self) -> None:
+        """Persist working directory configuration to disk."""
+        try:
+            with open(WORKDIR_CONFIG_FILE, "w") as fh:
+                json.dump(self._workdir_config, fh, indent=2)
+        except Exception as exc:
+            logger.error("Failed to save workdir config: %s", exc)
+
+    def get_workdir(self, service_name: str) -> Optional[str]:
+        """Return the configured working directory, or *None*."""
+        return self._workdir_config.get(service_name)
+
+    def set_workdir(self, service_name: str, workdir: Optional[str]) -> None:
+        """Set (or clear) the working directory for a service."""
+        if workdir:
+            self._workdir_config[service_name] = workdir
+        else:
+            self._workdir_config.pop(service_name, None)
+        self._save_workdir_config()
+
+    def get_all_workdirs(self) -> Dict[str, Optional[str]]:
+        """Return workdir config for all services."""
+        return {name: self._workdir_config.get(name) for name in SERVICES}
+
+    def _ensure_workdir(
+        self, screen_name: str, service_name: str, logs: List[str]
+    ) -> None:
+        """``cd`` into the configured working directory inside the screen.
+
+        If no workdir is configured for the service, this is a no-op.
+        """
+        workdir = self.get_workdir(service_name)
+        if not workdir:
+            return
+        logs.append(f"Setting workdir: cd '{workdir}'")
+        self.send_command(screen_name, f"cd '{workdir}'")
+        time.sleep(0.5)
 
     # ------------------------------------------------------------------
     # Screen primitives
@@ -251,10 +311,13 @@ class ScreenManager:
             "description": config["description"],
             "screen_name": config["screen_name"],
             "port": config["port"],
+            "url": config.get("url"),
+            "supports_git_pull": config.get("supports_git_pull", False),
             "screen_exists": screen_active,
             "running": port_open,
             "has_cached_command": cached_cmd is not None,
             "status": status,
+            "workdir": self.get_workdir(service_name),
         }
 
     def get_all_statuses(self) -> Dict[str, dict]:
@@ -452,10 +515,90 @@ class ScreenManager:
     # Restart orchestration
     # ------------------------------------------------------------------
 
+    def _git_pull_in_screen(
+        self, screen_name: str, logs: List[str]
+    ) -> Tuple[bool, str]:
+        """Run ``git pull`` inside a screen session and wait for it to complete.
+
+        The pull runs in whatever directory the screen shell is currently in,
+        which is the same cwd the service was started from.
+
+        We detect completion by writing a sentinel file after ``git pull``
+        finishes, then polling for that file.
+
+        Returns (success, message).
+        """
+        sentinel = f"/tmp/.git_pull_done_{screen_name}"
+
+        # Clean up any stale sentinel
+        try:
+            os.unlink(sentinel)
+        except FileNotFoundError:
+            pass
+
+        logs.append("Running git pull…")
+
+        # Send: git pull && echo OK > sentinel || echo FAIL > sentinel
+        pull_cmd = (
+            f"git pull && echo OK > {sentinel} || echo FAIL > {sentinel}"
+        )
+        self.send_command(screen_name, pull_cmd)
+
+        # Poll for the sentinel file (git pull can take a while on large repos)
+        max_wait = 60
+        waited = 0
+        while waited < max_wait:
+            time.sleep(2)
+            waited += 2
+            if os.path.exists(sentinel):
+                break
+            if waited % 10 == 0:
+                logs.append(f"Waiting for git pull… ({waited}s)")
+
+        if not os.path.exists(sentinel):
+            logs.append("git pull timed out")
+            return False, f"git pull did not complete within {max_wait}s"
+
+        # Read result
+        try:
+            with open(sentinel, "r") as fh:
+                result = fh.read().strip()
+            os.unlink(sentinel)
+        except Exception:
+            result = "UNKNOWN"
+
+        if result == "OK":
+            # Capture the git pull output from scrollback
+            time.sleep(0.5)
+            scrollback = self.get_scrollback(screen_name, lines=30)
+            if scrollback:
+                # Show last few meaningful lines
+                recent = [
+                    ln.strip() for ln in scrollback.strip().split("\n")
+                    if ln.strip()
+                ][-10:]
+                for ln in recent:
+                    logs.append(f"  git: {ln}")
+            logs.append("git pull succeeded")
+            return True, "git pull OK"
+
+        logs.append(f"git pull failed (result: {result})")
+        # Show scrollback for error context
+        scrollback = self.get_scrollback(screen_name, lines=30)
+        if scrollback:
+            recent = [
+                ln.strip() for ln in scrollback.strip().split("\n")
+                if ln.strip()
+            ][-10:]
+            for ln in recent:
+                logs.append(f"  git: {ln}")
+        return False, "git pull failed — check logs above"
+
     def restart_service(
         self,
         service_name: str,
         command_override: Optional[str] = None,
+        git_pull: bool = False,
     ) -> Tuple[bool, str, List[str]]:
         """Restart a service inside its screen session.
 
@@ -466,6 +609,10 @@ class ScreenManager:
         command_override:
             If given, use this command instead of discovering one.
             The override is also cached for future restarts.
+        git_pull:
+            If *True*, run ``git pull`` inside the screen session before
+            restarting.  Only allowed for services with
+            ``supports_git_pull=True`` in their config.
 
         Returns
         -------
@@ -540,6 +687,17 @@ class ScreenManager:
             logs.append("Process stopped")
         else:
             logs.append(f"No process running on port {port}")
+
+        # 4a. Ensure correct working directory
+        self._ensure_workdir(screen_name, service_name, logs)
+        # 4b. Git pull (after process is stopped, before restart)
+        if git_pull:
+            if not config.get("supports_git_pull"):
+                logs.append(f"Git pull not supported for {config['display_name']} — skipping")
+            else:
+                pull_ok, pull_msg = self._git_pull_in_screen(screen_name, logs)
+                if not pull_ok:
+                    return False, pull_msg, logs
 
         # Small settling pause
         time.sleep(2)

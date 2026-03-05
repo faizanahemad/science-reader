@@ -7,12 +7,16 @@ This module extracts the conversation document management API surface from
 
 from __future__ import annotations
 
+import json
 import logging
 import os
+import threading
+import time
 import traceback
+import uuid
 from typing import List
 
-from flask import Blueprint, jsonify, redirect, request, send_from_directory, session
+from flask import Blueprint, Response, jsonify, redirect, request, send_from_directory, session, stream_with_context
 
 from endpoints.auth import login_required
 from endpoints.request_context import attach_keys, get_state_and_keys
@@ -22,6 +26,16 @@ from extensions import limiter
 
 documents_bp = Blueprint("documents", __name__)
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# In-memory task tracker for background doc upgrades.  Keyed by task_id.
+# Each value is a dict: {status, phase, message, conversation_id, doc_id, ...}
+# Entries are cleaned up 120s after completion.
+# ---------------------------------------------------------------------------
+_UPGRADE_TASKS: dict = {}
+
+
 
 
 @documents_bp.route("/upload_doc_to_conversation/<conversation_id>", methods=["POST"])
@@ -232,16 +246,13 @@ def download_doc_from_conversation_route(conversation_id: str, doc_id: str):
 @limiter.limit("10 per minute")
 @login_required
 def upgrade_doc_index_route(conversation_id: str, doc_id: str):
-    """Upgrade a FastDocIndex to a full DocIndex (with FAISS embeddings + LLM summaries).
+    """Start a background upgrade of a FastDocIndex to a full DocIndex.
 
-    Used by the "Analyze" button in the local docs panel.  The upgrade happens
-    in-place in the canonical store so all conversations referencing the same
-    doc automatically get the upgraded index on next load.
-
-    Returns 200 {"status": "ok", "is_fast_index": false} on success.
+    Returns 202 with a ``task_id``.  Connect to
+    ``GET /upgrade_doc_index_progress/<task_id>`` for SSE progress events.
     """
     state, keys = get_state_and_keys()
-    conversation = attach_keys(state.conversation_cache[conversation_id], keys)
+    conversation = attach_keys(state.conversation_cache.get(conversation_id), keys)
     if conversation is None:
         return json_error("Conversation not found", status=404, code="not_found")
 
@@ -257,32 +268,122 @@ def upgrade_doc_index_route(conversation_id: str, doc_id: str):
     if not getattr(doc_index, "_is_fast_index", False):
         return jsonify({"status": "ok", "is_fast_index": False, "message": "Already a full index"})
 
+    task_id = str(uuid.uuid4())
+    _UPGRADE_TASKS[task_id] = {
+        "status": "running",
+        "phase": "queued",
+        "message": "Starting upgrade…",
+        "conversation_id": conversation_id,
+        "doc_id": doc_id,
+        "started_at": time.time(),
+    }
+
+    # Capture what we need; run the heavy work outside the request.
+    doc_source = doc_index.doc_source
+    parent_dir = os.path.dirname(doc_index._storage)
+    visible = doc_index.visible
+    display_name = getattr(doc_index, "_display_name", None)
+
+    t = threading.Thread(
+        target=_run_upgrade_background,
+        args=(task_id, conversation_id, doc_id, doc_source, parent_dir,
+              keys, visible, display_name, state),
+        daemon=True,
+    )
+    t.start()
+    return jsonify({"status": "started", "task_id": task_id}), 202
+
+
+def _run_upgrade_background(
+    task_id: str,
+    conversation_id: str,
+    doc_id: str,
+    doc_source: str,
+    parent_dir: str,
+    keys: dict,
+    visible: bool,
+    display_name,
+    state,
+):
+    """Background thread that builds the full DocIndex and updates progress."""
+    task = _UPGRADE_TASKS[task_id]
+
+    def _progress(phase: str, message: str):
+        task["phase"] = phase
+        task["message"] = message
+
     try:
         from DocIndex import create_immediate_document_index
 
-        storage = doc_index._storage
-        # Build full index in the same parent directory (canonical parent)
-        parent_dir = os.path.dirname(storage)
-        full_doc_index = create_immediate_document_index(doc_index.doc_source, parent_dir, keys)
-        full_doc_index._visible = doc_index.visible
-        full_doc_index._display_name = getattr(doc_index, "_display_name", None)
+        full_doc_index = create_immediate_document_index(
+            doc_source, parent_dir, keys, progress_callback=_progress
+        )
+        full_doc_index._visible = visible
+        full_doc_index._display_name = display_name
         full_doc_index.save_local()
 
-        # Update the tuple in uploaded_documents_list to point to the new storage
-        doc_list = conversation.get_field("uploaded_documents_list") or []
-        updated = []
-        for entry in doc_list:
-            if entry[0] == doc_id:
-                entry = (full_doc_index.doc_id, full_doc_index._storage) + entry[2:]
-            updated.append(entry)
-        conversation.set_field("uploaded_documents_list", updated, overwrite=True)
-        conversation.save_local()
+        _progress("saving", "Updating conversation…")
 
-        return jsonify({"status": "ok", "is_fast_index": False})
-    except Exception as e:
+        # Re-load conversation to update its document list.
+        conversation = state.conversation_cache.get(conversation_id)
+        if conversation is not None:
+            from endpoints.request_context import attach_keys as _ak
+            conversation = _ak(conversation, keys)
+            doc_list = conversation.get_field("uploaded_documents_list") or []
+            updated = []
+            for entry in doc_list:
+                if entry[0] == doc_id:
+                    entry = (full_doc_index.doc_id, full_doc_index._storage) + entry[2:]
+                updated.append(entry)
+            conversation.set_field("uploaded_documents_list", updated, overwrite=True)
+            conversation.save_local()
+
+        task.update({
+            "status": "completed",
+            "phase": "done",
+            "message": "Full index built successfully.",
+            "is_fast_index": False,
+        })
+    except Exception as exc:
         traceback.print_exc()
-        return json_error(str(e), status=500, code="upgrade_failed")
+        task.update({
+            "status": "error",
+            "phase": "error",
+            "message": str(exc),
+        })
+    finally:
+        # Auto-cleanup after 120 s so the dict doesn't grow unboundedly.
+        def _cleanup():
+            time.sleep(120)
+            _UPGRADE_TASKS.pop(task_id, None)
+        threading.Thread(target=_cleanup, daemon=True).start()
 
+
+@documents_bp.route("/upgrade_doc_index_progress/<task_id>")
+@login_required
+def upgrade_doc_index_progress(task_id: str):
+    """SSE stream of upgrade progress for *task_id*."""
+
+    def generate():
+        last_phase = None
+        while True:
+            task = _UPGRADE_TASKS.get(task_id)
+            if task is None:
+                yield f"data: {json.dumps({'status': 'error', 'phase': 'not_found', 'message': 'Task not found or expired'})}\n\n"
+                break
+            # Emit only on phase change (or first iteration)
+            if task["phase"] != last_phase:
+                last_phase = task["phase"]
+                yield f"data: {json.dumps(task)}\n\n"
+            if task["status"] in ("completed", "error"):
+                break
+            time.sleep(0.5)
+
+    return Response(
+        stream_with_context(generate()),
+        mimetype="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 @documents_bp.route("/cleanup_orphan_docs", methods=["POST"])
 @limiter.limit("5 per minute")
@@ -381,12 +482,20 @@ def docs_autocomplete():
             doc_list = conversation.get_field("uploaded_documents_list") or []
             for idx, entry in enumerate(doc_list):
                 doc_id = entry[0]
+                doc_storage = entry[1]
                 display_name = entry[3] if len(entry) > 3 and entry[3] else ""
-                # Use display_name if available; fall back to doc_id.
-                # Avoid loading DocIndex here — too expensive for autocomplete.
+                # Load lightweight info from stored DocIndex (cheap pickle load).
                 title = display_name or doc_id
                 short_summary = ""
+                try:
+                    from DocIndex import DocIndex as _DI
+                    loaded = _DI.load_local(doc_storage)
+                    if loaded is not None:
+                        title = display_name or getattr(loaded, '_title', '') or doc_id
+                        short_summary = getattr(loaded, '_short_summary', '') or ''
 
+                except Exception:
+                    pass  # fall back to display_name / empty summary
                 # Filter by prefix
                 match_text = (title + " " + display_name + " " + doc_id).lower()
                 if prefix and prefix not in match_text:

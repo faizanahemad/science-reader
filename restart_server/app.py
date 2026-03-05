@@ -122,11 +122,14 @@ def create_app() -> Flask:
 
         data = request.get_json(silent=True) or {}
         command_override = data.get("command")
+        do_git_pull = data.get("git_pull", False)
 
         _restart_in_progress[service_name] = True
         try:
             success, message, logs = screen_mgr.restart_service(
-                service_name, command_override=command_override
+                service_name,
+                command_override=command_override,
+                git_pull=do_git_pull,
             )
 
             result: dict = {
@@ -293,5 +296,35 @@ def create_app() -> Flask:
             screen_output=screen_output,
         )
         return jsonify({"service_name": service_name, "diagnosis": diagnosis})
+
+
+    # ------------------------------------------------------------------
+    # Working directory configuration
+    # ------------------------------------------------------------------
+
+    @app.route("/api/config/workdir")
+    @login_required
+    def api_get_workdirs():
+        """Return configured working directories for all services."""
+        return jsonify(screen_mgr.get_all_workdirs())
+
+    @app.route("/api/config/workdir/<service_name>", methods=["POST"])
+    @login_required
+    def api_set_workdir(service_name: str):
+        """Set or clear the working directory for a service."""
+        if service_name not in SERVICES:
+            return jsonify({"error": f"Unknown service: {service_name}"}), 404
+
+        data = request.get_json(silent=True) or {}
+        workdir = (data.get("workdir") or "").strip()
+
+        screen_mgr.set_workdir(service_name, workdir if workdir else None)
+
+        action = "cleared" if not workdir else "set"
+        return jsonify({
+            "success": True,
+            "message": f"Working directory {action} for {service_name}",
+            "workdir": workdir or None,
+        })
 
     return app

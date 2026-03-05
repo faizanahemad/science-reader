@@ -308,11 +308,55 @@ var LocalDocsManager = {
      * @param {string} docId
      * @returns {jQuery.Deferred} resolves with {status, is_fast_index}
      */
+    /**
+     * POST upgrade_doc_index — starts a background upgrade.  Returns a
+     * Deferred that resolves with {status, task_id}.
+     * @param {string} conversationId
+     * @param {string} docId
+     * @returns {jQuery.Deferred}
+     */
     analyzeDoc: function (conversationId, docId) {
         return $.ajax({
             url: '/upgrade_doc_index/' + conversationId + '/' + docId,
             type: 'POST'
         });
+    },
+
+    /**
+     * Connect to the SSE progress stream for a running upgrade task and
+     * update the button with phase messages.  On completion the list is
+     * refreshed; on error the button resets.
+     *
+     * @param {string}  taskId       — from analyzeDoc response
+     * @param {string}  conversationId
+     * @param {jQuery}  $btn         — the analyze button element
+     */
+    _listenUpgradeProgress: function (taskId, conversationId, $btn) {
+        var es = new EventSource('/upgrade_doc_index_progress/' + taskId);
+        es.onmessage = function (event) {
+            var data;
+            try { data = JSON.parse(event.data); } catch (e) { return; }
+
+            // Update button text with current phase
+            var phaseText = data.message || 'Processing…';
+            $btn.html('<i class="fa fa-spinner fa-spin mr-1"></i><span class="small">' + phaseText + '</span>');
+
+            if (data.status === 'completed') {
+                es.close();
+                LocalDocsManager.refresh(conversationId);
+                if (typeof showToast === 'function') showToast('Document analysis complete. Full index built.', 'success');
+            } else if (data.status === 'error') {
+                es.close();
+                $btn.prop('disabled', false).html('<i class="fa fa-flask"></i>');
+                var msg = data.message || 'Error analyzing document.';
+                if (typeof showToast === 'function') showToast(msg, 'danger');
+            }
+        };
+        es.onerror = function () {
+            es.close();
+            $btn.prop('disabled', false).html('<i class="fa fa-flask"></i>');
+            if (typeof showToast === 'function') showToast('Connection lost during analysis.', 'danger');
+        };
     },
 
     /**
@@ -442,16 +486,21 @@ var LocalDocsManager = {
                 (function (docRef) {
                     $analyzeBtn.click(function () {
                         var $btn = $(this);
-                        $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i>');
+                        $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin mr-1"></i><span class="small">Starting…</span>');
                         LocalDocsManager.analyzeDoc(conversationId, docRef.doc_id)
-                            .done(function () {
-                                LocalDocsManager.refresh(conversationId);
-                                if (typeof showToast === 'function') showToast('Document analysis complete. Full index built.', 'success');
+                            .done(function (resp) {
+                                if (resp && resp.task_id) {
+                                    LocalDocsManager._listenUpgradeProgress(resp.task_id, conversationId, $btn);
+                                } else {
+                                    // Already upgraded or immediate response
+                                    LocalDocsManager.refresh(conversationId);
+                                    if (typeof showToast === 'function') showToast('Document analysis complete.', 'success');
+                                }
                             })
                             .fail(function (xhr) {
                                 $btn.prop('disabled', false).html('<i class="fa fa-flask"></i>');
-                                var msg = (xhr.responseJSON && xhr.responseJSON.error) ? xhr.responseJSON.error : 'Error analyzing document.';
-                                alert(msg);
+                                var msg = (xhr.responseJSON && xhr.responseJSON.error) ? xhr.responseJSON.error : 'Error starting analysis.';
+                                if (typeof showToast === 'function') showToast(msg, 'danger');
                             });
                     });
                 }(doc));

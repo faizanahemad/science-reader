@@ -116,6 +116,33 @@
         </div>
     </div>
 
+    <!-- Configuration: Working Directories (separate from service cards) -->
+    <div class="container-fluid py-2 px-4">
+        <div class="service-card">
+            <div class="d-flex justify-content-between align-items-center px-4 py-3"
+                 style="cursor:pointer; border-bottom:1px solid #2d3238;"
+                 data-bs-toggle="collapse" data-bs-target="#configBody" aria-expanded="false">
+                <h6 class="mb-0 text-light">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" class="bi bi-gear me-2" viewBox="0 0 16 16">
+                        <path d="M8 4.754a3.246 3.246 0 1 0 0 6.492 3.246 3.246 0 0 0 0-6.492M5.754 8a2.246 2.246 0 1 1 4.492 0 2.246 2.246 0 0 1-4.492 0"/>
+                        <path d="M9.796 1.343c-.527-1.79-3.065-1.79-3.592 0l-.094.319a.873.873 0 0 1-1.255.52l-.292-.16c-1.64-.892-3.433.902-2.54 2.541l.159.292a.873.873 0 0 1-.52 1.255l-.319.094c-1.79.527-1.79 3.065 0 3.592l.319.094a.873.873 0 0 1 .52 1.255l-.16.292c-.892 1.64.901 3.434 2.541 2.54l.292-.159a.873.873 0 0 1 1.255.52l.094.319c.527 1.79 3.065 1.79 3.592 0l.094-.319a.873.873 0 0 1 1.255-.52l.292.16c1.64.892 3.434-.901 2.54-2.541l-.159-.292a.873.873 0 0 1 .52-1.255l.319-.094c1.79-.527 1.79-3.065 0-3.592l-.319-.094a.873.873 0 0 1-.52-1.255l.16-.292c.893-1.64-.902-3.433-2.541-2.54l-.292.159a.873.873 0 0 1-1.255-.52zm-2.633.283c.246-.835 1.428-.835 1.674 0l.094.319a1.873 1.873 0 0 0 2.693 1.115l.291-.16c.764-.415 1.6.42 1.184 1.185l-.159.292a1.873 1.873 0 0 0 1.116 2.692l.318.094c.835.246.835 1.428 0 1.674l-.319.094a1.873 1.873 0 0 0-1.115 2.693l.16.291c.415.764-.42 1.6-1.185 1.184l-.291-.159a1.873 1.873 0 0 0-2.693 1.116l-.094.318c-.246.835-1.428.835-1.674 0l-.094-.319a1.873 1.873 0 0 0-2.692-1.115l-.292.16c-.764.415-1.6-.42-1.184-1.185l.159-.291A1.873 1.873 0 0 0 1.945 8.93l-.319-.094c-.835-.246-.835-1.428 0-1.674l.319-.094A1.873 1.873 0 0 0 3.06 4.377l-.16-.292c-.415-.764.42-1.6 1.185-1.184l.292.159a1.873 1.873 0 0 0 2.692-1.115z"/>
+                    </svg>
+                    Configuration — Working Directories
+                </h6>
+                <small class="text-muted">Click to expand</small>
+            </div>
+            <div class="collapse" id="configBody">
+                <div class="px-4 py-3" id="workdir-config">
+                    <p class="text-muted small mb-3">
+                        Set the working directory for each service. Commands (restart, git pull) will
+                        <code>cd</code> into this directory before executing. Leave blank to use the screen's current directory.
+                    </p>
+                    <!-- Rows injected by JS -->
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Logs Modal -->
     <div class="modal fade" id="logsModal" tabindex="-1">
         <div class="modal-dialog modal-lg modal-dialog-scrollable">
@@ -203,6 +230,11 @@
                             <div class="meta-value" id="port-${svc}">—</div>
                         </div>
                     </div>
+                    <div class="mb-3" id="url-section-${svc}" style="display:none;">
+                        <div class="meta-label">URL</div>
+                        <a class="meta-value text-decoration-none" id="url-${svc}"
+                           href="#" target="_blank" rel="noopener">—</a>
+                    </div>
 
                     <div class="mb-3" id="cmd-section-${svc}" style="display:none;">
                         <div class="meta-label mb-1">Cached Command</div>
@@ -214,6 +246,11 @@
                         <button class="btn btn-primary btn-sm btn-restart" id="btn-restart-${svc}"
                                 onclick="restartService('${svc}')">
                             Restart
+                        </button>
+                        <button class="btn btn-info btn-sm" id="btn-update-restart-${svc}"
+                                onclick="restartService('${svc}', true)"
+                                title="git pull then restart" style="display:none;">
+                            Update &amp; Restart
                         </button>
                         <button class="btn btn-success btn-sm" id="btn-recover-${svc}"
                                 onclick="recoverService('${svc}')"
@@ -252,6 +289,7 @@
             SERVICE_ORDER.forEach(svc => updateCard(svc, data[svc]));
             document.getElementById("last-refresh").textContent =
                 "Updated " + new Date().toLocaleTimeString();
+            loadWorkdirConfig();
         } catch (err) {
             console.error("Refresh failed:", err);
         }
@@ -264,16 +302,31 @@
         document.getElementById(`screen-${svc}`).textContent = status.screen_name;
         document.getElementById(`port-${svc}`).textContent = ":" + status.port;
 
+        // Show URL link if configured
+        const urlSection = document.getElementById(`url-section-${svc}`);
+        const urlEl = document.getElementById(`url-${svc}`);
+        if (status.url) {
+            urlSection.style.display = "block";
+            urlEl.href = status.url;
+            urlEl.textContent = status.url.replace(/^https?:\/\//, "");
+        } else {
+            urlSection.style.display = "none";
+        }
+
         const badge = document.getElementById(`badge-${svc}`);
         const labels = { running: "Running", stopped: "Stopped", no_screen: "No Screen" };
         badge.className = `status-badge status-${status.status}`;
         badge.innerHTML = `<span class="status-dot"></span> ${labels[status.status] || status.status}`;
+        // Show/hide "Update & Restart" button
+        const updateBtn = document.getElementById(`btn-update-restart-${svc}`);
+        if (updateBtn) {
+            updateBtn.style.display = status.supports_git_pull ? "inline-block" : "none";
+        }
 
         // Show cached command section
         const cmdSection = document.getElementById(`cmd-section-${svc}`);
         if (status.has_cached_command) {
             cmdSection.style.display = "block";
-            // Fetch the actual command text (truncated for display)
             fetchCachedCommand(svc);
         } else {
             cmdSection.style.display = "none";
@@ -300,19 +353,24 @@
     // ======================================================================
     // Restart
     // ======================================================================
-    async function restartService(svc) {
-        const btn = document.getElementById(`btn-restart-${svc}`);
+    async function restartService(svc, gitPull = false) {
+        const btn = gitPull
+            ? document.getElementById(`btn-update-restart-${svc}`)
+            : document.getElementById(`btn-restart-${svc}`);
         const logEl = document.getElementById(`log-${svc}`);
         const diagEl = document.getElementById(`diagnosis-${svc}`);
 
         btn.disabled = true;
-        btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> Restarting…`;
+        const label = gitPull ? "Updating…" : "Restarting…";
+        btn.innerHTML = `<span class="spinner-border spinner-border-sm me-1"></span> ${label}`;
         logEl.style.display = "block";
-        logEl.innerHTML = '<span class="log-info">Starting restart…</span>\n';
+        logEl.innerHTML = `<span class="log-info">${gitPull ? 'Running git pull + restart' : 'Starting restart'}…</span>\n`;
         diagEl.style.display = "none";
 
         try {
-            const res = await fetch(`/api/restart/${svc}`, { method: "POST" });
+            const body = gitPull ? JSON.stringify({ git_pull: true }) : undefined;
+            const headers = gitPull ? { "Content-Type": "application/json" } : {};
+            const res = await fetch(`/api/restart/${svc}`, { method: "POST", body, headers });
             const data = await res.json();
 
             // Render restart logs
@@ -356,7 +414,7 @@
             showToast("Restart request failed", "danger");
         } finally {
             btn.disabled = false;
-            btn.innerHTML = "Restart";
+            btn.innerHTML = gitPull ? "Update &amp; Restart" : "Restart";
             refreshAll();
         }
     }
@@ -514,6 +572,79 @@
         const toastEl = document.getElementById(id);
         new bootstrap.Toast(toastEl, { delay: 5000 }).show();
         toastEl.addEventListener("hidden.bs.toast", () => toastEl.remove());
+    }
+
+    // ======================================================================
+    // Working Directory Config
+    // ======================================================================
+    async function loadWorkdirConfig() {
+        try {
+            const res = await fetch("/api/config/workdir");
+            if (!res.ok) return;
+            const data = await res.json();
+            renderWorkdirConfig(data);
+        } catch (_) {}
+    }
+
+    function renderWorkdirConfig(workdirs) {
+        const container = document.getElementById("workdir-config");
+        // Preserve the help text paragraph
+        const helpText = container.querySelector("p");
+        const helpHtml = helpText ? helpText.outerHTML : "";
+
+        container.innerHTML = helpHtml + SERVICE_ORDER.map(svc => {
+            const status = currentStatuses[svc];
+            const name = status ? status.display_name : svc;
+            const wd = workdirs[svc] || "";
+            return `
+                <div class="d-flex align-items-center gap-3 mb-2">
+                    <div style="min-width:170px;">
+                        <span class="text-light small fw-medium">${escHtml(name)}</span>
+                    </div>
+                    <div class="flex-grow-1">
+                        <input type="text"
+                               class="form-control form-control-sm bg-dark text-light border-secondary"
+                               id="workdir-input-${svc}"
+                               value="${escHtml(wd)}"
+                               placeholder="Not set (uses screen's current directory)"
+                               style="font-family:monospace; font-size:0.82rem;">
+                    </div>
+                    <button class="btn btn-sm btn-outline-primary"
+                            onclick="saveWorkdir('${svc}')"
+                            id="workdir-save-${svc}">
+                        Save
+                    </button>
+                </div>
+            `;
+        }).join("");
+    }
+
+    async function saveWorkdir(svc) {
+        const input = document.getElementById(`workdir-input-${svc}`);
+        const btn = document.getElementById(`workdir-save-${svc}`);
+        const workdir = input.value.trim();
+
+        btn.disabled = true;
+        btn.textContent = "Saving…";
+
+        try {
+            const res = await fetch(`/api/config/workdir/${svc}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ workdir }),
+            });
+            const data = await res.json();
+            if (data.success) {
+                showToast(data.message, "success");
+            } else {
+                showToast(data.error || "Failed to save", "danger");
+            }
+        } catch (err) {
+            showToast("Network error", "danger");
+        } finally {
+            btn.disabled = false;
+            btn.textContent = "Save";
+        }
     }
 
     // ======================================================================

@@ -968,10 +968,13 @@ class DocIndex:
         openai_embed,
         storage,
         keys,
+        progress_callback=None,
     ):
         init_start = time.time()
+        _progress = progress_callback or (lambda phase, msg: None)
         self.doc_id = str(mmh3.hash(doc_source + doc_filetype + doc_type, signed=False))
         raw_data = dict(chunks=full_summary["chunks"])
+        _progress("faiss_start", "Embedding document chunks…")
         raw_index_future = get_async_future(
             create_index_faiss,
             raw_data["chunks"],
@@ -1041,6 +1044,7 @@ class DocIndex:
             "parquet",
         ] and ("http" in doc_source or os.path.exists(doc_source))
 
+        _progress("title_summary", "Generating title and summary…")
         if (
             hasattr(self, "is_local")
             and self.is_local
@@ -1095,6 +1099,7 @@ class DocIndex:
         self.set_api_keys(keys)
         self.long_summary_waiting = time.time()
 
+        _progress("long_summary", "Creating detailed summaries…")
         def set_raw_index_small():
             _ = sleep_and_get_future_result(set_title_summary_future)
             brief_summary = self.title + "\n" + self.short_summary
@@ -2480,6 +2485,7 @@ class ImageDocIndex(DocIndex):
         openai_embed,
         storage,
         keys,
+        progress_callback=None,
     ):
         init_start = time.time()
         self.doc_id = str(mmh3.hash(doc_source + doc_filetype + doc_type, signed=False))
@@ -2794,7 +2800,7 @@ def _transcribe_audio_document(audio_path: str, keys: dict) -> Tuple[str, str]:
     return transcription, pdf_output_path
 
 
-def create_immediate_document_index(pdf_url, folder, keys) -> DocIndex:
+def create_immediate_document_index(pdf_url, folder, keys, progress_callback=None) -> DocIndex:
     from langchain_community.document_loaders import UnstructuredMarkdownLoader
     from langchain_community.document_loaders import JSONLoader
     from langchain_community.document_loaders import UnstructuredHTMLLoader
@@ -2809,6 +2815,8 @@ def create_immediate_document_index(pdf_url, folder, keys) -> DocIndex:
     image_futures = None
     chunk_overlap = 128
     pdf_url = pdf_url.strip()
+    _progress = progress_callback or (lambda phase, msg: None)
+    _progress("reading", "Reading document…")
     lower_pdf_url = pdf_url.lower()
     # check if the link is local or remote
     is_remote = (
@@ -2987,6 +2995,7 @@ def create_immediate_document_index(pdf_url, folder, keys) -> DocIndex:
         chunk_size = LARGE_CHUNK_LEN // 2
     chunk_overlap = min(chunk_size // 2, 128)
     chunk_size = max(chunk_size, chunk_overlap * 2)
+    _progress("chunking", "Chunking text…")
     if not is_image:
         chunks = get_async_future(
             chunk_text_words,
@@ -3012,9 +3021,11 @@ def create_immediate_document_index(pdf_url, folder, keys) -> DocIndex:
         "chunks_small": chunks_small,
         "image_futures": image_futures,
     }
+    _progress("embedding", "Preparing embedding model…")
     openai_embed = get_embedding_model(keys)
     cls = ImmediateDocIndex if not is_image else ImageDocIndex
     try:
+        _progress("indexing", "Building full document index…")
         doc_index: DocIndex = cls(
             pdf_url,
             filetype
@@ -3043,6 +3054,7 @@ def create_immediate_document_index(pdf_url, folder, keys) -> DocIndex:
             openai_embed,
             folder,
             keys,
+            progress_callback=progress_callback,
         )
         # for k in doc_index.store_separate:
         #     doc_index.set_doc_data(k, None, doc_index.get_doc_data(k), overwrite=True)

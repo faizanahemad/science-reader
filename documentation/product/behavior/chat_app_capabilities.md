@@ -209,8 +209,8 @@ Server-side injection:
 - Entry point: `#conversation-docs-button` in the chat header (replaces old `#add-document-button-chat`).
 - Modal: `#conversation-docs-modal` — two-card layout:
   - Upload card: file picker (`#conv-doc-file-input`), URL input, drag-and-drop area, XHR progress bar (0–70% upload, 70–99% indexing tick).
-  - List card: `#conv-docs-list` with per-doc actions: View (PDF viewer via `/proxy_shared`), Download, Promote to Global, Delete.
-- Manager class: `LocalDocsManager` (`interface/local-docs-manager.js`) — `setup()`, `upload()`, `list()`, `renderList()`, `refresh()`, `deleteDoc()`.
+  - List card: `#conv-docs-list` with per-doc actions: View (PDF viewer via `/proxy_shared`), Download, Promote to Global, **Analyze** (flask icon — upgrades `FastDocIndex` to full index; shows live phase progress), Delete.
+- Manager class: `LocalDocsManager` (`interface/local-docs-manager.js`) — `setup()`, `upload()`, `list()`, `renderList()`, `refresh()`, `deleteDoc()`, `analyzeDoc()`, `_listenUpgradeProgress()`.
 - Shared upload utilities: `DocsManagerUtils` (`interface/local-docs-manager.js`) — `uploadWithProgress()`, `isValidFileType()`, `setupDropArea()`, `getMimeType()`.
 - Initialized via `LocalDocsManager.setup(conversationId)` called from `common-chat.js` when a conversation is opened (replaces old `ChatManager.setupAddDocumentForm()`).
 
@@ -227,7 +227,8 @@ Server-side injection:
 - `DELETE /delete_document_from_conversation/<conversation_id>/<document_id>` — remove from list (filesystem not deleted)
 - `POST /attach_doc_to_message/<conversation_id>` — paperclip/drag-drop attachment → `FastDocIndex`
 - `POST /promote_message_doc/<conversation_id>/<doc_id>` — promote attachment to conversation doc → `ImmediateDocIndex`
-- `POST /upgrade_doc_index/<conversation_id>/<doc_id>` — upgrade a `FastDocIndex` to full `DocIndex` (FAISS + LLM) in-place; the upgrade applies to the canonical store, so all conversations referencing the same doc benefit automatically
+- `POST /upgrade_doc_index/<conversation_id>/<doc_id>` — **async** upgrade of a `FastDocIndex` to full `DocIndex` (FAISS + LLM); returns `202 {task_id}` immediately; the upgrade runs in a background thread
+- `GET /upgrade_doc_index_progress/<task_id>` — SSE stream of upgrade progress; phases: `reading → chunking → embedding → indexing → title_summary → long_summary → saving → done`; final event has `{status: "completed", is_fast_index: false}` or `{status: "error"}`. Task cleaned up 120s after completion.
 
 **Display Name**
 - Optional field in the upload modal ("Display Name (optional)" input).
@@ -235,6 +236,14 @@ Server-side injection:
 - Stored as the 4th element of the tuple in `uploaded_documents_list`: `(doc_id, storage, source, display_name)`.
 - `get_uploaded_documents()` injects it back onto each loaded `DocIndex` as `_display_name` (backward-compatible with old 3-tuples — missing 4th element defaults to `None`).
 - `get_short_info()` returns `display_name` alongside title/source; UI shows it as a badge above the filename (same pattern as global docs).
+**@doc/ Autocomplete**
+- Type `@doc/` in the chat textarea to open a unified dropdown showing both local and global docs.
+- Local docs: loaded from `DocIndex.load_local()` to get real `_title` (filename-derived for FastDocIndex, LLM-generated for full) and `_short_summary` (first 500 chars for fast, LLM for full) — no LLM calls at autocomplete time.
+- Global docs: loaded from the `GlobalDocuments` DB row.
+- Each result shows a type badge: blue "local", green "global". Selecting inserts `#doc_N` or `#gdoc_N` directly into the textarea.
+- Backend endpoint: `GET /docs/autocomplete?conversation_id=&prefix=&limit=10` (`endpoints/documents.py`).
+- Max 20 results per type in dynamic tool descriptions; capped at 100 chars per doc in the UI popover.
+
 **User message conventions**
 - Reference doc N: `#doc_1`, `#doc_2`, ... (1-based, combined numbering: uploaded docs first, then message-attached docs)
 - Reference all docs: `#doc_all` / `#all_docs` and similar aliases.
@@ -249,6 +258,7 @@ Server-side injection:
 - `FastDocIndex` (`DocIndex.py`, line 2104): BM25-only (rank_bm25), 1-3 sec. Used for initial uploads and message attachments.
 - `ImmediateDocIndex` / `DocIndex` (`DocIndex.py`, line 959): FAISS embeddings + LLM title/summary, 15-45 sec. Created on promote.
 - Factory functions: `create_fast_document_index()` (line 3066), `create_immediate_document_index()` (line 2793).
+- `progress_callback` parameter on `create_immediate_document_index()` and `DocIndex.__init__()` — callable `(phase, message)` invoked at each stage; used by the upgrade background thread to stream progress to the SSE endpoint.
 
 **Persistence (Canonical Doc Store)**
 - **Canonical store**: `storage/documents/{md5(user_email)}/{doc_id}/` — single source of truth for all document indices.  Conversations and global docs hold *references* (tuples with `doc_storage` pointing here), not copies.

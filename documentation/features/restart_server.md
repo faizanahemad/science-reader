@@ -26,6 +26,7 @@ Restarting services requires SSH access, attaching to screen sessions, running C
 - **LLM diagnosis** — when a restart fails, sends screen output to an LLM for root cause analysis
 - **Auth** — same PASSWORD-based login as the main server
 - **Auto-refresh** — status updates every 10 seconds
+- **Configurable working directories** — set per-service workdir via UI; system `cd`s into it before running any commands
 
 ## How to Run
 
@@ -96,6 +97,7 @@ restart_server/
     screen_manager.py      # ScreenManager class — screen interaction, port checking, command discovery
     llm_helper.py          # LLM-based failure diagnosis via code_common.call_llm
     command_cache.json     # Auto-generated: cached startup commands
+    workdir_config.json   # Auto-generated: per-service working directories
     flask_sessions/        # Auto-generated: filesystem-backed Flask sessions
     templates/
         login.html         # Login page (Bootstrap 5, same pattern as main server)
@@ -120,6 +122,8 @@ All endpoints require authentication (session cookie from `/login`).
 | GET | `/api/discover_command/<svc>` | Show discovered/cached startup command |
 | POST | `/api/set_command/<svc>` | Set startup command. Body: `{"command": "..."}` |
 | POST | `/api/diagnose/<svc>` | LLM diagnosis of current state |
+| GET | `/api/config/workdir` | Get working directories for all services |
+| POST | `/api/config/workdir/<svc>` | Set working directory. Body: `{"workdir": "/path"}` |
 
 Service keys: `opencode_web`, `opencode_serve`, `main_server`
 
@@ -129,6 +133,7 @@ When a user clicks "Restart" for a service:
 
 1. **Resolve startup command** — check cache, then parse screen scrollback, then check `/tmp` scripts
 2. **Ensure screen exists** — create it if missing (`screen -dmS <name>`)
+3. **Ensure correct working directory** — if a workdir is configured for the service, send `cd '<workdir>'` to the screen session
 3. **Stop current process** — send Ctrl+C (twice), wait up to 15s for port to close
 4. **Kill if stubborn** — if still running, send `kill %1` and `kill -9 %1`
 5. **Issue startup command** — type the command into the screen session
@@ -165,3 +170,4 @@ Uses the same Python environment (`science-reader` conda env) as the main server
 - **Fail-safe LLM** — if `OPENROUTER_API_KEY` is not set or the LLM call fails, a descriptive error message is returned instead of crashing
 - **Concurrent restart protection** — only one restart per service at a time (in-memory lock)
 - **Port checking** — uses TCP socket connection to `localhost:<port>` with a 2s timeout to determine if a service is running
+- **Working directory config** — stored in `workdir_config.json`, enforced before every restart and git pull. The `_ensure_workdir()` method sends `cd '<path>'` into the screen session so all subsequent commands run in the correct directory. Configurable via the collapsible "Configuration — Working Directories" panel on the dashboard, separate from service cards

@@ -91,21 +91,61 @@ The `get_short_info()` method on any DocIndex variant returns these 8 fields:
 POST /upgrade_doc_index/<conversation_id>/<doc_id>
 ```
 
-Defined in `endpoints/documents.py` (line 230). This endpoint upgrades a `FastDocIndex` to a full `DocIndex` in-place at the canonical storage path.
+Defined in `endpoints/documents.py`. This endpoint upgrades a `FastDocIndex` to a full `DocIndex` **asynchronously** — it returns immediately with a task ID and the client polls progress via SSE.
 
 ### Flow
 
-1. **Load**: Reads the existing `FastDocIndex` from canonical storage using the conversation's 4-tuple to locate the `doc_storage` path.
-2. **Build**: Creates a full `DocIndex` at the same storage path. The `_display_name` from the fast index is copied to the new full index.
-3. **Update**: Replaces the conversation's 4-tuple entry so it points at the upgraded index. The `doc_id` and `doc_storage` path remain the same.
-4. **Respond**: Returns `{"status": "ok", "doc_id": "<id>", "info": {...}}` where `info` is the new `get_short_info()` dict with `is_fast_index = False`.
+1. **Validate**: Confirms the conversation and document exist; if the doc is already a full index, returns `{status: "ok", message: "Already a full index"}` immediately.
+2. **Dispatch**: Launches a daemon background thread (`_run_upgrade_background`) and returns `202 {status: "started", task_id: "<uuid>"}` immediately to the caller.
+3. **Background build**: The thread calls `create_immediate_document_index(doc_source, parent_dir, keys, progress_callback=...)` which emits progress phases as it runs: `reading → chunking → embedding → indexing → title_summary → long_summary → saving`.
+4. **State tracking**: Progress is written into `_UPGRADE_TASKS[task_id]` — an in-memory dict keyed by task UUID. Each phase update overwrites `{phase, message, status}`.
+5. **Completion**: On success, updates the conversation 4-tuple to point at the new index storage path and writes the conversation back to disk.
+6. **Cleanup**: The task entry is removed from `_UPGRADE_TASKS` 120 seconds after completion.
+
+### SSE Progress Stream
+
+```
+GET /upgrade_doc_index_progress/<task_id>
+```
+
+Returns an SSE stream (`text/event-stream`). Emits one JSON event per phase change:
+
+```json
+{"status": "running", "phase": "embedding", "message": "Preparing embedding model\u2026"}
+```
+
+Possible phase values in order: `queued`, `reading`, `chunking`, `embedding`, `indexing`, `faiss_start`, `title_summary`, `long_summary`, `saving`, `done`.
+
+Final event when complete:
+
+```json
+{"status": "completed", "phase": "done", "message": "Full index built successfully.", "is_fast_index": false}
+```
+
+On error:
+
+```json
+{"status": "error", "phase": "error", "message": "<exception message>"}
+```
+
+### UI Behaviour
+
+The "Analyze" button (flask icon) in `LocalDocsManager.renderList()` is shown only when `doc.is_fast_index === true`. Clicking it:
+
+1. Shows `Starting…` spinner immediately.
+2. POSTs to `/upgrade_doc_index/…` and receives `{task_id}`.
+3. Opens an `EventSource` connection to `/upgrade_doc_index_progress/{task_id}` via `LocalDocsManager._listenUpgradeProgress()`.
+4. Updates the button label with each incoming phase message.
+5. On `completed` — closes the stream, refreshes the doc list, shows a success toast.
+6. On `error` or connection loss — resets the button and shows an error toast.
 
 ### Behavior Notes
 
-- **Idempotent**: If the doc already has a full `DocIndex`, the endpoint returns success without re-indexing.
-- **Intended UI trigger**: The "Analyze" button in the local docs panel. Clicking the button calls `LocalDocsManager.analyzeDoc(conversationId, docId)` in `interface/local-docs-manager.js`, which POSTs to this endpoint. The button is only rendered when `doc.is_fast_index === true`.
-- **Duration**: Upgrade takes 15-45 seconds. The endpoint blocks until completion.
-- **Error handling**: If the upgrade fails (LLM timeout, parsing error), the original `FastDocIndex` remains intact. The endpoint returns a 500 with an error message.
+- **Idempotent**: If the doc already has a full `DocIndex`, the POST returns immediately without re-indexing.
+- **Duration**: Typically 1-5 minutes depending on document length, embedding batch size, and LLM response times.
+- **Failure safety**: If the background build fails, the original `FastDocIndex` remains intact at its canonical path.
+- **No request timeout**: Because the heavy work runs in a background thread and the endpoint returns 202 immediately, there is no risk of Flask/nginx request timeouts causing a hung spinner.
+- **In-memory only**: `_UPGRADE_TASKS` is not persisted — if the server restarts mid-upgrade the task is lost and the doc stays as `FastDocIndex`.
 
 ## DocsManagerUtils (Shared JS Utilities)
 
@@ -229,6 +269,13 @@ Local docs use `#doc_N` syntax in chat messages, where `N` is the 1-based positi
 
 Global docs use a separate namespace (`#gdoc_N`, `#global_doc_N`). Both can be mixed in a single message: `#doc_1 and #gdoc_2 compare these papers`.
 
+## @doc/ Autocomplete
+
+The `@doc/` trigger in the chat textarea (`interface/common-chat.js`) shows an autocomplete dropdown for both local and global docs. See `features/global_docs/README.md` for the full description of the unified dropdown.
+
+For **local docs in fast-index mode** (`is_fast_index = true`), the autocomplete now loads the stored `DocIndex` object to retrieve `_title` and `_short_summary`. The fast index stores the filename as `_title` and the first 500 characters of extracted text as `_short_summary` — so the popover shows meaningful helper text even before the user runs the Analyze upgrade.
+
+The backend endpoint is `GET /docs/autocomplete?conversation_id=<id>&prefix=<text>&limit=10` in `endpoints/documents.py`. It calls `DocIndex.load_local(doc_storage)` for each local doc to read title and short_summary without performing any LLM or embedding calls.
 ## Implementation Files
 
 | File | Role |

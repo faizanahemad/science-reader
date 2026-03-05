@@ -407,13 +407,36 @@ In addition to the `#folder:` and `#tag:` autocomplete, the chat input supports 
 **Frontend:** Self-contained IIFE in `common-chat.js` (lines 4385-4620). Dropdown shows items with:
 - `bi-file-earmark-text` icon
 - Display name + type badge: blue "local" badge for conversation docs, green "global" badge for global docs
-- Reference code (`#doc_1` or `#gdoc_3`) and short summary
+- Reference code (`#doc_1` or `#gdoc_3`) and short summary (capped at 100 chars in the UI popover)
 
 **Selection:** Inserts the `ref` value directly into the textarea (e.g., `#gdoc_3`). No conversion step needed — the backend already parses `#doc_N` and `#gdoc_N` references.
+
+**Local doc `short_summary` loading:** For conversation (local) docs, the backend calls `DocIndex.load_local(doc_storage)` to read `_title` and `_short_summary` directly from the serialized index. No LLM or embedding calls are made at autocomplete time. For `FastDocIndex` (pre-Analyze), `_title` is derived from the filename and `_short_summary` is the first 500 characters of the extracted text — so helper text is shown even before the user runs the Analyze upgrade. For full `DocIndex` after upgrade, both fields are LLM-generated.
 
 **Key files:**
 - `endpoints/documents.py:docs_autocomplete()`: backend autocomplete endpoint
 - `interface/common-chat.js`: `@doc/` autocomplete IIFE (lines 4385-4620)
+
+### Analyze (Upgrade) Flow for Local Docs
+
+When a local conversation doc is uploaded it starts as a `FastDocIndex` (BM25-only, 1-3 sec). The Analyze button (flask icon ✨, shown only when `is_fast_index === true`) upgrades it to a full `DocIndex` with FAISS embeddings and LLM-generated summaries.
+
+1. **UI** (`interface/local-docs-manager.js`): User clicks the Analyze button. Button is disabled and shows `Starting…`.
+2. **POST** `upgrade_doc_index/{conv_id}/{doc_id}` returns **202** `{task_id}` immediately. The heavy work runs in a background daemon thread (`_run_upgrade_background`).
+3. **SSE stream**: `LocalDocsManager._listenUpgradeProgress(taskId, conversationId, $btn)` opens `GET /upgrade_doc_index_progress/{task_id}`. The button label updates with each incoming phase:
+   `queued → reading → chunking → embedding → indexing → faiss_start → title_summary → long_summary → saving → done`
+4. **Background thread** calls `create_immediate_document_index(doc_source, parent_dir, keys, progress_callback=...)`, which emits phase callbacks at each stage of DocIndex construction.
+5. On **completion**: conversation 4-tuple is updated, conversation saved, SSE final event `{status: "completed", is_fast_index: false}` sent, EventSource closed, doc list refreshed, success toast shown.
+6. On **error**: SSE event `{status: "error", message: "..."}`, button resets to flask icon, error toast shown.
+7. **Autocomplete benefit**: once upgraded, `_title` and `_short_summary` in the `@doc/` popover become the LLM-generated values instead of the filename / first-500-chars fallback.
+
+**Note:** `_UPGRADE_TASKS` is in-memory only. A server restart mid-upgrade loses the task entry; the doc stays as `FastDocIndex` and can be re-analyzed.
+
+**Key files:**
+- `endpoints/documents.py` — `upgrade_doc_index_route()` (202 dispatch), `_run_upgrade_background()` (worker), `upgrade_doc_index_progress()` (SSE), `_UPGRADE_TASKS` dict
+- `DocIndex.py` — `create_immediate_document_index(... progress_callback=None)`, `DocIndex.__init__(... progress_callback=None)`
+- `interface/local-docs-manager.js` — `analyzeDoc()`, `_listenUpgradeProgress()`
+
 
 ### Promote Flow
 

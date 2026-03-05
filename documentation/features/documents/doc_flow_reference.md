@@ -256,18 +256,19 @@ Conversation docs start as `FastDocIndex` (see Part 1 §1.4 for details). Full p
 - Launches LLM title/summary generation in background threads
 - Returns after all async tasks complete
 
-**Upgrade endpoint: FastDocIndex to full DocIndex**
+**Upgrade endpoint: FastDocIndex to full DocIndex (async + SSE)**
 
-`POST /upgrade_doc_index/<conversation_id>/<doc_id>` (`endpoints/documents.py`, line 230)
+`POST /upgrade_doc_index/<conversation_id>/<doc_id>` (`endpoints/documents.py`)
 
-Upgrades a `FastDocIndex` to a full `DocIndex` in place. The flow:
-1. Loads the existing `FastDocIndex` from the conversation's `uploaded_documents_list`.
-2. Creates a new full `DocIndex` at the same canonical storage path via `create_immediate_document_index()`.
-3. Copies `_display_name` from the old index to the new one.
-4. Updates the conversation's tuple list to point at the new index.
-5. Returns `{status: "ok", doc_id, info}` on success.
+Upgrades a `FastDocIndex` to a full `DocIndex` asynchronously. The flow:
+1. Validates that the doc exists and is a fast index; returns early if already full.
+2. Returns **202** `{status: "started", task_id: "<uuid>"}` immediately.
+3. Background thread runs `create_immediate_document_index(doc_source, parent_dir, keys, progress_callback=...)`, emitting phase names (`reading`, `chunking`, `embedding`, `indexing`, `faiss_start`, `title_summary`, `long_summary`, `saving`) into `_UPGRADE_TASKS[task_id]`.
+4. On completion, updates the conversation 4-tuple and saves the conversation.
 
-Intended for the "Analyze" button in the local docs panel (not yet wired in UI as of this writing).
+`GET /upgrade_doc_index_progress/<task_id>` — SSE stream, one JSON event per phase change. Final event has `{status: "completed", is_fast_index: false}` or `{status: "error", message: "..."}`. Task entry is cleaned up 120s after completion.
+
+Wired to the “Analyze” button (flask icon) in the local docs panel via `LocalDocsManager._listenUpgradeProgress()`. Button shows live phase text during upgrade; list refreshes on completion.
 
 **`ImmediateDocIndex` (class `DocIndex`)** (`DocIndex.py`, line 959 / alias line 2100):
 - `_raw_index` — FAISS index over full chunks
@@ -651,7 +652,7 @@ ImageDocIndex                            — Image + FAISS variant
 | Function | File | Line | Creates | When Used |
 |----------|------|------|---------|-----------|
 | `create_fast_document_index(url, folder, keys)` | DocIndex.py | 3066 | FastDocIndex / FastImageDocIndex | Message attachments, initial conversation doc upload |
-| `create_immediate_document_index(url, folder, keys)` | DocIndex.py | 2793 | DocIndex / ImageDocIndex | Promote flows, global doc upload |
+| `create_immediate_document_index(url, folder, keys, progress_callback=None)` | DocIndex.py | 2793 | DocIndex / ImageDocIndex | Promote flows, global doc upload, Analyze upgrade |
 
 ### 4.3 Key DocIndex Methods
 
@@ -843,4 +844,42 @@ User message contains "#gdoc_1"
 → doc = DocIndex.load_local(all_gdocs[N - 1]["doc_storage"])
 → doc.semantic_search_document(query)   (FAISS)
 → inject retrieved chunks into LLM prompt
+```
+
+### Upgrade FastDocIndex to full DocIndex (Analyze button)
+```
+User → Analyze button (flask icon) in #conv-docs-list  [is_fast_index === true]
+→ $btn disabled, label set to "Starting…"
+→ POST /upgrade_doc_index/{conv_id}/{doc_id}   [endpoints/documents.py]
+→ upgrade_doc_index_route() validates doc, creates task_id, starts daemon thread
+→ returns 202 {status: "started", task_id: "<uuid>"}  immediately
+→ LocalDocsManager._listenUpgradeProgress(taskId, conversationId, $btn)
+→ EventSource GET /upgrade_doc_index_progress/{task_id}
+  emits one JSON event per phase change: {status, phase, message}
+  phases: queued → reading → chunking → embedding → indexing
+          → faiss_start → title_summary → long_summary → saving → done
+→ _run_upgrade_background() thread:
+   create_immediate_document_index(doc_source, parent_dir, keys, progress_callback)   [DocIndex.py:2793]
+   → DocIndex.__init__() emits faiss_start, title_summary, long_summary callbacks
+   → full_doc_index.save_local()
+   → conversation.set_field("uploaded_documents_list", updated) + save_local()
+→ final SSE event: {status: "completed", phase: "done", is_fast_index: false}
+→ es.close(), LocalDocsManager.refresh(), showToast(success)
+Note: _UPGRADE_TASKS dict cleaned up 120s after completion; server restart loses in-progress tasks
+```
+
+### @doc/ autocomplete in chat input
+```
+User types "@doc/" in chat textarea
+→ docAutocomplete IIFE in common-chat.js detects trigger
+→ debounced (150ms) GET /docs/autocomplete?conversation_id=&prefix=<text>&limit=10
+→ docs_autocomplete()   [endpoints/documents.py]
+   local docs: DocIndex.load_local(doc_storage) to read _title + _short_summary
+     FastDocIndex: _title = filename, _short_summary = first 500 chars of text (no LLM)
+     Full DocIndex: _title = LLM-generated, _short_summary = LLM-generated
+   global docs: list_global_docs() from DB (title + short_summary already stored)
+→ returns [{type: "local"|"global", ref: "#doc_N"|"#gdoc_N", title, display_name, short_summary}, ...]
+→ dropdown rendered with blue "local" / green "global" badges, summary capped at 100 chars
+→ keyboard nav: ArrowUp/Down to move, Enter/Tab to select, Escape to close
+→ on select: inserts ref (#doc_N or #gdoc_N) directly into textarea at cursor
 ```
