@@ -396,8 +396,14 @@ Server-side injection:
 - `docs_list_global_docs` returns: `index`, `doc_id`, `display_name`, `title`, `short_summary`, `doc_storage_path`, `source`, `folder_id`, `tags`.
 - `docs_list_conversation_docs` returns: `index`, `doc_id`, `title`, `short_summary`, `doc_storage_path`, `source`, `display_name`.
 - Key file: `mcp_server/docs.py`
+**Conversation MCP Server (port 8104)**
+- Exposes 12 conversation/memory tools: 7 original (memory pad get/set, history, user detail/preferences get/set, raw messages) + 5 new conversation message tools (search_messages, list_messages, read_message, get_conversation_details, get_conversation_memory_pad).
+- New tools use BM25 keyword search (unigram+bigram, with markdown header/bold boosting) and text/regex matching for message search.
+- All tools accept `conversation_id` as an explicit required parameter for external MCP client usage.
+- Shared tool metadata defined once in `code_common/conversation_search.py` (`CONVERSATION_TOOLS` dict), imported by both `code_common/tools.py` (tool-calling) and `mcp_server/conversation.py` (MCP).
+- Key file: `mcp_server/conversation.py`
 **Docs:** `documentation/features/mcp_web_search_server/README.md`, `documentation/planning/plans/mcp_web_search_server.plan.md`
-**Ops:** `documentation/product/ops/mcp_server_setup.md` (full 8-server architecture, all 37 tools, JWT setup, Documents MCP tool tiers, Jina timeouts, nginx), `documentation/product/ops/server_restart_guide.md` (restart procedures for all 3 screen sessions)
+**Ops:** `documentation/product/ops/mcp_server_setup.md` (full 8-server architecture + Context7 local MCP, all 49 tools, JWT setup, Documents MCP tool tiers, Jina timeouts, nginx), `documentation/product/ops/server_restart_guide.md` (restart procedures for all 3 screen sessions)
 
 **Differentiator**
 - Allows the same powerful search agents available in the chat UI to be invoked directly from coding tools. No other chat system exposes its search pipeline as MCP tools for developer workflows.
@@ -447,7 +453,7 @@ Server-side injection:
  Save handler persists `opencode_provider` and `opencode_model` to conversation settings.
 
 **Configuration**
- `opencode.json` (project root): provider config (`openrouter` with `{env:OPENROUTER_API_KEY}`, `amazon-bedrock` with region), MCP servers (7 servers on ports 8100-8106), permissions (bash/edit/webfetch allowed), compaction settings, AGENTS.md instructions.
+ `opencode.json` (project root): provider config (`openrouter` with `{env:OPENROUTER_API_KEY}`, `amazon-bedrock` with region), MCP servers (7 remote servers on ports 8100-8106 + Context7 local MCP via `npx -y @upstash/context7-mcp`), permissions (bash/edit/webfetch allowed), compaction settings, AGENTS.md instructions.
  Environment variables: `OPENROUTER_API_KEY`, `OPENCODE_BASE_URL`, `OPENCODE_DEFAULT_PROVIDER`, `OPENCODE_DEFAULT_MODEL`, timeouts, SSE reconnect settings.
 
 **Key files**
@@ -522,13 +528,13 @@ location /ws/terminal {
 
 **What it does**
  Adds native, mid-response tool calling to the chat pipeline — the LLM can autonomously invoke tools during a conversation turn.
- 47 tools across 8 categories: clarification (1), search (5), documents (10), pkb (10), memory (7), code_runner (1), artefacts (8), prompts (5).
+ 56 tools across 9 categories: clarification (1), search (5), documents (10), pkb (10), memory (7), code_runner (1), artefacts (8), prompts (5), conversation (8 — including 3 cross-conversation search tools).
  Multi-step agentic loop: up to 5 tool-call iterations per turn, with `tool_choice="none"` on the final iteration to force text output.
  Interactive tools (ask_clarification) pause streaming, show a Bootstrap modal for MCQ input, wait up to 60s via `threading.Event`, then resume.
  Server-side tools (web search, document lookup, PKB operations, code execution, etc.) execute silently with inline status indicators.
- Master toggle + Bootstrap Select multi-select dropdown with per-tool granularity (8 category optgroups, 47 individual tool options, search filtering, select all/deselect all). **Tool use enabled by default** with `ask_clarification` pre-selected. Write-capable categories default to OFF.
+ Master toggle + Bootstrap Select multi-select dropdown with per-tool granularity (9 category optgroups, 53 individual tool options, search filtering, select all/deselect all). **Tool use enabled by default** with `ask_clarification` pre-selected. Write-capable categories default to OFF.
  Backward-compatible: when tools disabled (`tools=None`), the entire call stack is unchanged.
- All 47 handlers have real implementations — mirrors the MCP server logic (DocIndex, StructuredAPI, Conversation methods, HTTP delegation for propose_edits/apply_edits/temp_llm_action).
+ All 53 handlers have real implementations — mirrors the MCP server logic (DocIndex, StructuredAPI, Conversation methods, HTTP delegation for propose_edits/apply_edits/temp_llm_action).
  **Search-intent auto-detection**: the frontend automatically injects web search tools (`web_search`, `perplexity_search`, `jina_search`, `jina_read_page`, `read_link`) when the user's message contains search-intent keywords (e.g. "search the web", "google", "latest news about", "find me recent info"). Implemented via `detectSearchIntent()` and `mergeWebSearchTools()` in `common-chat.js` — 27 regex patterns with code-block stripping to avoid false positives. Fail-open: if detection throws, the message sends normally.
 
 **Architecture**
@@ -551,6 +557,7 @@ location /ws/terminal {
 | `code_runner` | 1 | OFF | Python code execution (120s timeout, IPython) |
 | `artefacts` | 8 | OFF | List/create/get/update/delete artefacts, LLM-powered edits |
 | `prompts` | 5 | OFF | List/get/create/update prompts, ephemeral LLM actions |
+| `conversation` | 5 | OFF | Search, list, read messages. Get conversation overview and memory pad. BM25 keyword search + text/regex matching. |
 
 **API**
  Settings: `checkboxes.enable_tool_use` (master toggle), `checkboxes.enabled_tools` (array of tool name strings, e.g. `["ask_clarification", "web_search", ...]`; legacy per-category dict format also accepted for backward compatibility).
@@ -565,13 +572,14 @@ location /ws/terminal {
  Tool results not separately persisted — they become part of the conversation messages.
 
 **Key files**
-`code_common/tools.py` — Tool registry + 47 tool definitions with real handlers
+`code_common/tools.py` — Tool registry + 53 tool definitions with real handlers
+`code_common/conversation_search.py` — Shared conversation tool metadata (`CONVERSATION_TOOLS`), BM25 message search index (`MessageSearchIndex`), markdown feature extraction
 `code_common/call_llm.py` — `tools`/`tool_choice` passthrough, streaming tool_call parsing
 `call_llm.py` (root) — `CallLLm` tools passthrough
-`Conversation.py` — `_get_enabled_tools()`, `_run_tool_loop()`, preamble injection, `reply()` tool branching
+`Conversation.py` — `_get_enabled_tools()`, `_run_tool_loop()`, preamble injection, `reply()` tool branching, `search_messages()`, `list_messages()`, `read_message()`, `get_conversation_details()`, `_index_messages_for_search()`, `message_search_index` in `store_separate`
 `endpoints/conversations.py` — `POST /tool_response` endpoint, thread-safe response store
 `interface/tool-call-manager.js` — `ToolCallManager` singleton (inline status, modal, response submission)
-`interface/interface.html` — Bootstrap Select 1.13.18 CDN, tool settings `<select multiple>` with 8 optgroups and 47 options, `#tool-call-modal`
+`interface/interface.html` — Bootstrap Select 1.13.18 CDN, tool settings `<select multiple>` with 9 optgroups and 53 options, `#tool-call-modal`
 `interface/chat.js`, `interface/common.js`, `interface/common-chat.js` — settings persistence (selectpicker read/write with dual-format legacy support), stream handler, search-intent auto-detection (`detectSearchIntent`, `mergeWebSearchTools`, `SEARCH_INTENT_PATTERNS`), default tool enablement (`computeDefaultStateForTab` with `enable_tool_use: true`)
 `interface/service-worker.js` — cache version bump, precache
 

@@ -607,6 +607,14 @@ def delete_conversation(conversation_id: str):
         state, conversation_id=conversation_id, keys=keys
     )
 
+    # Cross-conversation search: remove before deleting files
+    try:
+        index = state.cross_conversation_index
+        if index:
+            index.remove_conversation(conversation_id)
+    except Exception:
+        pass
+
     del state.conversation_cache[conversation_id]
     conversation.delete_conversation()
     deleteConversationForUser(email, conversation_id, users_dir=state.users_dir)
@@ -1183,6 +1191,13 @@ def set_flag(conversation_id: str, flag: str):
 
     if flag is not None and flag.strip().lower() == "none":
         conversation.flag = None
+        # Cross-conversation search: flag cleared
+        try:
+            index = state.cross_conversation_index
+            if index:
+                index.update_metadata(conversation)
+        except Exception:
+            pass
         return jsonify({"message": "Flag cleared successfully"}), 200
 
     assert (
@@ -1191,6 +1206,13 @@ def set_flag(conversation_id: str, flag: str):
         and flag.strip().lower() in valid_colors
     )
     conversation.flag = flag.strip().lower()
+    # Cross-conversation search: flag set
+    try:
+        index = state.cross_conversation_index
+        if index:
+            index.update_metadata(conversation)
+    except Exception:
+        pass
     return jsonify({"message": "Flag set successfully"}), 200
 
 
@@ -1228,6 +1250,13 @@ def _create_conversation_simple(
         users_dir=state.users_dir,
     )
     conversation.save_local()
+    # Cross-conversation search: new conversation created
+    try:
+        index = state.cross_conversation_index
+        if index:
+            index.update_metadata(conversation)
+    except Exception:
+        pass
     return conversation
 
 
@@ -2198,4 +2227,112 @@ Assistant answer:
     except Exception as e:
         logger.error(
             f"[auto_takeaways] Error generating/persisting: {e}", exc_info=True
+        )
+
+
+# ---------------------------------------------------------------------------
+# Cross-conversation search endpoint
+# ---------------------------------------------------------------------------
+
+
+@conversations_bp.route("/search_conversations", methods=["POST"])
+@limiter.limit("30 per minute")
+@login_required
+def search_conversations_endpoint():
+    """Search across the user's conversations.
+
+    Request body (JSON)::
+
+        {
+            "action": "search" | "list" | "summary",  // required
+            "query": "search text",           // required for search
+            "mode": "keyword" | "phrase" | "regex",  // default: keyword
+            "deep": false,                     // search message content too
+            "workspace_id": "ws_123",          // optional filter
+            "domain": "default",              // optional filter
+            "flag": "red",                     // optional filter
+            "date_from": "2025-01-01",        // optional filter (ISO date)
+            "date_to": "2026-03-04",          // optional filter (ISO date)
+            "top_k": 20,                       // max results (default 20)
+            "conversation_id": "conv_123",    // required for action=summary
+            "sort_by": "last_updated",        // for list action
+            "offset": 0,                       // pagination offset for list
+            "limit": 50,                       // pagination limit for list
+        }
+
+    Returns::
+
+        { "results": [...], "total": N, "query": "...", "action": "..." }
+    """
+    email, _name, _loggedin = get_session_identity()
+    state = get_state()
+    index = state.cross_conversation_index
+
+    if not index:
+        return json_error(
+            "Cross-conversation search index not initialized.",
+            status=503,
+            code="index_not_ready",
+        )
+
+    data = request.get_json(force=True, silent=True) or {}
+    action = data.get("action", "search")
+
+    if action == "search":
+        query = data.get("query", "").strip()
+        if not query:
+            return json_error("'query' is required for action=search.", status=400, code="missing_query")
+
+        results = index.search(
+            user_email=email,
+            query=query,
+            mode=data.get("mode", "keyword"),
+            deep=bool(data.get("deep", False)),
+            workspace_id=data.get("workspace_id") or None,
+            domain=data.get("domain") or None,
+            flag=data.get("flag") or None,
+            date_from=data.get("date_from") or None,
+            date_to=data.get("date_to") or None,
+            sender_filter=data.get("sender_filter") or None,
+            top_k=int(data.get("top_k", 20)),
+        )
+        return jsonify({"results": results, "total": len(results), "query": query, "action": "search"})
+
+    elif action == "list":
+        results = index.list_conversations(
+            user_email=email,
+            workspace_id=data.get("workspace_id") or None,
+            domain=data.get("domain") or None,
+            flag=data.get("flag") or None,
+            date_from=data.get("date_from") or None,
+            date_to=data.get("date_to") or None,
+            sort_by=data.get("sort_by", "last_updated"),
+            limit=int(data.get("limit", 50)),
+            offset=int(data.get("offset", 0)),
+        )
+        return jsonify({"results": results, "total": len(results), "action": "list"})
+
+    elif action == "summary":
+        conversation_id = data.get("conversation_id", "").strip()
+        if not conversation_id:
+            return json_error(
+                "'conversation_id' is required for action=summary.",
+                status=400,
+                code="missing_conversation_id",
+            )
+
+        result = index.get_summary(conversation_id, user_email=email)
+        if result is None:
+            return json_error(
+                f"Conversation '{conversation_id}' not found in search index.",
+                status=404,
+                code="conversation_not_found",
+            )
+        return jsonify({"result": result, "action": "summary"})
+
+    else:
+        return json_error(
+            f"Unknown action '{action}'. Use 'search', 'list', or 'summary'.",
+            status=400,
+            code="invalid_action",
         )

@@ -1654,3 +1654,46 @@ table, tr, thead, th, td {
     font-size: 0.85rem;
 }
 
+/* ── Cross-Conversation Search Modal ── */
+.cross-conv-result-item {
+    padding: 10px 12px;
+    margin-bottom: 6px;
+    border: 1px solid #e9ecef;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.cross-conv-result-item:hover {
+    background-color: #f0f7ff;
+    border-color: #b8d4f0;
+}
+.cross-conv-result-title {
+    font-weight: 600;
+    font-size: 0.95rem;
+    color: #333;
+    line-height: 1.3;
+}
+.cross-conv-result-snippet {
+    font-size: 0.85rem;
+    color: #555;
+    margin-top: 4px;
+    line-height: 1.4;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+.cross-conv-result-snippet b {
+    background-color: #fff3cd;
+    padding: 0 2px;
+    border-radius: 2px;
+}
+.cross-conv-result-meta {
+    margin-top: 4px;
+    font-size: 0.8rem;
+}
+#cross-conv-search-input:focus {
+    border-color: #80bdff;
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.15);
+}

@@ -42,7 +42,7 @@ Mix by name: `"my research paper" summarize the key findings`.
 
 Mix folder+tag: `#folder:ML and #tag:2026 latest findings`.
 
-**Autocomplete in chat input** — type `#folder:` or `#tag:` to get a dropdown of matching names (debounced, powered by `/doc_folders/autocomplete?q=` and `/global_docs/autocomplete?q=`).
+**Autocomplete in chat input** — type `#folder:` or `#tag:` to get a dropdown of matching names (debounced, powered by `/doc_folders/autocomplete?q=` and `/global_docs/autocomplete?q=`). Additionally, type `@doc/` to get a unified dropdown of both conversation (local) and global documents with type badges (blue=local, green=global). Selecting an item inserts the `#doc_N` or `#gdoc_N` reference directly. The unified autocomplete is powered by `GET /docs/autocomplete?conversation_id=<id>&prefix=<text>`.
 
 ### Managing Global Documents
 
@@ -198,6 +198,7 @@ Click the globe icon on any conversation document button in the doc bar. The doc
 | GET | `/global_docs/serve?file=<doc_id>` | Serve doc for PDF viewer |
 | DELETE | `/global_docs/<doc_id>` | Delete a global doc |
 | POST | `/global_docs/promote/<conv_id>/<doc_id>` | Promote conversation doc to global |
+| GET | `/docs/autocomplete?conversation_id=<id>&prefix=<text>&limit=N` | Unified doc autocomplete for `@doc/` references (both local and global) |
 
 ### Tag Endpoints
 
@@ -382,6 +383,37 @@ The `#folder:` and `#tag:` reference types are resolved alongside `#gdoc_N` and 
 - `database/doc_folders.py:get_folder_by_name()`: folder name-to-id lookup
 - `database/doc_folders.py:get_docs_in_folder()`: folder-to-docs lookup
 - `interface/common-chat.js:fetchHashAutocomplete()`: frontend autocomplete for `#folder:` and `#tag:`
+
+### @doc/ Unified Document Autocomplete
+
+In addition to the `#folder:` and `#tag:` autocomplete, the chat input supports a unified `@doc/` autocomplete that searches both conversation (local) documents and global documents.
+
+**Trigger:** Type `@doc/` in the chat input. The autocomplete fires immediately (0+ characters after the slash).
+
+**Backend:** `GET /docs/autocomplete?conversation_id=<id>&prefix=<text>&limit=10` (defined in `endpoints/documents.py`). Returns:
+
+```json
+{
+  "status": "ok",
+  "docs": [
+    {"type": "local", "index": 1, "doc_id": "...", "title": "...",
+     "display_name": "...", "short_summary": "...", "ref": "#doc_1"},
+    {"type": "global", "index": 3, "doc_id": "...", "title": "...",
+     "display_name": "...", "short_summary": "...", "ref": "#gdoc_3"}
+  ]
+}
+```
+
+**Frontend:** Self-contained IIFE in `common-chat.js` (lines 4385-4620). Dropdown shows items with:
+- `bi-file-earmark-text` icon
+- Display name + type badge: blue "local" badge for conversation docs, green "global" badge for global docs
+- Reference code (`#doc_1` or `#gdoc_3`) and short summary
+
+**Selection:** Inserts the `ref` value directly into the textarea (e.g., `#gdoc_3`). No conversion step needed — the backend already parses `#doc_N` and `#gdoc_N` references.
+
+**Key files:**
+- `endpoints/documents.py:docs_autocomplete()`: backend autocomplete endpoint
+- `interface/common-chat.js`: `@doc/` autocomplete IIFE (lines 4385-4620)
 
 ### Promote Flow
 

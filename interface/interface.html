@@ -257,6 +257,7 @@
                                 <div class="sidebar-toolbar-actions">
                                     <button id="add-new-chat" type="button" class="btn btn-sm sidebar-tool-btn" title="New Conversation"><i class="fa fa-file-o"></i></button>
                                     <button id="add-new-workspace" type="button" class="btn btn-sm sidebar-tool-btn" title="New Workspace"><i class="fa fa-folder-o"></i></button>
+                                    <button id="search-conversations-btn" type="button" class="btn btn-sm sidebar-tool-btn" title="Search Conversations"><i class="fa fa-search"></i></button>
                                 </div>
                             </div>
                             
@@ -2295,6 +2296,16 @@
                                                 <option value="conv_get_messages">Get Messages</option>
                                                 <option value="conv_set_user_detail">Set User Detail</option>
                                             </optgroup>
+                                            <optgroup label="Conversation">
+                                                <option value="search_messages">Search Messages</option>
+                                                <option value="list_messages">List Messages</option>
+                                                <option value="read_message">Read Message</option>
+                                                <option value="get_conversation_details">Get Conversation Details</option>
+                                                <option value="get_conversation_memory_pad">Get Conversation Memory Pad</option>
+                                                <option value="search_conversations">Search Conversations</option>
+                                                <option value="list_user_conversations">List User Conversations</option>
+                                                <option value="get_conversation_summary">Get Conversation Summary</option>
+                                            </optgroup>
                                             <optgroup label="Code Runner">
                                                 <option value="run_python_code">Run Python Code</option>
                                             </optgroup>
@@ -3967,6 +3978,87 @@ greet("World");</code></pre>
         </div>
     </div>
 
+<!-- Cross-Conversation Search Modal -->
+<div class="modal fade" id="cross-conversation-search-modal" tabindex="-1" aria-hidden="true" style="z-index: 1065;">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title"><i class="fa fa-search"></i> Search Conversations</h5>
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+        <!-- Search Input -->
+        <div class="input-group mb-3">
+          <input type="text" id="cross-conv-search-input" class="form-control"
+                 placeholder="Search across all conversations... (min 5 characters)"
+                 autocomplete="off">
+          <div class="input-group-append">
+            <button class="btn btn-outline-secondary" type="button" id="cross-conv-search-clear" title="Clear">
+              <i class="fa fa-times"></i>
+            </button>
+          </div>
+        </div>
+
+        <!-- Filter Row (collapsible) -->
+        <div class="d-flex align-items-center mb-2">
+          <button class="btn btn-sm btn-outline-secondary" type="button" data-toggle="collapse" data-target="#cross-conv-search-filters">
+            <i class="fa fa-filter"></i> Filters
+          </button>
+          <div class="custom-control custom-checkbox ml-3">
+            <input type="checkbox" class="custom-control-input" id="cross-conv-search-deep">
+            <label class="custom-control-label" for="cross-conv-search-deep">Deep search</label>
+          </div>
+        </div>
+        <div class="collapse mb-3" id="cross-conv-search-filters">
+          <div class="card card-body p-2">
+            <div class="form-row">
+              <div class="col-md-4 mb-2">
+                <select id="cross-conv-search-workspace" class="form-control form-control-sm">
+                  <option value="">All Workspaces</option>
+                </select>
+              </div>
+              <div class="col-md-3 mb-2">
+                <select id="cross-conv-search-flag" class="form-control form-control-sm">
+                  <option value="">All Flags</option>
+                  <option value="red">Red</option>
+                  <option value="blue">Blue</option>
+                  <option value="green">Green</option>
+                  <option value="yellow">Yellow</option>
+                  <option value="purple">Purple</option>
+                  <option value="orange">Orange</option>
+                </select>
+              </div>
+              <div class="col-md-5 mb-2">
+                <div class="input-group input-group-sm">
+                  <input type="date" id="cross-conv-search-date-from" class="form-control" placeholder="From">
+                  <div class="input-group-prepend input-group-append"><span class="input-group-text">to</span></div>
+                  <input type="date" id="cross-conv-search-date-to" class="form-control" placeholder="To">
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Status -->
+        <div id="cross-conv-search-status" class="text-muted small mb-2" style="display:none;">
+          <span class="spinner-border spinner-border-sm mr-1" role="status"></span>
+          <span id="cross-conv-search-status-text">Searching...</span>
+        </div>
+
+        <!-- Results -->
+        <div id="cross-conv-search-results"></div>
+
+        <!-- No results message -->
+        <div id="cross-conv-search-empty" class="text-center text-muted py-4" style="display:none;">
+          <i class="fa fa-search fa-2x mb-2"></i>
+          <p>No conversations found.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
     <style>
         /* ── Image Generation Modal ── */
         #image-gen-modal img { transition: opacity 0.3s ease; }
@@ -4068,6 +4160,7 @@ greet("World");</code></pre>
     <script src="interface/workflow-manager.js"></script>
     <script src="interface/script-manager.js"></script>
     <script src="interface/image-gen-manager.js?v=1"></script>
+    <script src="interface/cross-conversation-search.js?v=1"></script>
     <script src="interface/file-browser-manager.js?v=27"></script>
     <script>
         // Document-level delegated handler for Terminal button.
@@ -4806,6 +4899,8 @@ greet("World");</code></pre>
             }, 500);
         }
 
+        CrossConversationSearchManager.init();
+
         ExtensionBridge.init();
         console.log('[MainUI] ExtensionBridge.init() returned. Registering onAvailabilityChange...');
         console.log('[MainUI] .ext-btn count at callback registration:', $('.ext-btn').length);
@@ -4820,6 +4915,7 @@ greet("World");</code></pre>
                 $('#settings-scripts-section').show();
                 WorkflowManager.init();
                 ScriptManager.init();
+                CrossConversationSearchManager.init();
             } else {
                 $('.ext-btn').hide();
             }

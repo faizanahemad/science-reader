@@ -499,6 +499,44 @@ def create_app(argv: Optional[list[str]] = None) -> Flask:
     # Ensure schema exists
     create_tables(users_dir=users_dir, logger=logger)
 
+    # Cross-conversation search index (separate DB: search_index.db)
+    from database.search_index import create_search_tables
+    create_search_tables(users_dir=users_dir, logger=logger)
+
+    from code_common.cross_conversation_search import CrossConversationIndex
+    cross_conversation_index = CrossConversationIndex(users_dir)
+
+    # Attach index to state (init_state already called above)
+    from endpoints.state import get_state
+    get_state().cross_conversation_index = cross_conversation_index
+
+    # STORAGE_DIR sanity check — MCP/tools use STORAGE_DIR env var,
+    # Flask uses --folder CLI arg.  Warn if they diverge.
+    storage_env = os.environ.get('STORAGE_DIR', 'storage')
+    if os.path.abspath(os.path.join(os.getcwd(), storage_env, 'users')) != os.path.abspath(users_dir):
+        logger.warning(
+            'STORAGE_DIR env var (%s) differs from --folder resolved users_dir (%s). '
+            'MCP tools may use a different search_index.db.',
+            storage_env, users_dir,
+        )
+
+    # Backfill: index existing conversations not yet in search_index.db
+    import threading
+    from database.search_index import get_backfill_candidates
+
+    def _backfill_search_index():
+        try:
+            candidates = get_backfill_candidates(users_dir)
+            if candidates:
+                logger.info('Cross-conv search backfill: %d candidates found', len(candidates))
+                cross_conversation_index.backfill(conversation_folder, candidates)
+            else:
+                logger.info('Cross-conv search backfill: index is up to date')
+        except Exception as e:
+            logger.warning('Cross-conv search backfill failed: %s', e)
+
+    threading.Thread(target=_backfill_search_index, daemon=True, name='search-backfill').start()
+
     # One-time migration: move existing flat global docs into folder subdirectories.
     # Safe to run on every startup — skips docs already in the correct location.
     _run_global_docs_migration(global_docs_dir=global_docs_dir, users_dir=users_dir)

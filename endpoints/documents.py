@@ -328,3 +328,111 @@ def cleanup_orphan_docs_route():
     except Exception as e:
         traceback.print_exc()
         return json_error(str(e), status=500, code="cleanup_failed")
+
+
+
+
+@documents_bp.route("/docs/autocomplete", methods=["GET"])
+@limiter.limit("30 per minute")
+@login_required
+def docs_autocomplete():
+    """Unified document autocomplete for @doc/ references in chat input.
+
+    Searches both conversation (local) documents and global documents by
+    prefix, returning a combined list with type badges.
+
+    Query params:
+        conversation_id (optional): Include conversation docs in results.
+        prefix (optional): Filter by display_name / title substring (case-insensitive).
+        limit (optional): Max total results (default 10, max 20).
+
+    Returns JSON::
+
+        {
+            "status": "ok",
+            "docs": [
+                {"type": "local", "index": 1, "doc_id": "...", "title": "...",
+                 "display_name": "...", "short_summary": "...", "ref": "#doc_1"},
+                {"type": "global", "index": 3, "doc_id": "...", "title": "...",
+                 "display_name": "...", "short_summary": "...", "ref": "#gdoc_3"}
+            ]
+        }
+    """
+    state, keys = get_state_and_keys()
+    email = session.get("email", "")
+    if not email:
+        return json_error("Not authenticated", status=401, code="not_authenticated")
+
+    conversation_id = request.args.get("conversation_id", "").strip()
+    prefix = request.args.get("prefix", "").strip().lower()
+    try:
+        limit = min(int(request.args.get("limit", "10")), 20)
+    except (ValueError, TypeError):
+        limit = 10
+
+    results = []
+
+    # --- Conversation (local) documents ---
+    if conversation_id and conversation_id in state.conversation_cache:
+        try:
+            conversation = attach_keys(
+                state.conversation_cache[conversation_id], keys
+            )
+            doc_list = conversation.get_field("uploaded_documents_list") or []
+            for idx, entry in enumerate(doc_list):
+                doc_id = entry[0]
+                display_name = entry[3] if len(entry) > 3 and entry[3] else ""
+                # Use display_name if available; fall back to doc_id.
+                # Avoid loading DocIndex here — too expensive for autocomplete.
+                title = display_name or doc_id
+                short_summary = ""
+
+                # Filter by prefix
+                match_text = (title + " " + display_name + " " + doc_id).lower()
+                if prefix and prefix not in match_text:
+                    continue
+
+                results.append({
+                    "type": "local",
+                    "index": idx + 1,
+                    "doc_id": doc_id,
+                    "title": title,
+                    "display_name": display_name or title,
+                    "short_summary": short_summary,
+                    "ref": f"#doc_{idx + 1}",
+                })
+        except Exception:
+            logger.exception("docs_autocomplete: error loading conversation docs")
+
+    # --- Global documents ---
+    try:
+        from database.global_docs import list_global_docs
+
+        global_rows = list_global_docs(
+            users_dir=state.users_dir, user_email=email
+        )
+        for idx, row in enumerate(global_rows):
+            display_name = row.get("display_name", "") or ""
+            title = row.get("title", "") or ""
+            doc_id = row.get("doc_id", "")
+            short_summary = row.get("short_summary", "") or ""
+
+            match_text = (
+                title + " " + display_name + " " + doc_id + " " + short_summary
+            ).lower()
+            if prefix and prefix not in match_text:
+                continue
+
+            results.append({
+                "type": "global",
+                "index": idx + 1,
+                "doc_id": doc_id,
+                "title": title,
+                "display_name": display_name or title,
+                "short_summary": short_summary,
+                "ref": f"#gdoc_{idx + 1}",
+            })
+    except Exception:
+        logger.exception("docs_autocomplete: error loading global docs")
+
+    return jsonify({"status": "ok", "docs": results[:limit]})

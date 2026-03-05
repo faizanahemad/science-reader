@@ -660,6 +660,7 @@ function setModalFromState(state) {
             documents: ['document_lookup', 'docs_list_conversation_docs', 'docs_list_global_docs', 'docs_query', 'docs_get_full_text', 'docs_get_info', 'docs_answer_question', 'docs_get_global_doc_info', 'docs_query_global_doc', 'docs_get_global_doc_full_text'],
             pkb: ['pkb_search', 'pkb_get_claim', 'pkb_resolve_reference', 'pkb_get_pinned_claims', 'pkb_add_claim', 'pkb_edit_claim', 'pkb_get_claims_by_ids', 'pkb_autocomplete', 'pkb_resolve_context', 'pkb_pin_claim'],
             memory: ['conv_get_memory_pad', 'conv_set_memory_pad', 'conv_get_history', 'conv_get_user_detail', 'conv_get_user_preference', 'conv_get_messages', 'conv_set_user_detail'],
+            conversation: ['search_messages', 'list_messages', 'read_message', 'get_conversation_details', 'get_conversation_memory_pad', 'search_conversations', 'list_user_conversations', 'get_conversation_summary'],
             code_runner: ['run_python_code'],
             artefacts: ['artefacts_list', 'artefacts_create', 'artefacts_get', 'artefacts_get_file_path', 'artefacts_update', 'artefacts_delete', 'artefacts_propose_edits', 'artefacts_apply_edits'],
             prompts: ['prompts_list', 'prompts_get', 'temp_llm_action', 'prompts_create', 'prompts_update']

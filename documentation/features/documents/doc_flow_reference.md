@@ -38,27 +38,33 @@ Both paths call `uploadFileAsAttachment(file, attId)`:
 
 ### 1.2 API Endpoint
 
-**`POST /attach_doc_to_message/<conversation_id>`** (`endpoints/documents.py`, line 82)
+**`POST /attach_doc_to_message/<conversation_id>`** (`endpoints/documents.py`, line 84)
 
 Function: `attach_doc_to_message_route(conversation_id)`
 
 - Accepts: multipart file upload or JSON `{url: ...}`
 - Saves uploaded file to `storage/pdfs/` (temp area)
-- Calls: `conversation.add_message_attached_document(full_pdf_path)`
+- Calls: `conversation.add_message_attached_document(full_pdf_path, docs_folder=state.docs_folder)`
 - Returns: `{"status": "...", "doc_id": "...", "source": "...", "title": "..."}`
 
 ### 1.3 Backend Python
 
-**`Conversation.add_message_attached_document(pdf_url)`** (`Conversation.py`, line 1741)
+**`Conversation.add_message_attached_document(pdf_url, docs_folder=None)`** (`Conversation.py`, line 1782)
 
-1. Deduplicates by path + basename (lines 1774-1777)
-2. Calls `create_fast_document_index(pdf_url, folder, keys)` → `FastDocIndex`
-3. Appends `(doc_id, doc_storage, doc_source, display_name)` to `message_attached_documents_list` (`display_name` is `None` for message attachments)
+1. Obtains API keys via `self.get_api_keys()` and the existing message-attached list via `self.get_field("message_attached_documents_list")`
+2. **Canonical path** (when `docs_folder` is provided — normal case):
+   - Calls `canonical_docs.store_or_get(docs_folder, u_hash, pdf_url, _build)` where `_build` invokes `create_fast_document_index(pdf_url, canonical_parent, keys)` → `FastDocIndex`
+   - If the content already exists (SHA-256 dedup), returns the existing canonical path instead of re-indexing
+   - Loads the resulting `DocIndex` from the canonical storage path
+3. **Legacy path** (when `docs_folder` is `None` — pre-canonical installs):
+   - Calls `create_fast_document_index(pdf_url, self.documents_path, self.get_api_keys())` → `FastDocIndex`
+   - Stores under `{conv_storage}/uploaded_documents/`
+4. Appends `(doc_id, doc_storage, doc_source)` to `message_attached_documents_list`
    - `doc_storage` points to the canonical path (`storage/documents/{user_hash}/{doc_id}/`) for new uploads. Legacy per-conversation paths are updated to canonical on first load.
-4. Rebuilds `doc_infos` from combined uploaded + message-attached list (lines 1787-1799)
-5. Saves conversation state
+5. Rebuilds `doc_infos` from combined uploaded + message-attached list
+6. Returns the `FastDocIndex`
 
-**`Conversation.get_message_attached_documents(doc_id=None, readonly=False)`** (`Conversation.py`, line 1802)
+**`Conversation.get_message_attached_documents(doc_id=None, readonly=False)`** (`Conversation.py`, line 1841)
 
 - Loads `FastDocIndex` objects from `message_attached_documents_list`
 - Optional filter by `doc_id`
@@ -106,15 +112,19 @@ storage/conversations/{user_email}_{conv_id}/
 
 **UI**: Promote button on attachment strip entry → POST `/promote_message_doc/{conv_id}/{doc_id}`
 
-**API** (`endpoints/documents.py`, line 119): `promote_message_doc_route(conversation_id, document_id)`
+**API** (`endpoints/documents.py`, line 127): `promote_message_doc_route(conversation_id, document_id)`
 
-**Backend** (`Conversation.py`, line 1854): `promote_message_attached_document(doc_id)`
-1. Finds doc in `message_attached_documents_list`
-2. Calls `create_immediate_document_index(doc_source, folder, keys)` → full `ImmediateDocIndex` with FAISS + LLM
-3. Removes from `message_attached_documents_list`
-4. Appends to `uploaded_documents_list`
-5. Rebuilds `doc_infos`
-6. Saves conversation
+**Backend** (`Conversation.py`, line 1893): `promote_message_attached_document(doc_id, docs_folder=None)`
+1. Finds doc tuple in `message_attached_documents_list` by `doc_id`; returns `None` if not found
+2. Removes doc from `message_attached_documents_list`
+3. Obtains API keys via `self.get_api_keys()`
+4. **Canonical path** (when `docs_folder` is provided — normal case):
+   - Calls `canonical_docs.store_or_get(docs_folder, u_hash, actual_source, _build)` where `_build` invokes `create_immediate_document_index()` → full `ImmediateDocIndex` with FAISS + LLM
+5. **Legacy path** (when `docs_folder` is `None`):
+   - Calls `create_immediate_document_index(actual_source, self.documents_path, self.get_api_keys())` directly
+6. Appends `(doc_id, doc_storage, actual_source, None)` to `uploaded_documents_list` (fetched via `self.get_field("uploaded_documents_list")`)
+7. Rebuilds `doc_infos`
+8. Saves conversation
 
 ---
 
@@ -185,23 +195,23 @@ Both managers call `DocsManagerUtils.uploadWithProgress()` for all uploads, so u
 Function: `upload_doc_to_conversation_route(conversation_id)`
 - Accepts: multipart file upload (with optional `display_name` form field) or JSON `{pdf_url, display_name}`
 - Saves uploaded file to `storage/pdfs/`
-- Calls: `conversation.add_fast_uploaded_document(full_pdf_path, display_name=display_name)`
+- Calls: `conversation.add_fast_uploaded_document(full_pdf_path, display_name=display_name, docs_folder=state.docs_folder)`
 - Returns: `{"status": "Indexing started", "doc_id": ..., "source": ..., "title": ..., "display_name": ...}`
 
-**`GET /list_documents_by_conversation/<conversation_id>`** (`endpoints/documents.py`, line 177)
+**`GET /list_documents_by_conversation/<conversation_id>`** (`endpoints/documents.py`, line 184)
 
 Function: `list_documents_by_conversation(conversation_id)`
-- Calls: `conversation.get_uploaded_documents(readonly=True)`
+- Calls: `conversation.get_uploaded_documents(readonly=True, docs_folder=state.docs_folder)`
 - Returns: array of `{"doc_id", "source", "title", "short_summary", "visible", "display_name"}`
   - `display_name` is `null` if not set; UI falls back to `title`
 
-**`DELETE /delete_document_from_conversation/<conversation_id>/<document_id>`** (`endpoints/documents.py`, line 154)
+**`DELETE /delete_document_from_conversation/<conversation_id>/<document_id>`** (`endpoints/documents.py`, line 162)
 
 Function: `delete_document_from_conversation_route(conversation_id, document_id)`
 - Calls: `conversation.delete_uploaded_document(doc_id)`
 - Note: does NOT delete filesystem storage
 
-**`GET /download_doc_from_conversation/<conversation_id>/<doc_id>`** (`endpoints/documents.py`, line 199)
+**`GET /download_doc_from_conversation/<conversation_id>/<doc_id>`** (`endpoints/documents.py`, line 206)
 
 Function: `download_doc_from_conversation(conversation_id, doc_id)`
 - Calls: `conversation.get_uploaded_documents(doc_id, readonly=True)`
@@ -209,22 +219,27 @@ Function: `download_doc_from_conversation(conversation_id, doc_id)`
 
 ### 2.3 Backend Python
 
-**`Conversation.add_fast_uploaded_document(pdf_url, display_name=None)`** (`Conversation.py`, line 1601)
-1. Deduplicates by path + basename
-2. Calls `create_fast_document_index(pdf_url, folder, keys)` → `FastDocIndex`
-3. Sets `doc_index._display_name = display_name`
+**`Conversation.add_fast_uploaded_document(pdf_url, display_name=None, docs_folder=None)`** (`Conversation.py`, line 1616)
+1. Obtains API keys via `self.get_api_keys()` and the existing doc list via `self.get_field("uploaded_documents_list")`
+2. **Canonical path** (when `docs_folder` is provided — normal case):
+   - Calls `canonical_docs.store_or_get(docs_folder, u_hash, pdf_url, _build)` where `_build` invokes `create_fast_document_index(pdf_url, canonical_parent, keys)` → `FastDocIndex`
+   - Sets `doc_index._display_name = display_name` and `doc_index._visible = True`
+   - If the content already exists (SHA-256 dedup), returns the existing canonical path instead of re-indexing
+3. **Legacy path** (when `docs_folder` is `None` — pre-canonical installs):
+   - Calls `create_fast_document_index(pdf_url, self.documents_path, self.get_api_keys())` directly
+   - Stores under `{conv_storage}/uploaded_documents/`
 4. Stores 4-tuple `(doc_id, doc_storage, doc_source, display_name)` in `uploaded_documents_list`
    - For new uploads, `doc_storage` is the canonical path `storage/documents/{user_hash}/{doc_id}/`. Legacy per-conversation paths are migrated transparently.
-5. Rebuilds `doc_infos`
-6. Saves conversation
+5. Rebuilds `doc_infos` from all uploaded docs
+6. Returns the `FastDocIndex`
 
-**`Conversation.get_uploaded_documents(doc_id=None, readonly=False)`** (`Conversation.py`, line 1698)
+**`Conversation.get_uploaded_documents(doc_id=None, readonly=False, docs_folder=None)`** (`Conversation.py`, line 1716)
 - Iterates `uploaded_documents_list` entries; supports both old 3-tuples and new 4-tuples (backward-compatible). If a tuple's `doc_storage` points to a legacy per-conversation path, it is lazily migrated to the canonical store and the tuple is updated in place.
 - Extracts `display_name` from `entry[3]` if present, else `None`.
 - After loading each `DocIndex` from disk, sets `loaded._display_name = display_name` so `get_short_info()` returns it.
 - Optional filter by `doc_id`
 
-**`Conversation.delete_uploaded_document(doc_id)`** (`Conversation.py`, line 1723)
+**`Conversation.delete_uploaded_document(doc_id)`** (`Conversation.py`, line 1764)
 1. Filters `uploaded_documents_list` to remove entry
 2. Rebuilds `doc_infos` with renumbered entries (lines 1733-1739)
 3. Saves conversation
@@ -725,10 +740,11 @@ User → #conversation-docs-button → #conversation-docs-modal
 → DocsManagerUtils.uploadWithProgress('/upload_doc_to_conversation/{id}', file, {displayName})
 → upload_doc_to_conversation_route()   [endpoints/documents.py:27]
    extracts display_name from request.form (file) or request.json (URL)
-→ conversation.add_fast_uploaded_document(path, display_name=display_name)   [Conversation.py:1601]
+→ conversation.add_fast_uploaded_document(path, display_name=display_name, docs_folder=state.docs_folder)   [Conversation.py:1616]
+   keys obtained via self.get_api_keys(); canonical storage via store_or_get()
    sets doc_index._display_name, stores 4-tuple (doc_id, storage, source, display_name)
    storage path is canonical: storage/documents/{user_hash}/{doc_id}/ via store_or_get()
-→ create_fast_document_index()   [DocIndex.py:3066]
+→ create_fast_document_index()   [DocIndex.py:3070]
 → FastDocIndex   (BM25, 1-3s; _display_name=None by default, set after construction)
 → get_short_info() returns {doc_id, source, title, short_summary, display_name}
 → LocalDocsManager.refresh()
@@ -740,9 +756,9 @@ User → paperclip click or page drag-and-drop
 → setupPaperclipAndPageDrop()   [common-chat.js:~2027]
 → uploadFileAsAttachment()
 → POST /attach_doc_to_message/{id}
-→ attach_doc_to_message_route()   [endpoints/documents.py:82]
-→ conversation.add_message_attached_document()   [Conversation.py:1741]
-→ create_fast_document_index()   [DocIndex.py:3066]
+→ attach_doc_to_message_route()   [endpoints/documents.py:84]
+→ conversation.add_message_attached_document(path, docs_folder=state.docs_folder)   [Conversation.py:1782]
+→ create_fast_document_index()   [DocIndex.py:3070]
 → FastDocIndex   (BM25, 1-3s)
 → append to message_attached_documents_list, rebuild doc_infos
 → enrichAttachmentWithDocInfo()
@@ -752,8 +768,8 @@ User → paperclip click or page drag-and-drop
 ```
 User → promote button in attachment strip
 → POST /promote_message_doc/{conv_id}/{doc_id}
-→ promote_message_doc_route()   [endpoints/documents.py:119]
-→ conversation.promote_message_attached_document()   [Conversation.py:1854]
+→ promote_message_doc_route()   [endpoints/documents.py:127]
+→ conversation.promote_message_attached_document(doc_id, docs_folder=state.docs_folder)   [Conversation.py:1893]
 → create_immediate_document_index()   [DocIndex.py:2793]
 → ImmediateDocIndex   (FAISS + LLM, 15-45s)
 → move from message_attached_documents_list → uploaded_documents_list
@@ -789,8 +805,8 @@ User → global docs modal → GlobalDocsManager.upload()
 User → delete button in #conv-docs-list
 → LocalDocsManager.deleteDoc(conversationId, docId)
 → DELETE /delete_document_from_conversation/{id}/{docId}
-→ delete_document_from_conversation_route()   [endpoints/documents.py:154]
-→ conversation.delete_uploaded_document(docId)   [Conversation.py:1723]
+→ delete_document_from_conversation_route()   [endpoints/documents.py:162]
+→ conversation.delete_uploaded_document(docId)   [Conversation.py:1764]
 → filter uploaded_documents_list, rebuild doc_infos
 → LocalDocsManager.refresh()
 Note: filesystem storage NOT deleted by this route (canonical files may be shared across conversations)

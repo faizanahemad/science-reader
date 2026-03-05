@@ -65,6 +65,7 @@ class AppState:
 
     cache: Optional[Any] = None
     limiter: Optional[Any] = None
+    cross_conversation_index: Any = None  # CrossConversationIndex instance
 
 
 _state: Optional[AppState] = None
@@ -85,6 +86,7 @@ def init_state(
     pinned_claims: Any,
     cache: Any = None,
     limiter: Any = None,
+    cross_conversation_index: Any = None,
 ) -> AppState:
     """
     Initialize the process-global AppState used by endpoint modules.
@@ -107,6 +109,7 @@ def init_state(
         pinned_claims=pinned_claims,
         cache=cache,
         limiter=limiter,
+        cross_conversation_index=cross_conversation_index,
     )
     return _state
 

@@ -235,7 +235,7 @@ Global docs use a separate namespace (`#gdoc_N`, `#global_doc_N`). Both can be m
 |------|------|
 | `interface/local-docs-manager.js` | `DocsManagerUtils` + `LocalDocsManager` JS class |
 | `endpoints/documents.py` | Upload, delete, list, download, promote, upgrade endpoints |
-| `Conversation.py` | `add_fast_uploaded_document()`, `get_uploaded_documents()`, `delete_uploaded_document()`, `add_message_attached_document()` |
+| `Conversation.py` | `add_fast_uploaded_document(pdf_url, display_name=None, docs_folder=None)`, `add_message_attached_document(pdf_url, docs_folder=None)`, `promote_message_attached_document(doc_id, docs_folder=None)`, `get_uploaded_documents()`, `delete_uploaded_document()` |
 | `DocIndex.py` | `DocIndex`, `FastDocIndex`, `ImmediateDocIndex`; `get_short_info()` |
 | `canonical_docs.py` | `store_or_get()`, `migrate_doc_to_canonical()`, SHA-256 dedup |
 | `migrate_docs.py` | Eager startup migration of legacy per-conversation paths |
@@ -244,7 +244,7 @@ Global docs use a separate namespace (`#gdoc_N`, `#global_doc_N`). Both can be m
 
 - **`local-docs-manager.js`**: All client-side logic for local docs. Contains both the shared `DocsManagerUtils` (reused by global docs) and the `LocalDocsManager` class. Handles upload progress, drag-and-drop, doc list rendering, and action button wiring.
 - **`endpoints/documents.py`**: Server-side Flask endpoints for all document operations. The upgrade endpoint (`POST /upgrade_doc_index`) lives here alongside upload, delete, list, and download routes.
-- **`Conversation.py`**: The conversation model holds the 4-tuple list and provides methods to add, remove, and query documents. `get_uploaded_documents_for_query()` handles `#doc_N` reference resolution during `reply()`.
+- **`Conversation.py`**: The conversation model holds the 4-tuple list and provides methods to add, remove, promote, and query documents. All add/promote methods accept `docs_folder` to route storage through the canonical doc store (`canonical_docs.store_or_get()`); when `docs_folder` is `None`, the legacy per-conversation path (`self.documents_path`) is used. API keys are obtained internally via `self.get_api_keys()`. `get_uploaded_documents_for_query()` handles `#doc_N` reference resolution during `reply()`.
 - **`DocIndex.py`**: Defines the index class hierarchy. `FastDocIndex` is the lightweight default; `DocIndex` is the full-featured variant; `ImmediateDocIndex` handles message attachments.
 - **`canonical_docs.py`**: Manages the canonical storage layer. `store_or_get()` is the primary entry point, handling SHA-256 hashing, dedup checks, and `FileLock` synchronization.
 - **`migrate_docs.py`**: Runs at server startup. Migrates legacy per-conversation doc storage paths to the canonical layout using a `ThreadPoolExecutor` for parallel processing.

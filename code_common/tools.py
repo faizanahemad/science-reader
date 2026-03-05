@@ -2535,6 +2535,276 @@ def handle_conv_set_user_detail(args: dict, context: ToolContext) -> ToolCallRes
         )
 
 
+# MCP Conversation Message Tools (category: conversation)
+# --- Conversation tool helpers (uses code_common/conversation_search.py) ---
+from code_common.conversation_search import CONVERSATION_TOOLS
+
+def _conv_tool_kwargs(tool_name: str) -> dict:
+    """Return CONVERSATION_TOOLS[tool_name] kwargs suitable for register_tool (strips extra keys)."""
+    return {k: v for k, v in CONVERSATION_TOOLS[tool_name].items() if k in ('name', 'description', 'parameters', 'is_interactive', 'category')}
+
+
+@register_tool(**_conv_tool_kwargs("search_messages"))
+def handle_search_messages(args: dict, context: ToolContext) -> ToolCallResult:
+    """Search conversation messages by keyword using BM25 or text/regex mode.
+
+    Delegates to Conversation.search_messages() and returns ranked results.
+    """
+    conversation_id = args.get("conversation_id", "") or getattr(context, "conversation_id", "")
+    try:
+        conv = _conv_load(conversation_id)
+        if conv is None:
+            return ToolCallResult(
+                tool_id="", tool_name="search_messages",
+                error=f"Conversation not found: {conversation_id}",
+            )
+        query = args.get("query", "")
+        mode = args.get("mode", "bm25")
+        sender_filter = args.get("sender_filter", None)
+        top_k = args.get("top_k", 10)
+        case_sensitive = args.get("case_sensitive", False)
+        min_length = args.get("min_length", None)
+        max_length = args.get("max_length", None)
+        result = conv.search_messages(
+            query=query,
+            mode=mode,
+            sender_filter=sender_filter,
+            top_k=top_k,
+            case_sensitive=case_sensitive,
+            min_length=min_length,
+            max_length=max_length,
+        )
+        return ToolCallResult(
+            tool_id="", tool_name="search_messages",
+            result=_truncate_result(json.dumps(result, default=str)),
+        )
+    except Exception as e:
+        return ToolCallResult(
+            tool_id="", tool_name="search_messages",
+            error=f"Error searching messages: {e}",
+        )
+
+
+@register_tool(**_conv_tool_kwargs("list_messages"))
+def handle_list_messages(args: dict, context: ToolContext) -> ToolCallResult:
+    """List conversation messages with short previews and TLDR summaries.
+
+    Delegates to Conversation.list_messages() and returns paginated results.
+    """
+    conversation_id = args.get("conversation_id", "") or getattr(context, "conversation_id", "")
+    try:
+        conv = _conv_load(conversation_id)
+        if conv is None:
+            return ToolCallResult(
+                tool_id="", tool_name="list_messages",
+                error=f"Conversation not found: {conversation_id}",
+            )
+        start = args.get("start", None)
+        end = args.get("end", None)
+        from_end = args.get("from_end", False)
+        sender_filter = args.get("sender_filter", None)
+        result = conv.list_messages(
+            start=start,
+            end=end,
+            from_end=from_end,
+            sender_filter=sender_filter,
+        )
+        return ToolCallResult(
+            tool_id="", tool_name="list_messages",
+            result=_truncate_result(json.dumps(result, default=str)),
+        )
+    except Exception as e:
+        return ToolCallResult(
+            tool_id="", tool_name="list_messages",
+            error=f"Error listing messages: {e}",
+        )
+
+
+@register_tool(**_conv_tool_kwargs("read_message"))
+def handle_read_message(args: dict, context: ToolContext) -> ToolCallResult:
+    """Read the full content of a specific message by ID or index.
+
+    Delegates to Conversation.read_message() and returns full message data.
+    """
+    conversation_id = args.get("conversation_id", "") or getattr(context, "conversation_id", "")
+    try:
+        conv = _conv_load(conversation_id)
+        if conv is None:
+            return ToolCallResult(
+                tool_id="", tool_name="read_message",
+                error=f"Conversation not found: {conversation_id}",
+            )
+        message_id = args.get("message_id", None)
+        index = args.get("index", None)
+        result = conv.read_message(message_id=message_id, index=index)
+        return ToolCallResult(
+            tool_id="", tool_name="read_message",
+            result=_truncate_result(json.dumps(result, default=str)),
+        )
+    except Exception as e:
+        return ToolCallResult(
+            tool_id="", tool_name="read_message",
+            error=f"Error reading message: {e}",
+        )
+
+
+@register_tool(**_conv_tool_kwargs("get_conversation_details"))
+def handle_get_conversation_details(args: dict, context: ToolContext) -> ToolCallResult:
+    """Get a comprehensive overview of the conversation including metadata.
+
+    Delegates to Conversation.get_conversation_details() and returns full details.
+    """
+    conversation_id = args.get("conversation_id", "") or getattr(context, "conversation_id", "")
+    try:
+        conv = _conv_load(conversation_id)
+        if conv is None:
+            return ToolCallResult(
+                tool_id="", tool_name="get_conversation_details",
+                error=f"Conversation not found: {conversation_id}",
+            )
+        result = conv.get_conversation_details()
+        return ToolCallResult(
+            tool_id="", tool_name="get_conversation_details",
+            result=_truncate_result(json.dumps(result, default=str)),
+        )
+    except Exception as e:
+        return ToolCallResult(
+            tool_id="", tool_name="get_conversation_details",
+            error=f"Error getting conversation details: {e}",
+        )
+
+
+@register_tool(**_conv_tool_kwargs("get_conversation_memory_pad"))
+def handle_get_conversation_memory_pad(args: dict, context: ToolContext) -> ToolCallResult:
+    """Get the conversation's memory pad scratchpad of extracted facts.
+
+    Returns conv.memory_pad text directly — lighter-weight than reading all messages.
+    """
+    conversation_id = args.get("conversation_id", "") or getattr(context, "conversation_id", "")
+    try:
+        conv = _conv_load(conversation_id)
+        if conv is None:
+            return ToolCallResult(
+                tool_id="", tool_name="get_conversation_memory_pad",
+                error=f"Conversation not found: {conversation_id}",
+            )
+        text = conv.memory_pad or ""
+        return ToolCallResult(
+            tool_id="", tool_name="get_conversation_memory_pad",
+            result=_truncate_result(text),
+        )
+    except Exception as e:
+        return ToolCallResult(
+            tool_id="", tool_name="get_conversation_memory_pad",
+            error=f"Error getting conversation memory pad: {e}",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Cross-Conversation Search Tools (category: conversation)
+# --- Uses code_common/cross_conversation_search.py ---
+# ---------------------------------------------------------------------------
+from code_common.cross_conversation_search import CROSS_CONVERSATION_TOOLS
+
+def _cross_conv_tool_kwargs(tool_name: str) -> dict:
+    """Return CROSS_CONVERSATION_TOOLS[tool_name] kwargs suitable for register_tool."""
+    return {k: v for k, v in CROSS_CONVERSATION_TOOLS[tool_name].items()
+            if k in ('name', 'description', 'parameters', 'is_interactive', 'category')}
+
+def _cross_conv_users_dir():
+    """Return users directory path for cross-conv search (same pattern as _conv_users_dir)."""
+    import os as _os
+    storage = _os.environ.get("STORAGE_DIR", "storage")
+    return _os.path.join(_os.getcwd(), storage, "users")
+
+
+@register_tool(**_cross_conv_tool_kwargs("search_conversations"))
+def handle_search_conversations(args: dict, context: ToolContext) -> ToolCallResult:
+    """Search across all user conversations by keyword, phrase, or regex.
+
+    Creates a CrossConversationIndex per call and delegates to index.search().
+    """
+    try:
+        from code_common.cross_conversation_search import CrossConversationIndex
+        index = CrossConversationIndex(_cross_conv_users_dir())
+        user_email = getattr(context, 'user_email', '') or ''
+        results = index.search(
+            user_email=user_email,
+            query=args.get("query", ""),
+            mode=args.get("mode", "keyword"),
+            deep=bool(args.get("deep", False)),
+            workspace_id=args.get("workspace_id") or None,
+            domain=args.get("domain") or None,
+            flag=args.get("flag") or None,
+            date_from=args.get("date_from") or None,
+            date_to=args.get("date_to") or None,
+            sender_filter=args.get("sender_filter") or None,
+            top_k=int(args.get("top_k", 20)),
+        )
+        return ToolCallResult(
+            tool_id="", tool_name="search_conversations",
+            result=_truncate_result(json.dumps(results, default=str)),
+        )
+    except Exception as e:
+        return ToolCallResult(
+            tool_id="", tool_name="search_conversations",
+            error=f"Error searching conversations: {e}",
+        )
+
+
+@register_tool(**_cross_conv_tool_kwargs("list_user_conversations"))
+def handle_list_user_conversations(args: dict, context: ToolContext) -> ToolCallResult:
+    """Browse and filter conversations without a search query."""
+    try:
+        from code_common.cross_conversation_search import CrossConversationIndex
+        index = CrossConversationIndex(_cross_conv_users_dir())
+        user_email = getattr(context, 'user_email', '') or ''
+        results = index.list_conversations(
+            user_email=user_email,
+            workspace_id=args.get("workspace_id") or None,
+            domain=args.get("domain") or None,
+            flag=args.get("flag") or None,
+            date_from=args.get("date_from") or None,
+            date_to=args.get("date_to") or None,
+            sort_by=args.get("sort_by", "last_updated"),
+            limit=int(args.get("limit", 50)),
+            offset=int(args.get("offset", 0)),
+        )
+        return ToolCallResult(
+            tool_id="", tool_name="list_user_conversations",
+            result=_truncate_result(json.dumps(results, default=str)),
+        )
+    except Exception as e:
+        return ToolCallResult(
+            tool_id="", tool_name="list_user_conversations",
+            error=f"Error listing conversations: {e}",
+        )
+
+
+@register_tool(**_cross_conv_tool_kwargs("get_conversation_summary"))
+def handle_get_conversation_summary(args: dict, context: ToolContext) -> ToolCallResult:
+    """Get detailed summary of a specific conversation by ID or friendly ID."""
+    try:
+        from code_common.cross_conversation_search import CrossConversationIndex
+        index = CrossConversationIndex(_cross_conv_users_dir())
+        user_email = getattr(context, 'user_email', '') or ''
+        conversation_id = args.get("conversation_id", "")
+        result = index.get_summary(conversation_id, user_email=user_email)
+        if result is None:
+            return ToolCallResult(
+                tool_id="", tool_name="get_conversation_summary",
+                error=f"Conversation not found: {conversation_id}",
+            )
+        return ToolCallResult(
+            tool_id="", tool_name="get_conversation_summary",
+            result=_truncate_result(json.dumps(result, default=str)),
+        )
+    except Exception as e:
+        return ToolCallResult(
+            tool_id="", tool_name="get_conversation_summary",
+            error=f"Error getting conversation summary: {e}",
+        )
+
 # ---------------------------------------------------------------------------
 # MCP Code Runner Tools (category: code_runner)
 # ---------------------------------------------------------------------------

@@ -4381,3 +4381,240 @@ function initializeChatControlsToggleHandler() {
         setTimeout(initAutocomplete, 600);
     });
 })();
+
+// @doc/ Document Reference Autocomplete
+(function() {
+    'use strict';
+
+    var docAutocompleteState = {
+        active: false,
+        query: '',
+        triggerPosition: -1,
+        selectedIndex: -1,
+        results: [],
+        debounceTimer: null
+    };
+
+    function escapeDocHtml(str) {
+        if (!str) return '';
+        return str.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                  .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+
+    function initDocAutocomplete() {
+        if ($('#doc-autocomplete-dropdown').length) return;
+        $('body').append(
+            '<div id="doc-autocomplete-dropdown" style="' +
+                'display:none;' +
+                'position:fixed;' +
+                'z-index:9999;' +
+                'background:#fff;' +
+                'border:1px solid #ced4da;' +
+                'border-radius:4px;' +
+                'box-shadow:0 4px 12px rgba(0,0,0,0.15);' +
+                'max-height:260px;' +
+                'overflow-y:auto;' +
+                'min-width:280px;' +
+                'max-width:480px;' +
+            '"></div>'
+        );
+
+        var $textarea = $('#messageText');
+        $textarea.off('.docAutocomplete');
+
+        $textarea.on('input.docAutocomplete', function() {
+            handleDocInput(this);
+        });
+
+        $textarea.on('keydown.docAutocomplete', function(e) {
+            if (!docAutocompleteState.active) return;
+            if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                navigateDocAutocomplete(1);
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                navigateDocAutocomplete(-1);
+            } else if (e.key === 'Enter' || e.key === 'Tab') {
+                if (docAutocompleteState.selectedIndex >= 0) {
+                    e.preventDefault();
+                    selectDocItem(docAutocompleteState.selectedIndex);
+                }
+            } else if (e.key === 'Escape') {
+                hideDocAutocomplete();
+            }
+        });
+
+        $textarea.on('blur.docAutocomplete', function() {
+            setTimeout(function() {
+                hideDocAutocomplete();
+            }, 200);
+        });
+    }
+
+    function handleDocInput(textarea) {
+        var val = textarea.value;
+        var cursorPos = textarea.selectionStart;
+        var textBeforeCursor = val.substring(0, cursorPos);
+
+        var match = textBeforeCursor.match(/(^|\s)@doc\/([^\s]*)$/);
+        if (!match) {
+            hideDocAutocomplete();
+            return;
+        }
+
+        var prefix = match[2];
+        var triggerPos = textBeforeCursor.lastIndexOf('@doc/');
+        docAutocompleteState.triggerPosition = triggerPos;
+        docAutocompleteState.query = prefix;
+
+        if (docAutocompleteState.debounceTimer) {
+            clearTimeout(docAutocompleteState.debounceTimer);
+        }
+        docAutocompleteState.debounceTimer = setTimeout(function() {
+            fetchDocAutocomplete(prefix, textarea);
+        }, 150);
+    }
+
+    function fetchDocAutocomplete(prefix, textarea) {
+        var conversationId = ConversationManager.activeConversationId || '';
+        var url = '/docs/autocomplete?conversation_id=' + encodeURIComponent(conversationId) +
+                  '&prefix=' + encodeURIComponent(prefix) +
+                  '&limit=10';
+        $.getJSON(url, function(resp) {
+            if (resp && resp.docs) {
+                docAutocompleteState.results = resp.docs;
+                docAutocompleteState.selectedIndex = -1;
+                if (resp.docs.length > 0) {
+                    docAutocompleteState.active = true;
+                    showDocAutocomplete(textarea);
+                } else {
+                    hideDocAutocomplete();
+                }
+            } else {
+                hideDocAutocomplete();
+            }
+        }).fail(function() {
+            hideDocAutocomplete();
+        });
+    }
+
+    function showDocAutocomplete(textarea) {
+        var $dropdown = $('#doc-autocomplete-dropdown');
+        var results = docAutocompleteState.results;
+        var html = '';
+
+        for (var i = 0; i < results.length; i++) {
+            var doc = results[i];
+            var displayName = escapeDocHtml(doc.display_name || doc.title || doc.ref || '');
+            var refCode = escapeDocHtml(doc.ref || '');
+            var summary = escapeDocHtml((doc.short_summary || '').length > 100 ? (doc.short_summary || '').substring(0, 100) + '…' : (doc.short_summary || ''));
+            var isSelected = (i === docAutocompleteState.selectedIndex);
+            var bgStyle = isSelected ? 'background-color:#e9ecef;' : '';
+
+            var typeBadge = '';
+            if (doc.type === 'global') {
+                typeBadge = '<span class="badge badge-sm ml-1" style="background-color:#28a745;color:white;">global</span>';
+            } else {
+                typeBadge = '<span class="badge badge-sm ml-1" style="background-color:#007bff;color:white;">local</span>';
+            }
+
+            html += '<div class="doc-ac-item" data-index="' + i + '" style="' +
+                'padding:8px 12px;' +
+                'cursor:pointer;' +
+                bgStyle +
+            '">' +
+                '<div style="display:flex;align-items:center;">' +
+                    '<i class="bi bi-file-earmark-text" style="margin-right:6px;color:#6c757d;"></i>' +
+                    '<span style="font-weight:500;font-size:0.9em;">' + displayName + '</span>' +
+                    typeBadge +
+                '</div>' +
+                '<div style="font-size:0.8em;color:#6c757d;margin-top:2px;">' +
+                    '<code>' + refCode + '</code>' +
+                    (summary ? ' &middot; ' + summary : '') +
+                '</div>' +
+            '</div>';
+        }
+
+        $dropdown.html(html);
+
+        var $textarea = $(textarea);
+        var offset = $textarea.offset();
+        var winHeight = $(window).height();
+        var taTop = offset.top - $(window).scrollTop();
+        var taLeft = offset.left - $(window).scrollLeft();
+
+        $dropdown.css({
+            left: taLeft + 'px',
+            top: 'auto',
+            bottom: (winHeight - taTop + 4) + 'px',
+            display: 'block'
+        });
+
+        $dropdown.off('mousedown.docAc').on('mousedown.docAc', '.doc-ac-item', function(e) {
+            e.preventDefault();
+            var idx = parseInt($(this).data('index'), 10);
+            selectDocItem(idx);
+        });
+
+        $dropdown.off('mouseover.docAc').on('mouseover.docAc', '.doc-ac-item', function() {
+            var idx = parseInt($(this).data('index'), 10);
+            docAutocompleteState.selectedIndex = idx;
+            $dropdown.find('.doc-ac-item').css('background-color', '');
+            $(this).css('background-color', '#e9ecef');
+        });
+    }
+
+    function hideDocAutocomplete() {
+        $('#doc-autocomplete-dropdown').hide();
+        docAutocompleteState.active = false;
+        docAutocompleteState.query = '';
+        docAutocompleteState.triggerPosition = -1;
+        docAutocompleteState.selectedIndex = -1;
+        docAutocompleteState.results = [];
+        if (docAutocompleteState.debounceTimer) {
+            clearTimeout(docAutocompleteState.debounceTimer);
+            docAutocompleteState.debounceTimer = null;
+        }
+    }
+
+    function navigateDocAutocomplete(direction) {
+        var results = docAutocompleteState.results;
+        if (!results.length) return;
+        var newIndex = docAutocompleteState.selectedIndex + direction;
+        if (newIndex < 0) newIndex = results.length - 1;
+        if (newIndex >= results.length) newIndex = 0;
+        docAutocompleteState.selectedIndex = newIndex;
+        var $dropdown = $('#doc-autocomplete-dropdown');
+        $dropdown.find('.doc-ac-item').css('background-color', '');
+        $dropdown.find('.doc-ac-item[data-index="' + newIndex + '"]').css('background-color', '#e9ecef');
+    }
+
+    function selectDocItem(index) {
+        var results = docAutocompleteState.results;
+        if (index < 0 || index >= results.length) return;
+        var doc = results[index];
+        var ref = doc.ref || '';
+
+        var $textarea = $('#messageText');
+        var textarea = $textarea[0];
+        var val = textarea.value;
+        var cursorPos = textarea.selectionStart;
+        var triggerPos = docAutocompleteState.triggerPosition;
+
+        var before = val.substring(0, triggerPos);
+        var after = val.substring(cursorPos);
+        var newVal = before + ref + ' ' + after;
+        $textarea.val(newVal);
+
+        var newCursorPos = triggerPos + ref.length + 1;
+        textarea.setSelectionRange(newCursorPos, newCursorPos);
+        $textarea.trigger('focus');
+
+        hideDocAutocomplete();
+    }
+
+    $(document).ready(function() {
+        setTimeout(initDocAutocomplete, 700);
+    });
+
+})();

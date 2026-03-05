@@ -7,30 +7,21 @@
 
 ## Code Style Guidelines
 
-- Follow existing patterns in the file you touch. Do not reformat unrelated code.
-- Indentation: 4 spaces. 
 - Imports: prefer standard library, third-party, then local imports. Avoid reordering imports in legacy files unless you are already editing that import block.
-- Avoid reinventing the wheel, wherever possible use libraries.
+- Avoid reinventing the wheel, wherever possible use libraries. Reusable code is in `code_common/` folder and files named with words like "common", "util", "base", etc.
 - Docstrings: Add docstrings for new public functions/classes (purpose, inputs, outputs).
-- Errors: prefer explicit exceptions and meaningful messages.
 - Logging: loggers are defined at top of file already in most cases and come from `getLoggers` from `loggers.py`.
 
 ### Flask / Endpoints
 
-- Keep endpoints small and delegate logic to helpers or model methods.
 - Use rate limiting decorators where present and consistent with the file.
-- Check for required payload fields and return structured errors.
 - Maintain newline-delimited streaming responses where used elsewhere.
+- Validate inputs early; return 4xx errors for user errors.
 
 ### JavaScript (interface/)
 
 - UI uses jQuery + Bootstrap 4.6. Stick to the existing event handler patterns.
-- Keep DOM selectors scoped and avoid global side effects.
 - When adding buttons/menu entries, wire up handlers in the same module.
-
-## Error Handling and Validation
-
-- Validate inputs early; return 4xx errors for user errors.
 - Avoid silent failures in new code paths; surface errors to UI with `showToast`.
 
 ## Common Entry Points
@@ -48,44 +39,36 @@
 - Planning documents go into documentation/planning/plans and have extension as `.plan.md`.
 
 ## Guidance for Agents
+
 ### Planning guidelines
+
 - Focus on quality and correctness, we have all the time and compute resources.
-- When making a plan or task list, make it more correct by going through more code and details using parallel tools or agent calls.
-- When improving or enhancing a plan, please add more details and corrections to the plam by diving deeper and wider into the code by using multiple parallel agents or tools or LLMs. We got all the money and time in the world.
-- First write down the requirements, describe clearly what are the goals and what we are trying to achieve, what has been asked to do and then think carefully how you will solve it and also write down your plan of solution and break it into tasks and sub-tasks which are granular. Then finally write down code. 
-- Plan strategically, break it into logical small steps, make multiple tasks, and build in an incremental way such that errors or logical mistakes in later tasks don't leave earlier task work unusable. Also note down alternatives and possible challenges that might be revealed while reading the code more deeply so anyone using the plan will be able to carefully execute it while still having autonomy to make decisions for any risks.
-- Ask clarification questions during making a plan, on UX, features needed, implementation, maintainability and other aspects.
-- Plans should have granular milestones and atomic tasks for ease of correctly implementing by a junior dev.
+- When making or improving a plan, go through more code and details using parallel tools or agent calls. Dive deeper and wider.
+- Write down requirements and goals first, then plan the solution, break it into granular tasks and sub-tasks, then write code.
+- Plan strategically in logical small steps. Build incrementally so errors in later tasks don't leave earlier work unusable. Note alternatives and possible challenges so the executor has autonomy to make decisions.
+- Ask clarification questions on UX, features, implementation, and maintainability.
 
 ### Coding guidelines
-- Work hard, read code, read files and code mentioned in chat, and read documentation and indexes and plans as needed, but basically hard work beats shortcuts, so read more.
-- Keep changes minimal and scoped; avoid reformatting large legacy files.
-- When writing code, write modular code as functions and separate modules and then integrate into existing systems.
-- Ensure to write docstrings for functions and classes describing what they do, inputs, outputs and also their overall purpose and why we created them (if known).
-- Make sure to re-use existing code and solutions where ever possible. Reusable code is in files named commonly with words like "common", "util", "base", etc. 
 
-### Context Management and Calling Sub agents
-- For reading large readme, code file (python or js and other languages) or markdown files proceed in 3 steps - 1. `wc -l filename`, if file longer than 50 lines then 2. Call a sub-agent asking it to get an outline structure of the file by grepping for headers (`#`, `##`, `####`, `#####`) and other relevant markdown patterns then 3. Read the exact lines. In case outline parsing with sub-agent/LLM doesn't work then try calling a sub-agent or LLM with your query and ask it to give you outline of the document along with information from the doc about your query and tentative line numbers where you can look at.
-- If multiple files need to be edited and can be done parallely then use sub-agents to edit the code or other files in a parallel manner. Give the location of the plan or task file to the sub-agents so they have more context on what to do.
-- Your context length is small, as such delegate tasks like surveying or reading large files or looking up code in multiple files to get answers to sub-tasks or sub-agents. From the delegated tasks or agents return only important and useful parts to the main agent or context to prevent context bloat. Give the location of the plan or task file to the sub-agents so they have more context on what to do.
-- Breaking tasks and goals into smaller parts, asking sub-agents by delegation to complete them and then the main agent only looking at relevant parts (like api detail or function signature instead of all code, or just survey or grep results or just exact code needed to be read) will help us work faster and save context.
-- Post compaction or summarisation if you are unable to find session context for particular information then use `session_search`, `session_list` and `session_read` tools.
+- Write modular code as functions and separate modules with reusable interfaces, then integrate into existing systems.
+- Apply small patches or edits sequentially and write in small chunks — large chunks are error-prone. When writing an entire new file, create the outline first, then fill gradually.
 
+### Documentation guidelines
 
+- Update docs when you add or change behavior. Docs are markdown files in the documentation folder.
+- When creating or updating documentation, add motivation and background, UI details if applicable, API details, function details, feature details, implementation notes and files modified.
+- Write in markdown format but don't make diagrams. Our docs are intended to be friendly to LLM agents; diagrams are not.
 
-### Other guidelines
-- Update docs when you add or change behavior. Docs are usually markdown files which are within documentation folder.
-- When creating or updating documentation, add motivation and background, UI details if applicable, add api details, function details, feature details, add implementation notes and files modified as well so that later we can use this to further enhance the feature.
-- Write in markdown format but don't make any diagrams. Our docs are intended to be friendly to LLM agents and software agents, diagrams are not friendly to agents.
-- Keep previously added comments and documentation, if they are incorrect then edit and correct them.
-- Apply small patches or edits sequentially. When writing an entire new file, first touch and create the file, then put the outline, then write in chunks and then fill the file gradually.
-- Please write in small parts or chunks. Writing very large chunks is error-prone.
-- Use git status and git diff on tracked files to help know what has changed in repo after you have lost context due to summarization or compaction. Along with using `session_search`, `session_list` and `session_read` tools to get more details from the running chat session.
-- For file tree browsing and knowing what files exist you can use `tree` command (if not present use `ls`).
-- For reading large readme, code file (python or js and other languages) or markdown files proceed in 3 steps - 1. `wc -l filename`, if file longer than 200 lines then 2. Call a sub-agent asking it to get an outline structure of the file by grepping for headers (`#`, `##`, `####`, `#####`) and other relevant markdown patterns then 3. Read the exact lines. In case outline parsing with sub-agent/LLM doesn't work then try calling a sub-agent or LLM with your query and ask it to give you outline of the document along with information from the doc about your query and tentative line numbers where you can look at. Save your own context by delegating to sub-agents for information finding and code location or line finding.
-- If multiple files need to be edited and can be done parallely then use sub-agents to edit the code or other files in a parallel manner.
-- Your context length is small, as such delegate tasks like surveying or reading large files or looking up code in multiple files to get answers. From the delegated tasks or agents return only important and useful parts to the main agent or context to prevent context bloat.
-- We have a lot of time and resources at our hand. Wait patiently for background tasks as well. We should use the results of background tasks rather than cancelling them.
+### Context management and calling sub-agents
+
+- For reading large files (>200 lines): 1. `wc -l filename`, 2. Call a sub-agent to get an outline by grepping for headers and relevant patterns, 3. Read the exact lines needed. If outline parsing doesn't work, call a sub-agent with your query to get relevant info and line numbers.
+- If multiple files need to be edited in parallel, use sub-agents. Give the location of the plan or task file for context.
+- Your context length is small — delegate surveying, reading large files, or looking up code across multiple files to sub-agents. Return only important and useful parts to prevent context bloat.
+- For file tree browsing use `tree` command (if not present use `ls`).
+- After context loss from compaction or summarization, use `git status`, `git diff`, and `session_search`/`session_list`/`session_read` tools to recover context.
+- Wait patiently for background tasks. Use their results rather than cancelling them.
+- Don't delegate documentation or plan writing to sub-agents as they may not have full context. Delegate well-defined code writing, reading, surveying, or search tasks.
 
 ### MCP tool usage guidelines (not for coding)
+
 - Global documents can be listed via `docs_list_global_docs` and retrieved by `doc_storage_path` using `docs_get_full_text` or `docs_query`. If only a `doc_id` is given, list global docs first, match by `doc_id`, then use the corresponding `doc_storage_path` to access content. Always get the user email by decoding the JWT: `echo $MCP_JWT_TOKEN | cut -d'.' -f2 | base64 -d 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['email'])"` — never guess or hardcode the email.

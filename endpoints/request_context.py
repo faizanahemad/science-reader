@@ -43,6 +43,10 @@ def get_conversation_with_keys(state: Any, *, conversation_id: str, keys: Any) -
     `conversation = set_keys_on_docs(conversation, keys)`
     """
 
-    return attach_keys(state.conversation_cache[conversation_id], keys)
+    conversation = attach_keys(state.conversation_cache[conversation_id], keys)
+    # Attach cross-conversation search index for hooks in Conversation methods
+    if not hasattr(conversation, '_cross_conv_index'):
+        conversation._cross_conv_index = getattr(state, 'cross_conversation_index', None)
+    return conversation
 
 

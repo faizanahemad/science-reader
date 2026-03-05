@@ -17,11 +17,16 @@ from database import doubts as doubts
 from database import sections as sections
 from database import users as users
 from database import workspaces as workspaces
+from database import search_index as search_index
 
 # ---------------------------------------------------------------------------
 # Connection / schema
 # ---------------------------------------------------------------------------
 from database.connection import create_connection, create_tables
+from database.search_index import (
+    create_search_tables,
+    get_search_connection,
+)
 
 # ---------------------------------------------------------------------------
 # Conversations
@@ -111,6 +116,7 @@ __all__ = [
     "users",
     "doubts",
     "sections",
+    "search_index",
     # Global configuration
     "configure_users_dir",
     "configure_conversations_users_dir",
@@ -120,6 +126,8 @@ __all__ = [
     # Connection / schema
     "create_connection",
     "create_tables",
+    "create_search_tables",
+    "get_search_connection",
     # Conversations
     "addConversation",
     "checkConversationExists",
@@ -155,6 +163,9 @@ __all__ = [
     # Sections
     "get_section_hidden_details",
     "bulk_update_section_hidden_detail",
-]
+    # Search index
+    "create_search_tables",
+    "get_search_connection",
+    ]
 
 

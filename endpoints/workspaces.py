@@ -210,6 +210,12 @@ def move_conversation_to_workspace(conversation_id: str):
             conversation_id=conversation_id,
             workspace_id=target_workspace_id,
         )
+        # Cross-conversation search: workspace changed (targeted SQL update)
+        try:
+            from database.search_index import update_conversation_workspace
+            update_conversation_workspace(state.users_dir, conversation_id, target_workspace_id)
+        except Exception:
+            pass
         return jsonify(
             {
                 "message": f"Conversation {conversation_id} moved to workspace {target_workspace_id}."

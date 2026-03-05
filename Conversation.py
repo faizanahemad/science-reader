@@ -1172,6 +1172,8 @@ Compact list of bullet points:
             "artefacts",
             "artefact_message_links",
             "conversation_settings",
+
+            "message_search_index",
         ]
 
     def get_conversation_settings(self) -> dict:
@@ -1635,7 +1637,7 @@ Compact list of bullet points:
         """
         if docs_folder is not None:
             u_hash = _canonical_docs.user_hash(self.user_id)
-            _keys = keys  # close over keys for build_fn
+            _keys = self.get_api_keys()  # close over keys for build_fn
             _display_name = display_name
             _pdf_url = pdf_url
             def _build(canonical_parent):
@@ -1651,12 +1653,13 @@ Compact list of bullet points:
                 return None
             doc_index._display_name = display_name or None
         else:
-            doc_index = create_fast_document_index(pdf_url, storage, keys)
+            doc_index = create_fast_document_index(pdf_url, self.documents_path, self.get_api_keys())
             doc_index._visible = True
             doc_index._display_name = display_name or None
             doc_index.save_local()
         doc_id = doc_index.doc_id
         doc_storage = doc_index._storage
+        previous_docs = self.get_field("uploaded_documents_list") or []
         all_docs = previous_docs + [(doc_id, doc_storage, doc_index.doc_source, display_name)]
         self.set_field("uploaded_documents_list", all_docs, overwrite=True)
         current_documents = self.get_uploaded_documents(readonly=True)
@@ -1674,7 +1677,7 @@ Compact list of bullet points:
         # TODO: check file md5 hash to see if it is already uploaded
         if docs_folder is not None:
             u_hash = _canonical_docs.user_hash(self.user_id)
-            _keys = keys
+            _keys = self.get_api_keys()
             _pdf_url = pdf_url
             def _build(canonical_parent):
                 idx = create_immediate_document_index(_pdf_url, canonical_parent, _keys)
@@ -1687,13 +1690,15 @@ Compact list of bullet points:
             if doc_index is None:
                 return None
         else:
-            doc_index: DocIndex = create_immediate_document_index(pdf_url, storage, keys)
+            doc_index: DocIndex = create_immediate_document_index(pdf_url, self.documents_path, self.get_api_keys())
             doc_index._visible = False
             doc_index.save_local()
         doc_id = doc_index.doc_id
         doc_storage = doc_index._storage
+        previous_docs = self.get_field("uploaded_documents_list") or []
         all_docs = previous_docs + [(doc_id, doc_storage, pdf_url)]
 
+        current_documents = self.get_uploaded_documents(readonly=True)
         attached_docs: List[int] = list(range(1, len(current_documents) + 1))
         attached_docs: List[DocIndex] = [
             current_documents[d - 1] for d in attached_docs
@@ -1796,7 +1801,7 @@ Compact list of bullet points:
         """
         if docs_folder is not None:
             u_hash = _canonical_docs.user_hash(self.user_id)
-            _keys = keys
+            _keys = self.get_api_keys()
             _pdf_url = pdf_url
             def _build(canonical_parent):
                 idx = create_fast_document_index(_pdf_url, canonical_parent, _keys)
@@ -1809,11 +1814,12 @@ Compact list of bullet points:
             if doc_index is None:
                 return None
         else:
-            doc_index = create_fast_document_index(pdf_url, storage, keys)
+            doc_index = create_fast_document_index(pdf_url, self.documents_path, self.get_api_keys())
             doc_index._visible = False
             doc_index.save_local()
         doc_id = doc_index.doc_id
         doc_storage = doc_index._storage
+        previous_msg_docs = self.get_field("message_attached_documents_list") or []
         all_msg_docs = previous_msg_docs + [(doc_id, doc_storage, doc_index.doc_source)]
         self.set_field("message_attached_documents_list", all_msg_docs, overwrite=True)
 
@@ -1919,7 +1925,7 @@ Compact list of bullet points:
         # ---- Create full index (slow path — FAISS + LLM) ----
         if docs_folder is not None:
             u_hash = _canonical_docs.user_hash(self.user_id)
-            _keys = keys
+            _keys = self.get_api_keys()
             _actual_source = actual_source
             def _build(canonical_parent):
                 idx = create_immediate_document_index(_actual_source, canonical_parent, _keys)
@@ -1932,7 +1938,7 @@ Compact list of bullet points:
             if full_doc_index is None:
                 return None
         else:
-            full_doc_index = create_immediate_document_index(actual_source, storage, keys)
+            full_doc_index = create_immediate_document_index(actual_source, self.documents_path, self.get_api_keys())
             full_doc_index._visible = True
             full_doc_index.save_local()
 
@@ -3848,6 +3854,20 @@ Your response will be in below xml style format:
             else:
                 msg_set = get_async_future(self.set_messages_field, preserved_messages)
 
+            # Index new messages for BM25 search (non-critical, fail-open)
+            try:
+                self._index_messages_for_search(preserved_messages)
+            except Exception:
+                pass  # Search indexing failure must never block persistence
+
+            # Cross-conversation search index update (non-critical, fail-open)
+            try:
+                if hasattr(self, '_cross_conv_index') and self._cross_conv_index:
+                    self._cross_conv_index.index_new_messages(self, len(preserved_messages))
+                    self._cross_conv_index.update_metadata(self)
+            except Exception:
+                pass  # Cross-conv indexing failure must never block persistence
+
             memory = memory.result()
             if memory is None:
                 memory = dict(running_summary=[])
@@ -3941,6 +3961,12 @@ Your response will be in below xml style format:
         self.set_field("memory", memory)
         memory["title_force_set"] = True
         self.save_local()
+        # Cross-conversation search: title changed
+        try:
+            if hasattr(self, '_cross_conv_index') and self._cross_conv_index:
+                self._cross_conv_index.update_metadata(self)
+        except Exception:
+            pass
 
     def detect_coding_interview_content(self, text):
         """
@@ -4714,6 +4740,12 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         messages = [m for i, m in enumerate(messages) if should_keep(i, m)]
         self.set_messages_field(messages, overwrite=True)
         self.save_local()
+        # Cross-conversation search: message deleted — full reindex needed
+        try:
+            if hasattr(self, '_cross_conv_index') and self._cross_conv_index:
+                self._cross_conv_index.index_conversation(self)
+        except Exception:
+            pass
 
     def edit_message(self, message_id, index, text):
         get_async_future(
@@ -4729,6 +4761,12 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
 
         self.set_messages_field(messages, overwrite=True)
         self.save_local()
+        # Cross-conversation search: message edited — full reindex needed
+        try:
+            if hasattr(self, '_cross_conv_index') and self._cross_conv_index:
+                self._cross_conv_index.index_conversation(self)
+        except Exception:
+            pass
 
     def __call__(self, query, userData=None):
         logger.warning(
@@ -4836,7 +4874,7 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         """Build the system prompt for OpenCode sessions.
 
         Includes user identity and MCP tool usage instructions so the LLM
-        knows how to call PKB and document tools with the correct user_email.
+        Includes user identity, conversation ID, and MCP tool usage instructions so the LLM
 
         Parameters
         ----------
@@ -4853,6 +4891,8 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         if user_email:
             parts.append(f"You are assisting user with email: {user_email}")
             parts.append(f"When calling PKB or document MCP tools, pass user_email='{user_email}'.")
+        if self.conversation_id:
+            parts.append(f"Current conversation ID: {self.conversation_id}. Pass this as conversation_id to conversation MCP tools (search_messages, list_messages, read_message, get_conversation_details, get_conversation_memory_pad).")
 
         title = self.get_field("memory").get("title")
         if title and title != "Start the Conversation":
@@ -5877,7 +5917,9 @@ Any other `/command` is passed through to OpenCode directly.
         prefix=None,
         **kwargs,
     ):
-        preamble = ""
+        # Always prepend the conversation ID so the LLM can pass it to conversation tools
+        # (search_messages, list_messages, read_message, etc.) which require conversation_id.
+        preamble = f"Current conversation ID: {self.conversation_id}\n"
         plot_prefix = f"plot-{prefix}-"
         from flask import request as flask_request
 
@@ -6365,7 +6407,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
     # Tool Calling Framework — settings reader and agentic loop
     # =========================================================================
 
-    def _get_enabled_tools(self, checkboxes):
+    def _get_enabled_tools(self, checkboxes, user_email="", users_dir=""):
         """Read tool settings from query checkboxes and return OpenAI tools param.
         
         Reads 'enable_tool_use' master toggle and 'enabled_tools' from
@@ -6373,12 +6415,20 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         - List of tool names: ["ask_clarification", "web_search", ...]
         - Dict of category booleans: {"clarification": True, "search": True, ...}
         
+        When user_email and users_dir are provided, document tool descriptions
+        are dynamically enriched with the actual list of available documents so
+        the LLM can skip calling list tools.
+        
         Returns None if tools are disabled.
         
         Parameters
         ----------
         checkboxes : dict
             The checkboxes dict from query["checkboxes"].
+        user_email : str, optional
+            Current user email for fetching global docs.
+        users_dir : str, optional
+            Users directory path for global doc DB lookups.
         
         Returns
         -------
@@ -6429,8 +6479,172 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             return None
         
         tools_param = TOOL_REGISTRY.get_openai_tools_param(enabled_names)
+        # Inject dynamic document listings into doc tool descriptions
+        if tools_param and user_email:
+            tools_param = self._inject_dynamic_doc_descriptions(
+                tools_param, user_email, users_dir
+            )
         logger.warning('[_get_enabled_tools] Returning %d tools (first 5: %s)', len(tools_param) if tools_param else 0, [t["function"]["name"] for t in (tools_param or [])[:5]])
         return tools_param if tools_param else None
+
+
+    # -- Dynamic tool description injection for documents ----------------
+
+    _DOC_LIST_CAP = 20  # max docs to inject per tool description
+
+    def _inject_dynamic_doc_descriptions(self, tools_param, user_email, users_dir=""):
+        """Enrich document tool descriptions with currently available docs.
+
+        Appends a compact listing of conversation and/or global documents to
+        the description of doc-related tools so the LLM can skip calling the
+        list tools and go straight to query/full-text.
+
+        Parameters
+        ----------
+        tools_param : list[dict]
+            OpenAI-format tools list (mutated in place for efficiency).
+        user_email : str
+            Current user email for global doc lookup.
+        users_dir : str, optional
+            Users directory for global doc DB. Falls back to common paths.
+
+        Returns
+        -------
+        list[dict]
+            The same tools_param list with enriched descriptions.
+        """
+        if not tools_param:
+            return tools_param
+
+        # Lazy-loaded data (only fetched when a matching tool is found)
+        _global_docs = None  # list[dict] | None
+        _conv_docs = None    # list[tuple] | None
+
+        def _get_global_docs():
+            nonlocal _global_docs
+            if _global_docs is not None:
+                return _global_docs
+            try:
+                from database.global_docs import list_global_docs
+                _users = users_dir
+                if not _users:
+                    # Try common fallback from endpoints.state
+                    try:
+                        from endpoints.state import get_state
+                        st = get_state()
+                        _users = getattr(st, 'users_dir', '') if st else ''
+                    except Exception:
+                        _users = ''
+                if _users:
+                    _global_docs = list_global_docs(
+                        users_dir=_users, user_email=user_email
+                    )
+                else:
+                    _global_docs = []
+            except Exception:
+                logger.debug('_inject_dynamic_doc_descriptions: failed to load global docs', exc_info=True)
+                _global_docs = []
+            return _global_docs
+
+        def _get_conv_docs():
+            nonlocal _conv_docs
+            if _conv_docs is not None:
+                return _conv_docs
+            try:
+                _conv_docs = self.get_field('uploaded_documents_list') or []
+            except Exception:
+                _conv_docs = []
+            return _conv_docs
+
+        def _fmt_global(rows):
+            """Format global docs listing."""
+            cap = self._DOC_LIST_CAP
+            lines = []
+            for idx, row in enumerate(rows[:cap]):
+                name = row.get('display_name') or row.get('title') or row.get('doc_id', '?')
+                path = row.get('doc_storage', '')
+                lines.append(f'  {idx + 1}. {name} (doc_id: {row.get("doc_id", "")}, path: {path})')
+            if len(rows) > cap:
+                lines.append(f'  ... and {len(rows) - cap} more.')
+            return '\n'.join(lines)
+
+        def _fmt_conv(entries):
+            """Format conversation docs listing."""
+            cap = self._DOC_LIST_CAP
+            lines = []
+            for idx, entry in enumerate(entries[:cap]):
+                name = entry[3] if len(entry) > 3 and entry[3] else entry[0]
+                path = entry[1] if len(entry) > 1 else ''
+                lines.append(f'  {idx + 1}. {name} (#doc_{idx + 1}, path: {path})')
+            if len(entries) > cap:
+                lines.append(f'  ... and {len(entries) - cap} more.')
+            return '\n'.join(lines)
+
+        def _fmt_all_paths(conv_entries, global_rows):
+            """Format combined doc_storage_path listing for query/full-text tools."""
+            cap = self._DOC_LIST_CAP
+            lines = []
+            for idx, entry in enumerate(conv_entries[:cap]):
+                name = entry[3] if len(entry) > 3 and entry[3] else entry[0]
+                lines.append(f'  - {name}: {entry[1] if len(entry) > 1 else ""}')
+            for idx, row in enumerate(global_rows[:cap]):
+                name = row.get('display_name') or row.get('title') or row.get('doc_id', '?')
+                lines.append(f'  - {name}: {row.get("doc_storage", "")}')
+            total = len(conv_entries) + len(global_rows)
+            if total > cap * 2:
+                lines.append(f'  ... and more.')
+            return '\n'.join(lines)
+
+        # Names of tools whose descriptions we want to enrich
+        DOC_TOOL_NAMES = {
+            'docs_list_global_docs', 'docs_list_conversation_docs',
+            'docs_query', 'docs_get_full_text', 'docs_get_info',
+            'docs_answer_question', 'docs_get_global_doc_info',
+            'docs_query_global_doc', 'docs_get_global_doc_full_text',
+        }
+
+        for tool in tools_param:
+            func_name = tool.get('function', {}).get('name', '')
+            if func_name not in DOC_TOOL_NAMES:
+                continue
+
+            desc = tool['function']['description']
+
+            if func_name == 'docs_list_global_docs':
+                rows = _get_global_docs()
+                if rows:
+                    desc += '\n\nCurrently available global documents:\n' + _fmt_global(rows)
+                else:
+                    desc += '\n\nNo global documents currently available.'
+
+            elif func_name == 'docs_list_conversation_docs':
+                entries = _get_conv_docs()
+                if entries:
+                    desc += '\n\nCurrently attached conversation documents:\n' + _fmt_conv(entries)
+                else:
+                    desc += '\n\nNo documents attached to this conversation.'
+
+            elif func_name in ('docs_query', 'docs_get_full_text', 'docs_get_info',
+                               'docs_answer_question'):
+                # Inject available doc_storage_paths so LLM can use directly
+                conv = _get_conv_docs()
+                gbl = _get_global_docs()
+                if conv or gbl:
+                    desc += '\n\nAvailable doc_storage_path values:\n' + _fmt_all_paths(conv, gbl)
+
+            elif func_name in ('docs_get_global_doc_info', 'docs_query_global_doc',
+                               'docs_get_global_doc_full_text'):
+                rows = _get_global_docs()
+                if rows:
+                    desc += '\n\nAvailable global doc_id values:\n'
+                    cap = self._DOC_LIST_CAP
+                    for i, row in enumerate(rows[:cap]):
+                        name = row.get('display_name') or row.get('title') or '?'
+                        desc += f'  - {row.get("doc_id", "")}: {name}\n'
+
+            tool['function']['description'] = desc
+
+        return tools_param
 
     def _run_tool_loop(self, prompt, preamble, images, model_name, keys, tools_config,
                        max_iterations=5, tool_response_waiter=None,
@@ -7561,14 +7775,21 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         yield {"text": "", "status": "Preamble got ..."}
         
         # Inject tool awareness into preamble when tools are enabled
-        tools_config = self._get_enabled_tools(checkboxes)
+        tools_config = self._get_enabled_tools(
+            checkboxes,
+            user_email=user_email or '',
+            users_dir=users_dir or '',
+        )
         logger.warning('[reply] tools_config from _get_enabled_tools: %s (count=%d)', 'present' if tools_config else 'None', len(tools_config) if tools_config else 0)
         if tools_config and TOOLS_AVAILABLE:
             tool_descriptions = []
+            # Use the enriched descriptions from tools_config (which have
+            # dynamic doc listings injected) rather than static TOOL_REGISTRY.
+            _tc_descs = {tc['function']['name']: tc['function']['description']
+                         for tc in tools_config}
             for t in TOOL_REGISTRY.get_all_tools():
-                # Only include enabled tools
-                if any(tc["function"]["name"] == t.name for tc in tools_config):
-                    tool_descriptions.append(f"- {t.name}: {t.description}")
+                if t.name in _tc_descs:
+                    tool_descriptions.append(f"- {t.name}: {_tc_descs[t.name]}")
             
             tool_awareness_text = (
                 "\n\n## Available Tools\n"
@@ -10424,6 +10645,330 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
     def get_last_ten_messages(self):
         return self.get_field("messages")[-10:]
+
+    # ------------------------------------------------------------------
+    # Message search, list, read, and conversation detail methods
+    # (Used by conversation-category tools in code_common/tools.py
+    #  and mcp_server/conversation.py)
+    # ------------------------------------------------------------------
+
+    def _get_or_create_search_index(self):
+        """Load the message search index from storage, or build from existing messages.
+
+        If no index exists yet (older conversations), performs a one-time full
+        build by iterating all messages. The result is persisted so subsequent
+        calls are fast.
+
+        Returns
+        -------
+        MessageSearchIndex
+        """
+        from code_common.conversation_search import MessageSearchIndex
+
+        raw = self.get_field("message_search_index")
+        if isinstance(raw, dict) and raw.get("version"):
+            return MessageSearchIndex.from_dict(raw)
+
+        # One-time build from existing messages
+        idx = MessageSearchIndex()
+        messages = self.get_field("messages") or []
+        for msg in messages:
+            mid = msg.get("message_id", "")
+            text = msg.get("text", "")
+            sender = msg.get("sender", "user")
+            if mid and text:
+                idx.add_message(mid, text, sender)
+
+        # Persist so future loads are fast
+        try:
+            self.set_field("message_search_index", idx.to_dict(), overwrite=True)
+        except Exception:
+            pass  # Non-critical
+        return idx
+
+    def _index_messages_for_search(self, messages):
+        """Index new messages into the search index incrementally.
+
+        Called from ``persist_current_turn()`` with the two new messages
+        (user + model). Loads the existing index, appends, and persists.
+
+        Parameters
+        ----------
+        messages : list[dict]
+            Message dicts with ``message_id``, ``text``, ``sender``.
+        """
+        from code_common.conversation_search import MessageSearchIndex
+
+        raw = self.get_field("message_search_index")
+        if isinstance(raw, dict) and raw.get("version"):
+            idx = MessageSearchIndex.from_dict(raw)
+        else:
+            idx = MessageSearchIndex()
+
+        for msg in messages:
+            mid = msg.get("message_id", "")
+            text = msg.get("text", "")
+            sender = msg.get("sender", "user")
+            if mid and text:
+                idx.add_message(mid, text, sender)
+
+        self.set_field("message_search_index", idx.to_dict(), overwrite=True)
+
+    def search_messages(
+        self,
+        query,
+        mode="bm25",
+        sender_filter=None,
+        top_k=10,
+        case_sensitive=False,
+        min_length=None,
+        max_length=None,
+    ):
+        """Search conversation messages by keyword or text pattern.
+
+        Parameters
+        ----------
+        query : str
+            Search query text.
+        mode : str
+            ``'bm25'`` for relevance-ranked search, ``'text'`` for exact
+            substring or regex matching.
+        sender_filter : str or None
+            ``'user'`` or ``'model'`` to restrict results.
+        top_k : int
+            Maximum results to return.
+        case_sensitive : bool
+            For text mode — whether matching is case-sensitive.
+        min_length : int or None
+            Minimum message text length.
+        max_length : int or None
+            Maximum message text length.
+
+        Returns
+        -------
+        list[dict]
+            Search results with message_id, preview/snippet, sender, index.
+        """
+        idx = self._get_or_create_search_index()
+        if mode == "text":
+            return idx.search_text(
+                query,
+                case_sensitive=case_sensitive,
+                sender_filter=sender_filter,
+                min_length=min_length,
+                max_length=max_length,
+                top_k=top_k,
+            )
+        else:
+            return idx.search_bm25(
+                query,
+                top_k=top_k,
+                sender_filter=sender_filter,
+                min_length=min_length,
+                max_length=max_length,
+            )
+
+    def list_messages(
+        self,
+        start=None,
+        end=None,
+        from_end=False,
+        sender_filter=None,
+    ):
+        """List messages with 300-char previews and TLDR if available.
+
+        Parameters
+        ----------
+        start : int or None
+            Start index (0-based inclusive). With from_end, offset from end.
+        end : int or None
+            End index (exclusive). With from_end, offset from end.
+        from_end : bool
+            If True, start/end count backwards from the last message.
+        sender_filter : str or None
+            ``'user'`` or ``'model'`` to filter.
+
+        Returns
+        -------
+        list[dict]
+            Each entry has: index, message_id, sender, preview (300 chars),
+            answer_tldr (if present), show_hide, message_short_hash (if present).
+        """
+        messages = self.get_message_list() or []
+        total = len(messages)
+
+        # Apply range
+        if from_end:
+            s = max(0, total - (end or total))
+            e = total - (start or 0)
+        else:
+            s = start or 0
+            e = end if end is not None else total
+        sliced = messages[s:e]
+
+        results = []
+        for i, msg in enumerate(sliced, start=s):
+            sender = msg.get("sender", "")
+            if sender_filter and sender != sender_filter:
+                continue
+            text = msg.get("text", "")
+            entry = {
+                "index": i,
+                "message_id": msg.get("message_id", ""),
+                "sender": sender,
+                "preview": text[:300],
+                "show_hide": msg.get("show_hide", "show"),
+            }
+            # Include TLDR for model messages if present
+            tldr = msg.get("answer_tldr", "")
+            if tldr:
+                entry["answer_tldr"] = tldr
+            # Include short hash if present
+            short_hash = msg.get("message_short_hash", "")
+            if short_hash:
+                entry["message_short_hash"] = short_hash
+            results.append(entry)
+
+        return results
+
+    def read_message(self, message_id=None, index=None):
+        """Read the full content of a specific message.
+
+        Parameters
+        ----------
+        message_id : str or None
+            Unique message identifier. Provide this OR index.
+        index : int or None
+            Zero-based index. Negative values count from end.
+
+        Returns
+        -------
+        dict or None
+            Full message dict with extracted markdown features and context,
+            or None if not found.
+        """
+        messages = self.get_message_list() or []
+        target = None
+        target_idx = -1
+
+        if message_id:
+            for i, msg in enumerate(messages):
+                if msg.get("message_id") == message_id:
+                    target = msg
+                    target_idx = i
+                    break
+        elif index is not None:
+            # Support negative indices
+            if index < 0:
+                index = len(messages) + index
+            if 0 <= index < len(messages):
+                target = messages[index]
+                target_idx = index
+
+        if target is None:
+            return None
+
+        # Extract markdown features
+        from code_common.conversation_search import extract_markdown_features
+        features = extract_markdown_features(target.get("text", ""))
+
+        # Get context (1 before, 1 after)
+        ctx_start = max(0, target_idx - 1)
+        ctx_end = min(len(messages), target_idx + 2)
+        context_msgs = []
+        for i in range(ctx_start, ctx_end):
+            if i == target_idx:
+                continue
+            m = messages[i]
+            context_msgs.append({
+                "index": i,
+                "message_id": m.get("message_id", ""),
+                "sender": m.get("sender", ""),
+                "preview": m.get("text", "")[:300],
+            })
+
+        result = {
+            "index": target_idx,
+            "message_id": target.get("message_id", ""),
+            "sender": target.get("sender", ""),
+            "text": target.get("text", ""),
+            "show_hide": target.get("show_hide", "show"),
+            "headers": features["headers"],
+            "bold": features["bold"],
+            "italic": features["italic"],
+            "context": context_msgs,
+        }
+        # Include optional fields
+        for key in ("answer_tldr", "config", "message_short_hash", "display_attachments"):
+            if key in target and target[key]:
+                result[key] = target[key]
+        return result
+
+    def get_conversation_details(self):
+        """Get comprehensive conversation overview.
+
+        Returns
+        -------
+        dict
+            Contains: title, summary, message_count, messages (id+hash+sender),
+            documents, artefacts, memory_pad_length, domain, last_updated,
+            conversation_friendly_id, conversation_settings.
+        """
+        memory = self.get_field("memory") or {}
+        messages = self.get_message_list() or []
+
+        # Build message ID list with hashes and sender
+        message_list = []
+        for i, msg in enumerate(messages):
+            entry = {
+                "index": i,
+                "message_id": msg.get("message_id", ""),
+                "sender": msg.get("sender", ""),
+            }
+            if msg.get("message_short_hash"):
+                entry["message_short_hash"] = msg["message_short_hash"]
+            message_list.append(entry)
+
+        # Attached documents
+        doc_list = self.get_field("uploaded_documents_list") or []
+        documents = []
+        for entry in doc_list:
+            doc_id = entry[0] if len(entry) > 0 else ""
+            display = entry[3] if len(entry) > 3 else doc_id
+            documents.append({
+                "doc_id": doc_id,
+                "display_name": display,
+            })
+
+        # Artefacts
+        artefacts = self.get_field("artefacts") or []
+        artefact_list = []
+        for art in artefacts:
+            artefact_list.append({
+                "id": art.get("id", ""),
+                "name": art.get("name", ""),
+                "file_type": art.get("file_type", ""),
+                "size_bytes": art.get("size_bytes", 0),
+            })
+
+        summary = self.running_summary
+        if isinstance(summary, list):
+            summary = "\n".join(summary)
+
+        return {
+            "conversation_id": self.conversation_id,
+            "title": memory.get("title", ""),
+            "summary": summary or "",
+            "message_count": len(messages),
+            "messages": message_list,
+            "documents": documents,
+            "artefacts": artefact_list,
+            "memory_pad_length": len(self.memory_pad.split()) if self.memory_pad else 0,
+            "domain": self.domain,
+            "last_updated": memory.get("last_updated", ""),
+            "conversation_friendly_id": memory.get("conversation_friendly_id", ""),
+            "conversation_settings": self.get_conversation_settings(),
+        }
 
     def get_message_list(self):
         """Return the message list, backfilling message_short_hash for old messages on-the-fly."""

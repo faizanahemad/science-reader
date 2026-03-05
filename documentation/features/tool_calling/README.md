@@ -6,7 +6,7 @@ The LLM Tool Calling Framework adds native, mid-response tool calling to the cha
 
 This transforms the application from a "configure then send" model to a truly agentic one where the LLM reasons about what it needs and acts accordingly. The framework supports multi-step tool chains (up to 5 iterations per turn), interactive tools that pause for user input, and server-side tools that execute silently.
 
-**Key numbers**: 47 tools across 8 categories. 1 interactive tool (`ask_clarification`). Master toggle + per-category toggles. 60-second interactive timeout. 5-iteration hard cap. 12000-character result truncation. Tool use enabled by default with `ask_clarification` pre-selected. Search-intent auto-detection dynamically adds web search tools based on message keywords.
+**Key numbers**: 53 tools across 9 categories. 1 interactive tool (`ask_clarification`). Master toggle + per-category toggles. 60-second interactive timeout. 5-iteration hard cap. 12000-character result truncation. Tool use enabled by default with `ask_clarification` pre-selected. Search-intent auto-detection dynamically adds web search tools based on message keywords.
 
 **Plan reference**: `documentation/planning/plans/llm_tool_calling_framework.plan.md`
 
@@ -17,7 +17,7 @@ This transforms the application from a "configure then send" model to a truly ag
 Tool calling is controlled via the chat settings panel (gear icon in the chat input area):
 
 1. **Master toggle**: "Enable Tools" checkbox -- gates all tool functionality. When OFF, the LLM behaves exactly as before (plain text responses, no tool invocations). **Enabled by default** for new sessions.
-2. **Tool selector dropdown**: When the master toggle is ON, a Bootstrap Select multi-select dropdown appears (`#settings-tool-selector`). This dropdown lists all 47 tools grouped by category using `<optgroup>` elements. Users can:
+2. **Tool selector dropdown**: When the master toggle is ON, a Bootstrap Select multi-select dropdown appears (`#settings-tool-selector`). This dropdown lists all 53 tools grouped by category using `<optgroup>` elements. Users can:
    - **Select/deselect individual tools** -- granular per-tool control
    - **Select/deselect entire categories** -- via the optgroup headers (Bootstrap Select `data-actions-box`)
    - **Search tools by name** -- via `data-live-search` filter
@@ -41,6 +41,7 @@ Settings are persisted per-conversation via the existing chat settings mechanism
 | `code_runner` | 1 | OFF | Run Python code in the project's IPython environment. 120-second execution timeout. Sandboxed. |
 | `artefacts` | 8 | OFF | Conversation artefact (file) management. List, create, get, update, delete artefacts. LLM-powered propose/apply edits. |
 | `prompts` | 5 | OFF | Saved prompts and LLM actions. List, get, create, update prompts. Run ephemeral LLM actions (explain, critique, expand, ELI5). |
+| `conversation` | 5 | OFF | Search, list, and read individual messages. Get conversation overview and memory pad. BM25 keyword search + text/regex matching. |
 
 Categories default to OFF for write-capable or resource-intensive tools (PKB, memory, code_runner, artefacts, prompts) and ON for read-only information retrieval (clarification, search, documents).
 
@@ -258,7 +259,7 @@ Key methods:
 `renderStreamingResponse()` is extended to detect tool event types in JSON-line chunks and dispatch to `ToolCallManager` methods.
 
 **Settings UI** (`interface/interface.html` + `interface/chat.js`):
-Master toggle checkbox (`#settings-enable_tool_use`) controls visibility of the tool selector. When enabled, a Bootstrap Select multi-select dropdown (`#settings-tool-selector`) appears with 8 `<optgroup>` categories and 48 individual tool `<option>` elements. The dropdown supports:
+Master toggle checkbox (`#settings-enable_tool_use`) controls visibility of the tool selector. When enabled, a Bootstrap Select multi-select dropdown (`#settings-tool-selector`) appears with 9 `<optgroup>` categories and 53 individual tool `<option>` elements. The dropdown supports:
 - `data-live-search="true"` -- type-ahead search filtering
 - `data-actions-box="true"` -- Select All / Deselect All buttons
 - `data-selected-text-format="count > 3"` -- shows count when >3 tools selected
@@ -484,19 +485,20 @@ Manual testing checklist:
 
 | File | Type | Description |
 |---|---|---|
-| `code_common/tools.py` | **New** | Tool registry framework: `ToolRegistry`, `ToolDefinition`, `ToolContext`, `ToolCallResult`, `@register_tool` decorator, 48 tool definitions, `TOOL_REGISTRY` singleton |
+| `code_common/tools.py` | **New** | Tool registry framework: `ToolRegistry`, `ToolDefinition`, `ToolContext`, `ToolCallResult`, `@register_tool` decorator, 53 tool definitions (48 original + 5 conversation), `TOOL_REGISTRY` singleton |
 | `code_common/call_llm.py` | Modified | Added `tools` and `tool_choice` parameters to `call_chat_model()` and `call_llm()`. Extended `_extract_text_from_openai_response()` to parse streaming `delta.tool_calls` and yield tool call dicts. |
 | `call_llm.py` (project root) | Modified | Threaded `tools` and `tool_choice` through `CallLLm.__call__()` to the underlying `call_llm()` |
-| `Conversation.py` | Modified | Added `_get_enabled_tools(checkboxes)`, `_run_tool_loop()` generator method, tool-aware branching in `reply()`, preamble injection for tool awareness |
-| `endpoints/conversations.py` | Modified | Added `POST /tool_response/<conversation_id>/<tool_id>` endpoint, `wait_for_tool_response()` function, thread-safe response storage (`_tool_response_events`, `_tool_response_data`, `_tool_response_lock`) |
+| `Conversation.py` | Modified | Added `_get_enabled_tools(checkboxes)`, `_run_tool_loop()` generator method, tool-aware branching in `reply()`, preamble injection for tool awareness, `search_messages()`, `list_messages()`, `read_message()`, `get_conversation_details()`, `_get_or_create_search_index()`, `_index_messages_for_search()`, `message_search_index` in `store_separate` |
+| `endpoints/conversations.py` | Modified | Added `POST /tool_response/<conversation_id>/<tool_id>` endpoint, `wait_for_tool_response()` function, thread-safe response storage (`_tool_response_events`, `_tool_response_data`, `_tool_response_lock`). Added 5 conversation message tools (search, list, read, details, memory pad) |
 | `interface/tool-call-manager.js` | **New** | `ToolCallManager` singleton: inline status indicators, interactive tool modal rendering, MCQ form, response submission, event handler wiring |
-| `interface/interface.html` | Modified | Added Bootstrap Select 1.13.18 CDN (CSS + JS), master "Enable Tools" toggle, `<select multiple id="settings-tool-selector">` with 8 `<optgroup>` categories and 48 tool `<option>` elements, `#tool-call-modal` Bootstrap modal for interactive tools, CSS for dropdown max-height |
-| `interface/chat.js` | Modified | Settings persistence for `enable_tool_use` and `enabled_tools` (reads from selectpicker as array of tool names), `setModalFromState()` with dual-format support (new array + legacy dict via `categoryDefaults` mapping), selectpicker refresh on modal open |
+| `interface/interface.html` | Modified | Added Bootstrap Select 1.13.18 CDN (CSS + JS), master "Enable Tools" toggle, `<select multiple id="settings-tool-selector">` with 9 `<optgroup>` categories and 53 individual tool `<option>` elements, `#tool-call-modal` Bootstrap modal for interactive tools, CSS for dropdown max-height, Conversation optgroup (5 tools) |
+| `interface/chat.js` | Modified | Settings persistence for `enable_tool_use` and `enabled_tools` (reads from selectpicker as array of tool names), `setModalFromState()` with dual-format support (new array + legacy dict via `categoryDefaults` mapping), selectpicker refresh on modal open, `conversation` category in `categoryDefaults` |
 | `interface/common-chat.js` | Modified | Extended `renderStreamingResponse()` to detect and dispatch tool event types (`tool_call`, `tool_status`, `tool_input_request`, `tool_result`) to `ToolCallManager`. Added search-intent auto-detection: `WEB_SEARCH_TOOLS` constant, `SEARCH_INTENT_PATTERNS` (27 regex patterns), `detectSearchIntent()` and `mergeWebSearchTools()` functions, plus inline interception in `sendMessageCallback()` after `mergeOptions()`. |
 | `interface/common.js` | Modified | `getOptions()` reads tool settings from `#settings-tool-selector` selectpicker via IIFE with fallback |
 | `interface/service-worker.js` | Modified | Added `tool-call-manager.js` to precache file list |
+| `code_common/conversation_search.py` | **New** | Shared tool metadata (CONVERSATION_TOOLS dict), markdown extraction (`extract_markdown_features`), BM25 message index (`MessageSearchIndex`), tokenization with unigram+bigram support |
 
-## Tool Inventory (48 Tools)
+## Tool Inventory (53 Tools)
 
 ### clarification (1 tool)
 
@@ -624,6 +626,23 @@ Manual testing checklist:
 - `temp_llm_action`: `action_type` (required, enum: "explain"/"critique"/"expand"/"eli5"/"ask_temp"), `selected_text` (required), `conversation_id` (optional), `user_message` (optional)
 - `prompts_create` / `prompts_update`: `name` (required), `content` (required), `description` (optional), `category` (optional), `tags` (optional)
 
+### conversation (5 tools)
+
+| Tool | Description | Interactive |
+|---|---|---|
+| `search_messages` | Search within conversation messages using BM25 keyword or text/regex matching. | No |
+| `list_messages` | List messages with 300-char preview and TLDR summary. | No |
+| `read_message` | Read full message content by ID or index, with markdown features. | No |
+| `get_conversation_details` | Get conversation overview: title, summary, message IDs, docs, artefacts. | No |
+| `get_conversation_memory_pad` | Get the conversation's auto-updated memory pad of extracted facts. | No |
+
+**Key parameters**:
+- `search_messages`: `conversation_id` (required), `query` (required), `mode` (enum: "bm25"/"text", default "bm25"), `sender_filter` (enum: "user"/"model"), `top_k` (int, default 10), `min_length` (int), `max_length` (int)
+- `list_messages`: `conversation_id` (required), `start` (int), `end` (int), `from_end` (bool, default false), `sender_filter` (enum: "user"/"model")
+- `read_message`: `conversation_id` (required), `message_id` (string) OR `index` (int, supports negative)
+- `get_conversation_details`: `conversation_id` (required)
+- `get_conversation_memory_pad`: `conversation_id` (required)
+
 ## Implementation Notes
 
 1. **Coexistence with `/clarify`**: The tool-based `ask_clarification` and the existing `/clarify` slash command + auto-clarify checkbox are independent systems. `/clarify` is a pre-send mechanism (intercepts before the message reaches the LLM). Tool-based clarification is mid-response (LLM decides to ask). Both can be active simultaneously without conflict.
@@ -644,7 +663,7 @@ Manual testing checklist:
 
 9. **Service worker cache**: When modifying `tool-call-manager.js`, bump both `CACHE_VERSION` in `service-worker.js` and the `?v=N` query parameter in the script tag in `interface.html`.
 
-10. **Handler implementation status**: All 48 tool handlers have real implementations wired to the underlying business logic. No stubs remain. The handlers mirror the exact logic from the MCP server modules (`mcp_server/docs.py`, `mcp_server/pkb.py`, `mcp_server/conversation.py`, `mcp_server/code_runner_mcp.py`, `mcp_server/artefacts.py`, `mcp_server/prompts_actions.py`) and call the same underlying functions (e.g. `DocIndex.semantic_search_document()`, `StructuredAPI.for_user().search()`, `Conversation.list_artefacts()`) directly without going through MCP transport. Helper functions per category (e.g. `_docs_load_doc_index()`, `_get_pkb_api()`, `_conv_load()`, `_art_load_conversation()`, `_get_prompt_manager()`) are defined inline in `code_common/tools.py` before each category's tool registrations.
+10. **Handler implementation status**: All 53 tool handlers have real implementations wired to the underlying business logic. No stubs remain. The handlers mirror the exact logic from the MCP server modules (`mcp_server/docs.py`, `mcp_server/pkb.py`, `mcp_server/conversation.py`, `mcp_server/code_runner_mcp.py`, `mcp_server/artefacts.py`, `mcp_server/prompts_actions.py`) and call the same underlying functions (e.g. `DocIndex.semantic_search_document()`, `StructuredAPI.for_user().search()`, `Conversation.list_artefacts()`) directly without going through MCP transport. Helper functions per category (e.g. `_docs_load_doc_index()`, `_get_pkb_api()`, `_conv_load()`, `_art_load_conversation()`, `_get_prompt_manager()`) are defined inline in `code_common/tools.py` before each category's tool registrations.
 
 11. **HTTP-delegated tools**: Two artefact tools (`artefacts_propose_edits`, `artefacts_apply_edits`) and one prompt tool (`temp_llm_action`) delegate to Flask HTTP endpoints rather than calling business logic directly. This is because these operations involve complex LLM streaming or optimistic concurrency that is already implemented in the Flask endpoints.
 
@@ -664,6 +683,20 @@ Manual testing checklist:
     - **Interception point**: runs in `sendMessageCallback()` immediately after `mergeOptions()` (before `/clarify`, auto-clarify, and PKB slash command interceptions). Wrapped in try/catch with fail-open behavior — if detection throws, the message sends normally without search tools.
     - **No early return**: unlike `/clarify` interception, search-intent detection modifies `options` in-place and lets the send proceed normally.
     - **Example trigger phrases**: "search the web for X", "google Y", "latest news about Z", "find me recent info on", "what's the latest on", "look up", "check online", "news about", "headlines about", "enable web search".
+
+17. **Shared tool metadata**: The 5 conversation-category tools define their names, descriptions, parameter schemas, and usage guidelines in a single dict `CONVERSATION_TOOLS` in `code_common/conversation_search.py`. Both `code_common/tools.py` (tool-calling framework) and `mcp_server/conversation.py` (MCP server) import from this shared source, ensuring descriptions are defined exactly once. The same module also provides `MessageSearchIndex` for BM25+text search and `extract_markdown_features()` for markdown structure extraction.
+
+18. **BM25 message search index**: Conversation messages are incrementally indexed at persist time (`persist_current_turn`). The index stores unigram + bigram tokens with boosted weights for markdown headers and bold text. The `MessageSearchIndex` class serializes to/from JSON (the `BM25Okapi` object is rebuilt lazily from the stored token corpus). Older conversations without an index get a one-time full build on first search. The index is stored as `message_search_index` in `store_separate`.
+
+19. **Dynamic document description injection**: When document tools are enabled, `_get_enabled_tools()` calls `_inject_dynamic_doc_descriptions(tools_param, user_email, users_dir)` (defined at line 6495 in `Conversation.py`) to post-process the OpenAI tools parameter list. This enriches document tool descriptions with the actual list of currently available documents so the LLM can skip calling `docs_list_global_docs` or `docs_list_conversation_docs` and go straight to `docs_query` / `docs_get_full_text` with the correct `doc_storage_path`. The injection is per-tool:
+    - **`docs_list_global_docs`**: Appends a numbered listing of global documents (display_name, doc_id, path) or "No global documents currently available."
+    - **`docs_list_conversation_docs`**: Appends a numbered listing of conversation documents (name, #doc_N, path) or "No documents attached to this conversation."
+    - **`docs_query`, `docs_get_full_text`, `docs_get_info`, `docs_answer_question`**: Appends combined `doc_storage_path` values from both conversation and global docs so the LLM can use them directly.
+    - **`docs_get_global_doc_info`, `docs_query_global_doc`, `docs_get_global_doc_full_text`**: Appends available global `doc_id` values.
+    - **Cap**: `_DOC_LIST_CAP = 20` docs per type to prevent token bloat. Truncated with "... and N more" when exceeded.
+    - **Lazy loading**: Global docs (`list_global_docs`) and conversation docs (`get_field('uploaded_documents_list')`) are only fetched when a matching tool is found in the enabled list, and cached within the method scope.
+    - **Fallback**: If `users_dir` is not provided, falls back to `endpoints.state.get_state().users_dir`.
+    - **Key files**: `Conversation.py` (lines 6491-6647)
 
 ## UI Implementation Details
 

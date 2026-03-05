@@ -1,6 +1,6 @@
 # MCP Server Setup and Operations
 
-How to set up, configure, and operate the 8 MCP servers that provide tools to OpenCode (and potentially other MCP clients like Claude Code or OpenClaw).
+How to set up, configure, and operate the MCP servers that provide tools to OpenCode (and potentially other MCP clients like Claude Code or OpenClaw).
 
 For feature details and architecture of the web search server, see `documentation/features/mcp_web_search_server/README.md`.
 
@@ -8,7 +8,7 @@ For feature details and architecture of the web search server, see `documentatio
 
 ## Architecture Overview
 
-The science-reader process (`python server.py`) starts the Flask web app **and** spawns 7 MCP servers as daemon threads. An 8th MCP server (pdf-reader) runs as a local npx process managed by OpenCode.
+The science-reader process (`python server.py`) starts the Flask web app **and** spawns 7 MCP servers as daemon threads. Two additional MCP servers run as local npx processes managed by OpenCode.
 
 ```
 python server.py
@@ -21,13 +21,14 @@ python server.py
   ├── Prompts MCP       (port 8105)  — mcp_server/prompts_actions.py
   └── Code Runner MCP   (port 8106)  — mcp_server/code_runner_mcp.py
 
-OpenCode (port 3000)
-  └── pdf-reader MCP    (local npx)  — @sylphx/pdf-reader-mcp
+OpenCode (port 4096)
+  ├── pdf-reader MCP    (local npx)  — @sylphx/pdf-reader-mcp
+  └── context7 MCP      (local npx)  — @upstash/context7-mcp
 ```
 
-All 7 remote MCP servers use JWT bearer-token authentication with the same `MCP_JWT_SECRET`. The pdf-reader is a local stdio-based server that doesn't need auth.
+All 7 remote MCP servers use JWT bearer-token authentication with the same `MCP_JWT_SECRET`. The pdf-reader and context7 are local stdio-based servers managed by OpenCode that don't need auth.
 
-**Total tools: 37** across all 8 servers.
+**Total tools: 49** across all 9 servers (7 remote + 2 local npx).
 
 ---
 
@@ -191,10 +192,10 @@ All should return `{"status":"ok"}`. The health endpoint is unauthenticated.
 
 OpenCode uses two config files in the project root:
 
-- **`opencode.json`** — 7 remote MCP servers (web-search through code-runner)
-- **`opencode.jsonc`** — 1 local MCP server (pdf-reader via npx)
+- **`opencode.json`** — 7 remote MCP servers (web-search through code-runner) + 2 local MCPs (pdf-reader, context7)
 
-### opencode.json (7 remote servers)
+
+### opencode.json (full config — 7 remote + 2 local)
 
 ```json
 {
@@ -248,12 +249,19 @@ OpenCode uses two config files in the project root:
       "oauth": false,
       "headers": { "Authorization": "Bearer {env:MCP_JWT_TOKEN}" },
       "enabled": true
+    },
+    "context7": {
+      "type": "local",
+      "command": ["npx", "-y", "@upstash/context7-mcp"],
+      "enabled": true
     }
   }
 }
 ```
 
-### opencode.jsonc (local pdf-reader)
+### opencode.jsonc (separate local-only config, legacy)
+
+If running OpenCode with a separate `opencode.jsonc` for local servers only:
 
 ```jsonc
 {
@@ -262,6 +270,11 @@ OpenCode uses two config files in the project root:
     "pdf-reader": {
       "type": "local",
       "command": ["npx", "-y", "@sylphx/pdf-reader-mcp"],
+      "enabled": true
+    },
+    "context7": {
+      "type": "local",
+      "command": ["npx", "-y", "@upstash/context7-mcp"],
       "enabled": true
     }
   }
@@ -299,7 +312,7 @@ Repeat for each server (ports 8101-8106) with appropriate names.
 
 ---
 
-## 5. Tool Reference (All 36 Tools)
+## 5. Tool Reference (All 49 Tools)
 
 ### Web Search (port 8100) — 4 tools
 
@@ -378,7 +391,7 @@ The Documents MCP server (port 8102) exposes different tool sets depending on th
 | `artefacts_propose_edits` | LLM-generated edit proposals | `artefact_id`, `instruction` |
 | `artefacts_apply_edits` | Apply proposed edits | `artefact_id`, `base_hash`, `ops` |
 
-### Conversation (port 8104) — 7 tools
+### Conversation (port 8104) — 12 tools
 
 | Tool | Description | Key params |
 |------|-------------|------------|
@@ -389,6 +402,14 @@ The Documents MCP server (port 8102) exposes different tool sets depending on th
 | `conv_get_user_preference` | Get stored user preferences | — |
 | `conv_get_messages` | Get raw message list | `conversation_id` |
 | `conv_set_user_detail` | Update persistent user memory | `text` |
+| `search_messages` | Search messages by keyword (BM25) or regex | `conversation_id`, `query` |
+| `list_messages` | List messages with 300-char preview and TLDR | `conversation_id` |
+| `read_message` | Read full message content by ID or index | `conversation_id`, `message_id` or `index` |
+| `get_conversation_details` | Overview: title, summary, doc list, artefacts | `conversation_id` |
+| `get_conversation_memory_pad` | Auto-updated memory pad of extracted facts | `conversation_id` |
+| `search_conversations` | Search across ALL conversations by keyword/phrase/regex | `query`, `mode`, `deep` |
+| `list_user_conversations` | Browse/filter conversations without search query | `workspace_id`, `flag`, `sort_by` |
+| `get_conversation_summary` | Detailed summary of a conversation by ID/friendly ID | `conversation_id` |
 
 ### Prompts & Actions (port 8105) — 5 tools
 
@@ -411,6 +432,13 @@ The Documents MCP server (port 8102) exposes different tool sets depending on th
 | Tool | Description | Key params |
 |------|-------------|------------|
 | `read_pdf` | Read content/metadata/images from PDFs | `sources`, `include_full_text`, `include_images` |
+
+### Context7 (local npx) — 2 tools
+
+| Tool | Description | Key params |
+|------|-------------|------------|
+| `resolve-library-id` | Resolve a library name to a Context7-compatible library ID | `libraryName` |
+| `get-library-docs` | Fetch documentation for a library by ID | `context7CompatibleLibraryID`, `topic`, `page` |
 
 ---
 
@@ -600,7 +628,7 @@ opencode web --port 3000 --hostname 127.0.0.1
 | `mcp_server/pkb.py` | PKB MCP — 6 knowledge base tools (port 8101) |
 | `mcp_server/docs.py` | Documents MCP — 4 document tools (port 8102) |
 | `mcp_server/artefacts.py` | Artefacts MCP — 8 file management tools (port 8103) |
-| `mcp_server/conversation.py` | Conversation MCP — 7 memory/history tools (port 8104) |
+| `mcp_server/conversation.py` | Conversation MCP — 15 memory/history/search tools (port 8104) |
 | `mcp_server/prompts_actions.py` | Prompts MCP — 5 prompt/action tools (port 8105) |
 | `mcp_server/code_runner_mcp.py` | Code Runner MCP — 1 Python execution tool (port 8106) |
 | `server.py` | Integration point (calls all `start_*_mcp_server()` in `main()`) |

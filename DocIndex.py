@@ -616,14 +616,14 @@ class MultiFacetDocSummarizer:
         ---
         
         (continue for all questions)
-        """).format(math_instructions="", text=full_text, questions="{questions}")
+        """)
 
         # Launch answer generation in parallel for each question batch
         answer_futures = []
         for questions in all_questions:
             if questions.strip():  # Only process non-empty question batches
                 llm_answerer = self._get_llm()
-                prompt = answer_prompt_template.format(questions=questions)
+                prompt = answer_prompt_template.format(math_instructions="", text=full_text, questions=questions)
                 future = get_async_future(
                     llm_answerer, prompt, temperature=0.6, stream=False
                 )

@@ -308,6 +308,219 @@ def create_conversation_mcp_app(
             return json.dumps({"success": False, "error": str(exc)})
 
     # -----------------------------------------------------------------
+    # Tool 8: search_messages
+    # -----------------------------------------------------------------
+
+    from code_common.conversation_search import CONVERSATION_TOOLS
+
+    @mcp.tool()
+    def search_messages(
+        user_email: str,
+        conversation_id: str,
+        query: str,
+        mode: str = "bm25",
+        sender_filter: str | None = None,
+        top_k: int = 10,
+        case_sensitive: bool = False,
+        min_length: int | None = None,
+        max_length: int | None = None,
+    ) -> str:
+        """Search within the current conversation's messages by keyword. Supports two modes: 'bm25' for relevance-ranked keyword search (best for topical queries like 'machine learning', 'error handling'), and 'text' for exact substring or regex matching (best for finding specific phrases, code snippets, or names). Use this when the user asks to find, recall, or locate something said earlier in the conversation. Prefer 'bm25' mode by default; use 'text' mode when the user wants an exact phrase match. Results include a preview snippet, sender role, and message index. Combine with read_message to get full message content."""
+        try:
+            conv = _load_conversation(conversation_id)
+            if conv is None:
+                return f"Error: conversation '{conversation_id}' not found."
+            result = conv.search_messages(
+                query=query,
+                mode=mode,
+                sender_filter=sender_filter,
+                top_k=top_k,
+                case_sensitive=case_sensitive,
+                min_length=min_length,
+                max_length=max_length,
+            )
+            return json.dumps(result, default=str)
+        except Exception as exc:
+            logger.exception("search_messages error: %s", exc)
+            return f"Error: {exc}"
+
+    # -----------------------------------------------------------------
+    # Tool 9: list_messages
+    # -----------------------------------------------------------------
+
+    @mcp.tool()
+    def list_messages(
+        user_email: str,
+        conversation_id: str,
+        start: int | None = None,
+        end: int | None = None,
+        from_end: bool = False,
+        sender_filter: str | None = None,
+    ) -> str:
+        """List messages in the current conversation with a short preview. Each result includes the message index, message_id, sender role, the first 300 characters of text, and the TLDR summary (if the assistant message has one). Use this to get an overview of conversation contents, browse messages by position, or find a specific message to read in full. Supports slicing by index range (from start or from end) and filtering by sender."""
+        try:
+            conv = _load_conversation(conversation_id)
+            if conv is None:
+                return f"Error: conversation '{conversation_id}' not found."
+            result = conv.list_messages(
+                start=start,
+                end=end,
+                from_end=from_end,
+                sender_filter=sender_filter,
+            )
+            return json.dumps(result, default=str)
+        except Exception as exc:
+            logger.exception("list_messages error: %s", exc)
+            return f"Error: {exc}"
+
+    # -----------------------------------------------------------------
+    # Tool 10: read_message
+    # -----------------------------------------------------------------
+
+    @mcp.tool()
+    def read_message(
+        user_email: str,
+        conversation_id: str,
+        message_id: str = "",
+        index: int | None = None,
+    ) -> str:
+        """Read the full content of a specific message by its message_id or by its numeric index in the conversation. Returns the complete message text, sender, message_id, any extracted markdown headers, bold and italic text, and context (adjacent messages). Use this after search_messages or list_messages to get full content of a message of interest."""
+        try:
+            conv = _load_conversation(conversation_id)
+            if conv is None:
+                return f"Error: conversation '{conversation_id}' not found."
+            result = conv.read_message(message_id=message_id, index=index)
+            return json.dumps(result, default=str)
+        except Exception as exc:
+            logger.exception("read_message error: %s", exc)
+            return f"Error: {exc}"
+
+    # -----------------------------------------------------------------
+    # Tool 11: get_conversation_details
+    # -----------------------------------------------------------------
+
+    @mcp.tool()
+    def get_conversation_details(user_email: str, conversation_id: str) -> str:
+        """Get a comprehensive overview of the conversation: title, summary, total message count with message IDs and short hashes, attached documents with their titles, artefacts in the conversation, conversation settings, and metadata like domain and last-updated timestamp. Use this to orient yourself within a conversation before diving into specific messages or documents. Also useful when the user asks 'what have we discussed?' or 'what files are attached?'."""
+        try:
+            conv = _load_conversation(conversation_id)
+            if conv is None:
+                return f"Error: conversation '{conversation_id}' not found."
+            result = conv.get_conversation_details()
+            return json.dumps(result, default=str)
+        except Exception as exc:
+            logger.exception("get_conversation_details error: %s", exc)
+            return f"Error: {exc}"
+
+    # -----------------------------------------------------------------
+    # Tool 12: get_conversation_memory_pad
+    # -----------------------------------------------------------------
+
+    @mcp.tool()
+    def get_conversation_memory_pad(user_email: str, conversation_id: str) -> str:
+        """Get the conversation's memory pad — a running scratchpad of extracted facts, key numbers, user preferences, and accumulated knowledge from the conversation so far. The memory pad is auto-updated after each turn with important details from the user's query and assistant's response. Use this when you need a factual summary of what has been discussed, or when the user asks about specific details, numbers, or decisions made earlier. Lighter-weight than searching through all messages."""
+        try:
+            conv = _load_conversation(conversation_id)
+            if conv is None:
+                return f"Error: conversation '{conversation_id}' not found."
+            return conv.memory_pad or ""
+        except Exception as exc:
+            logger.exception("get_conversation_memory_pad error: %s", exc)
+            return f"Error: {exc}"
+
+
+    # -----------------------------------------------------------------
+    # Tool 13: search_conversations (cross-conversation search)
+    # -----------------------------------------------------------------
+
+    @mcp.tool()
+    def search_conversations(
+        user_email: str,
+        query: str,
+        mode: str = "keyword",
+        deep: bool = False,
+        workspace_id: str = "",
+        date_from: str = "",
+        date_to: str = "",
+        flag: str = "",
+        sender_filter: str = "",
+        top_k: int = 20,
+    ) -> str:
+        """Search across ALL of the user's conversations by keyword, phrase, or regex. Use this when the user asks to find something they discussed in a previous conversation, or when they reference past work without specifying which conversation. Returns matching conversations with title, date, snippet showing where the match is, conversation ID, and friendly ID. Use 'deep' mode to also search within message headers and key terms (slower but more thorough). Combine with get_conversation_summary for full details of a specific result."""
+        try:
+            from code_common.cross_conversation_search import CrossConversationIndex
+            index = CrossConversationIndex(_users_dir())
+            results = index.search(
+                user_email=user_email,
+                query=query,
+                mode=mode,
+                deep=deep,
+                workspace_id=workspace_id or None,
+                domain=None,
+                flag=flag or None,
+                date_from=date_from or None,
+                date_to=date_to or None,
+                sender_filter=sender_filter or None,
+                top_k=top_k,
+            )
+            return json.dumps(results, default=str)
+        except Exception as exc:
+            logger.exception("search_conversations error: %s", exc)
+            return f"Error: {exc}"
+
+    # -----------------------------------------------------------------
+    # Tool 14: list_user_conversations (cross-conversation browse)
+    # -----------------------------------------------------------------
+
+    @mcp.tool()
+    def list_user_conversations(
+        user_email: str,
+        workspace_id: str = "",
+        domain: str = "",
+        flag: str = "",
+        date_from: str = "",
+        date_to: str = "",
+        sort_by: str = "last_updated",
+        limit: int = 50,
+        offset: int = 0,
+    ) -> str:
+        """Browse and filter the user's conversations WITHOUT a search query. Use this when the user wants to see their recent conversations, browse by workspace or domain, or filter by date range or flag color. Returns conversation titles, dates, message counts, and IDs. Supports pagination via offset parameter."""
+        try:
+            from code_common.cross_conversation_search import CrossConversationIndex
+            index = CrossConversationIndex(_users_dir())
+            results = index.list_conversations(
+                user_email=user_email,
+                workspace_id=workspace_id or None,
+                domain=domain or None,
+                flag=flag or None,
+                date_from=date_from or None,
+                date_to=date_to or None,
+                sort_by=sort_by,
+                limit=limit,
+                offset=offset,
+            )
+            return json.dumps(results, default=str)
+        except Exception as exc:
+            logger.exception("list_user_conversations error: %s", exc)
+            return f"Error: {exc}"
+
+    # -----------------------------------------------------------------
+    # Tool 15: get_conversation_summary (cross-conversation detail)
+    # -----------------------------------------------------------------
+
+    @mcp.tool()
+    def get_conversation_summary(user_email: str, conversation_id: str) -> str:
+        """Get a detailed summary of a specific conversation by its ID or friendly ID. Returns: title, full running summary, message count, date range, workspace, domain, flag, top message TLDRs as highlights, and memory pad excerpt. Use after search_conversations to get details on a specific result."""
+        try:
+            from code_common.cross_conversation_search import CrossConversationIndex
+            index = CrossConversationIndex(_users_dir())
+            result = index.get_summary(conversation_id, user_email=user_email)
+            if result is None:
+                return f"Error: conversation '{conversation_id}' not found in search index."
+            return json.dumps(result, default=str)
+        except Exception as exc:
+            logger.exception("get_conversation_summary error: %s", exc)
+            return f"Error: {exc}"
     # Build the Starlette ASGI app with middleware layers
     # -----------------------------------------------------------------
 

@@ -331,6 +331,7 @@ Location: `interface/shared.js`
 ### Document view alongside chat
 - Document list and viewer are rendered via `ChatManager.renderDocuments()` and `showPDF()`.
 - The chat UI does not reflow the message list when documents are loaded; PDF view toggles independently.
+- For full document upload/attachment/promote/query flow details, see `documentation/features/documents/doc_flow_reference.md`.
 
 ### Cancellation and error states
 - The streaming controller is stored in `currentStreamingController` and can be cancelled via the stop button.
