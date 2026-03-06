@@ -593,7 +593,7 @@ def start_conversation_mcp_server() -> None:
             logger.info("Conversation MCP server starting on port %d", port)
             uvicorn.run(
                 app,
-                host="0.0.0.0",
+                host="127.0.0.1",
                 port=port,
                 log_level="info",
             )
