@@ -1929,6 +1929,9 @@ Compact list of bullet points:
             keys = self.get_api_keys()
             for d in docs:
                 d.set_api_keys(keys)
+                d.set_model_overrides(
+                    self.get_conversation_settings().get("model_overrides", {})
+                )
         return docs
 
 
