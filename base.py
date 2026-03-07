@@ -245,7 +245,7 @@ Only provide answer from the document given above.
                 self.get_one,
                 "Provide a short summary",
                 document,
-                CHEAP_LONG_CONTEXT_LLM[0],
+                model_name,
                 16_000,
             )
             document = " ".join(document.split()[:limit])
@@ -280,6 +280,7 @@ Only provide answer from the document given above.
         context,
         document,
         retriever: Optional[Callable[[str, Optional[int]], str]] = None,
+        preferred_model=None,
     ):
         fragments_text = self.get_relevant_text(context, document, retriever)
         context_len = get_gpt4_word_count(context)
@@ -294,14 +295,9 @@ Only provide answer from the document given above.
         logger.info(
             f"[ContextualReader] RAG module: context_len = {context_len}, fragments_text_len = {fragments_text_len}, prompt_len = {prompt_len}"
         )
-        # join_method = lambda x, y: "Details from one LLM that read the document:\n<|LLM_1|>\n" + str(
-        #     x) + "\n<|/LLM_1|>\n\nDetails from second LLM which read the document:\n<|LLM_2|>\n" + str(
-        #     y) + "\n<|/LLM_2|>"
-        # result = join_two_futures(get_async_future(CallLLm(self.keys, model_name=CHEAP_LONG_CONTEXT_LLM[0]), prompt, temperature=0.4, stream=False),
-        #                           get_async_future(CallLLm(self.keys, model_name=VERY_CHEAP_LLM[0]), prompt, temperature=0.4, stream=False), join_method
-        #                           )
 
-        cheap_llm = CallLLm(self.keys, model_name=CHEAP_LONG_CONTEXT_LLM[1])
+        rag_model = preferred_model or CHEAP_LONG_CONTEXT_LLM[1]
+        cheap_llm = CallLLm(self.keys, model_name=rag_model)
         result = cheap_llm(prompt, temperature=0.4, stream=False)
 
         assert isinstance(result, str)
@@ -430,7 +426,7 @@ Only provide answer from the document given above.
                 self.get_one,
                 context_user_query,
                 text_document,
-                CHEAP_LONG_CONTEXT_LLM[1],
+                preferred_model,
                 400_000,
             ),
             get_async_future(
@@ -471,7 +467,7 @@ Only provide answer from the document given above.
                 self.get_one_chunked,
                 context_user_query,
                 text_document,
-                CHEAP_LLM[0],
+                preferred_model,
                 100_000,
                 32_000,
                 2_000,
@@ -480,7 +476,7 @@ Only provide answer from the document given above.
                 initial_reading, chunked_reading, join_method
             )
         main_future = get_async_future(
-            self.get_one_with_rag, context_user_query, text_document, retriever
+            self.get_one_with_rag, context_user_query, text_document, retriever, preferred_model
         )
         if global_reading is None:
             global_reading = initial_reading

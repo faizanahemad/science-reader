@@ -250,9 +250,7 @@ def get_model_catalog():
         "artefact_propose_edits_model": EXPENSIVE_LLM[2],
         "doubt_clearing_model": EXPENSIVE_LLM[2],
         "context_action_model": EXPENSIVE_LLM[2],
-        "doc_long_summary_model": CHEAP_LONG_CONTEXT_LLM[0],
-        "doc_long_summary_v2_model": CHEAP_LONG_CONTEXT_LLM[0],
-        "doc_short_answer_model": CHEAP_LONG_CONTEXT_LLM[0],
+        "doc_model": CHEAP_LONG_CONTEXT_LLM[0],
     }
     return jsonify({"models": models, "defaults": defaults})
 
@@ -308,9 +306,7 @@ def set_conversation_settings(conversation_id: str):
         "artefact_propose_edits_model",
         "doubt_clearing_model",
         "context_action_model",
-        "doc_long_summary_model",
-        "doc_long_summary_v2_model",
-        "doc_short_answer_model",
+        "doc_model",
         "clarify_intent_model",
     }
     normalized_overrides = {}

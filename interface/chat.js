@@ -801,9 +801,7 @@ function loadConversationModelOverrides(conversationId) {
                 setModelOverrideValue('#settings-artefact-propose-model', overrides.artefact_propose_edits_model || '', DEFAULT_MODEL_OVERRIDES.artefact_propose_edits_model);
                 setModelOverrideValue('#settings-doubt-clearing-model', overrides.doubt_clearing_model || '', DEFAULT_MODEL_OVERRIDES.doubt_clearing_model);
                 setModelOverrideValue('#settings-context-action-model', overrides.context_action_model || '', DEFAULT_MODEL_OVERRIDES.context_action_model);
-                setModelOverrideValue('#settings-doc-long-summary-model', overrides.doc_long_summary_model || '', DEFAULT_MODEL_OVERRIDES.doc_long_summary_model);
-                setModelOverrideValue('#settings-doc-long-summary-v2-model', overrides.doc_long_summary_v2_model || '', DEFAULT_MODEL_OVERRIDES.doc_long_summary_v2_model);
-                setModelOverrideValue('#settings-doc-short-answer-model', overrides.doc_short_answer_model || '', DEFAULT_MODEL_OVERRIDES.doc_short_answer_model);
+                setModelOverrideValue('#settings-doc-model', overrides.doc_model || '', DEFAULT_MODEL_OVERRIDES.doc_model);
                 setModelOverrideValue('#settings-clarify-intent-model', overrides.clarify_intent_model || '', DEFAULT_MODEL_OVERRIDES.clarify_intent_model);
                 $('#model-overrides-modal').modal('show');
             },
@@ -822,9 +820,7 @@ function saveConversationModelOverrides(conversationId) {
         artefact_propose_edits_model: getModelOverrideValue('#settings-artefact-propose-model'),
         doubt_clearing_model: getModelOverrideValue('#settings-doubt-clearing-model'),
         context_action_model: getModelOverrideValue('#settings-context-action-model'),
-        doc_long_summary_model: getModelOverrideValue('#settings-doc-long-summary-model'),
-        doc_long_summary_v2_model: getModelOverrideValue('#settings-doc-long-summary-v2-model'),
-        doc_short_answer_model: getModelOverrideValue('#settings-doc-short-answer-model'),
+        doc_model: getModelOverrideValue('#settings-doc-model'),
         clarify_intent_model: getModelOverrideValue('#settings-clarify-intent-model')
     };
     Object.keys(overrides).forEach(function (key) {
@@ -998,9 +994,7 @@ function populateModelOverrideOptions() {
         '#settings-artefact-propose-model',
         '#settings-doubt-clearing-model',
         '#settings-context-action-model',
-        '#settings-doc-long-summary-model',
-        '#settings-doc-long-summary-v2-model',
-        '#settings-doc-short-answer-model'
+        '#settings-doc-model'
     ];
     selects.forEach(function (selector) {
         const $select = $(selector);

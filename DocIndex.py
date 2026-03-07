@@ -333,7 +333,7 @@ class MultiFacetDocSummarizer:
         Provide the consolidated, deduplicated list organized by category:
         """).format(data="\n\n".join(chunk_results))
 
-        llm = self._get_llm(CHEAP_LLM[0])
+        llm = self._get_llm()
         return llm(combine_prompt, temperature=0.2, stream=False)
 
     def _generate_key_notes(self, text: str) -> str:
@@ -389,7 +389,7 @@ class MultiFacetDocSummarizer:
         Provide the consolidated key notes, findings, and opinions:
         """).format(content="\n\n---\n\n".join(chunk_results))
 
-        llm = self._get_llm(CHEAP_LLM[0])
+        llm = self._get_llm()
         return llm(combine_prompt, temperature=0.3, stream=False)
 
     def _generate_complex_faq(self, text: str) -> str:
@@ -529,7 +529,7 @@ class MultiFacetDocSummarizer:
         Provide the consolidated critical analysis:
         """).format(critiques="\n\n---\n\n".join(chunk_critiques))
 
-        llm = self._get_llm(CHEAP_LLM[0])
+        llm = self._get_llm()
         return llm(combine_prompt, temperature=0.4, stream=False)
 
     def _generate_agentic_qa(self, text: str) -> str:
@@ -575,7 +575,7 @@ class MultiFacetDocSummarizer:
         # =====================================================================
         question_futures = []
         for chunk in question_chunks:
-            llm_questioner = self._get_llm(CHEAP_LLM[0])
+            llm_questioner = self._get_llm()
             prompt = question_prompt.format(text=chunk)
             future = get_async_future(
                 llm_questioner, prompt, temperature=0.7, stream=False
@@ -706,7 +706,7 @@ class MultiFacetDocSummarizer:
         # Extract topics from chunks in parallel (up to 8 chunks)
         topic_futures = []
         for chunk in chunks[:8]:
-            llm = self._get_llm(CHEAP_LLM[0])
+            llm = self._get_llm()
             prompt = topic_extraction_prompt.format(text=chunk)
             future = get_async_future(llm, prompt, temperature=0.5, stream=False)
             topic_futures.append(future)
@@ -1059,13 +1059,14 @@ class DocIndex:
 
             def set_title_summary():
                 chunks = "\n\n".join(raw_data["chunks"][0:8])
+                title_summary_model = self.get_model_override("doc_model", VERY_CHEAP_LLM[0])
                 short_summary = CallLLm(
-                    keys, model_name=VERY_CHEAP_LLM[0], use_gpt4=False
+                    keys, model_name=title_summary_model, use_gpt4=False
                 )(
                     f"""Provide a summary for the below text: \n'''{chunks}''' \nSummary: \n""",
                 )
                 title = CallLLm(
-                    keys, model_name=VERY_CHEAP_LLM[0], use_gpt4=False, use_16k=True
+                    keys, model_name=title_summary_model, use_gpt4=False, use_16k=True
                 )(
                     f"""Provide a title only for the below text: \n'{self.get_doc_data("raw_data", "chunks")[0]}' \nTitle: \n"""
                 )
@@ -1351,7 +1352,7 @@ class DocIndex:
             + self.get_doc_data("static_data", "doc_text")
         )
         summary_model = self.get_model_override(
-            "doc_long_summary_model", CHEAP_LONG_CONTEXT_LLM[0]
+            "doc_model", CHEAP_LONG_CONTEXT_LLM[0]
         )
         llm = CallLLm(self.get_api_keys(), model_name=summary_model)
         long_summary = ""
@@ -1372,7 +1373,7 @@ class DocIndex:
                 + "\n</context>\nWrite a detailed and comprehensive summary of the paper below.\n\n"
             )
             paper_model = self.get_model_override(
-                "doc_long_summary_model", EXPENSIVE_LLM[0]
+                "doc_model", EXPENSIVE_LLM[0]
             )
             llm = CallLLm(self.get_api_keys(), model_name=paper_model)
             document_type = "scientific paper"
@@ -1534,7 +1535,7 @@ class DocIndex:
             and False
         ):
             llm2_model = self.get_model_override(
-                "doc_long_summary_model", CHEAP_LONG_CONTEXT_LLM[0]
+                "doc_model", CHEAP_LONG_CONTEXT_LLM[0]
             )
             llm2 = CallLLm(self.get_api_keys(), model_name=llm2_model)
             method_prompt = prompts.paper_details_map["methodology"]
@@ -1583,7 +1584,7 @@ class DocIndex:
         """
         if model_name is None:
             model_name = self.get_model_override(
-                "doc_long_summary_v2_model", CHEAP_LONG_CONTEXT_LLM[0]
+                "doc_model", CHEAP_LONG_CONTEXT_LLM[0]
             )
         if aspects is None:
             aspects = [
@@ -1634,7 +1635,7 @@ class DocIndex:
             base_summary = make_stream(self.get_doc_long_summary(), False)
 
         density_model = self.get_model_override(
-            "doc_long_summary_model", EXPENSIVE_LLM[0]
+            "doc_model", EXPENSIVE_LLM[0]
         )
         llm = CallLLm(self.get_api_keys(), model_name=density_model)
         if "arxiv" in self.doc_source:
@@ -1721,7 +1722,7 @@ class DocIndex:
         answer += preamble
         yield preamble
 
-        llm = CallLLm(self.get_api_keys(), model_name=CHEAP_LLM[0])
+        llm = CallLLm(self.get_api_keys(), model_name=density_model)
 
         generator = llm(
             density_prompt.format(
@@ -1884,7 +1885,7 @@ class DocIndex:
             self.get_api_keys(), provide_short_responses=detail_level < 2
         )
         short_answer_model = self.get_model_override(
-            "doc_short_answer_model", CHEAP_LONG_CONTEXT_LLM[0]
+            "doc_model", CHEAP_LONG_CONTEXT_LLM[0]
         )
         answer = get_async_future(
             cr, prompt, text, self.semantic_search_document, short_answer_model
@@ -1915,7 +1916,7 @@ class DocIndex:
                 self.get_api_keys(), provide_short_responses=detail_level < 2
             )
             sceptical_model = self.get_model_override(
-                "doc_short_answer_model", VERY_CHEAP_LLM[0]
+                "doc_model", VERY_CHEAP_LLM[0]
             )
             answer_sceptical = get_async_future(
                 cr2, prompt2, text, self.semantic_search_document, sceptical_model
@@ -1983,7 +1984,7 @@ class DocIndex:
         elif self.doc_type == "image":
             return "image"
         else:
-            title = CallLLm(self.get_api_keys(), model_name=VERY_CHEAP_LLM[0])(
+            title = CallLLm(self.get_api_keys(), model_name=self.get_model_override("doc_model", VERY_CHEAP_LLM[0]))(
                 f"""Provide a title only for the below text: \n'{self.get_doc_data("raw_data", "chunks")[0]}' \nTitle: \n"""
             )
             setattr(self, "_title", title)
@@ -1998,7 +1999,7 @@ class DocIndex:
             return "image"
         else:
             short_summary = CallLLm(
-                self.get_api_keys(), model_name=VERY_CHEAP_LLM[0], use_gpt4=False
+                self.get_api_keys(), model_name=self.get_model_override("doc_model", VERY_CHEAP_LLM[0]), use_gpt4=False
             )(
                 f"""Provide a summary for the below text: \n'''{self.get_doc_data("raw_data", "chunks")[0]}''' \nSummary: \n""",
             )
@@ -2487,6 +2488,8 @@ class FastImageDocIndex(DocIndex):
 
 
 class ImageDocIndex(DocIndex):
+    IMAGE_VISION_MODEL = "google/gemini-3-flash-preview"
+
     def __init__(
         self,
         doc_source,
@@ -2555,9 +2558,9 @@ class ImageDocIndex(DocIndex):
         ] and ("http" in doc_source or os.path.exists(doc_source))
 
         def complete_init_image_doc_index():
-            llm = CallLLm(keys, use_gpt4=True, use_16k=True, model_name=CHEAP_LLM[0])
+            llm = CallLLm(keys, use_gpt4=True, use_16k=True, model_name=self.IMAGE_VISION_MODEL)
             llm2 = CallLLm(
-                keys, use_gpt4=True, use_16k=True, model_name=CHEAP_LONG_CONTEXT_LLM[0]
+                keys, use_gpt4=True, use_16k=True, model_name=self.IMAGE_VISION_MODEL
             )
             doc_text_f1 = get_async_future(
                 llm,
@@ -2712,7 +2715,7 @@ class ImageDocIndex(DocIndex):
         text = self.brief_summary + doc_text
         if mode["provide_detailed_answers"] >= 3:
             llm = CallLLm(
-                self.get_api_keys(), use_gpt4=True, model_name=EXPENSIVE_LLM[0]
+                self.get_api_keys(), use_gpt4=True, model_name=self.IMAGE_VISION_MODEL
             )
             prompt = """Please answer the user's query with the given image and the following text details of the image as context: \n\n'{}'\n\nConversation Details and User's Query: \n'{}'\n\nAnswer: \n""".format(
                 text, query
