@@ -161,7 +161,7 @@ class MultiFacetDocSummarizer:
             chunk_overlap: Token overlap between chunks (default: 500)
         """
         self.api_keys = api_keys
-        self.model_name = model_name or CHEAP_LONG_CONTEXT_LLM[0]
+        self.model_name = model_name or VERY_CHEAP_LLM[0]
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
 
@@ -2488,7 +2488,7 @@ class FastImageDocIndex(DocIndex):
 
 
 class ImageDocIndex(DocIndex):
-    IMAGE_VISION_MODEL = "google/gemini-3-flash-preview"
+    IMAGE_VISION_MODEL = "google/gemini-3.1-flash-lite-preview"
 
     def __init__(
         self,
@@ -3375,7 +3375,7 @@ class MultiDocAnswerAgent:
 
         self.docs = docs
         self.api_keys = api_keys
-        self.model_name = model_name or CHEAP_LONG_CONTEXT_LLM[0]
+        self.model_name = model_name or VERY_CHEAP_LLM[0]
         self.detail_level = detail_level
 
         # Initialize tiktoken encoder for token counting

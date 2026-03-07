@@ -2170,23 +2170,22 @@
                                             <div style="border: 1px solid #ccc; padding: 8px; border-radius: 12px;">
                                                 <select class="form-control" id="settings-main-model-selector" multiple>
                                                     <optgroup label="Newer Models">
-                                                        
-                                                        
-                                                        <option selected>openai/gpt-5.2</option>
-                                                        <option>openai/gpt-5.4</option>
-                                                        <option hidden>openai/gpt-5.1</option>
+                                                        <option selected>openai/gpt-5.4</option>
                                                         <option>Opus 4.6</option>
                                                         <option>Sonnet 4.6</option>
                                                         <option>Gemini 3.1 Pro</option>
-                                                        <option>Kimi K2.5</option>
-                                                        <option hidden>openai/gpt-5.2-pro</option>                                                        
+                                                        <option>Kimi K2.5</option>                                             
                                                     </optgroup>
                                                     <optgroup label="Others">
                                                         <option>Filler</option>
+                                                        <option>inception/mercury-2</option>
+                                                        <option hidden>openai/gpt-5.1</option>
+                                                        <option hidden>openai/gpt-5.2-pro</option>
                                                         <option hidden>moonshotai/kimi-k2</option>
-                                                        <option>Opus 4.5</option>
+                                                        <option>openai/gpt-5.2</option>
+                                                        <option hidden>Opus 4.5</option>
                                                         <option>Sonnet 4.5</option>
-                                                        <option>google/gemini-3-pro-preview</option>
+                                                        <option hidden>google/gemini-3-pro-preview</option>
                                                         <option>mistralai/mistral-large-2512</option>
                                                         <option>Haiku 4.5</option>
                                                         <option>google/gemini-3-flash-preview</option>
@@ -2196,7 +2195,7 @@
                                                         <option hidden>Longcat Flash Chat</option>
                                                         <option hidden>gpt-5-codex</option>
                                                         <option hidden>openai/gpt-5-chat</option>
-                                                        <option>qwen/qwen3-max</option>
+                                                        <option hidden>qwen/qwen3-max</option>
                                                         <option hidden>x-ai/grok-4</option>
                                                         <option hidden>openai/gpt-5.1-chat</option>
                                                         <option hidden>Qwen3-Coder-Plus</option>
@@ -2210,7 +2209,7 @@
                                                         <option hidden>o3-deep-research</option>
                                                         <option hidden>x-ai/grok-3-beta</option>
                                                         <option>x-ai/grok-3</option>
-                                                        <option>inception/mercury-2</option>
+                                                        
                                                         <option>sao10k/l3.3-euryale-70b</option>
                                                         <option>thedrummer/anubis-pro-105b-v1</option>
                                                         <option>nousresearch/hermes-3-llama-3.1-405b</option>
@@ -2823,30 +2822,25 @@ greet("World");</code></pre>
                     <p class="text-muted mb-3">
                         These overrides apply to the active conversation only. Leave empty to use defaults.
                     </p>
+                    <h6 class="text-primary mb-3"><i class="bi bi-gear"></i> Conversation Internal</h6>
                     <div class="form-group">
-                        <label for="settings-summary-model" class="form-label"><strong>Summary Model</strong></label>
-                        <select class="form-control" id="settings-summary-model"></select>
-                        <small class="form-text text-muted">Used when updating the running summary and conversation title.</small>
+                        <label for="settings-conversation-internal-model" class="form-label"><strong>Conversation Internal Model</strong></label>
+                        <select class="form-control" id="settings-conversation-internal-model"></select>
+                        <small class="form-text text-muted">Used for summaries, TLDR, memory extraction, next question suggestions, and web result summarization.</small>
                     </div>
+                    <hr>
+                    <h6 class="text-primary mb-3"><i class="bi bi-lightning"></i> Quick Actions</h6>
                     <div class="form-group">
-                        <label for="settings-tldr-model" class="form-label"><strong>TLDR Model</strong></label>
-                        <select class="form-control" id="settings-tldr-model"></select>
-                        <small class="form-text text-muted">Used to generate the TLDR section for long answers.</small>
+                        <label for="settings-quick-action-model" class="form-label"><strong>Quick Action Model</strong></label>
+                        <select class="form-control" id="settings-quick-action-model"></select>
+                        <small class="form-text text-muted">Used for doubt clearing, explain, critique, expand, ELI5, and other context menu actions.</small>
                     </div>
+                    <hr>
+                    <h6 class="text-primary mb-3"><i class="bi bi-pencil-square"></i> Artefacts</h6>
                     <div class="form-group">
                         <label for="settings-artefact-propose-model" class="form-label"><strong>Artefact Propose Edits Model</strong></label>
                         <select class="form-control" id="settings-artefact-propose-model"></select>
                         <small class="form-text text-muted">Used when proposing edits inside the artefacts modal.</small>
-                    </div>
-                    <div class="form-group">
-                        <label for="settings-doubt-clearing-model" class="form-label"><strong>Doubt Clearing Model</strong></label>
-                        <select class="form-control" id="settings-doubt-clearing-model"></select>
-                        <small class="form-text text-muted">Used when answering doubts about a specific message.</small>
-                    </div>
-                    <div class="form-group">
-                        <label for="settings-context-action-model" class="form-label"><strong>Context Menu Action Model</strong></label>
-                        <select class="form-control" id="settings-context-action-model"></select>
-                        <small class="form-text text-muted">Used for explain/critique/expand/ELI5 actions.</small>
                     </div>
                     <hr>
                     <h6 class="text-primary mb-3"><i class="bi bi-journal-text"></i> Doc Index Models</h6>
@@ -2855,13 +2849,13 @@ greet("World");</code></pre>
                         <select class="form-control" id="settings-doc-model"></select>
                         <small class="form-text text-muted">Used for all document operations: parsing, summaries, Q&amp;A, and contextual reading.</small>
                     </div>
-                     <hr>
-                     <h6 class="text-primary mb-3"><i class="bi bi-question-circle"></i> Clarify Models</h6>
-                     <div class="form-group">
-                         <label for="settings-clarify-intent-model" class="form-label"><strong>Clarify Intent Model</strong></label>
-                         <select class="form-control" id="settings-clarify-intent-model"></select>
-                         <small class="form-text text-muted">Used when generating clarification questions (Clarify button and /clarify command).</small>
-                     </div>
+                    <hr>
+                    <h6 class="text-primary mb-3"><i class="bi bi-question-circle"></i> Clarify</h6>
+                    <div class="form-group">
+                        <label for="settings-clarify-intent-model" class="form-label"><strong>Clarify Intent Model</strong></label>
+                        <select class="form-control" id="settings-clarify-intent-model"></select>
+                        <small class="form-text text-muted">Used when generating clarification questions (Clarify button and /clarify command).</small>
+                    </div>
                 </div>
                 <div class="modal-footer">
                     <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
@@ -4293,6 +4287,9 @@ greet("World");</code></pre>
     <script src="interface/image-gen-manager.js?v=1"></script>
     <script src="interface/cross-conversation-search.js?v=1"></script>
     <script src="interface/file-browser-manager.js?v=27"></script>
+
+    <!-- Desktop (Electron) Bridge Integration -->
+    <script src="interface/desktop-bridge.js"></script>
     <script>
         // Document-level delegated handler for Terminal button.
         // Same pattern as file browser above — works reliably inside

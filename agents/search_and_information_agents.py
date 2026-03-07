@@ -53,6 +53,7 @@ try:
         sleep_and_get_future_result,
         convert_stream_to_iterable,
         EXPENSIVE_LLM,
+        SUPERFAST_LLM,
         two_column_list_md,
     )
     from loggers import getLoggers
@@ -1664,7 +1665,7 @@ class JinaSearchAgent(PerplexitySearchAgent):
         # if content is too long, truncate it to 5000 characters
         if len(content) > 10_000:
             content = content[:100_000] + "..."
-            llm = CallLLm(self.keys, model_name=VERY_CHEAP_LLM[0])
+            llm = CallLLm(self.keys, model_name=SUPERFAST_LLM[0])
             content = llm(
                 f"You are an information extraction expert. Given a user query and conversation context you will extract relevant information from the page content. \n\nUser's query: {query}\n\nUser's context: {context}\n\nUser's and assistant's text: {user_text}\n\nPlease extract and summarize the following page content to less than 200 words to extract only the most relevant information as per the user's query. \n\nPage content: \n{content}\n",
                 temperature=0.7,

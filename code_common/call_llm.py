@@ -80,6 +80,7 @@ MODEL_TOKEN_LIMITS = {
     "cheap_long_context": 800_000,
     "long_context": 900_000,
     "expensive": 200_000,
+    "superfast": 100_000,
     "gemini_flash": 400_000,
     "gemini_other": 500_000,
     "cohere_llama_deepseek_jamba": 100_000,
@@ -101,11 +102,14 @@ def _get_token_limit(model_name: str) -> int:
             EXPENSIVE_LLM,
             CHEAP_LLM,
             VERY_CHEAP_LLM,
+            SUPERFAST_LLM,
         )
     except ImportError:
         return MODEL_TOKEN_LIMITS["default"]
 
-    if model_name in CHEAP_LONG_CONTEXT_LLM:
+    if model_name in SUPERFAST_LLM:
+        return MODEL_TOKEN_LIMITS["superfast"]
+    elif model_name in CHEAP_LONG_CONTEXT_LLM:
         return MODEL_TOKEN_LIMITS["cheap_long_context"]
     elif model_name in LONG_CONTEXT_LLM:
         return MODEL_TOKEN_LIMITS["long_context"]
@@ -195,6 +199,9 @@ VISION_CAPABLE_MODELS = frozenset(
         "anthropic/claude-sonnet-4.6",
         "google/gemini-3.1-pro-preview",
         "google/gemini-3.1-flash-image-preview",
+        "google/gemini-3.1-flash-lite-preview",
+        "qwen/qwen3.5-flash-02-23",
+        
     }
 )
 

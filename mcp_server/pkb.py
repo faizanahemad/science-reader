@@ -476,6 +476,91 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
                 logger.exception("pkb_pin_claim error: %s", exc)
                 return json.dumps({"error": f"pkb_pin_claim failed: {exc}"})
 
+        # -------------------------------------------------------------
+        # Tool 11: pkb_list_contexts — list all PKB contexts
+        # -------------------------------------------------------------
+
+        @mcp.tool()
+        def pkb_list_contexts(user_email: str) -> str:
+            """List all PKB contexts for a user.
+
+            Returns a JSON array of context objects, each containing:
+            ``context_id``, ``friendly_id``, ``name``, ``description``,
+            ``parent_context_id``, ``claim_count``, ``created_at``,
+            ``updated_at``.
+
+            Args:
+                user_email: Email of the PKB owner.
+            """
+            try:
+                api = _get_pkb_api()
+                user_api = api.for_user(user_email)
+                contexts_with_counts = user_api.contexts.get_with_claim_count(limit=200)
+                from endpoints.pkb import serialize_context
+
+                results = []
+                for ctx, count in contexts_with_counts:
+                    ctx_dict = serialize_context(ctx)
+                    ctx_dict["claim_count"] = count
+                    results.append(ctx_dict)
+                return json.dumps(results, default=str)
+            except Exception as exc:
+                logger.exception("pkb_list_contexts error: %s", exc)
+                return json.dumps({"error": f"pkb_list_contexts failed: {exc}"})
+
+        # -------------------------------------------------------------
+        # Tool 12: pkb_list_entities — list all PKB entities
+        # -------------------------------------------------------------
+
+        @mcp.tool()
+        def pkb_list_entities(user_email: str) -> str:
+            """List all PKB entities for a user.
+
+            Returns a JSON array of entity objects, each containing:
+            ``entity_id``, ``entity_type``, ``name``, ``meta_json``,
+            ``created_at``, ``updated_at``.
+
+            Args:
+                user_email: Email of the PKB owner.
+            """
+            try:
+                api = _get_pkb_api()
+                user_api = api.for_user(user_email)
+                entities = user_api.entities.list(limit=200, order_by="name")
+                from endpoints.pkb import serialize_entity
+
+                results = [serialize_entity(e) for e in entities]
+                return json.dumps(results, default=str)
+            except Exception as exc:
+                logger.exception("pkb_list_entities error: %s", exc)
+                return json.dumps({"error": f"pkb_list_entities failed: {exc}"})
+
+        # -------------------------------------------------------------
+        # Tool 13: pkb_list_tags — list all PKB tags
+        # -------------------------------------------------------------
+
+        @mcp.tool()
+        def pkb_list_tags(user_email: str) -> str:
+            """List all PKB tags for a user.
+
+            Returns a JSON array of tag objects, each containing:
+            ``tag_id``, ``name``, ``parent_tag_id``, ``meta_json``,
+            ``created_at``, ``updated_at``.
+
+            Args:
+                user_email: Email of the PKB owner.
+            """
+            try:
+                api = _get_pkb_api()
+                user_api = api.for_user(user_email)
+                tags = user_api.tags.list(limit=200, order_by="name")
+                from endpoints.pkb import serialize_tag
+
+                results = [serialize_tag(t) for t in tags]
+                return json.dumps(results, default=str)
+            except Exception as exc:
+                logger.exception("pkb_list_tags error: %s", exc)
+                return json.dumps({"error": f"pkb_list_tags failed: {exc}"})
     # -----------------------------------------------------------------
     # Build the Starlette ASGI app with middleware layers
     # -----------------------------------------------------------------

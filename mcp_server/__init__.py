@@ -2,7 +2,7 @@
 MCP server package.
 
 Exposes ``start_mcp_server()`` for the web search MCP server and
-``start_*_mcp_server()`` helpers for six domain-specific MCP servers.
+``start_*_mcp_server()`` helpers for seven domain-specific MCP servers.
 All run as daemon threads alongside the main Flask application.
 
 Servers
@@ -14,6 +14,7 @@ Artefacts    (port 8103)  — ``start_artefacts_mcp_server()``
 Conversation (port 8104)  — ``start_conversation_mcp_server()``
 Prompts      (port 8105)  — ``start_prompts_actions_mcp_server()``
 Code Runner  (port 8106)  — ``start_code_runner_mcp_server()``
+Image Gen    (port 8107)  — ``start_image_gen_mcp_server()``
 Environment variables
 ---------------------
 MCP_ENABLED : str
@@ -38,6 +39,8 @@ PROMPTS_MCP_ENABLED, PROMPTS_MCP_PORT : str
     Enable/port for Prompts/Actions MCP (defaults ``"true"`` / ``8105``).
 CODE_RUNNER_MCP_ENABLED, CODE_RUNNER_MCP_PORT : str
     Enable/port for Code Runner MCP (defaults ``"true"`` / ``8106``).
+IMAGE_GEN_MCP_ENABLED, IMAGE_GEN_MCP_PORT : str
+    Enable/port for Image Gen MCP (defaults ``"true"`` / ``8107``).
 """
 
 from __future__ import annotations
@@ -108,6 +111,7 @@ from mcp_server.artefacts import start_artefacts_mcp_server
 from mcp_server.conversation import start_conversation_mcp_server
 from mcp_server.prompts_actions import start_prompts_actions_mcp_server
 from mcp_server.code_runner_mcp import start_code_runner_mcp_server
+from mcp_server.image_gen import start_image_gen_mcp_server
 
 __all__ = [
     "start_mcp_server",
@@ -117,4 +121,5 @@ __all__ = [
     "start_conversation_mcp_server",
     "start_prompts_actions_mcp_server",
     "start_code_runner_mcp_server",
+    "start_image_gen_mcp_server",
 ]

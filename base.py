@@ -209,7 +209,7 @@ Only provide answer from the document given above.
             except Exception as e:
                 llm = CallLLm(
                     self.keys,
-                    model_name=CHEAP_LONG_CONTEXT_LLM[0],
+                    model_name=VERY_CHEAP_LLM[0],
                     use_gpt4=False,
                     use_16k=False,
                 )
@@ -411,9 +411,9 @@ Only provide answer from the document given above.
         doc_word_count = len(text_document.split())
         logger.info(f"[ContextualReader] Document word count = {doc_word_count}")
         if preferred_model is None and doc_word_count < 200_000:
-            preferred_model = CHEAP_LONG_CONTEXT_LLM[0]
+            preferred_model = VERY_CHEAP_LLM[0]
         elif preferred_model is None and doc_word_count > 200_000:
-            preferred_model = LONG_CONTEXT_LLM[0]
+            preferred_model = CHEAP_LONG_CONTEXT_LLM[0]
         join_method = (
             lambda x, y: "Details from one expert who read the document:\n<|expert1|>\n"
             + str(x)
@@ -3311,8 +3311,6 @@ You are a helpful AI assistant tasked with helping perform research using web se
 3. If no web search results are provided, please say so by saying "No web search results provided." and end your response.
 4. Put relevant citations inline in markdown format in the text at the appropriate places in your response.
 
-After composing your response, please provide:
-1. A bibliography in LaTeX format, enclosed in a code block.
 
 User Context and conversation history:
 <|context|>
@@ -3324,7 +3322,7 @@ Web Search Results:
 {web_search_result}
 </|results|>
 
-Please begin your response with the literature review, followed by the bibliography.
+Write your response below.
 """
     response = llm(
         llm_prompt,
@@ -3584,12 +3582,12 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
     link_title_context_apikeys = (link, title, context, api_keys, text, detailed)
     if is_image:
         llm = CallLLm(
-            api_keys, use_gpt4=True, use_16k=True, model_name=EXPENSIVE_LLM[0]
+            api_keys, use_gpt4=True, use_16k=True, model_name=VERY_CHEAP_LLM[0]
         )
         doc_text_f1 = get_async_future(
             llm, prompts.deep_caption_prompt, images=[link], stream=False
         )
-        llm = CallLLm(api_keys, use_gpt4=True, model_name=CHEAP_LLM[0])
+        llm = CallLLm(api_keys, use_gpt4=True, model_name=VERY_CHEAP_LLM[0])
         new_context = context.replace(link, "this given image")
         prompt = prompts.deep_caption_prompt_with_query(query=new_context)
         # prompt = f"You are an AI expert at reading images and performing OCR, image analysis, graph analysis, object detection, image recognition and text extraction from images. OCR the image, extract text, tables, data, charts or plot information or any other text and tell me what this image says. Then answer the query: {context}"
@@ -4131,7 +4129,7 @@ def get_downloaded_data_summary(link_title_context_apikeys, use_large_context=Fa
 
     result = ContextualReader(
         api_keys, provide_short_responses=not use_large_context, scan=use_large_context
-    )(context, txt, retriever=None)
+    )(context, txt, retriever=None, preferred_model=SUPERFAST_LLM[0])
     extracted_info, llm_result_future = result
 
     tt = time.time() - st

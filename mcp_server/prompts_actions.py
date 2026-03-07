@@ -398,6 +398,39 @@ def create_prompts_actions_mcp_app(
             return json.dumps({"error": str(exc)})
 
     # -----------------------------------------------------------------
+    # Tool 6 (full tier): transcribe_audio
+    # -----------------------------------------------------------------
+
+    @mcp.tool()
+    def transcribe_audio(user_email: str, audio_file_path: str) -> str:
+        """Transcribe an audio file to text.
+
+        Reads the audio file from ``audio_file_path`` on the server
+        filesystem and returns the transcribed text.
+
+        Args:
+            user_email: Email of the requesting user (for audit logging).
+            audio_file_path: Absolute path to the audio file on the server filesystem.
+        """
+        import os as _os
+
+        if not _os.path.isfile(audio_file_path):
+            return f"Error: Audio file not found at '{audio_file_path}'."
+
+        logger.info(
+            "transcribe_audio: file=%s user=%s",
+            audio_file_path, user_email,
+        )
+
+        try:
+            from transcribe_audio import transcribe_audio as run_transcribe_audio
+
+            transcription = run_transcribe_audio(audio_file_path)
+            return transcription
+        except Exception as exc:
+            logger.exception("transcribe_audio error: %s", exc)
+            return f"Error: Transcription failed: {exc}"
+    # -----------------------------------------------------------------
     # Build the Starlette ASGI app with middleware layers
     # -----------------------------------------------------------------
 

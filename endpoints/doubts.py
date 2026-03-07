@@ -265,7 +265,7 @@ def temporary_llm_action_route():
                     model_name = EXPENSIVE_LLM[2]
                     if conversation is not None:
                         model_name = conversation.get_model_override(
-                            "context_action_model", model_name
+                            "quick_action_model", model_name
                         )
                     response_generator = direct_temporary_llm_action(
                         keys=keys,

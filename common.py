@@ -81,7 +81,10 @@ SCIENCE_KEYS = [
 
 OPENROUTER_LLM = ["google/gemini-2.5-flash"]
 
+SUPERFAST_LLM = ["inception/mercury-2"]
+
 VERY_CHEAP_LLM = [
+    "google/gemini-3.1-flash-lite-preview",
     "google/gemini-2.5-flash-lite",
     "google/gemini-2.5-flash",
     "openai/gpt-5-mini",
@@ -130,14 +133,17 @@ UNUSED_EXPENSIVE_LLM = [
 OPENAI_CHEAP_LLM = "openai/gpt-5-mini"
 
 
+
 CHEAP_LONG_CONTEXT_LLM = [
-    "google/gemini-2.5-flash",
     "google/gemini-3-flash-preview",
+    "google/gemini-2.5-flash",
+    "google/gemini-3.1-flash-lite-preview",
+    "qwen/qwen3.5-flash-02-23",
     "openai/gpt-5-mini",
     "gpt-4.1-mini",
     "x-ai/grok-4-fast",
 ]
-LONG_CONTEXT_LLM = ["google/gemini-2.5-pro", "minimax/minimax-m1"]
+LONG_CONTEXT_LLM = ["google/gemini-3-flash-preview", "google/gemini-3.1-pro-preview", "google/gemini-2.5-pro", "minimax/minimax-m1"]
 
 COMMON_SALT_STRING = "31256greagy89"
 

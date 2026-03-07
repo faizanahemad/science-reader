@@ -3551,3 +3551,521 @@ def handle_prompts_update(args: dict, context: ToolContext) -> ToolCallResult:
             tool_id="", tool_name="prompts_update",
             error=f"Failed to update prompt: {e}",
         )
+
+
+# ---------------------------------------------------------------------------
+# Global Document Management Tools (category: documents)
+# ---------------------------------------------------------------------------
+
+
+def _docs_user_hash(email: str) -> str:
+    """Compute the user-hash used for per-user storage directories."""
+    import hashlib
+    return hashlib.md5(email.encode()).hexdigest()
+
+
+@register_tool(
+    name="upload_global_doc",
+    description=(
+        "Upload a local file as a global document. Reads the file from the "
+        "server filesystem, indexes it, and registers it as a global document "
+        "for the user. Optionally attach tags."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "file_path": {"type": "string", "description": "Absolute path to the file on the server filesystem"},
+            "tags": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Optional list of tag strings to attach to the document",
+                "default": [],
+            },
+        },
+        "required": ["file_path"],
+    },
+    is_interactive=False,
+    category="documents",
+)
+def handle_upload_global_doc(args: dict, context: ToolContext) -> ToolCallResult:
+    """Upload a local file as a global document."""
+    file_path = args.get("file_path", "")
+    tags = args.get("tags") or []
+    try:
+        if not os.path.isfile(file_path):
+            return ToolCallResult(
+                tool_id="", tool_name="upload_global_doc",
+                error=f"File not found: {file_path}",
+                result="",
+            )
+
+        from DocIndex import create_immediate_document_index
+
+        user_hash = _docs_user_hash(context.user_email)
+        user_global_dir = os.path.join(_docs_users_dir(), user_hash, "global_docs")
+        os.makedirs(user_global_dir, exist_ok=True)
+
+        doc_index = create_immediate_document_index(
+            file_path, user_global_dir, _docs_get_keys()
+        )
+        doc_index.save_local()
+
+        short_info = doc_index.get_short_info()
+        from database.global_docs import add_global_doc
+
+        add_global_doc(
+            users_dir=_docs_users_dir(),
+            user_email=context.user_email,
+            doc_id=doc_index.doc_id,
+            doc_source=file_path,
+            doc_storage=doc_index._storage,
+            title=short_info.get("title", ""),
+            short_summary=short_info.get("short_summary", ""),
+        )
+
+        if tags:
+            from database.doc_tags import set_tags
+
+            tag_list = [t.strip().lower() for t in tags if t.strip()]
+            if tag_list:
+                set_tags(
+                    users_dir=_docs_users_dir(),
+                    user_email=context.user_email,
+                    doc_id=doc_index.doc_id,
+                    tags=tag_list,
+                )
+
+        return ToolCallResult(
+            tool_id="", tool_name="upload_global_doc",
+            result=_truncate_result(json.dumps({
+                "doc_id": doc_index.doc_id,
+                "title": short_info.get("title", ""),
+                "doc_storage_path": doc_index._storage,
+            })),
+        )
+    except Exception as exc:
+        logger.exception("upload_global_doc error: %s", exc)
+        return ToolCallResult(
+            tool_id="", tool_name="upload_global_doc",
+            error=f"Failed to upload global doc: {exc}",
+            result="",
+        )
+
+
+@register_tool(
+    name="delete_global_doc",
+    description=(
+        "Delete a global document by ID. Removes the database record for the "
+        "global document. Does not delete the underlying filesystem storage."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "doc_id": {"type": "string", "description": "The global document identifier (from docs_list_global_docs)"},
+        },
+        "required": ["doc_id"],
+    },
+    is_interactive=False,
+    category="documents",
+)
+def handle_delete_global_doc(args: dict, context: ToolContext) -> ToolCallResult:
+    """Delete a global document by ID."""
+    doc_id = args.get("doc_id", "")
+    try:
+        from database.global_docs import delete_global_doc
+
+        deleted = delete_global_doc(
+            users_dir=_docs_users_dir(),
+            user_email=context.user_email,
+            doc_id=doc_id,
+        )
+        if deleted:
+            return ToolCallResult(
+                tool_id="", tool_name="delete_global_doc",
+                result=_truncate_result(json.dumps({"success": True, "message": f"Global doc '{doc_id}' deleted."})),
+            )
+        return ToolCallResult(
+            tool_id="", tool_name="delete_global_doc",
+            error=f"Global doc '{doc_id}' not found or already deleted.",
+            result="",
+        )
+    except Exception as exc:
+        logger.exception("delete_global_doc error: %s", exc)
+        return ToolCallResult(
+            tool_id="", tool_name="delete_global_doc",
+            error=f"Failed to delete global doc: {exc}",
+            result="",
+        )
+
+
+@register_tool(
+    name="set_global_doc_tags",
+    description=(
+        "Set tags on a global document (replaces existing tags). Atomically "
+        "replaces all tags for the document with the provided list."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "doc_id": {"type": "string", "description": "The global document identifier (from docs_list_global_docs)"},
+            "tags": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "List of tag strings to set on the document",
+            },
+        },
+        "required": ["doc_id", "tags"],
+    },
+    is_interactive=False,
+    category="documents",
+)
+def handle_set_global_doc_tags(args: dict, context: ToolContext) -> ToolCallResult:
+    """Set tags on a global document."""
+    doc_id = args.get("doc_id", "")
+    tags = args.get("tags", [])
+    try:
+        from database.doc_tags import set_tags
+
+        tag_list = [t.strip().lower() for t in tags if t.strip()]
+        ok = set_tags(
+            users_dir=_docs_users_dir(),
+            user_email=context.user_email,
+            doc_id=doc_id,
+            tags=tag_list,
+        )
+        if ok:
+            return ToolCallResult(
+                tool_id="", tool_name="set_global_doc_tags",
+                result=_truncate_result(json.dumps({"success": True, "doc_id": doc_id, "tags": tag_list})),
+            )
+        return ToolCallResult(
+            tool_id="", tool_name="set_global_doc_tags",
+            error=f"Failed to set tags on doc '{doc_id}'.",
+            result="",
+        )
+    except Exception as exc:
+        logger.exception("set_global_doc_tags error: %s", exc)
+        return ToolCallResult(
+            tool_id="", tool_name="set_global_doc_tags",
+            error=f"Failed to set tags: {exc}",
+            result="",
+        )
+
+
+@register_tool(
+    name="assign_doc_to_folder",
+    description=(
+        "Assign a global document to a folder. Moves the document into the "
+        "specified folder. Pass an empty string for folder_id to move the "
+        "document to Unfiled."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "doc_id": {"type": "string", "description": "The global document identifier (from docs_list_global_docs)"},
+            "folder_id": {"type": "string", "description": "The target folder ID, or empty string to unfile"},
+        },
+        "required": ["doc_id", "folder_id"],
+    },
+    is_interactive=False,
+    category="documents",
+)
+def handle_assign_doc_to_folder(args: dict, context: ToolContext) -> ToolCallResult:
+    """Assign a global document to a folder."""
+    doc_id = args.get("doc_id", "")
+    folder_id = args.get("folder_id", "")
+    try:
+        from database.doc_folders import assign_doc_to_folder
+
+        resolved_folder_id = folder_id if folder_id else None
+        ok = assign_doc_to_folder(
+            users_dir=_docs_users_dir(),
+            user_email=context.user_email,
+            doc_id=doc_id,
+            folder_id=resolved_folder_id,
+        )
+        if ok:
+            return ToolCallResult(
+                tool_id="", tool_name="assign_doc_to_folder",
+                result=_truncate_result(json.dumps({"success": True, "doc_id": doc_id, "folder_id": folder_id})),
+            )
+        return ToolCallResult(
+            tool_id="", tool_name="assign_doc_to_folder",
+            error=f"Failed to assign doc '{doc_id}' to folder '{folder_id}'.",
+            result="",
+        )
+    except Exception as exc:
+        logger.exception("assign_doc_to_folder error: %s", exc)
+        return ToolCallResult(
+            tool_id="", tool_name="assign_doc_to_folder",
+            error=f"Failed to assign to folder: {exc}",
+            result="",
+        )
+
+
+# ---------------------------------------------------------------------------
+# PKB Listing Tools (category: pkb)
+# ---------------------------------------------------------------------------
+
+
+@register_tool(
+    name="pkb_list_contexts",
+    description=(
+        "List all PKB contexts for the user. Returns a JSON array of context "
+        "objects with context_id, name, description, and claim_count."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {},
+        "required": [],
+    },
+    is_interactive=False,
+    category="pkb",
+)
+def handle_pkb_list_contexts(args: dict, context: ToolContext) -> ToolCallResult:
+    """List all PKB contexts."""
+    try:
+        api = _get_pkb_api()
+        from endpoints.pkb import serialize_context
+
+        contexts_with_counts = api.contexts.get_with_claim_count(limit=200)
+        results = []
+        for ctx, count in contexts_with_counts:
+            ctx_dict = serialize_context(ctx)
+            ctx_dict["claim_count"] = count
+            results.append(ctx_dict)
+
+        return ToolCallResult(
+            tool_id="", tool_name="pkb_list_contexts",
+            result=_truncate_result(json.dumps(results, default=str)),
+        )
+    except Exception as exc:
+        logger.exception("pkb_list_contexts error: %s", exc)
+        return ToolCallResult(
+            tool_id="", tool_name="pkb_list_contexts",
+            error=f"Failed to list PKB contexts: {exc}",
+            result="",
+        )
+
+
+@register_tool(
+    name="pkb_list_entities",
+    description=(
+        "List all PKB entities for the user. Returns a JSON array of entity "
+        "objects with entity_id, entity_type, name, and metadata."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "entity_type": {
+                "type": "string",
+                "description": "Optional filter by entity type",
+                "default": "",
+            },
+            "limit": {
+                "type": "integer",
+                "description": "Maximum number of entities to return",
+                "default": 100,
+            },
+        },
+        "required": [],
+    },
+    is_interactive=False,
+    category="pkb",
+)
+def handle_pkb_list_entities(args: dict, context: ToolContext) -> ToolCallResult:
+    """List all PKB entities."""
+    entity_type = args.get("entity_type", "") or ""
+    limit = args.get("limit", 100)
+    try:
+        api = _get_pkb_api()
+        from endpoints.pkb import serialize_entity
+
+        filters = {}
+        if entity_type:
+            filters["entity_type"] = entity_type
+
+        entities = api.entities.list(filters=filters, limit=limit, order_by="name")
+        results = [serialize_entity(e) for e in entities]
+
+        return ToolCallResult(
+            tool_id="", tool_name="pkb_list_entities",
+            result=_truncate_result(json.dumps({"entities": results, "count": len(results)}, default=str)),
+        )
+    except Exception as exc:
+        logger.exception("pkb_list_entities error: %s", exc)
+        return ToolCallResult(
+            tool_id="", tool_name="pkb_list_entities",
+            error=f"Failed to list PKB entities: {exc}",
+            result="",
+        )
+
+
+@register_tool(
+    name="pkb_list_tags",
+    description=(
+        "List all PKB tags for the user. Returns a JSON array of tag "
+        "objects with tag_id, name, parent_tag_id, and metadata."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "limit": {
+                "type": "integer",
+                "description": "Maximum number of tags to return",
+                "default": 100,
+            },
+        },
+        "required": [],
+    },
+    is_interactive=False,
+    category="pkb",
+)
+def handle_pkb_list_tags(args: dict, context: ToolContext) -> ToolCallResult:
+    """List all PKB tags."""
+    limit = args.get("limit", 100)
+    try:
+        api = _get_pkb_api()
+        from endpoints.pkb import serialize_tag
+
+        tags = api.tags.list(limit=limit, order_by="name")
+        results = [serialize_tag(t) for t in tags]
+
+        return ToolCallResult(
+            tool_id="", tool_name="pkb_list_tags",
+            result=_truncate_result(json.dumps({"tags": results, "count": len(results)}, default=str)),
+        )
+    except Exception as exc:
+        logger.exception("pkb_list_tags error: %s", exc)
+        return ToolCallResult(
+            tool_id="", tool_name="pkb_list_tags",
+            error=f"Failed to list PKB tags: {exc}",
+            result="",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Image Generation Tool (category: general)
+# ---------------------------------------------------------------------------
+
+
+@register_tool(
+    name="generate_image",
+    description=(
+        "Generate an image from a text prompt using an image generation model. "
+        "Optionally provide a base64 input image for image editing/transformation. "
+        "Returns generated image data URIs and any accompanying text."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "prompt": {"type": "string", "description": "The image generation prompt describing what to create"},
+            "base64_input": {
+                "type": "string",
+                "description": "Optional base64 data URI of an existing image to edit/transform",
+                "default": "",
+            },
+        },
+        "required": ["prompt"],
+    },
+    is_interactive=False,
+    category="general",
+)
+def handle_generate_image(args: dict, context: ToolContext) -> ToolCallResult:
+    """Generate an image from a text prompt."""
+    prompt = args.get("prompt", "")
+    base64_input = args.get("base64_input") or None
+    try:
+        keys = context.keys if context.keys else {}
+        if not keys.get("OPENROUTER_API_KEY"):
+            from endpoints.utils import keyParser
+            keys = keyParser({})
+
+        from endpoints.image_gen import generate_image_from_prompt
+
+        result = generate_image_from_prompt(
+            prompt=prompt,
+            keys=keys,
+            input_image=base64_input,
+        )
+
+        if result.get("error"):
+            return ToolCallResult(
+                tool_id="", tool_name="generate_image",
+                error=result["error"],
+                result="",
+            )
+
+        return ToolCallResult(
+            tool_id="", tool_name="generate_image",
+            result=_truncate_result(json.dumps({
+                "images": result.get("images", []),
+                "text": result.get("text", ""),
+            })),
+        )
+    except Exception as exc:
+        logger.exception("generate_image error: %s", exc)
+        return ToolCallResult(
+            tool_id="", tool_name="generate_image",
+            error=f"Failed to generate image: {exc}",
+            result="",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Audio Transcription Tool (category: general)
+# ---------------------------------------------------------------------------
+
+
+@register_tool(
+    name="transcribe_audio",
+    description=(
+        "Transcribe an audio file to text. Reads the audio file from the server "
+        "filesystem and returns the transcribed text using either OpenAI or "
+        "AssemblyAI transcription services."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "audio_file_path": {"type": "string", "description": "Absolute path to the audio file on the server filesystem"},
+        },
+        "required": ["audio_file_path"],
+    },
+    is_interactive=False,
+    category="general",
+)
+def handle_transcribe_audio(args: dict, context: ToolContext) -> ToolCallResult:
+    """Transcribe an audio file to text."""
+    audio_file_path = args.get("audio_file_path", "")
+    try:
+        if not os.path.isfile(audio_file_path):
+            return ToolCallResult(
+                tool_id="", tool_name="transcribe_audio",
+                error=f"Audio file not found: {audio_file_path}",
+                result="",
+            )
+
+        from transcribe_audio import transcribe_audio as run_transcribe_audio
+
+        keys = context.keys if context.keys else {}
+        if not keys.get("openAIKey"):
+            from endpoints.utils import keyParser
+            keys = keyParser({})
+
+        transcription = run_transcribe_audio(
+            audio_file_path,
+            openai_api_key=keys.get("openAIKey"),
+            assemblyai_api_key=keys.get("assemblyAIKey"),
+        )
+
+        return ToolCallResult(
+            tool_id="", tool_name="transcribe_audio",
+            result=_truncate_result(json.dumps({"transcription": transcription})),
+        )
+    except Exception as exc:
+        logger.exception("transcribe_audio error: %s", exc)
+        return ToolCallResult(
+            tool_id="", tool_name="transcribe_audio",
+            error=f"Failed to transcribe audio: {exc}",
+            result="",
+        )

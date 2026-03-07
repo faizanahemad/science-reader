@@ -796,11 +796,9 @@ function loadConversationModelOverrides(conversationId) {
                 var settings = (result && result.settings) ? result.settings : {};
                 ConversationManager.conversationSettings = settings;
                 var overrides = settings.model_overrides || {};
-                setModelOverrideValue('#settings-summary-model', overrides.summary_model || '', DEFAULT_MODEL_OVERRIDES.summary_model);
-                setModelOverrideValue('#settings-tldr-model', overrides.tldr_model || '', DEFAULT_MODEL_OVERRIDES.tldr_model);
+                setModelOverrideValue('#settings-conversation-internal-model', overrides.conversation_internal_model || '', DEFAULT_MODEL_OVERRIDES.conversation_internal_model);
+                setModelOverrideValue('#settings-quick-action-model', overrides.quick_action_model || '', DEFAULT_MODEL_OVERRIDES.quick_action_model);
                 setModelOverrideValue('#settings-artefact-propose-model', overrides.artefact_propose_edits_model || '', DEFAULT_MODEL_OVERRIDES.artefact_propose_edits_model);
-                setModelOverrideValue('#settings-doubt-clearing-model', overrides.doubt_clearing_model || '', DEFAULT_MODEL_OVERRIDES.doubt_clearing_model);
-                setModelOverrideValue('#settings-context-action-model', overrides.context_action_model || '', DEFAULT_MODEL_OVERRIDES.context_action_model);
                 setModelOverrideValue('#settings-doc-model', overrides.doc_model || '', DEFAULT_MODEL_OVERRIDES.doc_model);
                 setModelOverrideValue('#settings-clarify-intent-model', overrides.clarify_intent_model || '', DEFAULT_MODEL_OVERRIDES.clarify_intent_model);
                 $('#model-overrides-modal').modal('show');
@@ -815,11 +813,9 @@ function loadConversationModelOverrides(conversationId) {
 
 function saveConversationModelOverrides(conversationId) {
     var overrides = {
-        summary_model: getModelOverrideValue('#settings-summary-model'),
-        tldr_model: getModelOverrideValue('#settings-tldr-model'),
+        conversation_internal_model: getModelOverrideValue('#settings-conversation-internal-model'),
+        quick_action_model: getModelOverrideValue('#settings-quick-action-model'),
         artefact_propose_edits_model: getModelOverrideValue('#settings-artefact-propose-model'),
-        doubt_clearing_model: getModelOverrideValue('#settings-doubt-clearing-model'),
-        context_action_model: getModelOverrideValue('#settings-context-action-model'),
         doc_model: getModelOverrideValue('#settings-doc-model'),
         clarify_intent_model: getModelOverrideValue('#settings-clarify-intent-model')
     };
@@ -989,11 +985,9 @@ function populateModelOverrideOptions() {
         ? window.ModelCatalog.getAll()
         : [];
     const selects = [
-        '#settings-summary-model',
-        '#settings-tldr-model',
+        '#settings-conversation-internal-model',
+        '#settings-quick-action-model',
         '#settings-artefact-propose-model',
-        '#settings-doubt-clearing-model',
-        '#settings-context-action-model',
         '#settings-doc-model'
     ];
     selects.forEach(function (selector) {

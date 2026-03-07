@@ -33,6 +33,7 @@ from common import (
     EXPENSIVE_LLM,
     CHEAP_LONG_CONTEXT_LLM,
     LONG_CONTEXT_LLM,
+    SUPERFAST_LLM,
 )
 from database.conversations import (
     addConversation,
@@ -238,18 +239,17 @@ def _dedupe_models(models: list[str]) -> list[str]:
 @login_required
 def get_model_catalog():
     models = _dedupe_models(
-        VERY_CHEAP_LLM
+        SUPERFAST_LLM
+        + VERY_CHEAP_LLM
         + CHEAP_LLM
         + EXPENSIVE_LLM
         + CHEAP_LONG_CONTEXT_LLM
         + LONG_CONTEXT_LLM
     )
     defaults = {
-        "summary_model": VERY_CHEAP_LLM[0],
-        "tldr_model": CHEAP_LONG_CONTEXT_LLM[0],
+        "conversation_internal_model": SUPERFAST_LLM[0],
+        "quick_action_model": SUPERFAST_LLM[0],
         "artefact_propose_edits_model": EXPENSIVE_LLM[2],
-        "doubt_clearing_model": EXPENSIVE_LLM[2],
-        "context_action_model": EXPENSIVE_LLM[2],
         "doc_model": CHEAP_LONG_CONTEXT_LLM[0],
     }
     return jsonify({"models": models, "defaults": defaults})
@@ -301,11 +301,9 @@ def set_conversation_settings(conversation_id: str):
         )
 
     allowed_keys = {
-        "summary_model",
-        "tldr_model",
+        "conversation_internal_model",
+        "quick_action_model",
         "artefact_propose_edits_model",
-        "doubt_clearing_model",
-        "context_action_model",
         "doc_model",
         "clarify_intent_model",
     }

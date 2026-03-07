@@ -568,6 +568,166 @@ def create_docs_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[ASGIApp,
                 logger.exception("docs_get_global_doc_full_text error: %s", exc)
                 return f"Error retrieving global document text: {exc}"
 
+        # -------------------------------------------------------------
+        # Full Tool 10: docs_upload_global
+        # -------------------------------------------------------------
+
+        @mcp.tool()
+        def docs_upload_global(user_email: str, file_path: str, tags: list[str] | None = None) -> str:
+            """Upload a local file as a global document.
+
+            Reads the file from ``file_path`` on the server filesystem,
+            indexes it, and registers it as a global document for the user.
+
+            Args:
+                user_email: The user's email address.
+                file_path: Absolute path to the file on the server filesystem.
+                tags: Optional list of tag strings to attach to the document.
+            """
+            try:
+                if not os.path.isfile(file_path):
+                    return json.dumps({"error": f"File not found: {file_path}"})
+
+                from DocIndex import create_immediate_document_index
+
+                user_hash = _user_hash(user_email)
+                user_global_dir = os.path.join(_users_dir(), user_hash, "global_docs")
+                os.makedirs(user_global_dir, exist_ok=True)
+
+                doc_index = create_immediate_document_index(
+                    file_path, user_global_dir, _get_keys()
+                )
+                doc_index.save_local()
+
+                short_info = doc_index.get_short_info()
+                from database.global_docs import add_global_doc
+
+                add_global_doc(
+                    users_dir=_users_dir(),
+                    user_email=user_email,
+                    doc_id=doc_index.doc_id,
+                    doc_source=file_path,
+                    doc_storage=doc_index._storage,
+                    title=short_info.get("title", "") or "",
+                    short_summary=short_info.get("short_summary", "") or "",
+                )
+
+                if tags:
+                    from database.doc_tags import set_tags
+
+                    tag_list = [t.strip().lower() for t in tags if t.strip()]
+                    if tag_list:
+                        set_tags(
+                            users_dir=_users_dir(),
+                            user_email=user_email,
+                            doc_id=doc_index.doc_id,
+                            tags=tag_list,
+                        )
+
+                return json.dumps({
+                    "doc_id": doc_index.doc_id,
+                    "title": short_info.get("title", ""),
+                    "doc_storage_path": doc_index._storage,
+                })
+            except Exception as exc:
+                logger.exception("docs_upload_global error: %s", exc)
+                return json.dumps({"error": f"Failed to upload global doc: {exc}"})
+
+        # -------------------------------------------------------------
+        # Full Tool 11: docs_delete_global
+        # -------------------------------------------------------------
+
+        @mcp.tool()
+        def docs_delete_global(user_email: str, doc_id: str) -> str:
+            """Delete a global document by ID.
+
+            Removes the database record for the global document. Does not
+            delete the underlying filesystem storage.
+
+            Args:
+                user_email: The user's email address.
+                doc_id: The global document identifier (from ``docs_list_global_docs``).
+            """
+            try:
+                from database.global_docs import delete_global_doc
+
+                deleted = delete_global_doc(
+                    users_dir=_users_dir(),
+                    user_email=user_email,
+                    doc_id=doc_id,
+                )
+                if deleted:
+                    return json.dumps({"success": True, "message": f"Global doc '{doc_id}' deleted."})
+                return json.dumps({"error": f"Global doc '{doc_id}' not found or already deleted."})
+            except Exception as exc:
+                logger.exception("docs_delete_global error: %s", exc)
+                return json.dumps({"error": f"Failed to delete global doc: {exc}"})
+
+        # -------------------------------------------------------------
+        # Full Tool 12: docs_set_global_doc_tags
+        # -------------------------------------------------------------
+
+        @mcp.tool()
+        def docs_set_global_doc_tags(user_email: str, doc_id: str, tags: list[str]) -> str:
+            """Set tags on a global document (replaces existing tags).
+
+            Atomically replaces all tags for the document with the
+            provided list.
+
+            Args:
+                user_email: The user's email address.
+                doc_id: The global document identifier (from ``docs_list_global_docs``).
+                tags: List of tag strings to set on the document.
+            """
+            try:
+                from database.doc_tags import set_tags
+
+                tag_list = [t.strip().lower() for t in tags if t.strip()]
+                ok = set_tags(
+                    users_dir=_users_dir(),
+                    user_email=user_email,
+                    doc_id=doc_id,
+                    tags=tag_list,
+                )
+                if ok:
+                    return json.dumps({"success": True, "doc_id": doc_id, "tags": tag_list})
+                return json.dumps({"error": f"Failed to set tags on doc '{doc_id}'."})
+            except Exception as exc:
+                logger.exception("docs_set_global_doc_tags error: %s", exc)
+                return json.dumps({"error": f"Failed to set tags: {exc}"})
+
+        # -------------------------------------------------------------
+        # Full Tool 13: docs_assign_to_folder
+        # -------------------------------------------------------------
+
+        @mcp.tool()
+        def docs_assign_to_folder(user_email: str, doc_id: str, folder_id: str) -> str:
+            """Assign a global document to a folder.
+
+            Moves the document into the specified folder. Pass an empty
+            string for ``folder_id`` to move the document to Unfiled.
+
+            Args:
+                user_email: The user's email address.
+                doc_id: The global document identifier (from ``docs_list_global_docs``).
+                folder_id: The target folder ID, or empty string to unfile.
+            """
+            try:
+                from database.doc_folders import assign_doc_to_folder
+
+                resolved_folder_id = folder_id if folder_id else None
+                ok = assign_doc_to_folder(
+                    users_dir=_users_dir(),
+                    user_email=user_email,
+                    doc_id=doc_id,
+                    folder_id=resolved_folder_id,
+                )
+                if ok:
+                    return json.dumps({"success": True, "doc_id": doc_id, "folder_id": folder_id})
+                return json.dumps({"error": f"Failed to assign doc '{doc_id}' to folder '{folder_id}'."})
+            except Exception as exc:
+                logger.exception("docs_assign_to_folder error: %s", exc)
+                return json.dumps({"error": f"Failed to assign to folder: {exc}"})
     # -----------------------------------------------------------------
     # Build the Starlette ASGI app with middleware layers
     # -----------------------------------------------------------------

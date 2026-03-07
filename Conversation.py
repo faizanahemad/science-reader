@@ -982,9 +982,10 @@ Important Guidelines:
 
 Write new information below in bullet points below:
 """
+        internal_model = self.get_model_override("conversation_internal_model", SUPERFAST_LLM[0])
         llm = CallLLm(
             self.get_api_keys(),
-            model_name=CHEAP_LONG_CONTEXT_LLM[0],
+            model_name=internal_model,
             use_gpt4=False,
             use_16k=False,
         )  # google/gemini-flash-1.5 # cohere/command-r-plus openai/gpt-3.5-turbo-0125 mistralai/mixtral-8x22b-instruct
@@ -1029,9 +1030,10 @@ Compact list of bullet points:
             system = """You are an information merger and compaction agent who takes multiple sources of information and merges them into a single compact list of bullet points. You are given important factual information from four sources in the form of bullet points. You will now merge the two sources of information into a single compact list of bullet points. You will remove any redundant information and merge any similar information. You will write compactly and in a brief manner while capturing the information."""
             memory_parts_futures = []
             for i in range(0, len(memory_parts), 4):
+                internal_model = self.get_model_override("conversation_internal_model", SUPERFAST_LLM[0])
                 llm = CallLLm(
                     self.get_api_keys(),
-                    model_name=CHEAP_LONG_CONTEXT_LLM[0],
+                    model_name=internal_model,
                     use_gpt4=False,
                     use_16k=False,
                 )
@@ -3263,9 +3265,10 @@ Extract facts, details, numbers, code snippets, decisions, preferences, and any 
             )
 
             # Fire async LLM call
+            internal_model = self.get_model_override("conversation_internal_model", SUPERFAST_LLM[0])
             llm = CallLLm(
                 self.get_api_keys(),
-                model_name=VERY_CHEAP_LLM[0],
+                model_name=internal_model,
                 use_gpt4=False,
                 use_16k=False,
             )
@@ -3531,9 +3534,10 @@ Give 4 suggestions.
                 summary=previous_summary,
             )
         )
+        internal_model = self.get_model_override("conversation_internal_model", SUPERFAST_LLM[0])
         llm = CallLLm(
             self.get_api_keys(),
-            model_name=CHEAP_LONG_CONTEXT_LLM[0],
+            model_name=internal_model,
             use_gpt4=False,
             use_16k=True,
         )
@@ -3767,7 +3771,7 @@ Give 4 suggestions.
             previous_messages_text=previous_messages_text,
             previous_summary=previous_summary,
         )
-        summary_model = self.get_model_override("summary_model", VERY_CHEAP_LLM[0])
+        summary_model = self.get_model_override("conversation_internal_model", SUPERFAST_LLM[0])
         llm = CallLLm(
             self.get_api_keys(),
             model_name=summary_model,
@@ -4106,7 +4110,7 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
             # Initialize LLM with a fast model
             llm = CallLLm(
                 keys=self.get_api_keys(),
-                model_name="gpt-4o-mini",  # Use a fast, efficient model for detection
+                model_name=CHEAP_LLM[0],
             )
 
             # Get the detection result
@@ -5201,7 +5205,7 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
                     summary=self.running_summary or "No previous conversation summary available.",
                     answer=answer_content,
                 )
-                tldr_model = self.get_model_override("tldr_model", CHEAP_LONG_CONTEXT_LLM[0])
+                tldr_model = self.get_model_override("conversation_internal_model", SUPERFAST_LLM[0])
                 from call_llm import CallLLm
                 tldr_llm = CallLLm(
                     self.get_api_keys(),
@@ -8897,9 +8901,10 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     link_result_text="",
                     conversation_docs_answer="",
                 )
+                internal_model = self.get_model_override("conversation_internal_model", SUPERFAST_LLM[0])
                 answer_summary = CallLLm(
                     self.get_api_keys(),
-                    model_name=CHEAP_LONG_CONTEXT_LLM[0],
+                    model_name=internal_model,
                     use_16k=True,
                     use_gpt4=True,
                 )(prompt, temperature=0.3, stream=False)
@@ -10444,9 +10449,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 )
 
                 # Use a fast, cheap model for TLDR generation
-                tldr_model = self.get_model_override(
-                    "tldr_model", CHEAP_LONG_CONTEXT_LLM[0]
-                )
+                tldr_model = self.get_model_override("conversation_internal_model", SUPERFAST_LLM[0])
                 tldr_llm = CallLLm(
                     self.get_api_keys(),
                     model_name=tldr_model,
@@ -11669,9 +11672,7 @@ Please provide your explanation or answer to the user's doubt in a clear, struct
 
             # Initialize the LLM with appropriate model
             api_keys = self.get_api_keys()
-            doubt_model = self.get_model_override(
-                "doubt_clearing_model", EXPENSIVE_LLM[2]
-            )
+            doubt_model = self.get_model_override("quick_action_model", SUPERFAST_LLM[0])
             llm = CallLLm(
                 api_keys, model_name=doubt_model, use_gpt4=False, use_16k=False
             )
@@ -11916,9 +11917,7 @@ Your response:""",
 
             # Initialize LLM
             api_keys = self.get_api_keys()
-            context_action_model = self.get_model_override(
-                "context_action_model", EXPENSIVE_LLM[2]
-            )
+            context_action_model = self.get_model_override("quick_action_model", SUPERFAST_LLM[0])
             llm = CallLLm(
                 api_keys,
                 model_name=context_action_model,
