@@ -211,9 +211,10 @@ def create_docs_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[ASGIApp,
 
         Returns a JSON array of document metadata objects, each containing:
         ``doc_id``, ``title``, ``short_summary``, ``doc_storage_path``,
-        ``source``, and ``display_name`` (may be null).  Use
+        ``source``, ``display_name`` (may be null), ``priority`` (1-5 with label),
+        ``date_written``, and ``deprecated`` status.  Use
         ``doc_storage_path`` with other docs tools to query or retrieve
-        the document content.
+        the document content. Returns priority (1-5 with label), date_written, and deprecated status for each document.
 
         Args:
             user_email: The user's email address.
@@ -245,6 +246,7 @@ def create_docs_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[ASGIApp,
                         "display_name": entry[3] if len(entry) > 3 else None,
                     })
                     continue
+                _info = doc.get_short_info() or {}
                 results.append({
                     "index": idx + 1,
                     "doc_id": doc_id,
@@ -253,6 +255,10 @@ def create_docs_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[ASGIApp,
                     "doc_storage_path": doc_storage,
                     "source": pdf_url,
                     "display_name": entry[3] if len(entry) > 3 else None,
+                    "priority": _info.get("priority", 3),
+                    "priority_label": _info.get("priority_label", "medium"),
+                    "date_written": _info.get("date_written"),
+                    "deprecated": _info.get("deprecated", False),
                 })
             return json.dumps(results)
         except Exception as exc:
@@ -270,10 +276,10 @@ def create_docs_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[ASGIApp,
         Global documents are indexed once and can be referenced from any
         conversation using ``#gdoc_N`` syntax, by quoted display name
         (``\"my doc name\"``), by folder (``#folder:Name``), or by tag
-        (``#tag:name``).  Returns a JSON array of metadata objects with
         ``index``, ``doc_id``, ``display_name``, ``title``,
         ``short_summary``, ``doc_storage_path``, ``source``,
-        ``folder_id`` (nullable), and ``tags`` (array of strings).
+        ``folder_id`` (nullable), ``tags`` (array of strings), ``priority`` (1-5 with label),
+        ``date_written``, and ``deprecated`` status. Returns priority (1-5 with label), date_written, and deprecated status for each document.
 
         Args:
             user_email: The user's email address.
@@ -297,6 +303,10 @@ def create_docs_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[ASGIApp,
                     "source": row.get("doc_source", ""),
                     "folder_id": row.get("folder_id"),
                     "tags": row.get("tags", []),
+                    "priority": row.get("priority", 3),
+                    "priority_label": {1: "very low", 2: "low", 3: "medium", 4: "high", 5: "very high"}.get(row.get("priority", 3), "medium"),
+                    "date_written": row.get("date_written"),
+                    "deprecated": row.get("deprecated", False),
                 })
             return json.dumps(results)
         except Exception as exc:
@@ -403,6 +413,10 @@ def create_docs_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[ASGIApp,
                     "short_summary": doc.short_summary,
                     "text_len": getattr(doc, "_text_len", 0),
                     "visible": doc.visible,
+                    "priority": getattr(doc, "_priority", 3),
+                    "priority_label": {1: "very low", 2: "low", 3: "medium", 4: "high", 5: "very high"}.get(getattr(doc, "_priority", 3), "medium"),
+                    "date_written": getattr(doc, "_date_written", None),
+                    "deprecated": getattr(doc, "_deprecated", False),
                 })
             except Exception as exc:
                 logger.exception("docs_get_info error: %s", exc)
@@ -469,6 +483,10 @@ def create_docs_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[ASGIApp,
                     "source": row.get("doc_source", ""),
                     "created_at": row.get("created_at", ""),
                     "updated_at": row.get("updated_at", ""),
+                    "priority": row.get("priority", 3),
+                    "priority_label": {1: "very low", 2: "low", 3: "medium", 4: "high", 5: "very high"}.get(row.get("priority", 3), "medium"),
+                    "date_written": row.get("date_written"),
+                    "deprecated": row.get("deprecated", False),
                 })
             except Exception as exc:
                 logger.exception("docs_get_global_doc_info error: %s", exc)

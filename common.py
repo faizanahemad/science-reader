@@ -85,6 +85,7 @@ VERY_CHEAP_LLM = [
     "google/gemini-2.5-flash-lite",
     "google/gemini-2.5-flash",
     "openai/gpt-5-mini",
+    "inception/mercury-2",
 ]
 CHEAP_LLM = [
     "anthropic/claude-haiku-4.5",
@@ -96,6 +97,7 @@ EXPENSIVE_LLM = [
     "openai/gpt-5.1",
     "anthropic/claude-sonnet-4.6",
     "openai/gpt-5.2",
+    "openai/gpt-5.4",
     "google/gemini-3.1-pro-preview",
     "openai/gpt-5.2-codex",
     "mistralai/mistral-large-2512",

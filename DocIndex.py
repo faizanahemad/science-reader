@@ -33,6 +33,9 @@ logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers
 )
 import time
 
+# Document priority/reliability levels (1-5 scale)
+PRIORITY_LABELS = {1: "very low", 2: "low", 3: "medium", 4: "high", 5: "very high"}
+
 
 class DocFAISS(FAISS):
     def merge_from(self, target: FAISS) -> None:
@@ -1016,6 +1019,9 @@ class DocIndex:
         self._title = ""
         self._short_summary = ""
         self._display_name = None
+        self._priority = 3          # 1-5 scale, default "medium"
+        self._date_written = None   # ISO date string, e.g. "2026-03-01"
+        self._deprecated = False
         folder = os.path.join(storage, f"{self.doc_id}")
         os.makedirs(folder, exist_ok=True)
         self._storage = folder
@@ -1964,6 +1970,10 @@ class DocIndex:
             summary=self.short_summary,
             display_name=getattr(self, "_display_name", None) or None,
             is_fast_index=getattr(self, "_is_fast_index", False),
+            priority=getattr(self, "_priority", 3),
+            priority_label=PRIORITY_LABELS.get(getattr(self, "_priority", 3), "medium"),
+            date_written=getattr(self, "_date_written", None),
+            deprecated=getattr(self, "_deprecated", False),
         )
 
     @property
@@ -2202,6 +2212,9 @@ class FastDocIndex(DocIndex):
         # ---- Summary from first 500 chars of text (no LLM call) ----
         self._short_summary = doc_text[:500].strip() if doc_text else ""
         self._display_name = None
+        self._priority = 3          # 1-5 scale, default "medium"
+        self._date_written = None   # ISO date string, e.g. "2026-03-01"
+        self._deprecated = False
 
         # ---- Storage folder ----
         folder = os.path.join(storage, f"{self.doc_id}")

@@ -172,6 +172,31 @@ It’s intentionally brief: endpoint purpose + request/response shape “at a gl
 #### `DELETE /delete_document_from_conversation/<conversation_id>/<document_id>`
 - **Response (JSON)**: `{ "status": "Document deleted" }`
 
+#### `PATCH /docs/<conversation_id>/<doc_id>/metadata`
+- **Purpose**: update metadata fields for a conversation document without re-indexing.
+- **Request (JSON)** (all fields optional): `{ "display_name": "...", "priority": 1-5, "date_written": "...", "deprecated": bool }`
+- **Response (JSON)**: `{ "status": "ok" }`
+
+#### `POST /docs/<conversation_id>/<doc_id>/replace` (async)
+- **Purpose**: replace a conversation document's source file with a new file and re-index. The `doc_id` changes after replacement.
+- **Request**: multipart form-data — `pdf_file` (required), `display_name` (optional).
+- **Response (JSON)**: `{ "status": "started", "task_id": "<uuid>" }` — HTTP 202. Use the progress endpoint to track completion.
+
+#### `GET /replace_doc_progress/<task_id>` (SSE)
+- **Purpose**: stream replacement progress for a conversation doc replace task.
+- **Response** (`text/event-stream`): newline-delimited SSE events. Each event data is JSON:
+  ```json
+  {
+    "status": "running" | "completed" | "error",
+    "phase": "queued" | "reading" | "saving" | "done" | "error",
+    "message": "Human-readable status string",
+    "new_doc_id": "<doc_id>",
+    "title": "<generated title>",
+    "short_summary": "<generated summary>"
+  }
+  ```
+  `new_doc_id`, `title`, and `short_summary` are only present in the final `completed` event.
+
 ---
 
 ## Doubts + temporary LLM (`endpoints/doubts.py`)
@@ -383,4 +408,60 @@ Responses are JSON objects; shapes vary per endpoint (claims, entities, tags, co
 - **Purpose**: execute code once (implementation-defined sandboxing).
 - **Request/Response**: JSON (see implementation doc for details).
 
+
+---
+
+## Global Documents (`endpoints/global_docs.py`)
+
+All endpoints require login.
+
+#### `POST /global_docs/upload`
+- **Purpose**: upload a file or URL as a global (user-level) document.
+- **Request**: multipart — `pdf_file`, optional `display_name`, optional `folder_id`; or JSON `{ "pdf_url": "...", "display_name": "..." }`.
+- **Response (JSON)**: `{ "status": "ok", "doc_id": "..." }`
+
+#### `GET /global_docs/list`
+- **Response (JSON)**: array of doc objects: `{ index, doc_id, display_name, title, short_summary, source, created_at, tags[], folder_id }`.
+
+#### `GET /global_docs/info/<doc_id>`
+- **Response (JSON)**: detailed info for a single global doc.
+
+#### `GET /global_docs/download/<doc_id>`
+- **Response**: file download.
+
+#### `DELETE /global_docs/<doc_id>`
+- **Response (JSON)**: `{ "status": "ok" }` (or error)
+
+#### `POST /global_docs/promote/<conv_id>/<doc_id>`
+- **Purpose**: promote a conversation doc to global storage (copy-verify-delete).
+- **Response (JSON)**: `{ "status": "ok", "doc_id": "..." }`
+
+#### `POST /global_docs/<doc_id>/tags`
+- **Purpose**: set (replace) all tags on a global doc.
+- **Request (JSON)**: `{ "tags": ["tag1", "tag2"] }`
+- **Response (JSON)**: `{ "status": "ok" }`
+
+#### `PATCH /global_docs/<doc_id>/metadata`
+- **Purpose**: update metadata fields for a global doc without re-indexing.
+- **Request (JSON)** (all fields optional): `{ "display_name": "...", "priority": 1-5, "date_written": "...", "deprecated": bool, "title": "...", "short_summary": "..." }`
+- **Response (JSON)**: `{ "status": "ok" }`
+
+#### `POST /global_docs/<doc_id>/replace` (async)
+- **Purpose**: replace a global document's source file with a new file and re-index. User-set metadata (priority, date_written, deprecated, display_name) is preserved from the original doc.
+- **Request**: multipart form-data — `pdf_file` (required), `display_name` (optional, overrides existing).
+- **Response (JSON)**: `{ "status": "started", "task_id": "<uuid>" }` — HTTP 202.
+
+#### `GET /global_docs/replace_progress/<task_id>` (SSE)
+- **Purpose**: stream replacement progress for a global doc replace task.
+- **Response** (`text/event-stream`): same event shape as conversation doc progress:
+  ```json
+  {
+    "status": "running" | "completed" | "error",
+    "phase": "queued" | "reading" | "saving" | "done" | "error",
+    "message": "Human-readable status string",
+    "new_doc_id": "<doc_id>",
+    "title": "<generated title>",
+    "short_summary": "<generated summary>"
+  }
+  ```
 

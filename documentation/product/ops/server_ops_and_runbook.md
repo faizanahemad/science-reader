@@ -3,7 +3,7 @@
 > **See also:** For current operational procedures, refer to:
 > - [Server Restart Guide](server_restart_guide.md) — screen sessions, JWT extraction, deferred restart pattern
 > - [MCP Server Setup](mcp_server_setup.md) — 8 MCP servers (37 tools), JWT auth, OpenCode/Claude Code config
-> - [LLM Model Management](llm_model_management.md) — model configuration and provider setup
+> - [LLM Model Management](llm_model_management.md) — model configuration and provider setup (see **TL;DR: Adding a New LLM in ~3 Steps** at the bottom for the quick checklist)
 
 ---
 

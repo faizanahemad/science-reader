@@ -1328,6 +1328,10 @@ def handle_docs_list_conversation_docs(args: dict, context: ToolContext) -> Tool
                 "doc_storage_path": doc_storage,
                 "source": pdf_url,
                 "display_name": entry[3] if len(entry) > 3 else None,
+                "priority": getattr(doc, "_priority", 3),
+                "priority_label": {1: "very low", 2: "low", 3: "medium", 4: "high", 5: "very high"}.get(getattr(doc, "_priority", 3), "medium"),
+                "date_written": getattr(doc, "_date_written", None),
+                "deprecated": getattr(doc, "_deprecated", False),
             })
         return ToolCallResult(
             tool_id="", tool_name="docs_list_conversation_docs",
@@ -1378,6 +1382,10 @@ def handle_docs_list_global_docs(args: dict, context: ToolContext) -> ToolCallRe
                 "source": row.get("doc_source", ""),
                 "folder_id": row.get("folder_id"),
                 "tags": row.get("tags", []),
+                "priority": row.get("priority", 3),
+                "priority_label": {1: "very low", 2: "low", 3: "medium", 4: "high", 5: "very high"}.get(row.get("priority", 3), "medium"),
+                "date_written": row.get("date_written"),
+                "deprecated": row.get("deprecated", False),
             })
         return ToolCallResult(
             tool_id="", tool_name="docs_list_global_docs",
@@ -1529,6 +1537,10 @@ def handle_docs_get_info(args: dict, context: ToolContext) -> ToolCallResult:
                 "short_summary": doc.short_summary,
                 "text_len": getattr(doc, "_text_len", 0),
                 "visible": doc.visible,
+                "priority": getattr(doc, "_priority", 3),
+                "priority_label": {1: "very low", 2: "low", 3: "medium", 4: "high", 5: "very high"}.get(getattr(doc, "_priority", 3), "medium"),
+                "date_written": getattr(doc, "_date_written", None),
+                "deprecated": getattr(doc, "_deprecated", False),
             })),
         )
     except Exception as exc:
@@ -1623,6 +1635,10 @@ def handle_docs_get_global_doc_info(args: dict, context: ToolContext) -> ToolCal
                 "source": row.get("doc_source", ""),
                 "created_at": row.get("created_at", ""),
                 "updated_at": row.get("updated_at", ""),
+                "priority": row.get("priority", 3),
+                "priority_label": {1: "very low", 2: "low", 3: "medium", 4: "high", 5: "very high"}.get(row.get("priority", 3), "medium"),
+                "date_written": row.get("date_written"),
+                "deprecated": row.get("deprecated", False),
             })),
         )
     except Exception as exc:

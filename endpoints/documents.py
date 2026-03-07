@@ -46,13 +46,16 @@ def upload_doc_to_conversation_route(conversation_id: str):
 
     pdf_file = request.files.get("pdf_file")
     display_name = (request.form.get("display_name") or "").strip() or None
+    priority = int(request.form.get('priority', 3) or 3)
+    date_written = request.form.get('date_written') or None
+    deprecated = request.form.get('deprecated', '').lower() in ('true', '1', 'yes')
     conversation = attach_keys(state.conversation_cache[conversation_id], keys)
 
     if pdf_file and conversation_id:
         try:
             pdf_file.save(os.path.join(state.pdfs_dir, pdf_file.filename))
             full_pdf_path = os.path.join(state.pdfs_dir, pdf_file.filename)
-            doc_index = conversation.add_fast_uploaded_document(full_pdf_path, display_name=display_name, docs_folder=getattr(state, 'docs_folder', None))
+            doc_index = conversation.add_fast_uploaded_document(full_pdf_path, display_name=display_name, priority=priority, date_written=date_written, deprecated=deprecated, docs_folder=getattr(state, 'docs_folder', None))
             conversation.save_local()
             result = {"status": "Indexing started"}
             if doc_index and hasattr(doc_index, "get_short_info"):
@@ -77,7 +80,7 @@ def upload_doc_to_conversation_route(conversation_id: str):
 
     if pdf_url:
         try:
-            doc_index = conversation.add_fast_uploaded_document(pdf_url, display_name=display_name, docs_folder=getattr(state, 'docs_folder', None))
+            doc_index = conversation.add_fast_uploaded_document(pdf_url, display_name=display_name, priority=priority, date_written=date_written, deprecated=deprecated, docs_folder=getattr(state, 'docs_folder', None))
             conversation.save_local()
             result = {"status": "Indexing started"}
             if doc_index and hasattr(doc_index, "get_short_info"):
@@ -190,6 +193,60 @@ def delete_document_from_conversation_route(conversation_id: str, document_id: s
     return json_error("No doc_id provided", status=400, code="bad_request")
 
 
+
+@documents_bp.route("/docs/<conversation_id>/<doc_id>/metadata", methods=["PATCH"])
+@limiter.limit("60 per minute")
+@login_required
+def update_conversation_doc_metadata_route(conversation_id: str, doc_id: str):
+    """Update priority, date_written, deprecated, display_name for a conversation doc."""
+    state, keys = get_state_and_keys()
+    data = request.json or {}
+    conversation = attach_keys(state.conversation_cache[conversation_id], keys)
+
+    # Find the doc's storage path from the tuple list
+    docs_list = conversation.get_field("uploaded_documents_list") or []
+    doc_storage = None
+    for entry in docs_list:
+        if entry[0] == doc_id:
+            doc_storage = entry[1]
+            break
+
+    if not doc_storage:
+        return json_error("Document not found", status=404, code="not_found")
+
+    from DocIndex import DocIndex
+    doc_index = DocIndex.load_local(doc_storage)
+    if not doc_index:
+        return json_error("Could not load document index", status=500, code="internal_error")
+
+    priority = data.get("priority")
+    date_written = data.get("date_written")
+    deprecated = data.get("deprecated")
+    display_name = data.get("display_name")
+
+    if priority is not None:
+        doc_index._priority = max(1, min(5, int(priority)))
+    if date_written is not None:
+        doc_index._date_written = date_written
+    if deprecated is not None:
+        doc_index._deprecated = bool(deprecated)
+    if display_name is not None:
+        doc_index._display_name = display_name if display_name else None
+
+    doc_index.save_local()
+
+    # Update display_name in conversation tuple if changed
+    if display_name is not None:
+        updated_list = []
+        for entry in docs_list:
+            if entry[0] == doc_id:
+                dn = display_name if display_name else None
+                entry = (entry[0], entry[1], entry[2], dn) if len(entry) >= 3 else entry
+            updated_list.append(entry)
+        conversation.set_field("uploaded_documents_list", updated_list, overwrite=True)
+        conversation.save_local()
+
+    return jsonify({"status": "ok"})
 @documents_bp.route(
     "/list_documents_by_conversation/<conversation_id>", methods=["GET"]
 )
@@ -545,3 +602,156 @@ def docs_autocomplete():
         logger.exception("docs_autocomplete: error loading global docs")
 
     return jsonify({"status": "ok", "docs": results[:limit]})
+
+
+# ---------------------------------------------------------------------------
+# In-memory task tracker for background doc replacements.  Keyed by task_id.
+# ---------------------------------------------------------------------------
+_REPLACE_TASKS: dict = {}
+
+
+@documents_bp.route("/docs/<conversation_id>/<doc_id>/replace", methods=["POST"])
+@limiter.limit("20 per minute")
+@login_required
+def replace_conversation_doc_route(conversation_id: str, doc_id: str):
+    """Replace a conversation document's source file and re-index."""
+    state, keys = get_state_and_keys()
+    conversation = attach_keys(state.conversation_cache.get(conversation_id), keys)
+    if conversation is None:
+        return json_error("Conversation not found", status=404, code="not_found")
+
+    docs_list = conversation.get_field("uploaded_documents_list") or []
+    old_entry = None
+    for entry in docs_list:
+        if entry[0] == doc_id:
+            old_entry = entry
+            break
+    if old_entry is None:
+        return json_error("Document not found", status=404, code="not_found")
+
+    pdf_file = request.files.get("pdf_file")
+    if not pdf_file:
+        return json_error("No file provided", status=400, code="bad_request")
+
+    full_pdf_path = os.path.join(state.pdfs_dir, pdf_file.filename)
+    pdf_file.save(full_pdf_path)
+
+    display_name = (request.form.get("display_name") or "").strip() or None
+
+    old_doc_storage = old_entry[1]
+    old_display_name = old_entry[3] if len(old_entry) > 3 else None
+    docs_folder = getattr(state, "docs_folder", None)
+
+    task_id = str(uuid.uuid4())
+    _REPLACE_TASKS[task_id] = {
+        "status": "running",
+        "phase": "queued",
+        "message": "Starting replacement\u2026",
+        "conversation_id": conversation_id,
+        "old_doc_id": doc_id,
+    }
+
+    t = threading.Thread(
+        target=_run_replace_local,
+        args=(task_id, conversation_id, doc_id, old_doc_storage,
+              full_pdf_path, display_name or old_display_name, keys, state, docs_folder),
+        daemon=True,
+    )
+    t.start()
+    return jsonify({"status": "started", "task_id": task_id}), 202
+
+
+def _run_replace_local(
+    task_id, conversation_id, old_doc_id, old_doc_storage,
+    new_source_path, display_name, keys, state, docs_folder,
+):
+    """Background thread: create new index, swap references, clean up old."""
+    task = _REPLACE_TASKS[task_id]
+
+    def _progress(phase, message):
+        task["phase"] = phase
+        task["message"] = message
+
+    try:
+        from code_common.documents import create_immediate_document_index
+        import shutil
+
+        _progress("reading", "Extracting text from new document\u2026")
+
+        if docs_folder:
+            import canonical_docs as _cd
+            conv = state.conversation_cache.get(conversation_id)
+            u_hash = _cd.user_hash(conv.user_id if conv else "unknown")
+            parent_dir = os.path.join(docs_folder, u_hash)
+        else:
+            parent_dir = os.path.dirname(old_doc_storage)
+
+        new_doc_index = create_immediate_document_index(
+            new_source_path, parent_dir, keys, progress_callback=_progress
+        )
+
+        if new_doc_index is None:
+            raise RuntimeError("Failed to create document index from new file")
+
+        new_doc_index._display_name = display_name
+        new_doc_index._visible = True
+        new_doc_index.save_local()
+
+        _progress("saving", "Updating conversation\u2026")
+
+        new_doc_id = new_doc_index.doc_id
+        new_doc_storage = new_doc_index._storage
+
+        conversation = state.conversation_cache.get(conversation_id)
+        if conversation is not None:
+            conversation = attach_keys(conversation, keys)
+            conversation.replace_uploaded_document(
+                old_doc_id, new_doc_id, new_doc_storage,
+                new_doc_index.doc_source, display_name,
+            )
+
+        # Clean up old storage (if different from new)
+        if old_doc_storage != new_doc_storage and os.path.isdir(old_doc_storage):
+            shutil.rmtree(old_doc_storage, ignore_errors=True)
+
+        # Clean up SHA-256 index for old doc
+        if docs_folder:
+            try:
+                _cd.remove_sha256_entry(docs_folder, u_hash, old_doc_id)
+            except Exception:
+                pass
+
+        short_info = new_doc_index.get_short_info()
+        task.update({
+            "status": "completed",
+            "phase": "done",
+            "message": "Document replaced successfully.",
+            "new_doc_id": new_doc_id,
+            "title": short_info.get("title", ""),
+            "short_summary": short_info.get("short_summary", ""),
+        })
+    except Exception as exc:
+        traceback.print_exc()
+        task.update({"status": "error", "phase": "error", "message": str(exc)})
+    finally:
+        def _cleanup():
+            time.sleep(120)
+            _REPLACE_TASKS.pop(task_id, None)
+        threading.Thread(target=_cleanup, daemon=True).start()
+
+
+@documents_bp.route("/replace_doc_progress/<task_id>")
+@login_required
+def replace_doc_progress(task_id: str):
+    """SSE stream of replacement progress."""
+    def generate():
+        while True:
+            task = _REPLACE_TASKS.get(task_id)
+            if task is None:
+                yield f"data: {json.dumps({'phase': 'error', 'message': 'Unknown task'})}\n\n"
+                break
+            yield f"data: {json.dumps(task)}\n\n"
+            if task.get("status") in ("completed", "error"):
+                break
+            time.sleep(1.5)
+    return Response(stream_with_context(generate()), mimetype="text/event-stream")

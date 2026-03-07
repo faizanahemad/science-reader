@@ -7,6 +7,7 @@ import os
 import hashlib
 import uuid
 from textwrap import dedent
+from datetime import datetime
 
 import yaml
 from agents.search_and_information_agents import (
@@ -1613,7 +1614,18 @@ Compact list of bullet points:
             setattr(self, "_doc_infos", value)
         self.save_local()
 
-    def add_fast_uploaded_document(self, pdf_url, display_name=None, docs_folder=None):
+    @staticmethod
+    def _format_doc_info_line(idx, doc):
+        """Format a single doc_infos line with priority and deprecated metadata."""
+        from DocIndex import PRIORITY_LABELS
+        priority_label = PRIORITY_LABELS.get(getattr(doc, '_priority', 3), 'medium')
+        date_str = getattr(doc, '_date_written', None)
+        meta_parts = [f'reliability: {priority_label}']
+        if date_str:
+            meta_parts.append(f'date: {date_str}')
+        deprecated_tag = ' [DEPRECATED]' if getattr(doc, '_deprecated', False) else ''
+        return f"#doc_{idx + 1}: ({doc.title})[{doc.doc_source}] [{', '.join(meta_parts)}]{deprecated_tag}"
+    def add_fast_uploaded_document(self, pdf_url, display_name=None, priority=3, date_written=None, deprecated=False, docs_folder=None):
         """Create a fast-indexed document (BM25, no FAISS/LLM) and store in uploaded_documents_list.
         Add Document modal.  Identical to add_message_attached_document() but stores
         the result in ``uploaded_documents_list`` so it appears in the conversation
@@ -1652,10 +1664,17 @@ Compact list of bullet points:
             if doc_index is None:
                 return None
             doc_index._display_name = display_name or None
+            doc_index._priority = priority
+            doc_index._date_written = date_written or datetime.now().strftime('%Y-%m-%d')
+            doc_index._deprecated = deprecated
         else:
             doc_index = create_fast_document_index(pdf_url, self.documents_path, self.get_api_keys())
             doc_index._visible = True
             doc_index._display_name = display_name or None
+            doc_index._priority = priority
+            doc_index._date_written = date_written or datetime.now().strftime('%Y-%m-%d')
+            doc_index._deprecated = deprecated
+            doc_index.save_local()
             doc_index.save_local()
         doc_id = doc_index.doc_id
         doc_storage = doc_index._storage
@@ -1665,7 +1684,7 @@ Compact list of bullet points:
         current_documents = self.get_uploaded_documents(readonly=True)
         doc_infos = "\n".join(
             [
-                f"#doc_{i + 1}: ({d.title})[{d.doc_source}]"
+                self._format_doc_info_line(i, d)
                 for i, d in enumerate(current_documents)
             ]
         )
@@ -1673,7 +1692,7 @@ Compact list of bullet points:
         return doc_index
 
 
-    def add_uploaded_document(self, pdf_url, docs_folder=None):
+    def add_uploaded_document(self, pdf_url, priority=3, date_written=None, deprecated=False, docs_folder=None):
         # TODO: check file md5 hash to see if it is already uploaded
         if docs_folder is not None:
             u_hash = _canonical_docs.user_hash(self.user_id)
@@ -1692,6 +1711,10 @@ Compact list of bullet points:
         else:
             doc_index: DocIndex = create_immediate_document_index(pdf_url, self.documents_path, self.get_api_keys())
             doc_index._visible = False
+            doc_index._priority = priority
+            doc_index._date_written = date_written or datetime.now().strftime('%Y-%m-%d')
+            doc_index._deprecated = deprecated
+            doc_index.save_local()
             doc_index.save_local()
         doc_id = doc_index.doc_id
         doc_storage = doc_index._storage
@@ -1706,7 +1729,7 @@ Compact list of bullet points:
         attached_docs.append(doc_index)
         doc_infos = "\n".join(
             [
-                f"#doc_{i + 1}: ({d.title})[{d.doc_source}]"
+                self._format_doc_info_line(i, d)
                 for i, d in enumerate(attached_docs)
             ]
         )
@@ -1773,11 +1796,41 @@ Compact list of bullet points:
         ]
         doc_infos = "\n".join(
             [
-                f"#doc_{i + 1}: ({d.title})[{d.doc_source}]"
+                self._format_doc_info_line(i, d)
                 for i, d in enumerate(attached_docs)
             ]
         )
         self.doc_infos = doc_infos
+
+    def replace_uploaded_document(self, old_doc_id, new_doc_id, new_doc_storage, new_doc_source, display_name=None):
+        """Replace a document in uploaded_documents_list with new identity.
+
+        Swaps the tuple for old_doc_id with a new tuple pointing to
+        new_doc_id/new_doc_storage while preserving the display_name.
+        Rebuilds doc_infos for LLM context.
+        """
+        docs_list = self.get_field("uploaded_documents_list") or []
+        updated = []
+        found = False
+        for entry in docs_list:
+            if entry[0] == old_doc_id:
+                # Preserve display_name from old entry if not overridden
+                old_display = entry[3] if len(entry) > 3 else None
+                dn = display_name if display_name is not None else old_display
+                updated.append((new_doc_id, new_doc_storage, new_doc_source, dn))
+                found = True
+            else:
+                updated.append(entry)
+        if not found:
+            return False
+        self.set_field("uploaded_documents_list", updated, overwrite=True)
+        # Rebuild doc_infos
+        current_documents = self.get_uploaded_documents(readonly=True)
+        doc_infos = "\n".join(
+            [self._format_doc_info_line(i, d) for i, d in enumerate(current_documents)]
+        )
+        self.doc_infos = doc_infos
+        return True
 
     def add_message_attached_document(self, pdf_url, docs_folder=None):
         """Create a fast-indexed document for a message attachment (no FAISS/LLM).
@@ -1816,6 +1869,10 @@ Compact list of bullet points:
         else:
             doc_index = create_fast_document_index(pdf_url, self.documents_path, self.get_api_keys())
             doc_index._visible = False
+            doc_index._priority = 3
+            doc_index._date_written = datetime.now().strftime('%Y-%m-%d')
+            doc_index._deprecated = False
+            doc_index.save_local()
             doc_index.save_local()
         doc_id = doc_index.doc_id
         doc_storage = doc_index._storage
@@ -1831,7 +1888,7 @@ Compact list of bullet points:
                 all_docs.append(loaded)
         doc_infos = "\n".join(
             [
-                f"#doc_{i + 1}: ({d.title})[{d.doc_source}]"
+                self._format_doc_info_line(i, d)
                 for i, d in enumerate(all_docs)
             ]
         )
@@ -1918,6 +1975,12 @@ Compact list of bullet points:
             return None
 
         _doc_id, _doc_storage, actual_source = target
+        # ---- Load fast doc to preserve metadata ----
+        from DocIndex import DocIndex as _FastDocIndex
+        fast_doc = _FastDocIndex.load_local(_doc_storage)
+        old_priority = getattr(fast_doc, "_priority", 3) if fast_doc is not None else 3
+        old_date = getattr(fast_doc, "_date_written", None) if fast_doc is not None else None
+        old_deprecated = getattr(fast_doc, "_deprecated", False) if fast_doc is not None else False
         # actual_source is the post-move path stored by add_message_attached_document
         # ---- Remove from message_attached list ----
         remaining = [d for d in msg_docs if d[0] != doc_id]
@@ -1930,6 +1993,9 @@ Compact list of bullet points:
             def _build(canonical_parent):
                 idx = create_immediate_document_index(_actual_source, canonical_parent, _keys)
                 idx._visible = True
+                idx._priority = old_priority
+                idx._date_written = old_date
+                idx._deprecated = old_deprecated
                 idx.save_local()
                 return idx
             canonical_storage = _canonical_docs.store_or_get(docs_folder, u_hash, actual_source, _build)
@@ -1940,6 +2006,9 @@ Compact list of bullet points:
         else:
             full_doc_index = create_immediate_document_index(actual_source, self.documents_path, self.get_api_keys())
             full_doc_index._visible = True
+            full_doc_index._priority = old_priority
+            full_doc_index._date_written = old_date
+            full_doc_index._deprecated = old_deprecated
             full_doc_index.save_local()
 
         # ---- Add to uploaded_documents_list (same logic as add_uploaded_document) ----
@@ -1954,7 +2023,7 @@ Compact list of bullet points:
         current_documents = self.get_uploaded_documents()
         doc_infos = "\n".join(
             [
-                f"#doc_{i + 1}: ({d.title})[{d.doc_source}]"
+                self._format_doc_info_line(i, d)
                 for i, d in enumerate(current_documents)
             ]
         )
@@ -5609,12 +5678,22 @@ Any other `/command` is passed through to OpenCode directly.
             doc_infos_readable = [d.title for d in attached_docs_readable]
             # replace each of the #doc_1, #doc_2 etc with the doc_infos
             if replace_reference:
+                from DocIndex import PRIORITY_LABELS
                 for i, d in enumerate(attached_docs_names):
                     doc = attached_docs[i]
                     doc_title = doc_infos[i]
+                    priority_label = PRIORITY_LABELS.get(getattr(doc, '_priority', 3), 'medium')
+                    date_str = getattr(doc, '_date_written', None)
+                    meta_parts = [f'Reliability: {priority_label}']
+                    if date_str:
+                        meta_parts.append(f'Date written: {date_str}')
+                    deprecated_caveat = ''
+                    if getattr(doc, '_deprecated', False):
+                        deprecated_caveat = '[DEPRECATED DOCUMENT \u2014 included for reference only, prefer other sources]\n'
                     messageText = messageText.replace(
                         d,
-                        f"{d} (Title of {d} '{doc_title}')\n"
+                        f"{d} (Title of {d} '{doc_title}') [{', '.join(meta_parts)}]\n"
+                        + deprecated_caveat
                         + (
                             f"data file: {doc.doc_source}\n"
                             if doc_title in doc_infos_data
@@ -5667,7 +5746,7 @@ Any other `/command` is passed through to OpenCode directly.
                 from database.global_docs import list_global_docs as _lgd_folder
                 _all_rows = _lgd_folder(users_dir=users_dir, user_email=user_email)
                 for _idx0, _row in enumerate(_all_rows):
-                    if _row['doc_id'] in _folder_doc_ids and (_idx0 + 1) not in gdoc_indices:
+                    if _row['doc_id'] in _folder_doc_ids and (_idx0 + 1) not in gdoc_indices and not _row.get('deprecated', False):
                         gdoc_indices.append(_idx0 + 1)
                         gdoc_ref_names.append(f"#gdoc_{_idx0 + 1}")
 
@@ -5681,7 +5760,7 @@ Any other `/command` is passed through to OpenCode directly.
             from database.global_docs import list_global_docs as _lgd_tag
             _all_rows = _lgd_tag(users_dir=users_dir, user_email=user_email)
             for _idx0, _row in enumerate(_all_rows):
-                if _row['doc_id'] in _tagged_doc_ids and (_idx0 + 1) not in gdoc_indices:
+                if _row['doc_id'] in _tagged_doc_ids and (_idx0 + 1) not in gdoc_indices and not _row.get('deprecated', False):
                     gdoc_indices.append(_idx0 + 1)
                     gdoc_ref_names.append(f"#gdoc_{_idx0 + 1}")
 
@@ -5791,14 +5870,24 @@ Any other `/command` is passed through to OpenCode directly.
             )
 
             if replace_reference:
+                from DocIndex import PRIORITY_LABELS
                 doc_infos = [d.title for d in attached_docs]
                 doc_infos_data = [d.title for d in attached_docs_data]
                 for i, name in enumerate(attached_docs_names):
                     doc = attached_docs[i]
                     doc_title = doc_infos[i]
+                    priority_label = PRIORITY_LABELS.get(getattr(doc, '_priority', 3), 'medium')
+                    date_str = getattr(doc, '_date_written', None)
+                    meta_parts = [f'Reliability: {priority_label}']
+                    if date_str:
+                        meta_parts.append(f'Date written: {date_str}')
+                    deprecated_caveat = ''
+                    if getattr(doc, '_deprecated', False):
+                        deprecated_caveat = '[DEPRECATED DOCUMENT \u2014 included for reference only, prefer other sources]\n'
                     messageText = messageText.replace(
                         name,
-                        f"{name} (Title of {name} '{doc_title}')\n"
+                        f"{name} (Title of {name} '{doc_title}') [{', '.join(meta_parts)}]\n"
+                        + deprecated_caveat
                         + (
                             f"data file: {doc.doc_source}\n"
                             if doc_title in doc_infos_data
@@ -6557,25 +6646,36 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             return _conv_docs
 
         def _fmt_global(rows):
-            """Format global docs listing."""
+            """Format global docs listing with priority and deprecated metadata."""
             cap = self._DOC_LIST_CAP
             lines = []
             for idx, row in enumerate(rows[:cap]):
                 name = row.get('display_name') or row.get('title') or row.get('doc_id', '?')
                 path = row.get('doc_storage', '')
-                lines.append(f'  {idx + 1}. {name} (doc_id: {row.get("doc_id", "")}, path: {path})')
+                label = {1: 'very low', 2: 'low', 3: 'medium', 4: 'high', 5: 'very high'}.get(row.get('priority', 3), 'medium')
+                date_part = f", date: {row['date_written']}" if row.get('date_written') else ''
+                deprecated_tag = ' [DEPRECATED]' if row.get('deprecated') else ''
+                lines.append(f'  {idx + 1}. {name} (doc_id: {row.get("doc_id", "")}, path: {path}, reliability: {label}{date_part}){deprecated_tag}')
             if len(rows) > cap:
                 lines.append(f'  ... and {len(rows) - cap} more.')
             return '\n'.join(lines)
 
         def _fmt_conv(entries):
-            """Format conversation docs listing."""
+            """Format conversation docs listing with priority and deprecated metadata."""
             cap = self._DOC_LIST_CAP
             lines = []
             for idx, entry in enumerate(entries[:cap]):
                 name = entry[3] if len(entry) > 3 and entry[3] else entry[0]
                 path = entry[1] if len(entry) > 1 else ''
-                lines.append(f'  {idx + 1}. {name} (#doc_{idx + 1}, path: {path})')
+                # Load DocIndex to get metadata
+                try:
+                    doc = DocIndex.load_local(path)
+                    label = {1: 'very low', 2: 'low', 3: 'medium', 4: 'high', 5: 'very high'}.get(getattr(doc, '_priority', 3), 'medium') if doc else 'medium'
+                    date_part = f", date: {getattr(doc, '_date_written', '')}" if doc and getattr(doc, '_date_written', None) else ''
+                    deprecated_tag = ' [DEPRECATED]' if doc and getattr(doc, '_deprecated', False) else ''
+                except Exception:
+                    label, date_part, deprecated_tag = 'medium', '', ''
+                lines.append(f'  {idx + 1}. {name} (#doc_{idx + 1}, path: {path}, reliability: {label}{date_part}){deprecated_tag}')
             if len(entries) > cap:
                 lines.append(f'  ... and {len(entries) - cap} more.')
             return '\n'.join(lines)
@@ -7891,7 +7991,12 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         prior_chat_summary_future = None
         if all_docs_referenced:
             all_docs = self.get_uploaded_documents()
-            all_doc_ids = ["#doc_{}".format(idx + 1) for idx, d in enumerate(all_docs)]
+            # Exclude deprecated docs from #doc_all
+            all_doc_ids = [
+                "#doc_{}".format(idx + 1)
+                for idx, d in enumerate(all_docs)
+                if not getattr(d, '_deprecated', False)
+            ]
             attached_docs_future = get_async_future(
                 self.get_uploaded_documents_for_query,
                 {"messageText": " ".join(all_doc_ids)},
@@ -7917,9 +8022,12 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 all_gdoc_rows = _list_gdocs(
                     users_dir=_gdoc_users_dir, user_email=_gdoc_user_email
                 )
-                all_gdoc_ids = " ".join(
-                    ["#gdoc_{}".format(idx + 1) for idx in range(len(all_gdoc_rows))]
-                )
+                # Exclude deprecated docs from #gdoc_all
+                all_gdoc_ids = " ".join([
+                    "#gdoc_{}".format(idx + 1)
+                    for idx, row in enumerate(all_gdoc_rows)
+                    if not row.get('deprecated', False)
+                ])
                 gdocs_future = get_async_future(
                     self.get_global_documents_for_query,
                     {"messageText": all_gdoc_ids},
@@ -12249,6 +12357,9 @@ def model_name_to_canonical_name(model_name):
         model_name = "gpt-4.1"
     elif model_name == "openai/gpt-5.2":
         model_name = "openai/gpt-5.2"
+    elif model_name == "openai/gpt-5.4":
+        model_name = "openai/gpt-5.4"
+        model_name = "openai/gpt-5.2"
     elif model_name == "gpt-5.2":
         model_name = "gpt-5.2"
     elif (
@@ -12467,6 +12578,8 @@ def model_name_to_canonical_name(model_name):
         model_name == "meituan/longcat-flash-chat" or model_name == "Longcat Flash Chat"
     ):
         model_name = "meituan/longcat-flash-chat"
+    elif model_name == "inception/mercury-2":
+        model_name = "inception/mercury-2"
 
     elif (
         model_name in CHEAP_LONG_CONTEXT_LLM

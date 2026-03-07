@@ -253,7 +253,7 @@ def _collect_agent_output(agent: Any, query: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def create_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[ASGIApp, Any]:
+def create_mcp_app(jwt_secret: str, rate_limit: int = 100) -> tuple[ASGIApp, Any]:
     """Create the MCP web search server as an ASGI application.
 
     Returns a tuple of ``(asgi_app, fastmcp_instance)`` so the caller

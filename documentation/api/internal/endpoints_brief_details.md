@@ -390,6 +390,14 @@ Source file: `/Users/ahemf/Documents/Backup_2025/Research/chatgpt-iterative/serv
 - **POST** `/upload_doc_to_conversation/<conversation_id>` → `upload_doc_to_conversation()` (route L2141, def L2144) (login_required, rate_limited)
   - limiter: `@limiter.limit("10 per minute")`
   - Response now includes `doc_id`, `source`, and `title` fields (in addition to status) so the UI can enrich attachment metadata for persistent rendering and context menu actions.
+- **POST** `/docs/<conversation_id>/<doc_id>/replace` → `replace_conversation_doc_route()` (`endpoints/documents.py`) (login_required, rate_limited)
+  - limiter: `@limiter.limit("20 per minute")`
+  - Multipart: `pdf_file` (required), `display_name` (optional). Spawns background thread. Returns `202 { status: "started", task_id }`.
+- **GET** `/replace_doc_progress/<task_id>` → `replace_doc_progress()` (`endpoints/documents.py`) (login_required)
+  - SSE stream (`text/event-stream`). Events: `{ status, phase, message, new_doc_id?, title?, short_summary? }`. `status` is `"running"`, `"completed"`, or `"error"`.
+- **PATCH** `/docs/<conversation_id>/<doc_id>/metadata` → `update_conversation_doc_metadata_route()` (`endpoints/documents.py`) (login_required, rate_limited)
+  - limiter: `@limiter.limit("60 per minute")`
+  - Body (all optional): `{ priority (1-5), date_written, deprecated (bool), display_name }`. Updates DocIndex on disk and 4-tuple in conversation. Returns `{ status: "ok" }`.
 
 
 ## File Browser endpoints (`file_browser_bp`)
@@ -426,6 +434,9 @@ All endpoints require `@login_required`. Registered via `global_docs_bp` Bluepri
 - **POST** `/global_docs/<doc_id>/tags` → `set_doc_tags()` — Set tags. Body: `{ tags: ["t1", "t2"] }` (replaces all existing tags).
 - **GET** `/global_docs/tags` → `list_tags()` — List all distinct tags for current user.
 - **GET** `/global_docs/autocomplete` → `autocomplete_tags()` — Tag autocomplete for `#tag:` references. Query param: `q` (prefix).
+- **POST** `/global_docs/<doc_id>/replace` → `replace_global_doc_route()` — Replace a global doc's source file and re-index. Multipart: `pdf_file` (required), `display_name` (optional). Spawns background thread. Returns `202 { status: "started", task_id }`. Rate limited: 20/min.
+- **GET** `/global_docs/replace_progress/<task_id>` → `replace_global_doc_progress()` — SSE stream of replacement progress (`text/event-stream`). Events: `{ status, phase, message, new_doc_id?, title?, short_summary? }`. `status` is `"running"`, `"completed"`, or `"error"`.
+- **PATCH** `/global_docs/<doc_id>/metadata` → `update_global_doc_metadata_route()` — Update metadata for a global doc. Body (all optional): `{ priority (1-5), date_written, deprecated (bool), display_name, title, short_summary }`. Updates both DB row and DocIndex on disk. Returns `{ status: "ok" }`. Rate limited: 60/min.
 
 ---
 
@@ -440,3 +451,4 @@ All endpoints require `@login_required`. Registered via `doc_folders_bp` Bluepri
 - **POST** `/doc_folders/<folder_id>/assign` → `assign_doc()` — Assign doc to folder. Body: `{ doc_id }`. Pass `doc_id: null` to remove assignment.
 - **GET** `/doc_folders/<folder_id>/docs` → `get_folder_docs()` — List docs in folder.
 - **GET** `/doc_folders/autocomplete` → `autocomplete_folders()` — Folder autocomplete for `#folder:` references. Query param: `q` (prefix).
+

@@ -185,6 +185,15 @@ def lookup_by_sha256(docs_folder: str, u_hash: str, sha256: str):
     return None
 
 
+def remove_sha256_entry(docs_folder: str, u_hash: str, doc_id: str):
+    """Remove a doc_id from the SHA-256 dedup index (called during replacement)."""
+    lock = FileLock(_sha256_lock_path(docs_folder, u_hash), timeout=30)
+    with lock:
+        index = _load_sha256_index(docs_folder, u_hash)
+        # Remove entries that map to this doc_id
+        index = {sha: did for sha, did in index.items() if did != doc_id}
+        _save_sha256_index(docs_folder, u_hash, index)
+
 # ---------------------------------------------------------------------------
 # Path helpers
 # ---------------------------------------------------------------------------

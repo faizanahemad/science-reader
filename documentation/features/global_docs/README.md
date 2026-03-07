@@ -17,8 +17,9 @@ Docs can be organized into **hierarchical folders** (DB-metadata only — storag
 1. Click the **Global Docs** button (globe icon) in the chat doc bar.
 2. In the modal, paste a URL **or** drag-and-drop a file onto the drop area **or** click "browse" to select a file. Supported formats: PDF, Word, HTML, Markdown, CSV, Excel, JSON, images, audio — same as the conversation add-document modal.
 3. Optionally set a **display name** — this lets you reference the doc by name (e.g., `"my paper"`) instead of by index.
-4. Click **Upload**. Progress is shown as a percentage (0-100%).
-5. The document appears in the list with its `#gdoc_N` reference number and display name badge (if set).
+4. Optionally set **Reliability** (1-5 dropdown, defaults to Medium) and **Date Written** (date picker, defaults to today).
+5. Click **Upload**. Progress is shown as a percentage (0-100%).
+6. The document appears in the list with its `#gdoc_N` reference number, display name badge, and metadata controls.
 
 ### Referencing in Conversations
 
@@ -50,6 +51,9 @@ Open the Global Docs modal to:
 - **View**: Click the eye icon to open in PDF viewer.
 - **Download**: Click the download icon.
 - **Delete**: Click the trash icon (confirmation required).
+- **Edit / Replace**: Click the pencil icon to open the edit modal (`#doc-edit-modal`). The modal allows editing display name, priority, date written, deprecated status, tags, and folder assignment — and optionally replacing the source file with a new upload. File replacement triggers full re-indexing with SSE-streamed progress (phases: reading, title_summary, long_summary, saving, done). Metadata is preserved across file replacements; title and summary are regenerated from the new content. See `documentation/features/doc_update_edit/README.md` for full details.
+- **Edit metadata inline**: Each doc row has a priority dropdown, date-written input, and deprecated checkbox. Changes are saved immediately via PATCH.
+- **Deprecate**: Check the deprecated checkbox on a doc row. Deprecated docs get 50% opacity, strikethrough title, and red "DEPRECATED" badge. They are excluded from `#gdoc_all`, `#folder:`, and `#tag:` bulk references but still accessible via individual `#gdoc_N` (with a caveat injected for the LLM).
 - **Tag**: Click the tag icon (or tag chip area) on any doc row to open the tag editor and add/remove free-form tags.
 - **Switch views**: Use the **List / Folder** toggle in the **modal header** (between the title and close button) to switch between the flat list view and the hierarchical folder view.
 - **Folder view**: Clicking the **Folders** button in the header view switcher directly opens the embedded file browser for drag-and-drop folder organization. There is no separate "Manage Folders" button.
@@ -198,6 +202,9 @@ Click the globe icon on any conversation document button in the doc bar. The doc
 | GET | `/global_docs/serve?file=<doc_id>` | Serve doc for PDF viewer |
 | DELETE | `/global_docs/<doc_id>` | Delete a global doc |
 | POST | `/global_docs/promote/<conv_id>/<doc_id>` | Promote conversation doc to global |
+| PATCH | `/global_docs/<doc_id>/metadata` | Inline metadata edit (priority, date_written, deprecated, display_name). JSON body. |
+| POST | `/global_docs/<doc_id>/replace` | Replace source file and re-index. Multipart form with `pdf_file` (required) and optional `display_name`. Returns `202 {task_id}`. |
+| GET | `/global_docs/replace_progress/<task_id>` | SSE stream of replacement progress (phases: reading, title_summary, long_summary, saving, done). |
 | GET | `/docs/autocomplete?conversation_id=<id>&prefix=<text>&limit=N` | Unified doc autocomplete for `@doc/` references (both local and global) |
 
 ### Tag Endpoints
@@ -240,7 +247,11 @@ Click the globe icon on any conversation document button in the doc bar. The doc
     "title": "A Study of X",
     "short_summary": "This paper examines...",
     "source": "https://arxiv.org/...",
-    "created_at": "2026-02-15T10:30:00"
+    "created_at": "2026-02-15T10:30:00",
+    "priority": 4,
+    "priority_label": "high",
+    "date_written": "2026-01-10",
+    "deprecated": false
   }
 ]
 ```
@@ -278,6 +289,9 @@ storage/global_docs/{user_email_md5_hash}/{doc_id}/
 | title | TEXT | Cached DocIndex title |
 | short_summary | TEXT | Cached DocIndex summary |
 | folder_id | TEXT | FK to `GlobalDocFolders.folder_id` (nullable, added via idempotent ALTER TABLE migration) |
+| priority | INTEGER | Reliability rating 1-5 (default 3). Labels: 1=very low, 2=low, 3=medium, 4=high, 5=very high |
+| date_written | TEXT | ISO date string (YYYY-MM-DD) for when the document was written (nullable) |
+| deprecated | INTEGER | 0=active, 1=deprecated. Deprecated docs excluded from bulk references |
 | created_at | TEXT | ISO timestamp |
 | updated_at | TEXT | ISO timestamp |
 
@@ -319,6 +333,7 @@ Global docs use positional numbering (1-based, ordered by `created_at ASC`). Del
    - If URL: calls `convert_to_pdf_link_if_needed(url)` then `create_immediate_document_index(pdf_url, user_storage, keys)`.
 3. **DocIndex** (`DocIndex.py:create_immediate_document_index()`): Downloads/parses the document, builds FAISS indices, extracts metadata. Stores artifacts under `user_storage/{doc_id}/`.
 4. **Persist**: `doc_index.save_local()` writes the serialized index. `add_global_doc()` inserts a row into `GlobalDocuments` table with `doc_id`, `doc_source`, `doc_storage`, cached `title`/`short_summary`.
+4a. **Metadata**: `doc_index._priority`, `_date_written`, `_deprecated` are set on the DocIndex during upload and stored as DocIndex attributes. Also passed to `add_global_doc()` for DB storage.
 5. **Response**: Returns `{"status": "ok", "doc_id": "..."}` to the UI.
 6. **UI update**: `GlobalDocsManager` calls `loadDocs()` to refresh the list.
 
@@ -448,10 +463,31 @@ When a local conversation doc is uploaded it starts as a `FastDocIndex` (BM25-on
    - **Verify**: `DocIndex.load_local(target_storage)` — if load fails, deletes the copy and returns 500.
    - **Update storage path**: Sets `doc_index._storage = target_storage` and `doc_index.save_local()` to fix internal path references.
    - **Register**: `add_global_doc(...)` creates the DB row.
+   - **Metadata**: Reads `_priority`, `_date_written`, `_deprecated` from source DocIndex via `getattr()` with defaults, passes to `add_global_doc()`.
    - **Remove from conversation**: Filters the doc out of `uploaded_documents_list`, rebuilds `doc_infos`, saves the conversation.
    - **Cleanup**: `shutil.rmtree(source_storage)` removes the old conversation copy.
 3. **Response**: Returns `{"status": "ok", "doc_id": "..."}`.
 4. **UI update**: JS reloads conversation docs (the promoted doc disappears from the conversation doc bar).
+
+
+### Metadata Inline Edit Flow
+
+Each doc row in the List view has inline controls:
+
+1. **Priority dropdown** (`<select>`): Values 1-5, labeled Very Low to Very High. On change, calls `GlobalDocsManager._updateMetadata(docId, {priority: N})`.
+2. **Date written input** (`<input type="date">`): ISO date. On change, calls `_updateMetadata(docId, {date_written: val})`.
+3. **Deprecated checkbox**: On change, calls `_updateMetadata(docId, {deprecated: bool})`.
+4. **`_updateMetadata(docId, fields)`** sends `PATCH /global_docs/{docId}/metadata` with JSON body. On success, refreshes the list and shows a toast.
+
+The PATCH endpoint (`endpoints/global_docs.py`) validates priority range (1-5), updates the DB row via `update_global_doc_metadata()`, and also updates the DocIndex attributes on disk (`_priority`, `_date_written`, `_deprecated` via `getattr/setattr` + `save_local()`).
+
+### RAG Behavior with Metadata
+
+**Deprecated doc exclusion**: `#gdoc_all`, `#folder:Name`, and `#tag:name` bulk references skip deprecated docs. Individual `#gdoc_N` references still include deprecated docs but inject a caveat: `[DEPRECATED DOCUMENT — treat info as potentially outdated, prefer non-deprecated sources]`.
+
+**Priority/date labels in LLM context**: When a doc is injected into the LLM prompt via `get_global_documents_for_query()`, the replacement text includes: `#gdoc_1 (Title: 'My Paper') [Reliability: high, Date written: 2026-01-10]`. Priority is described using human-readable words (not numbers) so the LLM can naturally weigh document reliability.
+
+**doc_infos injection**: The `_inject_dynamic_doc_descriptions()` method (used by tool calling) and the `doc_infos` system prompt field both include priority labels and `[DEPRECATED]` tags for each document, so the LLM knows document reliability at a glance.
 
 ### Delete Flow
 
@@ -637,13 +673,13 @@ All endpoints use `endpoints.responses.json_error()` for structured error respon
 - **No folder picker in promote flow**: Promoted docs are unassigned (no folder). Assign via Folder view afterwards.
 ## Future Development Ideas
 
-- **Rename / edit display name**: Add a `PATCH /global_docs/<doc_id>` endpoint to update `display_name` (the DB helper `update_global_doc_metadata` already supports this). Add an edit button in the UI list.
+- ~~**Rename / edit display name**~~: **Done** (March 2026). Edit modal with pencil icon on each doc row. `display_name` supported in PATCH endpoint and edit modal. File replacement also supported. See `features/doc_update_edit/README.md`.
 - **Fuzzy name matching**: Use Levenshtein distance or prefix matching for display-name references, with a configurable threshold.
 - **Recursive `#folder:` resolution**: Traverse sub-folders so `#folder:ML` includes docs in `ML/NLP`, `ML/Vision`, etc.
 - **Bulk upload**: Drag multiple files onto the drop area and index them in parallel.
 - **Search within global docs**: Add a search box in the modal that queries `title`, `display_name`, and `short_summary` via FTS.
 - **Sync doc_source on promote**: Update the DB `doc_source` to the DocIndex's actual `doc_source` after promote, eliminating the fallback need.
-- **Context menu on doc rows**: Right-click → Move to Folder, Edit Tags, Delete (deferred).
+- ~~**Context menu on doc rows**~~: Partially done — edit modal covers most use cases (edit metadata, replace file, change tags/folder). Full right-click context menu still deferred.
 - **Display `#folder:Name (N docs)` in rendered chat**: Replace the raw reference with a resolved label showing doc count.
 - **Global doc references in PKB**: Allow PKB claims to reference global docs via `@gdoc_N` syntax.
 - **Sharing**: Allow sharing global docs with other users or making them workspace-scoped rather than user-scoped.

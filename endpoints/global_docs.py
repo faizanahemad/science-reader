@@ -8,12 +8,16 @@ referenced from any conversation via #gdoc_N / #global_doc_N syntax.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 import os
 import shutil
+import threading
+import time
 import traceback
-
-from flask import Blueprint, jsonify, redirect, request, send_from_directory, session
+import uuid
+from datetime import datetime
+from flask import Blueprint, Response, jsonify, redirect, request, send_from_directory, session, stream_with_context
 from typing import Optional
 
 from endpoints.auth import login_required
@@ -26,6 +30,7 @@ from database.global_docs import (
     delete_global_doc,
     get_global_doc,
     list_global_docs,
+    replace_global_doc,
     update_global_doc_metadata,
 )
 from database.doc_tags import set_tags as _set_tags, list_all_tags as _list_all_tags
@@ -34,6 +39,8 @@ from database.doc_tags import set_tags as _set_tags, list_all_tags as _list_all_
 global_docs_bp = Blueprint("global_docs", __name__)
 logger = logging.getLogger(__name__)
 
+# In-memory task tracker for background doc replacements.  Keyed by task_id.
+_REPLACE_TASKS: dict = {}
 
 def _user_hash(email: str) -> str:
     return hashlib.md5(email.encode()).hexdigest()
@@ -100,6 +107,11 @@ def upload_global_doc():
             if request.form:
                 display_name = request.form.get("display_name", "")
 
+            # Read metadata fields from form
+            priority = int(request.form.get('priority', 3) or 3)
+            date_written = request.form.get('date_written') or None
+            deprecated = request.form.get('deprecated', '').lower() in ('true', '1', 'yes')
+
             folder_id = request.form.get('folder_id') or None
             user_storage = _ensure_user_global_dir(state, email, folder_id=folder_id)
 
@@ -121,7 +133,15 @@ def upload_global_doc():
                 short_summary=short_info.get("short_summary", ""),
                 display_name=display_name,
                 folder_id=request.form.get('folder_id') or None,
+                priority=priority,
+                date_written=date_written,
+                deprecated=deprecated,
             )
+            # Set metadata on DocIndex as well
+            doc_index._priority = priority
+            doc_index._date_written = date_written or datetime.now().strftime('%Y-%m-%d')
+            doc_index._deprecated = deprecated
+            doc_index.save_local()
             # Set tags if provided (comma-separated string from form)
             tags_raw = request.form.get('tags', '').strip()
             if tags_raw:
@@ -159,6 +179,10 @@ def upload_global_doc():
             doc_index.save_local()
 
             short_info = doc_index.get_short_info()
+            # Read metadata from form or JSON
+            priority = int((request.form.get('priority') or (request.json.get('priority') if request.is_json and request.json else None)) or 3)
+            date_written = (request.form.get('date_written') or (request.json.get('date_written') if request.is_json and request.json else None)) or None
+            deprecated = str(request.form.get('deprecated') or (request.json.get('deprecated') if request.is_json and request.json else '')).lower() in ('true', '1', 'yes')
             add_global_doc(
                 users_dir=state.users_dir,
                 user_email=email,
@@ -169,7 +193,15 @@ def upload_global_doc():
                 short_summary=short_info.get("short_summary", ""),
                 display_name=display_name,
                 folder_id=request.form.get('folder_id') or (request.json.get('folder_id') if request.is_json and request.json else None),
+                priority=priority,
+                date_written=date_written,
+                deprecated=deprecated,
             )
+            # Set metadata on DocIndex
+            doc_index._priority = priority
+            doc_index._date_written = date_written or datetime.now().strftime('%Y-%m-%d')
+            doc_index._deprecated = deprecated
+            doc_index.save_local()
             # Set tags if provided (comma-separated form field or JSON array)
             tags_raw = request.form.get('tags', '').strip()
             if not tags_raw and request.is_json and request.json:
@@ -213,6 +245,10 @@ def list_global_docs_route():
                 "created_at": doc["created_at"] or "",
                 "tags": doc.get("tags") or [],
                 "folder_id": doc.get("folder_id"),
+                "priority": doc.get("priority", 3),
+                "priority_label": doc.get("priority_label", "medium"),
+                "date_written": doc.get("date_written"),
+                "deprecated": doc.get("deprecated", False),
             }
         )
     return jsonify(result)
@@ -236,6 +272,10 @@ def get_global_doc_info(doc_id: str):
         "short_summary": doc_row["short_summary"] or "",
         "source": doc_row["doc_source"],
         "created_at": doc_row["created_at"] or "",
+        "priority": doc_row.get("priority", 3),
+        "priority_label": doc_row.get("priority_label", "medium"),
+        "date_written": doc_row.get("date_written"),
+        "deprecated": doc_row.get("deprecated", False),
     }
 
     try:
@@ -253,6 +293,53 @@ def get_global_doc_info(doc_id: str):
     return jsonify(result)
 
 
+
+@global_docs_bp.route("/global_docs/<doc_id>/metadata", methods=["PATCH"])
+@limiter.limit("60 per minute")
+@login_required
+def update_global_doc_metadata_route(doc_id: str):
+    """Update priority, date_written, deprecated (and existing fields) for a global doc."""
+    state, _keys = get_state_and_keys()
+    email = session.get("email", "")
+    data = request.json or {}
+
+    priority = data.get("priority")
+    display_name = data.get("display_name")
+    date_written = data.get("date_written")
+    deprecated = data.get("deprecated")
+
+    if priority is not None:
+        priority = max(1, min(5, int(priority)))
+    if deprecated is not None:
+        deprecated = bool(deprecated)
+
+    update_global_doc_metadata(
+        users_dir=state.users_dir, user_email=email, doc_id=doc_id,
+        priority=priority, date_written=date_written, deprecated=deprecated,
+        title=data.get("title"), short_summary=data.get("short_summary"),
+        display_name=data.get("display_name"),
+    )
+
+    # Also update the DocIndex on disk
+    doc_row = get_global_doc(users_dir=state.users_dir, user_email=email, doc_id=doc_id)
+    if doc_row and doc_row.get("doc_storage"):
+        try:
+            from DocIndex import DocIndex
+            doc_index = DocIndex.load_local(doc_row["doc_storage"])
+            if doc_index:
+                if priority is not None:
+                    doc_index._priority = priority
+                if date_written is not None:
+                    doc_index._date_written = date_written
+                if deprecated is not None:
+                    doc_index._deprecated = deprecated
+                if display_name is not None:
+                    doc_index._display_name = display_name if display_name else None
+                doc_index.save_local()
+        except Exception:
+            pass
+
+    return jsonify({"status": "ok"})
 @global_docs_bp.route("/global_docs/download/<doc_id>", methods=["GET"])
 @limiter.limit("30 per minute")
 @login_required
@@ -410,6 +497,9 @@ def promote_doc_to_global(conversation_id: str, doc_id: str):
         short_info = doc_index.get_short_info()
         index_type = 'fast' if getattr(doc_index, '_is_fast_index', False) else 'full'
 
+        priority = getattr(doc_index, "_priority", 3)
+        date_written = getattr(doc_index, "_date_written", None)
+        deprecated = getattr(doc_index, "_deprecated", False)
         add_global_doc(
             users_dir=state.users_dir,
             user_email=email,
@@ -420,6 +510,9 @@ def promote_doc_to_global(conversation_id: str, doc_id: str):
             short_summary=short_info.get("short_summary", ""),
             folder_id=folder_id,
             index_type=index_type,
+            priority=priority,
+            date_written=date_written,
+            deprecated=deprecated,
         )
 
         new_doc_list = [e for e in doc_list if e[0] != doc_id]
@@ -428,7 +521,7 @@ def promote_doc_to_global(conversation_id: str, doc_id: str):
         remaining_docs = conversation.get_uploaded_documents()
         doc_infos = "\n".join(
             [
-                f"#doc_{i + 1}: ({d.title})[{d.doc_source}]"
+                conversation._format_doc_info_line(i, d)
                 for i, d in enumerate(remaining_docs)
             ]
         )
@@ -507,3 +600,138 @@ def global_docs_autocomplete():
         if prefix:
             tags = [t for t in tags if t.lower().startswith(prefix)]
         return jsonify({"status": "ok", "tags": tags})
+
+
+# ---------------------------------------------------------------------------
+# Document replacement endpoints
+# ---------------------------------------------------------------------------
+
+
+@global_docs_bp.route("/global_docs/<doc_id>/replace", methods=["POST"])
+@limiter.limit("20 per minute")
+@login_required
+def replace_global_doc_route(doc_id: str):
+    """Replace a global document's source file and re-index."""
+    state, keys = get_state_and_keys()
+    email = session.get("email", "")
+
+    doc_row = get_global_doc(users_dir=state.users_dir, user_email=email, doc_id=doc_id)
+    if doc_row is None:
+        return json_error("Global doc not found", status=404, code="not_found")
+
+    pdf_file = request.files.get("pdf_file")
+    if not pdf_file:
+        return json_error("No file provided", status=400, code="bad_request")
+
+    full_pdf_path = os.path.join(state.pdfs_dir, pdf_file.filename)
+    pdf_file.save(full_pdf_path)
+
+    display_name = (request.form.get("display_name") or "").strip() or None
+
+    task_id = str(uuid.uuid4())
+    _REPLACE_TASKS[task_id] = {
+        "status": "running",
+        "phase": "queued",
+        "message": "Starting replacement\u2026",
+        "doc_id": doc_id,
+    }
+
+    t = threading.Thread(
+        target=_run_replace_global,
+        args=(task_id, doc_id, doc_row, full_pdf_path,
+              display_name, email, keys, state),
+        daemon=True,
+    )
+    t.start()
+    return jsonify({"status": "started", "task_id": task_id}), 202
+
+
+def _run_replace_global(
+    task_id, old_doc_id, doc_row, new_source_path,
+    display_name, email, keys, state,
+):
+    """Background thread: create new index, update DB, clean up old."""
+    task = _REPLACE_TASKS[task_id]
+
+    def _progress(phase, message):
+        task["phase"] = phase
+        task["message"] = message
+
+    try:
+        from code_common.documents import create_immediate_document_index
+        import shutil as _shutil
+
+        _progress("reading", "Extracting text from new document\u2026")
+
+        old_doc_storage = doc_row.get("doc_storage", "")
+        folder_id = doc_row.get("folder_id")
+        user_storage = _ensure_user_global_dir(state, email, folder_id=folder_id)
+
+        new_doc_index = create_immediate_document_index(
+            new_source_path, user_storage, keys, progress_callback=_progress
+        )
+
+        if new_doc_index is None:
+            raise RuntimeError("Failed to create document index from new file")
+
+        # Preserve user-set metadata from old doc
+        new_doc_index._priority = doc_row.get("priority", 3)
+        new_doc_index._date_written = doc_row.get("date_written")
+        new_doc_index._deprecated = bool(doc_row.get("deprecated", 0))
+        new_doc_index._display_name = display_name or doc_row.get("display_name")
+        new_doc_index.save_local()
+
+        _progress("saving", "Updating database\u2026")
+
+        new_doc_id = new_doc_index.doc_id
+        short_info = new_doc_index.get_short_info()
+
+        replace_global_doc(
+            users_dir=state.users_dir,
+            user_email=email,
+            old_doc_id=old_doc_id,
+            new_doc_id=new_doc_id,
+            new_doc_source=new_source_path,
+            new_doc_storage=new_doc_index._storage,
+            new_title=short_info.get("title", ""),
+            new_short_summary=short_info.get("short_summary", ""),
+        )
+
+        # Clean up old storage (if different path)
+        if old_doc_storage and old_doc_storage != new_doc_index._storage:
+            if os.path.isdir(old_doc_storage):
+                _shutil.rmtree(old_doc_storage, ignore_errors=True)
+
+        task.update({
+            "status": "completed",
+            "phase": "done",
+            "message": "Document replaced successfully.",
+            "new_doc_id": new_doc_id,
+            "title": short_info.get("title", ""),
+            "short_summary": short_info.get("short_summary", ""),
+        })
+    except Exception as exc:
+        traceback.print_exc()
+        task.update({"status": "error", "phase": "error", "message": str(exc)})
+    finally:
+        def _cleanup():
+            time.sleep(120)
+            _REPLACE_TASKS.pop(task_id, None)
+        threading.Thread(target=_cleanup, daemon=True).start()
+
+
+@global_docs_bp.route("/global_docs/replace_progress/<task_id>")
+@login_required
+def replace_global_doc_progress(task_id: str):
+    """SSE stream of replacement progress."""
+    def generate():
+        while True:
+            task = _REPLACE_TASKS.get(task_id)
+            if task is None:
+                yield f"data: {json.dumps({'phase': 'error', 'message': 'Unknown task'})}\n\n"
+                break
+            yield f"data: {json.dumps(task)}\n\n"
+            if task.get("status") in ("completed", "error"):
+                break
+            time.sleep(1.5)
+    return Response(stream_with_context(generate()), mimetype="text/event-stream")

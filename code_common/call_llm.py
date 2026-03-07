@@ -183,6 +183,7 @@ VISION_CAPABLE_MODELS = frozenset(
         "google/gemini-3-flash-preview",
         "google/gemini-3-pro-preview",
         "openai/gpt-5.2",
+        "openai/gpt-5.4",
         "anthropic/claude-4-opus-20250522",
         "anthropic/claude-4-sonnet-20250522",
         "google/gemini-2.5-pro",

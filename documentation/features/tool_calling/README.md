@@ -530,13 +530,13 @@ Manual testing checklist:
 | Tool | Description | Interactive |
 |---|---|---|
 | `document_lookup` | Search user's uploaded or global documents for specific information. | No |
-| `docs_list_conversation_docs` | List all documents attached to a conversation. | No |
-| `docs_list_global_docs` | List all global documents for current user. | No |
+| `docs_list_conversation_docs` | List all documents attached to a conversation. Returns priority, priority_label, date_written, deprecated for each doc. | No |
+| `docs_list_global_docs` | List all global documents for current user. Returns priority, priority_label, date_written, deprecated for each doc. | No |
 | `docs_query` | Semantic search within a document by storage path. | No |
 | `docs_get_full_text` | Retrieve full text content of a document by storage path. | No |
-| `docs_get_info` | Get metadata about a document without retrieving full text. | No |
+| `docs_get_info` | Get metadata about a document (including priority, date_written, deprecated) without retrieving full text. | No |
 | `docs_answer_question` | Ask a question about a document and get LLM-generated answer. | No |
-| `docs_get_global_doc_info` | Get metadata about a global document by doc_id. | No |
+| `docs_get_global_doc_info` | Get metadata about a global document by doc_id (including priority, date_written, deprecated). | No |
 | `docs_query_global_doc` | Semantic search within a global document by doc_id. | No |
 | `docs_get_global_doc_full_text` | Retrieve full text content of a global document by doc_id. | No |
 
@@ -689,8 +689,8 @@ Manual testing checklist:
 18. **BM25 message search index**: Conversation messages are incrementally indexed at persist time (`persist_current_turn`). The index stores unigram + bigram tokens with boosted weights for markdown headers and bold text. The `MessageSearchIndex` class serializes to/from JSON (the `BM25Okapi` object is rebuilt lazily from the stored token corpus). Older conversations without an index get a one-time full build on first search. The index is stored as `message_search_index` in `store_separate`.
 
 19. **Dynamic document description injection**: When document tools are enabled, `_get_enabled_tools()` calls `_inject_dynamic_doc_descriptions(tools_param, user_email, users_dir)` (defined at line 6495 in `Conversation.py`) to post-process the OpenAI tools parameter list. This enriches document tool descriptions with the actual list of currently available documents so the LLM can skip calling `docs_list_global_docs` or `docs_list_conversation_docs` and go straight to `docs_query` / `docs_get_full_text` with the correct `doc_storage_path`. The injection is per-tool:
-    - **`docs_list_global_docs`**: Appends a numbered listing of global documents (display_name, doc_id, path) or "No global documents currently available."
-    - **`docs_list_conversation_docs`**: Appends a numbered listing of conversation documents (name, #doc_N, path) or "No documents attached to this conversation."
+    - **`docs_list_global_docs`**: Appends a numbered listing of global documents (display_name, doc_id, path, priority label, deprecated tag) or "No global documents currently available."
+    - **`docs_list_conversation_docs`**: Appends a numbered listing of conversation documents (name, #doc_N, path, priority label, deprecated tag) or "No documents attached to this conversation."
     - **`docs_query`, `docs_get_full_text`, `docs_get_info`, `docs_answer_question`**: Appends combined `doc_storage_path` values from both conversation and global docs so the LLM can use them directly.
     - **`docs_get_global_doc_info`, `docs_query_global_doc`, `docs_get_global_doc_full_text`**: Appends available global `doc_id` values.
     - **Cap**: `_DOC_LIST_CAP = 20` docs per type to prevent token bloat. Truncated with "... and N more" when exceeded.

@@ -328,3 +328,16 @@ To add a new override slot, you must update: `allowed_keys` in the endpoint, add
 - **The `FILLER_MODEL`** (value `"Filler"`, defined at `common.py` line 63) is a special placeholder that skips the LLM call entirely. It must not be combined with other models in multi-model selection.
 - **`UNUSED_EXPENSIVE_LLM`** (line 108 in `common.py`) is a parking lot for deactivated expensive models. Models here are not included in the `/model_catalog` response and don't appear in any dropdown.
 - **`OPENAI_CHEAP_LLM`** (line 125 in `common.py`) is a single string constant (not a list) used as a fallback in some internal code paths. Update it if the preferred cheap OpenAI model changes.
+
+---
+
+## TL;DR: Adding a New LLM in ~3 Steps
+
+For a standard vision-capable model on OpenRouter (most new GPT/Claude/Gemini releases):
+
+1. **`common.py`** — add `"provider/model-id"` to `EXPENSIVE_LLM` (or other tier).
+2. **`code_common/call_llm.py`** — add `"provider/model-id"` to `VISION_CAPABLE_MODELS` if it supports images.
+3. **`Conversation.py` `model_name_to_canonical_name()`** — add `elif model_name == "provider/model-id": model_name = "provider/model-id"` (identity passthrough if using the full API ID as the display name).
+4. **`interface/interface.html` `#settings-main-model-selector`** — add `<option>provider/model-id</option>` inside the "Newer Models" `<optgroup>` to surface it in the UI.
+
+The model override dropdowns auto-populate from `common.py` — no extra HTML needed. Requires a **server restart** for backend changes; browser refresh only for HTML.

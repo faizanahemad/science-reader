@@ -1,8 +1,8 @@
 ## Science Reader Desktop Companion — Product Requirements Document
 
-**Status**: Draft v6
+**Status**: Draft v12
 **Created**: 2026-03-01
-**Last updated**: 2026-03-05
+**Last updated**: 2026-03-07
 **Platform**: macOS (primary), Windows (future)
 **Codename**: Desktop Companion
 
@@ -10,8 +10,8 @@ Based on:
 - `documentation/product/behavior/chat_app_capabilities.md` (existing system capabilities)
 - `documentation/product/ops/mcp_server_setup.md` (MCP server architecture)
 - `documentation/features/extension/extension_design_overview.md` (Chrome extension as prior art)
-- `documentation/planning/plans/workflow_engine_framework.plan.md` (workflow engine spec — authoritative source for sections 4.3 Tab 2, 4.13, 5.8, and Phase 10)
-- `documentation/features/tool_calling/README.md` (LLM tool-calling framework — 48 tools, agentic mid-response loop, interactive modals)
+- ~~`documentation/planning/plans/workflow_engine_framework.plan.md`~~ (workflow engine — **DESCOPED from v1**, see Decision 46 and Phase 10 note)
+- `documentation/features/tool_calling/README.md` (LLM tool-calling framework — **57 tools / 9 categories** verified — Decision 64, agentic mid-response loop, interactive modals)
 - `documentation/features/image_generation/README.md` (image generation — `/image` command, standalone modal, editing, prompt refinement)
 - `documentation/features/extension/multi_tab_scroll_capture.md` (multi-tab scroll capture with OCR comment extraction)
 - Web research on Electron, nut.js, macOS Finder extensions, and accessibility APIs
@@ -42,7 +42,7 @@ Primary goals:
    - 4.10 Voice Dictation
    - 4.11 App Context Awareness
    - 4.12 Folder Sync
-   - 4.13 Workflow Engine
+   - 4.13 ~~Workflow Engine~~ (descoped from v1 — see Decision 46)
    - 4.14 In-place Text Replacement
 5. [UX Flows](#5-ux-flows)
 6. [Technical Architecture](#6-technical-architecture)
@@ -54,6 +54,7 @@ Primary goals:
 12. [Appendix A: Background Research & Competitive Analysis](#appendix-a-background-research--competitive-analysis)
 13. [Appendix B: Technology Selection Rationale](#appendix-b-technology-selection-rationale)
 14. [Appendix C: Design Decisions Log](#appendix-c-design-decisions-log)
+15. [Open Questions](#open-questions)
 
 ---
 
@@ -85,11 +86,13 @@ The underlying app retains focus. The companion is an overlay — always present
 
 ### Key principle
 
-**The Sidebar has two tabs** — **Tab 1** loads the full `interface.html` (web UI) in an Electron `BrowserView` for research, chat, and knowledge management. **Tab 2** loads `opencode web` for agentic coding — file editing, bash, grep, LSP, and full MCP tool access to your server's capabilities. Both tabs connect to the same remote backend (`assist-chat.site`); Tab 2 additionally operates on a user-selected local working directory.
+**The Sidebar has four tabs** — **Tab 1** loads the full `interface.html` (web UI) in an Electron `BrowserView` for research, chat, and knowledge management. **Tab 2** loads `opencode web` for agentic coding — file editing, bash, grep, LSP, and full MCP tool access to your server's capabilities. **Tab 3** provides a local terminal (xterm.js + node-pty) for direct shell access on the user's Mac. **Tab 4** hosts workflow execution monitoring and control. All tabs connect to the same remote backend (`assist-chat.site`); Tab 2 and Tab 3 additionally operate on a user-selected local working directory.
 
 **Tab 1 (Chat) preserves all existing features** — artefacts, workspace management, settings, model overrides, TTS, sharing, multi-model responses, cross-conversation references, next-question suggestions, file browser, terminal. The Sidebar adds **no custom chat UI** — it relies entirely on the web UI's responsive layout at various widths.
 
 **Tab 2 (OpenCode) is a full coding agent** — it connects to your 7+ remote MCP servers (PKB, docs, search, artefacts, prompts, code runner, conversations) plus a local filesystem MCP (sandboxed to the working directory). OpenCode handles its own sessions, streaming, tool calling, undo/redo, and diff view.
+
+**Tab 3 (Terminal) is a local shell** — it uses `node-pty` in Electron's main process to spawn the user's default shell (bash/zsh) and `xterm.js` in the renderer for the terminal UI. The working directory is shared with the OpenCode tab — changing it in one updates both. Supports multiple terminal instances (tabs within the tab), split panes, and standard terminal features (copy/paste, clickable links, search, custom themes). Unlike the existing web terminal (which connects to the remote server), this is a true local terminal with zero network latency.
 
 **The desktop-native additions are**: PopBar (lightweight quick actions with configurable tool whitelist), Results Dropdown, Dictation Pop, Finder/Services right-click integration, folder sync, screen capture, app context awareness, and in-place text replacement. These are the surfaces that don't exist in the web UI and are built specifically for the desktop companion.
 
@@ -159,13 +162,14 @@ The companion has **four distinct UI surfaces**, each with its own purpose, beha
 │                                                             │
 │  Surface 3: Sidebar                                    ┌────┐│
 │  ────────────────────                                  │Chat││
-│  Dual-tab panel. Slides from edge.                     │────││
+│  Four-tab panel. Slides from edge.                     │────││
 │  Tab 1: Full web UI (chat, PKB, docs, workspaces).     │Open││
 │  Tab 2: OpenCode Web (coding agent, local files).      │Code││
-│  Tab 3: Workflows panel (status, launch, debug).       │────││
-│  App-agnostic: persists across Cmd+Tab.                │Work││
-│  Hotkey: Cmd+Shift+J                                   │flow││
-│  Draggable. Snaps to right/left/bottom edge.           │    ││
+│  Tab 3: Local Terminal (xterm.js + node-pty).          │────││
+│  Tab 4: Workflows panel (status, launch, debug).       │Term││
+│  App-agnostic: persists across Cmd+Tab.                │────││
+│  Hotkey: Cmd+Shift+J                                   │Work││
+│  Draggable. Snaps to right/left/bottom edge.           │flow││
 │                                                        └────┘│
 │                                                             │
 │  Surface 4: Dictation Pop                                   │
@@ -210,7 +214,7 @@ The companion has **four distinct UI surfaces**, each with its own purpose, beha
 | **Scope** | Context of the current app | App-agnostic, persists across `Cmd+Tab` | App-agnostic, persists across `Cmd+Tab` |
 | **Hotkey** | `Cmd+Shift+Space` | `Cmd+Shift+J` | `Cmd+J` (toggle) / hold `Fn` (push-to-talk) |
 | **Focus behavior** | Non-activating by default; activates on text input | Same: non-activating hover, activates on input click | Non-activating; activates only when user clicks text area |
-| **Content** | 8 action buttons + text input + configurable slots + tool whitelist | Tab 1: Full web UI (all features) in BrowserView. Tab 2: OpenCode Web (coding agent + MCP tools). Tab 3: Workflow panel. | Waveform, transcription, reformat dropdown, history |
+| **Content** | 8 action buttons + text input + configurable slots + tool whitelist | Tab 1: Full web UI (all features) in BrowserView. Tab 2: OpenCode Web (coding agent + MCP tools). Tab 3: Local Terminal (xterm.js + node-pty). Tab 4: Workflow panel. | Waveform, transcription, reformat dropdown, history |
 | **Conversation model** | Ephemeral per-query (no persistent conversation) | Tab 1: Full conversations via web UI's workspace tree. Tab 2: OpenCode sessions (independent). | N/A |
 | **Persistence** | Dismissed after use or on `Escape` | Stays visible until explicitly toggled off | Dismissed after use or on `Escape` |
 | **Text selection trigger** | Optional auto-popup on text selection (off by default, toggle in Settings) | No auto-trigger | No auto-trigger |
@@ -223,18 +227,21 @@ The companion has **four distinct UI surfaces**, each with its own purpose, beha
 ### 4.1) PopBar (Context-Aware Quick Actions)
 
 **What it does**
-- A compact floating bar (~500x50px) that appears **near the cursor or text selection** when summoned.
+- A compact floating bar (~500x50px) that appears at a **fixed top-center position** when summoned via hotkey (Decision 52). Draggable — remembers last drag position across invocations and across restarts.
 - Designed for fast, in-context actions: ask a question, save text to memory, explain a selection, capture the screen.
-- Belongs to the context of the current app — if you switch apps, the PopBar dismisses.
+- If text is selected, a context chip is auto-populated with the selection. If no selection, the input is blank.
+- **Does NOT dismiss on app switch** (Decision 53) — stays visible and focused when the user Cmd+Tabs, allowing the user to reference something in another app then return. Only dismissed by `Escape` or the hotkey toggle.
 - Inspired by Enconvo's PopBar and SmartBar, Raycast's command bar.
 
-**Appearance & positioning**
-- Appears near the mouse cursor or the selected text (Enconvo-style), offset so it doesn't occlude the selection.
+**Appearance & positioning** (Decision 52)
+- Appears at a **fixed top-center position** (~50px from top edge, horizontally centered on the screen).
+- **Draggable**: has a drag handle. The last dragged position is persisted in electron-store and restored on next invocation (including across app restarts).
+- If the stored position is offscreen (e.g. after a display configuration change), resets to default top-center.
 - If near a screen edge, repositions to stay fully visible.
-- Has a small drag handle for manual repositioning within the current invocation.
+- If near a screen edge after dragging, repositions to stay fully visible.
 
 **Text selection trigger (optional)**
-- **Off by default.** When enabled in Settings, selecting text in any app auto-shows the PopBar nearby with relevant actions.
+- **Off by default.** When enabled in Settings, selecting text in any app auto-shows the PopBar with a **~400ms debounce delay** (Decision 58) — waits until the user stops moving the cursor before appearing, to avoid flashing during mid-drag selection.
 - Per-app toggle if feasible (e.g., enable for Safari and Notes, disable for VS Code). If per-app control is too complex for v1, a simple global on/off toggle.
 - Always accessible via hotkey regardless of this setting.
 
@@ -342,15 +349,22 @@ This design gives the PopBar access to memory operations (search, add, edit clai
 - After adding a file or saving a claim, the dropdown **stays open** showing the result (doc ID, claim details, link to web UI).
 - User manually dismisses with `Escape` or clicks away.
 
+**Mid-stream server disconnect** (Decision 59)
+- If the server connection drops while a PopBar query is streaming, the partial response received so far is kept visible in the dropdown.
+- An error banner appears below the partial text: `⚠️ Connection lost — partial response. [Retry]`
+- **Retry** re-sends the original query from scratch.
+- The tray icon updates to show disconnected status.
+- **Copy** button is still available on the partial text.
+
 ---
 
-### 4.3) Sidebar (Chat + OpenCode + Workflows)
+### 4.3) Sidebar (Chat + OpenCode + Terminal + Workflows)
 
 **What it does**
-- A floating, draggable panel with **three tabs**: **Chat** (full web UI), **OpenCode** (agentic coding agent), and **Workflows** (execution monitoring).
+- A floating, draggable panel with **three active tabs** (v1): **Chat** (full web UI), **OpenCode** (agentic coding agent), and **Terminal** (local shell). Workflows tab descoped from v1 (Decision 46).
 - **App-agnostic**: persists across `Cmd+Tab` app switching. Switching from VS Code to Safari does not dismiss the Sidebar.
 - Only the Sidebar hotkey (`Cmd+Shift+J`) toggles it away.
-- **Tab system**: three tabs at the top — **Chat**, **OpenCode**, and **Workflows**.
+- **Tab system**: three tabs at the top — **Chat**, **OpenCode**, **Terminal**.
 - The Sidebar is **resizable** — the user can widen it beyond the default 400px for full-width viewing.
 
 **Tab 1: Chat (= the full web UI)**
@@ -363,7 +377,7 @@ The Chat tab loads the existing `interface.html` **as-is** — no custom chat UI
 - Conversation CRUD, cloning, stateless mode, flags
 - New Temporary Chat button
 - Document references (`#doc_1`, `#gdoc_1`, `#gdoc_all`, `#folder:Name`, `#tag:name`, `#artefact_N`, `@memory`, `@friendly_id`, `@conversation_<fid>_message_<hash>`)
-- LLM Tool Calling (48 tools, 8 categories, interactive modals, mid-response agentic loop)
+- LLM Tool Calling (57 tools, 9 categories, interactive modals, mid-response agentic loop)
 - Image Generation (`/image <prompt>`, standalone modal, image editing, vision context)
 - PKB Slash Commands (`/create-memory`, `/create-simple-memory`, `/create-entity`, `/create-context`)
 - Artefacts (create, edit, diff preview, CodeMirror editor, `#artefact_N` references)
@@ -387,6 +401,7 @@ The Chat tab loads the existing `interface.html` **as-is** — no custom chat UI
 - Cache `interface.html` and static assets (JS, CSS, images) locally with a service worker or Electron's `protocol.registerFileProtocol`.
 - Use `If-Modified-Since` / ETags for stale-while-revalidate freshness checks.
 - Optionally bundle a local copy of static assets that updates on app rebuild.
+- **Offline / server down**: Electron intercepts failed BrowserView loads and shows a custom offline page (Decision 54): friendly "Cannot reach Science Reader server" message, last-known server URL, Retry button, and tray icon status. Does NOT show Electron's raw `ERR_CONNECTION_REFUSED` page.
 
 **No custom chat UI code** is needed for the Sidebar. The desktop companion's value-add for chat is:
 1. Desktop-native screenshot injection (capture → drag-drop simulation into the web UI)
@@ -427,15 +442,88 @@ OpenCode in Tab 2 connects to these MCP servers:
 
 The local filesystem MCP is sandboxed to the selected working directory. All path operations are validated: `path.resolve(workdir, userPath)` then `resolvedPath.startsWith(workdir)`.
 
-**Tab 1 vs Tab 2 — when to use which**:
+**Tab 3: Terminal (= local shell via xterm.js + node-pty)**
+
+The Terminal tab provides a full local terminal experience directly inside the Sidebar, similar to VSCode's integrated terminal. Unlike the existing Web Terminal (which connects to the remote server's PTY via WebSocket), this is a **true local terminal** spawned on the user's Mac with zero network latency.
+
+**How it works**:
+1. Electron's main process uses `node-pty` to spawn the user's default shell (`$SHELL` or `/bin/zsh` on macOS).
+2. The Terminal tab renders a `BrowserView` containing an `xterm.js` terminal instance.
+3. An IPC bridge (`ipcMain`/`ipcRenderer`) connects PTY output → xterm.js display and xterm.js input → PTY stdin.
+4. The terminal starts in the same working directory as the OpenCode tab.
+
+**Features**:
+- **Multiple terminal instances**: A tab bar within the Terminal tab allows creating multiple terminal sessions (like VSCode's terminal tabs). Each instance is an independent PTY process.
+- **Split panes**: Horizontal and vertical split (like VSCode's terminal split). Each pane is an independent PTY.
+- **Shared working directory**: The terminal’s initial `cwd` matches the OpenCode tab's working directory. When the user changes the working directory (via the directory selector), new terminal instances start in the updated directory. Existing terminals retain their current directory.
+- **Theme**: Uses the same Catppuccin Mocha theme already configured in `interface/opencode-terminal.js`. Customizable via Settings.
+- **Font**: Configurable font family and size (default: system monospace, 14px). Persisted in electron-store.
+- **Addons**: xterm.js addons enabled: `@xterm/addon-fit` (auto-resize), `@xterm/addon-web-links` (clickable URLs), `@xterm/addon-search` (Ctrl+Shift+F to search terminal output), `@xterm/addon-unicode11` (Unicode support).
+- **Copy/paste**: Standard macOS shortcuts (`Cmd+C` to copy selection, `Cmd+V` to paste). Right-click context menu with Copy/Paste/Clear.
+- **Scrollback**: 5000 lines (configurable in Settings).
+- **Shell integration**: Supports bash, zsh, fish. Inherits the user's shell profile (`~/.zshrc`, `~/.bashrc`) via the spawned PTY.
+
+**Tab bar within Terminal tab**:
+```
+┌────────────────────────────────────────────────┐
+│ [zsh ~/project] [zsh ~/other] [+]  [│─] [×] │  ← terminal tabs + split + close
+│────────────────────────────────────────────────│
+│ $ npm run build                                        │
+│ > science-reader@1.0.0 build                           │
+│ > tsc && electron-builder                               │
+│ ...                                                    │
+│ $ █                                                    │
+└────────────────────────────────────────────────┘
+```
+
+**Keyboard shortcuts within Terminal tab**:
+
+| Shortcut | Action |
+|----------|--------|
+| `Cmd+N` | New terminal instance |
+| `Cmd+W` | Close current terminal instance |
+| `Cmd+D` | Split terminal vertically |
+| `Cmd+Shift+D` | Split terminal horizontally |
+| `Cmd+[` / `Cmd+]` | Switch between terminal tabs |
+| `Ctrl+Shift+F` | Search terminal output |
+| `Cmd+K` | Clear terminal |
+| `Cmd+C` | Copy selection (always — matches macOS convention) |
+| `Ctrl+C` | Send SIGINT to running process |
+| `Cmd+V` | Paste |
+
+**Implementation notes**:
+- `node-pty` requires native compilation for Electron's Node version. Use `@electron/rebuild` to compile against the correct ABI.
+- Terminal state (number of instances, their cwds) is **not** persisted across app restarts. On restart, a single default terminal instance is created in the current working directory.
+- PTY processes are cleaned up on tab close, working directory change, and app quit (SIGTERM → SIGKILL with 2s timeout, same pattern as `endpoints/terminal.py`).
+- Resource overhead: ~5-15MB RAM per terminal instance (xterm.js buffer + PTY process). Negligible compared to the BrowserView overhead.
+- The existing `interface/opencode-terminal.js` code (xterm.js setup, theme, addons) can be adapted for the local terminal. The key difference is replacing the WebSocket transport with a direct IPC bridge to `node-pty`.
+
+**npm packages required** (added to the Electron app's `package.json`):
+- `node-pty@1.1.0` — native PTY spawning (darwin-arm64 prebuilts included)
+- `@xterm/xterm@6.0.0` — terminal UI (canvas renderer removed in v6)
+- `@xterm/addon-webgl` — WebGL GPU-accelerated renderer (Decision 76; falls back to DOM)
+- `@xterm/addon-fit@0.11.0` — auto-resize to container
+- `@xterm/addon-web-links@0.12.0` — clickable URLs
+- `@xterm/addon-search@0.16.0` — search terminal output
+- `@xterm/addon-unicode11` — Unicode support
+- `@electron/rebuild@4.0.3` (devDependency) — compile native modules for Electron
+
+**Remote server terminal (optional)**:
+- The Terminal tab can also include an option to connect to the remote server's terminal (the existing WebSocket-based PTY at `/ws/terminal`). This is useful for running server-side commands (restart services, check logs, etc.).
+- Implementation: a "Connect to Server" button in the terminal tab bar that opens a new terminal instance using the existing `OpencodeTerminal` WebSocket bridge instead of local `node-pty`.
+- This reuses the existing `interface/opencode-terminal.js` module and `endpoints/terminal.py` backend with zero new code.
+
+**When to use which tab**:
 
 | Use case | Tab |
 |----------|-----|
 | Research chat, PKB management, document Q&A, image generation, multi-model ensemble, TTS | Tab 1 (Chat) |
 | Edit code files, run shell commands, grep/search a codebase, agentic multi-step coding tasks | Tab 2 (OpenCode) |
+| Run shell commands directly, monitor processes, git operations, npm/pip, tail logs | Tab 3 (Terminal) |
+| Run multi-step workflows (deep research, document generation, Q&A compilation) | Tab 4 (Workflows) |
 | Both: "search my PKB for X, then edit the config file based on what you find" | Tab 2 (OpenCode has MCP access to PKB + local filesystem) |
 
-**Cross-tab communication**: Deep integration is supported. Tab 1 (Chat) already has `opencode_enabled` mode that routes messages through OpenCode's agentic pipeline. Tab 2 (OpenCode) can reference chat conversations via the Conversations MCP server. However, the two tabs operate independently by default — no automatic synchronization. The user can copy/paste between tabs or use MCP tools to bridge.
+**Cross-tab communication**: Deep integration is supported. Tab 1 (Chat) already has `opencode_enabled` mode that routes messages through OpenCode's agentic pipeline. Tab 2 (OpenCode) can reference chat conversations via the Conversations MCP server. Tab 3 (Terminal) shares the working directory with Tab 2 (OpenCode) — they operate on the same local codebase. However, the tabs operate independently by default — no automatic synchronization. The user can copy/paste between tabs or use MCP tools to bridge.
 
 **Chrome extension**: The Chrome extension sidepanel keeps its current single-tab architecture (web UI iframe only). OpenCode is desktop-only (Electron). The extension already provides its own capabilities (page extraction, screenshots, custom scripts) that serve the browser context.
 
@@ -445,7 +533,7 @@ The local filesystem MCP is sandboxed to the selected working directory. All pat
 - **Draggable** to any position on screen.
 - **Snap buttons** in the title bar: snap to right edge, left edge, or bottom edge (like Chrome DevTools dock positions).
 - Default: right edge, ~400px wide, full screen height minus padding.
-- **Last position remembered** until app restart. On restart, resets to default (right edge).
+- **Position and snap state persisted across restarts** via electron-store (Decision 57). On very first launch, defaults to right edge.
 - If snapped to an edge, the Sidebar takes the full height/width of that edge. If floating, it's freely resizable.
 
 **Snap positions**
@@ -639,7 +727,7 @@ Services                    ▸
 
 | Mode | What it captures | How it's triggered |
 |------|-----------------|-------------------|
-| **App Window** | The specific frontmost window beneath the overlay | Default mode. Uses `CGWindowListCreateImage` with target window ID via nut.js. |
+| **App Window** | The specific frontmost window beneath the overlay | Default mode. Uses `desktopCapturer` with target window ID via `screen.getAllDisplays()` / native Swift addon. |
 | **Full Screen** | The entire display (excluding companion surfaces) | Select from submenu. |
 | **Select Area** | A user-drawn rectangle on screen | Crosshair cursor appears. User clicks and drags to define region. Screenshot taken of that region only. |
 | **Scrolling Screenshot** | Full scrollable content of a window (beyond visible area) | For browsers: uses Chrome extension's existing full-page capture API. For native apps: auto-scroll + stitch (simulate scroll events, capture at each position, stitch images). |
@@ -672,11 +760,26 @@ Services                    ▸
 **Screenshot flow (from PopBar)**
 
 1. User clicks the Screenshot (`📸`) action button in the PopBar.
-2. The dropdown menu shows all 8 options (4 modes x 2 variants).
-3. User picks a mode. For "Select Area", the PopBar temporarily hides and a crosshair cursor appears.
-4. Screenshot is captured.
-5. **Plain capture**: image thumbnail in Results Dropdown + text input for question. Enter sends image+question to AI.
-6. **+OCR capture**: extracted text in Results Dropdown with **Replace**, **Copy**, "Ask AI", "Save to PKB" buttons.
+2. **Single click = App Window + OCR** (the most useful action) — captured immediately (Decision 55).
+3. A small chevron (`▾`) arrow button beside the icon expands the full submenu of all 8 options (4 modes × 2 variants). Long-press on the main button also opens the submenu.
+4. The submenu shows:
+   ```
+   App Window + OCR  ← default (single click)
+   App Window
+   ────────────────
+   Full Screen + OCR
+   Full Screen
+   ────────────────
+   Select Area + OCR
+   Select Area
+   ────────────────
+   Scrolling + OCR
+   Scrolling
+   ```
+5. For "Select Area", the PopBar temporarily hides and a crosshair cursor appears.
+6. Screenshot is captured.
+7. **Plain capture**: image thumbnail in Results Dropdown + text input for question. Enter sends image+question to AI.
+8. **+OCR capture**: extracted text in Results Dropdown with **Replace**, **Copy**, "Ask AI", "Save to PKB" buttons.
 
 **Screenshot flow (from Sidebar)**
 
@@ -801,8 +904,8 @@ Hotkeys are configurable in the Settings window. They are registered via Electro
 - **Active state**: full opacity, highlighted border, input field has cursor/focus ring.
 
 **Cross-app persistence (Sidebar + Dictation Pop)**
-- The Sidebar and Dictation Pop stay visible when the user `Cmd+Tab`s to another app.
-- The PopBar dismisses on app switch (it belongs to the current app's context).
+- The Sidebar, Dictation Pop, and **PopBar** all stay visible when the user `Cmd+Tab`s to another app (Decision 53).
+- The **PopBar no longer dismisses on app switch** (Decision 53) — it stays visible and focused, allowing the user to Cmd+Tab to look something up and return to their typed query.
 
 ---
 
@@ -836,10 +939,14 @@ Both modes can be used interchangeably. If the Dictation Pop is already showing 
 
 **Output routing (smart paste)**
 
-When transcription completes:
-1. Check if a text input field is focused in the frontmost app (via Accessibility API: `AXFocusedUIElement` → check if role is `AXTextField` or `AXTextArea`).
-2. **If text field focused**: paste transcription at cursor position (simulate `Cmd+V` after writing to clipboard).
-3. **If no text field focused**: copy to clipboard + show toast "Copied to clipboard".
+> **Decision 47**: The target text field is captured at **recording start** (`Cmd+J` press / `Fn` hold), not at transcription-completion time. This prevents the case where the user clicks the Dictation Pop to adjust the reformat setting, causing the Dictation Pop itself to become the "focused" element at paste time.
+
+When the user starts recording (`Cmd+J` or `Fn` hold):
+1. **Immediately**: check `AXFocusedUIElement` in the frontmost app and store a reference to it as the **paste target**.
+2. Recording runs. User may click Dictation Pop to adjust format — this does NOT update the stored paste target.
+3. When the user clicks **Paste**: use the stored paste target.
+   - **If stored target is a text field**: paste transcription at cursor position (simulate `Cmd+V` after writing to clipboard).
+   - **If no stored target** (user invoked dictation with no text field focused): copy to clipboard + show toast "Copied to clipboard".
 4. In both cases, transcribed text is also shown in the Dictation Pop for further action.
 
 **Reformat dropdown**
@@ -901,7 +1008,7 @@ The Context button in the PopBar shows a dropdown with four levels of increasing
 |-------|----------------|-------------------|
 | **Basic** | App name + window title | `NSWorkspace.shared.frontmostApplication` + Accessibility API `AXTitle` |
 | **+ Selected Text** | Basic + currently selected/focused text in the app | Accessibility API `AXSelectedText` or `AXFocusedUIElement` value |
-| **+ Screenshot** | Basic + screenshot of the frontmost app window | `CGWindowListCreateImage` via nut.js |
+| **+ Screenshot** | Basic + screenshot of the frontmost app window | `desktopCapturer` (Electron built-in) via `CGWindowListCreateImage` path |
 | **+ Full Scrolling OCR** | Basic + OCR-extracted text from full scrollable content | Scrolling screenshot + OCR pipeline (see 4.6) |
 
 **Per-app context enrichment**
@@ -958,17 +1065,17 @@ In Settings > Folder Sync:
 **Sync behavior**
 
 1. On app startup, the Electron main process registers `fs.watch` (or `chokidar` for recursive watching) on each enabled watched folder.
-2. When a new file is detected (or an existing file is modified):
-   a. Check if file type is supported (see 4.4 supported types).
-   b. Check if file was already synced (compare by path + modification time in a local SQLite cache).
-   c. If new/changed: upload via `POST /global_docs/upload` with the configured folder/tags.
-   d. Record the sync in the local cache.
+2. When a **new file** is detected: upload via `POST /global_docs/upload` with the configured folder/tags. Record in local cache with the returned `global_doc_id`.
+   - Check file type is supported (see 4.4 supported types).
+   - Check if file was already synced (by path in local SQLite cache). If already synced: treat as an **update** (see below).
+   - If genuinely new: upload via `POST /global_docs/upload`. Record `{ path, modified_time, global_doc_id, sync_timestamp }` in cache.
+   3. When a **modified file** is detected (path exists in cache, `mtime` changed): use `POST /global_docs/<id>/replace` to update the existing doc in-place (Decision 62). Tags and folder assignment are preserved. Update the cache `modified_time` and `sync_timestamp`.
 3. A small badge on the tray icon shows sync activity (e.g., spinning icon during upload).
 4. Toast notification on completion: "Synced report.pdf to Global Docs".
 
 **Conflict handling**
 - If a file was manually uploaded to Global Docs AND exists in a watched folder, the sync skips it (no duplicates).
-- If a synced file is deleted from the watched folder, it is **not** deleted from Global Docs (one-way sync only).
+- If a synced file is **deleted** from the watched folder, it is **not** deleted from Global Docs (one-way sync only). The cache entry is removed so if the file reappears it is re-uploaded as new.
 
 **Implementation**
 - Desktop-side watcher using `chokidar` (Node.js library, cross-platform file watching with macOS fsevents support).
@@ -1114,7 +1221,7 @@ Per-run opt-in flag. When enabled, every step captures: resolved prompt (with al
 **Implementation details**
 
 - Before sending the AI request, the Electron main process reads the current clipboard contents and saves them as "original clipboard".
-- On Replace: write AI result to clipboard → simulate `Cmd+V` keypress via nut.js → restore original clipboard contents after a short delay (200ms).
+- On Replace: write AI result to clipboard → simulate `Cmd+V` keypress via **@jitsi/robotjs** → restore original clipboard contents after a short delay (200ms).
 - On Copy: write AI result to clipboard (don't restore original).
 
 **Risks**
@@ -1437,20 +1544,21 @@ User wants to research a topic thoroughly
 
 | Component | Technology | Purpose |
 |-----------|-----------|---------|
-| Desktop shell | Electron 33+ | BrowserWindow, tray, global shortcuts, IPC |
-| Screen automation | nut.js (build from source) | Screenshot capture, window detection, keyboard simulation |
+| Desktop shell | **Electron 40.8.0** (Chromium 144, Node 24.14.0, V8 14.4) | BrowserWindow, tray, global shortcuts, IPC. ESM project (`"type": "module"`). Requires macOS 12+ (macOS 11 dropped in Electron 38). |
+| Screen automation | **@jitsi/robotjs** (npm, prebuilt arm64 binaries) + Electron `desktopCapturer` | Keyboard simulation (Cmd+C trick for selected text), screenshot capture. nut.js removed from public npm (Decision 68) — replaced by @jitsi/robotjs for keyboard sim and desktopCapturer for screenshots. |
 | Accessibility API | Native Node addon (N-API + Swift) | Read focused text, window titles, selected text, app detection |
-| Finder extension | Swift / FIFinderSync | Right-click menu in Finder |
+| Finder extension | **DESCOPED** — requires paid Apple Developer cert ($99/yr). Ad-hoc signing fails on macOS Ventura+ (Decision 70). Fallback: drag-and-drop (Phase 4). |
 | macOS Services | Info.plist NSServices | Right-click on selected text in any app |
 | Local IPC server | Express on localhost:19876 | Finder extension → Electron communication |
-| File watching | chokidar (Node.js) | Folder sync file system monitoring |
+| File watching | **chokidar 5.0.0** (ESM-only, Node 20.19+, macOS fsevents) | Folder sync file system monitoring |
 | Audio recording | Electron MediaRecorder API | Voice dictation capture |
-| Speech-to-text | OpenAI Whisper API (v1) | Dictation transcription |
+| Speech-to-text | `POST /transcribe` on Flask backend (proxies OpenAI Whisper API) | Dictation transcription — backend holds API key, desktop sends audio bytes only (Decision 48) |
 | Text extraction | pdf-parse + mammoth (Node.js) | Client-side PDF and DOCX text extraction for Finder "Extract Text to PKB" and "Summarize Document" |
 | Frontend (Tab 1) | Existing web UI (loaded as-is in BrowserView) | Full web UI in Sidebar — all features including tool-call-manager.js, image-gen-manager.js, PKB modals, Global Docs modal, artefacts, workspace tree, etc. |
 | Frontend (Tab 2) | OpenCode Web (`opencode web` spawned by Electron) | Agentic coding agent with session management, tool calling, diff view, undo/redo. Connects to remote MCP servers + local filesystem MCP. |
+| Frontend (Tab 3) | **@xterm/xterm 6.0.0** + **@xterm/addon-webgl** (GPU-accelerated renderer, Decision 76) + **node-pty 1.1.0** | Local terminal in Sidebar — spawns user's default shell via PTY in Electron main process, renders via xterm.js WebGL renderer in BrowserView (falls back to DOM). IPC bridge for I/O. Supports multiple instances, split panes, search, clickable links. |
 | Local Filesystem MCP | Node.js MCP server (spawned by Electron, localhost) | 10 tools: fs_read_file, fs_write_file, fs_edit_file, fs_list_directory, fs_glob, fs_grep, fs_run_shell, fs_mkdir, fs_move, fs_delete. Sandboxed to user-selected working directory. Consumed by OpenCode Tab 2 only. |
-| LLM Tool Calling | `code_common/tools.py` — 48 tools, 8 categories, `TOOL_REGISTRY` singleton | Mid-response agentic loop in Sidebar Chat. PopBar uses lightweight single-turn calls (no tools). See `documentation/features/tool_calling/README.md` |
+| LLM Tool Calling | `code_common/tools.py` — **57 tools / 9 categories** (verified — see Decision 64), `TOOL_REGISTRY` singleton | Mid-response agentic loop in Sidebar Chat. PopBar uses configurable whitelist, max 1-2 iterations. See `documentation/features/tool_calling/README.md` |
 | Image Generation | `endpoints/image_gen.py` — OpenRouter multimodal API | `/image` slash command + standalone modal. 5 models (Nano Banana 2 default). Prompt refinement via Claude Haiku. See `documentation/features/image_generation/README.md` |
 | Backend | Existing Flask server + 9 MCP servers (7 existing + Image Gen + extended PKB/Docs/Prompts) | All AI, documents, PKB, search, image generation, OCR. MCP servers exposed via nginx reverse proxy with SSL. |
 | Workflow engine | Self-contained `workflow_engine/` module — Flask blueprint under `/workflows` when embedded (see `workflow_engine_framework.plan.md`) | Multi-step execution, shared state (JSON + markdown scratchpad), loops with LLM judge, parallel groups, checkpointing, SSE real-time updates, MCP exposure. Adapter pattern: 5 abstract interfaces for LLM, tools, storage, events, user interaction. |
@@ -1462,28 +1570,34 @@ Electron Main Process
   ├── Session cookie store (shared across all surfaces)
   │     └── Extracts Flask session cookie for main-process API calls
   ├── MCP_JWT_TOKEN env var (injected into OpenCode child process)
-  ├── PopBar BrowserWindow (small, near-cursor, non-activating)
+  ├── PopBar BrowserWindow (small, **fixed top-center default, drag position persisted**, non-activating)
   │     ├── Custom HTML: action buttons + input + dropdown + context button
   │     └── Ephemeral queries: temp stateless conversations or temp_llm_action
   ├── Sidebar BrowserWindow (large, edge-snapped, resizable, non-activating)
   │     ├── Tab 1: BrowserView loading full interface.html (all web UI features)
   │     │     └── executeJavaScript() bridge for modal injection (Global Docs, PKB, file drops)
-  │     ├── Tab 2: BrowserView loading OpenCode Web (http://localhost:<dynamic>)
-  │     │     ├── opencode web child process (spawned with cwd = user's working directory)
-  │     │     ├── Connects to remote MCP servers via https://assist-chat.site/mcp/*
-  │     │     └── Connects to local filesystem MCP via localhost
-  │     └── Tab 3: Loads workflow-panel.js (decoupled UI module) — Workflows panel
-  │           ├── SSE EventSource → /workflows/runs/{run_id}/events
-  │           └── REST calls → /workflows/* endpoints
+│     ├── Tab 2: BrowserView loading OpenCode Web (http://localhost:<dynamic>)
+│     │     ├── opencode web child process (spawned with cwd = user's working directory)
+│     │     ├── Connects to remote MCP servers via https://assist-chat.site/mcp/*
+│     │     └── Connects to local filesystem MCP via localhost
+│     ├── Tab 3: BrowserView with xterm.js — Local Terminal
+│     │     ├── node-pty PTY processes (spawned in Electron main process)
+│     │     ├── IPC bridge: main process (node-pty I/O) ↔ renderer (xterm.js)
+│     │     ├── Multiple instances (terminal tabs), split panes
+│     │     ├── Shares working directory with OpenCode Tab 2
+│     │     └── Optional: connect to remote server terminal via WebSocket (/ws/terminal)
+│     └── ~~Tab 4: Workflow panel~~ (descoped from v1)
+│           ├── SSE EventSource → /workflows/runs/{run_id}/events
+│           └── REST calls → /workflows/* endpoints
   ├── Local Filesystem MCP Server (Node.js, localhost:<dynamic>)
   │     ├── 10 tools: read, write, edit, list, glob, grep, shell, mkdir, move, delete
   │     ├── Sandboxed to user-selected working directory
   │     └── Consumed by OpenCode Tab 2 only
-  ├── Working Directory Manager
-  │     ├── Directory picker: recent dirs + pinned favorites + OS file picker
-  │     ├── On change: warn user → kill opencode web → restart with new cwd
-  │     └── Persists recent/pinned dirs in electron-store
-  ├── Dictation Pop BrowserWindow (small, bottom-left, non-activating)
+├── Working Directory Manager
+│     ├── Directory picker: recent dirs + pinned favorites + OS file picker
+  │     ├── On change: warn user → kill opencode web → restart with new cwd → new terminal instances use new cwd
+│     └── Persists recent/pinned dirs in electron-store
+  ├── Dictation Pop BrowserWindow (small, **bottom-left default, position persisted across restarts** via electron-store, non-activating)
   │     └── Custom HTML: recording indicator + transcription + reformat + history
   ├── Express server (port 19876)
   │     └── Receives POSTs from Finder Extension (single file path + action)
@@ -1496,7 +1610,7 @@ Electron Main Process
   ├── Client-side file extraction (pdf-parse, mammoth)
   │     └── Used by Finder "Extract Text to PKB" and "Summarize Document"
   ├── Folder sync watcher (chokidar, per configured folder)
-  ├── nut.js — screen capture (4 modes), keyboard simulation, window queries
+  ├── @jitsi/robotjs — keyboard simulation (Cmd+C selected text trick, Cmd+V paste), mouse events
   ├── Audio recorder — MediaRecorder for dictation
   └── Native addon — macOS Accessibility (text reading, app detection, context)
 
@@ -1598,9 +1712,9 @@ The Sidebar loads the existing web UI in an Electron `BrowserView`, which commun
 |-------------|---------------------|
 | Always-on-top window | `BrowserWindow({ alwaysOnTop: true })` with level `'floating'` |
 | Non-activating panel | `focusable: false` creates NSPanel internally |
-| Finder right-click | FIFinderSync extension (Swift, Xcode project) |
+| Finder right-click | **DESCOPED** — FIFinderSync requires paid Apple Developer cert (Decision 70). Drag-and-drop fallback only. |
 | Text selection right-click | NSServices in Info.plist |
-| Screen capture | `CGWindowListCreateImage` via nut.js or native addon |
+| Screen capture | `desktopCapturer` (Electron built-in) + native Swift addon for window-specific capture |
 | Scrolling screenshot (browsers) | Chrome extension full-page capture API |
 | Scrolling screenshot (native apps) | Auto-scroll via Accessibility API + stitch captures |
 | Read focused text / selected text | `AXUIElement` Accessibility API via native addon |
@@ -1623,7 +1737,7 @@ The Sidebar loads the existing web UI in an Electron `BrowserView`, which commun
 | Non-activating window | `WS_EX_NOACTIVATE` window style (may need native module) |
 | Explorer right-click | Shell Extension (C++ COM DLL) or Windows 11 sparse package |
 | Text selection right-click | No direct equivalent to macOS Services; use clipboard monitoring or custom hotkey |
-| Screen capture | `BitBlt` / `PrintWindow` via nut.js (cross-platform) |
+| Screen capture | `desktopCapturer` (Electron built-in) — nut.js Windows support not relevant (macOS-only app in v1) |
 | Read focused text | UI Automation API via native addon |
 | System tray | Electron `Tray` API (cross-platform) |
 | Global hotkeys | Electron `globalShortcut` API (cross-platform) |
@@ -1732,8 +1846,8 @@ The desktop companion uses these Node.js libraries in the Electron main process 
 |---------|---------|---------|
 | `pdf-parse` | Extract text from PDF files | Finder "Extract Text to PKB", "Summarize Document" |
 | `mammoth` | Convert DOCX to plain text | Finder "Extract Text to PKB", "Summarize Document" |
-| `chokidar` | File system watching (macOS fsevents) | Folder sync |
-| `electron-store` | Persistent settings storage | PopBar tool whitelist, dictation reformat, folder sync cache |
+| `chokidar@5.0.0` | File system watching (macOS fsevents, ESM-only) | Folder sync |
+| `electron-store@11.0.2` | Persistent settings storage (ESM-only, requires Electron 30+) | PopBar tool whitelist, dictation reformat, folder sync cache |
 
 ### PopBar LLM implementation
 
@@ -1822,15 +1936,15 @@ The following new MCP tools extend the existing 7 MCP servers and add 1 new serv
 
 ## 9) Implementation Phases
 
-### Phase 0: MCP Expansion (weeks 1-2)
+### Phase 0: MCP Expansion + Technical Spikes (weeks 1-2)
 
-**Goal**: Extend existing MCP servers with new tools and add Image Generation MCP server. Set up nginx reverse proxy for remote MCP access. Build local filesystem MCP for OpenCode.
+**Goal**: Extend existing MCP servers with new tools and add Image Generation MCP server. Set up nginx reverse proxy for remote MCP access. Build local filesystem MCP for OpenCode. **Also includes two critical technical spikes to de-risk Phases 1 and 7.**
 
 **Server-side (remote)**:
 - [ ] Extend Documents MCP (port 8102): add `docs_upload_global`, `docs_delete_global`, `docs_set_global_doc_tags`, `docs_assign_to_folder`
 - [ ] Extend PKB MCP (port 8101): add `pkb_list_contexts`, `pkb_list_entities`, `pkb_list_tags`
 - [ ] New Image Generation MCP (port 8107): add `generate_image` tool wrapping `generate_image_from_prompt()`
-- [ ] Extend Prompts & Actions MCP (port 8105): add `transcribe_audio` tool
+- [ ] Extend Prompts & Actions MCP (port 8105): add `transcribe_audio` tool wrapping Whisper API (backend proxies Whisper — Decision 48; desktop sends audio bytes, server handles OpenAI key)
 - [ ] Change all MCP servers to bind to `127.0.0.1` (not `0.0.0.0`)
 - [ ] Add nginx location blocks for `/mcp/search/`, `/mcp/pkb/`, `/mcp/docs/`, `/mcp/artefacts/`, `/mcp/conversations/`, `/mcp/prompts/`, `/mcp/code/`, `/mcp/image/` — all within existing HTTPS server block (same SSL cert)
 - [ ] Test all MCP servers via `https://assist-chat.site/mcp/*/health`
@@ -1840,11 +1954,14 @@ The following new MCP tools extend the existing 7 MCP servers and add 1 new serv
 - [ ] Sandbox validation: all paths resolved via `path.resolve(workdir, userPath)` then checked with `startsWith(workdir)`
 - [ ] MCP server uses streamable-HTTP transport on `localhost:<dynamic-port>`, no auth (local only)
 
-**Deliverable**: All MCP tools available for OpenCode consumption. Remote MCP servers accessible via HTTPS with JWT auth. Local filesystem MCP ready for integration.
+**Technical spikes (de-risk before Phase 1/7)**:
+- [x] **Spike: `focusable` toggle** — **RESOLVED by web research (Decision 69).** `setIgnoreMouseEvents(true, { forward: true })` + `setFocusable(false)` is the confirmed working pattern. No build-time spike needed. `forward: true` is essential for hover detection. `type: 'panel'` floats above most apps but not native macOS fullscreen. Implementation pattern documented in Decision 69.
+- [x] **Spike: nut.js Apple Silicon build** — **RESOLVED by web research (Decision 68).** nut.js removed from public npm in 2024 (requires paid plan or build from source). **Replace with @jitsi/robotjs** (v0.6.21, April 2025, prebuilt arm64 universal binary, free on npm). For screenshot capture use Electron `desktopCapturer` (built-in) + `screen.getAllDisplays()`. No build spike needed.
+**Deliverable**: All MCP tools available for OpenCode consumption. Remote MCP servers accessible via HTTPS with JWT auth. Local filesystem MCP ready for integration. Technical spikes for focusable toggle and nut.js replacement resolved by research (Decisions 68–69) — no runtime spikes needed for those two items. Finder extension descoped (Decision 70).
 
 ### Phase 1: Core Shell (weeks 3-4)
 
-**Goal**: Electron app with floating Sidebar (3 tabs: Chat, OpenCode, Workflows), tray icon, global hotkeys, session cookie sharing, OpenCode child process management.
+**Goal**: Electron app with floating Sidebar (3 active tabs: Chat, OpenCode, Terminal), tray icon, global hotkeys, session cookie sharing, OpenCode child process management, local terminal. (Tab 4 Workflows descoped from v1 — see Decision 46.)
 
 - [ ] Electron project setup (`desktop/` directory, `package.json`, TypeScript config)
 - [ ] Sidebar `BrowserWindow` as always-on-top overlay (floating level, resizable)
@@ -1852,9 +1969,15 @@ The following new MCP tools extend the existing 7 MCP servers and add 1 new serv
 - [ ] Tab 2: OpenCode child process management — spawn `opencode web --port <dynamic> --hostname 127.0.0.1` with `cwd` = selected working directory, inject `MCP_JWT_TOKEN` env var
 - [ ] Tab 2: `BrowserView` loading OpenCode Web at `http://127.0.0.1:<dynamic-port>`
 - [ ] Tab 2: Working directory selector — recent dirs dropdown + pinned favorites + OS file picker (NSOpenPanel)
-- [ ] Tab 2: Directory change flow — warn user → kill opencode process → restart with new cwd
+- [ ] Tab 2: Directory change flow — warn user → kill opencode process → restart with new cwd → new terminal instances use new cwd
 - [ ] Tab 2: `opencode.json` template with remote MCP server URLs (`https://assist-chat.site/mcp/*`) and local filesystem MCP
-- [ ] Tab 3: Placeholder for Workflows panel
+- [ ] Tab 3: Local terminal — `node-pty` spawning user's default shell, xterm.js in BrowserView, IPC bridge
+- [ ] Tab 3: `@electron/rebuild` setup for native `node-pty` compilation against Electron's Node ABI
+- [ ] Tab 3: Terminal instance tab bar (new/close/switch), shared working directory with OpenCode Tab 2
+- [ ] Tab 3: Keyboard shortcuts (Cmd+N new, Cmd+W close, Cmd+D split, Cmd+K clear)
+- [ ] Tab 3: xterm.js addons (fit, web-links, search, unicode11), Catppuccin Mocha theme
+- [ ] Tab 3: PTY cleanup on tab close, directory change, and app quit (SIGTERM→SIGKILL with 2s timeout)
+- [ ] ~~Tab 4: Placeholder for Workflows panel~~ (descoped from v1 — see Decision 46)
 - [ ] Session cookie sharing: extract Flask session cookie from `BrowserView` cookie store for main process API calls
 - [ ] Tray icon with show/hide/quit menu + connection status indicator
 - [ ] Global hotkey (`Cmd+Shift+Space`) to toggle PopBar visibility
@@ -1863,7 +1986,7 @@ The following new MCP tools extend the existing 7 MCP servers and add 1 new serv
 - [ ] Sidebar snap buttons (right / left / bottom / float) in a minimal title bar
 - [ ] Caching strategy: service worker or `protocol.registerFileProtocol` for static assets
 
-**Deliverable**: A floating, resizable panel with 3 tabs. Tab 1 loads the full web UI. Tab 2 runs OpenCode with MCP access to all server capabilities + local filesystem. Session auth is shared. All web UI features work.
+**Deliverable**: A floating, resizable panel with 3 active tabs. Tab 1 loads the full web UI. Tab 2 runs OpenCode with MCP access to all server capabilities + local filesystem. Tab 3 provides a local terminal with multiple instances and split panes. Session auth is shared. All web UI features work.
 
 ### Phase 2: Focus Management (week 3)
 
@@ -1889,6 +2012,7 @@ The following new MCP tools extend the existing 7 MCP servers and add 1 new serv
 - [ ] Replace and Copy buttons on all text results
 - [ ] Expand escalation with "New Conversation" / "Add to [active]" choice dropdown
 - [ ] Ephemeral query model: create temp stateless conversation per query (or use `temp_llm_action` endpoint)
+- [ ] **Explicit temp conversation cleanup**: after each PopBar query completes (success or error), Electron main process calls `DELETE /delete_conversation/<temp_conv_id>`. Do not rely on page-load cleanup since user may never open Sidebar (Decision 3).
 - [ ] Configurable PopBar tool whitelist (Settings > PopBar > Allowed Tools, default: PKB search + add claim)
 - [ ] Tool calling with max 1-2 iterations, `ask_clarification` always disabled
 - [ ] Inline tool status indicators in Results Dropdown (tool name + spinner/checkmark)
@@ -1897,21 +2021,22 @@ The following new MCP tools extend the existing 7 MCP servers and add 1 new serv
 - [ ] IPC bridge between PopBar (renderer) and main process
 - [ ] Model selector dropdown in Quick Ask
 - [ ] Session cookie extraction for PopBar API calls (from shared cookie store)
+- [ ] Pre-login guard: if no session cookie present, auto-open Sidebar to login page and show inline message in PopBar results dropdown: "Opening Science Reader — please log in"
 
-**Deliverable**: A Spotlight-like bar with actions that produce inline results. PKB tools enabled by default. Ephemeral queries with Expand escalation.
+**Deliverable**: A Spotlight-like bar with actions that produce inline results. PKB tools enabled by default. Ephemeral queries with Expand escalation. Temp conversations cleaned up explicitly. Pre-login guard in place.
 
-### Phase 4: File Ingestion — Drag-and-Drop + Modal Reuse (weeks 5-6)
+### Phase 4: File Ingestion + desktopBridge API (weeks 5-6)
 
-**Goal**: Drop files onto the overlay to add them to Global Docs via the web UI's existing Global Docs modal. Simulate drag-and-drop for file injection into the web UI.
+**Goal**: Drop files onto the overlay to add them to Global Docs via the web UI's existing Global Docs modal. Add stable `window.desktopBridge` API to `interface.html` as the contract surface for all `executeJavaScript()` injection — this is the foundational change that makes all future Finder/Services phases safe.
 
 - [ ] Drag-and-drop handler on the overlay windows (PopBar and Sidebar)
 - [ ] PopBar/Sidebar non-chat-input drops → open Sidebar + trigger Global Docs modal via `executeJavaScript()`
 - [ ] Pre-fill file into the Global Docs modal's upload input (programmatic file input or simulated drag-drop)
 - [ ] Sidebar chat-input drops → standard web UI attachment behavior (no desktop-specific code needed)
-- [ ] File injection helper: `executeJavaScript()` function to programmatically open web UI modals and inject data
+- [ ] **`window.desktopBridge` API in `interface.html`** (server-side change): expose stable methods: `desktopBridge.openGlobalDocsModal(filePath)`, `desktopBridge.openPKBModal(text)`, `desktopBridge.openPKBIngestFlow(text)`, `desktopBridge.fillChatInput(text)`, `desktopBridge.attachFileToChatInput(filePath)`. All Electron `executeJavaScript()` calls go through this bridge only — never call internal manager methods directly.
 - [ ] Toast notifications for success/failure via Electron's native notification API
 
-**Deliverable**: Can add files to Global Docs by dragging them onto the overlay. Uses the web UI's existing modal.
+**Deliverable**: Can add files to Global Docs by dragging them onto the overlay. `window.desktopBridge` stable API is live in `interface.html`. All future phases use only the bridge for injection.
 
 ### Phase 5: Text Selection → PKB (macOS Services) (weeks 6-7)
 
@@ -1937,10 +2062,11 @@ The following new MCP tools extend the existing 7 MCP servers and add 1 new serv
 - [ ] FIFinderSync subclass with 4 menu items (Add to Global Docs, Extract Text to PKB, Ask AI, Summarize)
 - [ ] Express server on localhost:19876 in Electron main process
 - [ ] Finder extension POSTs single file path to Express server: `{ action, path }`
-- [ ] "Add to Global Docs": opens Sidebar + Global Docs modal with file pre-filled via `executeJavaScript()`
-- [ ] "Extract Text to PKB": client-side text extraction (pdf-parse for PDF, mammoth for DOCX, `/ext/ocr` for images) → opens Sidebar + PKB Add Memory modal with text pre-filled
-- [ ] "Ask AI": opens Sidebar + simulates drag-drop of file onto chat input area
+- [ ] "Add to Global Docs": opens Sidebar + Global Docs modal with file pre-filled via `desktopBridge.openGlobalDocsModal(filePath)`
+- [ ] "Extract Text to PKB": client-side text extraction (pdf-parse for PDF, mammoth for DOCX, `/ext/ocr` for images) → opens Sidebar + PKB Add Memory modal via `desktopBridge.openPKBModal(text)`
+- [ ] "Ask AI": opens Sidebar + attaches file via `desktopBridge.attachFileToChatInput(filePath)`
 - [ ] "Summarize": client-side text extraction → PopBar Results Dropdown with streaming summary
+- [ ] **⚠️ Pre-requisite**: Validate ad-hoc `codesign --sign -` works for `FIFinderSync` on target macOS before starting this phase. If it fails, pivot to drag-and-drop-only file ingestion (Phase 4 already covers this fallback).
 - [ ] Ad-hoc code signing of the `.app` bundle
 - [ ] User documentation for enabling the extension in System Settings
 
@@ -1950,7 +2076,7 @@ The following new MCP tools extend the existing 7 MCP servers and add 1 new serv
 
 **Goal**: Full app context awareness + screenshot capture with 4 modes + OCR.
 
-- [ ] nut.js integration for window detection and screenshot capture
+- [ ] @jitsi/robotjs + desktopCapturer integration for keyboard simulation and screenshot capture
 - [ ] Native addon for macOS Accessibility API (AXUIElement: read window title, focused text, selected text)
 - [ ] AppleScript integration for browser URLs, Finder selections, VS Code file paths
 - [ ] Context button in PopBar with 4-level dropdown
@@ -1971,9 +2097,9 @@ The following new MCP tools extend the existing 7 MCP servers and add 1 new serv
 
 - [ ] Dictation Pop BrowserWindow (small, bottom-left, draggable, position memory)
 - [ ] Audio recording via Electron MediaRecorder API
-- [ ] OpenAI Whisper API integration for transcription
+- [ ] Whisper transcription via backend proxy: desktop sends audio bytes to `POST /transcribe` endpoint; server calls OpenAI Whisper API using server-side API key (Decision 48 — no API key stored on desktop)
 - [ ] Toggle hotkey (`Cmd+J`) and push-to-talk (hold `Fn`) triggers
-- [ ] Smart paste: detect focused text field → paste, else clipboard
+- [ ] Smart paste: capture `AXFocusedUIElement` at **recording start** (not paste time) as paste target; use stored target on Paste click (Decision 47)
 - [ ] Reformat dropdown (Raw, As Bullets, As Markdown Paragraphs, Custom Prompt)
 - [ ] Dictation history (last 10, accessible in Dictation Pop + tray menu)
 - [ ] Microphone permission prompt on first use
@@ -1994,43 +2120,54 @@ The following new MCP tools extend the existing 7 MCP servers and add 1 new serv
 
 **Deliverable**: Drop a file into a watched folder → it appears in Global Docs automatically.
 
-### Phase 10: Workflow Engine Integration (weeks 16-20)
+### Phase 10: Workflow Engine Integration — **DESCOPED from v1** (Decision 46)
 
-**Goal**: Integrate the workflow engine (built per `workflow_engine_framework.plan.md`) into the desktop companion.
+**Status**: Removed from v1 scope. The workflow engine backend (`workflow_engine_framework.plan.md`) has not yet been started. Desktop Phase 10 work is gated on the backend engine being complete. This phase will be re-evaluated for v2.
 
-> **Note**: The workflow engine backend (7 implementation phases in the framework plan) is built independently of the desktop companion. Phase 10 here covers the **desktop-side integration** — loading the workflow panel UI in the Sidebar and wiring up workflow triggers from PopBar/tray. The backend engine work is tracked in its own plan.
+> **If workflows are re-scoped in future**: The workflow panel UI and Sidebar Workflows tab design in this section remains valid. The `/workflow` chat command in PopBar can be added as a lightweight trigger without the full panel.
 
-**Backend prerequisites** (from `workflow_engine_framework.plan.md`, must be done before or in parallel):
+~~**Backend prerequisites** (from `workflow_engine_framework.plan.md`):~~
+~~- [ ] Phase 1-3: Core engine + executors + REST API + SSE endpoints~~
+~~- [ ] Phase 4: Pre-built templates~~
+~~- [ ] Phase 5: Main app integration + MCP tool registration~~
 - [ ] Phase 1-3: Core engine + executors + REST API + SSE endpoints (the `/workflows/*` blueprint)
 - [ ] Phase 4: Pre-built templates (Deep Research, Document Writer, Q&A Research)
 - [ ] Phase 5: Main app integration (register blueprint in `server.py`, embedded adapters, `/workflow` chat command)
 - [ ] Phase 5: MCP tool registration (`mcp_server/workflows.py`)
 - [ ] Phase 5: Deprecate `ext_workflows` endpoints
 
-**Backend UI** (from `workflow_engine_framework.plan.md` Phase 6, needed for Sidebar):
+~~**Backend UI** (from `workflow_engine_framework.plan.md` Phase 6):~~
+~~- [ ] `workflow-panel.js`, `workflow-panel.css`, `workflow-standalone.html`~~
+~~- [ ] Drawer integration in main web app~~
 - [ ] `workflow-panel.js` — decoupled UI module with List/Launch/Run/Debug/Editor views
 - [ ] `workflow-panel.css` — standalone CSS with `.wfp-*` prefix
 - [ ] `workflow-standalone.html` — standalone page at `/workflows/ui`
 - [ ] Drawer integration in main web app (right drawer overlay + `/workflow` chat command handler)
 
-**Desktop-specific work**:
-- [ ] Sidebar Workflows tab (Tab 3) loads `workflow-panel.js` with desktop-appropriate config (apiBase pointing to backend, container targeting the tab pane, auth headers from desktop session)
-- [ ] SSE EventSource connection for real-time run updates in Sidebar
-- [ ] Workflow trigger from PopBar configurable slot → opens Sidebar Workflows tab with template pre-selected
-- [ ] Workflow trigger from tray menu → opens Sidebar Workflows tab
-- [ ] `/workflow` command in PopBar text input → opens Sidebar Workflows tab with template + prompt
-- [ ] Pop-out workflow panel in separate Electron BrowserWindow (loads `workflow-standalone.html`)
-- [ ] Export callback wiring: "Save as Global Doc" / "Copy to Clipboard" / "Download" from workflow panel
+~~**Desktop-specific work** (all blocked until engine is built):~~
+~~- [ ] Sidebar Workflows tab (Tab 4) loads `workflow-panel.js`~~
+~~- [ ] SSE EventSource connection for real-time run updates~~
+~~- [ ] Workflow trigger from PopBar configurable slot~~
+~~- [ ] Workflow trigger from tray menu~~
+~~- [ ] `/workflow` command in PopBar text input~~
+~~- [ ] Pop-out workflow panel in separate Electron BrowserWindow~~
+~~- [ ] Export callback wiring~~
 
-**Deliverable**: Run multi-step research and document generation workflows from the desktop companion with visual progress, user interaction, debug inspection, and composable steps. The same workflow panel works in the web UI, standalone page, and desktop Sidebar.
+~~**Deliverable**: Descoped. See Open Questions for re-scoping criteria.~~
 
-### Phase 11: Polish & Packaging (weeks 20-22)
+### Phase 10: Polish & Packaging (weeks 16-18)
 
 **Goal**: Production-ready for daily use.
 
 - [ ] electron-builder config for macOS `.app` and `.dmg`
 - [ ] Ad-hoc signing script
-- [ ] Settings window (server URL, hotkey config, startup on login, PopBar slot config, folder sync, dictation provider)
+- [ ] Settings window with the following panels (Decision 63):
+  - **General**: server URL, startup on login, hotkey configuration (all 6 hotkeys)
+  - **PopBar**: tool whitelist (multi-select), configurable slots (3 slot pickers), default model, text-selection auto-trigger toggle (on/off)
+  - **Dictation**: default reformat option, push-to-talk key (configurable)
+  - **Folder Sync**: watched folders CRUD, sync frequency per folder, auto-assign tags/folder per watched folder, file filter glob, enable/disable toggle per folder
+  - **Appearance**: Sidebar default width, default snap position, Sidebar/Terminal theme (Catppuccin Mocha or system light/dark)
+  - *(Terminal font/size are in-terminal settings, not in the Settings window)*
 - [ ] Launch on login (macOS Login Items)
 - [ ] Error handling for server disconnection (tray icon shows status)
 - [ ] Performance profiling (memory, CPU while idle)
@@ -2043,9 +2180,9 @@ The following new MCP tools extend the existing 7 MCP servers and add 1 new serv
 | Risk | Likelihood | Impact | Mitigation |
 |------|-----------|--------|------------|
 | macOS Accessibility/Screen Recording/Microphone permission denial | Low (personal use) | Blocks context/screen/dictation features | Prompt on first use; document manual grant steps |
-| Finder extension fails to load without paid certificate | Medium | Blocks Finder integration | Test ad-hoc signing thoroughly; fallback to drag-and-drop |
-| `focusable: false` breaks input in overlay | Medium | Core UX broken | Prototype focus toggle early (Phase 2); test on macOS Sequoia |
-| nut.js build-from-source fails on Apple Silicon | Low | Blocks screen capture | Fallback to Electron's `desktopCapturer` API (built-in) |
+| Finder extension fails to load without paid certificate | **High** — **CONFIRMED FAILURE** (Decision 70) | Blocks Finder integration | **Phase 6 descoped.** PlugInKit on macOS Ventura+ rejects ad-hoc signed .appex. Fallback: drag-and-drop only (Phase 4 covers this). |
+| `focusable: false` breaks input in overlay | **RESOLVED** (Decision 69) | N/A | `setIgnoreMouseEvents(true, { forward: true })` + `setFocusable(false/true)` toggle is confirmed working pattern. |
+| nut.js build-from-source fails on Apple Silicon | **RESOLVED** (Decision 68) | N/A | nut.js removed from public npm. Replaced by @jitsi/robotjs (prebuilt arm64) + Electron desktopCapturer. No build spike needed. |
 | Electron's 150MB+ binary size | Certain | Disk usage | Acceptable for personal tool; not distributing |
 | Web UI doesn't render well at 400px width | Medium | Chat panel looks broken | Test responsive behavior early; may need CSS overrides |
 | macOS Services registration requires app restart | Low | Minor UX friction | Document the one-time setup; macOS caches Services |
@@ -2053,13 +2190,13 @@ The following new MCP tools extend the existing 7 MCP servers and add 1 new serv
 | In-place text replacement (Cmd+V simulation) fails in some apps | Medium | Replace button doesn't work | Always show Copy as fallback; document known incompatible apps |
 | Scrolling screenshot for native apps (auto-scroll+stitch) unreliable | Medium | Incomplete captures | Best-effort; fall back to visible-area-only capture. Browser scrolling via extension is reliable. |
 | Push-to-talk (hold Fn) conflicts with macOS system shortcuts | Medium | Dictation trigger doesn't work | Make push-to-talk key configurable; document conflicts |
-| Workflow engine complexity — scope creep during implementation | Medium (reduced) | Delays other features | Workflow engine is now a **separate project** (`workflow_engine_framework.plan.md`) with its own 7-phase plan, built independently of the desktop companion. Desktop Phase 10 only covers UI integration. Risk is reduced because the engine is self-contained and testable in isolation. |
-| Long-running workflows (up to 60 min) hit SSE connection timeouts | Medium | Desktop loses real-time updates | SSE endpoint uses 15s keepalive pings. If SSE disconnects, `workflow-panel.js` auto-reconnects and uses polling API for missed events. Nginx `proxy_read_timeout` already set to 3600s. |
-| Concurrent workflows (up to 3 per user) strain server resources | Low | Slowdown or OOM | Each workflow run uses a single thread (sequential). Parallel steps bounded at 5 workers. Rate limiting per user via Flask-Limiter. |
+| ~~Workflow engine complexity~~ | ~~Medium~~ | ~~Delays other features~~ | **Mitigated: workflows descoped from v1 entirely (Decision 46). Re-evaluated for v2.** |
+| ~~Long-running workflows hit SSE timeouts~~ | ~~Medium~~ | ~~Desktop loses updates~~ | **N/A — workflows descoped from v1.** |
+| ~~Concurrent workflows strain server resources~~ | ~~Low~~ | ~~Slowdown~~ | **N/A — workflows descoped from v1.** |
 | OpenAI Whisper API latency for dictation | Low | Slow transcription | Typical latency <2s for short clips. Future: switch to streaming providers (Deepgram) |
 | Folder sync creates duplicates or misses files | Medium | Messy Global Docs library | SQLite cache tracks synced files; add manual "force re-sync" button |
 | Session cookie expires while PopBar/folder sync is active | Medium | API calls fail silently | Detect 401/403 responses → show "Session expired" in tray icon → user re-logs in via Sidebar `BrowserView`. Queue folder sync uploads until re-authenticated. |
-| `executeJavaScript()` modal injection breaks on web UI changes | Medium | Finder/Services actions fail to open modals | Version the injection scripts. Pin web UI version in desktop config. Test injection after web UI updates. |
+| `executeJavaScript()` modal injection breaks on web UI changes | ~~Medium~~ **→ Low** | Finder/Services actions fail to open modals | **Mitigated by `window.desktopBridge` stable API (Decision 2, Phase 4)**. All injection goes through the bridge. Still test bridge after web UI updates. |
 | `pdf-parse` / `mammoth` fail on complex files | Low | "Extract Text to PKB" shows garbled text | Fall back to uploading file to server for extraction. Show "extraction failed" toast with option to open in web UI. |
 | Simulated drag-and-drop for file injection fails | Medium | "Ask AI About This File" can't attach files | Fall back to `executeJavaScript()` calling the paperclip upload function directly with a programmatic File object. |
 
@@ -2081,6 +2218,7 @@ The following are explicitly NOT part of this product:
 - **Multi-file Finder actions** — Finder right-click operates on a single file at a time. Batch operations use the web UI.
 - **`#context` typed modifiers** — context is button-based, not typed (decided against Enconvo's `#screen` / `#clipboard` approach)
 - **Visual node/graph workflow editor** — workflows use pre-built templates + a nested/indented step tree editor, not a node-based visual graph editor (like n8n, Apple Shortcuts, or LangGraph Studio). The step editor is a structured tree, not a canvas with draggable nodes and connections.
+- **Workflows (v1)** — the workflow engine (Section 4.13) is descoped from v1. Tab 4 in the Sidebar will not exist. Workflows may be re-introduced in v2 once `workflow_engine_framework.plan.md` is implemented. See Decision 46.
 - **Translate action** — not included as a standalone action; user can type "translate" in Quick Ask
 - **~~Image generation~~** — ~~not included~~ **NOW INCLUDED**: Generate Image is core action #8 in PopBar, and the `/image` slash command + standalone modal are available in the Sidebar Chat tab. See `documentation/features/image_generation/README.md`.
 - **Live closed captions** — not included; use macOS built-in or dedicated tools
@@ -2173,13 +2311,13 @@ Our approach differs fundamentally: we use Electron (cross-platform potential, w
 | **Tauri** | Smaller binary (~10MB). Uses system WebView. Rust backend (fast, safe). | Smaller ecosystem. WebView has rendering inconsistencies across OS versions. Less mature BrowserWindow API (limited always-on-top control, no NSPanel-equivalent `focusable` toggle out of box). Rust is a different stack from our Python/JS backend. | **Rejected.** The `focusable: false` / NSPanel behavior is critical for our non-activating overlay UX. Tauri's WebView doesn't give us the same control. |
 | **Native Swift (AppKit)** | Best macOS integration. Native NSPanel support. Smallest footprint. Best performance. This is what Enconvo uses. | Completely different tech stack from our web app (Swift vs JS/Python). Can't reuse existing web UI. macOS-only (no Windows path). Much longer development time for a single developer. | **Rejected.** Development time is the bottleneck. We'd have to rewrite the entire chat UI in Swift. Electron lets us load the existing web UI as-is. |
 
-### Why nut.js (not native-only, not desktopCapturer-only)
+### Why @jitsi/robotjs + desktopCapturer (not nut.js or its fork)
 
 | Option | Pros | Cons | Verdict |
 |--------|------|------|---------|
-| **nut.js** (build from source) | Cross-platform (macOS + Windows). Handles screenshots, window detection, mouse/keyboard simulation. Free when built from source. Node.js native addon — integrates with Electron. | Must build from source (pre-built binaries require paid license). Build may fail on some Apple Silicon configurations. | **Chosen.** Provides the most functionality in one library. Building from source is a one-time setup. |
-| **Electron `desktopCapturer`** | Built-in, no dependencies. Works out of the box. | Limited: full-screen or window capture only (no select-area, no scrolling). No keyboard/mouse simulation. No window detection/listing. | **Fallback option.** Used if nut.js build fails. |
-| **Native Swift addon** | Maximum control. Direct access to `CGWindowListCreateImage`, `IOKit`, `AXUIElement`. | Requires writing Swift/Obj-C N-API addon. More development effort. macOS-only. | **Used alongside nut.js** for Accessibility API features (text reading, app detection) that nut.js doesn't cover. |
+| **@jitsi/robotjs** v0.6.21 (Jan 2026) | Apple Silicon arm64 universal binary (x64+arm64). Free on npm. Prebuilt — no node-gyp. 5.7K weekly downloads. Used in production by TTime (3K★), CopyTranslator (17K★). Last published Jan 5 2026. | No macOS window-management API (active app name/bounds) — that's handled by Swift Accessibility addon anyway. No screenshot. | **Chosen for keyboard simulation.** `keyTap('c', 'command')` for Cmd+C trick; `keyTap('v', 'command')` for paste-back. |
+| **Electron `desktopCapturer`** | Built-in, no dependencies. Works on Apple Silicon out of the box. | Limited: full-screen or window capture only (no select-area). No keyboard/mouse simulation. | **Chosen for screenshot capture.** Replaces nut.js screenshot functions. |
+| **Native Swift addon** | Maximum control. Direct access to `CGWindowListCreateImage`, `IOKit`, `AXUIElement`. | Requires writing Swift/Obj-C N-API addon. More development effort. macOS-only. | **Used for Accessibility API features only** (reading selected text via AXUIElement, window title detection). |
 
 ### Why no Apple Developer Program ($99/yr)
 
@@ -2370,7 +2508,7 @@ This appendix records every significant design decision made during the Q&A sess
 
 - **Question**: Should workflows appear inline in chat, in a separate tab, or in a separate window?
 - **Alternatives**: Inline in chat vs. tabs (Chat + Workflows) vs. separate floating window.
-- **Decision**: **Tab system** — Chat tab and Workflows tab in the Sidebar.
+- **Decision**: **Tab system** — Chat, OpenCode, Terminal, and Workflows tabs in the Sidebar.
 - **Rationale**: Tabs keep everything in one panel without cluttering the chat. A separate window adds another floating element to manage. Inline in chat would make long workflow status updates dominate the conversation history.
 
 ### Decision 25: Scrolling screenshot — both browser extension + native auto-scroll
@@ -2455,12 +2593,12 @@ This appendix records every significant design decision made during the Q&A sess
 - **Updated decision**: **Add OCR toggle to Sidebar too.** The Sidebar's screenshot button offers all modes including +OCR and "Extract Comments".
 - **Rationale**: OCR is useful in the Sidebar context too — extract text from a screenshot and paste it into the chat input as text. This avoids the roundtrip of using PopBar for OCR and then expanding to Sidebar. The screenshot button is injected by the desktop companion into the web UI via `executeJavaScript`.
 
-### Decision 37: Dual-tab Sidebar (Chat + OpenCode + Workflows)
+### Decision 37: Four-tab Sidebar (Chat + OpenCode + Terminal + Workflows)
 
 - **Question**: Should the Sidebar contain just the web UI, or also integrate a coding agent?
-- **Alternatives**: Single tab (web UI only) vs. dual tab (web UI + OpenCode) vs. three tabs (+ Workflows).
-- **Decision**: **Three tabs** — Tab 1: Chat (full web UI), Tab 2: OpenCode Web (agentic coding agent), Tab 3: Workflows.
-- **Rationale**: The web UI excels at research, knowledge management, and conversational AI (PKB @-references, workspace hierarchy, document #-references, math rendering, multi-model ensemble, TTS). OpenCode excels at coding tasks (file editing, bash, grep, LSP, multi-step planning, undo/redo). Rather than replacing one with the other, having both tabs lets the user pick the right tool. The Chat tab preserves all 35K+ lines of product differentiation. The OpenCode tab adds agentic coding with MCP access to server capabilities. Workflows remain a separate tab for long-running executions.
+- **Alternatives**: Single tab (web UI only) vs. dual tab (web UI + OpenCode) vs. three tabs (+ Workflows) vs. four tabs (+ Terminal).
+- **Decision**: **Four tabs** — Tab 1: Chat (full web UI), Tab 2: OpenCode Web (agentic coding agent), Tab 3: Local Terminal (xterm.js + node-pty), Tab 4: Workflows.
+- **Rationale**: The web UI excels at research, knowledge management, and conversational AI (PKB @-references, workspace hierarchy, document #-references, math rendering, multi-model ensemble, TTS). OpenCode excels at agentic coding tasks (file editing, bash, grep, LSP, multi-step planning, undo/redo). The Terminal provides direct local shell access for quick commands, git operations, build scripts, and process monitoring — without the overhead of an agentic AI loop. Unlike the existing web terminal (which connects to the remote server), the local terminal has zero network latency and operates on the same working directory as OpenCode. Workflows remain a separate tab for long-running multi-step executions. A VSCode tab (via code-server) was evaluated but deferred — the Terminal + OpenCode combination covers most coding needs, and code-server adds 300-500MB RAM overhead with significant overlap.
 
 ### Decision 38: OpenCode spawned locally, MCP servers remote
 
@@ -2517,4 +2655,369 @@ This appendix records every significant design decision made during the Q&A sess
 
 ---
 
-*End of Product Requirements Document*
+### Decision 46: Workflows descoped from v1
+
+- **Question**: Should Phase 10 (Workflow Engine Integration) be included in v1?
+- **Decision**: **Descoped from v1.** Tab 4 (Workflows) removed from the Sidebar. Phase 10 removed from the implementation plan.
+- **Rationale**: The workflow engine backend (`workflow_engine_framework.plan.md`) has not been started. Phase 10 is entirely gated on the backend being complete first. Building Phase 10 desktop integration against a non-existent backend adds zero value and risks schedule slippage for all other phases. Workflows will be re-evaluated for v2 once the engine is built and stable.
+- **Impact**: Sidebar now has 3 tabs (Chat, OpenCode, Terminal). The `/workflow` chat command is not implemented. PopBar configurable slots may still launch existing workflows if the engine is built later — the slot configuration system is designed to be extensible.
+
+### Decision 47: Dictation smart paste captures target at recording start
+
+- **Question**: When should the paste target text field be identified — at recording start or at paste time?
+- **Decision**: **At recording start.** `AXFocusedUIElement` is captured when `Cmd+J` is pressed (or `Fn` is held). This stored reference is used as the paste target when the user clicks Paste — regardless of any clicks on the Dictation Pop in between.
+- **Rationale**: If captured at paste time, any click on the Dictation Pop (e.g., to change the reformat setting) makes the Dictation Pop itself the focused element, causing paste to go nowhere useful. Capturing at start gives the user freedom to interact with the Dictation Pop after speaking without losing the paste target.
+
+### Decision 48: Whisper transcription proxied via backend
+
+- **Question**: Where does the OpenAI API key for Whisper dictation live?
+- **Decision**: **Backend proxies Whisper.** The desktop app sends raw audio bytes to `POST /transcribe` on the Flask server. The server holds the OpenAI API key and calls `https://api.openai.com/v1/audio/transcriptions`. No API key is stored on the desktop.
+- **Rationale**: Keeps all API key management server-side, consistent with all other LLM calls. The Prompts MCP server's planned `transcribe_audio` tool (Phase 0) can serve as the implementation vehicle. Desktop avoids storing sensitive credentials in electron-store.
+- **Implementation**: Add `POST /transcribe` endpoint to Flask (or expose via `transcribe_audio` MCP tool). Accept `multipart/form-data` with `audio` file field. Return `{ "text": "..." }`. Reuse existing `OPENAI_API_KEY` env var.
+
+### Decision 49: `window.desktopBridge` stable injection API
+
+- **Question**: Should `executeJavaScript()` call internal manager methods directly, or through a stable contract API?
+- **Decision**: **Stable `window.desktopBridge` API** in `interface.html`. Exposes: `openGlobalDocsModal(filePath)`, `openPKBModal(text)`, `openPKBIngestFlow(text)`, `fillChatInput(text)`, `attachFileToChatInput(filePath)`. All Electron injection goes through this bridge.
+- **Rationale**: Directly calling `GlobalDocsManager._openModal()` or internal DOM IDs breaks silently if the web UI refactors. A named bridge object is a stable, versioned contract. Adding it to `interface.html` is a small one-time change with high long-term payoff. Failure modes are explicit (missing method throws) rather than silent.
+
+### Decision 50: opencode.json conflict — no Electron intervention
+
+- **Question**: What if the user’s project directory has an existing `opencode.json`?
+- **Decision**: **No Electron intervention.** OpenCode handles config resolution natively (project-level config takes precedence over global config). The user is expected to manually add the desktop companion’s MCP server entries to any project-level `opencode.json` that needs them. Electron does not read, merge, or overwrite project configs.
+- **Rationale**: Silently overwriting or merging a user’s project config is a footgun. The user is a developer who understands opencode.json. A setup note in the documentation is sufficient.
+
+### Decision 51: Terminal `Cmd+C` always copies (never SIGINT)
+
+- **Question**: Should `Cmd+C` in the local terminal copy selection only, or dual-purpose (copy if selection, SIGINT if no selection)?
+- **Decision**: **`Cmd+C` always copies. `Ctrl+C` sends SIGINT.**
+- **Rationale**: macOS users expect `Cmd+C` to copy — always. Sending SIGINT on `Cmd+C` with no selection would kill running processes when users habitually press `Cmd+C` after de-selecting text. `Ctrl+C` for SIGINT matches standard Unix terminal convention and VSCode’s integrated terminal behavior.
+
+---
+
+### Decision 52: PopBar appears at fixed top-center position, drag persisted
+
+- **Question**: Should PopBar appear near the mouse cursor, or at a fixed position?
+- **Decision**: **Fixed top-center** (~50px from top, horizontally centered). Draggable — last drag position persisted in electron-store and restored on next invocation and across app restarts. Resets to default if stored position is offscreen.
+- **Rationale**: Near-cursor positioning creates unpredictable placement (cursor can be anywhere). Fixed top-center is always predictable and consistent. Draggability gives the user control when they want it without making randomness the default.
+
+### Decision 53: PopBar stays visible on app switch
+
+- **Question**: Should the PopBar dismiss when the user Cmd+Tabs to another app?
+- **Decision**: **PopBar stays visible** across app switches, consistent with Sidebar and Dictation Pop behavior.
+- **Rationale**: A common use case is: invoke PopBar → start typing a question → Cmd+Tab to check something in another app → Cmd+Tab back → finish typing. Dismissing on switch destroys the in-progress query. Staying visible is strictly more useful.
+
+### Decision 54: Sidebar offline page
+
+- **Question**: What should the Sidebar show when the server is unreachable?
+- **Decision**: **Custom offline page** served by Electron (intercepted via `did-fail-load` event on the BrowserView). Shows: friendly message, last-known server URL, Retry button, and a note to check tray icon for status. Does not show `ERR_CONNECTION_REFUSED`.
+- **Rationale**: Raw Chromium error pages are confusing and unstyled. A custom page that matches the app's visual language and gives the user actionable next steps is far better UX.
+
+### Decision 55: Screenshot button single-click = App Window + OCR
+
+- **Question**: How should the Screenshot button UX work given 8 options?
+- **Decision**: Single click = **App Window + OCR** (the most useful action, immediately executed). A chevron arrow beside the icon opens the full 8-option submenu. Long-press on the main button also opens the submenu.
+- **Rationale**: App Window + OCR is the most common use case (capture what you're looking at and extract text for AI). Single-click makes it zero-friction. The submenu arrow gives access to all variants without cluttering the PopBar.
+
+### Decision 56: PopBar markdown rendering via marked.js (standalone)
+
+- **Question**: How is markdown rendered in the PopBar Results Dropdown?
+- **Decision**: **Lightweight standalone renderer**: `marked.js` + `highlight.js` loaded directly in the PopBar HTML. No dependency on the web UI's rendering pipeline.
+- **Rationale**: IPC roundtripping to the web UI BrowserView for markdown rendering adds latency and coupling. marked.js + highlight.js are small (~100KB combined), fast, and render all the markdown/code the PopBar needs. MathJax is NOT included (PopBar is for quick queries, not math-heavy research — escalate to Sidebar for that).
+
+### Decision 57: Sidebar position persisted across restarts
+
+- **Question**: Should the Sidebar remember its position across app restarts?
+- **Decision**: **Persisted via electron-store.** Sidebar position, snap state, and width are stored on every move/resize and restored on app launch. First-ever launch defaults to right edge.
+- **Rationale**: Users set up their workspace once. Having the Sidebar reset to a different position every restart is friction. electron-store write is O(1) and synchronous — no cost.
+
+### Decision 58: Text selection auto-trigger debounce = 400ms
+
+- **Question**: How quickly should the PopBar appear after text is selected (when auto-trigger is enabled)?
+- **Decision**: **~400ms debounce after selection ends** (mouseup + 400ms delay). PopBar does not appear mid-drag.
+- **Rationale**: Showing the PopBar during a drag selection causes it to flicker and get in the way. The 400ms delay ensures the user has finished selecting before the PopBar appears. This matches common browser "selection toolbar" patterns (Enconvo, Grammarly, Google Docs).
+
+### Decision 59: Mid-stream disconnect shows partial response + error banner
+
+- **Question**: What happens to in-flight PopBar queries when the server connection drops?
+- **Decision**: **Show partial response + error banner.** Whatever text was streamed is preserved. An `⚠️ Connection lost — partial response. [Retry]` banner appears below it. Retry re-sends the full query. Copy is still available on the partial text. Tray icon updates to disconnected state.
+- **Rationale**: Discarding the partial response is annoying — the user may have received useful information. Preserving it and offering a retry is the most user-friendly recovery path.
+
+### Decision 60: Dictation Pop position persisted across restarts
+
+- **Question**: Should the Dictation Pop remember its position across app restarts?
+- **Decision**: **Persisted via electron-store.** Bottom-left default on first-ever launch.
+- **Rationale**: Same reasoning as Sidebar (Decision 57). The Dictation Pop is a persistent utility widget — users position it once and want it there every time.
+
+### Decision 61: Folder sync updates replace existing Global Doc in-place
+
+- **Question**: When a watched file is modified, should the sync replace the existing Global Doc or upload a duplicate?
+- **Decision**: **Replace in-place** using `POST /global_docs/<id>/replace`. Tags and folder assignment are preserved. Cache is updated with new `mtime`.
+- **Rationale**: Uploading a new copy on every modification creates clutter (multiple versions of the same file). In-place replacement preserves the doc identity, its tags, and its folder location — exactly what the user wants for a live document.
+
+### Decision 62: Settings window panels for v1
+
+- **Question**: Which settings panels should exist in v1?
+- **Decision**: **Five panels**: General, PopBar, Dictation, Folder Sync, Appearance. Terminal font/size are in-terminal settings (not in the main Settings window).
+- **Panels**:
+  - **General**: server URL, startup on login, hotkey configuration (all 6 hotkeys)
+  - **PopBar**: tool whitelist, 3 configurable slot pickers, default model, text-selection auto-trigger toggle
+  - **Dictation**: default reformat option, push-to-talk key
+  - **Folder Sync**: watched folders CRUD, frequency per folder, auto-assign tags/folder, file filter glob, enable/disable toggle
+  - **Appearance**: Sidebar default width + snap position, Sidebar/Terminal theme
+
+### Decision 63: Electron app lives in `chatgpt-iterative/desktop/`
+
+- **Question**: Should the desktop app be a subdirectory of the existing repo or a separate repo?
+- **Decision**: **`chatgpt-iterative/desktop/` subdirectory.** Monorepo structure.
+- **Rationale**: The desktop app is tightly coupled to the web UI (`interface.html`, endpoints, session cookies). Keeping it in the same repo allows referencing shared assets, easier cross-cutting changes (e.g. adding `window.desktopBridge` to `interface.html` alongside the Electron code that calls it), and unified git history.
+
+### Decision 64: Actual LLM tool count — 57 tools, 9 categories
+
+- **Question (OQ-2)**: The plan said "48 tools, 8 categories"; `chat_app_capabilities.md` said 56 tools across 9 categories. Which is current?
+- **Decision**: **57 tools, 9 categories.** Verified by running `grep -c "@register_tool" code_common/tools.py` → **57**.
+- **Categories** (8 with literal string + 1 via variable):
+  - `clarification` (1), `search` (5+MCP search tools), `documents` (10), `pkb` (10), `memory` (7), `code_runner` (1), `artefacts` (8), `prompts` (5), `conversation` (8 — 5 from `CONVERSATION_TOOLS` + 2 from `CROSS_CONVERSATION_TOOLS` + 1 direct)
+- **Action taken**: Update Section 6 Tech Stack table and PopBar tool whitelist documentation to reflect 57 tools / 9 categories. The `chat_app_capabilities.md` feature doc (which says 56) is slightly outdated by 1 tool.
+- **Rationale**: Conversation-category tools are registered via `_conv_tool_kwargs()` and `_cross_conv_tool_kwargs()` helper functions, not direct `category="conversation"` literals, which caused the under-count in earlier analysis.
+
+### Decision 65: `POST /transcribe` endpoint already exists — no new work needed for Phase 8
+
+- **Question (OQ-3)**: Does `POST /transcribe` already exist, or does it need to be added as part of Phase 0 MCP expansion?
+- **Decision**: **Already exists.** Fully implemented in `endpoints/audio.py` (the `audio_bp` Flask Blueprint).
+- **Key findings**:
+  - Route: `POST /transcribe` — accepts `multipart/form-data` with field `audio` (any audio file)
+  - Auth: **No `@login_required` decorator** on `/transcribe` — it is publicly accessible (session cookies not required). CORS is explicitly configured for `_ext_cors_origins`.
+  - Transcription backend: Uses `transcribe_audio.py` → OpenAI Whisper (`whisper-1`, SRT format, paragraph gap detection) when `USE_OPENAI_API=True`, otherwise AssemblyAI. Server holds both API keys.
+  - Format conversion: `ffmpeg` auto-converts `.mp4`, `.m4a`, `.ogg`, `.webm` → `.mp3` before transcription.
+  - Response: `{"transcription": "..."}` on success; `json_error(...)` on failure.
+- **Phase 8 implication**: Desktop app can call `POST /transcribe` with a multipart audio file immediately. No server changes needed. Since there's no auth requirement, the desktop doesn't even need to pass a session cookie for transcription (though it will anyway, as it's always logged in).
+- **Phase 0 MCP task update**: The "add `transcribe_audio` MCP tool" Phase 0 task remains valid (it adds a Prompts MCP tool that wraps this endpoint), but the endpoint itself does **not** need to be created.
+
+### Decision 66: `DELETE /delete_conversation/<id>` fully cleans up stateless conversations
+
+- **Question (OQ-4)**: Does `DELETE /delete_conversation/<conversation_id>` work correctly for stateless temp conversations, cleaning up all DB records and filesystem entries?
+- **Decision**: **Yes — it performs complete cleanup.** Safe to use in Phase 3 for PopBar temp conversation teardown.
+- **What the endpoint does** (`endpoints/conversations.py` line 593):
+  1. Removes the conversation from `state.cross_conversation_index` (FTS5 search index)
+  2. Removes from `state.conversation_cache` (in-memory cache)
+  3. Calls `conversation.delete_conversation()` → `shutil.rmtree(self._storage)` (deletes entire filesystem folder)
+  4. Calls `deleteConversationForUser()` → deletes rows from `UserToConversationId` and `ConversationIdToWorkspaceId` DB tables
+  5. Calls `removeUserFromConversation()` → deletes row from `UserToConversationId` (belt-and-suspenders)
+- **Stateless flag**: The `stateless` flag (`_stateless` attribute on the Conversation object) is NOT checked by this endpoint — it deletes unconditionally by `conversation_id`. This is correct behavior for explicit cleanup.
+- **Note on auto-cleanup**: The server also auto-cleans stateless conversations on `POST /create_stateless_conversation` (it deletes all existing stateless convs for the user before creating a new one). This means even if the desktop app crashes without calling DELETE, the next PopBar query will clean up the orphaned conversation automatically. DELETE is still the preferred explicit path.
+- **Phase 3 implementation note**: Desktop should call `DELETE /delete_conversation/<id>` after each PopBar session. The auto-cleanup on next `create_stateless_conversation` acts as a safety net.
+
+### Decision 67: Finder extension ad-hoc signing — remains a code/runtime spike (not code-resolvable)
+
+- **Question (OQ-1)**: Does `FIFinderSync` with ad-hoc signing (`codesign --sign -`) actually load in System Settings → Finder Extensions on the target macOS version?
+- **Status**: **Cannot be resolved by static code analysis.** This is a macOS system-level behavior question — whether `PlugInKit` and `FinderSync` will accept an ad-hoc signed `.appex` depends on the specific macOS version and SIP configuration. No code in this repo reveals the answer.
+- **Known macOS behavior**: On macOS Ventura (13.x) and later, `FIFinderSync` extensions typically require a valid signing identity from an Apple Developer account to appear in System Settings → Finder Extensions. Ad-hoc signing (`codesign --sign -`) works for the main app bundle but is **known to fail** for App Extensions (`.appex`) on modern macOS because `PlugInKit` validates the signing certificate chain.
+- **Decision**: **Phase 6 (Finder Integration) is DESCOPED.** Web research confirms ad-hoc signing fails for `.appex` on macOS Ventura+. PlugInKit validates the signing certificate chain and rejects ad-hoc (`-`) and self-signed identities. No runtime spike needed — the answer is definitive.
+- **This OQ is now resolved. Decision 70 below contains the full verdict.**
+
+### Decision 68: nut.js replaced by @jitsi/robotjs + Electron desktopCapturer (updated by Decision 73)
+
+- **Question**: Can nut.js build from source on Apple Silicon, and is it still the right choice?
+- **Decision**: **nut.js is replaced.** `@nut-tree/nut-js` was pulled from public npm in July 2024. Usage now requires either: (a) building from source, or (b) paying $20/month at nutjs.dev for prebuilt binaries. Neither is acceptable for a personal-use project. A community fork `@nut-tree-fork/nut-js` exists (v4.2.6, Mar 2025, free) but is heavier than needed. See Decision 73 for updated detail.
+- **Replacement stack**:
+  - **@jitsi/robotjs v0.6.21** (April 2025) — keyboard simulation (Cmd+C selected-text trick, Cmd+V paste), mouse events. Ships with prebuilt universal binary (`darwin-universal`, covers x64 + arm64). Free on npm. No build step needed. Install: `npm install @jitsi/robotjs`.
+  - **Electron `desktopCapturer`** (built-in) — screenshot capture. No external dependency. Works on Apple Silicon out of the box. Limitation: full-screen or window-level capture only (no select-area capture without additional native code).
+  - **Native Swift addon** (N-API) — retained for Accessibility API features: reading selected text via `AXUIElement`, window title detection, frontmost app detection. These were always going to be Swift-only regardless of nut.js.
+- **Phase 0 spike status**: **No spike needed.** @jitsi/robotjs ships prebuilts; no node-gyp required. Electron desktopCapturer requires no setup. The earlier "nut.js build spike" in Phase 0 is resolved and marked complete.
+- **Impact on plan**: All nut.js references updated to @jitsi/robotjs / desktopCapturer throughout. Terminology note: "window APIs" in this context means *macOS window management* (active app name, bounds) — NOT the Windows OS. Those macOS window queries are handled by the Swift Accessibility addon, not robotjs.
+
+### Decision 69: Electron click-through / focusable toggle — confirmed working pattern
+
+- **Question**: Does `focusable: false` + `setIgnoreMouseEvents` work correctly for the PopBar overlay on macOS?
+- **Decision**: **Confirmed working.** The correct pattern (verified from official Electron docs + production apps):
+  - **Click-through mode**: `win.setIgnoreMouseEvents(true, { forward: true })` + `win.setFocusable(false)`
+    - `forward: true` is **essential** — without it, renderer gets no mouse events at all (no hover detection possible)
+  - **Interactive mode**: `win.setIgnoreMouseEvents(false)` + `win.setFocusable(true)`
+  - Toggle is triggered via IPC: renderer fires `ipcRenderer.send('set-ignore-mouse-events', ...)` on `mouseenter`/`mouseleave` of the PopBar element
+  - `type: 'panel'` (`NSPanel` + `NSNonactivatingPanelMask`) makes the window float above most apps without stealing focus
+- **macOS fullscreen caveat**: `type: 'panel'` **cannot appear above native macOS fullscreen apps** (this is an OS-level constraint, not an Electron bug). HTML fullscreen (e.g. YouTube) is fine. Use `win.setAlwaysOnTop(true, 'screen-saver')` to maximize coverage, but accept the native fullscreen limitation.
+- **Phase 0 spike status**: **No spike needed.** Pattern is well-documented and used in production overlay apps. Implementing directly in Phase 2.
+- **Working code pattern**: see full snippet in Decision 69 notes below.
+
+### Decision 70: Phase 6 (Finder Integration) descoped — ad-hoc signing confirmed to fail
+
+- **Question (OQ-1 update)**: Does `FIFinderSync` with ad-hoc signing load on modern macOS?
+- **Decision**: **Phase 6 DESCOPED.** Confirmed failing. Web research across Apple Developer Forums, Nextcloud's production FinderSync experience, and PlugInKit architecture confirms:
+  - PlugInKit validates the **full signing certificate chain** before loading any `.appex`
+  - Ad-hoc signing (`codesign --sign -`) produces a signature with **no Team ID** — PlugInKit rejects it
+  - Self-signed certificates are treated identically to ad-hoc — also rejected
+  - Disabling SIP does **not** bypass PlugInKit validation
+  - On macOS Sequoia (15.x), Apple removed Finder Sync UI from System Settings entirely (requires third-party tools to manage)
+  - The only viable option is a paid Apple Developer Program membership ($99/yr)
+- **Impact**: Phase 6 is fully removed from v1 scope. The `FIFinderSync` Swift subclass is not built. All Finder-extension-specific features (badge, right-click context menu in Finder) are dropped.
+- **Retained fallback (Phase 4)**: Drag-and-drop file ingestion to Sidebar already handles file/folder addition. No Finder integration loss for the primary use cases.
+- **OQ-1 status**: Resolved — no runtime spike needed. The answer is definitively "fails".
+
+### Decision 71: node-pty + Electron on Apple Silicon — confirmed working with @electron/rebuild
+
+- **Question**: Does node-pty build correctly on Apple Silicon with Electron, and what is the correct setup?
+- **Decision**: **Works cleanly** with node-pty v1.1.0+ and @electron/rebuild v4.0.3+.
+- **Key findings**:
+  - node-pty v1.1.0 (December 2025) ships **prebuilt binaries** for `darwin-arm64` in the npm package. On first `npm install`, it uses the prebuilt binary — no node-gyp compilation needed.
+  - After `electron-rebuild`, it recompiles against Electron's Node ABI (~30 seconds). This is required for Electron compatibility.
+  - Uses N-API (node-addon-api v7), which is **ABI-stable** across Node.js versions — compatible with Electron 32/33/34/35+.
+  - Minimum: Node 16 / Electron 19. Recommended: Electron 32+.
+  - **One known issue (Issue #863)**: `@electron/universal` packaging fails with node-pty ≥ 1.1.0 because both x64 and arm64 prebuilds are present. Workaround: delete irrelevant arch prebuilds before running `@electron/universal`. This is a packaging concern, not a development concern.
+- **Required setup** (add to `package.json`):
+  ```json
+  {
+    "scripts": {
+      "postinstall": "electron-rebuild -f -w node-pty"
+    },
+    "devDependencies": {
+      "@electron/rebuild": "^4.0.3"
+    }
+  }
+  ```
+- **Prerequisites**: Xcode Command Line Tools (`xcode-select --install`) must be installed on the dev machine.
+- **`node-pty-prebuilt-multiarch` verdict**: Do NOT use — last release April 2022, effectively abandoned. Official node-pty v1.1.0 now ships prebuilts making the fork obsolete.
+- **Terminal implementation**: Use official `node-pty` v1.1.0 + `@xterm/xterm` 6.0.0 + `@xterm/addon-webgl` (Decision 76). WebGL renderer for GPU-accelerated terminal output (same strategy as VSCode); falls back to DOM renderer if WebGL unavailable. `xterm.js` renders in BrowserWindow renderer; `node-pty` spawns shell in main process; communicate via IPC (not WebSocket).
+
+### Decision 72: `window.desktopBridge` injection — use preload script, not executeJavaScript
+
+- **Question**: What is the correct mechanism to inject `window.desktopBridge` into the BrowserView that loads `https://assist-chat.site`? Preload script vs `executeJavaScript`?
+- **Decision**: **Preload script with `contextBridge.exposeInMainWorld`** is the correct approach.
+- **Why NOT `executeJavaScript`**:
+  - Race condition: `executeJavaScript` runs after `did-finish-load`, but the page's own `<script>` tags may execute and check `window.desktopBridge` before the injection fires
+  - More complex IPC wiring required
+  - Less secure (harder to isolate what the page can call)
+- **Why preload**:
+  - Preload runs **before any page scripts** — `window.desktopBridge` is guaranteed available when the page's first `<script>` executes
+  - `contextBridge` provides a secure, isolated boundary — the web page cannot access Node.js or Electron internals through the bridge
+  - Re-runs automatically on every navigation in the BrowserView
+  - No CSP conflicts — preload context is isolated from the page's JavaScript context
+- **Confirmed**: `webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true }` works on `BrowserView` in Electron 32+ exactly the same as on `BrowserWindow`
+- **Security rule**: Never expose `ipcRenderer` directly. Expose only specific named functions:
+  ```js
+  // preload.js
+  contextBridge.exposeInMainWorld('desktopBridge', {
+    openFilePicker: () => ipcRenderer.invoke('desktop:openFilePicker'),
+    getSelectedText: () => ipcRenderer.invoke('desktop:getSelectedText'),
+    pasteText: (text) => ipcRenderer.invoke('desktop:pasteText', text),
+    // ... other whitelisted functions only
+  })
+  ```
+- **Note on BrowserView deprecation**: BrowserView is deprecated in Electron 32+ in favor of `WebContentsView`. The preload pattern works identically on `WebContentsView`. Migration to `WebContentsView` is recommended for new code but not blocking.
+- **Phase 4 implication**: The `window.desktopBridge` API contract (list of exposed functions) should be defined in Phase 4 as the first deliverable before writing the implementations, so `interface.html` can add its `if (window.desktopBridge)` guards at the same time.
+
+### Decision 73: nut.js vs @jitsi/robotjs — verified details and correct package names (supersedes Decision 68)
+
+- **Context**: Decision 68 chose @jitsi/robotjs over nut.js. This decision records the verified details from a dedicated web research pass.
+- **Terminology clarification**: "window APIs" in this plan always means *macOS window management* (getting the active app name, frontmost window title/bounds via macOS APIs) — **not** the Windows operating system. This project is macOS-only in v1.
+
+#### nut.js — verified current state
+- **`@nut-tree/nut-js`** (original): ❌ **404 on npm** — pulled July 2024. Confirmed dead.
+- **`@nut-tree-fork/nut-js`** (community fork): ✅ v4.2.6, March 2025, ~6,860 weekly downloads, free on npm. Maintained by zachjw34 + smith.kyle. Used in: `agent.exe` (AI desktop agent), `witsy`, `tuui` (all 2025 AI agent projects).
+- **Official paid path**: nutjs.dev — $20/month for prebuilt binaries, $75/month for full plugin suite (OCR, image search, element inspector). Author published ["I'm giving up — on open source"](https://nutjs.dev/blog/i-give-up) explaining the move.
+- **What `@nut-tree-fork/nut-js` adds over @jitsi/robotjs**: macOS window management — `getActiveWindow()`, `getWindows()`, focus/resize/reposition windows, image search (OpenCV), OCR plugin. These are **not needed** in this project because the Swift Accessibility addon already handles active-app detection via `NSWorkspace` + `AXUIElement`.
+
+#### @jitsi/robotjs — verified current state
+- **npm**: ✅ `@jitsi/robotjs` v0.6.21, last published **January 5, 2026**. ~5,741 weekly downloads.
+- **Original `robotjs`**: ❌ Last release Sep 2018, last commit Sep 2021 — abandoned. Do NOT use.
+- **Apple Silicon**: ✅ Universal binary (x64 + arm64) via `prebuildify --arch x64+arm64`. Verified in CI workflow.
+- **Electron**: ✅ Uses `node-gyp-build` — needs `@electron/rebuild` after install.
+- **Production usage**: TTime (3K★, translation + OCR, updated Mar 2026), CopyTranslator (17K★), 53AIHub, Jitsi Meet Electron SDK (official production).
+- **Feature set on macOS**: keyboard simulation (`keyTap`, `typeString`), mouse simulation (`moveMouse`, `mouseClick`, `dragMouse`, `scrollMouse`), screen bitmap capture (`capture`), pixel color reading (`getPixelColor`). No macOS window management API.
+
+#### Other alternatives evaluated
+- **`@nut-tree-fork/nut-js`**: Best choice if macOS window management APIs were needed — but they aren't (Swift addon covers it). Heavier dependency than needed.
+- **AppleScript via `child_process.exec`**: Zero npm deps, macOS-only. Works but slower (spawns a process). Viable fallback if @jitsi/robotjs has issues.
+- **`iohook` / `uiohook-napi`**: Input event *listening* only — not simulation. Wrong tool for this use case.
+- **`node-key-sender`**: Requires Java runtime. Ruled out.
+
+#### Final verdict
+**@jitsi/robotjs v0.6.21 confirmed as the correct choice** for this project. Decision 68 stands. The only correction from Decision 68: the correct free nut.js fork name is `@nut-tree-fork/nut-js` (not `@nut-tree/nut-js` which is 404). This fork is not needed here; noted only for future reference if macOS window management via Node.js is ever required.
+
+### Decision 74: Electron 40.8.0 pinned — all breaking changes reviewed
+
+- **Question**: Which Electron version to target for the desktop companion?
+- **Decision**: **Electron 40.8.0** (released March 5, 2026). Chromium 144.0.7559.236, Node.js 24.14.0, V8 14.4.
+- **Breaking changes affecting this project** (reviewed v32 → v40):
+  - **Electron 40** (Jan 2026): Deprecated `clipboard` API access from renderer processes — must use preload + contextBridge. *Already our approach (Decision 72).*
+  - **Electron 39** (Oct 2025): macOS ≥14.2 requires `NSAudioCaptureUsageDescription` in `Info.plist` for `desktopCapturer` to work. **Action: add this key to electron-builder config.** Also: `window.open` popups always resizable per WHATWG spec.
+  - **Electron 38** (Sep 2025): Removed macOS 11 support — requires macOS 12 Monterey+. *Fine — we target Ventura (13) and later.* Native modules now require C++20.
+  - **Electron 35** (Mar 2025): Deprecated `session.setPreloads`/`getPreloads` — use `registerPreloadScript()` instead. **Action: use new API.**
+  - **Electron 33** (Oct 2024): Removed macOS 10.15 Catalina support. Deprecated `document.execCommand("paste")` — use async Clipboard API.
+  - **Electron 32** (Aug 2024): Removed `File.path` property — use `webUtils.getPathForFile()`. Navigation methods moved to `navigationHistory`.
+- **Rationale**: Latest stable as of March 2026. Node 24 enables ESM natively. All breaking changes are compatible with our design or have straightforward actions noted above.
+
+### Decision 75: Full ESM project — `"type": "module"` in package.json
+
+- **Question**: Should the Electron desktop project use ESM or CommonJS?
+- **Decision**: **Full ESM.** All `.js` files use `import`/`export`. `package.json` has `"type": "module"`. No CommonJS.
+- **Why ESM**:
+  - `electron-store@11` (ESM-only since v9.0.0, May 2024)
+  - `chokidar@5` (ESM-only since v5.0.0, Nov 2025)
+  - Electron 40 bundles Node 24.14.0, which fully supports ESM in the main process
+  - Electron has supported ESM in main process since v28
+  - New project — no CJS migration cost
+- **Impact**: All `require()` calls become `import`. Dynamic imports via `import()`. `__dirname`/`__filename` replaced by `import.meta.url` + `fileURLToPath()`.
+
+### Decision 76: xterm.js WebGL renderer (GPU-accelerated, matching VSCode)
+
+- **Question**: Which renderer for xterm.js v6 in the local terminal? Canvas renderer was removed in v6.
+- **Alternatives**: DOM renderer (simple, no GPU) vs. WebGL renderer (GPU-accelerated, addon required).
+- **Decision**: **WebGL renderer** via `@xterm/addon-webgl`. Falls back to DOM renderer if WebGL is unavailable.
+- **Rationale**: VSCode uses the same WebGL renderer for its integrated terminal (VSCode maintains xterm.js). iTerm2 uses Metal (Apple GPU API) for the same reason — GPU-accelerated text rendering is measurably smoother for heavy terminal output (builds, logs, large diffs). Electron's Chromium provides WebGL by default. The addon is ~40KB.
+- **Setup**: `import { WebglAddon } from '@xterm/addon-webgl'; terminal.loadAddon(new WebglAddon());` — with `try/catch` fallback to DOM.
+
+### Decision 77: All dependency versions pinned — March 2026 audit
+
+- **Question**: What are the exact versions for all Electron app dependencies?
+- **Decision**: Full version manifest (all verified latest stable as of March 7, 2026):
+
+  **dependencies:**
+  | Package | Version | Released | Notes |
+  |---------|---------|----------|-------|
+  | `electron` | 40.8.0 | Mar 5, 2026 | Chromium 144, Node 24.14.0 |
+  | `@jitsi/robotjs` | 0.6.21 | Jan 5, 2026 | Prebuilt arm64 universal binary |
+  | `node-pty` | 1.1.0 | Dec 22, 2025 | darwin-arm64 prebuilts included |
+  | `electron-store` | 11.0.2 | Oct 5, 2025 | ESM-only (since v9). Requires Electron 30+ |
+  | `chokidar` | 5.0.0 | Nov 25, 2025 | ESM-only. Node 20.19+. Same API as v4 |
+  | `@xterm/xterm` | 6.0.0 | Dec 22, 2025 | Canvas renderer removed. Use WebGL or DOM |
+  | `@xterm/addon-webgl` | (match 6.0.0) | Dec 22, 2025 | GPU-accelerated renderer |
+  | `@xterm/addon-fit` | 0.11.0 | Dec 22, 2025 | Auto-resize terminal to container |
+  | `@xterm/addon-web-links` | 0.12.0 | Dec 22, 2025 | Clickable URLs in terminal |
+  | `@xterm/addon-search` | 0.16.0 | Dec 22, 2025 | Search terminal output |
+  | `@xterm/addon-unicode11` | (match 6.0.0) | Dec 22, 2025 | Unicode support |
+  | `marked` | 17.0.4 | Mar 4, 2026 | PopBar markdown. v13+ uses token-based renderer API |
+  | `highlight.js` | 11.11.1 | Dec 25, 2024 | PopBar code highlighting. Import core + register languages selectively |
+  | `pdf-parse` | latest | — | PDF text extraction |
+  | `mammoth` | latest | — | DOCX text extraction |
+
+  **devDependencies:**
+  | Package | Version | Released | Notes |
+  |---------|---------|----------|-------|
+  | `electron-builder` | 26.8.2 | Mar 4, 2026 | APFS-only DMG (HFS+ removed). macOS signing unchanged |
+  | `@electron/rebuild` | 4.0.3 | Jan 27, 2026 | Requires Node.js ≥22.12.0. ESM-only |
+
+- **marked v17 migration note**: v13+ uses token-based renderer API (renderers receive token objects, not multiple params). Since this is new code, write directly to v17 API. Example: `renderer: { heading(token) { return \`<h${token.depth}>${this.parser.parseInline(token.tokens)}</h${token.depth}>\`; } }`.
+- **highlight.js bundle note**: Import core only + register needed languages individually (~15KB vs ~127KB full bundle). Example: `import hljs from 'highlight.js/lib/core'; import python from 'highlight.js/lib/languages/python'; hljs.registerLanguage('python', python);`.
+- **electron-builder v26 note**: DMG creation now uses APFS exclusively (HFS+ removed in macOS 15.2). Fine for macOS 12+ target. Notarization uses env vars (`APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`) — not needed for ad-hoc signing.
+- **NSAudioCaptureUsageDescription**: Must be added to `Info.plist` (via electron-builder `extendInfo`) for `desktopCapturer` to work on macOS 14.2+. Value: `"Science Reader needs screen capture access for screenshots."`
+
+## Open Questions
+
+> This section tracks unresolved questions that need answers before or during implementation. Questions are added here as they arise. Resolved questions are moved to Appendix C as numbered decisions.
+
+~~### OQ-1: Finder extension ad-hoc signing viability (Runtime Spike Required)~~
+~~**Resolved → Decision 70.** Ad-hoc signing **confirmed to fail** on macOS Ventura/Sonoma/Sequoia. PlugInKit rejects .appex without a real Apple Developer certificate. Phase 6 (Finder Integration) is fully descoped. No spike needed.~~
+
+~~### OQ-2: Tool count — 48 tools / 8 categories vs. 56 tools / 9 categories~~
+~~**Resolved → Decision 64.** Actual count: **57 tools, 9 categories** (verified by `grep -c "@register_tool" code_common/tools.py`).~~
+
+~~### OQ-3: `POST /transcribe` endpoint — existing or new?~~
+~~**Resolved → Decision 65.** Already exists in `endpoints/audio.py`. No new endpoint needed for Phase 8.~~
+
+~~### OQ-4: `DELETE /delete_conversation/<id>` endpoint for temp conversation cleanup~~
+~~**Resolved → Decision 66.** Performs complete cleanup (filesystem + DB + cache + search index). Safe to use in Phase 3. Auto-cleanup safety net also exists.~~
+
+> **All open questions resolved as of Draft v13.** No unresolved design questions remain that block starting Phase 0 implementation.
+
+*End of Product Requirements Document (Draft v13)*

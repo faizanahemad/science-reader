@@ -368,6 +368,11 @@ var LocalDocsManager = {
      * @param {string}       displayName
      */
     upload: function (conversationId, fileOrUrl, displayName) {
+        var priority = $('#conv-doc-priority').val();
+        var dateWritten = $('#conv-doc-date-written').val();
+        var extra = {};
+        if (priority) extra.priority = priority;
+        if (dateWritten) extra.date_written = dateWritten;
         DocsManagerUtils.uploadWithProgress(
             '/upload_doc_to_conversation/' + conversationId,
             fileOrUrl,
@@ -376,6 +381,7 @@ var LocalDocsManager = {
                 $spinner:    $('#conv-doc-upload-spinner'),
                 $progress:   $('#conv-doc-upload-progress'),
                 displayName: displayName,
+                extraFields: extra,
                 onSuccess: function () {
                     LocalDocsManager._resetForm();
                     LocalDocsManager.refresh(conversationId);
@@ -416,12 +422,19 @@ var LocalDocsManager = {
         }
         $empty.hide();
 
+        var priorityLabels = {1: 'Very Low', 2: 'Low', 3: 'Medium', 4: 'High', 5: 'Very High'};
+
         docs.forEach(function (doc, index) {
             var title         = doc.display_name || doc.title || 'Untitled';
             var sourceDisplay = doc.source || '';
             if (sourceDisplay.length > 60) sourceDisplay = sourceDisplay.substring(0, 57) + '...';
+            var isDeprecated = !!doc.deprecated;
 
-            var $item = $('<div class="list-group-item d-flex justify-content-between align-items-center"></div>');
+            var $item = $('<div class="list-group-item"></div>');
+            if (isDeprecated) $item.css('opacity', '0.5');
+
+            // --- Top row: info + action buttons ---
+            var $topRow = $('<div class="d-flex justify-content-between align-items-center"></div>');
 
             // Left: index badge + optional display-name badge + title + source/date
             var $info = $('<div></div>');
@@ -429,7 +442,12 @@ var LocalDocsManager = {
             if (doc.display_name) {
                 $info.append($('<span class="badge badge-secondary mr-2"></span>').text('"' + doc.display_name + '"'));
             }
-            $info.append($('<strong></strong>').text(' ' + title));
+            if (isDeprecated) {
+                $info.append($('<span class="badge badge-danger mr-2"></span>').text('DEPRECATED'));
+                $info.append($('<strong style="text-decoration: line-through;"></strong>').text(' ' + title));
+            } else {
+                $info.append($('<strong></strong>').text(' ' + title));
+            }
             $info.append($('<br>'));
             $info.append($('<small class="text-muted"></small>').text(sourceDisplay + (doc.created_at ? ' | ' + doc.created_at : '')));
 
@@ -486,7 +504,7 @@ var LocalDocsManager = {
                 (function (docRef) {
                     $analyzeBtn.click(function () {
                         var $btn = $(this);
-                        $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin mr-1"></i><span class="small">Starting…</span>');
+                        $btn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin mr-1"></i><span class="small">Starting\u2026</span>');
                         LocalDocsManager.analyzeDoc(conversationId, docRef.doc_id)
                             .done(function (resp) {
                                 if (resp && resp.task_id) {
@@ -505,6 +523,15 @@ var LocalDocsManager = {
                     });
                 }(doc));
             }
+
+            // Edit button — opens edit modal
+            var $editBtn = $('<button class="btn btn-sm btn-outline-secondary mr-1" title="Edit / Replace Document"></button>')
+                .append('<i class="fa fa-pencil"></i>');
+            (function (docRef, cId) {
+                $editBtn.click(function () {
+                    LocalDocsManager.openEditModal(cId, docRef);
+                });
+            }(doc, conversationId));
 
             // Delete button
             var $deleteBtn = $('<button class="btn btn-sm btn-outline-danger" title="Delete"></button>')
@@ -526,8 +553,46 @@ var LocalDocsManager = {
 
             $actions.append($viewBtn).append($downloadBtn).append($promoteBtn);
             if ($analyzeBtn) { $actions.append($analyzeBtn); }
-            $actions.append($deleteBtn);
-            $item.append($info).append($actions);
+            $actions.append($editBtn).append($deleteBtn);
+            $topRow.append($info).append($actions);
+            $item.append($topRow);
+
+            // --- Metadata row: priority, date_written, deprecated ---
+            var $metaRow = $('<div class="d-flex align-items-center mt-1" style="gap:10px; flex-wrap:wrap;"></div>');
+
+            // Priority dropdown
+            var $priSelect = $('<select class="form-control form-control-sm" style="width:auto; display:inline-block; font-size:0.8rem;"></select>');
+            [5,4,3,2,1].forEach(function(v) { $priSelect.append($('<option></option>').val(v).text(priorityLabels[v])); });
+            $priSelect.val(doc.priority || 3);
+            (function(cId, docId) {
+                $priSelect.on('change', function() {
+                    LocalDocsManager._updateMetadata(cId, docId, {priority: parseInt($(this).val(), 10)});
+                });
+            })(conversationId, doc.doc_id);
+            $metaRow.append($('<label class="small text-muted mb-0 mr-1">Priority:</label>')).append($priSelect);
+
+            // Date written input
+            var $dateInput = $('<input type="date" class="form-control form-control-sm" style="width:auto; display:inline-block; font-size:0.8rem;">');
+            $dateInput.val(doc.date_written || '');
+            (function(cId, docId) {
+                $dateInput.on('change', function() {
+                    LocalDocsManager._updateMetadata(cId, docId, {date_written: $(this).val()});
+                });
+            })(conversationId, doc.doc_id);
+            $metaRow.append($('<label class="small text-muted mb-0 mr-1 ml-2">Written:</label>')).append($dateInput);
+
+            // Deprecated checkbox
+            var cbId = 'cdoc-dep-' + doc.doc_id;
+            var $depCheck = $('<input type="checkbox" class="mr-1">').attr('id', cbId);
+            $depCheck.prop('checked', isDeprecated);
+            (function(cId, docId) {
+                $depCheck.on('change', function() {
+                    LocalDocsManager._updateMetadata(cId, docId, {deprecated: $(this).is(':checked')});
+                });
+            })(conversationId, doc.doc_id);
+            $metaRow.append($('<label class="small text-muted mb-0 mr-1 ml-2"></label>').text('Deprecated:').attr('for', cbId)).append($depCheck);
+
+            $item.append($metaRow);
             $list.append($item);
         });
     },
@@ -561,9 +626,231 @@ var LocalDocsManager = {
         $('#conv-doc-url').val('');
         $('#conv-doc-display-name').val('');
         $('#conv-doc-file-input').val('');
+        $('#conv-doc-priority').val('3');
+        $('#conv-doc-date-written').val('');
         $('#conv-doc-drop-area').text(
             'Drop a supported document or audio file here. Common formats (PDF, Word, HTML, Markdown, CSV, audio, etc.) can be uploaded directly.'
         );
+    },
+
+    /**
+     * Send a PATCH to update metadata fields for a conversation document.
+     * @param {string} conversationId
+     * @param {string} docId
+     * @param {Object} fields — e.g. {priority:4}, {date_written:'2025-01-01'}, {deprecated:true}
+     */
+    _updateMetadata: function(conversationId, docId, fields) {
+        $.ajax({
+            url: '/docs/' + conversationId + '/' + docId + '/metadata',
+            method: 'PATCH',
+            contentType: 'application/json',
+            data: JSON.stringify(fields),
+            success: function() {
+                LocalDocsManager.refresh(conversationId);
+                if (typeof showToast === 'function') showToast('Metadata updated.', 'success');
+            },
+            error: function(xhr) {
+                var msg = 'Error updating metadata.';
+                try { msg = JSON.parse(xhr.responseText).error || msg; } catch(e) {}
+                if (typeof showToast === 'function') showToast(msg, 'danger');
+            }
+        });
+    },
+
+    /**
+     * Open the shared #doc-edit-modal for a local document.
+     * Handles file replacement via POST + SSE and metadata-only saves via PATCH.
+     *
+     * @param {string} conversationId
+     * @param {Object} doc — document object from the list
+     */
+    openEditModal: function (conversationId, doc) {
+        var $modal = $('#doc-edit-modal');
+
+        // Reset state
+        $('#doc-edit-file-input').val('');
+        $('#doc-edit-file-selected').hide();
+        $('#doc-edit-progress-area').hide();
+        $('#doc-edit-save-btn').prop('disabled', false).html('<i class="fa fa-save"></i> Save Changes');
+        $('#doc-edit-progress-bar').css('width', '0%').removeClass('bg-danger');
+
+        // Populate current doc info
+        $('#doc-edit-current-title').text(doc.display_name || doc.title || 'Untitled');
+        $('#doc-edit-current-source').text(doc.source || doc.doc_source || '');
+        $('#doc-edit-current-type').text(doc.doc_filetype || '');
+        $('#docEditModalLabel').text('Edit Document');
+
+        // Populate metadata fields
+        $('#doc-edit-display-name').val(doc.display_name || '');
+        $('#doc-edit-priority').val(doc.priority || 3);
+        $('#doc-edit-date-written').val(doc.date_written || '');
+        $('#doc-edit-deprecated').prop('checked', !!doc.deprecated);
+
+        // Hide global-only fields
+        $('#doc-edit-tags-group').hide();
+        $('#doc-edit-folder-group').hide();
+
+        // Wire up browse button
+        $('#doc-edit-browse-btn').off('click').on('click', function () {
+            $('#doc-edit-file-input').click();
+        });
+
+        // Wire up drop area
+        DocsManagerUtils.setupDropArea(
+            $('#doc-edit-drop-area'),
+            $modal,
+            $('#doc-edit-file-input'),
+            function (file) {
+                $('#doc-edit-file-input')[0].files = file;
+                $('#doc-edit-file-name').text(file.name || file[0].name);
+                $('#doc-edit-file-selected').show();
+            }
+        );
+
+        // File selection display
+        $('#doc-edit-file-input').off('change').on('change', function () {
+            var file = this.files[0];
+            if (file) {
+                $('#doc-edit-file-name').text(file.name);
+                $('#doc-edit-file-selected').show();
+            }
+        });
+        $('#doc-edit-file-clear').off('click').on('click', function () {
+            $('#doc-edit-file-input').val('');
+            $('#doc-edit-file-selected').hide();
+        });
+
+        // Save handler
+        $('#doc-edit-save-btn').off('click').on('click', function () {
+            var newFile = $('#doc-edit-file-input')[0].files[0] || null;
+            var metadata = {
+                display_name: $('#doc-edit-display-name').val().trim() || null,
+                priority: parseInt($('#doc-edit-priority').val(), 10),
+                date_written: $('#doc-edit-date-written').val() || null,
+                deprecated: $('#doc-edit-deprecated').is(':checked'),
+            };
+
+            if (newFile) {
+                // File replacement: POST /docs/<conv>/<doc_id>/replace
+                LocalDocsManager._replaceDoc(conversationId, doc.doc_id, newFile, metadata);
+            } else {
+                // Metadata-only: PATCH /docs/<conv>/<doc_id>/metadata
+                LocalDocsManager._updateMetadata(conversationId, doc.doc_id, metadata);
+                $modal.modal('hide');
+                LocalDocsManager.refresh(conversationId);
+                if (typeof showToast === 'function') showToast('Document updated.', 'success');
+            }
+        });
+
+        $modal.modal('show');
+    },
+
+    /**
+     * Replace a document file via POST with XHR upload progress,
+     * then listen for SSE processing progress.
+     *
+     * @param {string} conversationId
+     * @param {string} docId
+     * @param {File}   file
+     * @param {Object} metadata — fields to apply after replacement
+     */
+    _replaceDoc: function (conversationId, docId, file, metadata) {
+        var $saveBtn = $('#doc-edit-save-btn');
+        var $progress = $('#doc-edit-progress-area');
+        var $bar = $('#doc-edit-progress-bar');
+        var $msg = $('#doc-edit-progress-message');
+
+        $saveBtn.prop('disabled', true).html('<i class="fa fa-spinner fa-spin"></i> Replacing\u2026');
+        $progress.show();
+        $bar.css('width', '5%');
+        $msg.text('Uploading file\u2026');
+
+        var formData = new FormData();
+        formData.append('pdf_file', file);
+        if (metadata.display_name) formData.append('display_name', metadata.display_name);
+
+        $.ajax({
+            url: '/docs/' + conversationId + '/' + docId + '/replace',
+            method: 'POST',
+            data: formData,
+            processData: false,
+            contentType: false,
+            xhr: function () {
+                var xhr = new XMLHttpRequest();
+                xhr.upload.addEventListener('progress', function (e) {
+                    if (e.lengthComputable) {
+                        var pct = Math.round((e.loaded / e.total) * 30);
+                        $bar.css('width', pct + '%');
+                    }
+                });
+                return xhr;
+            },
+            success: function (resp) {
+                if (resp && resp.task_id) {
+                    LocalDocsManager._listenReplaceProgress(
+                        resp.task_id, conversationId, $bar, $msg, $saveBtn, metadata
+                    );
+                } else {
+                    $progress.hide();
+                    $('#doc-edit-modal').modal('hide');
+                    LocalDocsManager.refresh(conversationId);
+                    if (typeof showToast === 'function') showToast('Document replaced.', 'success');
+                }
+            },
+            error: function (xhr) {
+                $progress.hide();
+                $saveBtn.prop('disabled', false).html('<i class="fa fa-save"></i> Save Changes');
+                var msg = 'Error replacing document.';
+                try { msg = JSON.parse(xhr.responseText).error || msg; } catch(e) {}
+                if (typeof showToast === 'function') showToast(msg, 'danger');
+            }
+        });
+    },
+
+    /**
+     * Listen to SSE progress events for a document replacement task.
+     * Updates the modal progress bar and message, closes on completion.
+     *
+     * @param {string} taskId
+     * @param {string} conversationId
+     * @param {jQuery} $bar     — progress bar element
+     * @param {jQuery} $msg     — progress message element
+     * @param {jQuery} $saveBtn — save button to re-enable on error
+     * @param {Object} metadata — fields to apply via _updateMetadata on success
+     */
+    _listenReplaceProgress: function (taskId, conversationId, $bar, $msg, $saveBtn, metadata) {
+        var source = new EventSource('/replace_doc_progress/' + taskId);
+        source.onmessage = function (event) {
+            var data = JSON.parse(event.data);
+            $msg.text(data.message || '');
+
+            var phaseMap = {queued: 30, reading: 45, title_summary: 60, long_summary: 75, saving: 90, done: 100, error: 100};
+            var pct = phaseMap[data.phase] || 35;
+            $bar.css('width', pct + '%');
+
+            if (data.status === 'completed') {
+                source.close();
+                if (data.new_doc_id) {
+                    LocalDocsManager._updateMetadata(conversationId, data.new_doc_id, metadata);
+                }
+                setTimeout(function () {
+                    $('#doc-edit-progress-area').hide();
+                    $('#doc-edit-modal').modal('hide');
+                    LocalDocsManager.refresh(conversationId);
+                    if (typeof showToast === 'function') showToast('Document replaced successfully.', 'success');
+                }, 500);
+            } else if (data.status === 'error') {
+                source.close();
+                $bar.addClass('bg-danger');
+                $saveBtn.prop('disabled', false).html('<i class="fa fa-save"></i> Retry');
+                if (typeof showToast === 'function') showToast('Replace failed: ' + data.message, 'danger');
+            }
+        };
+        source.onerror = function () {
+            source.close();
+            $saveBtn.prop('disabled', false).html('<i class="fa fa-save"></i> Retry');
+            if (typeof showToast === 'function') showToast('Connection lost during replacement.', 'danger');
+        };
     },
 
     /* ------------------------------------------------------------------

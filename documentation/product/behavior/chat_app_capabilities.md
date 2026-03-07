@@ -209,8 +209,8 @@ Server-side injection:
 - Entry point: `#conversation-docs-button` in the chat header (replaces old `#add-document-button-chat`).
 - Modal: `#conversation-docs-modal` — two-card layout:
   - Upload card: file picker (`#conv-doc-file-input`), URL input, drag-and-drop area, XHR progress bar (0–70% upload, 70–99% indexing tick).
-  - List card: `#conv-docs-list` with per-doc actions: View (PDF viewer via `/proxy_shared`), Download, Promote to Global, **Analyze** (flask icon — upgrades `FastDocIndex` to full index; shows live phase progress), Delete.
-- Manager class: `LocalDocsManager` (`interface/local-docs-manager.js`) — `setup()`, `upload()`, `list()`, `renderList()`, `refresh()`, `deleteDoc()`, `analyzeDoc()`, `_listenUpgradeProgress()`.
+  - List card: `#conv-docs-list` with per-doc actions: View (PDF viewer via `/proxy_shared`), Download, Promote to Global, **Analyze** (flask icon — upgrades `FastDocIndex` to full index; shows live phase progress), **Edit / Replace** (pencil icon — opens `#doc-edit-modal` for metadata editing and optional file replacement with SSE progress), Delete.
+- Manager class: `LocalDocsManager` (`interface/local-docs-manager.js`) — `setup()`, `upload()`, `list()`, `renderList()`, `refresh()`, `deleteDoc()`, `analyzeDoc()`, `_listenUpgradeProgress()`, `openEditModal()`, `_replaceDoc()`, `_listenReplaceProgress()`.
 - Shared upload utilities: `DocsManagerUtils` (`interface/local-docs-manager.js`) — `uploadWithProgress()`, `isValidFileType()`, `setupDropArea()`, `getMimeType()`.
 - Initialized via `LocalDocsManager.setup(conversationId)` called from `common-chat.js` when a conversation is opened (replaces old `ChatManager.setupAddDocumentForm()`).
 
@@ -229,6 +229,9 @@ Server-side injection:
 - `POST /promote_message_doc/<conversation_id>/<doc_id>` — promote attachment to conversation doc → `ImmediateDocIndex`
 - `POST /upgrade_doc_index/<conversation_id>/<doc_id>` — **async** upgrade of a `FastDocIndex` to full `DocIndex` (FAISS + LLM); returns `202 {task_id}` immediately; the upgrade runs in a background thread
 - `GET /upgrade_doc_index_progress/<task_id>` — SSE stream of upgrade progress; phases: `reading → chunking → embedding → indexing → title_summary → long_summary → saving → done`; final event has `{status: "completed", is_fast_index: false}` or `{status: "error"}`. Task cleaned up 120s after completion.
+- `POST /docs/<conversation_id>/<doc_id>/replace` — **async** replace source file and re-index; returns `202 {task_id}`; accepts multipart form with `pdf_file` (required) and optional `display_name`
+- `GET /replace_doc_progress/<task_id>` — SSE stream of replacement progress; phases: `reading → title_summary → long_summary → saving → done`; final event has `{status: "completed", new_doc_id: "..."}` or `{status: "error"}`. Task cleaned up 120s after completion.
+- `PATCH /docs/<conversation_id>/<doc_id>/metadata` — update metadata including `display_name`, `priority`, `date_written`, `deprecated`
 
 **Display Name**
 - Optional field in the upload modal ("Display Name (optional)" input).
@@ -312,8 +315,8 @@ Server-side injection:
   - **List view**: flat doc list with `#gdoc_N` badge, display name, tag chips, action buttons. Filter bar (`#global-docs-filter`) filters in real time by tag or display name.
   - **Folder view**: independent `createFileBrowser('global-docs-fb', {...})` instance embedded directly. The **Folders** button in the modal header view switcher directly opens this embedded file browser via `GlobalDocsManager._openFileBrowser()`. No separate "Manage Folders" button exists.
 - Upload card: file picker (`#global-doc-file-input`), URL input, drag-and-drop area, folder picker (`#global-doc-folder-select`), XHR progress bar (0–70% upload, 70–99% indexing tick, via `DocsManagerUtils.uploadWithProgress()`).
-- Per-doc actions: View (`showPDF()` via `/global_docs/serve`), Download, Delete, Edit Tags (opens tag editor).
-- Manager class: `GlobalDocsManager` (`interface/global-docs-manager.js`) with `_viewMode`, `_folderCache`, `_userHash` state; `filterDocList()`, `openTagEditor()`, `_loadFolderCache()` methods.
+- Per-doc actions: View (`showPDF()` via `/global_docs/serve`), Download, **Edit / Replace** (pencil icon — opens `#doc-edit-modal` for metadata editing including tags/folder, and optional file replacement with SSE progress), Delete, Edit Tags (opens inline tag editor).
+- Manager class: `GlobalDocsManager` (`interface/global-docs-manager.js`) with `_viewMode`, `_folderCache`, `_userHash` state; `filterDocList()`, `openTagEditor()`, `_loadFolderCache()`, `openEditModal()`, `_replaceDoc()`, `_listenReplaceProgress()`, `_saveTags()` methods.
 - Promote from conversation docs list: `GlobalDocsManager.promote(conversationId, docId)` called from `LocalDocsManager.renderList()`.
 
 **API**
@@ -324,6 +327,9 @@ Server-side injection:
 - `GET /global_docs/serve?file=<doc_id>` — PDF viewer endpoint.
 - `DELETE /global_docs/<doc_id>` — delete DB row and filesystem storage.
 - `POST /global_docs/promote/<conversation_id>/<doc_id>` — copy-verify-delete promote flow.
+- `POST /global_docs/<doc_id>/replace` — **async** replace source file and re-index; returns `202 {task_id}`; accepts multipart form with `pdf_file` (required) and optional `display_name`. Preserves metadata (priority, date_written, deprecated, tags, folder); regenerates title/summary.
+- `GET /global_docs/replace_progress/<task_id>` — SSE stream of replacement progress; phases: `reading → title_summary → long_summary → saving → done`.
+- `PATCH /global_docs/<doc_id>/metadata` — update metadata including `display_name`, `priority`, `date_written`, `deprecated`.
 - `POST /global_docs/<doc_id>/tags` — set tags `{"tags": [...]}` (replaces all existing).
 - `GET /global_docs/tags` — list all distinct tags for current user.
 - `GET /global_docs/autocomplete?q=<prefix>` — tag name autocomplete for `#tag:` in chat input.

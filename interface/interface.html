@@ -442,6 +442,21 @@
                     <label for="conv-doc-display-name">Display Name (optional)</label>
                     <input type="text" class="form-control" id="conv-doc-display-name" placeholder="Custom name for this document">
                   </div>
+                  <!-- Priority / Reliability -->
+                  <div class="form-group">
+                    <label for="conv-doc-priority" class="small text-muted mb-1">Reliability</label>
+                    <select id="conv-doc-priority" class="form-control form-control-sm">
+                      <option value="5">Very High — authoritative source</option>
+                      <option value="4">High — reliable reference</option>
+                      <option value="3" selected>Medium — standard document</option>
+                      <option value="2">Low — draft / informal</option>
+                      <option value="1">Very Low — meeting notes / unverified</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label for="conv-doc-date-written" class="small text-muted mb-1">Date Written</label>
+                    <input type="date" id="conv-doc-date-written" class="form-control form-control-sm" placeholder="Defaults to today">
+                  </div>
                   <button type="submit" class="btn btn-primary" id="conv-doc-submit-btn">Upload</button>
                   <span id="conv-doc-upload-spinner" style="display:none;">
                     <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
@@ -522,6 +537,21 @@
                     <label for="global-doc-tags-input">Tags (optional, comma-separated)</label>
                     <input type="text" class="form-control form-control-sm" id="global-doc-tags-input" placeholder="e.g. ai, ml, research">
                   </div>
+                  <!-- Priority / Reliability -->
+                  <div class="form-group">
+                    <label for="global-doc-priority" class="small text-muted mb-1">Reliability</label>
+                    <select id="global-doc-priority" class="form-control form-control-sm">
+                      <option value="5">Very High — authoritative source</option>
+                      <option value="4">High — reliable reference</option>
+                      <option value="3" selected>Medium — standard document</option>
+                      <option value="2">Low — draft / informal</option>
+                      <option value="1">Very Low — meeting notes / unverified</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label for="global-doc-date-written" class="small text-muted mb-1">Date Written</label>
+                    <input type="date" id="global-doc-date-written" class="form-control form-control-sm" placeholder="Defaults to today">
+                  </div>
                   <button type="submit" class="btn btn-primary" id="global-doc-submit-btn">Upload</button>
                   <span id="global-doc-upload-spinner" style="display:none;">
                     <div class="spinner-border spinner-border-sm text-primary" role="status"></div>
@@ -557,6 +587,115 @@
         </div>
       </div>
     </div>
+</div>
+
+<!-- Document Edit / Replace Modal (shared by local and global docs) -->
+<div class="modal fade" id="doc-edit-modal" tabindex="-1" role="dialog"
+     aria-labelledby="docEditModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="docEditModalLabel">Edit Document</h5>
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body">
+        <!-- Current doc info (read-only) -->
+        <div class="mb-3 p-2 bg-light rounded">
+          <small class="text-muted">Current document</small>
+          <div id="doc-edit-current-title" class="font-weight-bold"></div>
+          <small id="doc-edit-current-source" class="text-muted"></small>
+          <span id="doc-edit-current-type" class="badge badge-secondary ml-1"></span>
+        </div>
+
+        <!-- File re-upload (optional) -->
+        <div class="form-group">
+          <label class="font-weight-bold">Replace Source File <small class="text-muted">(optional)</small></label>
+          <div id="doc-edit-drop-area"
+               style="border: 2px dashed #aaa; padding: 10px; text-align: center; cursor: pointer;">
+            Drop a new document here to replace the source file, or click Browse.
+          </div>
+          <input type="file" id="doc-edit-file-input" style="display:none;"
+                 accept=".pdf,.doc,.docx,.html,.htm,.md,.markdown,.txt,.csv,.tsv,.json,.jsonl,.rtf,.xls,.xlsx,.jpg,.jpeg,.png,.svg,.bmp,.mp3,.wav,.webm,.ogg,.flac,.aac,.m4a,.opus,.parquet">
+          <button type="button" class="btn btn-sm btn-outline-secondary mt-1" id="doc-edit-browse-btn">
+            <i class="fa fa-folder-open"></i> Browse
+          </button>
+          <div id="doc-edit-file-selected" class="mt-1 small text-success" style="display:none;">
+            <i class="fa fa-check"></i> <span id="doc-edit-file-name"></span>
+            <button type="button" class="btn btn-sm btn-link text-danger p-0 ml-2" id="doc-edit-file-clear">
+              <i class="fa fa-times"></i> Clear
+            </button>
+          </div>
+        </div>
+
+        <hr>
+
+        <!-- Metadata fields -->
+        <div class="form-group">
+          <label for="doc-edit-display-name">Display Name</label>
+          <input type="text" class="form-control" id="doc-edit-display-name"
+                 placeholder="Optional custom name">
+        </div>
+
+        <div class="form-row">
+          <div class="form-group col-md-4">
+            <label for="doc-edit-priority">Priority</label>
+            <select class="form-control" id="doc-edit-priority">
+              <option value="5">Very High</option>
+              <option value="4">High</option>
+              <option value="3" selected>Medium</option>
+              <option value="2">Low</option>
+              <option value="1">Very Low</option>
+            </select>
+          </div>
+          <div class="form-group col-md-4">
+            <label for="doc-edit-date-written">Date Written</label>
+            <input type="date" class="form-control" id="doc-edit-date-written">
+          </div>
+          <div class="form-group col-md-4">
+            <label>Status</label>
+            <div class="form-check mt-2">
+              <input type="checkbox" class="form-check-input" id="doc-edit-deprecated">
+              <label class="form-check-label" for="doc-edit-deprecated">Deprecated</label>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tags (global docs only) -->
+        <div class="form-group" id="doc-edit-tags-group" style="display:none;">
+          <label for="doc-edit-tags">Tags <small class="text-muted">(comma-separated)</small></label>
+          <input type="text" class="form-control" id="doc-edit-tags"
+                 placeholder="e.g. research, finance, q4-report">
+        </div>
+
+        <!-- Folder (global docs only) -->
+        <div class="form-group" id="doc-edit-folder-group" style="display:none;">
+          <label for="doc-edit-folder">Folder</label>
+          <select class="form-control" id="doc-edit-folder">
+            <option value="">— No folder —</option>
+          </select>
+        </div>
+
+        <!-- Progress indicator (shown during re-indexing) -->
+        <div id="doc-edit-progress-area" style="display:none;">
+          <div class="progress mb-2">
+            <div class="progress-bar progress-bar-striped progress-bar-animated"
+                 id="doc-edit-progress-bar" role="progressbar" style="width: 0%;">
+            </div>
+          </div>
+          <small id="doc-edit-progress-message" class="text-muted">Starting…</small>
+        </div>
+      </div>
+
+      <div class="modal-footer" id="doc-edit-footer">
+        <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-primary" id="doc-edit-save-btn">
+          <i class="fa fa-save"></i> Save Changes
+        </button>
+      </div>
+    </div>
+  </div>
 </div>
 
     <!-- Make conversation stateless Modal -->
@@ -2034,6 +2173,7 @@
                                                         
                                                         
                                                         <option selected>openai/gpt-5.2</option>
+                                                        <option>openai/gpt-5.4</option>
                                                         <option hidden>openai/gpt-5.1</option>
                                                         <option>Opus 4.6</option>
                                                         <option>Sonnet 4.6</option>
@@ -2070,6 +2210,7 @@
                                                         <option hidden>o3-deep-research</option>
                                                         <option hidden>x-ai/grok-3-beta</option>
                                                         <option>x-ai/grok-3</option>
+                                                        <option>inception/mercury-2</option>
                                                         <option>sao10k/l3.3-euryale-70b</option>
                                                         <option>thedrummer/anubis-pro-105b-v1</option>
                                                         <option>nousresearch/hermes-3-llama-3.1-405b</option>

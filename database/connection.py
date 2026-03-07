@@ -330,6 +330,27 @@ def create_tables(*, users_dir: str, logger: Optional[logging.Logger] = None) ->
     except Exception:
         pass  # Column already exists
 
+    # priority column on GlobalDocuments — 1-5 reliability scale, default 3 ("medium")
+    try:
+        cur.execute("ALTER TABLE GlobalDocuments ADD COLUMN priority INTEGER DEFAULT 3")
+        log.info("Added priority column to GlobalDocuments table")
+    except Exception:
+        pass  # Column already exists
+
+    # date_written column on GlobalDocuments — ISO date string, defaults to NULL (UI uses created_at)
+    try:
+        cur.execute("ALTER TABLE GlobalDocuments ADD COLUMN date_written TEXT DEFAULT NULL")
+        log.info("Added date_written column to GlobalDocuments table")
+    except Exception:
+        pass  # Column already exists
+
+    # deprecated column on GlobalDocuments — tombstone flag, 0=false 1=true
+    try:
+        cur.execute("ALTER TABLE GlobalDocuments ADD COLUMN deprecated INTEGER DEFAULT 0")
+        log.info("Added deprecated column to GlobalDocuments table")
+    except Exception:
+        pass  # Column already exists
+
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_GlobalDocFolders_user ON GlobalDocFolders (user_email)"
     )

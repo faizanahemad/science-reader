@@ -23,7 +23,7 @@ MCP_JWT_SECRET : str
 MCP_PORT : str
     Port for the web search MCP server (default ``8100``).
 MCP_RATE_LIMIT : str
-    Max tool calls per token per minute (default ``10``).  Shared by all servers.
+    Max tool calls per token per minute for the web search MCP server (default ``100``).  Shared by all servers.
 MCP_TOOL_TIER : str
     Tool tier: ``"baseline"`` (default, ~25 tools) or ``"full"`` (~40 tools).
 PKB_MCP_ENABLED, PKB_MCP_PORT : str
@@ -70,7 +70,7 @@ def start_mcp_server() -> None:
         return
 
     port = int(os.getenv("MCP_PORT", "8100"))
-    rate_limit = int(os.getenv("MCP_RATE_LIMIT", "10"))
+    rate_limit = int(os.getenv("MCP_RATE_LIMIT", "100"))
 
     def _run() -> None:
         try:

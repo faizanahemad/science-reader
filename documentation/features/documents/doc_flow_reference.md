@@ -193,16 +193,16 @@ Both managers call `DocsManagerUtils.uploadWithProgress()` for all uploads, so u
 **`POST /upload_doc_to_conversation/<conversation_id>`** (`endpoints/documents.py`, line 27)
 
 Function: `upload_doc_to_conversation_route(conversation_id)`
-- Accepts: multipart file upload (with optional `display_name` form field) or JSON `{pdf_url, display_name}`
+- Accepts: multipart file upload (with optional `display_name`, `priority`, `date_written` form fields) or JSON `{pdf_url, display_name}`
 - Saves uploaded file to `storage/pdfs/`
-- Calls: `conversation.add_fast_uploaded_document(full_pdf_path, display_name=display_name, docs_folder=state.docs_folder)`
+- Calls: `conversation.add_fast_uploaded_document(full_pdf_path, display_name=display_name, priority=priority, date_written=date_written, docs_folder=state.docs_folder)`
 - Returns: `{"status": "Indexing started", "doc_id": ..., "source": ..., "title": ..., "display_name": ...}`
 
 **`GET /list_documents_by_conversation/<conversation_id>`** (`endpoints/documents.py`, line 184)
 
 Function: `list_documents_by_conversation(conversation_id)`
 - Calls: `conversation.get_uploaded_documents(readonly=True, docs_folder=state.docs_folder)`
-- Returns: array of `{"doc_id", "source", "title", "short_summary", "visible", "display_name"}`
+- Returns: array of `{"doc_id", "source", "title", "short_summary", "visible", "display_name", "priority", "priority_label", "date_written", "deprecated"}`
   - `display_name` is `null` if not set; UI falls back to `title`
 
 **`DELETE /delete_document_from_conversation/<conversation_id>/<document_id>`** (`endpoints/documents.py`, line 162)
@@ -279,21 +279,25 @@ Wired to the “Analyze” button (flask icon) in the local docs panel via `Loca
 - Full metadata in `indices`, `raw_data`, `review_data`, `static_data`, `_paper_details`
 
 **Key DocIndex methods:**
-- `get_short_info()` (line 1946) → `{visible, doc_id, source, title, short_summary, summary, display_name}`
+- `get_short_info()` (line 1946) → `{visible, doc_id, source, title, short_summary, summary, display_name, is_fast_index, priority, priority_label, date_written, deprecated}`
   - `display_name` uses `getattr(self, "_display_name", None)` — safe for pickled instances predating this field
 
-**Full `get_short_info()` return fields (8 keys):**
+**Full `get_short_info()` return fields (12 keys):**
 
 ```
 DocIndex.get_short_info() returns a dict with:
-  visible       - bool; whether the doc is visible in the doc list
-  doc_id        - str; mmh3 hash of (source + filetype + doc_type)
-  source        - str; relative file path (absolute stripped to repo-relative)
-  title         - str; auto-generated or cached LLM-generated title
-  short_summary - str; auto-generated or cached brief summary
-  summary       - str; alias for short_summary
-  display_name  - str or None; user-provided name from upload form
-  is_fast_index - bool; True for FastDocIndex/ImmediateDocIndex, False for full DocIndex
+  visible        - bool; whether the doc is visible in the doc list
+  doc_id         - str; mmh3 hash of (source + filetype + doc_type)
+  source         - str; relative file path (absolute stripped to repo-relative)
+  title          - str; auto-generated or cached LLM-generated title
+  short_summary  - str; auto-generated or cached brief summary
+  summary        - str; alias for short_summary
+  display_name   - str or None; user-provided name from upload form
+  is_fast_index  - bool; True for FastDocIndex/ImmediateDocIndex, False for full DocIndex
+  priority       - int 1-5; reliability rating (default 3). Uses getattr(self, "_priority", 3)
+  priority_label - str; human-readable: "very low"/"low"/"medium"/"high"/"very high"
+  date_written   - str or None; ISO date (YYYY-MM-DD) when the document was written
+  deprecated     - bool; whether the document is deprecated. Uses getattr(self, "_deprecated", False)
 ```
 
 The `is_fast_index` field reflects the `_is_fast_index` class attribute: `True` on `FastDocIndex` (line 2170) and `ImmediateDocIndex` (line 2385), `False` on the base `DocIndex`. This lets the UI distinguish lightweight BM25-only indices from fully indexed docs without loading the full object.
@@ -437,11 +441,12 @@ This field is injected into the LLM system prompt so the model knows which docs 
 2. Regex `r"#doc_\d+"` — find all `#doc_N` references in message text
 3. Load combined list: `uploaded_documents + message_attached_documents`
 4. Resolve each reference: `all_documents[N - 1]` (1-based → 0-based)
-5. Categorize by file type:
+5. **Deprecated exclusion**: For `#doc_all`, skip docs where `getattr(doc_index, "_deprecated", False)` is True. For individual `#doc_N`, include but inject caveat text.
+6. Categorize by file type:
    - Readable: PDFs, images, HTML, small files → `attached_docs_readable`
    - Data: CSV, JSON, Excel, Parquet → `attached_docs_data`
-6. If `replace_reference=True`, expand `#doc_1` → `#doc_1 (Title of #doc_1 'Actual Title')\n...`
-7. Return: `(query, attached_docs, attached_docs_names, (readable, readable_names), (data, data_names))`
+7. If `replace_reference=True`, expand `#doc_1` → `#doc_1 (Title: 'Actual Title') [Reliability: high, Date written: 2026-01-10]\n...`
+8. Return: `(query, attached_docs, attached_docs_names, (readable, readable_names), (data, data_names))`
 
 During LLM reply generation, `semantic_search_document(query)` is called on each referenced doc to retrieve relevant chunks, which are then injected into the LLM prompt.
 
@@ -499,12 +504,12 @@ Function: `upload_global_doc()`
 
 Function: `list_global_docs_route()`
 - Calls `database.global_docs.list_global_docs(users_dir, user_email)` (ordered by `created_at ASC`)
-- Returns: array of `{index (1-based), doc_id, display_name, title, short_summary, source, created_at}`
+- Returns: array of `{index (1-based), doc_id, display_name, title, short_summary, source, created_at, priority, priority_label, date_written, deprecated}`
 
 **`GET /global_docs/info/<doc_id>`** (line 151)
 
 Function: `get_global_doc_info(doc_id)`
-- Returns: `{doc_id, display_name, title, short_summary, source, created_at, doc_type, doc_filetype, visible}`
+- Returns: `{doc_id, display_name, title, short_summary, source, created_at, doc_type, doc_filetype, visible, priority, priority_label, date_written, deprecated}`
 
 **`GET /global_docs/download/<doc_id>`** (line 186)
 
@@ -551,6 +556,9 @@ CREATE TABLE IF NOT EXISTS GlobalDocuments (
     doc_storage     TEXT NOT NULL,
     title           TEXT,
     short_summary   TEXT,
+    priority        INTEGER DEFAULT 3,
+    date_written    TEXT DEFAULT NULL,
+    deprecated      INTEGER DEFAULT 0,
     created_at      TEXT NOT NULL,
     updated_at      TEXT NOT NULL,
     PRIMARY KEY (doc_id, user_email)
@@ -565,7 +573,7 @@ Database: `storage/users/users.db`
 
 | Function | Line | Description |
 |----------|------|-------------|
-| `add_global_doc(users_dir, user_email, doc_id, doc_source, doc_storage, title, short_summary, display_name)` | 28 | INSERT OR IGNORE — returns True if inserted |
+| `add_global_doc(users_dir, user_email, doc_id, doc_source, doc_storage, title, short_summary, display_name, priority=3, date_written=None, deprecated=False)` | 28 | INSERT OR IGNORE — returns True if inserted |
 | `list_global_docs(users_dir, user_email)` | 76 | SELECT all for user, ORDER BY created_at ASC → List[dict] |
 | `get_global_doc(users_dir, user_email, doc_id)` | 113 | SELECT single row → Optional[dict] |
 | `delete_global_doc(users_dir, user_email, doc_id)` | 146 | DELETE row only (not filesystem) → bool |

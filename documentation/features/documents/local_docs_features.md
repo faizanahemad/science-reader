@@ -17,6 +17,12 @@ Local docs are per-conversation documents uploaded by the user or attached to me
 | SHA-256 dedup | Yes | No |
 | `#doc_N` reference syntax | Yes | No (uses `#gdoc_N`) |
 | Visible in file browser | **No** (no file browser instance for local docs) | Yes (Folders view) |
+| Priority / Reliability | Yes (1-5, inline dropdown) | Yes (1-5, inline dropdown) |
+| Date Written | Yes (date picker) | Yes (date picker) |
+| Deprecated | Yes (inline checkbox) | Yes (inline checkbox) |
+| Inline metadata edit | Yes (`PATCH /docs/{conv_id}/{doc_id}/metadata`) | Yes (`PATCH /global_docs/{doc_id}/metadata`) |
+| Edit / Replace (modal) | Yes (pencil icon → `#doc-edit-modal`) | Yes (pencil icon → `#doc-edit-modal`) |
+| Replace source file | Yes (`POST /docs/{conv_id}/{doc_id}/replace` + SSE progress) | Yes (`POST /global_docs/{doc_id}/replace` + SSE progress) |
 
 ## Display Name
 
@@ -72,7 +78,7 @@ Creating a full DocIndex takes 15-45 seconds depending on document length and LL
 
 ### get_short_info() Fields
 
-The `get_short_info()` method on any DocIndex variant returns these 8 fields:
+The `get_short_info()` method on any DocIndex variant returns these 12 fields:
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -84,7 +90,10 @@ The `get_short_info()` method on any DocIndex variant returns these 8 fields:
 | `summary` | str | Detailed LLM-generated summary |
 | `display_name` | str or null | User-provided display name |
 | `is_fast_index` | bool | `True` for FastDocIndex and ImmediateDocIndex |
-
+| `priority` | int | Reliability rating 1-5 (default 3). Uses `getattr(self, "_priority", 3)` for backward compat |
+| `priority_label` | str | Human-readable label: very low / low / medium / high / very high |
+| `date_written` | str or null | ISO date string (YYYY-MM-DD) when the document was written |
+| `deprecated` | bool | Whether the document is deprecated. Uses `getattr(self, "_deprecated", False)` |
 ## Upgrade Endpoint
 
 ```
@@ -218,11 +227,30 @@ Renders the doc list rows in the local docs panel. Each row includes:
 - Promote-to-global button (globe icon)
 - Delete button (trash icon)
 - Fast index indicator (if `is_fast_index` is true)
+- Priority dropdown (inline, 1-5 with labels Very Low to Very High)
+- Date-written input (inline date picker)
+- Deprecated checkbox (inline, triggers opacity 0.5 + strikethrough + red badge when checked)
+- `_updateMetadata(conversationId, docId, fields)` sends `PATCH /docs/{conversationId}/{docId}/metadata` with JSON body
 
 ### State Tracking
 
 `LocalDocsManager.conversationId` tracks the currently-open conversation. This value is updated whenever the user switches conversations, ensuring that doc operations target the correct conversation.
 
+## Document Metadata (Priority, Date Written, Deprecated)
+
+All three document types (message attachments, conversation docs, global docs) support three metadata fields stored as DocIndex attributes:
+
+- **`_priority`** (int 1-5, default 3): Reliability rating. Set at upload time via the form's Reliability dropdown. Labels: 1=very low, 2=low, 3=medium, 4=high, 5=very high.
+- **`_date_written`** (str or None): ISO date string. Set at upload time via the date picker. Defaults to today if not provided.
+- **`_deprecated`** (bool, default False): Whether the document is considered outdated. Only settable via inline edit in the doc list (not at upload time).
+
+**Backward compatibility**: All attribute reads use `getattr(self, "_priority", 3)` etc. to handle old pickled DocIndex instances that don't have these fields.
+
+**Upload**: The upload form (`#conv-doc-priority`, `#conv-doc-date-written`) sends `priority` and `date_written` as extra form fields via `DocsManagerUtils.uploadWithProgress()`. The endpoint passes them to `Conversation.add_fast_uploaded_document(priority=N, date_written=D)`.
+
+**Inline edit**: Each doc row in the local docs list has inline controls. `LocalDocsManager._updateMetadata(conversationId, docId, fields)` sends `PATCH /docs/{conversationId}/{docId}/metadata` with a JSON body. The endpoint updates the DocIndex attributes on disk.
+
+**RAG behavior**: Deprecated docs are excluded from `#doc_all` bulk references but included (with caveat) for individual `#doc_N` references. Priority labels and date_written are included in the LLM prompt text when a doc is referenced.
 ## What Is NOT Supported for Local Docs
 
 This section lists features that exist for global docs but have no equivalent for conversation-scoped local docs.
