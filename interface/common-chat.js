@@ -691,14 +691,40 @@ var ConversationManager = {
                 try { $('#messageText').focus(); } catch (_e) {}
                 // Restore section hidden states from server for cached snapshot
                 // (renderInnerContentAsMarkdown was skipped, so fetchAndApplySectionStates didn't run)
+                // Use a single batched call for the entire chatView instead of per-card-body
                 try {
                     if (conversationId && !MOCK_SECTION_STATE_API) {
                         var $chatView = $('#chatView');
-                        $chatView.find('.section-details').closest('.card-body').each(function() {
-                            attachSectionListeners(this);
-                            fetchAndApplySectionStates(conversationId, this);
-                        });
+                        attachSectionListeners($chatView[0]);
+                        fetchAndApplySectionStates(conversationId, $chatView[0]);
                     }
+                } catch (_e) { /* ignore */ }
+                
+                // Restore message show/hide states from the fetched message list.
+                // The snapshot has the DOM but showMore() wasn't called, so states may be stale.
+                try {
+                    var $chatView = $chatView || $('#chatView');
+                    msgList.forEach(function(msg) {
+                        if (!msg.message_id) return;
+                        var showHide = msg.show_hide || 'hide';
+                        var $header = $chatView.find('.card-header[message-id="' + msg.message_id + '"]');
+                        if (!$header.length) return;
+                        var $card = $header.closest('.card.message-card');
+                        var $moreText = $card.find('.more-text');
+                        var $lessText = $card.find('.less-text');
+                        var $showMoreLinks = $card.find('.show-more');
+                        if (!$moreText.length) return; // no showMore on this message
+                        
+                        if (showHide === 'show') {
+                            $moreText.show();
+                            $lessText.hide();
+                            $showMoreLinks.each(function() { $(this).text('[hide]'); });
+                        } else {
+                            $moreText.hide();
+                            $lessText.show();
+                            $showMoreLinks.each(function() { $(this).text('[show]'); });
+                        }
+                    });
                 } catch (_e) { /* ignore */ }
             }
 

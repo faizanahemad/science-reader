@@ -2092,6 +2092,114 @@ window.addScrollToTopButton = function(cardElem, buttonText = '↑ Top', buttonC
     return scrollTopBtn;
 }
 
+// ============================================
+// Delegated event handlers for snapshot-restored DOM
+// ============================================
+// When RenderedStateManager restores cached HTML, direct .click() bindings are lost.
+// These delegated handlers ensure buttons work regardless of how DOM was populated.
+
+// Delegated handler for scroll-to-top buttons
+$(document).on('click', '.scroll-to-top-btn', function(e) {
+    // Only handle if no direct handler is bound (avoid double-fire)
+    // Direct handlers call e.stopPropagation(), so if we reach document, it's from snapshot restore
+    e.preventDefault();
+    var $btn = $(this);
+    var $card = $btn.closest('.card.message-card');
+    if (!$card.length) return;
+    
+    // Find scrollable ancestor
+    var preferredContainers = $('#doubt-chat-messages, #temp-llm-messages, #chatView');
+    var $scrollable = null;
+    for (var i = 0; i < preferredContainers.length; i++) {
+        var $container = $(preferredContainers[i]);
+        if ($container.length > 0 && $container.find($card).length > 0) {
+            $scrollable = $container;
+            break;
+        }
+    }
+    if (!$scrollable) {
+        var $parents = $card.parents();
+        for (var j = 0; j < $parents.length; j++) {
+            var $p = $($parents[j]);
+            var ov = ($p.css('overflow-y') || '').toLowerCase();
+            if ((ov === 'auto' || ov === 'scroll') && $p[0].scrollHeight > $p[0].clientHeight) {
+                $scrollable = $p;
+                break;
+            }
+        }
+    }
+    if ($scrollable && $scrollable.length) {
+        var containerRect = $scrollable[0].getBoundingClientRect();
+        var targetRect = $card[0].getBoundingClientRect();
+        var delta = targetRect.top - containerRect.top;
+        var targetScrollTop = $scrollable.scrollTop() + delta;
+        if (isFinite(targetScrollTop)) {
+            $scrollable.animate({ scrollTop: targetScrollTop }, 300, 'swing');
+            return;
+        }
+    }
+    // Fallback: scroll window
+    var cardTop = $card.offset().top;
+    if (isFinite(cardTop)) {
+        $('html, body').animate({ scrollTop: cardTop - 20 }, 300, 'swing');
+    }
+});
+
+// Delegated handler for show-more toggle links
+$(document).on('click', '.show-more', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    var $link = $(this);
+    // Find the parent text element that contains .more-text and .less-text
+    var $textElem = $link.closest('.actual-card-text, .summary-text, [id]').first();
+    if (!$textElem.length) {
+        $textElem = $link.parent();
+    }
+    var $moreText = $textElem.find('.more-text');
+    var $lessText = $textElem.find('.less-text');
+    
+    if ($moreText.is(':visible')) {
+        $moreText.hide();
+        if ($lessText.length) $lessText.show();
+        $textElem.find('.show-more').each(function() { $(this).text('[show]'); });
+    } else {
+        $moreText.show();
+        if ($lessText.length) $lessText.hide();
+        $textElem.find('.show-more').each(function() { $(this).text('[hide]'); });
+        // Re-apply model tabs after expanding
+        try {
+            if (typeof applyModelResponseTabs === 'function') {
+                applyModelResponseTabs($moreText);
+            }
+        } catch (e) { /* ignore */ }
+        // Update ToC after expanding
+        try {
+            if (typeof updateMessageTocForElement === 'function') {
+                updateMessageTocForElement($moreText, $moreText.html(), false);
+            }
+        } catch (e) { /* ignore */ }
+    }
+    
+    // Persist show/hide state to server
+    try {
+        var $card = $link.closest('.card.message-card');
+        var messageId = $card.find('.card-header[message-id]').attr('message-id');
+        if (messageId && typeof ConversationManager !== 'undefined' && ConversationManager) {
+            var convId = ConversationManager.activeConversationId;
+            if (convId) {
+                var showHide = $moreText.is(':visible') ? 'show' : 'hide';
+                apiCall('/show_hide_message_from_conversation/' + convId + '/' + messageId + '/0', 'POST', {
+                    'show_hide': showHide
+                }).done(function() {
+                    console.log('Show/hide state saved: ' + showHide);
+                }).fail(function(xhr, status, error) {
+                    console.error('Failed to save show/hide state:', error);
+                });
+            }
+        }
+    } catch (e) { /* ignore */ }
+});
+
 const markdownParser = new marked.Renderer();
 
 // Create a marked extension for math
@@ -3952,13 +4060,21 @@ ${innerSectionRendered}
     // Defer non-critical DOM operations to avoid blocking the main thread
     // Use requestAnimationFrame for operations that need to happen soon but shouldn't block
     requestAnimationFrame(function() {
-        // Add toggle event listeners to section details elements and fetch stored states
+        // Add toggle event listeners to section details elements
         // Only do this for non-streaming content (when we have complete content)
-        // Re-resolve conversation_id in case it wasn't available at render start (e.g. historic messages loading before ConversationManager is ready)
+        // Re-resolve conversation_id in case it wasn't available at render start
         var resolvedConvId = conversation_id || ((typeof ConversationManager !== 'undefined' && ConversationManager && ConversationManager.getActiveConversation() != '') ? ConversationManager.getActiveConversation() : '');
         if (resolvedConvId && !continuous && !MOCK_SECTION_STATE_API) {
             attachSectionListeners(elem_to_render_in);
-            fetchAndApplySectionStates(resolvedConvId, elem_to_render_in);
+            // Debounce fetchAndApplySectionStates — multiple messages render at once,
+            // so batch into a single API call after all renders complete
+            clearTimeout(window._sectionStateFetchTimer);
+            window._sectionStateFetchTimer = setTimeout(function() {
+                var $chatView = $('#chatView');
+                if ($chatView.length) {
+                    fetchAndApplySectionStates(resolvedConvId, $chatView[0]);
+                }
+            }, 300);
         }
         
         // Slides are now opened in a new window via link; no in-card Reveal init
