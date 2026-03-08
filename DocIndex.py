@@ -1842,6 +1842,9 @@ class DocIndex:
         self, query, mode=defaultdict(lambda: False), save_answer=True
     ):
         ent_time = time.time()
+        time_logger.info(
+            f"[DocIndex] [streaming_get_short_answer] START | doc={self.title[:60] if hasattr(self, 'title') else 'unknown'} | text_len={self.text_len}"
+        )
         detail_level = 1
         if mode["provide_detailed_answers"]:
             detail_level = max(1, int(mode["provide_detailed_answers"]))
@@ -1889,6 +1892,9 @@ class DocIndex:
         )
         answer = get_async_future(
             cr, prompt, text, self.semantic_search_document, short_answer_model
+        )
+        time_logger.info(
+            f"[DocIndex] [streaming_get_short_answer] ContextualReader invoked | model={short_answer_model} | text_words={len(text.split())} | t={time.time() - ent_time:.2f}s"
         )
         if False:
             prompt2 = dedent(f"""
@@ -1953,6 +1959,9 @@ class DocIndex:
             yield t
         logger.info(
             f"[DocIndex] [streaming_get_short_answer] final_result len = {len(answer.split())} words."
+        )
+        time_logger.info(
+            f"[DocIndex] [streaming_get_short_answer] DONE | answer_words={len_answer} | t={time.time() - ent_time:.2f}s"
         )
         yield ""
 

@@ -251,6 +251,7 @@ def get_model_catalog():
         "quick_action_model": SUPERFAST_LLM[0],
         "artefact_propose_edits_model": EXPENSIVE_LLM[2],
         "doc_model": CHEAP_LONG_CONTEXT_LLM[0],
+        "clarify_intent_model": VERY_CHEAP_LLM[0],
     }
     return jsonify({"models": models, "defaults": defaults})
 

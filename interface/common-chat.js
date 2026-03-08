@@ -689,6 +689,17 @@ var ConversationManager = {
             } else {
                 // Snapshot is still valid; ensure controls focus works.
                 try { $('#messageText').focus(); } catch (_e) {}
+                // Restore section hidden states from server for cached snapshot
+                // (renderInnerContentAsMarkdown was skipped, so fetchAndApplySectionStates didn't run)
+                try {
+                    if (conversationId && !MOCK_SECTION_STATE_API) {
+                        var $chatView = $('#chatView');
+                        $chatView.find('.section-details').closest('.card-body').each(function() {
+                            attachSectionListeners(this);
+                            fetchAndApplySectionStates(conversationId, this);
+                        });
+                    }
+                } catch (_e) { /* ignore */ }
             }
 
             // Common post-load focus

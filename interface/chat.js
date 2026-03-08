@@ -988,7 +988,8 @@ function populateModelOverrideOptions() {
         '#settings-conversation-internal-model',
         '#settings-quick-action-model',
         '#settings-artefact-propose-model',
-        '#settings-doc-model'
+        '#settings-doc-model',
+        '#settings-clarify-intent-model'
     ];
     selects.forEach(function (selector) {
         const $select = $(selector);

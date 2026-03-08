@@ -409,7 +409,7 @@ Only provide answer from the document given above.
         assert isinstance(text_document, str)
         st = time.time()
         doc_word_count = len(text_document.split())
-        logger.info(f"[ContextualReader] Document word count = {doc_word_count}")
+        time_logger.info(f"[ContextualReader] __call__ START | doc_words={doc_word_count} | preferred_model={preferred_model}")
         if preferred_model is None and doc_word_count < 200_000:
             preferred_model = VERY_CHEAP_LLM[0]
         elif preferred_model is None and doc_word_count > 200_000:
@@ -494,6 +494,9 @@ Only provide answer from the document given above.
         )
         logger.info(
             f"[ContextualReader] final_result len = {len(final_result.split())} words, RAG based answer len = {len(main_future.result().split())}, global reading len = {len(global_reading.result().split())} words."
+        )
+        time_logger.info(
+            f"[ContextualReader] __call__ DONE | t={time.time() - st:.2f}s | doc_words={doc_word_count} | model={preferred_model} | result_words={len(final_result.split())}"
         )
         return final_result, final_future
 
@@ -4509,6 +4512,9 @@ def get_multiple_answers(
     # query_string = query_strings[0]
 
     start_time = time.time()
+    time_logger.info(
+        f"[get_multiple_answers] START | num_docs={len(additional_docs)} | detailed={provide_detailed_answers} | raw_text={provide_raw_text}"
+    )
     query_string = (
         f"Previous context: '''{current_doc_summary}'''\n"
         if len(current_doc_summary.strip()) > 0
@@ -4569,6 +4575,9 @@ def get_multiple_answers(
             for doc in additional_docs
         ]
         answers = [sleep_and_get_future_result(future) for future in futures]
+        time_logger.info(
+            f"[get_multiple_answers] Per-doc get_short_answer completed | t={time.time() - start_time:.2f}s | num_answers={len(answers)}"
+        )
         logger.info(
             f"[get_multiple_answers]: Getting answers only Time spent = {time.time() - start_time:.2f}, query len = {len(query.split())}"
         )
@@ -4660,6 +4669,9 @@ def get_multiple_answers(
         {"link": doc.doc_source, "title": doc.title} for doc in additional_docs
     ]
     time_spent = time.time() - start_time
+    time_logger.info(
+        f"[get_multiple_answers] DONE | t={time_spent:.2f}s | total_answer_words={len((read_text if isinstance(read_text, str) else new_line.join(read_text)).split())}"
+    )
     logger.info(
         f"[get_multiple_answers]: Time spent = {time_spent:.2f}, \nAnswers len = {len((read_text if isinstance(read_text, str) else new_line.join(read_text)).split())}"
     )

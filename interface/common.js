@@ -10,7 +10,7 @@ var currentDomain = {
 }
 
 var allDomains = ['finchat', 'search', 'assistant'];
-var MOCK_SECTION_STATE_API = true; // If true, skip section state API calls and default sections to hidden
+var MOCK_SECTION_STATE_API = false; // If true, skip section state API calls and default sections to hidden
 
 // -----------------------------
 // Table of Contents (ToC) config
@@ -3134,14 +3134,24 @@ function generateSectionSummary(sectionContent, sectionIndex) {
 // Add this helper function to handle closing sections
 function closeSectionDetails(sectionId) {
     /**
-     * Close a specific section details element
+     * Close a specific section details element and persist state
      * 
      * @param {string} sectionId - The ID of the details element to close
      */
     var detailsElement = document.getElementById(sectionId);
     if (detailsElement) {
+        var $details = $(detailsElement);
+        var sectionHash = $details.attr('data-section-hash');
+        
         detailsElement.removeAttribute('open');
-        // Optionally scroll to the summary so it's visible after closing
+        
+        // Persist the hidden state
+        var convId = (typeof ConversationManager !== 'undefined' && ConversationManager && ConversationManager.getActiveConversation() != '') ? ConversationManager.getActiveConversation() : '';
+        if (convId && sectionHash) {
+            persistSectionState(convId, sectionHash, true);
+        }
+        
+        // Scroll to the summary so it's visible after closing
         detailsElement.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
 }
@@ -3581,12 +3591,16 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
                                                         }
                                                         return Math.abs(hash).toString(16).substring(0, 8);
                                                     }
-                                                    var innerHash = simpleHash(innerSection) || 
-                                                        (innerSection.length.toString() + innerSection.replace(/[^a-zA-Z0-9]/g, '').substring(0, 4)).substring(0, 8);
+                                                    var innerHash = simpleHash(innerSectionWithCode) || 
+                                                        (innerSectionWithCode.length.toString() + innerSectionWithCode.replace(/[^a-zA-Z0-9]/g, '').substring(0, 4)).substring(0, 8);
                                                     var innerId = `section-details-${conversation_id}-${innerHash}`;
                                                     
                                                     innerSummary = innerSummary.replace(/<answer>/g, '').replace(/<\/answer>/g, '').replace(/\*/g, '');
                                                     innerSectionWithCode = innerSectionWithCode.trim();
+                                                    // Pre-render markdown to HTML before wrapping in <details>
+                                                    // Otherwise marked.js treats content inside HTML blocks as raw text
+                                                    var innerSectionRendered = marked.marked(normalizeOverIndentedLists(innerSectionWithCode), { renderer: markdownParser });
+                                                    innerSectionRendered = removeEmTags(innerSectionRendered);
                                                     
                                                     innerWrapped += `
 <details open class="section-details nested-section" data-section-index="${j - 1}" data-section-hash="${innerHash}" id="${innerId}">
@@ -3597,12 +3611,12 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
 
 <div class="section-content">
 <br/>\n
-${innerSectionWithCode}
+${innerSectionRendered}
 
 ` + `
 
 <div class="section-footer">
-<button class="close-section-btn btn btn-xs btn-secondary" data-section-id="${innerId}" style="font-size: 10px; padding: 2px 6px;">Close Section</button>
+<button class="close-section-btn btn btn-xs btn-secondary" onclick="closeSectionDetails('${innerId}')" data-section-id="${innerId}" style="font-size: 10px; padding: 2px 6px;">Close Section</button>
 </div>
 </div>
 </details>
@@ -3660,20 +3674,24 @@ ${innerSectionWithCode}
                                     }
                                     return Math.abs(hash).toString(16).substring(0, 8);
                                 }
-                                var sectionHash = simpleHash(section) || 
-                                    (section.length.toString() + section.replace(/[^a-zA-Z0-9]/g, '').substring(0, 4)).substring(0, 8);
+                                var sectionHash = simpleHash(sectionWithCode) || 
+                                    (sectionWithCode.length.toString() + sectionWithCode.replace(/[^a-zA-Z0-9]/g, '').substring(0, 4)).substring(0, 8);
                                 
                                 sectionHash = `${conversation_id}-${sectionHash}`;
                                 var sectionId = `section-details-${sectionHash}`;
                                 
                                 summary = summary.replace(/<answer>/g, '').replace(/<\/answer>/g, '').replace(/\*/g, '');
+                                // Pre-render markdown to HTML before wrapping in <details>
+                                // Otherwise marked.js treats content inside HTML blocks as raw text
+                                var sectionRendered = marked.marked(normalizeOverIndentedLists(sectionWithCode), { renderer: markdownParser });
+                                sectionRendered = removeEmTags(sectionRendered);
                                 wrappedHtml += `
 <details open class="section-details" data-section-index="${sectionIndex - 1}" data-section-hash="${sectionHash}" id="${sectionId}">
     <summary class="section-summary"><strong>${summary}</strong></summary>
     <div class="section-content">
-        ${sectionWithCode}
+        ${sectionRendered}
         <div class="section-footer">
-            <button class="close-section-btn btn btn-xs btn-secondary" data-section-id="${sectionId}" style="font-size: 10px; padding: 2px 6px;">Close Section</button>
+            <button class="close-section-btn btn btn-xs btn-secondary" onclick="closeSectionDetails('${sectionId}')" data-section-id="${sectionId}" style="font-size: 10px; padding: 2px 6px;">Close Section</button>
         </div>
     </div>
 </details>`;
@@ -3936,9 +3954,11 @@ ${innerSectionWithCode}
     requestAnimationFrame(function() {
         // Add toggle event listeners to section details elements and fetch stored states
         // Only do this for non-streaming content (when we have complete content)
-        if (conversation_id && !continuous && !MOCK_SECTION_STATE_API) {
+        // Re-resolve conversation_id in case it wasn't available at render start (e.g. historic messages loading before ConversationManager is ready)
+        var resolvedConvId = conversation_id || ((typeof ConversationManager !== 'undefined' && ConversationManager && ConversationManager.getActiveConversation() != '') ? ConversationManager.getActiveConversation() : '');
+        if (resolvedConvId && !continuous && !MOCK_SECTION_STATE_API) {
             attachSectionListeners(elem_to_render_in);
-            fetchAndApplySectionStates(conversation_id, elem_to_render_in);
+            fetchAndApplySectionStates(resolvedConvId, elem_to_render_in);
         }
         
         // Slides are now opened in a new window via link; no in-card Reveal init

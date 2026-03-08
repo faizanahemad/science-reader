@@ -8675,6 +8675,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                         "status": "Reading your attached documents.",
                     }
             yield {"text": "", "status": "Reading your attached documents."}
+            time_logger.info(
+                f"[DOC-READ] Starting get_multiple_answers for {len(attached_docs)} doc(s) | t={time.time() - st:.2f}s"
+            )
             conversation_docs_future = get_async_future(
                 get_multiple_answers,
                 previous_context_and_preamble + query["messageText"],
@@ -8775,6 +8778,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     )
                     break
                 time.sleep(0.5)
+            time_logger.info(
+                f"[DOC-READ] get_multiple_answers completed | doc_answer_len={len(conversation_docs_answer.split())} words | t={time.time() - st:.2f}s"
+            )
             if len(conversation_docs_answer) > 0:
                 yield {"text": "", "status": "document reading completed"}
             else:
@@ -9541,6 +9547,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             f"Time to wait before preparing prompt from start time to wait = {(time.time() - st):.2f}"
         )
         yield {"text": "", "status": "Preparing prompt ..."}
+        time_logger.info(
+            f"[REPLY] Prompt assembly started | t={time.time() - st:.2f}s"
+        )
 
         # Log what's going into permanent_instructions
         time_logger.info(
@@ -9574,6 +9583,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             web_text=web_text,
             link_result_text=link_result_text,
             conversation_docs_answer=conversation_docs_answer,
+        )
+        time_logger.info(
+            f"[REPLY] Prompt assembled | prompt_tokens={len(enc.encode(prompt))} | conversation_docs_answer_tokens={len(enc.encode(conversation_docs_answer))} | t={time.time() - st:.2f}s"
         )
         prompt_metrics = {
             "prompt_length": len(enc.encode(prompt)),
