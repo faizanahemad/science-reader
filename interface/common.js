@@ -3190,8 +3190,9 @@ function attachSectionListeners(elem_to_render_in) {
                 
                 console.log('Section toggled via closest section-details:', sectionHash, 'isHidden:', isHidden);
                 
-                if (conversation_id && sectionHash) {
-                    persistSectionState(conversation_id, sectionHash, isHidden);
+                var convId = (typeof ConversationManager !== 'undefined' && ConversationManager && ConversationManager.getActiveConversation() != '') ? ConversationManager.getActiveConversation() : '';
+                if (convId && sectionHash) {
+                    persistSectionState(convId, sectionHash, isHidden);
                 }
             }, 0);
         }
