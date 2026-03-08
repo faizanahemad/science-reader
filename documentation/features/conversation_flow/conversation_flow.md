@@ -26,6 +26,24 @@ This doc explains how chat messages move from UI to server and back, and how the
 | `/delete` | `delete_last_turn: true` | Deletes the last conversation turn. |
 | `/image <prompt>` | `generate_image: true` | **Image generation and editing.** Strips `/image`, uses remaining text as prompt. Backend intercepts in `Conversation.reply()` and calls `_handle_image_generation()` instead of the normal LLM path. Before calling the image model, detects an input image via two priority rules: (1) image attached to the current message (`query["images"]`), (2) last preceding assistant message with `generated_images` metadata (loaded from disk). If an input image is found, passes it to the model as a multipart content array `[{image_url}, {text}]` for editing/transformation; otherwise pure generation. Gathers conversation context (summary + last 2 messages + deep context), refines the prompt via a cheap LLM, calls Nano Banana 2, stores the PNG in `{conv_storage}/images/`, and streams a markdown image card. Image is downloadable inline and included in LLM vision context on subsequent turns. See `documentation/features/image_generation/README.md`. |
 
+**Per-turn enable/disable toggles** (new): `/enable_X` and `/disable_X` commands override any Basic Options checkbox for the current turn only. 14 pairs covering `search`, `pkb`, `tools`, `opencode`, `planner`, `memory_pad`, `auto_clarify`, `persist`, `ppt_answer`, `context_menu`, `slides_inline`, `only_slides`, `render_close`, `search_exact`. Parsed via `processCommand()` in `parseMessageForCheckBoxes.js`.
+
+**Model/Agent/Preamble selection** (new):
+
+| Command Pattern | Flag set | Behavior |
+|----------------|----------|----------|
+| `/model_<short_name>` | `main_model: [canonical]` | Selects model for this turn. **Replaces** modal selection. Short name resolved to canonical via `_resolveSlashCatalogName()` using cached `GET /api/slash_commands` catalog. |
+| `/agent_<short_name>` | `field: canonical` | Selects agent for this turn. **Replaces** modal selection. |
+| `/preamble_<short_name>` | `preamble_options: [...]` | Adds preamble for this turn. **Additive** — appended to modal-selected preambles via `mergeOptions()`. |
+
+**Slash command autocomplete** (pre-submit UX):
+- Typing `/` in the chat input triggers the slash autocomplete dropdown (0-character minimum — shows all commands immediately).
+- Commands are fetched from `GET /api/slash_commands` **once on page load** and cached in `window._slashCommandCatalog`. No network calls during typing.
+- Fuzzy matching (ported from `file-browser-manager.js` `_fuzzyMatch`) supports sequential character matching with scoring: exact substring, word-boundary, and out-of-order character matching.
+- Display: 5 items max visible with scroll, grouped by category with thin separator headers. Matched characters highlighted in bold blue.
+- Selection: First item pre-selected. Arrow keys navigate, Enter/Tab to apply, Escape to dismiss.
+- Model, agent, and preamble lists are generated dynamically from settings modal `<option>` elements, so the autocomplete stays current when modal options change.
+- See `documentation/features/slash_command_system.md` for the full command catalog and implementation details.
 See `documentation/product/behavior/CLARIFICATIONS_AND_AUTO_DOUBT_CONTEXT.md` for full clarification flow details.
 
 **PKB `@` autocomplete** (pre-submit UX):
@@ -341,9 +359,9 @@ Location: `interface/shared.js`
 
 - `interface/workspace-manager.js` (WorkspaceManager — sidebar tree rendering, conversation selection, workspace CRUD, context menus; see `documentation/features/workspaces/README.md`)
 - `interface/chat.js` (UI wiring, settings, send button)
-- `interface/common-chat.js` (ChatManager, ConversationManager, renderMessages, renderStreamingResponse, getTextAfterLastBreakpoint, isInsideDisplayMath, fetchAutocompleteResults — `@` autocomplete for all PKB types)
+- `interface/common-chat.js` (ChatManager, ConversationManager, renderMessages, renderStreamingResponse, getTextAfterLastBreakpoint, isInsideDisplayMath, fetchAutocompleteResults — `@` autocomplete for all PKB types, slash autocomplete IIFE v2 — fuzzy match, cached catalog, dropdown rendering with category headers)
 - `interface/common.js` (renderInnerContentAsMarkdown, normalizeOverIndentedLists)
-- `interface/parseMessageForCheckBoxes.js` (parseMemoryReferences — extracts `@references` from message text)
+- `interface/parseMessageForCheckBoxes.js` (parseMemoryReferences — extracts `@references`; slash command parsing — `processCommand()` for all commands, `_resolveSlashCatalogName()` for model/agent/preamble name resolution, `mergeOptions()` for slash-vs-modal merge)
 - `endpoints/conversations.py` (`/send_message` streaming endpoint)
 - `endpoints/conversations.py` (`POST /tool_response/<conversation_id>/<tool_id>` — submit user response for interactive tool calls)
 - `endpoints/pkb.py` (`/pkb/autocomplete` — returns memories, contexts, entities, tags, domains)
@@ -360,6 +378,7 @@ Location: `interface/shared.js`
 - `Conversation._handle_image_generation()` (`Conversation.py` — handles `/image` command: context gathering, prompt refinement, image gen, file storage, streaming, persistence)
 - `code_common/tools.py` (tool registry + 48 tool handlers across 8 categories; `ToolRegistry`, `@register_tool` decorator)
 - `interface/tool-call-manager.js` (ToolCallManager — tool call UI rendering: inline status pills, interactive modal, `threading.Event` response submission)
+- `endpoints/slash_commands.py` (`GET /api/slash_commands` — full command catalog endpoint with 7 categories, dynamic model/agent/preamble lists)
 
 **See also:** `documentation/features/image_generation/README.md`
 

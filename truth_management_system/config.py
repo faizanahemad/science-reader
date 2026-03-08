@@ -55,7 +55,7 @@ class PKBConfig:
     validity_filter_default: bool = False  # Show everything unless filtered
     
     # LLM settings
-    llm_model: str = "openai/gpt-4o-mini"
+    llm_model: str = "google/gemini-3.1-flash-lite-preview"
     embedding_model: str = "openai/text-embedding-3-small"
     llm_temperature: float = 0.0  # Deterministic for extraction
     

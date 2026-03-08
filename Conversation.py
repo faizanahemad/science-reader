@@ -8536,13 +8536,13 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             Write the extracted user preferences and user memory below in bullet points. Write in concise manner.""")
             llm = CallLLm(
                 self.get_api_keys(),
-                model_name=CHEAP_LONG_CONTEXT_LLM[0],
+                model_name=VERY_CHEAP_LLM[0], 
                 use_gpt4=True,
                 use_16k=True,
             )
             llm2 = CallLLm(
                 self.get_api_keys(),
-                model_name=CHEAP_LONG_CONTEXT_LLM[1],
+                model_name=self.get_model_override("conversation_internal_model", SUPERFAST_LLM[0]),
                 use_gpt4=True,
                 use_16k=True,
             )

@@ -1,3 +1,33 @@
+/**
+ * Resolve a slash command short name to its canonical name using the cached
+ * slash command catalog. The catalog is fetched once on page load by the
+ * autocomplete IIFE in common-chat.js and stored in window._slashCommandCatalog.
+ *
+ * @param {string} categoryName - Category to search in (e.g., 'Models', 'Agents', 'Preambles')
+ * @param {string} shortName - The short name to resolve (e.g., 'opus_4.6', 'perplexity_search')
+ * @returns {string|null} The canonical name, or null if not found.
+ */
+function _resolveSlashCatalogName(categoryName, shortName) {
+    var catalog = window._slashCommandCatalog;
+    if (!catalog || !catalog.categories) return null;
+
+    var lowerShort = (shortName || '').toLowerCase();
+    for (var ci = 0; ci < catalog.categories.length; ci++) {
+        var cat = catalog.categories[ci];
+        if (cat.name !== categoryName) continue;
+        for (var cmi = 0; cmi < cat.commands.length; cmi++) {
+            var cmd = cat.commands[cmi];
+            // Match by command suffix (strip the prefix like 'model_', 'agent_', 'preamble_')
+            var cmdShort = cmd.command.replace(/^(?:model|agent|preamble)_/, '');
+            if (cmdShort === lowerShort && cmd.canonical) {
+                return cmd.canonical;
+            }
+        }
+    }
+    return null;
+}
+
+
 function parseMessageForCheckBoxes(text) {
     let result = { text: "" };
     // NOTE: Commands are only parsed from the *first line* of the message,
@@ -104,15 +134,17 @@ function parseMessageForCheckBoxes(text) {
         return `${line.slice(0, index)} ${line.slice(index + length)}`;
     };
 
-    // Improved processing for removing commands and handling spaces
-    const processCommand = (regex, key, isFlag = false) => {
+    // Improved processing for removing commands and handling spaces.
+    // flagValue controls what value is assigned for flag commands (default: true).
+    // For /disable_* commands, pass flagValue=false to explicitly set the flag to false.
+    const processCommand = (regex, key, isFlag = false, flagValue = true) => {
         const firstLine = lines[0] ?? "";
         const found = findFirstMatchOutsideInlineCode(firstLine, regex);
         if (found) {
             const match = found.match;
             if (key) {
-                // Assign matched number or true for flags, if isFlag is true then we don't expect a capturing group
-                result[key] = isFlag ? true : match[1];
+                // Assign captured group or flagValue for flags
+                result[key] = isFlag ? flagValue : match[1];
             }
             // Replace the found command with a space, and we'll trim and replace multiple spaces later
             lines[0] = replaceAtIndexWithSpace(firstLine, found.index, match[0].length);
@@ -131,6 +163,51 @@ function parseMessageForCheckBoxes(text) {
     processCommand(/\/execute\b/i, "execute", true);
     processCommand(/\/draw\b/i, "draw", true);
     processCommand(/\/image\b/i, "generate_image", true);
+
+    // -----------------------------------------------------------------------
+    // Enable/Disable per-turn overrides for Basic Options.
+    // /enable_X sets flag=true, /disable_X sets flag=false for this turn only.
+    // These match the checkboxes in the settings modal.
+    // -----------------------------------------------------------------------
+    processCommand(/\/enable_search\b/i, "perform_web_search", true, true);
+    processCommand(/\/disable_search\b/i, "perform_web_search", true, false);
+    processCommand(/\/enable_search_exact\b/i, "search_exact", true, true);
+    processCommand(/\/disable_search_exact\b/i, "search_exact", true, false);
+    processCommand(/\/enable_auto_clarify\b/i, "auto_clarify", true, true);
+    processCommand(/\/disable_auto_clarify\b/i, "auto_clarify", true, false);
+    processCommand(/\/enable_persist\b/i, "persist_or_not", true, true);
+    processCommand(/\/disable_persist\b/i, "persist_or_not", true, false);
+    processCommand(/\/enable_ppt_answer\b/i, "ppt_answer", true, true);
+    processCommand(/\/disable_ppt_answer\b/i, "ppt_answer", true, false);
+    processCommand(/\/enable_memory_pad\b/i, "use_memory_pad", true, true);
+    processCommand(/\/disable_memory_pad\b/i, "use_memory_pad", true, false);
+    processCommand(/\/enable_context_menu\b/i, "enable_custom_context_menu", true, true);
+    processCommand(/\/disable_context_menu\b/i, "enable_custom_context_menu", true, false);
+    processCommand(/\/enable_slides_inline\b/i, "render_slides_inline", true, true);
+    processCommand(/\/disable_slides_inline\b/i, "render_slides_inline", true, false);
+    processCommand(/\/enable_only_slides\b/i, "only_slides", true, true);
+    processCommand(/\/disable_only_slides\b/i, "only_slides", true, false);
+    processCommand(/\/enable_render_close\b/i, "render_close_to_source", true, true);
+    processCommand(/\/disable_render_close\b/i, "render_close_to_source", true, false);
+    processCommand(/\/enable_pkb\b/i, "use_pkb", true, true);
+    processCommand(/\/disable_pkb\b/i, "use_pkb", true, false);
+    processCommand(/\/enable_opencode\b/i, "enable_opencode", true, true);
+    processCommand(/\/disable_opencode\b/i, "enable_opencode", true, false);
+    processCommand(/\/enable_planner\b/i, "enable_planner", true, true);
+    processCommand(/\/disable_planner\b/i, "enable_planner", true, false);
+    processCommand(/\/enable_tools\b/i, "enable_tool_use", true, true);
+    processCommand(/\/disable_tools\b/i, "enable_tool_use", true, false);
+
+    // -----------------------------------------------------------------------
+    // Model / Agent / Preamble per-turn overrides.
+    // /model_<name> captures the short name; resolution to canonical name
+    // happens in mergeOptions using the cached slash command catalog.
+    // /agent_<name> sets the agent for this turn.
+    // /preamble_<name> adds a preamble for this turn (additive, stacks).
+    // -----------------------------------------------------------------------
+    processCommand(/\/model_(\S+)/i, "slash_model_override");
+    processCommand(/\/agent_(\S+)/i, "slash_agent_override");
+    processCommand(/\/preamble_(\S+)/i, "slash_preamble_override");
 
     // PKB memory slash commands — capture the trailing text argument.
     // The regex allows multi-word text after the command on the same (first) line.
@@ -171,6 +248,10 @@ function parseMessageForCheckBoxes(text) {
     removeBareTokenFromFirstLine(/\/create-entity\b/i);
     removeBareTokenFromFirstLine(/\/create-context\b/i);
     removeBareTokenFromFirstLine(/\/create-simple-memory\b/i);
+    // bare /model_ /agent_ /preamble_ without a name
+    removeBareTokenFromFirstLine(/\/model_\b/i);
+    removeBareTokenFromFirstLine(/\/agent_\b/i);
+    removeBareTokenFromFirstLine(/\/preamble_\b/i);
 
     processedText = lines.join("\n");
 
@@ -190,6 +271,40 @@ function mergeOptions(parsed_message, options) {
 
     // Merge options with parsedOptions, allowing the latter to take precedence
     const mergedOptions = { ...options, ...parsedOptions };
+
+    // -----------------------------------------------------------------------
+    // Resolve slash command overrides for model, agent, and preamble.
+    // These use the cached slash command catalog (fetched on page load) to map
+    // friendly short names (e.g., "opus_4.6") to canonical names ("Opus 4.6").
+    // -----------------------------------------------------------------------
+
+    // /model_<name> → override main_model (replace, not additive)
+    if (parsedOptions.slash_model_override) {
+        const resolved = _resolveSlashCatalogName('Models', parsedOptions.slash_model_override);
+        if (resolved) {
+            mergedOptions.main_model = [resolved];  // array for multi-select compat
+        }
+        delete mergedOptions.slash_model_override;
+    }
+
+    // /agent_<name> → override field (agent selection)
+    if (parsedOptions.slash_agent_override) {
+        const resolved = _resolveSlashCatalogName('Agents', parsedOptions.slash_agent_override);
+        if (resolved) {
+            mergedOptions.field = resolved;
+        }
+        delete mergedOptions.slash_agent_override;
+    }
+
+    // /preamble_<name> → ADDITIVE merge (preambles stack, don't replace)
+    if (parsedOptions.slash_preamble_override) {
+        const resolved = _resolveSlashCatalogName('Preambles', parsedOptions.slash_preamble_override);
+        if (resolved) {
+            const existing = options.preamble_options || [];
+            mergedOptions.preamble_options = [...existing, resolved];
+        }
+        delete mergedOptions.slash_preamble_override;
+    }
 
     return mergedOptions;
 }
@@ -389,8 +504,8 @@ function comprehensiveTestParseMessageForCheckBoxesV2() {
  * Supports the following formats:
  * - @memory:claim_id (e.g., @memory:abc123)
  * - @mem:claim_id (shorter syntax)
+ * - @pkb:claim_id (legacy alias)
  * - @friendly_id (e.g., @prefer_morning_workouts_a3f2 for claims)
- * - @context_id (e.g., @ssdva or @work_context_a3b2 for contexts)
  * 
  * Friendly IDs for both claims and contexts are captured. The backend's
  * resolve_reference() will determine whether each ID refers to a claim
@@ -409,8 +524,8 @@ function parseMemoryReferences(text) {
     var claimIds = [];
     var friendlyIds = [];
     
-    // 1. Legacy regex: @memory:claim_id or @mem:claim_id (UUID format)
-    var legacyRegex = /@(?:memory|mem):([a-zA-Z0-9-]+)/g;
+    // 1. Legacy regex: @memory:claim_id, @mem:claim_id, or @pkb:claim_id (UUID format)
+    var legacyRegex = /@(?:memory|mem|pkb):([a-zA-Z0-9-]+)/g;
     var match;
     
     // Collect legacy @memory: positions so we can skip them in step 2
@@ -458,7 +573,7 @@ function parseMemoryReferences(text) {
         if (isLegacy) continue;
         
         // Skip the legacy prefix words themselves (e.g., @memory followed by :)
-        if (/^(?:memory|mem)$/i.test(fid)) continue;
+        if (/^(?:memory|mem|pkb)$/i.test(fid)) continue;
         
         // Skip if already captured
         if (fid && friendlyIds.indexOf(fid) === -1 && claimIds.indexOf(fid) === -1) {
@@ -545,10 +660,20 @@ function testParseMemoryReferences() {
             input: "Check @abc for info",
             expected: { cleanText: "Check for info", claimIds: [], friendlyIds: ["abc"] }
         },
-        // Should NOT match: @memory and @mem as standalone words (legacy prefixes)
+        // Should NOT match: @memory and @mem and @pkb as standalone words (legacy prefixes)
         {
-            input: "@memory is a system @mem is short",
-            expected: { cleanText: "@memory is a system @mem is short", claimIds: [], friendlyIds: [] }
+            input: "@memory is a system @mem is short @pkb too",
+            expected: { cleanText: "@memory is a system @mem is short @pkb too", claimIds: [], friendlyIds: [] }
+        },
+        // @pkb: prefix should work same as @memory:/@mem:
+        {
+            input: "Check @pkb:claim456 for info",
+            expected: { cleanText: "Check for info", claimIds: ["claim456"], friendlyIds: [] }
+        },
+        // Mixed: @pkb: with other prefixes
+        {
+            input: "@pkb:id1 @memory:id2 @mem:id3 look at these",
+            expected: { cleanText: "look at these", claimIds: ["id1", "id2", "id3"], friendlyIds: [] }
         }
     ];
     

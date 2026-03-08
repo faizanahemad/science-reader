@@ -4088,38 +4088,135 @@ function initializeChatControlsToggleHandler() {
 
 
 // =============================================================================
-// Slash Command Autocomplete (OpenCode + PKB)
+// Slash Command Autocomplete v2 — Fuzzy matching, 0-char trigger, cached catalog
 // Provides inline autocomplete for /command references in chat input.
-// - PKB commands (create-memory, create-entity, create-context, create-simple-memory)
-//   are always available (no OpenCode requirement).
-// - OpenCode commands are shown only when OpenCode is enabled.
-// Triggered after typing '/' followed by 3+ characters.
+// - Fetches full command catalog from GET /api/slash_commands on page load
+// - Uses fuzzy matching (ported from file-browser-manager.js)
+// - Shows 5 items max with scroll, grouped by category
+// - Pre-selects top match; Enter/Tab to apply
+// - PKB commands always available; OpenCode commands gated on checkbox
+// =============================================================================
 (function initSlashAutocomplete() {
     'use strict';
 
-    var OPENCODE_COMMANDS = [
-        { command: 'compact', description: 'Compress session context to save tokens', icon: 'bi-arrows-collapse' },
-        { command: 'abort', description: 'Stop current generation', icon: 'bi-stop-circle' },
-        { command: 'new', description: 'Create new OpenCode session', icon: 'bi-plus-circle' },
-        { command: 'sessions', description: 'List all sessions for this conversation', icon: 'bi-list' },
-        { command: 'fork', description: 'Branch conversation from current point', icon: 'bi-diagram-2' },
-        { command: 'summarize', description: 'Summarize session to reduce context', icon: 'bi-file-text' },
-        { command: 'status', description: 'Show OpenCode session status', icon: 'bi-info-circle' },
-        { command: 'diff', description: 'Show file changes in this session', icon: 'bi-file-diff' },
-        { command: 'revert', description: 'Undo last message', icon: 'bi-arrow-counterclockwise' },
-        { command: 'mcp', description: 'Show MCP server status', icon: 'bi-hdd-network' },
-        { command: 'models', description: 'Show available models', icon: 'bi-cpu' },
-        { command: 'help', description: 'Show available commands', icon: 'bi-question-circle' }
+    // -- Cached catalog (fetched once on page load) --------------------------
+    var cachedCatalog = null;
+    var flatCommands = [];
+
+    // Expose catalog globally so parseMessageForCheckBoxes.js can resolve names
+    window._slashCommandCatalog = null;
+
+    function fetchAndCacheCatalog() {
+        $.get('/api/slash_commands', function(data) {
+            cachedCatalog = data;
+            window._slashCommandCatalog = data;
+            rebuildFlatCommands();
+        }).fail(function() {
+            console.warn('Slash command catalog fetch failed, using fallback');
+            cachedCatalog = null;
+            window._slashCommandCatalog = null;
+        });
+    }
+
+    function rebuildFlatCommands() {
+        flatCommands = [];
+        if (!cachedCatalog || !cachedCatalog.categories) return;
+        cachedCatalog.categories.forEach(function(cat) {
+            cat.commands.forEach(function(cmd) {
+                flatCommands.push({
+                    command: cmd.command,
+                    description: cmd.description,
+                    icon: cat.icon || 'bi-slash-circle',
+                    type: cmd.type || 'toggle',
+                    badge: cat.badge || null,
+                    requires: cat.requires || null,
+                    category: cat.name
+                });
+            });
+        });
+    }
+
+    // -- Fallback commands (used if catalog fetch fails) ---------------------
+    var FALLBACK_PKB = [
+        { command: 'create-memory',        description: 'Open modal to add a memory (with AI auto-fill)',      icon: 'bi-brain',       badge: 'pkb',     category: 'PKB' },
+        { command: 'create-simple-memory', description: 'Silently add a memory via AI (no modal)',             icon: 'bi-lightning',   badge: 'pkb',     category: 'PKB' },
+        { command: 'create-entity',        description: 'Open modal to create an entity (person, org…)',    icon: 'bi-person-plus', badge: 'pkb',     category: 'PKB' },
+        { command: 'create-context',       description: 'Open modal to create a context / memory group',       icon: 'bi-folder-plus', badge: 'pkb',     category: 'PKB' }
+    ];
+    var FALLBACK_OPENCODE = [
+        { command: 'compact',   description: 'Compress session context to save tokens', icon: 'bi-arrows-collapse',     badge: 'opencode', requires: 'enable_opencode', category: 'OpenCode' },
+        { command: 'abort',     description: 'Stop current generation',                 icon: 'bi-stop-circle',         badge: 'opencode', requires: 'enable_opencode', category: 'OpenCode' },
+        { command: 'new',       description: 'Create new OpenCode session',              icon: 'bi-plus-circle',         badge: 'opencode', requires: 'enable_opencode', category: 'OpenCode' },
+        { command: 'sessions',  description: 'List all sessions for this conversation',  icon: 'bi-list',                badge: 'opencode', requires: 'enable_opencode', category: 'OpenCode' },
+        { command: 'fork',      description: 'Branch conversation from current point',   icon: 'bi-diagram-2',           badge: 'opencode', requires: 'enable_opencode', category: 'OpenCode' },
+        { command: 'summarize', description: 'Summarize session to reduce context',      icon: 'bi-file-text',           badge: 'opencode', requires: 'enable_opencode', category: 'OpenCode' },
+        { command: 'status',    description: 'Show OpenCode session status',             icon: 'bi-info-circle',         badge: 'opencode', requires: 'enable_opencode', category: 'OpenCode' },
+        { command: 'diff',      description: 'Show file changes in this session',        icon: 'bi-file-diff',           badge: 'opencode', requires: 'enable_opencode', category: 'OpenCode' },
+        { command: 'revert',    description: 'Undo last message',                        icon: 'bi-arrow-counterclockwise', badge: 'opencode', requires: 'enable_opencode', category: 'OpenCode' },
+        { command: 'mcp',       description: 'Show MCP server status',                   icon: 'bi-hdd-network',         badge: 'opencode', requires: 'enable_opencode', category: 'OpenCode' },
+        { command: 'models',    description: 'Show available models',                    icon: 'bi-cpu',                 badge: 'opencode', requires: 'enable_opencode', category: 'OpenCode' },
+        { command: 'help',      description: 'Show available commands',                  icon: 'bi-question-circle',     badge: 'opencode', requires: 'enable_opencode', category: 'OpenCode' }
     ];
 
-    /** PKB memory commands — always available regardless of OpenCode. */
-    var PKB_COMMANDS = [
-        { command: 'create-memory',        description: 'Open modal to add a memory (with AI auto-fill)',      icon: 'bi-brain',       badge: 'pkb' },
-        { command: 'create-simple-memory', description: 'Silently add a memory via AI (no modal)',             icon: 'bi-lightning',   badge: 'pkb' },
-        { command: 'create-entity',        description: 'Open modal to create an entity (person, org…)',    icon: 'bi-person-plus', badge: 'pkb' },
-        { command: 'create-context',       description: 'Open modal to create a context / memory group',       icon: 'bi-folder-plus', badge: 'pkb' }
-    ];
+    function buildFallbackCommands() {
+        var cmds = FALLBACK_PKB.slice();
+        return cmds.concat(FALLBACK_OPENCODE);
+    }
 
+    // -- Fuzzy matching (ported from file-browser-manager.js) ----------------
+    function _fuzzyMatch(needle, haystack) {
+        var nLower = needle.toLowerCase();
+        var hLower = haystack.toLowerCase();
+        var nLen = nLower.length;
+        var hLen = hLower.length;
+
+        if (nLen === 0) return { score: 0, indexes: [] };
+        if (nLen > hLen) return null;
+
+        // Quick substring check — best case
+        var subIdx = hLower.indexOf(nLower);
+        if (subIdx !== -1) {
+            var idxs = [];
+            for (var si = 0; si < nLen; si++) idxs.push(subIdx + si);
+            var bonus = 1.5;
+            if (subIdx === 0) bonus = 2.0;
+            else if ('/\\-_. '.indexOf(hLower[subIdx - 1]) !== -1) bonus = 1.8;
+            return { score: nLen * bonus + (1 / (subIdx + 1)), indexes: idxs };
+        }
+
+        // Sequential char matching with scoring
+        var indexes = [];
+        var score = 0;
+        var hIdx = 0;
+        var lastMatchIdx = -2;
+
+        for (var ni = 0; ni < nLen; ni++) {
+            var found = false;
+            for (var hi = hIdx; hi < hLen; hi++) {
+                if (hLower[hi] === nLower[ni]) {
+                    indexes.push(hi);
+                    if (hi === lastMatchIdx + 1) {
+                        score += 1.0;  // consecutive
+                    } else if (hi === 0 || '/\\-_. '.indexOf(hLower[hi - 1]) !== -1) {
+                        score += 0.8;  // word boundary
+                    } else {
+                        score += 0.3;  // mid-word
+                        score -= (hi - lastMatchIdx - 1) * 0.005;  // gap penalty
+                    }
+                    lastMatchIdx = hi;
+                    hIdx = hi + 1;
+                    found = true;
+                    break;
+                }
+            }
+            if (!found) return null;
+        }
+
+        score -= (hLen - nLen) * 0.01;  // length penalty
+        return { score: score, indexes: indexes };
+    }
+
+    // -- Autocomplete state --------------------------------------------------
     var slashState = {
         active: false,
         query: '',
@@ -4128,18 +4225,18 @@ function initializeChatControlsToggleHandler() {
         results: []
     };
 
-    /**
-     * Initialize the slash command autocomplete widget.
-     * Creates the dropdown container and binds events to the message textarea.
-     */
+    var MAX_VISIBLE_ITEMS = 5;
+    var ITEM_HEIGHT_PX = 52; // approximate height of each dropdown item
+
+    // -- Init ----------------------------------------------------------------
     function initAutocomplete() {
-        // Create dropdown container if it doesn't exist
         if ($('#slash-autocomplete-dropdown').length === 0) {
+            var maxH = (MAX_VISIBLE_ITEMS * ITEM_HEIGHT_PX) + 'px';
             var dropdownHtml = '<div id="slash-autocomplete-dropdown" ' +
                 'style="display:none; position:absolute; z-index:1100; ' +
                 'background:white; border:1px solid #dee2e6; border-radius:6px; ' +
-                'box-shadow:0 4px 12px rgba(0,0,0,0.15); max-height:240px; ' +
-                'overflow-y:auto; min-width:300px; max-width:500px;">' +
+                'box-shadow:0 4px 12px rgba(0,0,0,0.15); max-height:' + maxH + '; ' +
+                'overflow-y:auto; min-width:320px; max-width:520px;">' +
                 '</div>';
             $('body').append(dropdownHtml);
         }
@@ -4147,12 +4244,10 @@ function initializeChatControlsToggleHandler() {
         var $textarea = $('#messageText');
         if ($textarea.length === 0) return;
 
-        // Bind input event for detecting / and typing
         $textarea.on('input.slashAutocomplete', function() {
             handleSlashInput(this);
         });
 
-        // Bind keydown for navigation (up/down/enter/escape/tab)
         $textarea.on('keydown.slashAutocomplete', function(e) {
             if (!slashState.active) return;
 
@@ -4173,38 +4268,26 @@ function initializeChatControlsToggleHandler() {
             }
         });
 
-        // Hide on blur (with small delay for click handling)
         $textarea.on('blur.slashAutocomplete', function() {
             setTimeout(function() {
                 hideSlashAutocomplete();
             }, 200);
         });
 
-        // Handle clicks on autocomplete items
         $(document).on('mousedown', '#slash-autocomplete-dropdown .slash-ac-item', function(e) {
             e.preventDefault();
             var index = parseInt($(this).data('index'));
             selectSlashItem(index);
         });
+
+        // Fetch catalog on init
+        fetchAndCacheCatalog();
     }
 
-    /**
-     * Handle input changes in the textarea.
-     * Detects / character and filters commands by prefix.
-     */
+    // -- Input handler -------------------------------------------------------
     function handleSlashInput(textarea) {
-        // PKB commands are always available.
-        // OpenCode commands only shown when OpenCode is enabled.
-        var opencodeEnabled = $('#settings-enable_opencode').is(':checked');
-        if (!opencodeEnabled && PKB_COMMANDS.length === 0) {
-            hideSlashAutocomplete();
-            return;
-        }
-
         var text = textarea.value;
         var cursorPos = textarea.selectionStart;
-
-        // Find the / character before cursor
         var textBeforeCursor = text.substring(0, cursorPos);
         var lastSlashIndex = textBeforeCursor.lastIndexOf('/');
 
@@ -4213,42 +4296,42 @@ function initializeChatControlsToggleHandler() {
             return;
         }
 
-        // Check if / is at start or preceded by whitespace (not part of a URL)
+        // / must be at start or preceded by whitespace (not part of a URL)
         if (lastSlashIndex > 0 && !/\s/.test(text.charAt(lastSlashIndex - 1))) {
             hideSlashAutocomplete();
             return;
         }
 
-        // Get the text between / and cursor
         var prefix = textBeforeCursor.substring(lastSlashIndex + 1);
 
-        // Must not contain spaces (single command token)
+        // Must not contain spaces
         if (/\s/.test(prefix)) {
             hideSlashAutocomplete();
             return;
         }
 
-        // Need at least 3 characters after /
-        if (prefix.length < 3) {
-            hideSlashAutocomplete();
-            return;
-        }
-
-        // Filter commands by prefix (case-insensitive).
-        // PKB commands always included; OpenCode commands only when enabled.
-        var lowerPrefix = prefix.toLowerCase();
+        // Use cached catalog or fallback
+        var opencodeEnabled = $('#settings-enable_opencode').is(':checked');
+        var source = flatCommands.length > 0 ? flatCommands : buildFallbackCommands();
         var filtered = [];
-        PKB_COMMANDS.forEach(function(cmd) {
-            if (cmd.command.indexOf(lowerPrefix) === 0) {
-                filtered.push(cmd); // badge already set to 'pkb' on the object
-            }
-        });
-        if (opencodeEnabled) {
-            OPENCODE_COMMANDS.forEach(function(cmd) {
-                if (cmd.command.indexOf(lowerPrefix) === 0) {
-                    filtered.push(cmd); // badge field absent — renderer defaults to 'opencode'
+
+        if (prefix.length === 0) {
+            // Show all commands when user types just /
+            source.forEach(function(cmd) {
+                if (cmd.requires === 'enable_opencode' && !opencodeEnabled) return;
+                filtered.push({ command: cmd.command, description: cmd.description, icon: cmd.icon, badge: cmd.badge, category: cmd.category, score: 0, matchIndexes: [] });
+            });
+        } else {
+            // Fuzzy match against prefix
+            var lowerPrefix = prefix.toLowerCase();
+            source.forEach(function(cmd) {
+                if (cmd.requires === 'enable_opencode' && !opencodeEnabled) return;
+                var match = _fuzzyMatch(lowerPrefix, cmd.command);
+                if (match) {
+                    filtered.push({ command: cmd.command, description: cmd.description, icon: cmd.icon, badge: cmd.badge, category: cmd.category, score: match.score, matchIndexes: match.indexes });
                 }
             });
+            filtered.sort(function(a, b) { return b.score - a.score; });
         }
 
         slashState.slashPosition = lastSlashIndex;
@@ -4263,14 +4346,37 @@ function initializeChatControlsToggleHandler() {
         }
     }
 
-    /**
-     * Show the slash autocomplete dropdown positioned near the textarea.
-     */
+    // -- Highlight matched chars in command name -----------------------------
+    function highlightMatches(text, indexes) {
+        if (!indexes || indexes.length === 0) return escapeHtml(text);
+        var indexSet = {};
+        for (var i = 0; i < indexes.length; i++) indexSet[indexes[i]] = true;
+        var result = '';
+        for (var j = 0; j < text.length; j++) {
+            var ch = escapeHtml(text[j]);
+            if (indexSet[j]) {
+                result += '<strong style="color:#0d6efd;">' + ch + '</strong>';
+            } else {
+                result += ch;
+            }
+        }
+        return result;
+    }
+
+    // -- Badge rendering helper ----------------------------------------------
+    function renderBadge(badge) {
+        if (badge === 'pkb') {
+            return '<span class="badge badge-sm ml-1" style="background-color:#20c997; color:white; font-size:9px;">pkb</span>';
+        } else if (badge === 'opencode') {
+            return '<span class="badge badge-sm ml-1" style="background-color:#6f42c1; color:white; font-size:9px;">opencode</span>';
+        }
+        return '';
+    }
+
+    // -- Show dropdown -------------------------------------------------------
     function showSlashAutocomplete(textarea) {
         var $dropdown = $('#slash-autocomplete-dropdown');
         var $textarea = $(textarea);
-
-        // Position dropdown above the textarea (same as @ autocomplete)
         var offset = $textarea.offset();
 
         $dropdown.css({
@@ -4279,22 +4385,32 @@ function initializeChatControlsToggleHandler() {
             top: 'auto'
         });
 
-        // Render items
+        // Render items grouped by category with thin separators
         var html = '';
+        var lastCategory = null;
         slashState.results.forEach(function(item, index) {
+            // Category separator
+            if (item.category && item.category !== lastCategory) {
+                lastCategory = item.category;
+                html += '<div style="padding:3px 12px; font-size:10px; color:#6c757d; ' +
+                    'text-transform:uppercase; letter-spacing:0.5px; background:#f8f9fa; ' +
+                    'border-bottom:1px solid #e9ecef; font-weight:600;">' +
+                    '<i class="bi ' + (item.icon || 'bi-slash-circle') + ' mr-1"></i>' +
+                    escapeHtml(item.category) + '</div>';
+            }
+
             var isSelected = index === slashState.selectedIndex;
-            var bgClass = isSelected ? 'background-color:#e9ecef;' : '';
+            var bgStyle = isSelected ? 'background-color:#e9ecef;' : '';
 
             html += '<div class="slash-ac-item px-3 py-2" data-index="' + index + '" ' +
-                'style="cursor:pointer; border-bottom:1px solid #f0f0f0; ' + bgClass + '">' +
+                'style="cursor:pointer; border-bottom:1px solid #f0f0f0; ' + bgStyle + '">' +
                 '<div class="d-flex align-items-center">' +
-                    '<i class="bi ' + item.icon + ' mr-2 text-muted"></i>' +
                     '<div class="flex-grow-1" style="min-width:0;">' +
                         '<div style="font-size:13px;">' +
-                            '<code>/' + escapeHtml(item.command) + '</code>' +
-                            (item.badge === 'pkb' ? '<span class="badge badge-sm ml-1" style="background-color:#20c997; color:white;">pkb</span>' : '<span class="badge badge-purple badge-sm ml-1" style="background-color:#6f42c1; color:white;">opencode</span>') +
+                            '<code>/' + highlightMatches(item.command, item.matchIndexes) + '</code>' +
+                            renderBadge(item.badge) +
                         '</div>' +
-                        '<div style="font-size:11px; color:#6c757d;">' +
+                        '<div style="font-size:11px; color:#6c757d; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">' +
                             escapeHtml(item.description) +
                         '</div>' +
                     '</div>' +
@@ -4304,11 +4420,12 @@ function initializeChatControlsToggleHandler() {
 
         $dropdown.html(html).show();
         slashState.active = true;
+
+        // Scroll selected item into view
+        scrollToSelected();
     }
 
-    /**
-     * Hide the slash autocomplete dropdown.
-     */
+    // -- Hide dropdown -------------------------------------------------------
     function hideSlashAutocomplete() {
         $('#slash-autocomplete-dropdown').hide();
         slashState.active = false;
@@ -4316,9 +4433,7 @@ function initializeChatControlsToggleHandler() {
         slashState.selectedIndex = 0;
     }
 
-    /**
-     * Navigate the slash autocomplete dropdown (up/down).
-     */
+    // -- Navigate (up/down) --------------------------------------------------
     function navigateSlashAutocomplete(direction) {
         var newIndex = slashState.selectedIndex + direction;
         if (newIndex < 0) newIndex = slashState.results.length - 1;
@@ -4326,31 +4441,33 @@ function initializeChatControlsToggleHandler() {
 
         slashState.selectedIndex = newIndex;
 
-        // Update visual highlight
         var $items = $('#slash-autocomplete-dropdown .slash-ac-item');
         $items.css('background-color', '');
         $items.eq(newIndex).css('background-color', '#e9ecef');
 
-        // Scroll into view
-        var $dropdown = $('#slash-autocomplete-dropdown');
-        var $selected = $items.eq(newIndex);
-        if ($selected.length) {
-            var itemTop = $selected.position().top;
-            var itemHeight = $selected.outerHeight();
-            var dropdownHeight = $dropdown.height();
-            var scrollTop = $dropdown.scrollTop();
+        scrollToSelected();
+    }
 
-            if (itemTop < 0) {
-                $dropdown.scrollTop(scrollTop + itemTop);
-            } else if (itemTop + itemHeight > dropdownHeight) {
-                $dropdown.scrollTop(scrollTop + itemTop + itemHeight - dropdownHeight);
-            }
+    // -- Scroll selected item into view --------------------------------------
+    function scrollToSelected() {
+        var $dropdown = $('#slash-autocomplete-dropdown');
+        var $items = $dropdown.find('.slash-ac-item');
+        var $selected = $items.eq(slashState.selectedIndex);
+        if (!$selected.length) return;
+
+        var itemTop = $selected.position().top;
+        var itemHeight = $selected.outerHeight();
+        var dropdownHeight = $dropdown.height();
+        var scrollTop = $dropdown.scrollTop();
+
+        if (itemTop < 0) {
+            $dropdown.scrollTop(scrollTop + itemTop);
+        } else if (itemTop + itemHeight > dropdownHeight) {
+            $dropdown.scrollTop(scrollTop + itemTop + itemHeight - dropdownHeight);
         }
     }
 
-    /**
-     * Select a slash autocomplete item and insert it into the textarea.
-     */
+    // -- Select item and insert into textarea --------------------------------
     function selectSlashItem(index) {
         if (index < 0 || index >= slashState.results.length) return;
 
@@ -4360,33 +4477,28 @@ function initializeChatControlsToggleHandler() {
         var slashPos = slashState.slashPosition;
         var cursorPos = $textarea[0].selectionStart;
 
-        // Replace /prefix with /command followed by a space
         var replacement = '/' + item.command + ' ';
         var newText = text.substring(0, slashPos) + replacement + text.substring(cursorPos);
 
         $textarea.val(newText);
 
-        // Set cursor position after the inserted command
         var newCursorPos = slashPos + replacement.length;
         $textarea[0].setSelectionRange(newCursorPos, newCursorPos);
         $textarea.focus();
-
-        // Trigger input event to update textarea height
         $textarea.trigger('input');
 
         hideSlashAutocomplete();
     }
 
-    // Helper: escape HTML (use existing or define simple version)
+    // -- Escape HTML ---------------------------------------------------------
     function escapeHtml(str) {
         if (!str) return '';
         return str.replace(/&/g, '&amp;').replace(/</g, '&lt;')
                   .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
     }
 
-    // Initialize when document is ready
+    // -- Initialize on DOM ready ---------------------------------------------
     $(document).ready(function() {
-        // Small delay to ensure messageText textarea exists
         setTimeout(initAutocomplete, 600);
     });
 })();

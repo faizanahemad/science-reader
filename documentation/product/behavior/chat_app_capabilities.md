@@ -814,6 +814,62 @@ Four slash commands for creating PKB memories and objects directly from the chat
 
 ---
 
+---
+
+### 6e) Slash Command System & Autocomplete
+
+**What it does**
+
+A comprehensive slash command system that provides per-turn overrides for all chat settings, model/agent/preamble selection, and action commands — all surfaced through a fuzzy-match autocomplete dropdown. Follows the design principle: `@` for information elements (PKB claims, docs, cross-conversation refs), `/` for functionality (actions, toggles, selections).
+
+**Command categories (7)**
+
+| Category | Commands | Behavior |
+|----------|----------|----------|
+| Actions | `/search`, `/scholar`, `/image`, `/draw`, `/execute`, `/ensemble`, `/more`, `/delete`, `/clarify`, `/history N`, `/detailed N` | Boolean toggles or value-capture. Original slash commands. |
+| Enable/Disable | `/enable_search`, `/disable_pkb`, `/enable_tools`, `/disable_opencode`, etc. (14 pairs) | Per-turn override of any Basic Options checkbox. `/enable_X` sets the flag to `true`, `/disable_X` to `false`. |
+| Models | `/model_gpt-5.4`, `/model_opus_4.6`, `/model_sonnet_4.6`, etc. | Selects a model for this turn only. **Replaces** the modal selection. Sets `checkboxes.main_model = [canonical_name]`. |
+| Agents | `/agent_perplexity_search`, `/agent_web_search`, `/agent_none`, etc. | Selects an agent for this turn only. **Replaces** the modal selection. Sets `checkboxes.field = canonical_name`. |
+| Preambles | `/preamble_short`, `/preamble_diagram`, `/preamble_creative`, etc. | Adds a preamble for this turn. **Additive** — stacks with existing preamble selection from the modal. Appends to `checkboxes.preamble_options`. |
+| PKB | `/create-memory`, `/create-simple-memory`, `/create-entity`, `/create-context` | Client-side intercepted. See section 6d. |
+| OpenCode | `/compact`, `/abort`, `/new`, `/sessions`, `/fork`, `/summarize`, `/status`, `/diff`, `/revert`, `/mcp`, `/models`, `/help` | Only when OpenCode enabled. Forwarded to OpenCode session. |
+
+**Autocomplete**
+
+- **Trigger**: Typing `/` (0-character minimum — shows all commands immediately, unlike `@` which requires characters).
+- **Data source**: Cached from `GET /api/slash_commands` on page load. No network calls during typing.
+- **Fuzzy matching**: Sequential character matching with scoring (ported from `file-browser-manager.js` `_fuzzyMatch`). Supports exact substring, word-boundary, and out-of-order character matching with gap penalties.
+- **Display**: 5 items max visible with scroll, grouped by category with thin separator headers. Match characters highlighted in bold blue.
+- **Selection**: First item pre-selected. Arrow keys navigate, Enter/Tab to apply, Escape to dismiss.
+- **Dynamic content**: Model, agent, and preamble lists are generated dynamically from the settings modal `<option>` elements, so the autocomplete stays current when the modal options change.
+
+**Name resolution**
+
+Slash commands like `/model_opus_4.6` use short names. `_resolveSlashCatalogName()` in `parseMessageForCheckBoxes.js` maps these to canonical names (e.g., `Opus 4.6`, `openai/gpt-5.4`) using the cached catalog from `GET /api/slash_commands`. If no match is found, the raw token is used as-is.
+
+**Merge behavior (slash vs. modal)**
+
+`mergeOptions()` in `parseMessageForCheckBoxes.js` combines slash command flags with the current modal settings. Slash commands always take precedence over modal state. For models and agents this is a replacement; for preambles it is additive (slash preambles are appended to the modal-selected preambles).
+
+**`@pkb` legacy prefix**
+
+The `@pkb:claim_id` prefix is supported as a legacy alias alongside `@memory:` and `@mem:` for PKB claim references in chat messages.
+
+**API**
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/slash_commands` | `GET` | Returns full command catalog as JSON (7 categories, dynamic model/agent/preamble lists). Called once on page load. Rate limit: 10/min. |
+
+**Key files**
+
+- `endpoints/slash_commands.py` — Backend catalog endpoint (478 lines). Builds catalog from `VISIBLE_MODELS`, `VISIBLE_AGENTS`, `VISIBLE_PREAMBLES`, `ENABLE_DISABLE_SETTINGS`, `ACTION_COMMANDS` lists.
+- `interface/parseMessageForCheckBoxes.js` — Slash command parsing: `processCommand()` calls for all commands, `_resolveSlashCatalogName()` for name resolution, `mergeOptions()` for slash-vs-modal merge.
+- `interface/common-chat.js` — Slash autocomplete IIFE v2 (414 lines): `_fuzzyMatch()`, cached catalog fetch, dropdown rendering with category headers and match highlighting.
+- `endpoints/__init__.py` — Blueprint registration for `slash_commands_bp`.
+
+**Docs:** `documentation/features/slash_command_system.md`
+
 ### 7) “Doubt clearing” as a first-class workflow
 
 **What it does**
