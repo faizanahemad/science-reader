@@ -12,12 +12,14 @@ import logging
 from flask import Blueprint, jsonify, request, session
 
 from database.conversations import checkConversationExists
-from database.sections import bulk_update_section_hidden_detail, get_section_hidden_details
+from database.sections import bulk_update_section_hidden_detail, get_all_section_hidden_details, get_section_hidden_details
 from endpoints.auth import login_required
 from endpoints.responses import json_error
 from endpoints.session_utils import get_session_identity
 from endpoints.state import get_state
 from extensions import limiter
+from endpoints.request_context import get_conversation_with_keys
+from endpoints.utils import keyParser
 
 
 sections_bp = Blueprint("sections", __name__)
@@ -133,4 +135,57 @@ def update_section_hidden_details_route():
         logger.error(f"Error updating section hidden details: {str(e)}")
         return json_error(str(e), status=500, code="internal_error")
 
+
+@sections_bp.route("/get_conversation_ui_state/<conversation_id>", methods=["GET"])
+@limiter.limit("100 per minute")
+@login_required
+def get_conversation_ui_state(conversation_id: str):
+    """
+    Unified endpoint returning both section-collapse and message show/hide
+    states for a conversation in a single response.
+
+    Returns
+    -------
+    JSON
+        {
+            "conversation_id": "conv_123",
+            "section_details": { section_id: {hidden, created_at, updated_at} },
+            "message_show_hide": { message_id: "show" | "hide" }
+        }
+    """
+
+    email, _name, _loggedin = get_session_identity()
+    state = get_state()
+
+    if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
+        return json_error(
+            "Conversation not found or access denied",
+            status=404,
+            code="conversation_not_found",
+        )
+
+    # 1. Section hidden details — fetch ALL for this conversation
+    section_details = get_all_section_hidden_details(
+        conversation_id=conversation_id,
+        users_dir=state.users_dir,
+        logger=logger,
+    )
+
+    # 2. Message show/hide — extract from conversation message list
+    keys = keyParser(session)
+    conversation = get_conversation_with_keys(
+        state, conversation_id=conversation_id, keys=keys
+    )
+    messages = conversation.get_message_list() or []
+    message_show_hide = {}
+    for msg in messages:
+        mid = msg.get("message_id", "")
+        if mid:
+            message_show_hide[mid] = msg.get("show_hide", "show")
+
+    return jsonify({
+        "conversation_id": conversation_id,
+        "section_details": section_details,
+        "message_show_hide": message_show_hide,
+    })
 

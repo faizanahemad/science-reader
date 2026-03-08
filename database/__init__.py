@@ -86,7 +86,7 @@ from database.doubts import configure_users_dir as configure_doubts_users_dir
 # ---------------------------------------------------------------------------
 # Sections
 # ---------------------------------------------------------------------------
-from database.sections import bulk_update_section_hidden_detail, get_section_hidden_details
+from database.sections import bulk_update_section_hidden_detail, get_all_section_hidden_details, get_section_hidden_details
 from database.sections import configure_users_dir as configure_sections_users_dir
 
 
@@ -162,6 +162,7 @@ __all__ = [
     "get_doubt_history",
     # Sections
     "get_section_hidden_details",
+    "get_all_section_hidden_details",
     "bulk_update_section_hidden_detail",
     # Search index
     "create_search_tables",

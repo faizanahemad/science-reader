@@ -3331,6 +3331,70 @@ function fetchAndApplySectionStates(conversation_id, elem_to_render_in) {
     });
 }
 
+/**
+ * Unified fetch for conversation UI state — section collapse states AND
+ * message show/hide in a single API call.  Replaces the separate
+ * fetchAndApplySectionStates + per-message show_hide restore flow.
+ *
+ * @param {string} conversation_id
+ * @param {HTMLElement} elem_to_render_in  — container to apply section states to (usually #chatView)
+ */
+function fetchConversationUIState(conversation_id, elem_to_render_in) {
+    if (!conversation_id || MOCK_SECTION_STATE_API) return;
+
+    $.ajax({
+        url: '/get_conversation_ui_state/' + encodeURIComponent(conversation_id),
+        method: 'GET',
+        success: function(response) {
+            if (!response) return;
+
+            // --- Apply section hidden states ---
+            if (response.section_details) {
+                var $container = $(elem_to_render_in);
+                $container.find('.section-details').each(function() {
+                    var $el = $(this);
+                    var sectionId = $el.attr('id');
+                    if (!sectionId) return;
+                    var cleanedId = sectionId.replace(/^section-details-/, '');
+                    var data = response.section_details[cleanedId];
+                    if (data && data.hidden) {
+                        $el.prop('open', false);
+                    }
+                });
+            }
+
+            // --- Apply message show/hide states ---
+            if (response.message_show_hide) {
+                var $chatView = $(elem_to_render_in);
+                Object.keys(response.message_show_hide).forEach(function(messageId) {
+                    var showHide = response.message_show_hide[messageId];
+                    var $header = $chatView.find('.card-header[message-id="' + messageId + '"]');
+                    if (!$header.length) return;
+                    var $card = $header.closest('.card.message-card');
+                    var $moreText = $card.find('.more-text');
+                    var $lessText = $card.find('.less-text');
+                    var $showMoreLinks = $card.find('.show-more');
+                    if (!$moreText.length) return;
+
+                    if (showHide === 'show') {
+                        $moreText.show();
+                        $lessText.hide();
+                        $showMoreLinks.each(function() { $(this).text('[hide]'); });
+                    } else if (showHide === 'hide') {
+                        $moreText.hide();
+                        $lessText.show();
+                        $showMoreLinks.each(function() { $(this).text('[show]'); });
+                    }
+                });
+            }
+        },
+        error: function(xhr, status, error) {
+            console.error('Failed to fetch conversation UI state:', error);
+        }
+    });
+}
+
+
 // Helper function to persist section state when toggled
 function persistSectionState(conversation_id, sectionHash, isHidden) {
     // Skip API call if mocking is enabled
@@ -4066,13 +4130,13 @@ ${innerSectionRendered}
         var resolvedConvId = conversation_id || ((typeof ConversationManager !== 'undefined' && ConversationManager && ConversationManager.getActiveConversation() != '') ? ConversationManager.getActiveConversation() : '');
         if (resolvedConvId && !continuous && !MOCK_SECTION_STATE_API) {
             attachSectionListeners(elem_to_render_in);
-            // Debounce fetchAndApplySectionStates — multiple messages render at once,
+            // Debounce fetchConversationUIState — multiple messages render at once,
             // so batch into a single API call after all renders complete
             clearTimeout(window._sectionStateFetchTimer);
             window._sectionStateFetchTimer = setTimeout(function() {
                 var $chatView = $('#chatView');
                 if ($chatView.length) {
-                    fetchAndApplySectionStates(resolvedConvId, $chatView[0]);
+                    fetchConversationUIState(resolvedConvId, $chatView[0]);
                 }
             }, 300);
         }

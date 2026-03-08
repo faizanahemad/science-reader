@@ -144,4 +144,47 @@ def bulk_update_section_hidden_detail(
     finally:
         conn.close()
 
+def get_all_section_hidden_details(
+    *,
+    conversation_id: str,
+    users_dir: str | None = None,
+    logger: logging.Logger | None = None,
+) -> dict[str, dict]:
+    """
+    Retrieve ALL hidden details for a conversation (no section_ids filter).
+
+    Returns
+    -------
+    dict[str, dict]
+        Mapping ``section_id -> {hidden, created_at, updated_at}`` for every
+        section row stored for the given conversation.
+    """
+
+    log = logger or logging.getLogger(__name__)
+    users_dir_resolved = _resolve_users_dir(users_dir)
+    conn = create_connection(_db_path(users_dir=users_dir_resolved))
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            """
+            SELECT section_id, hidden, created_at, updated_at
+            FROM SectionHiddenDetails
+            WHERE conversation_id = ?
+            """,
+            (conversation_id,),
+        )
+        rows = cur.fetchall()
+
+        section_details: dict[str, dict] = {}
+        for row in rows:
+            section_details[row[0]] = {"hidden": bool(row[1]), "created_at": row[2], "updated_at": row[3]}
+
+        log.info(f"Retrieved all {len(section_details)} section details for conversation {conversation_id}")
+        return section_details
+    except Exception as e:
+        log.error(f"Error getting all section hidden details: {e}")
+        raise
+    finally:
+        conn.close()
+
 
