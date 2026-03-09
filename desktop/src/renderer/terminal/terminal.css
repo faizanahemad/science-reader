@@ -1,0 +1,208 @@
+/* Terminal module — Catppuccin Mocha theme */
+
+/* ── Reset & Container ──────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  background: #1e1e2e; /* Base */
+  color: #cdd6f4;       /* Text */
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px;
+}
+
+#terminal-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+}
+
+/* ── Tab Bar ─────────────────────────────────────────────── */
+#tab-bar {
+  display: flex;
+  align-items: center;
+  background: #181825; /* Mantle */
+  min-height: 32px;
+  max-height: 32px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  user-select: none;
+  -webkit-app-region: no-drag;
+}
+
+#tab-bar::-webkit-scrollbar { height: 2px; }
+#tab-bar::-webkit-scrollbar-thumb { background: #313244; border-radius: 1px; }
+#tab-bar::-webkit-scrollbar-track { background: transparent; }
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+  color: #a6adc8; /* Subtext0 */
+  font-size: 12px;
+  border-right: 1px solid #11111b; /* Crust */
+  transition: background 0.15s, color 0.15s;
+  flex-shrink: 0;
+}
+
+.tab:hover {
+  background: #313244; /* Surface0 */
+  color: #cdd6f4;
+}
+
+.tab.active {
+  background: #313244; /* Surface0 */
+  color: #cdd6f4;
+}
+
+.tab .tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 3px;
+  font-size: 14px;
+  line-height: 1;
+  color: #6c7086; /* Overlay0 */
+  transition: color 0.15s, background 0.15s;
+}
+
+.tab .tab-close:hover {
+  color: #f38ba8; /* Red */
+  background: rgba(243, 139, 168, 0.15);
+}
+
+#tab-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  min-width: 28px;
+  height: 28px;
+  margin: 2px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  color: #6c7086; /* Overlay0 */
+  font-size: 16px;
+  transition: color 0.15s, background 0.15s;
+  flex-shrink: 0;
+}
+
+#tab-add:hover {
+  color: #a6e3a1; /* Green */
+  background: rgba(166, 227, 161, 0.1);
+}
+
+/* ── Pane Container ──────────────────────────────────────── */
+#pane-container {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+.pane-split {
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
+
+.pane-split.horizontal { flex-direction: column; }
+.pane-split.vertical   { flex-direction: row; }
+
+.pane-divider {
+  flex-shrink: 0;
+  background: #313244; /* Surface0 */
+  z-index: 1;
+}
+
+.pane-split.vertical > .pane-divider {
+  width: 2px;
+  cursor: col-resize;
+}
+
+.pane-split.horizontal > .pane-divider {
+  height: 2px;
+  cursor: row-resize;
+}
+
+.pane-leaf {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.pane-leaf.focused {
+  outline: 1px solid #89b4fa; /* Blue */
+  outline-offset: -1px;
+}
+
+.pane-leaf .xterm {
+  width: 100%;
+  height: 100%;
+}
+
+/* ── Search Bar ──────────────────────────────────────────── */
+.search-overlay {
+  position: absolute;
+  top: 4px;
+  right: 8px;
+  z-index: 100;
+  display: none;
+  background: #313244;
+  border: 1px solid #45475a;
+  border-radius: 6px;
+  padding: 6px 8px;
+  gap: 4px;
+  align-items: center;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+
+.search-overlay.visible {
+  display: flex;
+}
+
+.search-overlay input {
+  background: #1e1e2e;
+  border: 1px solid #45475a;
+  border-radius: 4px;
+  color: #cdd6f4;
+  padding: 3px 8px;
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+  width: 200px;
+}
+
+.search-overlay input:focus {
+  border-color: #89b4fa;
+}
+
+.search-overlay button {
+  background: transparent;
+  border: 1px solid #45475a;
+  border-radius: 4px;
+  color: #cdd6f4;
+  cursor: pointer;
+  padding: 3px 8px;
+  font-size: 11px;
+  transition: background 0.15s;
+}
+
+.search-overlay button:hover {
+  background: #45475a;
+}
+
+/* ── xterm overrides ─────────────────────────────────────── */
+.xterm { padding: 4px; }
+.xterm-viewport::-webkit-scrollbar { width: 8px; }
+.xterm-viewport::-webkit-scrollbar-thumb { background: #45475a; border-radius: 4px; }
+.xterm-viewport::-webkit-scrollbar-track { background: transparent; }

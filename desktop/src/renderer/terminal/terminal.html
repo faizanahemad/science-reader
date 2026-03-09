@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; font-src 'self';" />
+  <title>Terminal</title>
+  <link rel="stylesheet" href="../../node_modules/@xterm/xterm/css/xterm.css" />
+  <link rel="stylesheet" href="terminal.css" />
+</head>
+<body>
+  <div id="terminal-root">
+    <div id="tab-bar">
+      <!-- tabs injected here -->
+      <div id="tab-add" title="New Terminal (⌘N)">+</div>
+    </div>
+    <div id="pane-container"></div>
+  </div>
+  <script type="module" src="terminal.js"></script>
+</body>
+</html>

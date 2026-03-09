@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>Science Reader PopBar</title>
+  <link rel="stylesheet" href="popbar.css">
+  <link rel="stylesheet" href="../../../node_modules/highlight.js/styles/github-dark.css">
+</head>
+<body>
+  <div class="popbar">
+    <div class="popbar-drag-handle" title="Drag to reposition"></div>
+    <div class="popbar-actions">
+      <button type="button" data-action="ask" title="Quick Ask (1)" class="popbar-btn active">💬</button>
+      <button type="button" data-action="memory-save" title="Save to Memory (2)" class="popbar-btn">🧠</button>
+      <button type="button" data-action="explain" title="Explain (3)" class="popbar-btn">📖</button>
+      <button type="button" data-action="summarize" title="Summarize (4)" class="popbar-btn">📝</button>
+      <button type="button" data-action="screenshot" title="Screenshot (5)" class="popbar-btn">📸</button>
+      <button type="button" data-action="memory-search" title="Search Memory (6)" class="popbar-btn">🗂</button>
+      <button type="button" data-action="context" title="Context (7)" class="popbar-btn">🔗</button>
+      <button type="button" data-action="generate-image" title="Generate Image (8)" class="popbar-btn">🎨</button>
+      <!-- Configurable slots (hidden by default) -->
+      <button type="button" data-action="slot-a" title="Slot A" class="popbar-btn popbar-btn-slot" style="display:none"></button>
+      <button type="button" data-action="slot-b" title="Slot B" class="popbar-btn popbar-btn-slot" style="display:none"></button>
+    </div>
+    <div class="popbar-input-area">
+      <input type="text" class="popbar-input" placeholder="Ask anything..." />
+      <button type="button" class="popbar-model-btn" title="Model selector">▾</button>
+    </div>
+  </div>
+  <div class="popbar-context-chips"></div>
+  <div id="popbar-dropdown" class="popbar-dropdown"></div>
+
+  <script src="popbar.js"></script>
+  <script src="dropdown.js"></script>
+  <script src="autocomplete.js"></script>
+</body>
+</html>

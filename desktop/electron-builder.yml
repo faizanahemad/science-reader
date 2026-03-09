@@ -1,0 +1,24 @@
+appId: site.assist-chat.desktop
+productName: Science Reader
+directories:
+  buildResources: build
+  output: dist
+files:
+  - src/**/*
+  - package.json
+asarUnpack:
+  - node_modules/node-pty/**/*
+  - node_modules/@jitsi/robotjs/**/*
+npmRebuild: false
+mac:
+  category: public.app-category.productivity
+  icon: build/icon.icns
+  target:
+    - dmg
+    - zip
+  hardenedRuntime: false
+  extendInfo:
+    NSAudioCaptureUsageDescription: "Science Reader uses the microphone for voice input transcription."
+    NSMicrophoneUsageDescription: "Science Reader uses the microphone for voice input transcription."
+    NSAppleEventsUsageDescription: "Science Reader uses AppleScript for window management and automation."
+    NSAccessibilityUsageDescription: "Science Reader uses Accessibility APIs to read text from other applications."

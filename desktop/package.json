@@ -1,0 +1,79 @@
+{
+  "name": "science-reader-desktop",
+  "version": "0.1.0",
+  "description": "Science Reader Desktop Companion",
+  "type": "module",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder",
+    "postinstall": "electron-builder install-app-deps && npx @electron/rebuild -f -w node-pty -w @jitsi/robotjs && npm run build:native",
+    "build:native": "cd native/services && node-gyp rebuild --target=$(npx electron --version | sed 's/v//') --arch=arm64 --dist-url=https://electronjs.org/headers && cd ../../native/accessibility && node-gyp rebuild --target=$(npx electron --version | sed 's/v//') --arch=arm64 --dist-url=https://electronjs.org/headers"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "zod": "^3.25.67",
+    "fast-glob": "^3.3.3",
+    "node-pty": "1.1.0",
+    "@jitsi/robotjs": "0.6.21",
+    "electron-store": "11.0.2",
+    "chokidar": "5.0.0",
+    "@xterm/xterm": "6.0.0",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/addon-web-links": "0.12.0",
+    "@xterm/addon-search": "0.16.0",
+    "@xterm/addon-webgl": "0.18.0",
+    "marked": "17.0.4",
+    "highlight.js": "11.11.1",
+    "node-addon-api": "^8.3.1",
+    "tesseract.js": "^5.1.1"
+  },
+  "devDependencies": {
+    "electron": "40.8.0",
+    "@electron/rebuild": "4.0.3",
+    "electron-builder": "26.8.2"
+  },
+  "build": {
+    "appId": "com.sciencereader.desktop",
+    "productName": "Science Reader",
+    "mac": {
+      "target": "dmg",
+      "extendInfo": {
+        "NSServices": [
+          {
+            "NSMenuItem": { "default": "Science Reader: Save to Memory" },
+            "NSMessage": "saveToMemory",
+            "NSSendTypes": ["NSPasteboardTypeString", "NSStringPboardType"]
+          },
+          {
+            "NSMenuItem": { "default": "Science Reader: Ask About This" },
+            "NSMessage": "askAboutThis",
+            "NSSendTypes": ["NSPasteboardTypeString", "NSStringPboardType"]
+          },
+          {
+            "NSMenuItem": { "default": "Science Reader: Explain" },
+            "NSMessage": "explainText",
+            "NSSendTypes": ["NSPasteboardTypeString", "NSStringPboardType"]
+          },
+          {
+            "NSMenuItem": { "default": "Science Reader: Summarize" },
+            "NSMessage": "summarizeText",
+            "NSSendTypes": ["NSPasteboardTypeString", "NSStringPboardType"]
+          },
+          {
+            "NSMenuItem": { "default": "Science Reader: Send to Chat" },
+            "NSMessage": "sendToChat",
+            "NSSendTypes": ["NSPasteboardTypeString", "NSStringPboardType"]
+          },
+          {
+            "NSMenuItem": { "default": "Science Reader: Run Prompt..." },
+            "NSMessage": "runPrompt",
+            "NSSendTypes": ["NSPasteboardTypeString", "NSStringPboardType"]
+          }
+        ],
+        "NSAudioCaptureUsageDescription": "Science Reader needs microphone access for voice dictation.",
+        "NSAccessibilityUsageDescription": "Science Reader needs accessibility access for text selection and context awareness."
+      }
+    }
+  }
+}

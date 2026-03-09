@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src http://127.0.0.1:*;">
+  <title>OpenCode</title>
+  <link rel="stylesheet" href="opencode.css">
+</head>
+<body>
+  <!-- ── Header Bar: Directory Picker + Status + Actions ── -->
+  <header id="oc-header">
+    <div id="oc-dir-picker">
+      <button id="oc-dir-btn" type="button" title="Select working directory">
+        <span id="oc-dir-icon" class="icon">📁</span>
+        <span id="oc-dir-path">No directory selected</span>
+        <span id="oc-dir-chevron" class="icon chevron">▾</span>
+      </button>
+
+      <!-- Dropdown for recent / pinned dirs -->
+      <div id="oc-dir-dropdown" class="dropdown hidden">
+        <section id="oc-pinned-section" class="dropdown-section hidden">
+          <h4 class="dropdown-heading"><span class="icon star">★</span> Pinned</h4>
+          <ul id="oc-pinned-list" class="dir-list"></ul>
+        </section>
+        <section id="oc-recent-section" class="dropdown-section hidden">
+          <h4 class="dropdown-heading"><span class="icon clock">🕐</span> Recent</h4>
+          <ul id="oc-recent-list" class="dir-list"></ul>
+        </section>
+        <div class="dropdown-footer">
+          <button id="oc-browse-btn" type="button" class="footer-btn">Browse…</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="oc-status-area">
+      <span id="oc-status-dot" class="status-dot disconnected"></span>
+      <span id="oc-status-text">Disconnected</span>
+    </div>
+
+    <div id="oc-actions">
+      <button id="oc-stop-btn" type="button" class="action-btn action-btn-danger" title="Stop OpenCode" disabled>⏹ Stop</button>
+      <button id="oc-restart-btn" type="button" class="action-btn" title="Restart OpenCode" disabled>⟳ Restart</button>
+    </div>
+  </header>
+
+  <!-- ── Error Banner ── -->
+  <div id="oc-error-banner" class="hidden">
+    <span id="oc-error-msg"></span>
+    <button id="oc-error-restart-btn" type="button" class="action-btn">Restart</button>
+    <button id="oc-error-dismiss-btn" type="button" class="dismiss-btn">✕</button>
+  </div>
+
+  <!-- ── Main Content Area: Placeholder for WebContentsView ── -->
+  <main id="oc-content">
+    <div id="oc-placeholder">
+      <div class="placeholder-icon">⌨</div>
+      <h2>OpenCode</h2>
+      <p>Select a working directory to start an OpenCode session.</p>
+      <button id="oc-start-btn" type="button" class="primary-btn">Choose Directory…</button>
+      <p id="oc-not-found-msg" class="error-text hidden">
+        OpenCode CLI not found. Install it with:<br>
+        <code>npm i -g opencode</code>
+      </p>
+    </div>
+    <!-- WebContentsView will be mounted here by the main process -->
+    <div id="oc-webview-container" class="hidden"></div>
+  </main>
+
+  <script src="opencode.js"></script>
+</body>
+</html>

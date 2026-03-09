@@ -1,0 +1,467 @@
+/*
+ * opencode.css — Catppuccin Mocha themed styles for the OpenCode tab.
+ *
+ * Color palette (Catppuccin Mocha):
+ *   Base:     #1e1e2e    Mantle:   #181825    Crust:    #11111b
+ *   Surface0: #313244    Surface1: #45475a    Surface2: #585b70
+ *   Text:     #cdd6f4    Subtext1: #bac2de    Subtext0: #a6adc8
+ *   Green:    #a6e3a1    Red:      #f38ba8    Yellow:   #f9e2af
+ *   Blue:     #89b4fa    Overlay0: #6c7086
+ */
+
+/* ── Reset & Base ──────────────────────────────────────────────────── */
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, sans-serif;
+  font-size: 13px;
+  color: #cdd6f4;
+  background: #1e1e2e;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Header Bar ────────────────────────────────────────────────────── */
+
+#oc-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: #181825;
+  border-bottom: 1px solid #313244;
+  flex-shrink: 0;
+  z-index: 100;
+  -webkit-app-region: no-drag;
+}
+
+/* ── Directory Picker ──────────────────────────────────────────────── */
+
+#oc-dir-picker {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+
+#oc-dir-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 8px;
+  background: #313244;
+  border: 1px solid #45475a;
+  border-radius: 6px;
+  color: #cdd6f4;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  text-align: left;
+}
+
+#oc-dir-btn:hover {
+  background: #45475a;
+  border-color: #585b70;
+}
+
+#oc-dir-path {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.icon {
+  flex-shrink: 0;
+  font-size: 14px;
+}
+
+.chevron {
+  font-size: 10px;
+  color: #a6adc8;
+}
+
+/* ── Dropdown ──────────────────────────────────────────────────────── */
+
+.dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: #313244;
+  border: 1px solid #45475a;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  max-height: 320px;
+  overflow-y: auto;
+  z-index: 200;
+}
+
+.dropdown.hidden {
+  display: none;
+}
+
+.dropdown-section {
+  padding: 4px 0;
+}
+
+.dropdown-section.hidden {
+  display: none;
+}
+
+.dropdown-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #a6adc8;
+}
+
+.dropdown-heading .star {
+  color: #f9e2af;
+}
+
+.dropdown-heading .clock {
+  font-size: 12px;
+}
+
+.dir-list {
+  list-style: none;
+}
+
+.dir-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.dir-item:hover {
+  background: #45475a;
+}
+
+.dir-item-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.dir-item-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: #cdd6f4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dir-item-path {
+  font-size: 10px;
+  color: #a6adc8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dir-item .pin-btn {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: #6c7086;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: color 0.15s;
+}
+
+.dir-item .pin-btn:hover {
+  color: #f9e2af;
+}
+
+.dir-item .pin-btn.pinned {
+  color: #f9e2af;
+}
+
+.dropdown-footer {
+  padding: 6px 8px;
+  border-top: 1px solid #45475a;
+}
+
+.footer-btn {
+  width: 100%;
+  padding: 6px;
+  background: #45475a;
+  border: none;
+  border-radius: 6px;
+  color: #cdd6f4;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.footer-btn:hover {
+  background: #585b70;
+}
+
+/* ── Status Indicator ──────────────────────────────────────────────── */
+
+#oc-status-area {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  padding: 0 6px;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.status-dot.connected {
+  background: #a6e3a1;
+  box-shadow: 0 0 6px rgba(166, 227, 161, 0.4);
+}
+
+.status-dot.disconnected {
+  background: #6c7086;
+}
+
+.status-dot.starting {
+  background: #f9e2af;
+  box-shadow: 0 0 6px rgba(249, 226, 175, 0.4);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+.status-dot.error {
+  background: #f38ba8;
+  box-shadow: 0 0 6px rgba(243, 139, 168, 0.4);
+}
+
+#oc-status-text {
+  font-size: 11px;
+  color: #a6adc8;
+  white-space: nowrap;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* ── Action Buttons ────────────────────────────────────────────────── */
+
+#oc-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.action-btn {
+  padding: 4px 10px;
+  background: #45475a;
+  border: 1px solid #585b70;
+  border-radius: 6px;
+  color: #cdd6f4;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  white-space: nowrap;
+}
+
+.action-btn:hover:not(:disabled) {
+  background: #585b70;
+  border-color: #6c7086;
+}
+
+.action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.action-btn-danger {
+  border-color: rgba(243, 139, 168, 0.4);
+}
+
+.action-btn-danger:hover:not(:disabled) {
+  background: rgba(243, 139, 168, 0.2);
+  border-color: #f38ba8;
+  color: #f38ba8;
+}
+
+/* ── Error Banner ──────────────────────────────────────────────────── */
+
+#oc-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(243, 139, 168, 0.12);
+  border-bottom: 1px solid rgba(243, 139, 168, 0.25);
+  color: #f38ba8;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+#oc-error-banner.hidden {
+  display: none;
+}
+
+#oc-error-msg {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dismiss-btn {
+  background: none;
+  border: none;
+  color: #f38ba8;
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  border-radius: 4px;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+
+.dismiss-btn:hover {
+  opacity: 1;
+}
+
+/* ── Main Content ──────────────────────────────────────────────────── */
+
+#oc-content {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+}
+
+/* ── Placeholder (no session) ──────────────────────────────────────── */
+
+#oc-placeholder {
+  text-align: center;
+  padding: 32px 24px;
+  max-width: 360px;
+}
+
+#oc-placeholder.hidden {
+  display: none;
+}
+
+.placeholder-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+  opacity: 0.6;
+}
+
+#oc-placeholder h2 {
+  font-size: 18px;
+  font-weight: 600;
+  color: #cdd6f4;
+  margin-bottom: 8px;
+}
+
+#oc-placeholder p {
+  font-size: 13px;
+  color: #a6adc8;
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+.primary-btn {
+  padding: 8px 20px;
+  background: #89b4fa;
+  border: none;
+  border-radius: 8px;
+  color: #1e1e2e;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.1s;
+}
+
+.primary-btn:hover {
+  background: #74c7ec;
+}
+
+.primary-btn:active {
+  transform: scale(0.97);
+}
+
+.error-text {
+  color: #f38ba8;
+  font-size: 12px;
+  margin-top: 12px;
+}
+
+.error-text.hidden {
+  display: none;
+}
+
+.error-text code {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 3px 8px;
+  background: #313244;
+  border-radius: 4px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  color: #f9e2af;
+}
+
+/* ── WebView Container ─────────────────────────────────────────────── */
+
+#oc-webview-container {
+  position: absolute;
+  inset: 0;
+  background: #1e1e2e;
+}
+
+#oc-webview-container.hidden {
+  display: none;
+}
+
+/* ── Scrollbar Styling ─────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #45475a;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #585b70;
+}

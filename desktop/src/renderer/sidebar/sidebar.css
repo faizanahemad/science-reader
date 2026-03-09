@@ -1,0 +1,399 @@
+/* Catppuccin Mocha palette */
+:root {
+  --ctp-base: #1e1e2e;
+  --ctp-mantle: #181825;
+  --ctp-crust: #11111b;
+  --ctp-surface0: #313244;
+  --ctp-surface1: #45475a;
+  --ctp-surface2: #585b70;
+  --ctp-overlay0: #6c7086;
+  --ctp-text: #cdd6f4;
+  --ctp-subtext0: #a6adc8;
+  --ctp-blue: #89b4fa;
+  --ctp-lavender: #b4befe;
+  --ctp-red: #f38ba8;
+  --ctp-green: #a6e3a1;
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 13px;
+  color: var(--ctp-text);
+  background: var(--ctp-base);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Layout ── */
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Tab bar (also serves as drag region) ── */
+#tab-bar {
+  display: flex;
+  background: var(--ctp-surface0);
+  height: 38px;
+  flex-shrink: 0;
+  -webkit-app-region: drag;
+}
+
+.tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--ctp-subtext0);
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  -webkit-app-region: no-drag;
+  padding: 0 8px;
+}
+
+.tab:hover {
+  background: var(--ctp-surface2);
+  color: var(--ctp-text);
+}
+
+.tab.active {
+  background: var(--ctp-surface1);
+  color: var(--ctp-text);
+  border-bottom-color: var(--ctp-blue);
+}
+
+.tab-icon {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.tab-label {
+  font-weight: 500;
+}
+
+/* ── Tab content ── */
+#tab-content {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  -webkit-app-region: no-drag;
+}
+
+.tab-panel {
+  display: none;
+  position: absolute;
+  inset: 0;
+  overflow: auto;
+}
+
+.tab-panel.active {
+  display: block;
+}
+
+/* ── Settings panel ── */
+.settings-scroll {
+  padding: 12px;
+  overflow-y: auto;
+  height: 100%;
+}
+
+.settings-section {
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--ctp-surface1);
+}
+
+.settings-section:last-child {
+  border-bottom: none;
+}
+
+.settings-heading {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--ctp-subtext0);
+  margin-bottom: 8px;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.settings-label {
+  font-size: 12px;
+  color: var(--ctp-subtext0);
+  white-space: nowrap;
+}
+
+/* Snap buttons inside settings */
+.snap-buttons-settings {
+  display: flex;
+  gap: 3px;
+}
+
+.snap-btn {
+  background: transparent;
+  border: 1px solid var(--ctp-surface1);
+  border-radius: 4px;
+  color: var(--ctp-subtext0);
+  font-size: 14px;
+  width: 28px;
+  height: 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+}
+
+.snap-btn:hover {
+  background: var(--ctp-surface2);
+  color: var(--ctp-text);
+}
+
+.snap-btn.active {
+  background: var(--ctp-surface1);
+  color: var(--ctp-blue);
+  border-color: var(--ctp-blue);
+}
+
+/* Dock toggle */
+.dock-toggle-settings {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.dock-toggle-settings .snap-btn {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+}
+
+.dock-toggle-settings .snap-btn.push-active {
+  background: var(--ctp-surface1);
+  color: var(--ctp-lavender);
+  border-color: var(--ctp-lavender);
+}
+
+/* ── Environment variables ── */
+.env-vars-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+
+.env-var-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.env-var-row input {
+  flex: 1;
+  min-width: 0;
+  background: var(--ctp-mantle);
+  border: 1px solid var(--ctp-surface1);
+  border-radius: 4px;
+  color: var(--ctp-text);
+  font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
+  font-size: 12px;
+  padding: 4px 6px;
+  outline: none;
+}
+
+.env-var-row input:focus {
+  border-color: var(--ctp-blue);
+}
+
+.env-var-row input.env-key {
+  flex: 0.4;
+}
+
+.env-var-row input.env-val {
+  flex: 0.6;
+}
+
+.env-var-row .env-remove-btn {
+  background: transparent;
+  border: none;
+  color: var(--ctp-overlay0);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 4px;
+  border-radius: 3px;
+  line-height: 1;
+}
+
+.env-var-row .env-remove-btn:hover {
+  color: var(--ctp-red);
+  background: var(--ctp-surface0);
+}
+
+/* ── Settings buttons ── */
+.settings-btn {
+  background: var(--ctp-surface0);
+  border: 1px solid var(--ctp-surface1);
+  border-radius: 4px;
+  color: var(--ctp-subtext0);
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.settings-btn:hover {
+  background: var(--ctp-surface2);
+  color: var(--ctp-text);
+}
+
+.settings-btn-sm {
+  font-size: 11px;
+  padding: 3px 8px;
+}
+
+.settings-btn-primary {
+  background: var(--ctp-blue);
+  color: var(--ctp-crust);
+  border-color: var(--ctp-blue);
+  font-weight: 600;
+}
+
+.settings-btn-primary:hover {
+  opacity: 0.9;
+}
+
+.settings-actions {
+  margin-top: 6px;
+}
+
+.config-status {
+  font-size: 11px;
+  margin-left: 6px;
+}
+
+.config-status.success {
+  color: var(--ctp-green);
+}
+
+.config-status.error {
+  color: var(--ctp-red);
+}
+
+/* ── Config editor (textarea) ── */
+.config-editor {
+  width: 100%;
+  min-height: 200px;
+  max-height: 400px;
+  background: var(--ctp-mantle);
+  border: 1px solid var(--ctp-surface1);
+  border-radius: 6px;
+  color: var(--ctp-text);
+  font-family: 'SF Mono', 'Menlo', 'Monaco', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 8px;
+  resize: vertical;
+  outline: none;
+  tab-size: 2;
+}
+
+.config-editor:focus {
+  border-color: var(--ctp-blue);
+}
+
+/* ── Scrollbar styling ── */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--ctp-mantle);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--ctp-surface1);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--ctp-surface2);
+}
+
+/* ── Focus states (M2.1) ── */
+body.focus-hover {
+  opacity: 0.85;
+  transition: opacity 0.2s ease;
+}
+body.focus-hover #tab-bar .tab {
+  pointer-events: auto; /* buttons still clickable */
+}
+body.focus-active {
+  opacity: 1;
+  transition: opacity 0.2s ease;
+}
+/* Active border indicator */
+body.focus-active::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  border: 2px solid var(--ctp-blue);
+  pointer-events: none;
+  z-index: 9999;
+  border-radius: 0;
+}
+
+/* ── M4.1: Drop zone overlay ── */
+.drop-zone-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(137, 180, 250, 0.08);
+  border: 2px dashed var(--ctp-blue);
+  border-radius: 8px;
+  z-index: 10000;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.drop-zone-overlay.active {
+  display: flex;
+}
+
+.drop-zone-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: var(--ctp-blue);
+}
+
+.drop-zone-icon {
+  font-size: 36px;
+}
+
+.drop-zone-label {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--ctp-text);
+}

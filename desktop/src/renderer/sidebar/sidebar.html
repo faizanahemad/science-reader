@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>Science Reader Sidebar</title>
+  <link rel="stylesheet" href="sidebar.css">
+</head>
+<body>
+  <!-- Tab bar (also serves as drag region via CSS) -->
+  <div id="tab-bar">
+    <button class="tab active" data-tab="chat">
+      <span class="tab-icon">💬</span>
+      <span class="tab-label">Chat</span>
+    </button>
+    <button class="tab" data-tab="opencode">
+      <span class="tab-icon">⌨️</span>
+      <span class="tab-label">OpenCode</span>
+    </button>
+    <button class="tab" data-tab="terminal">
+      <span class="tab-icon">&gt;_</span>
+      <span class="tab-label">Terminal</span>
+    </button>
+    <button class="tab" data-tab="settings">
+      <span class="tab-icon">⚙</span>
+      <span class="tab-label">Settings</span>
+    </button>
+  </div>
+
+  <!-- Tab content panels -->
+  <div id="tab-content">
+    <div id="chat-container" class="tab-panel active" data-panel="chat"></div>
+    <div id="opencode-container" class="tab-panel" data-panel="opencode"></div>
+    <div id="terminal-container" class="tab-panel" data-panel="terminal"></div>
+
+    <!-- Settings panel (pure HTML, no WebContentsView) -->
+    <div id="settings-container" class="tab-panel" data-panel="settings">
+      <div class="settings-scroll">
+
+        <!-- Window Position -->
+        <section class="settings-section">
+          <h3 class="settings-heading">Window Position</h3>
+          <div class="settings-row">
+            <div class="snap-buttons-settings">
+              <button class="snap-btn" data-snap="left" title="Snap Left">◧</button>
+              <button class="snap-btn active" data-snap="right" title="Snap Right">◨</button>
+              <button class="snap-btn" data-snap="bottom" title="Snap Bottom">⬓</button>
+              <button class="snap-btn" data-snap="float" title="Float">◻</button>
+            </div>
+            <div class="dock-toggle-settings">
+              <label class="settings-label">Dock:</label>
+              <button id="dock-mode-btn" class="snap-btn" data-dock="overlay" title="Overlay mode (click to push)">O</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Environment Variables -->
+        <section class="settings-section">
+          <h3 class="settings-heading">OpenCode Environment Variables</h3>
+          <div id="env-vars-list" class="env-vars-list">
+            <!-- Rows added dynamically -->
+          </div>
+          <button id="env-add-btn" class="settings-btn settings-btn-sm" title="Add variable">+ Add Variable</button>
+        </section>
+
+        <!-- OpenCode Config -->
+        <section class="settings-section">
+          <h3 class="settings-heading">OpenCode Config (opencode.json)</h3>
+          <textarea id="opencode-config-editor" class="config-editor" spellcheck="false" placeholder="Paste or edit opencode.json here..."></textarea>
+          <div class="settings-row settings-actions">
+            <button id="config-reset-btn" class="settings-btn" title="Reset to default">Reset Default</button>
+            <button id="config-save-btn" class="settings-btn settings-btn-primary" title="Save config">Save</button>
+            <span id="config-status" class="config-status"></span>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- M4.1: Drop zone overlay -->
+  <div id="drop-zone-overlay" class="drop-zone-overlay">
+    <div class="drop-zone-content">
+      <span class="drop-zone-icon">📄</span>
+      <span class="drop-zone-label">Drop to add to Global Docs</span>
+    </div>
+  </div>
+
+  <script src="sidebar.js"></script>
+</body>
+</html>

@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'">
+  <title>Offline</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1e1e2e; /* Catppuccin Mocha Base */
+      color: #cdd6f4;      /* Catppuccin Mocha Text */
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+      text-align: center;
+      padding: 20px;
+    }
+    .icon {
+      font-size: 48px;
+      margin-bottom: 16px;
+      opacity: 0.7;
+    }
+    h1 {
+      font-size: 18px;
+      font-weight: 600;
+      color: #cdd6f4;
+      margin-bottom: 8px;
+    }
+    p {
+      font-size: 14px;
+      color: #a6adc8; /* Catppuccin Mocha Subtext0 */
+      margin-bottom: 24px;
+      line-height: 1.5;
+    }
+    button {
+      background: #89b4fa; /* Catppuccin Mocha Blue */
+      color: #1e1e2e;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 28px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    button:hover {
+      background: #74c7ec; /* Catppuccin Mocha Sapphire */
+    }
+    button:active {
+      background: #89dceb; /* Catppuccin Mocha Sky */
+    }
+  </style>
+</head>
+<body>
+  <div class="icon">⚡</div>
+  <h1>Cannot reach Science Reader server</h1>
+  <p>Check your internet connection and try again.</p>
+  <button type="button" id="retry-btn">Retry</button>
+
+  <script>
+    document.getElementById('retry-btn').addEventListener('click', () => {
+      if (window.electronAPI) {
+        window.electronAPI.send('chat:retry-load')
+      }
+    })
+  </script>
+</body>
+</html>
