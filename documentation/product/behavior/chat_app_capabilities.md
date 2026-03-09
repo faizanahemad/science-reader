@@ -826,7 +826,7 @@ A comprehensive slash command system that provides per-turn overrides for all ch
 
 | Category | Commands | Behavior |
 |----------|----------|----------|
-| Actions | `/search`, `/scholar`, `/image`, `/draw`, `/execute`, `/ensemble`, `/more`, `/delete`, `/clarify`, `/history N`, `/detailed N` | Boolean toggles or value-capture. Original slash commands. |
+| Actions | `/search`, `/scholar`, `/image`, `/draw`, `/execute`, `/ensemble`, `/more`, `/delete`, `/clarify`, `/history N`, `/detailed N`, `/title <text>`, `/temp <text>` | Boolean toggles, value-capture, or backend-only commands. `/title` sets conversation title manually (alias: `/set_title`). `/temp` sends message as temporary/not persisted (alias: `/temporary`). Both handled server-side in `Conversation.reply()`. |
 | Enable/Disable | `/enable_search`, `/disable_pkb`, `/enable_tools`, `/disable_opencode`, etc. (14 pairs) | Per-turn override of any Basic Options checkbox. `/enable_X` sets the flag to `true`, `/disable_X` to `false`. |
 | Models | `/model_gpt-5.4`, `/model_opus_4.6`, `/model_sonnet_4.6`, etc. | Selects a model for this turn only. **Replaces** the modal selection. Sets `checkboxes.main_model = [canonical_name]`. |
 | Agents | `/agent_perplexity_search`, `/agent_web_search`, `/agent_none`, etc. | Selects an agent for this turn only. **Replaces** the modal selection. Sets `checkboxes.field = canonical_name`. |

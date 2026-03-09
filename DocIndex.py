@@ -3384,7 +3384,7 @@ class MultiDocAnswerAgent:
 
         self.docs = docs
         self.api_keys = api_keys
-        self.model_name = model_name or VERY_CHEAP_LLM[0]
+        self.model_name = model_name or (self.docs[0].get_model_override("doc_model", VERY_CHEAP_LLM[0]) if self.docs else VERY_CHEAP_LLM[0])
         self.detail_level = detail_level
 
         # Initialize tiktoken encoder for token counting
@@ -3466,7 +3466,7 @@ class MultiDocAnswerAgent:
         **Reformulated Query:**
         """)
 
-        llm = self._get_llm(CHEAP_LLM[0])
+        llm = self._get_llm()
         reformulated = llm(prompt, temperature=0.3, stream=False)
         return reformulated.strip()
 

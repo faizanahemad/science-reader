@@ -26,6 +26,12 @@ This doc explains how chat messages move from UI to server and back, and how the
 | `/delete` | `delete_last_turn: true` | Deletes the last conversation turn. |
 | `/image <prompt>` | `generate_image: true` | **Image generation and editing.** Strips `/image`, uses remaining text as prompt. Backend intercepts in `Conversation.reply()` and calls `_handle_image_generation()` instead of the normal LLM path. Before calling the image model, detects an input image via two priority rules: (1) image attached to the current message (`query["images"]`), (2) last preceding assistant message with `generated_images` metadata (loaded from disk). If an input image is found, passes it to the model as a multipart content array `[{image_url}, {text}]` for editing/transformation; otherwise pure generation. Gathers conversation context (summary + last 2 messages + deep context), refines the prompt via a cheap LLM, calls Nano Banana 2, stores the PNG in `{conv_storage}/images/`, and streams a markdown image card. Image is downloadable inline and included in LLM vision context on subsequent turns. See `documentation/features/image_generation/README.md`. |
 
+**Backend-only commands** (not parsed by frontend — intercepted in `Conversation.reply()` before the normal LLM path):
+
+| Command | Behavior |
+|---------|----------|
+| `/title <text>` (alias: `/set_title`) | Sets conversation title manually. Bypasses LLM title generation. |
+| `/temp <text>` (alias: `/temporary`) | Sends message as temporary — not persisted to conversation history. |
 **Per-turn enable/disable toggles** (new): `/enable_X` and `/disable_X` commands override any Basic Options checkbox for the current turn only. 14 pairs covering `search`, `pkb`, `tools`, `opencode`, `planner`, `memory_pad`, `auto_clarify`, `persist`, `ppt_answer`, `context_menu`, `slides_inline`, `only_slides`, `render_close`, `search_exact`. Parsed via `processCommand()` in `parseMessageForCheckBoxes.js`.
 
 **Model/Agent/Preamble selection** (new):
