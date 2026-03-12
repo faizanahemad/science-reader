@@ -16,6 +16,7 @@
   const configStatus = document.getElementById('config-status')
   const envVarsList = document.getElementById('env-vars-list')
   const envAddBtn = document.getElementById('env-add-btn')
+  const notifMuteBtn = document.getElementById('notif-mute-btn')
 
   // ── Tab switching ──
   tabs.forEach(tab => {
@@ -39,6 +40,34 @@
         _loadSettings()
       }
     })
+  })
+
+  // ── Manual window drag (drag handle) ──
+  // type:'panel' windows on macOS ignore -webkit-app-region: drag
+  const dragHandle = document.getElementById('drag-handle')
+  let _dragging = false
+  let _dragStartX = 0
+  let _dragStartY = 0
+
+  dragHandle.addEventListener('mousedown', (e) => {
+    _dragging = true
+    _dragStartX = e.screenX
+    _dragStartY = e.screenY
+  })
+
+  document.addEventListener('mousemove', (e) => {
+    if (!_dragging) return
+    const dx = e.screenX - _dragStartX
+    const dy = e.screenY - _dragStartY
+    _dragStartX = e.screenX
+    _dragStartY = e.screenY
+    if (window.electronAPI) {
+      window.electronAPI.send('sidebar:window-drag', { dx, dy })
+    }
+  })
+
+  document.addEventListener('mouseup', () => {
+    _dragging = false
   })
 
   // ── Snap buttons (inside settings) ──
@@ -91,6 +120,79 @@
       dockBtn.title = 'Overlay mode (click to push)'
       dockBtn.classList.remove('push-active')
     }
+  }
+
+  // ── App mode toggle (sidebar ↔ app) ──
+  const appModeBtn = document.getElementById('app-mode-btn')
+
+  if (appModeBtn && window.electronAPI) {
+    appModeBtn.addEventListener('click', () => {
+      const current = appModeBtn.dataset.appmode
+      const next = current === 'sidebar' ? 'app' : 'sidebar'
+      appModeBtn.dataset.appmode = next
+      _updateAppModeBtn(next)
+      window.electronAPI.send('sidebar:app-mode', next)
+    })
+
+    window.electronAPI.on('sidebar:app-mode-changed', (mode) => {
+      appModeBtn.dataset.appmode = mode
+      _updateAppModeBtn(mode)
+    })
+  }
+
+  function _updateAppModeBtn (mode) {
+    if (!appModeBtn) return
+    if (mode === 'app') {
+      appModeBtn.textContent = 'A'
+      appModeBtn.title = 'App mode (click for sidebar)'
+      appModeBtn.classList.add('push-active')
+    } else {
+      appModeBtn.textContent = 'S'
+      appModeBtn.title = 'Sidebar mode (click for app mode)'
+      appModeBtn.classList.remove('push-active')
+    }
+  }
+
+  // ── Notification mute toggle ──
+  if (notifMuteBtn && window.electronAPI) {
+    // Load initial state
+    window.electronAPI.invoke('settings:get-notifications-muted').then((muted) => {
+      _updateNotifMuteBtn(!!muted)
+    })
+
+    notifMuteBtn.addEventListener('click', () => {
+      const current = notifMuteBtn.dataset.muted === 'true'
+      const next = !current
+      _updateNotifMuteBtn(next)
+      window.electronAPI.invoke('settings:set-notifications-muted', next)
+    })
+  }
+
+  function _updateNotifMuteBtn (muted) {
+    if (!notifMuteBtn) return
+    notifMuteBtn.dataset.muted = muted ? 'true' : 'false'
+    notifMuteBtn.textContent = muted ? '🔕' : '🔔'
+    notifMuteBtn.title = muted ? 'Notifications muted (click to unmute)' : 'Notifications on (click to mute)'
+    if (muted) {
+      notifMuteBtn.classList.add('push-active')
+    } else {
+      notifMuteBtn.classList.remove('push-active')
+    }
+  }
+
+  // ── Notification click routing (tab flash from native notification click) ──
+  if (window.electronAPI) {
+    window.electronAPI.on('notification:clicked', (data) => {
+      if (!data || !data.action) return
+      if (data.action.type === 'flash-tab' && data.action.tab) {
+        // Switch to the target tab
+        const targetTab = document.querySelector(`[data-tab="${data.action.tab}"]`)
+        if (targetTab) targetTab.click()
+        // Flash it
+        targetTab?.classList.add('flash-notify')
+        setTimeout(() => targetTab?.classList.remove('flash-notify'), 3000)
+      }
+    })
   }
 
   // ── OpenCode config editor ──

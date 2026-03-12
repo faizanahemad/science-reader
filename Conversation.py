@@ -59,6 +59,7 @@ from agents import (
     PromptWorkflowAgent,
     ManagerAssistAgent,
 )
+from agents.pkb_nl_conversation_agent import PKBNLConversationAgent
 from agents.tts_and_podcast_agent import (
     CodeTTSAgent,
     StreamingCodeTTSAgent,
@@ -6335,6 +6336,15 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 else model_name[0],
                 demo_mode=True,
             )
+        if field == "PKBNLConversationAgent":
+            _user_email = kwargs.get("user_email", "")
+            agent = PKBNLConversationAgent(
+                self.get_api_keys(),
+                model_name=model_name if isinstance(model_name, str) else model_name[0],
+                user_email=_user_email,
+                detail_level=kwargs.get("detail_level", 1),
+                timeout=60,
+            )
         # Handle PPT answer mode - override agent selection if ppt_answer is enabled
         ppt_answer = kwargs.get("ppt_answer", False)
         if ppt_answer:
@@ -6818,6 +6828,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             conversation_id=conversation_id,
             user_email=user_email,
             keys=keys,
+            model_overrides=self.get_conversation_settings().get("model_overrides", {}) if isinstance(self.get_conversation_settings(), dict) else {},
         )
         
         # Messages array for continuation (built up across iterations)
@@ -6903,8 +6914,11 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             
             messages.append(assistant_msg)
             
-            # Execute each tool call
-            tool_round_details = []  # Collect (name, args_summary, result_summary) for collapsible summary
+            # Execute tool calls — parallel for non-interactive, sequential for interactive
+            tool_round_details = []  # Collect (name, args_brief, result_brief, result_len, clarification_qa, exec_dur, total_dur)
+
+            # Pre-process all tool calls: parse args and apply defaults
+            parsed_tool_calls = []
             for tc in tool_calls_in_round:
                 tc_id = tc["id"]
                 tc_name = tc["function"]["name"]
@@ -6918,7 +6932,20 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     tc_args['detail_level'] = 1
                 if tc_name == 'read_link' and 'detailed' not in tc_args:
                     tc_args['detailed'] = False
-                # Notify UI about the tool call
+                parsed_tool_calls.append((tc_id, tc_name, tc_args))
+
+            # Classify tool calls into interactive and non-interactive
+            interactive_calls = []
+            non_interactive_calls = []
+            for tc_id, tc_name, tc_args in parsed_tool_calls:
+                tool_def = TOOL_REGISTRY.get_tool(tc_name)
+                if tool_def and tool_def.is_interactive:
+                    interactive_calls.append((tc_id, tc_name, tc_args))
+                else:
+                    non_interactive_calls.append((tc_id, tc_name, tc_args))
+
+            # --- Notify UI about ALL tool calls first ---
+            for tc_id, tc_name, tc_args in parsed_tool_calls:
                 yield {
                     "text": "", "status": f"Tool call: {tc_name}",
                     "type": "tool_call",
@@ -6926,19 +6953,106 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     "tool_name": tc_name,
                     "tool_input": tc_args,
                 }
-                
-                # Execute the tool
+
+            # --- Execute non-interactive tools in parallel ---
+            # Each thread gets its own ToolContext copy to avoid shared mutable state.
+            # TOOL_REGISTRY.execute() only reads the registry dict (thread-safe) and
+            # calls the handler function with its own args/context.
+            non_interactive_results = {}  # {tc_id: (result, tc_name, tc_args, exec_duration)}
+            if non_interactive_calls:
+                from copy import deepcopy
+                from concurrent.futures import ThreadPoolExecutor, as_completed
+
+                def _execute_tool_in_thread(tc_id, tc_name, tc_args, ctx):
+                    """Execute a single non-interactive tool in its own thread.
+
+                    Each invocation receives a deep-copied ToolContext so that
+                    handlers cannot mutate shared state across threads.
+                    """
+                    exec_start = time.time()
+                    result = TOOL_REGISTRY.execute(tc_name, tc_args, ctx, tool_call_id=tc_id)
+                    exec_dur = round(time.time() - exec_start, 2)
+                    return tc_id, tc_name, tc_args, result, exec_dur
+
+                # Yield 'executing' status for all non-interactive tools
+                for tc_id, tc_name, tc_args in non_interactive_calls:
+                    yield {
+                        "text": "", "status": f"Executing tool: {tc_name}...",
+                        "type": "tool_status", "tool_id": tc_id,
+                        "tool_name": tc_name,
+                        "tool_status": "executing",
+                    }
+
+                parallel_start = time.time()
+                # Use at most 5 threads — more would be wasteful for typical 2-3 tool calls
+                max_workers = min(len(non_interactive_calls), 5)
+                futures = {}
+                with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                    for tc_id, tc_name, tc_args in non_interactive_calls:
+                        # Deep-copy context so each thread has its own isolated state
+                        thread_ctx = deepcopy(tool_context)
+                        fut = pool.submit(_execute_tool_in_thread, tc_id, tc_name, tc_args, thread_ctx)
+                        futures[fut] = tc_id
+
+                    for fut in as_completed(futures):
+                        tc_id_done, tc_name_done, tc_args_done, result_done, exec_dur_done = fut.result()
+                        non_interactive_results[tc_id_done] = (result_done, tc_name_done, tc_args_done, exec_dur_done)
+
+                parallel_duration = round(time.time() - parallel_start, 2)
+                logger.warning('[_run_tool_loop] Parallel execution of %d non-interactive tools completed in %.2fs',
+                                len(non_interactive_calls), parallel_duration)
+
+            # --- Emit results for non-interactive tools (in original call order) ---
+            for tc_id, tc_name, tc_args in non_interactive_calls:
+                result, _, _, exec_dur = non_interactive_results[tc_id]
+                tool_result_text = result.result
+                tool_total_duration = exec_dur  # No user wait for non-interactive
+                tool_exec_duration = exec_dur
+
+                result_len = len(tool_result_text)
+                result_summary = tool_result_text[:200] + '...' if result_len > 200 else tool_result_text
+                logger.warning('[_run_tool_loop] Tool %s completed | result_len=%d chars | duration=%.2fs | result_preview=%s',
+                                tc_name, result_len, tool_total_duration, tool_result_text[:100].replace('\n', ' '))
+                yield {
+                    'text': '', 'status': f'Tool {tc_name} completed (result: {result_len} chars, {tool_total_duration:.1f}s)',
+                    'type': 'tool_result',
+                    'tool_id': tc_id,
+                    'tool_name': tc_name,
+                    'result_summary': result_summary,
+                    'duration_seconds': tool_total_duration,
+                }
+                yield {
+                    "text": "", "status": f"Tool {tc_name} completed",
+                    "type": "tool_status", "tool_id": tc_id,
+                    "tool_name": tc_name,
+                    "tool_status": "completed",
+                }
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": tc_id,
+                    "content": tool_result_text,
+                })
+
+                # Track for round summary
+                args_brief = json.dumps(tc_args, ensure_ascii=False)[:150]
+                result_brief = tool_result_text[:200] + ('...' if result_len > 200 else '')
+                tool_round_details.append((tc_name, args_brief, result_brief, result_len, None, tool_exec_duration, tool_total_duration))
+
+            # --- Execute interactive tools sequentially (they need user input) ---
+            for tc_id, tc_name, tc_args in interactive_calls:
                 yield {
                     "text": "", "status": f"Executing tool: {tc_name}...",
                     "type": "tool_status", "tool_id": tc_id,
                     "tool_name": tc_name,
                     "tool_status": "executing",
                 }
+                tool_exec_start = time.time()
                 result = TOOL_REGISTRY.execute(tc_name, tc_args, tool_context, tool_call_id=tc_id)
-                user_response = None  # Only set for interactive tools
-                
+                tool_exec_duration = round(time.time() - tool_exec_start, 2)
+                tool_total_start = tool_exec_start
+                user_response = None
+
                 if result.needs_user_input:
-                    # Interactive tool — need user input
                     yield {
                         "text": "", "status": f"Waiting for user input: {tc_name}",
                         "type": "tool_input_request",
@@ -6952,16 +7066,13 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                         "tool_name": tc_name,
                         "tool_status": "waiting_for_user",
                     }
-                    
-                    # Wait for user response
+
                     user_response = None
                     if tool_response_waiter:
                         user_response = tool_response_waiter(tc_id, timeout=60)
-                    
+
                     if user_response:
-                        # Format the user's response as tool result text
                         if tc_name == "ask_clarification":
-                            # Format clarification answers
                             answers = user_response.get("answers", [])
                             answer_lines = []
                             for ans in answers:
@@ -6974,19 +7085,20 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     else:
                         tool_result_text = "User did not respond within timeout."
                 else:
-                    # Server-side tool — result is ready
                     tool_result_text = result.result
-                
-                # Yield result summary to UI
+
+                tool_total_duration = round(time.time() - tool_total_start, 2)
                 result_len = len(tool_result_text)
                 result_summary = tool_result_text[:200] + '...' if result_len > 200 else tool_result_text
-                logger.warning('[_run_tool_loop] Tool %s completed | result_len=%d chars | result_preview=%s',
-                                tc_name, result_len, tool_result_text[:100].replace('\n', ' '))
+                logger.warning('[_run_tool_loop] Tool %s completed | result_len=%d chars | duration=%.2fs | result_preview=%s',
+                                tc_name, result_len, tool_total_duration, tool_result_text[:100].replace('\n', ' '))
                 yield {
-                    'text': '', 'status': f'Tool {tc_name} completed (result: {result_len} chars)',
+                    'text': '', 'status': f'Tool {tc_name} completed (result: {result_len} chars, {tool_total_duration:.1f}s)',
                     'type': 'tool_result',
                     'tool_id': tc_id,
+                    'tool_name': tc_name,
                     'result_summary': result_summary,
+                    'duration_seconds': tool_total_duration,
                 }
                 yield {
                     "text": "", "status": f"Tool {tc_name} completed",
@@ -6994,19 +7106,15 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     "tool_name": tc_name,
                     "tool_status": "completed",
                 }
-                
-                # Add tool result to messages for continuation
                 messages.append({
                     "role": "tool",
                     "tool_call_id": tc_id,
                     "content": tool_result_text,
                 })
 
-                # Track tool details for the round summary (include result length)
-                result_len = len(tool_result_text)
+                # Track for round summary
                 args_brief = json.dumps(tc_args, ensure_ascii=False)[:150]
                 result_brief = tool_result_text[:200] + ('...' if result_len > 200 else '')
-                # For ask_clarification, also store the original questions and formatted Q&A
                 clarification_qa = None
                 if tc_name == 'ask_clarification' and user_response and user_response.get('answers'):
                     questions_from_llm = tc_args.get('questions', [])
@@ -7015,24 +7123,23 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     for idx, ans in enumerate(answers_from_user):
                         q_text = ans.get('question', '')
                         a_text = ans.get('selected_option', '')
-                        # Try to get the original options from the LLM's questions
                         original_options = []
                         if idx < len(questions_from_llm):
                             original_options = questions_from_llm[idx].get('options', [])
                         options_str = ', '.join(f'`{o}`' for o in original_options) if original_options else ''
                         qa_lines.append({'question': q_text, 'answer': a_text, 'options': options_str})
                     clarification_qa = qa_lines
-                tool_round_details.append((tc_name, args_brief, result_brief, result_len, clarification_qa))
+                tool_round_details.append((tc_name, args_brief, result_brief, result_len, clarification_qa, tool_exec_duration, tool_total_duration))
 
             # Yield a collapsible tool-call summary for this round (visible in UI, stripped before save)
             if tool_round_details:
                 round_label = f'Round {iteration + 1}' if max_iterations > 1 else ''
                 summary_lines = []
                 persistent_qa_blocks = []
-                for t_name, t_args, t_result, t_len, t_clarification_qa in tool_round_details:
+                for t_name, t_args, t_result, t_len, t_clarification_qa, t_exec_dur, t_total_dur in tool_round_details:
                     if t_name == 'ask_clarification' and t_clarification_qa:
                         # Rich Q&A format for ask_clarification
-                        qa_summary = f'- **{t_name}** ({t_len} chars)\n'
+                        qa_summary = '- **' + t_name + '** (' + str(t_len) + ' chars, ' + f'{t_total_dur:.1f}' + 's)' + '\n'
                         for qa in t_clarification_qa:
                             qa_summary += f'  - **Q:** {qa["question"]}\n'
                             if qa['options']:
@@ -7048,7 +7155,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                             persist_lines.append(f'  - **Selected:** {qa["answer"]}\n')
                         persistent_qa_blocks.append('\n'.join(persist_lines))
                     else:
-                        summary_lines.append(f'- **{t_name}** ({t_len} chars) — `{t_args}`\n  > {t_result}')
+                        summary_lines.append('- **' + t_name + '** (' + str(t_len) + ' chars, ' + f'{t_total_dur:.1f}' + 's) \u2014 `' + t_args + '`')
                 summary_body = '\n'.join(summary_lines)
                 header_text = f'🔧 Tools Called {round_label}'.strip()
                 details_html = (
@@ -7156,16 +7263,41 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         # These are base64 data URLs sent alongside the message for vision LLM processing.
         query_images = query.get("images", []) if isinstance(query, dict) else []
 
+        # Extract checkboxes early — needed for /pkb override before PKB retrieval
+        checkboxes = query["checkboxes"]
+
+        # ----- /pkb and /memory slash command: override checkboxes to route to PKB NL agent -----
+        # When pkb_nl_command is set, we skip heavy context modules (PKB retrieval, web search,
+        # preamble enhancers) and route to PKBNLConversationAgent with short conversation history.
+        # IMPORTANT: This must run BEFORE use_pkb is read so PKB retrieval is correctly skipped.
+        _pkb_nl_command_text = checkboxes.get("pkb_nl_command", "").strip()
+        if _pkb_nl_command_text:
+            logger.warning(
+                "[reply] /pkb or /memory slash command detected: %s",
+                _pkb_nl_command_text[:100],
+            )
+            # Replace empty messageText with the NL command (parser strips it from message)
+            if not query.get("messageText", "").strip():
+                query["messageText"] = _pkb_nl_command_text
+            # Route to PKB NL agent
+            checkboxes["field"] = "PKBNLConversationAgent"
+            # Skip heavy context modules
+            checkboxes["use_pkb"] = False  # Agent handles its own PKB operations
+            checkboxes["perform_web_search"] = False
+            checkboxes["googleScholar"] = False
+            checkboxes["preamble_options"] = checkboxes.get("preamble_options", [])  # preserve but won't add extra
+            # Use short conversation history (3 turns = 6 messages)
+            checkboxes["enable_previous_messages"] = "3"
+            # Disable tools (agent has its own tool loop)
+            checkboxes["enable_tool_use"] = False
+            yield {"text": "", "status": "Routing to PKB NL agent..."}
+
         # Start PKB context retrieval in parallel (if PKB is available and use_pkb is enabled)
         pkb_context_future = None
         pkb_k = None
         # use_pkb checkbox controls whether PKB memory retrieval and user_info
         # distillation happen.  Default is True (enabled).
-        use_pkb = (
-            query.get("checkboxes", {}).get("use_pkb", True)
-            if isinstance(query, dict)
-            else True
-        )
+        use_pkb = checkboxes.get("use_pkb", True)
         time_logger.info(
             f"[PKB-REPLY] PKB_AVAILABLE={PKB_AVAILABLE}, user_email={user_email}, userData_is_None={userData is None}, use_pkb={use_pkb}"
         )
@@ -7176,7 +7308,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             time_logger.info(
                 f"[PKB-REPLY] Starting PKB context retrieval for user: {user_email}"
             )
-            pkb_k = 10
+            pkb_k = 15
             pkb_context_future = get_async_future(
                 self._get_pkb_context,
                 user_email,
@@ -7210,7 +7342,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         summary = self.running_summary
         summary_text_init = summary
         summary_text = summary
-        checkboxes = query["checkboxes"]
+        # checkboxes already extracted above (before PKB retrieval)
+
+        # /pkb override block was moved above (before PKB retrieval) to fix timing bug
         if "delete_last_turn" in checkboxes and checkboxes["delete_last_turn"]:
             self.delete_last_turn()
         persist_or_not = (
@@ -7878,6 +8012,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             model_name=model_name,
             prefix=prefix,
             ppt_answer=checkboxes["ppt_answer"],
+            user_email=user_email,
         )
         yield {"text": "", "status": "Preamble got ..."}
         
@@ -7911,6 +8046,15 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 "Use a single well-crafted query rather than multiple vague ones.\n"
                 "- **web_search**: Good for quick factual lookups with short queries.\n"
                 "- **document_lookup**: Search user's uploaded documents by semantic query.\n\n"
+                "### Parallel Tool Calls\n"
+                "You can and SHOULD issue multiple tool calls at once when you need "
+                "independent pieces of information. For example, if you need to search "
+                "the web AND look up a document, issue both tool calls in the same response "
+                "rather than calling one, waiting for the result, then calling the other. "
+                "All non-interactive tool calls in the same response are executed in parallel, "
+                "so issuing multiple calls simultaneously is significantly faster than "
+                "calling them one at a time across multiple rounds. "
+                "This reduces user wait time and gives you richer context to synthesize.\n\n"
                 "Use tools when:\n"
                 "- The user explicitly asks you to ask clarifying questions "
                 "or says 'ask me questions'.\n"
@@ -7922,7 +8066,12 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 "- The information is already in the conversation context.\n"
                 "- The task is simple and doesn't benefit from tool use.\n\n"
                 "When you invoke a tool, the conversation will pause briefly "
-                "while it executes.\n"
+                "while it executes. After receiving the tool results, you MUST "
+                "continue your response \u2014 use the results to provide a complete, "
+                "helpful answer to the user. Never stop after a tool call without "
+                "giving the user a synthesized response based on the tool output.\n"
+                "If the tool results are insufficient, you may call another tool "
+                "or explain what you found and what limitations exist.\n"
                 "For interactive tools (like ask_clarification), the user will "
                 "be prompted for input.\n"
             )
@@ -9810,6 +9959,11 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 agent_type,
                 time.time() - st,
             )
+            # Set PKB NL command text and tool_response_waiter on agent if applicable
+            if isinstance(agent, PKBNLConversationAgent):
+                if _pkb_nl_command_text:
+                    agent.nl_command_text = _pkb_nl_command_text
+                agent.tool_response_waiter = query.get("_tool_response_waiter", None)
             main_ans_gen = agent(
                 prompt, images=images, system=preamble, temperature=0.3, stream=True
             )
@@ -10360,6 +10514,13 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 # don't affect answer accumulation.
                 event_type = dcit.get('type')
                 if event_type in ('tool_call', 'tool_input_request', 'tool_status', 'tool_result'):
+                    # Accumulate tool timing into time_dict for the end-of-message summary
+                    if event_type == 'tool_result':
+                        time_dict.setdefault('tool_calls', []).append({
+                            'name': dcit.get('tool_name', dcit.get('tool_id', '')),
+                            'duration_s': dcit.get('duration_seconds', 0),
+                            'result_chars': len(dcit.get('result_summary', '')),
+                        })
                     yield dcit
                     continue
                 txt = dcit["text"]

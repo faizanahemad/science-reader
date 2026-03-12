@@ -141,6 +141,75 @@ def is_timestamp_in_range(
 
 
 # =============================================================================
+# Claim Expiry
+# =============================================================================
+
+
+import time as _time
+
+_last_expiry_check: Dict[str, float] = {}
+EXPIRY_CHECK_INTERVAL = 300  # seconds (5 minutes)
+
+
+def expire_stale_claims(db, user_email: Optional[str] = None) -> int:
+    """
+    Mark active claims with valid_to in the past as 'expired'.
+
+    Performs a bulk UPDATE on the claims table, transitioning claims
+    from 'active' to 'expired' when their valid_to timestamp has passed.
+
+    Args:
+        db: PKBDatabase instance with a transaction() context manager.
+        user_email: Optional user scope. If None, expires across all users.
+
+    Returns:
+        Number of claims expired.
+    """
+    now = now_iso()
+    sql = """
+        UPDATE claims SET status = 'expired', updated_at = ?
+        WHERE status = 'active'
+          AND valid_to IS NOT NULL
+          AND valid_to != ''
+          AND valid_to < ?
+    """
+    params: list = [now, now]
+    if user_email:
+        sql += " AND user_email = ?"
+        params.append(user_email)
+
+    try:
+        with db.transaction() as conn:
+            cursor = conn.execute(sql, tuple(params))
+            count = cursor.rowcount
+    except Exception:
+        logger.exception("Failed to expire stale claims for user=%s", user_email or "all")
+        return 0
+
+    if count > 0:
+        logger.info("Expired %d stale claims for user=%s", count, user_email or "all")
+    return count
+
+
+def maybe_expire_claims(db, user_email: Optional[str] = None) -> None:
+    """
+    Conditionally run expire_stale_claims with a time-based guard.
+
+    Only runs the expiry check if EXPIRY_CHECK_INTERVAL seconds have
+    passed since the last check for this user_email.
+
+    Args:
+        db: PKBDatabase instance.
+        user_email: Optional user scope.
+    """
+    now = _time.time()
+    key = user_email or "__global__"
+    if now - _last_expiry_check.get(key, 0) < EXPIRY_CHECK_INTERVAL:
+        return
+    _last_expiry_check[key] = now
+    expire_stale_claims(db, user_email)
+
+# =============================================================================
 # JSON Validation and Manipulation
 # =============================================================================
 

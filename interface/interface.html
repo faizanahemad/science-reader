@@ -1207,7 +1207,7 @@
     </div>
 
     <!-- PKB Claim Add/Edit Modal -->
-    <div class="modal fade" id="pkb-claim-edit-modal" tabindex="-1" aria-hidden="true" style="z-index: 1070;">
+    <div class="modal fade" id="pkb-claim-edit-modal" tabindex="-1" aria-hidden="true" style="z-index: 1080;">
       <div class="modal-dialog">
         <div class="modal-content">
           <div class="modal-header">
@@ -1268,6 +1268,22 @@
                 </div>
               </div>
             </div>
+            
+            <div class="row">
+              <div class="col-md-6">
+                <div class="form-group">
+                  <label for="pkb-claim-valid-from">Valid From <small class="text-muted">(optional)</small></label>
+                  <input type="date" id="pkb-claim-valid-from" class="form-control">
+                </div>
+              </div>
+              <div class="col-md-6">
+                <div class="form-group">
+                  <label for="pkb-claim-valid-to">Deadline / Valid To <small class="text-muted">(required for task/reminder)</small></label>
+                  <input type="date" id="pkb-claim-valid-to" class="form-control">
+                </div>
+              </div>
+            </div>
+            
             
             <div class="form-group">
               <label for="pkb-claim-tags">Tags (comma separated)</label>
@@ -2182,14 +2198,14 @@
                                                         <option hidden>openai/gpt-5.1</option>
                                                         <option hidden>openai/gpt-5.2-pro</option>
                                                         <option hidden>moonshotai/kimi-k2</option>
-                                                        <option>openai/gpt-5.2</option>
+                                                        <option hidden>openai/gpt-5.2</option>
                                                         <option hidden>Opus 4.5</option>
-                                                        <option>Sonnet 4.5</option>
+                                                        <option hidden>Sonnet 4.5</option>
                                                         <option hidden>google/gemini-3-pro-preview</option>
                                                         <option>mistralai/mistral-large-2512</option>
                                                         <option>Haiku 4.5</option>
                                                         <option>google/gemini-3-flash-preview</option>
-                                                        <option>deepseek-v3.1</option>
+                                                        <option hidden>deepseek-v3.1</option>
                                                         <option hidden>gpt-5.2</option>
                                                         <option hidden>gpt-5.1-codex</option>
                                                         <option hidden>Longcat Flash Chat</option>
@@ -2204,16 +2220,16 @@
                                                         <option hidden>Sonnet 4</option>
                                                         <option hidden>Gemini-2.5-pro</option>
                                                         <option hidden>Opus 4.1</option>
-                                                        <option>google/gemini-2.5-flash</option>
+                                                        <option hidden>google/gemini-2.5-flash</option>
                                                         <option hidden>o4-mini-deep-research</option>
                                                         <option hidden>o3-deep-research</option>
                                                         <option hidden>x-ai/grok-3-beta</option>
                                                         <option>x-ai/grok-3</option>
                                                         
                                                         <option>sao10k/l3.3-euryale-70b</option>
-                                                        <option>thedrummer/anubis-pro-105b-v1</option>
+                                                        <option hidden>thedrummer/anubis-pro-105b-v1</option>
                                                         <option>nousresearch/hermes-3-llama-3.1-405b</option>
-                                                        <option>raifle/sorcererlm-8x22b</option>
+                                                        <option hidden>raifle/sorcererlm-8x22b</option>
                                                         <option>perplexity/sonar-pro</option>
                                                         <option hidden>perplexity/sonar-deep-research</option>
                                                     </optgroup>
@@ -2426,6 +2442,9 @@
                                                 <option value="pkb_autocomplete">Autocomplete</option>
                                                 <option value="pkb_resolve_context">Resolve Context</option>
                                                 <option value="pkb_pin_claim">Pin Claim</option>
+                                                <option value="pkb_nl_command" selected>🗣️ NL Command</option>
+                                                <option value="pkb_delete_claim">Delete Claim</option>
+                                                <option value="pkb_propose_memory">📝 Propose Memory</option>
                                             </optgroup>
                                             <optgroup label="Memory">
                                                 <option value="conv_get_memory_pad">Get Memory Pad</option>
@@ -2855,6 +2874,13 @@ greet("World");</code></pre>
                         <label for="settings-clarify-intent-model" class="form-label"><strong>Clarify Intent Model</strong></label>
                         <select class="form-control" id="settings-clarify-intent-model"></select>
                         <small class="form-text text-muted">Used when generating clarification questions (Clarify button and /clarify command).</small>
+                    </div>
+                    <hr>
+                    <h6 class="text-primary mb-3"><i class="bi bi-database"></i> PKB / Memory</h6>
+                    <div class="form-group">
+                        <label for="settings-pkb-nl-model" class="form-label"><strong>PKB NL Agent Model</strong></label>
+                        <select class="form-control" id="settings-pkb-nl-model"></select>
+                        <small class="form-text text-muted">Model used by the PKB NL agent when invoked as a tool by the main LLM. /pkb and /memory commands use the main model selected in chat.</small>
                     </div>
                 </div>
                 <div class="modal-footer">
@@ -4255,6 +4281,7 @@ greet("World");</code></pre>
     <script src="interface/interface.js"></script>
     <script src="interface/codemirror.js"></script>
     <script src="interface/doubt-manager.js"></script>
+    <script src="interface/notification-manager.js"></script>
     <script src="interface/clarifications-manager.js"></script>
     <script src="interface/tool-call-manager.js?v=1"></script>
     <script src="interface/temp-llm-manager.js"></script>

@@ -67,11 +67,11 @@ The main model selector is the dropdown in the chat settings panel that lets the
 
 ### How It Works
 
-1. **UI** — `interface/interface.html` has a `<select multiple>` with `id="settings-main-model-selector"` (line 1864). Each model is a hardcoded `<option>` element.
-2. **Frontend** — `chat.js` reads selected values via `getSelectPickerValue('#settings-main-model-selector', [])` (line 641) and sends them as `checkboxes.main_model`.
-3. **Backend** — `Conversation.reply()` extracts `checkboxes["main_model"]` (line 6138), then calls `model_name_to_canonical_name()` to normalize the display name to the API model identifier.
-4. **LLM Call** — The canonical name is passed to `CallLLm` → `code_common.call_llm.call_llm()` → OpenRouter.
-
+1. **UI** — `interface/interface.html` has a `<select multiple>` with `id="settings-main-model-selector"`. Each model is a hardcoded `<option>` element. The selector is enhanced with bootstrap-select.
+2. **Single/Multi mode** — The selector defaults to **single-select mode** (clicking a model replaces the previous selection in one click). A "Multi-select" toggle button at the top of the dropdown enables multi-select for ensemble responses. Mode preference persists to `localStorage` (`modelSelectorMultiMode`). Implemented via a `changed.bs.select` handler in `chat.js` that deselects all others in single mode.
+3. **Frontend** — `chat.js` reads selected values via `getSelectPickerValue('#settings-main-model-selector', [])` and sends them as `checkboxes.main_model` (always an array).
+4. **Backend** — `Conversation.reply()` extracts `checkboxes["main_model"]`, then calls `model_name_to_canonical_name()` to normalize the display name to the API model identifier. Single-element arrays are unwrapped to a string.
+5. **LLM Call** — The canonical name is passed to `CallLLm` → `code_common.call_llm.call_llm()` → OpenRouter.
 ### Adding a New Model to the Main Selector
 
 **Step 1: Add to common.py tier list**

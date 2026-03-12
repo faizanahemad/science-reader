@@ -713,6 +713,7 @@ class MemoryUpdatePlan:
 | `superseded` | Replaced by newer claim | No (by default) |
 | `retracted` | Soft-deleted | No |
 | `draft` | Not yet confirmed | No (by default) |
+| `expired` | Temporally expired (`valid_to` passed) | No |
 
 ### Entity Types
 
@@ -937,6 +938,8 @@ All operations are automatically scoped to the authenticated user's data.
 | POST | `/pkb/execute_ingest` | Execute `{plan_id, approved: [{index, statement?, ...}]}` | 10/min |
 | POST | `/pkb/relevant_context` | Get context `{query, conversation_summary, k}` | 60/min |
 | POST | `/pkb/analyze_statement` | Analyze statement, extract type/domain/tags/questions `{statement}` | 20/min |
+| DELETE | `/pkb/claims/<id>/delete` | Hard-delete claim by ID (v0.9) | 15/min |
+| POST | `/pkb/nl_command` | NL command `{command, conversation_context?, claim_types?}` (v0.9) | 10/min |
 
 **Plan Storage Note:** `/pkb/propose_updates` and `/pkb/ingest_text` store plans in server memory (`_memory_update_plans`, `_text_ingestion_plans`). Plans are lost on server restart. The frontend should execute plans promptly after receiving them.
 
@@ -1482,6 +1485,8 @@ api.resolve_reference("my_health")  # matches by name if friendly_id doesn't mat
 
 | Version | Features |
 |---------|----------|
+| **v0.9** | NL Agent (`nl_agent.py`) with LLM tool calling for PKB operations; `/pkb` and `/memory` slash commands via `PKBNLConversationAgent`; mandatory `valid_to` for task/reminder; auto-expiry (`expired` status, `expire_stale_claims()`); MCP/LLM-tools/REST parity (`pkb_delete_claim`, `pkb_nl_command`); `pkb_propose_memory` interactive tool (modal with editable memory cards); two-path interactive pipeline; `DEFAULT_ENABLED_TOOLS`; tool selector updates (3 new PKB tools); `checkMemoryUpdates` skipped for `/pkb` |
+| **v0.8** | PKB slash commands (`/create-memory`, `/create-simple-memory`, `/create-entity`, `/create-context`); `createSimpleMemory()` API; autocomplete `PKB_COMMANDS`; `autofillClaimFields` export |
 | **v0.6** | Numeric `claim_number` with `@claim_N` syntax; `possible_questions` QnA field (schema v5-v6); unified `GET /pkb/claims` with `query` param; `resolve_claim_identifier()` universal resolver; context name fallback; improved `generate_friendly_id()`; auto-generate `friendly_id` and `possible_questions` on edit; search filter bug fixes |
 | **v0.5.1** | Expandable entity/tag/context views with claim action controls; context multi-select in create/edit modal; dynamic types/domains catalog (schema v4, `claim_types_catalog`, `context_domains_catalog` tables); new endpoints for entity claims, tag claims, claim contexts, types, domains; `TypeCatalogCRUD`, `DomainCatalogCRUD`; multi-select type/domain dropdowns with inline "Add New" |
 | **v0.5.0** | Friendly IDs, schema v3, contexts/groups, entity linking UI, @friendly_id references, autocomplete, multi-type/domain columns, enhanced filtering. Bug fixes: `no such column: friendly_id` migration fix, `IngestProposal.match` attribute fix, `auto_extract=False` for text ingestion execution. |

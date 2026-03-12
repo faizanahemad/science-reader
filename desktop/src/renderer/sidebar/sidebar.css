@@ -37,13 +37,35 @@ body {
   flex-direction: column;
 }
 
-/* ── Tab bar (also serves as drag region) ── */
+/* ── Drag handle ── */
+#drag-handle {
+  height: 14px;
+  background: var(--ctp-surface0);
+  flex-shrink: 0;
+  cursor: grab;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#drag-handle::after {
+  content: '';
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--ctp-overlay0);
+  opacity: 0.5;
+}
+#drag-handle:hover::after {
+  opacity: 0.8;
+}
+
+/* ── Tab bar ── */
 #tab-bar {
   display: flex;
   background: var(--ctp-surface0);
   height: 38px;
   flex-shrink: 0;
-  -webkit-app-region: drag;
+  -webkit-app-region: no-drag;
 }
 
 .tab {
@@ -55,8 +77,8 @@ body {
   background: transparent;
   border: none;
   border-bottom: 2px solid transparent;
-  color: var(--ctp-subtext0);
-  font-size: 13px;
+  color: var(--ctp-text);
+  font-size: 14px;
   cursor: pointer;
   transition: background 0.15s, color 0.15s, border-color 0.15s;
   -webkit-app-region: no-drag;
@@ -74,13 +96,22 @@ body {
   border-bottom-color: var(--ctp-blue);
 }
 
+/* ── Tab flash notification animation ── */
+.tab.flash-notify {
+  animation: tab-flash 0.6s ease-in-out 4;
+}
+@keyframes tab-flash {
+  0%, 100% { background: transparent; }
+  50% { background: var(--ctp-blue); color: var(--ctp-base); }
+}
+
 .tab-icon {
   font-size: 15px;
   line-height: 1;
 }
 
 .tab-label {
-  font-weight: 500;
+  font-weight: 600;
 }
 
 /* ── Tab content ── */

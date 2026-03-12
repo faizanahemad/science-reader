@@ -55,6 +55,7 @@ Conversations are organized into **hierarchical workspaces** per user and domain
 - Conversation context menu: Copy Conversation Reference, Open in New Window, Clone, Toggle Stateless, Set Flag, Move to... (with breadcrumb paths), Delete.
 - Toolbar: file+ creates conversation in selected workspace, folder+ always creates top-level workspace.
 - **New Temporary Chat button** (`fa-eye-slash`, `btn-outline-secondary`) in the top-right chat bar: creates a conversation in the default workspace and immediately marks it stateless. The conversation works normally during the session but is permanently deleted on next page reload. No confirmation modal is shown (since the user explicitly chose temporary mode).
+- **Temporary conversation cleanup & graceful fallback**: When the UI loads and calls `GET /list_conversation_by_user/{domain}`, the backend deletes expired stateless conversations (older than 5 minutes) and returns `{conversations: [...], deleted_temporary_ids: [...]}`. The 5-minute grace period prevents race conditions in multi-tab scenarios where one tab's page load would delete a temp conversation another tab is still using. The UI uses `deleted_temporary_ids` to proactively clear stale `lastActiveConversationId` entries from `localStorage`. If the URL contains a conversation ID that no longer exists (e.g. a bookmarked temp chat), the UI shows a warning toast and falls back to the first available conversation. `setActiveConversation()` also validates against the loaded conversation list before firing any API calls — if the conversation is missing, it shows a toast and falls back instead of triggering cascading 404 errors from `getConversationDetails`, `fetchMemoryPad`, etc. All error handlers in `setActiveConversation` use `showToast()` instead of `alert()`.
 - Expand/collapse state persisted to server.
 - Active conversation highlighted with auto-expand of parent workspaces.
 - **Recent Conversations section**: Collapsible "Recent" section above the workspace tree showing the 5 most recently updated conversations across all workspaces. One-click access to active conversations without navigating the workspace hierarchy. Right-click context menu reuses the same conversation menu as jsTree nodes (via fake node construction). Active conversation highlighted in both the Recent section and jsTree simultaneously. Collapse/expand state persisted to `localStorage` (scoped by user+domain). Pure front-end feature — no backend changes, data sourced from the existing `WorkspaceManager.conversations` array (already sorted by `last_updated` DESC).
@@ -363,6 +364,7 @@ Server-side injection:
 **What it does**
 - Enriches answers with web search results and/or scholar-style search depending on UI toggles.
 - Uses specialized agents for deep research and search strategies (e.g. Jina agents, Perplexity agent).
+- **SUPERFAST_LLM optimization**: Jina search query generation and per-query combiner use `SUPERFAST_LLM[0]` (`inception/mercury-2`) for faster execution. Includes validation assertions (non-empty list of 2-tuples with non-empty string queries) and automatic fallback to `CHEAP_LLM[0]` on structured output parsing failure.
 
 **API**
 - Mostly invoked through the main chat pipeline: `POST /send_message/<conversation_id>`
@@ -546,20 +548,21 @@ location /ws/terminal {
  Adds native, mid-response tool calling to the chat pipeline — the LLM can autonomously invoke tools during a conversation turn.
  56 tools across 9 categories: clarification (1), search (5), documents (10), pkb (10), memory (7), code_runner (1), artefacts (8), prompts (5), conversation (8 — including 3 cross-conversation search tools).
  Multi-step agentic loop: up to 5 tool-call iterations per turn, with `tool_choice="none"` on the final iteration to force text output.
- Interactive tools (ask_clarification) pause streaming, show a Bootstrap modal for MCQ input, wait up to 60s via `threading.Event`, then resume.
+ Interactive tools (ask_clarification, pkb_propose_memory) pause streaming, show a Bootstrap modal for user input (MCQ questions or editable proposed claims), wait up to 60s via `threading.Event`, then resume.
  Server-side tools (web search, document lookup, PKB operations, code execution, etc.) execute silently with inline status indicators.
- Master toggle + Bootstrap Select multi-select dropdown with per-tool granularity (9 category optgroups, 53 individual tool options, search filtering, select all/deselect all). **Tool use enabled by default** with `ask_clarification` pre-selected. Write-capable categories default to OFF.
+ Master toggle + Bootstrap Select multi-select dropdown with per-tool granularity (9 category optgroups, 56 individual tool options, search filtering, select all/deselect all). **Tool use enabled by default** with `ask_clarification` and `pkb_nl_command` pre-selected via `DEFAULT_ENABLED_TOOLS` (configured in `code_common/tools.py`, enforced in `interface/chat.js` `resetSettingsToDefaults()`). Write-capable categories default to OFF.
  Backward-compatible: when tools disabled (`tools=None`), the entire call stack is unchanged.
- All 53 handlers have real implementations — mirrors the MCP server logic (DocIndex, StructuredAPI, Conversation methods, HTTP delegation for propose_edits/apply_edits/temp_llm_action).
+ All 56 handlers have real implementations — mirrors the MCP server logic (DocIndex, StructuredAPI, Conversation methods, HTTP delegation for propose_edits/apply_edits/temp_llm_action).
  **Search-intent auto-detection**: the frontend automatically injects web search tools (`web_search`, `perplexity_search`, `jina_search`, `jina_read_page`, `read_link`) when the user's message contains search-intent keywords (e.g. "search the web", "google", "latest news about", "find me recent info"). Implemented via `detectSearchIntent()` and `mergeWebSearchTools()` in `common-chat.js` — 27 regex patterns with code-block stripping to avoid false positives. Fail-open: if detection throws, the message sends normally.
 
 **Architecture**
- Tool registry: `code_common/tools.py` — `ToolRegistry`, `ToolDefinition`, `ToolContext`, `ToolCallResult`, `@register_tool` decorator, `TOOL_REGISTRY` singleton.
+ Tool registry: `code_common/tools.py` — `ToolRegistry`, `ToolDefinition`, `ToolContext`, `ToolCallResult`, `@register_tool` decorator, `TOOL_REGISTRY` singleton, `DEFAULT_ENABLED_TOOLS` list.
  LLM integration: `call_chat_model()` and `call_llm()` accept `tools`/`tool_choice` params; `_extract_text_from_openai_response()` yields both `str` (text) and `dict` (tool_call) from streaming.
- Agentic loop: `Conversation._run_tool_loop()` generator — iterates up to 5 times, executes tools, handles interactive pausing, builds continuation messages.
- Tool awareness: preamble injection when tools enabled tells the LLM about available tools.
+ Agentic loop: `Conversation._run_tool_loop()` generator — iterates up to 5 times, executes tools, handles interactive pausing, builds continuation messages. When multiple tool calls are returned in one LLM response, non-interactive tools execute in **parallel** via `ThreadPoolExecutor` (each thread gets a `deepcopy` of `ToolContext` for thread safety), while interactive tools execute sequentially.
+ Tool awareness: preamble injection when tools enabled tells the LLM about available tools and **explicitly instructs it to issue multiple tool calls at once** for independent information needs (parallel execution means wall-clock time equals the slowest tool, not the sum).
  Interactive sync: `threading.Event` per tool_call_id, `POST /tool_response/<conv_id>/<tool_id>` endpoint unblocks the waiting thread.
  Streaming protocol: extends existing JSON-lines with `tool_call`, `tool_status`, `tool_input_request`, `tool_result` event types.
+ Tool call timing: every tool call is timed end-to-end (`tool_exec_duration` for handler execution, `tool_total_duration` including user-wait for interactive tools). Timing appears in `tool_result` streaming events (`duration_seconds` field), inline status pills (`(Xs)` suffix), collapsible `<tool_calls_summary>` blocks (`(N chars, Xs)`), and `time_dict['tool_calls']` (list of `{name, duration_s, result_chars}` dicts in end-of-message YAML).
 
 **Tool Categories**
 
@@ -568,7 +571,7 @@ location /ws/terminal {
 | `clarification` | 1 | ON | MCQ clarification questions with modal UI |
 | `search` | 5 | ON | Web search (Perplexity, Jina), page reading. Web search tools auto-injected on search-intent keywords. |
 | `documents` | 10 | ON | List/query/retrieve conversation docs and global docs |
-| `pkb` | 10 | OFF | Search claims, get/add/edit/pin claims, resolve @-references |
+|| `pkb` | 13 | OFF (`pkb_nl_command` default-enabled) | Search claims, get/add/edit/delete/pin claims, resolve @-references, NL command (`pkb_nl_command`), delete claim (`pkb_delete_claim`), interactive memory proposal (`pkb_propose_memory`) |
 | `memory` | 7 | OFF | Memory pad, conversation history, user details/preferences |
 | `code_runner` | 1 | OFF | Python code execution (120s timeout, IPython) |
 | `artefacts` | 8 | OFF | List/create/get/update/delete artefacts, LLM-powered edits |
@@ -581,21 +584,21 @@ location /ws/terminal {
  Main flow: `POST /send_message/<conversation_id>` — same endpoint, tools activated when enabled.
 
 **Streaming response extensions**
- New event types in JSON-lines: `tool_call` (LLM requests tool), `tool_status` (executing/waiting/completed), `tool_input_request` (modal needed), `tool_result` (completion summary).
+ New event types in JSON-lines: `tool_call` (LLM requests tool), `tool_status` (executing/waiting/completed), `tool_input_request` (modal needed), `tool_result` (completion summary + `duration_seconds` timing).
 
 **Persistence**
  Tool settings persisted per-conversation via existing chat settings mechanism (`checkboxes` payload).
  Tool results not separately persisted — they become part of the conversation messages.
 
 **Key files**
-`code_common/tools.py` — Tool registry + 53 tool definitions with real handlers
+`code_common/tools.py` — Tool registry + 56 tool definitions with real handlers, `DEFAULT_ENABLED_TOOLS`
 `code_common/conversation_search.py` — Shared conversation tool metadata (`CONVERSATION_TOOLS`), BM25 message search index (`MessageSearchIndex`), markdown feature extraction
 `code_common/call_llm.py` — `tools`/`tool_choice` passthrough, streaming tool_call parsing
 `call_llm.py` (root) — `CallLLm` tools passthrough
 `Conversation.py` — `_get_enabled_tools()`, `_run_tool_loop()`, preamble injection, `reply()` tool branching, `search_messages()`, `list_messages()`, `read_message()`, `get_conversation_details()`, `_index_messages_for_search()`, `message_search_index` in `store_separate`
 `endpoints/conversations.py` — `POST /tool_response` endpoint, thread-safe response store
 `interface/tool-call-manager.js` — `ToolCallManager` singleton (inline status, modal, response submission)
-`interface/interface.html` — Bootstrap Select 1.13.18 CDN, tool settings `<select multiple>` with 9 optgroups and 53 options, `#tool-call-modal`
+`interface/interface.html` — Bootstrap Select 1.13.18 CDN, tool settings `<select multiple>` with 9 optgroups and 56 options, `#tool-call-modal`
 `interface/chat.js`, `interface/common.js`, `interface/common-chat.js` — settings persistence (selectpicker read/write with dual-format legacy support), stream handler, search-intent auto-detection (`detectSearchIntent`, `mergeWebSearchTools`, `SEARCH_INTENT_PATTERNS`), default tool enablement (`computeDefaultStateForTab` with `enable_tool_use: true`)
 `interface/service-worker.js` — cache version bump, precache
 
@@ -609,9 +612,10 @@ location /ws/terminal {
 ### 6) Multi-model responses and formatting
 
 **What it does**
-- The UI can select multiple models for a single request via the “Main Model” multi-select.
-- If multiple models are selected and no specialized agent is chosen, the conversation runs a multi-model “ensemble” response.
-- Responses are streamed in a **collapsible per-model format**, so users can expand each model’s output.
+- The "Main Model" selector (`#settings-main-model-selector`) is a bootstrap-select enhanced `<select multiple>` that defaults to **single-select mode** — clicking a model replaces the previous selection in one click. A "Multi-select" toggle button at the top of the dropdown switches to multi-select mode for ensemble responses. Mode preference persists to `localStorage` (`modelSelectorMultiMode`).
+- In single mode, a `changed.bs.select` handler in `chat.js` intercepts selections and deselects all others, keeping only the newly clicked model.
+- In multi-select mode, the user can select multiple models; the conversation runs a multi-model "ensemble" response.
+- Responses are streamed in a **collapsible per-model format**, so users can expand each model's output.
 
 **How models are invoked**
 - Multiple model names are passed in `checkboxes.main_model` (array).
@@ -635,6 +639,8 @@ location /ws/terminal {
 **What it does**
 - Stores personal facts, preferences, decisions, and tasks as **claims** (atomic memory units) in a SQLite-backed Personal Knowledge Base.
 - Each claim has: statement, claim_type, context_domain, friendly_id, possible_questions (QnA), and optional contexts/groups.
+- **Mandatory dates for task/reminder**: Claims of type `task` or `reminder` require a `valid_to` date. Validation enforced in `StructuredAPI.add_claim()` and the REST `POST /pkb/claims` endpoint.
+- **Claim statuses**: `active` (default), `retracted` (user-retracted), `expired` (auto-set when `valid_to` date passes). Search excludes retracted and expired claims by default.
 - **Contexts** (groups) organize claims hierarchically; referencing `@context_friendly_id` in chat resolves to all claims within that context and sub-contexts.
 - **Entities** represent people, organizations, or other named objects linked to claims. Referencing `@entity_friendly_id` resolves to all claims linked to that entity (any role).
 - **Tags** categorize claims and form a hierarchy. Referencing `@tag_friendly_id` resolves to all claims tagged with that tag and all descendant tags (recursive).
@@ -645,6 +651,20 @@ location /ws/terminal {
   3. globally pinned claims
   4. conversation-pinned claims
   5. auto-retrieved via hybrid (FTS5 + embedding) search
+
+**Auto-Expiry**
+- `expire_stale_claims()` checks `valid_to` dates and marks overdue claims as `expired`.
+- Triggered lazily on search operations and eagerly on database initialization (server start).
+- Expired claims are excluded from search results by default (same as retracted).
+- The `GET /pkb/claims/{id}` endpoint returns claim status (`active`, `retracted`, or `expired`) in the response.
+
+**NL Agent & `/pkb` Slash Commands (v0.9)**
+- `/pkb <text>` and `/memory <text>` slash commands route to `PKBNLConversationAgent` inside `Conversation.reply()`, bypassing the normal LLM path.
+- The agent delegates to `PKBNLAgent` (`truth_management_system/interface/nl_agent.py`), a tool-based NL processor with actions: `add`, `search`, `delete`, `edit`, `ask_clarification`.
+- Uses short conversation history + summary for context. Streams responses directly to the user.
+- When uncertain, the NL agent can trigger `pkb_propose_memory` — an interactive tool that shows a modal with editable proposed claims (text, type, dates, tags, entities, context) for user confirmation.
+- The main LLM can also invoke the NL agent via the `pkb_nl_command` tool (default-enabled in `DEFAULT_ENABLED_TOOLS`). If the NL agent returns `needs_user_input=True`, the tool loop surfaces the `pkb_propose_memory` modal.
+- `pkb_delete_claim` tool available in both LLM tool calling and MCP for claim deletion.
 
 **Universal @References (v0.7)**
 
@@ -693,6 +713,8 @@ The backend resolver (`resolve_reference()`) uses suffix-based routing for fast 
   - `POST /pkb/analyze_statement` (LLM-powered auto-fill: extracts claim_type, context_domain, tags, entities, possible_questions, friendly_id from a statement in one call; used by the "Auto-fill" button in the Add/Edit Memory modal and by text ingestion enrichment)
   - `GET /pkb/autocomplete?prefix=...` (powers `@` autocomplete in chat input; returns memories, contexts, entities, tags, domains)
   - pinning endpoints (`/pkb/*/pin`, `/pkb/pinned`, conversation pinning routes)
+  - `DELETE /pkb/claims/{claim_id}` (delete a claim by ID)
+  - `POST /pkb/nl_command` (NL agent endpoint — accepts `{"command": "...", "conversation_id": "..."}`, returns NL response with optional `needs_user_input` and `proposed_claims`)
 - Main chat uses PKB context automatically if available (part of `send_message` execution).
 
 **Persistence**
@@ -717,9 +739,11 @@ The backend resolver (`resolve_reference()`) uses suffix-based routing for fast 
 - `interface/common-chat.js` -- autocomplete rendering for all 5 categories (entities, tags, domains with type badges)
 - `interface/parseMessageForCheckBoxes.js` -- `parseMemoryReferences()` for `@` reference parsing
 - `endpoints/pkb.py` -- REST API endpoints
+- `truth_management_system/interface/nl_agent.py` -- `PKBNLAgent` NL processor with tool-based CRUD actions, `NLCommandResult` with `needs_user_input` and `proposed_claims` fields
+- `agents/pkb_nl_conversation_agent.py` -- `PKBNLConversationAgent` conversation-compatible agent for `/pkb` and `/memory` slash commands, with `tool_response_waiter` for interactive proposals
 
 **Differentiator**
-- This is a major capability gap vs "plain ChatGPT chat": it supports an internal, queryable memory store with explicit attachment, pinning, context grouping, entity and tag linking, domain namespacing, inline `@` references with type-aware autocomplete across all object types, recursive resolution (contexts and tags), and QnA-style retrieval.
+- This is a major capability gap vs "plain ChatGPT chat": it supports an internal, queryable memory store with explicit attachment, pinning, context grouping, entity and tag linking, domain namespacing, inline `@` references with type-aware autocomplete across all object types, recursive resolution (contexts and tags), QnA-style retrieval, NL-based CRUD operations via `/pkb` slash commands, auto-expiry for time-bound claims, and interactive memory proposals.
 
 ---
 
@@ -831,7 +855,7 @@ A comprehensive slash command system that provides per-turn overrides for all ch
 | Models | `/model_gpt-5.4`, `/model_opus_4.6`, `/model_sonnet_4.6`, etc. | Selects a model for this turn only. **Replaces** the modal selection. Sets `checkboxes.main_model = [canonical_name]`. |
 | Agents | `/agent_perplexity_search`, `/agent_web_search`, `/agent_none`, etc. | Selects an agent for this turn only. **Replaces** the modal selection. Sets `checkboxes.field = canonical_name`. |
 | Preambles | `/preamble_short`, `/preamble_diagram`, `/preamble_creative`, etc. | Adds a preamble for this turn. **Additive** — stacks with existing preamble selection from the modal. Appends to `checkboxes.preamble_options`. |
-| PKB | `/create-memory`, `/create-simple-memory`, `/create-entity`, `/create-context` | Client-side intercepted. See section 6d. |
+|| PKB | `/create-memory`, `/create-simple-memory`, `/create-entity`, `/create-context`, `/pkb <text>`, `/memory <text>` | `/create-*` commands are client-side intercepted (see section 6d). `/pkb` and `/memory` route to the PKB NL agent inside `Conversation.reply()` for NL-based CRUD operations on claims/entities/tags/contexts. |
 | OpenCode | `/compact`, `/abort`, `/new`, `/sessions`, `/fork`, `/summarize`, `/status`, `/diff`, `/revert`, `/mcp`, `/models`, `/help` | Only when OpenCode enabled. Forwarded to OpenCode session. |
 
 **Autocomplete**
@@ -1100,6 +1124,14 @@ When "Better context" is enabled (default on for the modal; always on for the `/
 - Temporary mode: `/temp ...` disables persistence for that interaction.
 - **Stateless conversations**: Right-click → "Toggle Stateless" marks a conversation for deletion on next page reload. The conversation works normally during the current session.
 - **New Temporary Chat button**: The `#new-temp-chat` button in the top-right chat bar creates a fresh conversation in the default workspace and marks it stateless in a single atomic server request (`POST /create_temporary_conversation/{domain}`). The server handles cleanup of old stateless conversations, creation, stateless marking, and list building in one call. The conversation is deleted on next page reload.
+- **Temporary conversation cleanup (grace period + graceful UI fallback)**:
+  - **Backend grace period**: `list_conversation_by_user` only deletes stateless conversations older than 5 minutes (`GRACE_PERIOD_SECONDS = 300`). This prevents a multi-tab race condition where Tab A's page reload deletes a temp conversation that Tab B is actively using. The age is computed from `memory.last_updated` (parsed as `"%Y-%m-%d %H:%M:%S"`).
+  - **`deleted_temporary_ids` in response**: The endpoint now returns `{"conversations": [...], "deleted_temporary_ids": [...]}` instead of a flat array. The UI uses `deleted_temporary_ids` to proactively remove stale `lastActiveConversationId:{email}:{domain}` entries from `localStorage`.
+  - **URL parameter validation**: If the URL contains a conversation ID (deep link / bookmark), the UI validates it against the fetched conversation list before calling `setActiveConversation()`. If the conversation no longer exists, a warning toast is shown and the UI falls back to the resume-from-localStorage or first-available-conversation path.
+  - **Existence guard in `setActiveConversation()`**: Before setting `activeConversationId`, saving to localStorage, or firing any API calls (listMessages, getConversationDetails, fetchMemoryPad, getConversationSettings, LocalDocsManager.refresh), the function checks whether the conversation ID exists in `WorkspaceManager.conversations`. If not, it clears localStorage, shows a toast ("This conversation is no longer available"), and recursively calls `setActiveConversation()` with the first available conversation.
+  - **`.fail()` handler on message loading**: The `$.when(restorePromise, messagesRequest)` call now has a `.fail()` handler that catches 404s from deleted conversations, clears localStorage, shows a toast, and falls back.
+  - **`alert()` → `showToast()`**: Error handlers in `getConversationDetails` and `fetchMemoryPad` now use `showToast('...', 'danger')` instead of disruptive `alert()` popups.
+  - **Key files**: `endpoints/conversations.py` (grace period logic, response format), `interface/workspace-manager.js` (response parsing, localStorage cleanup, URL validation), `interface/common-chat.js` (existence guard, `.fail()` handler, alert→toast).
 - User-controllable system/preamble options:
   - formatting variants
   - “TTS friendly” style guide
@@ -1258,7 +1290,9 @@ The extension uses two categories of endpoints:
   - hybrid search retrieval,
   - universal `@` references for claims, contexts, entities, tags, and domains (v0.7),
   - type-aware autocomplete across all PKB object types,
-  - recursive resolution for contexts and tags (entire subtrees).
+  - recursive resolution for contexts and tags (entire subtrees),
+  - NL-based CRUD operations via `/pkb` and `/memory` slash commands with interactive proposals,
+  - auto-expiry for time-bound task/reminder claims.
 
 ### Multi-agent orchestration
 - Switchable agents for:
@@ -1275,7 +1309,7 @@ The extension uses two categories of endpoints:
 - Diagram generation and publishing (Mermaid + Draw.io) with shareable links.
 
 ### Native agentic tool calling
-- LLM can autonomously invoke 48 tools mid-response (search, document lookup, PKB queries, code execution, artefact management, prompts).
+- LLM can autonomously invoke 56 tools mid-response (search, document lookup, PKB queries, PKB NL commands, code execution, artefact management, prompts).
 - Multi-step tool chains (up to 5 iterations per turn) with interactive pausing for user input.
 - Per-category permission toggles — write operations require explicit opt-in.
 - Same tool implementations power both the MCP server (for external coding assistants) and the native tool calling framework.
@@ -1292,7 +1326,7 @@ The extension uses two categories of endpoints:
 ## Sales pitch material (templates)
 
 ### 15-second pitch
-"It's a research-grade chat assistant that can **ingest your documents**, **search the web**, **pull from a personal knowledge base**, and **autonomously invoke 48 tools mid-response** (document search, code execution, artefact creation, PKB management), then stream answers while producing **artifacts**—code outputs, diagrams, slides, and audio—so teams can go from question → deliverable in one workflow."
+"It's a research-grade chat assistant that can **ingest your documents**, **search the web**, **pull from a personal knowledge base**, and **autonomously invoke 56 tools mid-response** (document search, code execution, artefact creation, PKB management, NL memory commands), then stream answers while producing **artifacts**—code outputs, diagrams, slides, and audio—so teams can go from question → deliverable in one workflow."
 
 ### Persona-based value props
 - **Researchers/Students**: doc-grounded answers, literature review agents, summaries, citations-like link surfacing.
@@ -1307,7 +1341,7 @@ The extension uses two categories of endpoints:
 - Built-in **execution + artifacts** (plots/files/diagrams) and **streaming** UX for long tasks.
 - Built-in **specialized agents** for research, interviews, slides, and more.
 
-- Built-in **native tool calling** with 48 tools — the LLM autonomously searches, queries docs, manages PKB, runs code, and creates artefacts within a single response turn.
+- Built-in **native tool calling** with 56 tools — the LLM autonomously searches, queries docs, manages PKB (including NL commands and interactive proposals), runs code, and creates artefacts within a single response turn.
 ---
 
 ## Notes / known implementation behaviors (useful for parity)

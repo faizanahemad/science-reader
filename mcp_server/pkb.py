@@ -205,11 +205,22 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
         Uses hybrid search (FTS5 + embedding similarity) by default.
         Returns a ranked list of matching claims with relevance scores.
 
+        HIGH RECALL IS CRITICAL — the PKB uses semantic similarity so callers MUST search with
+        multiple phrasings, synonyms, and alternative terms to avoid missing relevant memories.
+        For example, if looking for dietary preferences, also search for 'food', 'eating', 'diet',
+        'nutrition', 'meal'. Issue MULTIPLE searches with varied queries rather than relying on a
+        single query. Use broad terms first, then narrow down. Cross-domain terms help:
+        e.g. for 'exercise' also try 'fitness', 'gym', 'workout', 'health'.
+        Request a higher k (30-50) when comprehensive coverage matters.
+
         Args:
             user_email: Email of the PKB owner.
-            query: Natural-language search query.
-            k: Maximum number of results to return (default 20).
-            strategy: Search strategy — "hybrid" (default), "fts", or "embedding".
+            query: Natural-language search query. Use broad terms, synonyms, and alternative
+                phrasings to maximize recall. Issue multiple searches with different queries
+                rather than relying on one.
+            k: Maximum number of results to return. Use 30-50 when comprehensive recall
+                matters. Default 20 may miss relevant items.
+            strategy: Search strategy — 'hybrid' (default), 'fts', or 'embedding'.
         """
         try:
             api = _get_pkb_api()
@@ -307,6 +318,8 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
         claim_type: str,
         context_domain: str,
         tags: Optional[List[str]] = None,
+        valid_from: Optional[str] = None,
+        valid_to: Optional[str] = None,
     ) -> str:
         """Add a new claim (memory, fact, preference, etc.) to the PKB.
 
@@ -320,16 +333,23 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
             claim_type: Claim type (e.g. "fact", "preference", "decision", "memory", "goal").
             context_domain: Domain/topic area (e.g. "work", "health", "finance", "personal").
             tags: Optional list of tag names to attach to the claim.
+            valid_from: Start of validity period (ISO 8601 date). Optional.
+            valid_to: End of validity period (ISO 8601 date). Required for task and reminder claims.
         """
         try:
             api = _get_pkb_api()
             user_api = api.for_user(user_email)
-            result = user_api.add_claim(
+            kwargs = dict(
                 statement=statement,
                 claim_type=claim_type,
                 context_domain=context_domain,
                 tags=tags,
             )
+            if valid_from is not None:
+                kwargs["valid_from"] = valid_from
+            if valid_to is not None:
+                kwargs["valid_to"] = valid_to
+            result = user_api.add_claim(**kwargs)
             return _serialize_action_result(result)
         except Exception as exc:
             logger.exception("pkb_add_claim error: %s", exc)
@@ -372,13 +392,76 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
             logger.exception("pkb_edit_claim error: %s", exc)
             return json.dumps({"error": f"pkb_edit_claim failed: {exc}"})
 
+    # -----------------------------------------------------------------
+    # Tool 7: pkb_delete_claim — soft-delete a claim
+    # -----------------------------------------------------------------
+
+    @mcp.tool()
+    def pkb_delete_claim(user_email: str, claim_id: str) -> str:
+        """Soft-delete (retract) a claim from the PKB. The claim is not permanently deleted but marked as retracted and excluded from default search results.
+
+        Args:
+            user_email: Email of the PKB owner.
+            claim_id: UUID of the claim to delete.
+        """
+        try:
+            result = _get_pkb_api().for_user(user_email).delete_claim(claim_id=claim_id)
+            return _serialize_action_result(result)
+        except Exception as exc:
+            logger.exception("pkb_delete_claim error: %s", exc)
+            return json.dumps({"error": f"pkb_delete_claim failed: {exc}"})
+
+    # -----------------------------------------------------------------
+    # Tool 8: pkb_nl_command — natural language PKB operations
+    # -----------------------------------------------------------------
+
+    @mcp.tool()
+    def pkb_nl_command(user_email: str, command: str, model: str = None) -> str:
+        """Process a natural language command against the PKB.
+
+        Accepts free-form text and performs multi-step CRUD operations
+        (search, add, edit, delete, pin claims; manage entities and tags)
+        using an internal agentic LLM loop. Returns a natural language
+        summary of actions taken.
+
+        When the command involves searching or retrieving memories, the internal agent
+        optimizes for HIGH RECALL by using synonyms, alternative phrasings, and broad
+        search terms to ensure no relevant memories are missed.
+
+        Examples:
+            - "Add a reminder to buy a gift for my friend on July 20th"
+            - "What are my pending tasks?"
+            - "Delete all claims about my old address"
+            - "Update my preference about coffee to prefer espresso"
+            - "Find everything about my health — diet, exercise, medical, fitness, nutrition"
+
+        Args:
+            user_email: Email of the PKB owner.
+            command: Natural language command. For search/retrieval, include synonyms and
+                alternative phrasings to improve recall (e.g. 'find my dietary preferences,
+                food habits, eating restrictions, nutrition notes').
+            model: Optional LLM model override (default: openai/gpt-4o-mini).
+        """
+        try:
+            from truth_management_system.interface.nl_agent import PKBNLAgent
+            from endpoints.utils import keyParser
+
+            api = _get_pkb_api().for_user(user_email)
+            keys = keyParser({})
+            agent = PKBNLAgent(api=api, keys=keys, model=model)
+            result = agent.process(command)
+            return json.dumps(result.to_dict(), default=str)
+        except Exception as exc:
+            logger.exception("pkb_nl_command error: %s", exc)
+            return json.dumps({"error": f"pkb_nl_command failed: {exc}"})
+
     # =================================================================
     # Full-tier tools (only registered when MCP_TOOL_TIER == "full")
     # =================================================================
 
     if is_full:
         # -------------------------------------------------------------
-        # Tool 7: pkb_get_claims_by_ids — batch retrieve claims
+        # Tool 8: pkb_get_claims_by_ids — batch retrieve claims
         # -------------------------------------------------------------
 
         @mcp.tool()
@@ -402,7 +485,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
                 return json.dumps({"error": f"pkb_get_claims_by_ids failed: {exc}"})
 
         # -------------------------------------------------------------
-        # Tool 8: pkb_autocomplete — prefix search for friendly IDs
+        # Tool 9: pkb_autocomplete — prefix search for friendly IDs
         # -------------------------------------------------------------
 
         @mcp.tool()
@@ -428,7 +511,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
                 return json.dumps({"error": f"pkb_autocomplete failed: {exc}"})
 
         # -------------------------------------------------------------
-        # Tool 9: pkb_resolve_context — get context + its claims
+        # Tool 10: pkb_resolve_context — get context + its claims
         # -------------------------------------------------------------
 
         @mcp.tool()
@@ -452,7 +535,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
                 return json.dumps({"error": f"pkb_resolve_context failed: {exc}"})
 
         # -------------------------------------------------------------
-        # Tool 10: pkb_pin_claim — pin or unpin a claim
+        # Tool 11: pkb_pin_claim — pin or unpin a claim
         # -------------------------------------------------------------
 
         @mcp.tool()
@@ -477,7 +560,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
                 return json.dumps({"error": f"pkb_pin_claim failed: {exc}"})
 
         # -------------------------------------------------------------
-        # Tool 11: pkb_list_contexts — list all PKB contexts
+        # Tool 12: pkb_list_contexts — list all PKB contexts
         # -------------------------------------------------------------
 
         @mcp.tool()
@@ -509,7 +592,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
                 return json.dumps({"error": f"pkb_list_contexts failed: {exc}"})
 
         # -------------------------------------------------------------
-        # Tool 12: pkb_list_entities — list all PKB entities
+        # Tool 13: pkb_list_entities — list all PKB entities
         # -------------------------------------------------------------
 
         @mcp.tool()
@@ -536,7 +619,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
                 return json.dumps({"error": f"pkb_list_entities failed: {exc}"})
 
         # -------------------------------------------------------------
-        # Tool 13: pkb_list_tags — list all PKB tags
+        # Tool 14: pkb_list_tags — list all PKB tags
         # -------------------------------------------------------------
 
         @mcp.tool()

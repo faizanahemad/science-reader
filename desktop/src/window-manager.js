@@ -23,6 +23,7 @@ const DEFAULTS = {
   height: 800,
   snapMode: 'right',
   dockMode: 'overlay',
+  appMode: 'sidebar',
   sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
   bottomHeight: SIDEBAR_BOTTOM_HEIGHT
 }
@@ -37,7 +38,9 @@ export class WindowManager {
     })
     this.snapMode = 'right'
     this.dockMode = 'overlay'
+    this.appMode = 'sidebar'
     this._floatBounds = null
+    this._appBounds = null
     this._sidebarWidth = DEFAULT_SIDEBAR_WIDTH
     this._bottomHeight = SIDEBAR_BOTTOM_HEIGHT
     this._resizeTimer = null
@@ -57,14 +60,17 @@ export class WindowManager {
     const saved = this.store.get('windowState', { ...DEFAULTS })
     this.snapMode = saved.snapMode || 'right'
     this.dockMode = saved.dockMode || 'overlay'
+    this.appMode = saved.appMode || 'sidebar'
     this._sidebarWidth = saved.sidebarWidth || DEFAULT_SIDEBAR_WIDTH
     this._bottomHeight = saved.bottomHeight || SIDEBAR_BOTTOM_HEIGHT
+    this._appBounds = saved.appBounds || null
 
-    if (this.snapMode === 'float' && this._isOnScreen(saved)) {
+    if (this.appMode === 'app') {
+      this._applyAppMode()
+    } else if (this.snapMode === 'float' && this._isOnScreen(saved)) {
       this._floatBounds = { x: saved.x, y: saved.y, width: saved.width, height: saved.height }
       this.win.setBounds(this._floatBounds)
     } else if (this.snapMode === 'float') {
-      // Saved float position is off-screen, reset to right
       this.snapMode = 'right'
       this._applySnap('right')
     } else {
@@ -116,6 +122,97 @@ export class WindowManager {
     this.save()
   }
 
+  /** Get/set app mode ('sidebar' or 'app'). */
+  getAppMode () { return this.appMode }
+
+  /**
+   * Toggle between sidebar mode and app mode.
+   * Sidebar: alwaysOnTop, frameless panel, narrow, snapped.
+   * App: normal window, not always-on-top, traffic light buttons, larger.
+   * @param {'sidebar'|'app'} mode
+   */
+  setAppMode (mode) {
+    if (mode !== 'sidebar' && mode !== 'app') return
+    if (mode === this.appMode) return
+
+    if (mode === 'app') {
+      // Save current sidebar state before switching
+      this.save()
+      this.appMode = 'app'
+      this._applyAppMode()
+    } else {
+      // Save app bounds before switching back
+      this._appBounds = this.win.getBounds()
+      this.appMode = 'sidebar'
+      this._applySidebarMode()
+    }
+    this.save()
+  }
+
+  /** Apply app mode: large centered window, not always-on-top, show traffic lights. */
+  _applyAppMode () {
+    this._isSnapping = true
+    const display = this._getPrimaryDisplay()
+    const { x: dx, y: dy, width: dw, height: dh } = display.workArea
+
+    // Restore saved app bounds or center with a reasonable default size
+    let bounds = this._appBounds
+    if (!bounds || !this._isOnScreen(bounds)) {
+      const w = Math.min(1200, Math.round(dw * 0.8))
+      const h = Math.min(900, Math.round(dh * 0.85))
+      bounds = {
+        x: dx + Math.round((dw - w) / 2),
+        y: dy + Math.round((dh - h) / 2),
+        width: w,
+        height: h
+      }
+    }
+
+    this.win.setAlwaysOnTop(false)
+    this.win.setVisibleOnAllWorkspaces(false)
+    this.win.setSkipTaskbar?.(false) // Show in dock/taskbar
+    if (typeof this.win.setWindowButtonVisibility === 'function') {
+      this.win.setWindowButtonVisibility(true) // macOS traffic lights
+    }
+    this.win.setBounds(bounds)
+    this.win.setResizable(true)
+    this.win.setMovable(true)
+    this.win.setMinimumSize(600, 400)
+
+    setTimeout(() => { this._isSnapping = false }, 100)
+  }
+
+  /** Apply sidebar mode: narrow floating panel, always-on-top, hide traffic lights. */
+  _applySidebarMode () {
+    this._isSnapping = true
+
+    this.win.setAlwaysOnTop(true, 'floating')
+    this.win.setVisibleOnAllWorkspaces(true)
+    if (typeof this.win.setWindowButtonVisibility === 'function') {
+      this.win.setWindowButtonVisibility(false) // Hide traffic lights
+    }
+    this.win.setMinimumSize(MIN_SIDEBAR_WIDTH, 200)
+
+    // Re-apply the saved snap mode
+    if (this.snapMode === 'float' && this._floatBounds) {
+      this.win.setBounds(this._floatBounds)
+    } else {
+      this._applySnap(this.snapMode)
+    }
+
+    this.win.setResizable(true)
+    this.win.setMovable(true)
+
+    setTimeout(() => { this._isSnapping = false }, 100)
+  }
+  getDockMode () { return this.dockMode }
+
+  setDockMode (mode) {
+    if (mode !== 'overlay' && mode !== 'push') return
+    this.dockMode = mode
+    this.save()
+  }
+
   /** Save current bounds and snap mode to store. */
   save () {
     const bounds = this.win.getBounds()
@@ -129,8 +226,10 @@ export class WindowManager {
       height: bounds.height,
       snapMode: this.snapMode,
       dockMode: this.dockMode,
+      appMode: this.appMode,
       sidebarWidth: this._sidebarWidth,
-      bottomHeight: this._bottomHeight
+      bottomHeight: this._bottomHeight,
+      appBounds: this._appBounds
     })
   }
 

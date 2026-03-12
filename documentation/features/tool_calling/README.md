@@ -6,7 +6,7 @@ The LLM Tool Calling Framework adds native, mid-response tool calling to the cha
 
 This transforms the application from a "configure then send" model to a truly agentic one where the LLM reasons about what it needs and acts accordingly. The framework supports multi-step tool chains (up to 5 iterations per turn), interactive tools that pause for user input, and server-side tools that execute silently.
 
-**Key numbers**: 53 tools across 9 categories. 1 interactive tool (`ask_clarification`). Master toggle + per-category toggles. 60-second interactive timeout. 5-iteration hard cap. 12000-character result truncation. Tool use enabled by default with `ask_clarification` pre-selected. Search-intent auto-detection dynamically adds web search tools based on message keywords.
+**Key numbers**: 53 tools across 9 categories. 1 interactive tool (`ask_clarification`). Master toggle + per-category toggles. 60-second interactive timeout. 5-iteration hard cap. 50000-character result truncation. Tool use enabled by default with `ask_clarification` pre-selected. Search-intent auto-detection dynamically adds web search tools based on message keywords.
 
 **Plan reference**: `documentation/planning/plans/llm_tool_calling_framework.plan.md`
 
@@ -70,7 +70,7 @@ User doesn't respond to a clarification modal within 60 seconds. The LLM receive
 | Per-tool selector | `checkboxes.enabled_tools` | Array of enabled tool name strings. Sent as `["ask_clarification", "web_search", ...]`. Legacy dict format `{category: bool}` also accepted for backward compatibility. |
 | Iteration cap | 5 | Hard maximum tool-call rounds per turn. On the final iteration, `tool_choice="none"` forces a text-only response. |
 | Interactive timeout | 60 seconds | `threading.Event.wait(timeout=60)`. Unblocks with timeout message if user doesn't respond. |
-| Result truncation | 12000 characters | `TOOL_RESULT_TRUNCATION_LIMIT` in `code_common/tools.py`. Oversized results are truncated with `"\n... [truncated, result too long]"` suffix. |
+| Result truncation | 50000 characters | `TOOL_RESULT_TRUNCATION_LIMIT` in `code_common/tools.py`. Oversized results are truncated with `"\n... [truncated, result too long]"` suffix. |
 | Fail-open execution | Always | `ToolRegistry.execute()` catches all exceptions. Tool errors produce an error message fed back to the LLM, never crash the response. |
 | Backward compatibility | Full | When `tools=None` (default), the entire call stack is unchanged. No overhead for non-tool conversations. |
 
@@ -100,9 +100,11 @@ Conversation.reply()
               -> client.chat.completions.create(..., tools=tools_config)
               -> _extract_text_from_openai_response() -> yields str | dict
           -> If tool_call dicts received:
-            -> TOOL_REGISTRY.execute(name, args, context, tool_call_id)
-            -> If interactive: wait_for_tool_response(tool_id, timeout=60)
-            -> Append {"role": "tool", "tool_call_id": ..., "content": result} to messages
+            -> Classify: interactive vs non-interactive
+            -> Non-interactive tools: ThreadPoolExecutor parallel execution
+               (each thread gets deepcopy of ToolContext)
+            -> Interactive tools: sequential execution with wait_for_tool_response()
+            -> Append all {"role": "tool", "tool_call_id": ..., "content": result} to messages
             -> Continue loop
           -> If text only: break loop, done
     else:
@@ -147,7 +149,7 @@ The existing streaming protocol uses newline-delimited JSON lines. Tool calling 
 | `tool_call` | `type`, `tool_id`, `tool_name`, `tool_input` | LLM requests a tool invocation |
 | `tool_status` | `type`, `tool_id`, `tool_status` | Tool execution state changes (`executing`, `waiting_for_user`, `completed`) |
 | `tool_input_request` | `type`, `tool_id`, `tool_name`, `ui_schema` | Interactive tool needs user input (triggers modal) |
-| `tool_result` | `type`, `tool_id`, `result_summary` | Tool execution completed, brief summary |
+| `tool_result` | `type`, `tool_id`, `tool_name`, `result_summary`, `duration_seconds` | Tool execution completed, brief summary with execution time |
 
 **Example event sequence for interactive tool**:
 ```
@@ -158,7 +160,7 @@ The existing streaming protocol uses newline-delimited JSON lines. Tool calling 
 {"type": "tool_input_request", "tool_id": "call_abc123", "tool_name": "ask_clarification", "ui_schema": {"questions": [{"question": "What industry?", "options": ["Tech", "Finance", "Healthcare", "Other"]}]}}
   ... user submits response via modal ...
 {"type": "tool_status", "tool_id": "call_abc123", "tool_status": "completed"}
-{"type": "tool_result", "tool_id": "call_abc123", "result_summary": "User answered 2 clarification questions"}
+{"type": "tool_result", "tool_id": "call_abc123", "tool_name": "ask_clarification", "result_summary": "User answered 2 clarification questions", "duration_seconds": 12.3}
 {"text": "Based on your answers, here is a tailored business plan for the tech industry..."}
 ```
 
@@ -167,7 +169,7 @@ The existing streaming protocol uses newline-delimited JSON lines. Tool calling 
 {"type": "tool_call", "tool_id": "call_xyz789", "tool_name": "web_search", "tool_input": {"query": "quantum computing 2026"}}
 {"type": "tool_status", "tool_id": "call_xyz789", "tool_status": "executing"}
 {"type": "tool_status", "tool_id": "call_xyz789", "tool_status": "completed"}
-{"type": "tool_result", "tool_id": "call_xyz789", "result_summary": "Found 5 search results"}
+{"type": "tool_result", "tool_id": "call_xyz789", "tool_name": "web_search", "result_summary": "Found 5 search results", "duration_seconds": 3.5}
 {"text": "Here are the latest developments in quantum computing..."}
 ```
 
@@ -193,6 +195,32 @@ _tool_response_lock = threading.Lock()
 8. `wait_for_tool_response()` unblocks, returns the response dict.
 9. `_run_tool_loop()` formats the response as a tool result message and continues the loop.
 10. On timeout (60s): `event.wait()` returns `False`, function returns `None`, loop feeds "User did not respond" to LLM.
+
+### Tool Call Timing
+
+Every tool call is timed end-to-end by `_run_tool_loop()` in `Conversation.py`. Two durations are tracked:
+
+- **`tool_exec_duration`**: Wall-clock time for `TOOL_REGISTRY.execute()` only (server-side handler execution).
+- **`tool_total_duration`**: Includes exec time plus any user-wait time for interactive tools (same as exec for server-side tools).
+
+Timing appears in four places:
+
+1. **`tool_result` streaming event**: New `duration_seconds` field (float, rounded to 2 decimal places) sent to the UI alongside `result_summary`.
+2. **Inline status pill (UI)**: `ToolCallManager.showToolResult()` appends `(Xs)` to the result summary text displayed in the pill.
+3. **Collapsible `<tool_calls_summary>` block**: Each tool line shows `(N chars, Xs)` instead of just `(N chars)`.
+4. **`time_dict` (end-of-message YAML)**: New `tool_calls` key contains a list of `{name, duration_s, result_chars}` dicts. These appear in the "Time taken to reply for chatbot" collapsible at the end of the message.
+
+Example `time_dict` entry:
+```yaml
+tool_calls:
+- name: jina_search
+  duration_s: 3.45
+  result_chars: 4200
+- name: ask_clarification
+  duration_s: 15.2
+  result_chars: 150
+total_time_to_reply: 28.5
+```
 
 ### Tool Registry
 
@@ -421,7 +449,7 @@ def handle_my_new_tool(args: dict, context: ToolContext) -> ToolCallResult:
 - `parameters` must be a valid JSON Schema object
 - Handler must return `ToolCallResult` (or the registry wraps the return value)
 - Handler must never raise -- catch exceptions internally and return error in `ToolCallResult.error`
-- Results are auto-truncated to 12000 characters by `_truncate_result()` (configurable via `TOOL_RESULT_TRUNCATION_LIMIT`)
+- Results are auto-truncated to 50000 characters by `_truncate_result()` (configurable via `TOOL_RESULT_TRUNCATION_LIMIT`)
 
 ### Step 2: Implement the handler logic
 
@@ -655,7 +683,7 @@ Manual testing checklist:
 
 5. **Write operations**: Tools marked as write operations (PKB add/edit/pin, memory pad set, artefact create/update/delete, prompt create/update) modify persistent state. Their categories default to OFF to prevent unintended writes.
 
-6. **Result truncation**: All tool results are passed through `_truncate_result()` which caps at `TOOL_RESULT_TRUNCATION_LIMIT = 12000` characters (defined in `code_common/tools.py`). The suffix length is now computed dynamically (`max_len - len(suffix)`), so the truncated output is exactly `max_len` characters. Truncation is applied in two places: (a) most handlers call `_truncate_result()` on their result text before returning, and (b) `ToolRegistry.execute()` calls it again as a safety net. The double application is idempotent. Previously the limit was 4000 characters with a suffix math bug that produced 4003-char outputs; both issues are now fixed.
+6. **Result truncation**: All tool results are passed through `_truncate_result()` which caps at `TOOL_RESULT_TRUNCATION_LIMIT = 50000` characters (defined in `code_common/tools.py`). The suffix length is now computed dynamically (`max_len - len(suffix)`), so the truncated output is exactly `max_len` characters. Truncation is applied in two places: (a) most handlers call `_truncate_result()` on their result text before returning, and (b) `ToolRegistry.execute()` calls it again as a safety net. The double application is idempotent. Previously the limit was 4000 characters with a suffix math bug that produced 4003-char outputs; both issues are now fixed.
 
 7. **Fail-open design**: `ToolRegistry.execute()` wraps all handler calls in try/except. On any exception, it returns a `ToolCallResult` with the error message. The LLM receives the error and can decide how to proceed (retry, skip, or inform the user). The streaming response never crashes due to a tool error.
 
@@ -697,6 +725,14 @@ Manual testing checklist:
     - **Lazy loading**: Global docs (`list_global_docs`) and conversation docs (`get_field('uploaded_documents_list')`) are only fetched when a matching tool is found in the enabled list, and cached within the method scope.
     - **Fallback**: If `users_dir` is not provided, falls back to `endpoints.state.get_state().users_dir`.
     - **Key files**: `Conversation.py` (lines 6491-6647)
+
+20. **SUPERFAST_LLM for Jina search performance**: The `jina_search` tool handler in `code_common/tools.py` and the `WebSearchWithAgent.__call__` query generation path in `agents/search_and_information_agents.py` use `SUPERFAST_LLM[0]` (`inception/mercury-2`) instead of `CHEAP_LLM[0]` for faster query generation and per-query summarization. In the tool-calling headless path, query generation is already bypassed (pre-formatted code block), so SUPERFAST_LLM primarily accelerates the per-query combiner call in `JinaSearchAgent.process_query()`. In the non-headless path (direct agent use), SUPERFAST_LLM generates the search queries. Because SUPERFAST_LLM may produce malformed structured output (list-of-tuples format), the query generation includes explicit validation (non-empty list of 2-tuples with non-empty string queries) and falls back to `CHEAP_LLM[0]` on parsing failure. Content summarization for long (>10K char) search results at `process_search_result()` already used `SUPERFAST_LLM[0]` before this change.
+
+21. **Tool call timing instrumentation**: Each tool call in `_run_tool_loop()` is wrapped with `time.time()` to measure two durations: `tool_exec_duration` (time for `TOOL_REGISTRY.execute()` only) and `tool_total_duration` (exec + user wait for interactive tools). These durations flow through `tool_round_details` (7-tuple), the `tool_result` streaming event (`duration_seconds` field), the collapsible `<tool_calls_summary>` block (e.g. `(4200 chars, 3.5s)`), and `time_dict['tool_calls']` (list of per-tool timing dicts in the end-of-message YAML).
+
+22. **Parallel tool execution**: When the LLM issues multiple tool calls in a single response, `_run_tool_loop()` classifies them as interactive or non-interactive (based on `ToolDefinition.is_interactive`). Non-interactive tools are executed in parallel via `ThreadPoolExecutor` (max 5 workers). Each thread receives a `deepcopy` of the `ToolContext` so handlers cannot mutate shared state across threads. `TOOL_REGISTRY.execute()` only reads the registry dict (thread-safe for concurrent reads) and dispatches to the handler function with its own args and context copy. Interactive tools (e.g. `ask_clarification`) are executed sequentially after all non-interactive tools complete, since they require `threading.Event` synchronization for user input. Results are emitted to the UI in original call order regardless of completion order. This means if the LLM issues `web_search` + `perplexity_search` + `document_lookup` simultaneously, all three run in parallel and the total wall-clock time is the duration of the slowest tool rather than the sum of all three.
+
+23. **Prompt guidance for parallel tool calls**: The tool awareness preamble injected into the system prompt includes a "Parallel Tool Calls" section that explicitly instructs the LLM to issue multiple tool calls at once when it needs independent pieces of information. This is critical for latency reduction — since non-interactive tools execute in parallel, issuing N calls in one response takes the same wall-clock time as the slowest single call, versus N sequential rounds. The prompt text: "You can and SHOULD issue multiple tool calls at once when you need independent pieces of information... All non-interactive tool calls in the same response are executed in parallel, so issuing multiple calls simultaneously is significantly faster than calling them one at a time across multiple rounds."
 
 ## UI Implementation Details
 

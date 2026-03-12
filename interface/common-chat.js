@@ -524,7 +524,7 @@ var ConversationManager = {
                 return result;
             },
             error: function (result) {
-                alert('Error: ' + result.responseText);
+                if (typeof showToast === 'function') { showToast('Error loading conversation details', 'danger'); } else { console.error('Error loading conversation details:', result.responseText); }
             }
         });
     },
@@ -597,6 +597,37 @@ var ConversationManager = {
                 return;
             }
         } catch (_e) { /* ignore */ }
+
+        // Check if conversation exists in the loaded conversation list.
+        // This guards against trying to load a deleted temporary conversation.
+        var _convExistsInList = true;
+        try {
+            if (typeof WorkspaceManager !== 'undefined' && WorkspaceManager.conversations && WorkspaceManager.conversations.length > 0) {
+                _convExistsInList = WorkspaceManager.conversations.some(function (c) {
+                    return String(c.conversation_id) === String(conversationId);
+                });
+            }
+        } catch (_e) { /* ignore */ }
+
+        if (!_convExistsInList) {
+            // Conversation was deleted (likely a temporary conversation).
+            // Clear stale localStorage and notify user.
+            try { localStorage.removeItem(_lastConversationStorageKey()); } catch (_e) { /* ignore */ }
+            if (typeof showToast === 'function') {
+                showToast('This conversation is no longer available. It may have been a temporary conversation that was cleaned up.', 'warning');
+            }
+            // Try to fall back to the first available conversation
+            try {
+                if (typeof WorkspaceManager !== 'undefined' && WorkspaceManager.conversations && WorkspaceManager.conversations.length > 0) {
+                    var fallbackId = WorkspaceManager.conversations[0].conversation_id;
+                    if (fallbackId && String(fallbackId) !== String(conversationId)) {
+                        ConversationManager.setActiveConversation(fallbackId);
+                        WorkspaceManager.highlightActiveConversation(fallbackId, true);
+                    }
+                }
+            } catch (_e) { /* ignore */ }
+            return;
+        }
 
         this.activeConversationId = conversationId;
         // Reset PKB recent turns ring buffer when switching conversations
@@ -703,6 +734,22 @@ var ConversationManager = {
             // Common post-load focus
             $('#messageText').focus();
             $("#show-sidebar").focus();
+        }).fail(function () {
+            // API call failed (e.g. 404 for deleted conversation).
+            // Clear stale state and fall back gracefully.
+            try { localStorage.removeItem(_lastConversationStorageKey()); } catch (_e) { /* ignore */ }
+            if (typeof showToast === 'function') {
+                showToast('Could not load conversation. It may have been deleted.', 'warning');
+            }
+            try {
+                if (typeof WorkspaceManager !== 'undefined' && WorkspaceManager.conversations && WorkspaceManager.conversations.length > 0) {
+                    var fallbackId = WorkspaceManager.conversations[0].conversation_id;
+                    if (fallbackId && String(fallbackId) !== String(conversationId)) {
+                        ConversationManager.setActiveConversation(fallbackId);
+                        WorkspaceManager.highlightActiveConversation(fallbackId, true);
+                    }
+                }
+            } catch (_e) { /* ignore */ }
         });
 
         this.getConversationDetails().done(function (conversationDetails) {
@@ -740,7 +787,7 @@ var ConversationManager = {
             }
         });
         this.fetchMemoryPad().fail(function () {
-            alert('Error fetching memory pad');
+            if (typeof showToast === 'function') { showToast('Error fetching memory pad', 'danger'); } else { console.error('Error fetching memory pad'); }
         });
         LocalDocsManager.refresh(conversationId);
         ChatManager.setupAddDocumentForm(conversationId);
@@ -1292,7 +1339,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                 continue;
             } else if (part['type'] === 'tool_result') {
                 if (typeof ToolCallManager !== 'undefined') {
-                    ToolCallManager.showToolResult(part['tool_id'], part['result_summary']);
+                    ToolCallManager.showToolResult(part['tool_id'], part['result_summary'], part['duration_seconds']);
                 }
                 continue;
             }
@@ -3235,15 +3282,21 @@ function sendMessageCallback(skipAutoClarify) {
         // Trigger PKB memory update proposal check (with delay to not interrupt streaming)
         // Only check if PKBManager is available
         if (typeof PKBManager !== 'undefined' && PKBManager.checkMemoryUpdates) {
-            setTimeout(function() {
-                var conversationSummary = '';
-                var recentTurns = [];
-                try {
-                    conversationSummary = ConversationManager.currentConversationSummary || '';
-                    recentTurns = ConversationManager.recentTurns || [];
-                } catch (e) {}
-                PKBManager.checkMemoryUpdates(conversationSummary, messageText, '', recentTurns);
-            }, 3000);  // 3 second delay to allow streaming to start
+            // Skip memory update proposal for /pkb and /memory slash commands
+            // (the NL agent handles its own PKB operations directly)
+            if (options && options.pkb_nl_command) {
+                console.log('[common-chat] Skipping checkMemoryUpdates for /pkb command');
+            } else {
+                setTimeout(function() {
+                    var conversationSummary = '';
+                    var recentTurns = [];
+                    try {
+                        conversationSummary = ConversationManager.currentConversationSummary || '';
+                        recentTurns = ConversationManager.recentTurns || [];
+                    } catch (e) {}
+                    PKBManager.checkMemoryUpdates(conversationSummary, messageText, '', recentTurns);
+                }, 3000);  // 3 second delay to allow streaming to start
+            }
         }
     }).catch(function(error) {
         // Reset UI state on error
@@ -4141,7 +4194,9 @@ function initializeChatControlsToggleHandler() {
         { command: 'create-memory',        description: 'Open modal to add a memory (with AI auto-fill)',      icon: 'bi-brain',       badge: 'pkb',     category: 'PKB' },
         { command: 'create-simple-memory', description: 'Silently add a memory via AI (no modal)',             icon: 'bi-lightning',   badge: 'pkb',     category: 'PKB' },
         { command: 'create-entity',        description: 'Open modal to create an entity (person, org…)',    icon: 'bi-person-plus', badge: 'pkb',     category: 'PKB' },
-        { command: 'create-context',       description: 'Open modal to create a context / memory group',       icon: 'bi-folder-plus', badge: 'pkb',     category: 'PKB' }
+        { command: 'create-context',       description: 'Open modal to create a context / memory group',       icon: 'bi-folder-plus', badge: 'pkb',     category: 'PKB' },
+        { command: 'pkb',              description: 'Ask or command your personal knowledge base (NL agent)', icon: 'bi-chat-dots',   badge: 'pkb',     category: 'PKB' },
+        { command: 'memory',           description: 'Alias for /pkb — natural language memory operations', icon: 'bi-chat-dots',   badge: 'pkb',     category: 'PKB' },
     ];
     var FALLBACK_OPENCODE = [
         { command: 'compact',   description: 'Compress session context to save tokens', icon: 'bi-arrows-collapse',     badge: 'opencode', requires: 'enable_opencode', category: 'OpenCode' },

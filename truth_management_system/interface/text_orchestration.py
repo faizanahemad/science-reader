@@ -127,11 +127,16 @@ class TextOrchestrator:
             logger.error("code_common.call_llm not available")
             return self._fallback_parse(user_text)
         
+        from datetime import date as _date
+        today = _date.today().isoformat()
+
         prompt = f"""Parse this command for a personal knowledge base system.
 
+Today's date: {today}
+
 Actions:
-- add_claim: Add a fact, preference, decision, memory ("remember that...", "I prefer...", "save...")
-- search: Find/query claims ("find...", "what do I know about...", "show...")
+- add_claim: Add a fact, preference, decision, memory, task, reminder ("remember that...", "I prefer...", "remind me...", "add a task...")
+- search: Find/query claims ("find...", "what do I know about...", "show...", "what are my reminders")
 - edit_claim: Update a claim ("update...", "change...")
 - delete_claim: Remove/retract a claim ("delete...", "remove...", "forget...")
 - add_note: Add a longer note
@@ -140,12 +145,24 @@ Actions:
 Claim types: fact, memory, decision, preference, task, reminder, habit, observation
 Context domains: personal, health, relationships, learning, life_ops, work, finance
 
-User command: "{user_text}"
+Date extraction rules:
+- "on July 20th" -> valid_to: "{_date.today().year}-07-20" (use next year if already past)
+- "next Friday" -> compute the actual date from today
+- "in 3 days" / "tomorrow" -> compute from today
+- Reminders: ALWAYS set valid_to to the reminder date
+- Tasks: set valid_from to today, valid_to to deadline if mentioned
+- task and reminder claims REQUIRE valid_to
 
-IMPORTANT: Return ONLY valid JSON with NO additional text. Example:
+For search with type filters: when user says "what are my reminders" or "show my tasks",
+include claim_type in the response (e.g. "reminder" or "task").
+
+User command: \"{user_text}\"
+
+IMPORTANT: Return ONLY valid JSON with NO additional text. Examples:
 {{"action": "add_claim", "claim_type": "fact", "context_domain": "health", "statement": "I am allergic to shellfish", "confidence": 0.9}}
-
-For search: {{"action": "search", "search_query": "allergies", "confidence": 0.8}}
+{{"action": "add_claim", "claim_type": "reminder", "context_domain": "personal", "statement": "Buy gift for friend", "valid_to": "2025-07-20", "confidence": 0.9}}
+{{"action": "search", "search_query": "allergies", "confidence": 0.8}}
+{{"action": "search", "search_query": "reminders", "claim_type": "reminder", "confidence": 0.8}}
 
 Response:"""
 
@@ -302,12 +319,21 @@ Response:"""
                 raw_intent=intent
             )
         
-        result = self.api.add_claim(
+        # Build add_claim kwargs, passing temporal fields if present
+        kwargs = dict(
             statement=statement,
             claim_type=intent.get('claim_type', 'observation'),
             context_domain=intent.get('context_domain', 'personal'),
-            auto_extract=True
+            auto_extract=True,
         )
+        if intent.get('valid_from'):
+            kwargs['valid_from'] = intent['valid_from']
+        if intent.get('valid_to'):
+            kwargs['valid_to'] = intent['valid_to']
+        if intent.get('tags'):
+            kwargs['tags'] = intent['tags']
+        
+        result = self.api.add_claim(**kwargs)
         
         return OrchestrationResult(
             action_taken=f"Added {intent.get('claim_type', 'claim')}: {statement[:50]}...",
@@ -327,7 +353,18 @@ Response:"""
                 raw_intent=intent
             )
         
-        result = self.api.search(query, k=10)
+        # Build search filters from intent
+        filters = None
+        claim_type = intent.get('claim_type')
+        context_domain = intent.get('context_domain')
+        if claim_type or context_domain:
+            filters = {}
+            if claim_type:
+                filters['claim_type'] = claim_type
+            if context_domain:
+                filters['context_domain'] = context_domain
+        
+        result = self.api.search(query, k=15, filters=filters)
         
         count = len(result.data) if result.success and result.data else 0
         

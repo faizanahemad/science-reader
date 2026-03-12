@@ -26,6 +26,8 @@ This doc explains how chat messages move from UI to server and back, and how the
 | `/delete` | `delete_last_turn: true` | Deletes the last conversation turn. |
 | `/image <prompt>` | `generate_image: true` | **Image generation and editing.** Strips `/image`, uses remaining text as prompt. Backend intercepts in `Conversation.reply()` and calls `_handle_image_generation()` instead of the normal LLM path. Before calling the image model, detects an input image via two priority rules: (1) image attached to the current message (`query["images"]`), (2) last preceding assistant message with `generated_images` metadata (loaded from disk). If an input image is found, passes it to the model as a multipart content array `[{image_url}, {text}]` for editing/transformation; otherwise pure generation. Gathers conversation context (summary + last 2 messages + deep context), refines the prompt via a cheap LLM, calls Nano Banana 2, stores the PNG in `{conv_storage}/images/`, and streams a markdown image card. Image is downloadable inline and included in LLM vision context on subsequent turns. See `documentation/features/image_generation/README.md`. |
 
+| `/pkb <text>` | `pkb_nl_command: true` | **PKB Natural Language command.** Strips `/pkb` (or `/memory`), routes the remaining text to the `PKBNLConversationAgent` inside `Conversation.reply()`. The agent uses the PKB NL backend (`PKBNLAgent`) with tools for CRUD on claims/entities/tags/contexts. Bypasses the normal LLM path, PKB retrieval, and `checkMemoryUpdates`. Streams the agent's NL response directly. If the NL agent is uncertain, it may trigger the `pkb_propose_memory` interactive tool flow (see Tool Calling Pipeline below). Alias: `/memory`. See `documentation/features/truth_management_system/README.md`. |
+| `/memory <text>` | `pkb_nl_command: true` | Alias for `/pkb <text>`. |
 **Backend-only commands** (not parsed by frontend — intercepted in `Conversation.reply()` before the normal LLM path):
 
 | Command | Behavior |
@@ -85,7 +87,7 @@ See `documentation/product/behavior/CLARIFICATIONS_AND_AUTO_DOUBT_CONTEXT.md` fo
 - **Cross-conversation message references** (`@conversation_<fid>_message_<hash>`) are also detected here. Before PKB resolution, `_get_pkb_context()` separates conversation refs from PKB friendly IDs using `CONV_REF_PATTERN`, resolves them via `_resolve_conversation_message_refs()`, and injects the referenced message text as `[REFERENCED @conversation_...]` blocks. These survive post-distillation re-injection alongside PKB claims.
 - For complete details on how PKB references are parsed, resolved, and injected, see [PKB Reference Resolution Flow](../truth_management_system/pkb_reference_resolution_flow.md).
 - For cross-conversation message references, see [Cross-Conversation Message References](../cross_conversation_references/README.md).
-- **Tool calling branch**: When `checkboxes.enable_tool_use` is true and `checkboxes.enabled_tools` has at least one enabled category, `reply()` calls `_get_enabled_tools()` to build the tools config and then `_run_tool_loop()` instead of the normal LLM path. `_run_tool_loop()` is a generator that yields the same dict format as the normal path, plus tool-specific event types (`tool_call`, `tool_status`, `tool_input_request`, `tool_result`). The loop runs up to 5 iterations; on the final iteration, `tool_choice="none"` forces text output. Interactive tools use `threading.Event` synchronization via `POST /tool_response/<conv_id>/<tool_id>` (60s timeout). See `documentation/features/tool_calling/README.md`.
+- **Tool calling branch**: When `checkboxes.enable_tool_use` is true and `checkboxes.enabled_tools` has at least one enabled category, `reply()` calls `_get_enabled_tools()` to build the tools config and then `_run_tool_loop()` instead of the normal LLM path. `_run_tool_loop()` is a generator that yields the same dict format as the normal path, plus tool-specific event types (`tool_call`, `tool_status`, `tool_input_request`, `tool_result`). The loop runs up to 5 iterations; on the final iteration, `tool_choice="none"` forces text output. When the LLM returns multiple tool calls in a single response, they are classified as interactive or non-interactive: **non-interactive tools execute in parallel** via `ThreadPoolExecutor` (each thread receives a `deepcopy` of `ToolContext` to avoid shared mutable state), while **interactive tools** (`ask_clarification`, `pkb_propose_memory`) execute sequentially since they require `threading.Event` synchronization via `POST /tool_response/<conv_id>/<tool_id>` (60s timeout). The system prompt includes explicit guidance telling the LLM to issue multiple tool calls at once for independent information needs, since parallel execution means wall-clock time equals the slowest tool rather than the sum of all tools. Tool results are truncated to `TOOL_RESULT_TRUNCATION_LIMIT` characters (currently 50000, defined in `code_common/tools.py`) before being appended to the messages array as `{"role": "tool"}` messages for LLM continuation. Each tool call is timed (`tool_exec_duration` for handler execution, `tool_total_duration` including user-wait time); timing flows into `tool_result` events (`duration_seconds`), the collapsible `<tool_calls_summary>` block, and `time_dict['tool_calls']` (list of `{name, duration_s, result_chars}` dicts appended in `reply()`). See `documentation/features/tool_calling/README.md`.
 
 4) **Streaming render**
 - `sendMessageCallback()` calls `renderStreamingResponse(response, ...)` in `interface/common-chat.js`.
@@ -132,8 +134,8 @@ Settings are managed via the **chat-settings-modal** in `interface/interface.htm
 | LLM Right-Click Menu | `settings-enable_custom_context_menu` | on (desktop) | `enable_custom_context_menu` | Context menu on selected text |
 | Planner | `settings-enable_planner` | off | `enable_planner` | Multi-step planner agent (hidden) |
 
-| Enable Tool Use | `settings-enable_tool_use` | off | `enable_tool_use` | Master toggle for LLM tool calling (requires at least one category enabled) |
-| Enabled Tools | `settings-enabled_tools` (per-category checkboxes) | all off | `enabled_tools` | Per-category tool toggles: clarification, search, documents, pkb, memory, code_runner, artefacts, prompts. See `documentation/features/tool_calling/README.md` |
+| Enable Tool Use | `settings-enable_tool_use` | off | `enable_tool_use` | Master toggle for LLM tool calling (requires at least one category enabled). **Default-enabled tools**: When tool use is enabled, `DEFAULT_ENABLED_TOOLS` (`ask_clarification`, `pkb_nl_command`) are always force-enabled regardless of per-category selection (configured in `code_common/tools.py` and enforced in `interface/chat.js` `resetSettingsToDefaults()`). |
+| Enabled Tools | `settings-enabled_tools` (per-category checkboxes) | all off | `enabled_tools` | Per-category tool toggles: clarification, search, documents, pkb, memory, code_runner, artefacts, prompts, conversation. PKB category includes `pkb_nl_command` (NL agent), `pkb_delete_claim`, and `pkb_propose_memory` (interactive modal). See `documentation/features/tool_calling/README.md` |
 ## Server-Side Streaming
 
 ### Endpoint
@@ -174,7 +176,7 @@ Before any chat message can be sent, a conversation must be selected in the side
 
 1. `WorkspaceManager.loadConversationsWithWorkspaces(autoselect)` fires two parallel AJAX requests:
    - `GET /list_workspaces/{domain}` — workspace metadata (including `parent_workspace_id` for hierarchical nesting)
-   - `GET /list_conversation_by_user/{domain}` — conversation metadata (title, last_updated, flag, workspace_id)
+   - `GET /list_conversation_by_user/{domain}` — returns `{"conversations": [...], "deleted_temporary_ids": [...]}`. The `conversations` array contains conversation metadata (title, last_updated, flag, workspace_id). The `deleted_temporary_ids` array lists conversation IDs of stateless (temporary) conversations that were deleted during this request (only those older than the 5-minute grace period). The UI uses `deleted_temporary_ids` to proactively clear stale `lastActiveConversationId` entries from `localStorage`. Backward-compatible: the UI also handles a flat array response (old format) via `Array.isArray()` check.
 2. Conversations are grouped by `workspace_id` and sorted by `last_updated` descending.
 3. `renderTree(convByWs)` builds a flat node array (workspace nodes as folders, conversation nodes as files) and initializes jsTree with `default-dark` theme, `types`, `wholerow`, and `contextmenu` plugins.
 4. Workspace nodes use `parent: "ws_" + parent_workspace_id` (or `"#"` for root) so jsTree builds the hierarchy.
@@ -183,11 +185,25 @@ Before any chat message can be sent, a conversation must be selected in the side
 
 - **Click in sidebar**: jsTree `select_node.jstree` event fires. If the selected node ID starts with `cv_`, extracts the conversation ID and calls `ConversationManager.setActiveConversation(conversationId)`.
 - **Click in Recent section**: The "Recent" section above the workspace tree shows the 5 most recently updated conversations (plain DOM, not jsTree). Clicking an item calls `ConversationManager.setActiveConversation(convId)` — same as the jsTree click handler. Does NOT call `highlightActiveConversation()` separately (that is called internally by `setActiveConversation()` → `highLightActiveConversation()` → `WorkspaceManager.highlightActiveConversation()`). On mobile (<=768px), closes the sidebar before switching. Context menu (right-click) constructs a fake jsTree-like node object (`{ id: 'cv_' + convId, li_attr: {...} }`) and passes it to `buildConversationContextMenu()` for full feature parity.
-- **Deep link** (`/interface/<conversation_id>`): `getConversationIdFromUrl()` extracts the ID. `loadConversationsWithWorkspaces(true)` calls `ConversationManager.setActiveConversation(id)` and `highlightActiveConversation(id)`.
-- **Resume from localStorage**: On page load without a deep link, the UI reads `lastActiveConversationId:{email}:{domain}` from localStorage and resumes that conversation.
+- **Deep link** (`/interface/<conversation_id>`): `getConversationIdFromUrl()` extracts the ID. The ID is now **validated against the fetched conversation list** before calling `setActiveConversation()`. If the conversation no longer exists (e.g. a bookmarked temporary conversation that was cleaned up), a warning toast is shown and the UI falls through to the resume-from-localStorage or first-available-conversation path.
+- **Resume from localStorage**: On page load without a deep link, the UI reads `lastActiveConversationId:{email}:{domain}` from localStorage and resumes that conversation. If the stored ID was among `deleted_temporary_ids`, the localStorage entry is cleared before the resume check, ensuring the UI doesn't try to load a deleted conversation.
 - **Auto-select first**: Falls back to the first conversation in the sorted list.
 - **After CRUD** (create, move, delete): `loadConversationsWithWorkspaces(false)` refreshes the tree without auto-selecting, then re-highlights the current active conversation.
 - **New Temporary Chat** (`#new-temp-chat` button in an always-visible column in the top-right chat bar, accessible on both mobile and desktop): `createTemporaryConversation()` sends a single `POST /create_temporary_conversation/{domain}` request. The server atomically cleans up old stateless conversations, creates a new conversation in the default workspace, marks it stateless, and returns the full conversation + workspace lists. The UI renders the tree from the response via `_processAndRenderData()`, then sets the new conversation active and highlights it. No separate `statelessConversation()` call is needed.
+
+### Deleted temporary conversation handling (graceful fallback)
+
+When a conversation is set active via any path above, `ConversationManager.setActiveConversation(conversationId)` performs an **existence guard** before setting any state or firing API calls:
+
+1. Checks if `conversationId` exists in `WorkspaceManager.conversations` (the already-loaded list).
+2. If not found: clears the stale `lastActiveConversationId` from `localStorage`, shows a warning toast ("This conversation is no longer available. It may have been a temporary conversation that was cleaned up."), and recursively calls `setActiveConversation()` with the first available conversation. Returns early — no API calls are fired.
+3. If found: proceeds normally (sets `activeConversationId`, saves to `localStorage`, fires `listMessages`, `getConversationDetails`, `getConversationSettings`, `fetchMemoryPad`, `LocalDocsManager.refresh`, etc.).
+
+Additionally, the `$.when(restorePromise, messagesRequest)` call has a `.fail()` handler that catches 404s if the conversation is deleted between the list-fetch and the message-fetch. This handler clears `localStorage` and falls back to the first available conversation.
+
+Error handlers in `getConversationDetails()` and `fetchMemoryPad()` use `showToast('...', 'danger')` instead of `alert()` to avoid disruptive popups.
+
+**Backend grace period**: `list_conversation_by_user` only deletes stateless conversations whose `memory.last_updated` is older than 5 minutes (`GRACE_PERIOD_SECONDS = 300`). This prevents a multi-tab race condition where Tab A's reload would delete a temp conversation that Tab B is still using. The `create_temporary_conversation` endpoint still deletes all previous stateless conversations immediately (since the user is explicitly replacing them).
 
 ### Highlight timing
 
@@ -264,9 +280,13 @@ Location: `interface/common-chat.js`
 - `getTextAfterLastBreakpoint()` now tracks `\\[...\\]` display math blocks as protected environments and places breakpoints after completed display math (types: `"after-display-math-bracket"`, `"after-display-math-dollar"`).
 - See [Math Streaming Reflow Fix](../math_streaming_reflow_fix/README.md) for full details.
 
-## Multi-Model Responses (Main Model multi-select)
+## Multi-Model Responses (Main Model selector)
 
-When the user selects **multiple models** in `settings-main-model-selector`, the request carries `checkboxes.main_model` as a list. The server uses this to decide between a single-model call and a multi-model ensemble.
+The `settings-main-model-selector` is a `<select multiple>` enhanced with bootstrap-select. It defaults to **single-select mode** — clicking a model replaces the previous selection (1-click model switching). A "Multi-select" toggle button at the top of the dropdown enables multi-select mode, allowing the user to pick multiple models for ensemble responses. The mode preference is persisted to `localStorage` (`modelSelectorMultiMode` key).
+
+In single mode, the `changed.bs.select` event handler in `chat.js` intercepts selections and deselects all other options, keeping only the newly clicked model. In multi mode, bootstrap-select's native multi-select behavior applies.
+
+When the user selects **multiple models**, the request carries `checkboxes.main_model` as a list. The server uses this to decide between a single-model call and a multi-model ensemble.
 
 ### Decision logic
 - `Conversation.reply()` normalizes `checkboxes.main_model` into canonical model names.
@@ -382,7 +402,7 @@ Location: `interface/shared.js`
 - `endpoints/image_gen.py` (`generate_image_from_prompt`, `_refine_prompt_with_llm`, `DEFAULT_IMAGE_MODEL`, `/api/generate-image` modal endpoint, `/api/conversation-image/<conv_id>/<filename>` serve endpoint)
 - `interface/image-gen-manager.js` (standalone image generation modal — Settings → Image button)
 - `Conversation._handle_image_generation()` (`Conversation.py` — handles `/image` command: context gathering, prompt refinement, image gen, file storage, streaming, persistence)
-- `code_common/tools.py` (tool registry + 48 tool handlers across 8 categories; `ToolRegistry`, `@register_tool` decorator)
+- `code_common/tools.py` (tool registry + 56 tool handlers across 9 categories; `ToolRegistry`, `@register_tool` decorator, `DEFAULT_ENABLED_TOOLS` list)
 - `interface/tool-call-manager.js` (ToolCallManager — tool call UI rendering: inline status pills, interactive modal, `threading.Event` response submission)
 - `endpoints/slash_commands.py` (`GET /api/slash_commands` — full command catalog endpoint with 7 categories, dynamic model/agent/preamble lists)
 
@@ -396,7 +416,7 @@ When the "Enable Tools" master toggle is ON and tools are selected in the Bootst
 
 ### Settings Flow (UI → Backend)
 
-1. **UI**: User opens chat settings modal → checks "Enable Tools" → selects individual tools from the Bootstrap Select dropdown (`#settings-tool-selector`, 48 tools across 8 `<optgroup>` categories).
+1. **UI**: User opens chat settings modal → checks "Enable Tools" → selects individual tools from the Bootstrap Select dropdown (`#settings-tool-selector`, 56 tools across 9 `<optgroup>` categories).
 2. **JS persistence**: `collectSettingsFromModal()` / `getStateFromModal()` reads selected tool names via `getSelectPickerValue('#settings-tool-selector', [])` → stored as `state.enabled_tools` (array of tool name strings).
 3. **Request payload**: `getOptions()` in `common.js` includes `enable_tool_use: true` and `enabled_tools: ["ask_clarification", "web_search", ...]` in the `checkboxes` object sent with `POST /send_message/<conversation_id>`.
 4. **Backend parsing**: `Conversation._get_enabled_tools(checkboxes)` reads the payload:
@@ -423,23 +443,27 @@ User sends message
                     → yields dict chunks (tool_call objects when finish_reason="tool_calls")
               
               → IF tool_call dicts received:
-                  → Stream tool_call event to UI: {"type": "tool_call", "tool_id": "...", "tool_name": "...", "tool_input": {...}}
-                  → Stream tool_status "executing" event
-                  → TOOL_REGISTRY.execute(name, args, context, tool_call_id)
+                  → Classify tool calls: interactive vs non-interactive
+                  → Stream tool_call events for ALL tools
                   
-                  → IF tool is interactive (ask_clarification):
-                      → Stream tool_input_request event with ui_schema (questions + MCQ options)
-                      → Stream tool_status "waiting_for_user" event
-                      → wait_for_tool_response(tool_id, timeout=60)
-                        → Creates threading.Event, stores in _tool_response_events[tool_id]
-                        → event.wait(timeout=60)
-                        → UI renders modal → user submits answers
-                        → POST /tool_response/<conv_id>/<tool_id> unblocks event
-                        → Returns user response dict (or None on timeout)
+                  → NON-INTERACTIVE tools (parallel execution):
+                      → Stream tool_status "executing" for all non-interactive tools
+                      → ThreadPoolExecutor(max_workers=min(N, 5))
+                          → Each thread: deepcopy(ToolContext) → TOOL_REGISTRY.execute()
+                      → Collect results, emit tool_result/tool_status in original order
+                      → Append all {"role": "tool"} messages
                   
-                  → Stream tool_status "completed" event
-                  → Stream tool_result event with summary
-                  → Append {"role": "tool", "tool_call_id": "...", "content": result_text} to messages
+                  → INTERACTIVE tools (sequential execution):
+                      → For each interactive tool:
+                          → Stream tool_status "executing" event
+                          → TOOL_REGISTRY.execute(name, args, context, tool_call_id)
+                          → IF needs_user_input:
+                              → Stream tool_input_request event with ui_schema
+                              → Stream tool_status "waiting_for_user" event
+                              → wait_for_tool_response(tool_id, timeout=60)
+                          → Stream tool_status "completed" event
+                          → Stream tool_result event with summary
+                          → Append {"role": "tool"} message
                   → Continue to next iteration
               
               → IF text only received:
@@ -463,9 +487,9 @@ The stream handler in `common-chat.js` (`renderStreamingResponse()`) processes J
 | `tool_call` | `ToolCallManager.handleToolCall()` | Shows inline status pill with tool name |
 | `tool_status` | `ToolCallManager.showToolCallStatus()` | Updates pill (spinner → checkmark) |
 | `tool_input_request` | `ToolCallManager.handleToolInputRequest()` | Renders Bootstrap modal with MCQ form |
-| `tool_result` | `ToolCallManager.showToolResult()` | Shows brief inline completion indicator |
+| `tool_result` | `ToolCallManager.showToolResult()` | Shows brief inline completion indicator with result summary and duration |
 
-### Interactive Tool Synchronization (ask_clarification)
+### Interactive Tool Synchronization (ask_clarification, pkb_propose_memory)
 
 ```
 Backend thread                              UI (browser)
@@ -487,16 +511,20 @@ _run_tool_loop() executes tool
   → continues loop with LLM continuation call
 ```
 
+**`pkb_propose_memory` interactive flow**: When the NL agent (invoked via `pkb_nl_command` tool or `/pkb` slash command) is uncertain about the user's intent, it returns `needs_user_input=True` with `proposed_claims`. Two paths:
+- **Main LLM path**: `handle_pkb_nl_command` returns `ToolCallResult(needs_user_input=True, tool_name="pkb_propose_memory")` → existing tool loop shows the interactive modal with editable claim cards (text, type, dates, tags, entities, context, remove button).
+- **`/pkb` slash command path**: `PKBNLConversationAgent` yields `{"type": "tool_input_request"}` → streaming loop passes through → frontend shows modal → `tool_response_waiter` unblocks → agent adds confirmed claims via `_add_confirmed_claims()`.
+
 ### Key Files in the Tool Calling Flow
 
 | File | Role in Flow |
 |---|---|
-| `interface/interface.html` | Bootstrap Select dropdown (`#settings-tool-selector`) with 48 tool options in 8 optgroups; `#tool-call-modal` for interactive tools |
+| `interface/interface.html` | Bootstrap Select dropdown (`#settings-tool-selector`) with 56 tool options in 9 optgroups; `#tool-call-modal` for interactive tools |
 | `interface/chat.js` | Settings read/write via `getSelectPickerValue()`, dual-format state restoration in `setModalFromState()` |
 | `interface/common.js` | `getOptions()` includes `enable_tool_use` and `enabled_tools` array in request payload |
 | `interface/common-chat.js` | Stream handler dispatches tool event types to `ToolCallManager` |
 | `interface/tool-call-manager.js` | `ToolCallManager` singleton — status pills, modal rendering, response submission |
 | `Conversation.py` | `_get_enabled_tools()` (dual-format), `_run_tool_loop()` (agentic loop), preamble injection |
-| `code_common/tools.py` | `ToolRegistry`, `@register_tool`, 48 tool definitions + handlers |
+| `code_common/tools.py` | `ToolRegistry`, `@register_tool`, 56 tool definitions + handlers, `DEFAULT_ENABLED_TOOLS` |
 | `code_common/call_llm.py` | `tools`/`tool_choice` passthrough, `_extract_text_from_openai_response()` yields tool_call dicts |
 | `endpoints/conversations.py` | `POST /tool_response` endpoint, `wait_for_tool_response()`, thread-safe storage |

@@ -23,7 +23,7 @@ from typing import Optional, Generator
 
 from .config import PKBConfig
 from .schema import get_all_ddl, SCHEMA_VERSION
-from .utils import now_iso
+from .utils import now_iso, expire_stale_claims
 
 logger = logging.getLogger(__name__)
 
@@ -1051,6 +1051,11 @@ def get_database(config: PKBConfig, auto_init: bool = True) -> PKBDatabase:
     if auto_init:
         db.connect()
         db.initialize_schema()
+        # Expire stale claims on startup (claims with valid_to in the past)
+        try:
+            expire_stale_claims(db)
+        except Exception:
+            logger.warning("Failed to expire stale claims on startup", exc_info=True)
     return db
 
 

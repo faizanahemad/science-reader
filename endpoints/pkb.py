@@ -126,6 +126,15 @@ def get_pkb_db():
         _pkb_config = PKBConfig(db_path=pkb_db_path)
         _pkb_db = get_database(_pkb_config)
         logger.info(f"Initialized PKB database at {pkb_db_path}")
+
+        # Run initial expiry of stale claims on startup
+        try:
+            from truth_management_system.utils import expire_stale_claims
+            expired_count = expire_stale_claims(_pkb_db)
+            if expired_count > 0:
+                logger.info(f"Expired {expired_count} stale claims on startup")
+        except Exception as e:
+            logger.warning(f"Failed to expire stale claims on startup: {e}")
     else:
         # Ensure schema is up-to-date even in long-running servers where the
         # code (and SCHEMA_VERSION) may have changed since `_pkb_db` was first
@@ -375,9 +384,20 @@ def pkb_add_claim_route():
         auto_extract = data.get("auto_extract", False)
         confidence = data.get("confidence")
         meta_json = data.get("meta_json")
+        valid_from = data.get("valid_from")
+        valid_to = data.get("valid_to")
         claim_types = data.get("claim_types")  # JSON string or None
         context_domains = data.get("context_domains")  # JSON string or None
         possible_questions = data.get("possible_questions")  # JSON string or None
+
+        # Enforce valid_to for time-bound claim types
+        if claim_type in ("task", "reminder") and not valid_to:
+            return json_error(
+                "valid_to is required for task and reminder claims. "
+                "Please provide a deadline date.",
+                status=400,
+                code="valid_to_required",
+            )
 
         keys = keyParser(session) if auto_extract else {}
         api = get_pkb_api_for_user(email, keys)
@@ -394,6 +414,8 @@ def pkb_add_claim_route():
             entities=entities,
             auto_extract=auto_extract,
             confidence=confidence,
+            valid_from=valid_from,
+            valid_to=valid_to,
             meta_json=meta_json,
             claim_types=claim_types,
             context_domains=context_domains,
@@ -675,6 +697,57 @@ def pkb_delete_claim_route(claim_id: str):
             f"An error occurred: {str(e)}", status=500, code="internal_error"
         )
 
+
+# =============================================================================
+# === NL Command Endpoint (Agentic PKB Operations) ===
+# =============================================================================
+
+
+@pkb_bp.route("/pkb/nl_command", methods=["POST"])
+@limiter.limit("10 per minute")
+@login_required
+def pkb_nl_command_route():
+    """Process a natural language command against the PKB.
+
+    Request body:
+        command (str): Natural language command text.
+        model (str, optional): LLM model override.
+    """
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    data = request.get_json(silent=True) or {}
+    command = data.get("command", "").strip()
+    if not command:
+        return json_error(
+            "command is required", status=400, code="missing_command"
+        )
+
+    model = data.get("model", None)
+
+    try:
+        from truth_management_system.interface.nl_agent import PKBNLAgent
+        from endpoints.utils import keyParser
+
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
+
+        keys = keyParser({})
+        agent = PKBNLAgent(api=api, keys=keys, model=model)
+        result = agent.process(command)
+        return jsonify(result.to_dict())
+    except Exception as e:
+        logger.error(f"Error in pkb_nl_command: {e}")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
 
 # =============================================================================
 # === Pinning Endpoints (Deliberate Memory Attachment) ===
@@ -1416,6 +1489,9 @@ def pkb_propose_updates_route():
                 "claim_type": candidate.claim_type,
                 "context_domain": candidate.context_domain,
                 "action": pa.action if pa else "add",
+                "valid_from": candidate.valid_from,
+                "valid_to": candidate.valid_to,
+                "tags": candidate.tags or [],
             }
             if pa and pa.existing_claim:
                 action["existing_claim_id"] = pa.existing_claim.claim_id
@@ -1656,6 +1732,9 @@ def pkb_execute_updates_route():
                             "context_domain": item.get(
                                 "context_domain", candidate.context_domain
                             ),
+                            "valid_from": item.get("valid_from") or getattr(candidate, "valid_from", None),
+                            "valid_to": item.get("valid_to") or getattr(candidate, "valid_to", None),
+                            "tags": item.get("tags") or getattr(candidate, "tags", []),
                         }
                     )
         else:
@@ -1668,6 +1747,9 @@ def pkb_execute_updates_route():
                             "statement": candidate.statement,
                             "claim_type": candidate.claim_type,
                             "context_domain": candidate.context_domain,
+                            "valid_from": getattr(candidate, "valid_from", None),
+                            "valid_to": getattr(candidate, "valid_to", None),
+                            "tags": getattr(candidate, "tags", []),
                         }
                     )
 
@@ -1700,6 +1782,7 @@ def pkb_execute_updates_route():
                     {
                         "action": "edit",
                         "claim_id": existing_claim_id,
+                        "statement": statement,
                         "success": result.success,
                         "errors": result.errors,
                     }
@@ -1708,17 +1791,23 @@ def pkb_execute_updates_route():
                     edited_count += 1
             else:
                 candidate = plan.candidates[idx]
-                result = api.add_claim(
-                    statement=statement,
-                    claim_type=claim_type,
-                    context_domain=context_domain,
-                    tags=candidate.tags if hasattr(candidate, "tags") else [],
-                    auto_extract=False,
-                )
+                add_kwargs = {
+                    "statement": statement,
+                    "claim_type": claim_type,
+                    "context_domain": context_domain,
+                    "tags": item.get("tags") or (candidate.tags if hasattr(candidate, "tags") else []),
+                    "auto_extract": False,
+                }
+                if item.get("valid_from"):
+                    add_kwargs["valid_from"] = item["valid_from"]
+                if item.get("valid_to"):
+                    add_kwargs["valid_to"] = item["valid_to"]
+                result = api.add_claim(**add_kwargs)
                 results.append(
                     {
                         "action": "add",
                         "claim_id": result.object_id if result.success else None,
+                        "statement": statement,
                         "success": result.success,
                         "errors": result.errors,
                     }

@@ -190,6 +190,13 @@
     window.electronAPI.on('bridge:attach-file', function (data) {
       window.desktopBridge.attachFileToChatInput(data);
     });
+
+    // Notification click action routing (from main process native notification)
+    window.electronAPI.on('notification:clicked', function (data) {
+      if (data && data.action && typeof NotificationManager !== 'undefined') {
+        NotificationManager.handleClickAction(data.action);
+      }
+    });
   }
 
   // ── M4.1: Drag-and-drop interception for non-chat-input areas ──

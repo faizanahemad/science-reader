@@ -252,6 +252,7 @@ def get_model_catalog():
         "artefact_propose_edits_model": EXPENSIVE_LLM[2],
         "doc_model": CHEAP_LONG_CONTEXT_LLM[0],
         "clarify_intent_model": VERY_CHEAP_LLM[0],
+        "pkb_nl_model": CHEAP_LLM[0],
     }
     return jsonify({"models": models, "defaults": defaults})
 
@@ -307,6 +308,7 @@ def set_conversation_settings(conversation_id: str):
         "artefact_propose_edits_model",
         "doc_model",
         "clarify_intent_model",
+        "pkb_nl_model",
     }
     normalized_overrides = {}
     for key, value in model_overrides.items():
@@ -1281,11 +1283,31 @@ def list_conversation_by_user(domain: str):
         if c[4] is not None
     }
 
+    # Grace period: only delete stateless conversations older than 5 minutes.
+    # This prevents a race condition where a temporary conversation is deleted
+    # while the UI is still trying to load it (e.g. multi-tab scenarios).
+    GRACE_PERIOD_SECONDS = 300  # 5 minutes
+    now_ts = time.time()
     stateless_conversations = [
         c for c in conversations if c is not None and c.stateless
     ]
-    stateless_conversation_ids = [c.conversation_id for c in stateless_conversations]
-    for conversation in stateless_conversations:
+    expired_stateless = []
+    for conv in stateless_conversations:
+        try:
+            memory = conv.get_field("memory")
+            last_updated_str = memory.get("last_updated", "")
+            if last_updated_str:
+                from datetime import datetime as _dt
+                lu = _dt.strptime(str(last_updated_str), "%Y-%m-%d %H:%M:%S")
+                age_seconds = now_ts - lu.timestamp()
+                if age_seconds < GRACE_PERIOD_SECONDS:
+                    continue  # Skip recently active stateless conversations
+        except Exception:
+            pass  # If we can't parse the date, delete it anyway
+        expired_stateless.append(conv)
+
+    deleted_temporary_ids = [c.conversation_id for c in expired_stateless]
+    for conversation in expired_stateless:
         removeUserFromConversation(
             email, conversation.conversation_id, users_dir=state.users_dir
         )
@@ -1306,12 +1328,12 @@ def list_conversation_by_user(domain: str):
             none_conversation_ids.append(conversation_id)
 
     cleanup_deleted_conversations(
-        none_conversation_ids + stateless_conversation_ids,
+        none_conversation_ids + deleted_temporary_ids,
         users_dir=state.users_dir,
         logger=logger,
     )
 
-    conversations = [c for c in conversations if c is not None and c.domain == domain]
+    conversations = [c for c in conversations if c is not None and c.domain == domain and c.conversation_id not in deleted_temporary_ids]
     conversations = [set_keys_on_docs(c, keys) for c in conversations]
     data = [[c.get_metadata(), c] for c in conversations]
     for metadata, conversation in data:
@@ -1402,7 +1424,10 @@ def list_conversation_by_user(domain: str):
         )
 
     sorted_metadata_reverse = [sd[0] for sd in sorted_data_reverse]
-    return jsonify(sorted_metadata_reverse)
+    return jsonify({
+        "conversations": sorted_metadata_reverse,
+        "deleted_temporary_ids": deleted_temporary_ids,
+    })
 
 
 @conversations_bp.route(

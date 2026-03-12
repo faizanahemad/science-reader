@@ -151,14 +151,37 @@
             'executing':  'Searching documents…',
             'completed':  'Document search complete',
             'error':      'Document search failed'
-        }
+        },
+        'pkb_nl_command': {
+            'calling':          'Processing PKB command…',
+            'executing':        'Executing PKB operations…',
+            'waiting_for_user': 'Waiting for your review…',
+            'completed':        'PKB command complete',
+            'error':            'PKB command failed'
+        },
+        'pkb_propose_memory': {
+            'calling':          'Preparing memory proposal…',
+            'executing':        'Analyzing memory to propose…',
+            'waiting_for_user': 'Waiting for your review of proposed memories…',
+            'completed':        'Memory proposal reviewed',
+            'error':            'Memory proposal failed'
+        },
+        'pkb_delete_claim': {
+            'calling':          'Deleting PKB claim…',
+            'executing':        'Deleting PKB claim…',
+            'completed':        'Claim deleted',
+            'error':            'Claim deletion failed'
+        },
     };
 
     var STATUS_ICONS = {
         'ask_clarification': '💬',
         'web_search':        '🔍',
         'document_lookup':   '📄',
-        '_default':          '🔧'
+        '_default':          '🔧',
+        'pkb_nl_command':     '🗣️',
+        'pkb_propose_memory': '📝',
+        'pkb_delete_claim':   '🗑️',
     };
 
     /* ──────────────────────────────────────────────
@@ -272,6 +295,28 @@
                     );
                     this._renderClarificationQuestions($modalBody, questions);
                 }
+            } else if (toolName === 'pkb_propose_memory') {
+                $modalTitle.html('<i class="fa fa-brain"></i>&nbsp;Review Proposed Memories');
+                var claims = (uiSchema && Array.isArray(uiSchema.claims)) ? uiSchema.claims : [];
+                var msg = (uiSchema && uiSchema.message) ? uiSchema.message : '';
+                if (claims.length === 0) {
+                    $modalBody.html('<p class="text-muted">No memory proposals provided.</p>');
+                    $submitBtn.prop('disabled', true);
+                } else {
+                    if (msg) {
+                        $modalBody.append(
+                            '<p class="text-muted mb-3" style="font-size: 0.9rem;">' +
+                            _escapeHtml(msg) + '</p>'
+                        );
+                    } else {
+                        $modalBody.append(
+                            '<p class="text-muted mb-3" style="font-size: 0.9rem;">' +
+                            'Please review the proposed memory entries. Edit or remove any that are incorrect:' +
+                            '</p>'
+                        );
+                    }
+                    this._renderMemoryProposalForm($modalBody, claims);
+                }
             } else {
                 // Generic fallback for future tools
                 $modalTitle.html('<i class="fa fa-wrench"></i>&nbsp;Tool: ' + _escapeHtml(toolName));
@@ -292,6 +337,21 @@
             $('#tool-call-modal').modal({ backdrop: 'static', keyboard: true });
             $('#tool-call-modal').modal('show');
             console.log('[ToolCallManager] Modal shown. currentModalToolId=', this.currentModalToolId, '_currentConversationId=', this._currentConversationId, 'activeToolCalls=', JSON.stringify(this.activeToolCalls));
+
+            // Push notification (works in Electron desktop, browser, mobile)
+            if (typeof NotificationManager !== 'undefined') {
+                var notifTitle = toolName === 'ask_clarification' ? 'Clarification Needed' : 'Input Required';
+                var notifBody = toolName === 'ask_clarification'
+                    ? ((uiSchema && uiSchema.questions && uiSchema.questions[0]) ? uiSchema.questions[0].question : 'The assistant has questions for you.')
+                    : 'The assistant needs your input to continue.';
+                NotificationManager.notify({
+                    title: notifTitle,
+                    body: notifBody,
+                    type: toolName === 'ask_clarification' ? 'clarification' : 'tool_request',
+                    action: { type: 'flash-tab', tab: 'chat' },
+                    tag: 'tool-input-' + toolId
+                });
+            }
         },
 
         /* ────────────────────────────────────────────
@@ -300,9 +360,10 @@
          * Shows a brief inline indicator that the tool completed.
          *
          * @param {string} toolId        - Unique tool call ID
-         * @param {string} resultSummary - Brief summary of what the tool returned
+         * @param {string} resultSummary  - Brief summary of what the tool returned
+         * @param {number} [durationSeconds] - How long the tool took to execute
          * ──────────────────────────────────────────── */
-        showToolResult: function (toolId, resultSummary) {
+        showToolResult: function (toolId, resultSummary, durationSeconds) {
             var entry = this.activeToolCalls[toolId];
             var toolName = (entry && entry.toolName) ? entry.toolName : 'unknown';
 
@@ -313,7 +374,11 @@
             if (resultSummary) {
                 var existingEl = document.getElementById('tool-status-' + toolId);
                 if (existingEl) {
-                    $(existingEl).find('.status-text').text(resultSummary);
+                    var displayText = resultSummary;
+                    if (durationSeconds != null) {
+                        displayText += ' (' + durationSeconds.toFixed(1) + 's)';
+                    }
+                    $(existingEl).find('.status-text').text(displayText);
                 }
             }
 
@@ -434,6 +499,92 @@
         },
 
         /* ────────────────────────────────────────────
+         * _renderMemoryProposalForm
+         * Render editable memory proposal cards in the modal body.
+         * Each claim gets a card with editable text, type selector, date fields,
+         * tags, entities, and a remove button.
+         *
+         * @param {jQuery} $modalBody - jQuery element for the modal body
+         * @param {Array}  claims    - [{text, claim_type, valid_from, valid_to, tags, entities, context}]
+         * ──────────────────────────────────────────── */
+        _renderMemoryProposalForm: function ($modalBody, claims) {
+            var $container = $('<div id="tool-call-memory-proposals"></div>');
+            var claimTypes = ['fact', 'preference', 'event', 'task', 'reminder', 'goal', 'note'];
+
+            claims.forEach(function (claim, idx) {
+                var typeOptions = claimTypes.map(function (t) {
+                    var sel = (t === (claim.claim_type || 'note')) ? ' selected' : '';
+                    return '<option value="' + t + '"' + sel + '>' + t.charAt(0).toUpperCase() + t.slice(1) + '</option>';
+                }).join('');
+
+                var tagsVal = Array.isArray(claim.tags) ? claim.tags.join(', ') : (claim.tags || '');
+                var entitiesVal = Array.isArray(claim.entities) ? claim.entities.join(', ') : (claim.entities || '');
+
+                var cardHtml =
+                    '<div class="card mb-3 memory-proposal-card" data-claim-idx="' + idx + '">' +
+                    '  <div class="card-body p-3">' +
+                    '    <div class="d-flex justify-content-between align-items-start mb-2">' +
+                    '      <strong class="text-muted">Memory #' + (idx + 1) + '</strong>' +
+                    '      <button type="button" class="btn btn-sm btn-outline-danger memory-proposal-remove" data-idx="' + idx + '" title="Remove">' +
+                    '        <i class="fa fa-times"></i>' +
+                    '      </button>' +
+                    '    </div>' +
+                    '    <div class="form-group mb-2">' +
+                    '      <textarea class="form-control memory-prop-text" rows="2" data-idx="' + idx + '"' +
+                    '        placeholder="Memory text">' + _escapeHtml(claim.text || '') + '</textarea>' +
+                    '    </div>' +
+                    '    <div class="form-row mb-2">' +
+                    '      <div class="col-md-4">' +
+                    '        <label class="small text-muted">Type</label>' +
+                    '        <select class="form-control form-control-sm memory-prop-type" data-idx="' + idx + '">' +
+                    '          ' + typeOptions +
+                    '        </select>' +
+                    '      </div>' +
+                    '      <div class="col-md-4">' +
+                    '        <label class="small text-muted">From</label>' +
+                    '        <input type="date" class="form-control form-control-sm memory-prop-from" data-idx="' + idx + '"' +
+                    '          value="' + _escapeHtml(claim.valid_from || '') + '">' +
+                    '      </div>' +
+                    '      <div class="col-md-4">' +
+                    '        <label class="small text-muted">Due / To</label>' +
+                    '        <input type="date" class="form-control form-control-sm memory-prop-to" data-idx="' + idx + '"' +
+                    '          value="' + _escapeHtml(claim.valid_to || '') + '">' +
+                    '      </div>' +
+                    '    </div>' +
+                    '    <div class="form-row mb-2">' +
+                    '      <div class="col-md-6">' +
+                    '        <label class="small text-muted">Tags (comma-separated)</label>' +
+                    '        <input type="text" class="form-control form-control-sm memory-prop-tags" data-idx="' + idx + '"' +
+                    '          value="' + _escapeHtml(tagsVal) + '" placeholder="e.g. work, personal">' +
+                    '      </div>' +
+                    '      <div class="col-md-6">' +
+                    '        <label class="small text-muted">Entities (comma-separated)</label>' +
+                    '        <input type="text" class="form-control form-control-sm memory-prop-entities" data-idx="' + idx + '"' +
+                    '          value="' + _escapeHtml(entitiesVal) + '" placeholder="e.g. John, Acme Corp">' +
+                    '      </div>' +
+                    '    </div>' +
+                    '    <div class="form-group mb-0">' +
+                    '      <label class="small text-muted">Context</label>' +
+                    '        <input type="text" class="form-control form-control-sm memory-prop-context" data-idx="' + idx + '"' +
+                    '          value="' + _escapeHtml(claim.context || '') + '" placeholder="Source or context">' +
+                    '    </div>' +
+                    '  </div>' +
+                    '</div>';
+
+                $container.append(cardHtml);
+            });
+
+            // Remove button handler
+            $container.on('click', '.memory-proposal-remove', function () {
+                $(this).closest('.memory-proposal-card').slideUp(200, function () {
+                    $(this).remove();
+                });
+            });
+
+            $modalBody.append($container);
+        },
+
+        /* ────────────────────────────────────────────
          * _collectClarificationAnswers
          * Collect answers from the tool-call clarification form.
          *
@@ -460,6 +611,33 @@
             return { answers: answers };
         },
 
+
+        /* ────────────────────────────────────────────
+         * _collectMemoryProposalResponse
+         * Collect edited memory proposals from the modal form.
+         *
+         * @returns {Object} - { claims: [{text, claim_type, valid_from, valid_to, tags, entities, context}] }
+         * ──────────────────────────────────────────── */
+        _collectMemoryProposalResponse: function () {
+            var claims = [];
+            $('#tool-call-memory-proposals .memory-proposal-card:visible').each(function () {
+                var $card = $(this);
+                var text = $card.find('.memory-prop-text').val() || '';
+                if (!text.trim()) return;  // Skip empty entries
+                var tagsStr = $card.find('.memory-prop-tags').val() || '';
+                var entitiesStr = $card.find('.memory-prop-entities').val() || '';
+                claims.push({
+                    text: text.trim(),
+                    claim_type: $card.find('.memory-prop-type').val() || 'note',
+                    valid_from: $card.find('.memory-prop-from').val() || null,
+                    valid_to: $card.find('.memory-prop-to').val() || null,
+                    tags: tagsStr ? tagsStr.split(',').map(function(s) { return s.trim(); }).filter(Boolean) : [],
+                    entities: entitiesStr ? entitiesStr.split(',').map(function(s) { return s.trim(); }).filter(Boolean) : [],
+                    context: ($card.find('.memory-prop-context').val() || '').trim() || null
+                });
+            });
+            return { claims: claims };
+        },
         /* ────────────────────────────────────────────
          * _collectGenericResponse
          * Collect a free-text response from the generic tool input.
@@ -581,6 +759,14 @@
                 // Validate at least one answer
                 if (!responseData.answers || responseData.answers.length === 0) {
                     _showToastOrAlert('Please select at least one option.', 'warning');
+                    return;
+                }
+            } else if (toolName === 'pkb_propose_memory') {
+                responseData = this._collectMemoryProposalResponse();
+                console.log('[ToolCallManager] _handleSubmit: collected memory proposals=', JSON.stringify(responseData));
+                // Validate at least one claim
+                if (!responseData.claims || responseData.claims.length === 0) {
+                    _showToastOrAlert('Please keep at least one memory entry (or use Skip to cancel).', 'warning');
                     return;
                 }
             } else {

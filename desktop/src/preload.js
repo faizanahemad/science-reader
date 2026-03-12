@@ -20,7 +20,12 @@ const SEND_CHANNELS = [
   // M4.1 File drop channels
   'file-drop:open-global-docs',
   // Dock mode channels
-  'sidebar:dock-mode'
+  'sidebar:dock-mode',
+  // App mode channels
+  'sidebar:app-mode',
+  'sidebar:window-drag',
+  // Notification channels
+  'notification:show'
 ]
 
 const RECEIVE_CHANNELS = [
@@ -32,6 +37,7 @@ const RECEIVE_CHANNELS = [
   // M1.1 Sidebar channels
   'sidebar:snap-changed',
   'sidebar:dock-mode-changed',
+  'sidebar:app-mode-changed',
   // M2.1 Focus channels
   'focus:state-changed',
   // M4.2 Bridge channels
@@ -39,7 +45,9 @@ const RECEIVE_CHANNELS = [
   'bridge:open-pkb-modal',
   'bridge:open-pkb-ingest',
   'bridge:fill-chat-input',
-  'bridge:attach-file'
+  'bridge:attach-file',
+  // Notification channels
+  'notification:clicked'
 ]
 
 const INVOKE_CHANNELS = [
@@ -54,7 +62,9 @@ const INVOKE_CHANNELS = [
   'context:get-quick',
   'context:get-full',
   'pkb-pin',
-  'pkb-autocomplete'
+  'pkb-autocomplete',
+  'settings:get-notifications-muted',
+  'settings:set-notifications-muted'
 ]
 
 contextBridge.exposeInMainWorld('electronAPI', {

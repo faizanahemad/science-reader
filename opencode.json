@@ -27,65 +27,83 @@
       }
     }
   },
-  
   "mcp": {
-    "pdf-reader": {
-      "type": "local",
-      "command": ["npx", "-y", "@sylphx/pdf-reader-mcp"],
-      "enabled": true
-    },
-    "web-search": {
+    "search": {
       "type": "remote",
-      "url": "http://localhost:8100/",
+      "url": "https://assist-chat.site/mcp/search/mcp",
       "oauth": false,
-      "headers": { "Authorization": "Bearer {env:MCP_JWT_TOKEN}" },
+      "headers": {
+        "Authorization": "Bearer {env.JWT_TOKEN}"
+      },
       "enabled": true
     },
     "pkb": {
       "type": "remote",
-      "url": "http://localhost:8101/",
+      "url": "https://assist-chat.site/mcp/pkb/mcp",
       "oauth": false,
-      "headers": { "Authorization": "Bearer {env:MCP_JWT_TOKEN}" },
+      "headers": {
+        "Authorization": "Bearer {env.JWT_TOKEN}"
+      },
       "enabled": true
     },
-    "documents": {
+    "docs": {
       "type": "remote",
-      "url": "http://localhost:8102/",
+      "url": "https://assist-chat.site/mcp/docs/mcp",
       "oauth": false,
-      "headers": { "Authorization": "Bearer {env:MCP_JWT_TOKEN}" },
+      "headers": {
+        "Authorization": "Bearer {env.JWT_TOKEN}"
+      },
       "enabled": true
     },
     "artefacts": {
       "type": "remote",
-      "url": "http://localhost:8103/",
+      "url": "https://assist-chat.site/mcp/artefacts/mcp",
       "oauth": false,
-      "headers": { "Authorization": "Bearer {env:MCP_JWT_TOKEN}" },
+      "headers": {
+        "Authorization": "Bearer {env.JWT_TOKEN}"
+      },
       "enabled": true
     },
-    "conversation": {
+    "conversations": {
       "type": "remote",
-      "url": "http://localhost:8104/",
+      "url": "https://assist-chat.site/mcp/conversations/mcp",
       "oauth": false,
-      "headers": { "Authorization": "Bearer {env:MCP_JWT_TOKEN}" },
+      "headers": {
+        "Authorization": "Bearer {env.JWT_TOKEN}"
+      },
       "enabled": true
     },
-    "prompts-actions": {
+    "prompts": {
       "type": "remote",
-      "url": "http://localhost:8105/",
+      "url": "https://assist-chat.site/mcp/prompts/mcp",
       "oauth": false,
-      "headers": { "Authorization": "Bearer {env:MCP_JWT_TOKEN}" },
+      "headers": {
+        "Authorization": "Bearer {env.JWT_TOKEN}"
+      },
       "enabled": true
     },
-    "code-runner": {
+    "code": {
       "type": "remote",
-      "url": "http://localhost:8106/",
+      "url": "https://assist-chat.site/mcp/code/mcp",
       "oauth": false,
-      "headers": { "Authorization": "Bearer {env:MCP_JWT_TOKEN}" },
+      "headers": {
+        "Authorization": "Bearer {env.JWT_TOKEN}"
+      },
       "enabled": true
     },
-    "context7": {
-      "type": "local",
-      "command": ["npx", "-y", "@upstash/context7-mcp"],
+    "image": {
+      "type": "remote",
+      "url": "https://assist-chat.site/mcp/image/mcp",
+      "oauth": false,
+      "headers": {
+        "Authorization": "Bearer {env.JWT_TOKEN}"
+      },
+      "enabled": true
+    },
+    "filesystem": {
+      "type": "remote",
+      "url": "http://127.0.0.1:0/mcp",
+      "oauth": false,
       "enabled": true
     }
   },

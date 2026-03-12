@@ -8,7 +8,7 @@ Technical documentation for the Personal Knowledge Base (PKB) module implementat
 
 PKB v0 is a SQLite-backed personal knowledge base designed for integration with LLM chatbot applications. It provides structured storage for claims (atomic memory units), notes, entities, and tags with full-text search and embedding-based semantic search capabilities.
 
-**Key Features (v0.6):**
+**Key Features (v0.9):**
 - **Multi-user support**: Shared database with per-user data isolation via `user_email`
 - **Flask REST API**: Full CRUD endpoints at `/pkb/*` for web integration
 - **Conversation.py integration**: Async PKB context retrieval for LLM prompts
@@ -33,7 +33,30 @@ PKB v0 is a SQLite-backed personal knowledge base designed for integration with 
 - **Unified search endpoint** (v0.6): `GET /pkb/claims` accepts `query` param for combined list+search in one call
 - **Universal claim resolver** (v0.6): `resolve_claim_identifier()` accepts UUID, `#N`, `claim_N`, `@friendly_id`
 - **Context name fallback** (v0.6): `resolve_reference()` falls back to context name matching
+- **NL Agent** (v0.9): `nl_agent.py` — agentic NL processor with LLM tool calling for PKB operations (add, search, delete, edit, ask_clarification). Includes `process_streaming()`, a generator variant of `process()` that yields event dicts for real-time progress.
+- **`/pkb` and `/memory` slash commands** (v0.9): Natural language PKB operations via `PKBNLConversationAgent` in `Conversation.reply()`
+- **Mandatory `valid_to` for task/reminder** (v0.9): Validation in `StructuredAPI.add_claim()` and REST endpoint
+- **Auto-expiry** (v0.9): `expired` status, `expire_stale_claims()` at DB init and search time
+- **MCP/LLM-tools/REST parity** (v0.9): `pkb_delete_claim` and `pkb_nl_command` on all 3 surfaces
+- **`pkb_propose_memory` interactive tool** (v0.9): Modal with editable memory cards for uncertain NL operations
+- **`DEFAULT_ENABLED_TOOLS`** (v0.9): `["ask_clarification", "pkb_nl_command"]` — tools always enabled when tool use is on
 
+**Recent Updates (v0.9):**
+- NL Agent (`truth_management_system/interface/nl_agent.py`): 488+ line agentic processor with LLM tool calling, conversation context support, temporal extraction, type-filtered search, and `ask_clarification` action for interactive proposals. `process_streaming()` generator yields event dicts: `llm_call_start`, `thinking`, `action_start`, `action_result`, `parse_error`, `unknown_action`, `final_response`, `ask_clarification`, `timeout`, `error`, `max_iterations`. Backward compatible: `process()` unchanged, `process_streaming()` is additive.
+- `PKBNLConversationAgent` (`agents/pkb_nl_conversation_agent.py`): Conversation-compatible agent for `/pkb` and `/memory` commands, with `tool_response_waiter` for interactive modal support, SSE event yielding, and `_add_confirmed_claims()`. Now uses `_run_nl_agent_streaming()` and `PKBNLAgent.process_streaming()` instead of `_run_nl_agent()`/`process()`. `__call__` iterates streaming events and yields formatted text per action in real-time.
+- `expired` claim status in `constants.py`, `expire_stale_claims()` in `utils.py`, triggered in `database.py` `get_database()` and `structured_api.py` search
+- `valid_to` mandatory for `task` and `reminder` claim types in `StructuredAPI.add_claim()` and `endpoints/pkb.py`
+- `pkb_delete_claim` tool/MCP/endpoint: `DELETE /pkb/claims/<id>/delete`, LLM tool in `tools.py`, MCP tool in `mcp_server/pkb.py`
+- `pkb_nl_command` tool/MCP/endpoint: `POST /pkb/nl_command`, LLM tool in `tools.py`, MCP tool in `mcp_server/pkb.py`
+- `pkb_propose_memory` interactive tool in `tools.py` (`is_interactive=True`), modal UI in `tool-call-manager.js`
+- `NLCommandResult` gained `needs_user_input` and `proposed_claims` fields
+- Two-path interactive pipeline: main LLM path (`ToolCallResult.needs_user_input`) and `/pkb` path (SSE `tool_input_request` + `tool_response_waiter`)
+- `DEFAULT_ENABLED_TOOLS` constant in `tools.py`: `["ask_clarification", "pkb_nl_command"]`
+- 3 new tools in PKB optgroup in `interface.html` (`pkb_nl_command` selected by default)
+- `categoryDefaults.pkb` and `resetSettingsToDefaults()` updated in `chat.js`
+- `checkMemoryUpdates` skipped for `/pkb` commands in `common-chat.js`
+- Bug fix: `/pkb` override moved before `use_pkb` read in `Conversation.py`
+- Bug fix: `enable_tools` → `enable_tool_use` key name mismatch
 **Recent Updates (v0.6):**
 - Schema v5: Added `claim_number INTEGER` column with per-user auto-increment and backfill
 - Schema v6: Added `possible_questions TEXT` column (JSON array), rebuilt FTS to include it
@@ -120,7 +143,8 @@ truth_management_system/
 │   ├── structured_api.py    # StructuredAPI: unified CRUD + search + for_user() + add_claims_bulk()
 │   ├── text_orchestration.py    # TextOrchestrator: NL command parsing
 │   ├── conversation_distillation.py  # ConversationDistiller: extract facts from chat
-│   └── text_ingestion.py    # TextIngestionDistiller: bulk text parsing + AI analysis
+│   ├── text_ingestion.py    # TextIngestionDistiller: bulk text parsing + AI analysis
+│   └── nl_agent.py          # PKBNLAgent: agentic NL processor with process() and process_streaming()
 │
 └── tests/                   # Unit tests
     ├── __init__.py

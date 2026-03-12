@@ -26,7 +26,9 @@ class CandidateClaim:
     context_domain: str
     confidence: float = 0.8
     source: str = "chat_distillation"
-
+    valid_from: Optional[str] = None
+    valid_to: Optional[str] = None
+    tags: List[str] = field(default_factory=list)
 
 @dataclass
 class ProposedAction:
@@ -180,8 +182,10 @@ Valid claim_type values: fact, preference, decision, task, reminder, habit, memo
 Valid context_domain values: personal, health, work, relationships, learning, life_ops, finance
 
 IMPORTANT: Return ONLY a valid JSON array with NO additional text before or after.
+For task/reminder types, include a "valid_to" field with the deadline in YYYY-MM-DD format if mentioned.
+Include a "tags" array with relevant short keyword tags.
 Example format:
-[{\"statement\": \"User prefers dark roast coffee\", \"claim_type\": \"preference\", \"context_domain\": \"personal\", \"confidence\": 0.85}]
+[{"statement": "User prefers dark roast coffee", "claim_type": "preference", "context_domain": "personal", "confidence": 0.85, "tags": ["coffee"]}, {"statement": "User needs to submit report by Friday", "claim_type": "task", "context_domain": "work", "confidence": 0.9, "valid_to": "2025-07-18", "tags": ["report", "deadline"]}]
 
 If nothing at all is worth remembering from the current message, return exactly: []
 
@@ -208,8 +212,10 @@ Valid claim_type values: fact, preference, decision, task, reminder, habit, memo
 Valid context_domain values: personal, health, work, relationships, learning, life_ops, finance
 
 IMPORTANT: Return ONLY a valid JSON array with NO additional text before or after.
+For task/reminder types, include a "valid_to" field with the deadline in YYYY-MM-DD format if mentioned.
+Include a "tags" array with relevant short keyword tags.
 Example format:
-[{\"statement\": \"User is vegetarian\", \"claim_type\": \"fact\", \"context_domain\": \"health\", \"confidence\": 0.9}]
+[{"statement": "User is vegetarian", "claim_type": "fact", "context_domain": "health", "confidence": 0.9, "tags": ["diet"]}, {"statement": "User has dentist appointment next Monday", "claim_type": "reminder", "context_domain": "health", "confidence": 0.9, "valid_to": "2025-07-21", "tags": ["dentist", "appointment"]}]
 
 If no clear personal facts to remember from the current message, return exactly: []
 
@@ -236,7 +242,10 @@ Response:"""
                             statement=item.get('statement'),
                             claim_type=item.get('claim_type', 'fact'),
                             context_domain=item.get('context_domain', 'personal'),
-                            confidence=float(item.get('confidence', 0.8))
+                            confidence=float(item.get('confidence', 0.8)),
+                            valid_from=item.get('valid_from'),
+                            valid_to=item.get('valid_to'),
+                            tags=item.get('tags', []) if isinstance(item.get('tags'), list) else [],
                         ))
                 return candidates
             return []
@@ -317,12 +326,18 @@ Response:"""
     def _execute_action(self, action: ProposedAction) -> ActionResult:
         """Execute a single proposed action."""
         if action.action == "add":
-            return self.api.add_claim(
-                statement=action.candidate.statement,
-                claim_type=action.candidate.claim_type,
-                context_domain=action.candidate.context_domain,
-                auto_extract=True
-            )
+            kwargs = {
+                "statement": action.candidate.statement,
+                "claim_type": action.candidate.claim_type,
+                "context_domain": action.candidate.context_domain,
+                "auto_extract": True,
+                "tags": action.candidate.tags or [],
+            }
+            if action.candidate.valid_from:
+                kwargs["valid_from"] = action.candidate.valid_from
+            if action.candidate.valid_to:
+                kwargs["valid_to"] = action.candidate.valid_to
+            return self.api.add_claim(**kwargs)
         elif action.action == "update" and action.existing_claim:
             return self.api.edit_claim(
                 action.existing_claim.claim_id,

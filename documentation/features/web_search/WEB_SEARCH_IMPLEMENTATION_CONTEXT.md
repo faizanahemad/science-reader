@@ -110,7 +110,8 @@ if bing_available:
 - Uses Jina Search API (`s.jina.ai`) for results
 - Uses Jina Reader API (`r.jina.ai`) for content extraction
 - Summarizes results with LLM
-
+- **Query generation model**: Uses `SUPERFAST_LLM[0]` (`inception/mercury-2`) instead of `CHEAP_LLM[0]` for faster query generation. Includes validation of structured output (non-empty list of 2-tuples with non-empty string queries and string contexts) and automatic fallback to `CHEAP_LLM[0]` on parsing failure.
+- **Per-query combiner model**: The `jina_search` tool handler in `code_common/tools.py` also uses `SUPERFAST_LLM[0]` for the per-query result summarization step.
 ---
 
 ### 4. **web_scraping.py** (Lines 1-1221)
@@ -276,6 +277,28 @@ if field == "JinaDeepResearchAgent":
 4. **Result Deduplication:** SERP results are deduplicated by URL and title
 5. **Scraping Fallbacks:** Multiple scraping backends tried in parallel
 
+---
+
+## Performance Optimizations
+
+### SUPERFAST_LLM for Jina Search
+
+The Jina search pipeline uses `SUPERFAST_LLM[0]` (`inception/mercury-2`) in two places to reduce latency:
+
+1. **Query generation** (`agents/search_and_information_agents.py`, line ~328): The `WebSearchWithAgent.__call__` path generates search queries using `SUPERFAST_LLM[0]` instead of `CHEAP_LLM[0]`. Because the fast model may produce malformed structured output (expected: list of `(query, context)` tuples), explicit validation is applied:
+   - Result must be a non-empty list
+   - Each element must be a 2-tuple
+   - Each query string must be non-empty
+   - Each context must be a string
+   - On any validation or parsing failure, the system logs a warning and retries with `CHEAP_LLM[0]` as fallback.
+
+2. **Per-query combiner** (`code_common/tools.py`, `jina_search` handler): Uses `SUPERFAST_LLM[0]` for the per-query result combination/summarization model.
+
+3. **Content summarization** (`process_search_result()`): Already used `SUPERFAST_LLM[0]` for summarizing long (>10K char) search results before these changes.
+
+**Key files modified:**
+- `agents/search_and_information_agents.py` — line ~328 (query generation model) + lines ~340-375 (validation + fallback)
+- `code_common/tools.py` — `jina_search` handler (per-query combiner model)
 ---
 
 ## Test File

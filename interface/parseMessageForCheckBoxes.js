@@ -217,6 +217,11 @@ function parseMessageForCheckBoxes(text) {
     processCommand(/\/create-context\s+(.+)/i, "create_context_name");
     processCommand(/\/create-simple-memory\s+([\s\S]+)/i, "create_simple_memory_text");
 
+    // PKB NL slash commands — route directly to PKB NL agent, bypassing normal conversation flow.
+    // /pkb <text> and /memory <text> are aliases for the same action.
+    processCommand(/\/pkb\s+([\s\S]+)/i, "pkb_nl_command");
+    processCommand(/\/memory\s+([\s\S]+)/i, "pkb_nl_command");
+
     // /clarify is special: it can appear on ANY line (not just first), still outside backticks.
     // When found, set clarify_request=true and remove the token from wherever it appears.
     const processClarifyCommand = () => {

@@ -133,6 +133,17 @@
             this.currentQuestions = questions.slice(0, 3);
             this._renderQuestions(this.currentQuestions);
             this._setModalState('questions');
+
+            // Push notification for clarification questions
+            if (typeof NotificationManager !== 'undefined' && this.currentQuestions.length > 0) {
+                NotificationManager.notify({
+                    title: 'Clarification Needed',
+                    body: this.currentQuestions[0].prompt || 'The assistant has questions before sending.',
+                    type: 'clarification',
+                    action: { type: 'flash-tab', tab: 'chat' },
+                    tag: 'pre-send-clarification'
+                });
+            }
         },
 
         _renderQuestions: function (questions) {

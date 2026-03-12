@@ -368,6 +368,16 @@ PKB_COMMANDS = [
         "description": "Open modal to create a context",
         "type": "client_action",
     },
+    {
+        "command": "pkb",
+        "description": "Ask or command your personal knowledge base (NL agent)",
+        "type": "client_action",
+    },
+    {
+        "command": "memory",
+        "description": "Alias for /pkb — natural language memory operations",
+        "type": "client_action",
+    },
 ]
 
 # ---------------------------------------------------------------------------

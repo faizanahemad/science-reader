@@ -325,7 +325,7 @@ Generate up to {num_queries} highly relevant query-context pairs. Write your ans
                 }
             answer += f"{web_search_results}\n\n"
         else:
-            llm = CallLLm(self.keys, model_name=CHEAP_LLM[0])
+            llm = CallLLm(self.keys, model_name=SUPERFAST_LLM[0])
             # Write a prompt for the LLM to generate queries and contexts
             llm_prompt = self.llm_prompt.format(text=text)
 
@@ -348,10 +348,12 @@ Generate up to {num_queries} highly relevant query-context pairs. Write your ans
                     response = self.extract_queries_contexts(response)
                     text_queries_contexts = ast.literal_eval(response)
                 except Exception as e:
-                    logger.error(
-                        f"Error parsing LLM-generated queries and contexts: {e}, \n\n{traceback.format_exc()}"
+                    # SUPERFAST_LLM may produce malformed structured output — fall back to CHEAP_LLM
+                    logger.warning(
+                        'SUPERFAST_LLM query generation failed (attempt 1), falling back to CHEAP_LLM: %s', e
                     )
-                    response = llm(
+                    fallback_llm = CallLLm(self.keys, model_name=CHEAP_LLM[0])
+                    response = fallback_llm(
                         llm_prompt,
                         images=[],
                         temperature=0.7,
@@ -369,11 +371,16 @@ Generate up to {num_queries} highly relevant query-context pairs. Write your ans
                 answer += f"Generated Queries and Contexts: ```\n{response}\n```\n\n"
 
                 # Validate the parsed result
-                if not isinstance(text_queries_contexts, list) or not all(
-                    isinstance(item, tuple) and len(item) == 2
-                    for item in text_queries_contexts
-                ):
-                    raise ValueError("Invalid format: expected list of tuples")
+                if not isinstance(text_queries_contexts, list) or not text_queries_contexts:
+                    raise ValueError("Empty or non-list query result")
+                for _item in text_queries_contexts:
+                    if not isinstance(_item, tuple) or len(_item) != 2:
+                        raise ValueError(f"Invalid tuple format: {_item}")
+                    _q, _c = _item
+                    if not isinstance(_q, str) or not _q.strip():
+                        raise ValueError(f"Empty or non-string query: {_q!r}")
+                    if not isinstance(_c, str):
+                        raise ValueError(f"Non-string context: {_c!r}")
 
                 # If valid, proceed with web search using the generated queries and contexts
                 web_search_results = self.get_results_from_web_search(

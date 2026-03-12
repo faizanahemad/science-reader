@@ -162,8 +162,8 @@ Atomic memory units representing facts, preferences, decisions, tasks, etc. Each
 - Friendly ID: user-facing alphanumeric ID (e.g. `@morning_workouts_a3f2`) for easy referencing
 - Type (fact, preference, decision, etc.) — can have multiple types, dynamically extensible
 - Domain (personal, health, work, etc.) — can have multiple domains, dynamically extensible
-- Status (active, contested, historical, etc.)
-- Temporal validity (valid_from, valid_to)
+- Status (active, contested, historical, expired, etc.)
+- Temporal validity (valid_from, valid_to) — **mandatory for task and reminder types**
 - Metadata (tags, entities, confidence)
 
 ### Contexts (Groups)
@@ -205,6 +205,30 @@ Create memories and PKB objects directly from the chat input without leaving the
 
 All four commands abort the normal send flow (message never sent to AI). They appear in the autocomplete dropdown with a green **pkb** badge, available regardless of OpenCode mode.
 
+### NL Commands (`/pkb` and `/memory`)
+Natural language PKB operations routed through a dedicated conversation agent:
+- **`/pkb <text>`** — routes to `PKBNLConversationAgent` for natural language memory operations (add, search, delete, edit claims). Bypasses normal conversation LLM — uses short conversation history + summary for context. The NL agent has its own LLM tool calling (add_claim, search, delete, edit, ask_clarification) and can invoke the interactive `pkb_propose_memory` tool when uncertain.
+- **`/memory <text>`** — alias for `/pkb <text>`.
+
+These commands are NOT client-side intercepted — they are routed through `Conversation.reply()` to a conversation-compatible agent (`PKBNLConversationAgent`) that preserves conversation history, message IDs, and auto-takeaways. The agent streams its response like any other agent.
+
+**Streaming support:** `/pkb` commands now stream intermediate action progress to the UI in real-time. As the NL agent processes each action (search, add, edit, delete), the user sees formatted status updates ("🔍 Searching memories...", "✅ Added (ID: ...)", etc.) before the final response arrives. This uses `PKBNLAgent.process_streaming()` under the hood.
+
+### Auto-Expiry
+Claims with `valid_to` dates in the past are automatically marked as `expired`:
+- `expire_stale_claims()` runs at DB initialization and lazily during search operations
+- Expired claims are excluded from search results by default (same as `retracted`)
+- The `expired` status is distinct from `retracted` — it indicates temporal expiry, not user deletion
+
+### Interactive Memory Proposals (`pkb_propose_memory`)
+When the PKB NL agent or main LLM is uncertain about a user's memory request, it can invoke the `pkb_propose_memory` interactive tool:
+- Shows a modal with editable memory cards (statement, type, dates, tags, entities, context, remove button)
+- User reviews, edits, and confirms the proposed memories
+- Works via both paths: `/pkb` slash command (SSE `tool_input_request` event) and main LLM tool calling (`ToolCallResult.needs_user_input=True`)
+
+### Default-Enabled Tools
+`DEFAULT_ENABLED_TOOLS` in `code_common/tools.py` defines tools that are always enabled when tool use is on: `["ask_clarification", "pkb_nl_command"]`. The `pkb_nl_command` tool allows the main LLM to invoke the PKB NL agent directly during conversation.
+
 ---
 
 ## File Locations
@@ -240,25 +264,45 @@ truth_management_system/
 │   ├── structured_api.py
 │   ├── text_orchestration.py
 │   ├── conversation_distillation.py
-│   └── text_ingestion.py
+│   ├── text_ingestion.py
+│   └── nl_agent.py          # NL agent with LLM tool calling for PKB operations (v0.9)
 └── tests/                   # Unit tests
 ```
 
 ### Integration Points
 ```
-endpoints/pkb.py             # Flask REST API
-Conversation.py              # Chat integration
-interface/pkb-manager.js     # Frontend API
-interface/interface.html     # UI components
+endpoints/pkb.py                        # Flask REST API (includes /pkb/delete_claim, /pkb/nl_command)
+Conversation.py                         # Chat integration + PKBNLConversationAgent dispatch
+agents/pkb_nl_conversation_agent.py     # Conversation-compatible NL agent for /pkb and /memory commands
+agents/pkb_nl_conversation_agent.impl.md # Agent implementation docs
+code_common/tools.py                    # LLM tool definitions (pkb_nl_command, pkb_delete_claim, pkb_propose_memory)
+mcp_server/pkb.py                       # MCP tools (pkb_nl_command, pkb_delete_claim)
+interface/pkb-manager.js                # Frontend API
+interface/tool-call-manager.js          # pkb_propose_memory modal UI
+interface/interface.html                # UI components (tool selector with 3 new PKB tools)
 ```
 
 ---
 
 ## Version Information
 
-**Current Version:** v0.8 (Schema v7)
+**Current Version:** v0.9 (Schema v7)
 
-**Recent Changes (v0.8):**
+**Recent Changes (v0.9):**
+- **NL Agent for PKB operations**: `truth_management_system/interface/nl_agent.py` — agentic NL processor with LLM tool calling (add_claim, search_claims, delete_claim, edit_claim, ask_clarification actions). Supports conversation context, temporal extraction, and type-filtered search. `process_streaming()` generator variant yields event dicts for real-time progress.
+- **`/pkb` and `/memory` slash commands**: Route to `PKBNLConversationAgent` inside `Conversation.reply()` using the existing agent dispatch pattern. Preserves conversation history, message IDs, streaming, and auto-takeaways. Agent skips heavy context modules (web search, PKB retrieval, doc retrieval) but uses conversation infrastructure. Now streams intermediate action progress via `process_streaming()`.
+- **Mandatory `valid_to` for task/reminder**: `StructuredAPI.add_claim()` and REST `endpoints/pkb.py` now require `valid_to` for task and reminder claim types.
+- **Auto-expiry**: Claims with `valid_to` in the past are automatically marked `expired`. `expire_stale_claims()` runs at DB init and lazily during search. Search excludes expired claims by default.
+- **`expired` claim status**: New status in `constants.py` for temporally expired claims (distinct from `retracted`).
+- **MCP/LLM-tools/REST API parity**: `pkb_delete_claim` and `pkb_nl_command` added to all three surfaces (MCP `mcp_server/pkb.py`, LLM tools `code_common/tools.py`, REST `endpoints/pkb.py`).
+- **`pkb_propose_memory` interactive tool**: Like `ask_clarification`, this tool shows a modal with editable memory cards when the NL agent or main LLM is uncertain. Registered as `is_interactive=True` in `tools.py`. Full modal UI in `tool-call-manager.js`.
+- **Two-path interactive pipeline**: (1) Main LLM path: `pkb_nl_command` → NL agent → `needs_user_input=True` → `ToolCallResult` → existing tool loop → modal. (2) `/pkb` path: `PKBNLConversationAgent` → NL agent → `tool_input_request` SSE event → `tool_response_waiter` → agent adds confirmed claims.
+- **`DEFAULT_ENABLED_TOOLS`**: `["ask_clarification", "pkb_nl_command"]` in `code_common/tools.py` — tools always enabled when tool use is on.
+- **Tool selector updates**: 3 new tools in PKB optgroup (`pkb_nl_command`, `pkb_delete_claim`, `pkb_propose_memory`). `pkb_nl_command` selected by default. Category defaults updated in `chat.js`.
+- **`checkMemoryUpdates` skipped for `/pkb`**: When `/pkb` or `/memory` is used, the automatic post-message `PKBManager.checkMemoryUpdates()` call is skipped (no duplicate memory proposals).
+- **Bug fixes**: Moved `/pkb` override before `use_pkb` read in `Conversation.py` (PKB retrieval now correctly skipped for `/pkb` commands). Fixed `enable_tools` → `enable_tool_use` key mismatch.
+
+**Previous Changes (v0.8):**
 - **PKB slash commands**: Four new slash commands for creating memories and PKB objects from the chat input — `/create-memory`, `/create-simple-memory`, `/create-entity`, `/create-context`
 - **`createSimpleMemory()`**: New `PKBManager.createSimpleMemory(text)` function: calls `POST /pkb/analyze_statement` then `POST /pkb/claims`, appends `create-simple` tag, shows toast, falls back to defaults if analysis fails
 - **Autocomplete extended**: `PKB_COMMANDS` array added to autocomplete IIFE in `common-chat.js`; PKB commands shown with green **pkb** badge and always visible (not gated by OpenCode setting)
@@ -304,11 +348,17 @@ interface/interface.html     # UI components
 - Bug fixes: schema migration robustness, IngestProposal attribute fix, text ingestion performance
 
 **Version History:**
+- v0.9: NL agent, `/pkb` & `/memory` slash commands, **streaming action progress**, mandatory `valid_to` for task/reminder, auto-expiry, `expired` status, MCP/LLM/REST parity (`pkb_delete_claim`, `pkb_nl_command`), `pkb_propose_memory` interactive tool, `DEFAULT_ENABLED_TOOLS`, two-path interactive pipeline
 - v0.8: PKB slash commands (`/create-memory`, `/create-simple-memory`, `/create-entity`, `/create-context`); autocomplete `PKB_COMMANDS`; `createSimpleMemory()` public API; `autofillClaimFields` export
 - v0.7: Universal @references for entities, tags, domains; type-suffixed friendly IDs; suffix-based routing (schema v7)
 - v0.6: QnA possible_questions, numeric claim_number, unified search endpoint, universal resolver (schema v5-v6)
 - v0.5.1: Expandable views, context linking in modals, dynamic types/domains catalog (schema v4)
 - v0.5.0: Friendly IDs, contexts, autocomplete, @references, entity linking (schema v3)
+- v0.4.1: Bug fixes (DB path, numpy, logging)
+- v0.4.0: Deliberate memory attachment
+- v0.3.0: Bulk operations and text ingestion
+- v0.2.0: Multi-user support
+- v0.1.0: Initial release
 - v0.4.1: Bug fixes (DB path, numpy, logging)
 - v0.4.0: Deliberate memory attachment
 - v0.3.0: Bulk operations and text ingestion
@@ -399,4 +449,4 @@ logging.getLogger("truth_management_system").setLevel(logging.DEBUG)
 
 ---
 
-**Last Updated:** 2026-03-02
+**Last Updated:** 2026-03-11

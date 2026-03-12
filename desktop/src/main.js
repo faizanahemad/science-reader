@@ -34,7 +34,8 @@ import robot from '@jitsi/robotjs'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 const SERVER_URL = 'https://assist-chat.site'
-const TAB_BAR_HEIGHT = 38 // tab bar only (snap bar removed — moved to settings panel)
+const TAB_BAR_HEIGHT = 52 // drag handle (14px) + tab bar (38px)
+const OC_HEADER_HEIGHT = 44 // opencode header bar height (dir picker + status + actions)
 
 // ── Globals ──
 let sidebarWindow = null
@@ -43,6 +44,7 @@ let tray = null
 let chatView = null
 let terminalView = null
 let opencodeView = null
+let opencodeWebView = null // WebContentsView for OpenCode web UI content (below header)
 const ptyManager = new PtyManager()
 const openCodeManager = new OpenCodeManager()
 let fsMcpHandle = null // { port, close() } from filesystem MCP server
@@ -119,17 +121,55 @@ function createOpenCodeView () {
   sidebarWindow.contentView.addChildView(opencodeView)
   opencodeView.setVisible(false) // Hidden by default (Chat is active)
 
-  // Block any attempt to open new windows (opencode web might try to open browser)
-  opencodeView.webContents.setWindowOpenHandler(({ url }) => {
-    console.log(`[OpenCode] Blocked window open: ${url}`)
-    return { action: 'deny' }
-  })
-
-  // Load OpenCode directory picker UI
+  // Load OpenCode directory picker UI (header + controls)
   opencodeView.webContents.loadFile(join(__dirname, 'renderer', 'opencode', 'opencode.html'))
 
   // Set initial bounds
   updateViewBounds()
+}
+
+/**
+ * Create a WebContentsView for the actual OpenCode web UI and position it below the OC header.
+ * @param {number} port - The port the opencode web server is listening on
+ */
+function showOpenCodeWebView (port) {
+  // Destroy existing one if any
+  destroyOpenCodeWebView()
+
+  opencodeWebView = new WebContentsView({
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false
+    }
+  })
+  sidebarWindow.contentView.addChildView(opencodeWebView)
+
+  // Block any attempt to open new windows (opencode web might try to open browser)
+  opencodeWebView.webContents.setWindowOpenHandler(({ url }) => {
+    console.log(`[OpenCode] Blocked window open: ${url}`)
+    return { action: 'deny' }
+  })
+
+  // Match visibility to opencodeView
+  opencodeWebView.setVisible(opencodeView?.isVisible() ?? false)
+
+  // Load the OpenCode web UI
+  opencodeWebView.webContents.loadURL(`http://127.0.0.1:${port}`)
+
+  updateViewBounds()
+}
+
+/**
+ * Destroy the OpenCode web content view (when stopped or on exit).
+ */
+function destroyOpenCodeWebView () {
+  if (!opencodeWebView) return
+  try {
+    sidebarWindow?.contentView?.removeChildView(opencodeWebView)
+    opencodeWebView.webContents?.close()
+  } catch { /* already destroyed */ }
+  opencodeWebView = null
 }
 
 /**
@@ -143,6 +183,17 @@ function updateViewBounds () {
   if (chatView) chatView.setBounds(bounds)
   if (terminalView) terminalView.setBounds(bounds)
   if (opencodeView) opencodeView.setBounds(bounds)
+
+  // OpenCode web view sits below the OC header within the opencodeView area
+  if (opencodeWebView) {
+    const ocWebBounds = {
+      x: 0,
+      y: TAB_BAR_HEIGHT + OC_HEADER_HEIGHT,
+      width,
+      height: height - TAB_BAR_HEIGHT - OC_HEADER_HEIGHT
+    }
+    opencodeWebView.setBounds(ocWebBounds)
+  }
 }
 
 /**
@@ -153,6 +204,7 @@ function switchTab (tabName) {
   if (chatView) chatView.setVisible(tabName === 'chat')
   if (terminalView) terminalView.setVisible(tabName === 'terminal')
   if (opencodeView) opencodeView.setVisible(tabName === 'opencode')
+  if (opencodeWebView) opencodeWebView.setVisible(tabName === 'opencode')
 }
 
 // ── Sidebar Window (M1.1) ──
@@ -204,8 +256,12 @@ function createSidebar () {
     // If saved dock mode is push, activate it after window is visible
     if (windowManager.getDockMode() === 'push') {
       pushModeManager.start()
-      // Notify renderer of current dock mode
       sidebarWindow.webContents.send('sidebar:dock-mode-changed', 'push')
+    }
+
+    // Notify renderer of initial app mode
+    if (windowManager.getAppMode() === 'app') {
+      sidebarWindow.webContents.send('sidebar:app-mode-changed', 'app')
     }
   })
 
@@ -231,6 +287,7 @@ function createSidebar () {
     chatView = null
     terminalView = null
     opencodeView = null
+    opencodeWebView = null
     sidebarWindow = null
     windowManager = null
     sidebarFocus = null
@@ -394,6 +451,82 @@ ipcMain.on('sidebar:dock-mode', async (_event, mode) => {
   if (sidebarWindow && !sidebarWindow.isDestroyed()) {
     sidebarWindow.webContents.send('sidebar:dock-mode-changed', mode)
   }
+})
+
+ipcMain.on('sidebar:app-mode', (_event, mode) => {
+  if (!windowManager) return
+  if (mode !== 'sidebar' && mode !== 'app') return
+
+  // If switching to app mode while push mode is active, stop push mode
+  if (mode === 'app' && pushModeManager?.isActive()) {
+    pushModeManager.stop()
+  }
+
+  windowManager.setAppMode(mode)
+
+  // Confirm app mode back to renderer
+  if (sidebarWindow && !sidebarWindow.isDestroyed()) {
+    sidebarWindow.webContents.send('sidebar:app-mode-changed', mode)
+  }
+})
+
+// Manual window drag (type:'panel' ignores -webkit-app-region on macOS)
+ipcMain.on('sidebar:window-drag', (_event, { dx, dy }) => {
+  if (!sidebarWindow || sidebarWindow.isDestroyed()) return
+  const [x, y] = sidebarWindow.getPosition()
+  sidebarWindow.setPosition(x + dx, y + dy)
+})
+
+// ── Notification system ──
+// Store notification references to prevent GC (click handlers would fail otherwise)
+const _activeNotifications = new Set()
+
+ipcMain.on('notification:show', (_event, payload) => {
+  if (!payload || !payload.title) return
+  // Check mute setting
+  if (settingsStore.get('notificationsMuted', false)) return
+
+  if (!Notification.isSupported()) return
+
+  const notif = new Notification({
+    title: payload.title,
+    body: payload.body || '',
+    silent: !!payload.silent
+  })
+
+  _activeNotifications.add(notif)
+
+  notif.on('click', () => {
+    // Focus + show the sidebar/app window
+    if (sidebarWindow && !sidebarWindow.isDestroyed()) {
+      if (sidebarWindow.isMinimized()) sidebarWindow.restore()
+      sidebarWindow.show()
+      sidebarWindow.focus()
+
+      // Forward click action to the chat WebContentsView (where NotificationManager lives)
+      if (chatView && !chatView.webContents.isDestroyed()) {
+        chatView.webContents.send('notification:clicked', { action: payload.action || { type: 'none' } })
+      }
+      // Also notify sidebar renderer for tab flashing
+      sidebarWindow.webContents.send('notification:clicked', { action: payload.action || { type: 'none' } })
+    }
+  })
+
+  notif.on('close', () => {
+    _activeNotifications.delete(notif)
+  })
+
+  notif.show()
+})
+
+// Mute setting IPC
+ipcMain.handle('settings:get-notifications-muted', () => {
+  return settingsStore.get('notificationsMuted', false)
+})
+
+ipcMain.handle('settings:set-notifications-muted', (_event, muted) => {
+  settingsStore.set('notificationsMuted', !!muted)
+  return true
 })
 
 // M1.2: Retry loading chat URL (from offline page)
@@ -917,7 +1050,10 @@ app.whenReady().then(async () => {
   registerHotkeys()
 
   // M1.5: OpenCode IPC (needs sidebarWindow for dialog.showOpenDialog)
-  setupOpenCodeIPC(ipcMain, openCodeManager, sidebarWindow, { getOpenCodeView: () => opencodeView })
+  setupOpenCodeIPC(ipcMain, openCodeManager, sidebarWindow, {
+    onShowWebView: (port) => showOpenCodeWebView(port),
+    onDestroyWebView: () => destroyOpenCodeWebView()
+  })
 
   // Start local filesystem MCP server (M0.5) with home directory as default
   try {

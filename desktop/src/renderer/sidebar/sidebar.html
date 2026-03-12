@@ -9,6 +9,9 @@
 </head>
 <body>
   <!-- Tab bar (also serves as drag region via CSS) -->
+  <!-- Drag handle bar -->
+  <div id="drag-handle"></div>
+
   <div id="tab-bar">
     <button class="tab active" data-tab="chat">
       <span class="tab-icon">💬</span>
@@ -48,9 +51,26 @@
               <button class="snap-btn" data-snap="bottom" title="Snap Bottom">⬓</button>
               <button class="snap-btn" data-snap="float" title="Float">◻</button>
             </div>
+          </div>
+          <div class="settings-row" style="margin-top:8px">
             <div class="dock-toggle-settings">
               <label class="settings-label">Dock:</label>
               <button id="dock-mode-btn" class="snap-btn" data-dock="overlay" title="Overlay mode (click to push)">O</button>
+            </div>
+            <div class="dock-toggle-settings">
+              <label class="settings-label">Mode:</label>
+              <button id="app-mode-btn" class="snap-btn" data-appmode="sidebar" title="Sidebar mode (click for app mode)">S</button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Notifications -->
+        <section class="settings-section">
+          <h3 class="settings-heading">Notifications</h3>
+          <div class="settings-row">
+            <div class="dock-toggle-settings">
+              <label class="settings-label">Mute:</label>
+              <button id="notif-mute-btn" class="snap-btn" data-muted="false" title="Mute notifications">🔔</button>
             </div>
           </div>
         </section>

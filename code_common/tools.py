@@ -44,8 +44,16 @@ logger, time_logger, error_logger, success_logger, log_memory_usage = getLoggers
 # Constants
 # ---------------------------------------------------------------------------
 
-TOOL_RESULT_TRUNCATION_LIMIT = 12000
+TOOL_RESULT_TRUNCATION_LIMIT = 50000
 """Hard cap (in characters) on the length of a tool result string sent back to the LLM."""
+
+DEFAULT_ENABLED_TOOLS = ["ask_clarification", "pkb_nl_command"]
+"""Tools that should be enabled by default in the UI tool selector.
+
+These tools are automatically selected when the user resets settings to defaults.
+Both the backend (this constant) and frontend (chat.js resetSettingsToDefaults) must agree.
+"""
+
 
 
 def _truncate_result(text: str, max_len: int = TOOL_RESULT_TRUNCATION_LIMIT) -> str:
@@ -97,6 +105,7 @@ class ToolContext:
     keys: dict = field(default_factory=dict)
     conversation_summary: str = ""
     recent_messages: list = field(default_factory=list)
+    model_overrides: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -981,9 +990,9 @@ def handle_jina_search(args: dict, context: ToolContext) -> ToolCallResult:
             from endpoints.utils import keyParser
             keys = keyParser({})
 
-        # Resolve model name
-        from common import CHEAP_LLM
-        model_name = CHEAP_LLM[0]
+        # Resolve model name — use SUPERFAST_LLM for faster per-query summarization
+        from common import SUPERFAST_LLM
+        model_name = SUPERFAST_LLM[0]
 
         from agents.search_and_information_agents import JinaSearchAgent
         agent = JinaSearchAgent(
@@ -1848,15 +1857,22 @@ def _pkb_serialize_data(data):
     description=(
         "Search the user's Personal Knowledge Base (PKB) for relevant claims. "
         "Uses hybrid search (FTS5 + embedding similarity) by default. "
-        "Returns a ranked list of matching claims with relevance scores."
+        "Returns a ranked list of matching claims with relevance scores. "
+        "HIGH RECALL IS CRITICAL — the PKB uses semantic similarity so you MUST search with multiple "
+        "phrasings, synonyms, and alternative terms to avoid missing relevant memories. For example, "
+        "if looking for dietary preferences, also search for 'food', 'eating', 'diet', 'nutrition', 'meal'. "
+        "If looking for work tasks, also try 'project', 'deadline', 'assignment', 'todo'. "
+        "Issue MULTIPLE searches with varied queries rather than relying on a single query. "
+        "Use broad terms first, then narrow down. Cross-domain terms help: e.g. for 'exercise' also try 'fitness', 'gym', 'workout', 'health'. "
+        "Request a higher k (30-50) when comprehensive coverage matters."
     ),
     parameters={
         "type": "object",
         "properties": {
-            "query": {"type": "string", "description": "Natural-language search query"},
+            "query": {"type": "string", "description": "Natural-language search query. Use broad terms, synonyms, and alternative phrasings to maximize recall. Issue multiple searches with different queries rather than relying on one."},
             "k": {
                 "type": "integer",
-                "description": "Maximum number of results to return",
+                "description": "Maximum number of results to return. Use 30-50 when comprehensive recall matters. Default 20 may miss relevant items.",
                 "default": 20,
             },
             "strategy": {
@@ -2026,6 +2042,10 @@ def handle_pkb_get_pinned_claims(args: dict, context: ToolContext) -> ToolCallRe
                 "items": {"type": "string"},
                 "description": "Optional list of tag names to attach to the claim",
             },
+            "valid_to": {
+                "type": "string",
+                "description": "End of validity period (ISO 8601 date, e.g. '2025-07-20'). Required for task and reminder claim types.",
+            },
         },
         "required": ["statement", "claim_type", "context_domain"],
     },
@@ -2044,6 +2064,9 @@ def handle_pkb_add_claim(args: dict, context: ToolContext) -> ToolCallResult:
         kwargs = dict(statement=statement, claim_type=claim_type, context_domain=context_domain)
         if tags is not None:
             kwargs["tags"] = tags
+        valid_to = args.get("valid_to", None)
+        if valid_to is not None:
+            kwargs["valid_to"] = valid_to
         result = user_api.add_claim(**kwargs)
         serialized = _pkb_serialize_action_result(result)
         return ToolCallResult(
@@ -2218,6 +2241,40 @@ def handle_pkb_resolve_context(args: dict, context: ToolContext) -> ToolCallResu
             error=f"pkb_resolve_context failed: {exc}",
         )
 
+@register_tool(
+    name="pkb_delete_claim",
+    description=(
+        "Soft-delete (retract) a claim from the PKB. "
+        "The claim is not permanently deleted but marked as retracted "
+        "and excluded from default search results."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "claim_id": {"type": "string", "description": "UUID of the claim to delete"},
+        },
+        "required": ["claim_id"],
+    },
+    is_interactive=False,
+    category="pkb",
+)
+def handle_pkb_delete_claim(args: dict, context: ToolContext) -> ToolCallResult:
+    """Soft-delete (retract) a PKB claim."""
+    claim_id = args.get("claim_id", "")
+    try:
+        api = _get_pkb_api()
+        user_api = api.for_user(context.user_email)
+        result = user_api.delete_claim(claim_id=claim_id)
+        serialized = _pkb_serialize_action_result(result)
+        return ToolCallResult(
+            tool_id="", tool_name="pkb_delete_claim",
+            result=_truncate_result(serialized),
+        )
+    except Exception as exc:
+        return ToolCallResult(
+            tool_id="", tool_name="pkb_delete_claim",
+            error=f"pkb_delete_claim failed: {exc}",
+        )
 
 @register_tool(
     name="pkb_pin_claim",
@@ -2260,6 +2317,182 @@ def handle_pkb_pin_claim(args: dict, context: ToolContext) -> ToolCallResult:
             error=f"pkb_pin_claim failed: {exc}",
         )
 
+@register_tool(
+    name="pkb_nl_command",
+    description=(
+        "Process a natural language command against the Personal Knowledge Base. "
+        "Accepts free-form text and performs multi-step CRUD operations "
+        "(search, add, edit, delete claims; manage entities and tags) "
+        "using an internal agentic LLM loop. Returns a natural language "
+        "summary of actions taken. Use this for complex or multi-step PKB "
+        "operations expressed in natural language. "
+        "When the command involves searching or retrieving memories, the internal agent "
+        "optimizes for HIGH RECALL by using synonyms, alternative phrasings, and broad search terms "
+        "to ensure no relevant memories are missed."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "command": {
+                "type": "string",
+                "description": "Natural language command. For search/retrieval, include synonyms and alternative phrasings to improve recall (e.g. 'find my dietary preferences, food habits, eating restrictions, nutrition notes').",
+            },
+            "model": {
+                "type": "string",
+                "description": "Optional LLM model override (default: openai/gpt-4o-mini)",
+            },
+        },
+        "required": ["command"],
+    },
+    is_interactive=False,
+    category="pkb",
+)
+def handle_pkb_nl_command(args: dict, context: ToolContext) -> ToolCallResult:
+    """Process a natural language PKB command via the agentic NL processor.
+
+    If the NL agent is uncertain and requests clarification, this returns
+    an interactive result (needs_user_input=True) with tool_name='pkb_propose_memory'
+    so the UI shows the memory proposal modal.
+    """
+    command = args.get("command", "")
+    model = args.get("model", None)
+    # Fall back to model override from conversation settings, then CHEAP_LLM[0]
+    if not model:
+        from common import CHEAP_LLM
+        model = context.model_overrides.get("pkb_nl_model") or CHEAP_LLM[0]
+    try:
+        from truth_management_system.interface.nl_agent import PKBNLAgent
+
+        api = _get_pkb_api()
+        user_api = api.for_user(context.user_email)
+        from endpoints.utils import keyParser
+        keys = keyParser({})
+        agent = PKBNLAgent(api=user_api, keys=keys, model=model)
+        result = agent.process(command)
+
+        # If the NL agent needs user input (ask_clarification with proposals),
+        # bubble it up as an interactive tool result so the UI shows the modal.
+        if result.needs_user_input and result.proposed_claims:
+            return ToolCallResult(
+                tool_id="",
+                tool_name="pkb_propose_memory",
+                result=result.message,
+                needs_user_input=True,
+                ui_schema={
+                    "claims": result.proposed_claims,
+                    "message": result.message,
+                },
+            )
+
+        serialized = json.dumps(result.to_dict(), default=str)
+        return ToolCallResult(
+            tool_id="", tool_name="pkb_nl_command",
+            result=_truncate_result(serialized),
+        )
+    except Exception as exc:
+        logger.exception("pkb_nl_command error: %s", exc)
+        return ToolCallResult(
+            tool_id="", tool_name="pkb_nl_command",
+            error=f"pkb_nl_command failed: {exc}",
+        )
+
+@register_tool(
+    name="pkb_propose_memory",
+    description=(
+        "Propose memory entries (claims) to the user for review before saving to the "
+        "Personal Knowledge Base.  Use this when you are not fully confident about "
+        "the structure, type, dates, tags or entities of a memory the user mentioned.  "
+        "The UI will show a modal with pre-filled fields that the user can edit and confirm.  "
+        "Only use this tool when clarification or user review of the proposed memory is needed."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "claims": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "text": {
+                            "type": "string",
+                            "description": "The claim/memory text",
+                        },
+                        "claim_type": {
+                            "type": "string",
+                            "enum": ["fact", "preference", "event", "task", "reminder", "goal", "note"],
+                            "description": "Type of the memory entry",
+                        },
+                        "valid_from": {
+                            "type": "string",
+                            "description": "Start date in YYYY-MM-DD format (optional)",
+                        },
+                        "valid_to": {
+                            "type": "string",
+                            "description": "End/due date in YYYY-MM-DD format (required for task/reminder)",
+                        },
+                        "tags": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Tags to categorize the memory",
+                        },
+                        "entities": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Named entities mentioned (people, places, orgs)",
+                        },
+                        "context": {
+                            "type": "string",
+                            "description": "Context/source of the memory (e.g. conversation topic)",
+                        },
+                    },
+                    "required": ["text", "claim_type"],
+                },
+                "description": "List of proposed memory entries for user review",
+                "minItems": 1,
+                "maxItems": 10,
+            },
+            "message": {
+                "type": "string",
+                "description": "Brief explanation of what is being proposed and why review is needed",
+            },
+        },
+        "required": ["claims"],
+    },
+    is_interactive=True,
+    category="pkb",
+)
+def handle_pkb_propose_memory(args: dict, context: ToolContext) -> ToolCallResult:
+    """Handle the pkb_propose_memory interactive tool call.
+
+    Like ask_clarification, this is an interactive tool — it does NOT execute
+    any logic directly. Instead it returns ``needs_user_input=True`` so the
+    agentic loop pauses and the UI renders the memory proposal modal for the
+    user to review, edit, and confirm.
+
+    Parameters
+    ----------
+    args:
+        Parsed arguments containing ``claims`` list and optional ``message``.
+    context:
+        Tool execution context.
+
+    Returns
+    -------
+    ToolCallResult
+        With ``needs_user_input=True`` and ``ui_schema`` containing the
+        proposed claims for user review.
+    """
+    claims = args.get("claims", [])
+    message = args.get("message", "")
+    logger.info("pkb_propose_memory invoked with %d claim(s): %s", len(claims), message[:100])
+
+    return ToolCallResult(
+        tool_id="",
+        tool_name="pkb_propose_memory",
+        result="Waiting for user to review proposed memory entries.",
+        needs_user_input=True,
+        ui_schema=args,
+    )
 
 # ---------------------------------------------------------------------------
 # MCP Conversation Memory Tools (category: memory)

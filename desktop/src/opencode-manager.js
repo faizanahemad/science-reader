@@ -13,11 +13,7 @@ import { spawn } from 'node:child_process'
 import { writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { createServer } from 'node:net'
-import { fileURLToPath } from 'node:url'
 import Store from 'electron-store'
-
-const __dirname = join(fileURLToPath(import.meta.url), '..')
-const OPENCODE_PICKER_HTML = join(__dirname, 'renderer', 'opencode', 'opencode.html')
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -459,10 +455,10 @@ export class OpenCodeManager {
  * @param {import('electron').IpcMain} ipcMain
  * @param {OpenCodeManager} openCodeManager
  * @param {import('electron').BrowserWindow} sidebarWindow
- * @param {{ getOpenCodeView: () => import('electron').WebContentsView | null }} options
+ * @param {{ onShowWebView?: (port: number) => void, onDestroyWebView?: () => void }} options
  */
 export function setupOpenCodeIPC (ipcMain, openCodeManager, sidebarWindow, options = {}) {
-  const { getOpenCodeView } = options
+  const { onShowWebView, onDestroyWebView } = options
   // ── Directory management ──
   ipcMain.handle('opencode:get-recent-dirs', () => openCodeManager.getRecentDirs())
   ipcMain.handle('opencode:get-pinned-dirs', () => openCodeManager.getPinnedDirs())
@@ -507,11 +503,8 @@ export function setupOpenCodeIPC (ipcMain, openCodeManager, sidebarWindow, optio
         sidebarWindow.webContents.send('opencode:ready', { port })
       }
 
-      // Navigate opencodeView to the OpenCode web UI
-      const view = getOpenCodeView?.()
-      if (view && !view.webContents.isDestroyed()) {
-        view.webContents.loadURL(`http://127.0.0.1:${port}`)
-      }
+      // Show OpenCode web UI in a separate WebContentsView below the header
+      onShowWebView?.(port)
 
       // Watch for unexpected exit
       openCodeManager.process?.on('exit', (code, signal) => {
@@ -522,11 +515,8 @@ export function setupOpenCodeIPC (ipcMain, openCodeManager, sidebarWindow, optio
               `OpenCode exited with code ${code}${signal ? ` (signal: ${signal})` : ''}`)
           }
         }
-        // Navigate back to directory picker on unexpected exit
-        const view = getOpenCodeView?.()
-        if (view && !view.webContents.isDestroyed()) {
-          view.webContents.loadFile(OPENCODE_PICKER_HTML)
-        }
+        // Destroy OpenCode web view on unexpected exit
+        onDestroyWebView?.()
       })
 
       return { port }
@@ -544,11 +534,8 @@ export function setupOpenCodeIPC (ipcMain, openCodeManager, sidebarWindow, optio
     if (sidebarWindow && !sidebarWindow.isDestroyed()) {
       sidebarWindow.webContents.send('opencode:status', 'disconnected')
     }
-    // Navigate back to directory picker
-    const view = getOpenCodeView?.()
-    if (view && !view.webContents.isDestroyed()) {
-      view.webContents.loadFile(OPENCODE_PICKER_HTML)
-    }
+    // Destroy OpenCode web view
+    onDestroyWebView?.()
   })
 
   ipcMain.handle('opencode:restart', async (_e, cwd) => {
@@ -568,11 +555,8 @@ export function setupOpenCodeIPC (ipcMain, openCodeManager, sidebarWindow, optio
         sidebarWindow.webContents.send('opencode:ready', { port })
       }
 
-      // Navigate opencodeView to the OpenCode web UI
-      const view = getOpenCodeView?.()
-      if (view && !view.webContents.isDestroyed()) {
-        view.webContents.loadURL(`http://127.0.0.1:${port}`)
-      }
+      // Show OpenCode web UI in a separate WebContentsView below the header
+      onShowWebView?.(port)
 
       openCodeManager.process?.on('exit', (code, signal) => {
         if (sidebarWindow && !sidebarWindow.isDestroyed()) {
@@ -582,11 +566,8 @@ export function setupOpenCodeIPC (ipcMain, openCodeManager, sidebarWindow, optio
               `OpenCode exited with code ${code}${signal ? ` (signal: ${signal})` : ''}`)
           }
         }
-        // Navigate back to directory picker on unexpected exit
-        const view = getOpenCodeView?.()
-        if (view && !view.webContents.isDestroyed()) {
-          view.webContents.loadFile(OPENCODE_PICKER_HTML)
-        }
+        // Destroy OpenCode web view on unexpected exit
+        onDestroyWebView?.()
       })
 
       return { port }

@@ -50,6 +50,7 @@ class ClaimStatus(str, Enum):
     SUPERSEDED = "superseded"  # Replaced by a newer claim
     RETRACTED = "retracted"  # Soft-deleted by user
     DRAFT = "draft"  # Not yet confirmed/finalized
+    EXPIRED = "expired"  # Time-bound claim whose valid_to has passed
 
     @classmethod
     def default_search_statuses(cls) -> List[str]:
@@ -58,7 +59,7 @@ class ClaimStatus(str, Enum):
 
         Contested claims ARE included by default but with warnings.
         """
-        return [cls.ACTIVE.value, cls.CONTESTED.value]
+        return [cls.ACTIVE.value, cls.CONTESTED.value]  # expired, retracted excluded
 
     @classmethod
     def all_visible_statuses(cls) -> List[str]:
@@ -69,6 +70,7 @@ class ClaimStatus(str, Enum):
             cls.HISTORICAL.value,
             cls.SUPERSEDED.value,
             cls.DRAFT.value,
+            cls.EXPIRED.value,
         ]
 
 

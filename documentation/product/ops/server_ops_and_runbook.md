@@ -8,6 +8,13 @@
 
 ---
 
+## Configurable Constants
+
+| Constant | Value | File | Description |
+|---|---|---|---|
+| `TOOL_RESULT_TRUNCATION_LIMIT` | 50000 | `code_common/tools.py` | Maximum character length of tool call results sent back to the LLM. Oversized results are truncated with a `"\n... [truncated, result too long]"` suffix. Applies to all tool handlers (search, documents, PKB, etc.). Defined once; used by `_truncate_result()` and `ToolRegistry.execute()`. |
+
+
 # Install GCC
 `sudo apt install build-essential`
 

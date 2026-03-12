@@ -54,7 +54,7 @@
 - Apply small patches or edits sequentially and write in small chunks — large chunks are error-prone. When writing an entire new file, create the outline first, then fill gradually.
 
 ### Documentation guidelines
-
+- View the docs in `documentation` folder by running `tree documentation` bash command. View the docs also when asked for context around a functionality or plan.
 - Update docs when you add or change behavior. Docs are markdown files in the documentation folder.
 - When creating or updating documentation, add motivation and background, UI details if applicable, API details, function details, feature details, implementation notes and files modified.
 - Write in markdown format but don't make diagrams. Our docs are intended to be friendly to LLM agents; diagrams are not.

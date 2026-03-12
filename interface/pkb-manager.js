@@ -28,6 +28,7 @@ var PKBManager = (function() {
     
     // When set, the next saveClaim() will link the new claim to this entity
     var _pendingEntityLink = null;
+    var _editingProposalIndex = null;
     
     // ===========================================================================
     // API Functions
@@ -1554,6 +1555,8 @@ var PKBManager = (function() {
         populateTypesDropdown(['preference']);
         populateDomainsDropdown(['personal']);
         $('#pkb-claim-tags').val('');
+        $('#pkb-claim-valid-from').val('');
+        $('#pkb-claim-valid-to').val('');
         $('#pkb-claim-questions').val('');
         $('#pkb-claim-edit-title').text('Add Memory');
         populateContextsDropdown([]); // No pre-selection for new claim
@@ -1583,6 +1586,8 @@ var PKBManager = (function() {
         populateTypesDropdown(['fact']);
         populateDomainsDropdown(['personal']);
         $('#pkb-claim-tags').val('');
+        $('#pkb-claim-valid-from').val('');
+        $('#pkb-claim-valid-to').val('');
         $('#pkb-claim-questions').val('');
         $('#pkb-claim-edit-title').text('Add Memory');
         populateContextsDropdown([]);
@@ -1605,6 +1610,8 @@ var PKBManager = (function() {
             $('#pkb-claim-statement').val(claim.statement);
             $('#pkb-claim-friendly-id').val(claim.friendly_id || '');
             $('#pkb-claim-tags').val(''); // Tags would need separate fetch
+            $('#pkb-claim-valid-from').val(claim.valid_from || '');
+            $('#pkb-claim-valid-to').val(claim.valid_to || '');
             $('#pkb-claim-edit-title').text('Edit Memory');
             
             // Populate possible questions (JSON array -> newline-separated text)
@@ -1700,6 +1707,12 @@ var PKBManager = (function() {
                 var newTags = a.tags.join(', ');
                 $('#pkb-claim-tags').val(existingTags ? existingTags + ', ' + newTags : newTags);
             }
+            if (a.valid_from) {
+                $('#pkb-claim-valid-from').val(a.valid_from);
+            }
+            if (a.valid_to) {
+                $('#pkb-claim-valid-to').val(a.valid_to);
+            }
             if (a.possible_questions && a.possible_questions.length > 0) {
                 var existingQ = $('#pkb-claim-questions').val().trim();
                 var newQ = a.possible_questions.join('\n');
@@ -1729,6 +1742,8 @@ var PKBManager = (function() {
         var selectedDomains = $('#pkb-claim-domain').val() || []; // multi-select array
         var tagsStr = $('#pkb-claim-tags').val().trim();
         var selectedContextIds = $('#pkb-claim-contexts').val() || [];
+        var validFrom = $('#pkb-claim-valid-from').val();
+        var validTo = $('#pkb-claim-valid-to').val();
         // Parse possible questions (newline-separated -> JSON array)
         var questionsRaw = $('#pkb-claim-questions').val().trim();
         var possibleQuestionsJson = null;
@@ -1762,6 +1777,8 @@ var PKBManager = (function() {
             if (claimTypesJson) patch.claim_types = claimTypesJson;
             if (contextDomainsJson) patch.context_domains = contextDomainsJson;
             if (possibleQuestionsJson) patch.possible_questions = possibleQuestionsJson;
+            if (validFrom) patch.valid_from = validFrom;
+            if (validTo) patch.valid_to = validTo;
             promise = editClaim(claimId, patch);
         } else {
             // Add
@@ -1776,6 +1793,8 @@ var PKBManager = (function() {
             if (claimTypesJson) addData.claim_types = claimTypesJson;
             if (contextDomainsJson) addData.context_domains = contextDomainsJson;
             if (possibleQuestionsJson) addData.possible_questions = possibleQuestionsJson;
+            if (validFrom) addData.valid_from = validFrom;
+            if (validTo) addData.valid_to = validTo;
             promise = addClaim(addData);
         }
         
@@ -1817,6 +1836,18 @@ var PKBManager = (function() {
                     _pendingEntityLink = null;
                     loadClaims();
                     showToast(msg, 'success');
+                    
+                    // If saving from a proposal Edit button, mark the row as saved
+                    if (_editingProposalIndex !== null) {
+                        var $pRow = $('.proposal-row[data-index="' + _editingProposalIndex + '"]');
+                        if ($pRow.length) {
+                            $pRow.find('.proposal-checkbox').prop('checked', false).prop('disabled', true);
+                            $pRow.append('<span class="badge badge-success ml-2">✅ Saved</span>');
+                            $pRow.addClass('proposal-row-saved');
+                            updateProposalSelectedCount();
+                        }
+                        _editingProposalIndex = null;
+                    }
                 });
             } else {
                 showToast(response.error || 'Failed to save memory.', 'error');
@@ -2448,6 +2479,25 @@ var PKBManager = (function() {
                                 '<option value="finance"' + (proposal.context_domain === 'finance' ? ' selected' : '') + '>Finance</option>' +
                             '</select>' +
                         '</div>' +
+                        '<div class="col-auto">' +
+                            '<button type="button" class="btn btn-sm btn-outline-info proposal-edit-btn" data-index="' + index + '" title="Edit in full modal">' +
+                                '<i class="bi bi-pencil-square"></i>' +
+                            '</button>' +
+                        '</div>' +
+                    '</div>' +
+                    '<div class="form-row mt-1">' +
+                        '<div class="col-md-4">' +
+                            '<label class="small text-muted">From</label>' +
+                            '<input type="date" class="form-control form-control-sm proposal-valid-from" value="' + escapeHtml(proposal.valid_from || '') + '">' +
+                        '</div>' +
+                        '<div class="col-md-4">' +
+                            '<label class="small text-muted">Due / To</label>' +
+                            '<input type="date" class="form-control form-control-sm proposal-valid-to" value="' + escapeHtml(proposal.valid_to || '') + '">' +
+                        '</div>' +
+                        '<div class="col-md-4">' +
+                            '<label class="small text-muted">Tags</label>' +
+                            '<input type="text" class="form-control form-control-sm proposal-tags" placeholder="e.g. work, personal" value="' + escapeHtml((proposal.tags || []).join(', ')) + '">' +
+                        '</div>' +
                     '</div>' +
                 '</div>' +
             '</div>' +
@@ -2521,12 +2571,20 @@ var PKBManager = (function() {
         $('.proposal-row').each(function() {
             var $row = $(this);
             if ($row.find('.proposal-checkbox').is(':checked')) {
-                approved.push({
+                var validFrom = $row.find('.proposal-valid-from').val();
+                var validTo = $row.find('.proposal-valid-to').val();
+                var tagsRaw = $row.find('.proposal-tags').val().trim();
+                var tags = tagsRaw ? tagsRaw.split(',').map(function(t) { return t.trim(); }).filter(function(t) { return t; }) : [];
+                var item = {
                     index: parseInt($row.data('index'), 10),
                     statement: $row.find('.proposal-statement').val().trim(),
                     claim_type: $row.find('.proposal-type').val(),
                     context_domain: $row.find('.proposal-domain').val()
-                });
+                };
+                if (validFrom) item.valid_from = validFrom;
+                if (validTo) item.valid_to = validTo;
+                if (tags.length > 0) item.tags = tags;
+                approved.push(item);
             }
         });
         
@@ -2583,6 +2641,16 @@ var PKBManager = (function() {
             
             if (response.failed_count > 0) {
                 showToast(response.failed_count + ' memories failed to save.', 'warning');
+                // Show per-result error details
+                if (response.results && response.results.length > 0) {
+                    response.results.forEach(function(result) {
+                        if (!result.success && result.errors) {
+                            var stmt = result.statement ? escapeHtml(result.statement).substring(0, 60) : 'Memory';
+                            var errMsgs = result.errors.join('; ');
+                            showToast(stmt + '... — ' + escapeHtml(errMsgs), 'error');
+                        }
+                    });
+                }
             }
         })
         .fail(function(err) {
@@ -2590,6 +2658,44 @@ var PKBManager = (function() {
             var errorMsg = err.responseJSON ? err.responseJSON.error : 'An error occurred';
             showToast('Failed to save memories: ' + errorMsg, 'error');
         });
+    }
+    
+    /**
+     * Open the full pkb-claim-edit-modal pre-populated from a proposal row.
+     * @param {number} index - The proposal row index
+     */
+    function openProposalInEditModal(index) {
+        var $row = $('.proposal-row[data-index="' + index + '"]');
+        if (!$row.length) return;
+        
+        var statement = $row.find('.proposal-statement').val().trim();
+        var claimType = $row.find('.proposal-type').val();
+        var contextDomain = $row.find('.proposal-domain').val();
+        var validFrom = $row.find('.proposal-valid-from').val() || '';
+        var validTo = $row.find('.proposal-valid-to').val() || '';
+        var tagsVal = $row.find('.proposal-tags').val() || '';
+        
+        // No claim ID — this is a new add from proposal
+        $('#pkb-claim-edit-id').val('');
+        $('#pkb-claim-statement').val(statement);
+        $('#pkb-claim-friendly-id').val('');
+        populateTypesDropdown([claimType]);
+        populateDomainsDropdown([contextDomain]);
+        $('#pkb-claim-tags').val(tagsVal);
+        $('#pkb-claim-questions').val('');
+        $('#pkb-claim-valid-from').val(validFrom);
+        $('#pkb-claim-valid-to').val(validTo);
+        $('#pkb-claim-edit-title').text('Add Memory (from proposal)');
+        populateContextsDropdown([]);
+        
+        _editingProposalIndex = index;
+        
+        $('#pkb-claim-edit-modal').modal('show');
+        
+        // Trigger autofill after modal shows
+        setTimeout(function() {
+            autofillClaimFields();
+        }, 350);
     }
     
     // ===========================================================================
@@ -2705,6 +2811,12 @@ var PKBManager = (function() {
         
         $(document).on('change', '.proposal-checkbox', function() {
             updateProposalSelectedCount();
+        });
+        
+        // Proposal Edit button - open full modal for a proposal row
+        $(document).on('click', '.proposal-edit-btn', function() {
+            var index = parseInt($(this).data('index'), 10);
+            openProposalInEditModal(index);
         });
         
         // Entity add button (v0.5)

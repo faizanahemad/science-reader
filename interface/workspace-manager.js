@@ -184,27 +184,53 @@ var WorkspaceManager = {
 
         combined.done(function (workspacesData, conversationsData) {
             var workspaces = workspacesData[0];
-            var conversations = conversationsData[0];
+            // Backend now returns {conversations: [...], deleted_temporary_ids: [...]}
+            var rawConvResponse = conversationsData[0];
+            var conversations = Array.isArray(rawConvResponse) ? rawConvResponse : (rawConvResponse.conversations || []);
+            var deletedTemporaryIds = (!Array.isArray(rawConvResponse) && rawConvResponse.deleted_temporary_ids) ? rawConvResponse.deleted_temporary_ids : [];
             WorkspaceManager._processAndRenderData(workspaces, conversations);
 
-            // Auto-selection logic (same as before)
+            // Proactively clear localStorage if the stored conversation was deleted
+            if (deletedTemporaryIds.length > 0) {
+                try {
+                    var email = (typeof userDetails !== 'undefined' && userDetails && userDetails.email) ? String(userDetails.email) : 'unknown';
+                    var domain = (typeof currentDomain !== 'undefined' && currentDomain && currentDomain['domain']) ? String(currentDomain['domain']) : 'unknown';
+                    var key = 'lastActiveConversationId:' + email + ':' + domain;
+                    var storedId = localStorage.getItem(key);
+                    if (storedId && deletedTemporaryIds.indexOf(storedId) !== -1) {
+                        localStorage.removeItem(key);
+                    }
+                } catch (_e) { /* ignore */ }
+            }
+
+            // Auto-selection logic
             if (autoselect) {
                 var conversationId = getConversationIdFromUrl();
-                if (conversationId) {
+                // Validate URL param conversation ID exists in the fetched list
+                var urlConvExists = conversationId && conversations.some(function (c) { return String(c.conversation_id) === String(conversationId); });
+                if (conversationId && urlConvExists) {
                     ConversationManager.setActiveConversation(conversationId);
                     WorkspaceManager.highlightActiveConversation(conversationId, true);
-                } else if (conversations.length > 0) {
-                    var resumeId = null;
-                    try {
-                        var email = (typeof userDetails !== 'undefined' && userDetails && userDetails.email) ? String(userDetails.email) : 'unknown';
-                        var domain = (typeof currentDomain !== 'undefined' && currentDomain && currentDomain['domain']) ? String(currentDomain['domain']) : 'unknown';
-                        var key = 'lastActiveConversationId:' + email + ':' + domain;
-                        resumeId = localStorage.getItem(key);
-                    } catch (_e) { resumeId = null; }
-                    var resumeExists = !!resumeId && conversations.some(function (c) { return String(c.conversation_id) === String(resumeId); });
-                    var targetId = resumeExists ? resumeId : conversations[0].conversation_id;
-                    ConversationManager.setActiveConversation(targetId);
-                    WorkspaceManager.highlightActiveConversation(targetId, true);
+                } else {
+                    if (conversationId && !urlConvExists) {
+                        // URL had a conversation ID that no longer exists — show a toast
+                        if (typeof showToast === 'function') {
+                            showToast('The conversation from the URL is no longer available.', 'warning');
+                        }
+                    }
+                    if (conversations.length > 0) {
+                        var resumeId = null;
+                        try {
+                            var email2 = (typeof userDetails !== 'undefined' && userDetails && userDetails.email) ? String(userDetails.email) : 'unknown';
+                            var domain2 = (typeof currentDomain !== 'undefined' && currentDomain && currentDomain['domain']) ? String(currentDomain['domain']) : 'unknown';
+                            var key2 = 'lastActiveConversationId:' + email2 + ':' + domain2;
+                            resumeId = localStorage.getItem(key2);
+                        } catch (_e) { resumeId = null; }
+                        var resumeExists = !!resumeId && conversations.some(function (c) { return String(c.conversation_id) === String(resumeId); });
+                        var targetId = resumeExists ? resumeId : conversations[0].conversation_id;
+                        ConversationManager.setActiveConversation(targetId);
+                        WorkspaceManager.highlightActiveConversation(targetId, true);
+                    }
                 }
             } else {
                 var currentActive = ConversationManager.getActiveConversation();

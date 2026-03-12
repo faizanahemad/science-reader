@@ -5,9 +5,9 @@ Conversation model overrides let users pick non-reply models on a per-conversati
 ## What We Added
 
 - **Conversation-level settings store**: new `conversation_settings` field in `Conversation.py` persisted with the conversation.
-- **Model override UI**: chat settings now exposes a **Model Overrides** modal with 5 dropdowns organized by section (defaults + full model list).
+- **Model override UI**: chat settings now exposes a **Model Overrides** modal with 6 dropdowns organized by section (defaults + full model list).
 - **Dynamic model catalog**: dropdown options are fetched from `/model_catalog`, which dedupes models from the common model lists.
-- **Server application points**: overrides are applied to internal conversation operations (summaries, TLDR, memory pad, context extraction, next question suggestions, web result summarization), quick actions (doubt clearing, context menu actions), artefact propose-edits, Doc Index summarization/answers, and clarification.
+- **Server application points**: overrides are applied to internal conversation operations (summaries, TLDR, memory pad, context extraction, next question suggestions, web result summarization), quick actions (doubt clearing, context menu actions), artefact propose-edits, Doc Index summarization/answers, clarification, and PKB NL agent (when invoked as a tool by the main LLM).
 
 ## Background & Motivation
 
@@ -17,17 +17,18 @@ The override system originally had 9 separate keys (including 3 Doc Index keys).
 2. **Conversation override consolidation**: 4 conversation keys (`summary_model`, `tldr_model`, `doubt_clearing_model`, `context_action_model`) merged into 2 (`conversation_internal_model`, `quick_action_model`). Additionally, 5 previously hardcoded CallLLm sites were brought under `conversation_internal_model` override control, and 2 hardcoded model references were fixed (`EXPENSIVE_LLM[0]` → `CHEAP_LLM[0]` in `base.py` image captioning, `"gpt-4o-mini"` → `CHEAP_LLM[0]` in `Conversation.py` content type detection).
 
 3. **Model cost optimization**: Several hardcoded expensive defaults were replaced with cheaper alternatives — `EXPENSIVE_LLM[0]` → `CHEAP_LLM[0]` for image captioning in `base.py`, `"gpt-4o-mini"` → `CHEAP_LLM[0]` in `Conversation.py`, `VERY_CHEAP_LLM[0]` → `SUPERFAST_LLM[0]` for Jina search results in `search_and_information_agents.py`, `CHEAP_LONG_CONTEXT_LLM[0]` → `VERY_CHEAP_LLM[0]` for ContextualReader fallback and DocIndex utility classes (`MultiFacetDocSummarizer`, `MultiDocAnswerAgent`). `SUPERFAST_LLM` (`inception/mercury-2`) was also added to `_get_token_limit()` in `call_llm.py` with a 100k token context window (previously fell through to the 48k default).
-The result is 5 override keys (down from 9), covering more CallLLm sites with fewer controls.
+The result is 6 override keys (down from 9), covering more CallLLm sites with fewer controls.
 
 ## User Experience
 
 - Open chat settings → **Model Overrides**.
-- The modal has 5 dropdowns organized into sections:
+- The modal has 6 dropdowns organized into sections:
   - **Conversation Internal** — `conversation_internal_model`
   - **Quick Actions** — `quick_action_model`
   - **Artefacts** — `artefact_propose_edits_model`
   - **Doc Index** — `doc_model`
   - **Clarify** — `clarify_intent_model`
+  - **PKB / Memory** — `pkb_nl_model`
 - Each dropdown has:
   - **Default (recommended)** which means "use the current code default."
   - A default entry showing the actual default model name.
@@ -46,8 +47,8 @@ Stored on the conversation as:
     "quick_action_model": "...",
     "artefact_propose_edits_model": "...",
     "doc_model": "...",
-    "clarify_intent_model": "..."
-  }
+    "clarify_intent_model": "...",
+    "pkb_nl_model": "..."
 }
 ```
 
@@ -62,6 +63,7 @@ If a key is missing or empty, the server falls back to the existing default in c
 | `artefact_propose_edits_model` | `EXPENSIVE_LLM[2]` | Artefact propose-edits |
 | `doc_model` | `CHEAP_LONG_CONTEXT_LLM[0]` | DocIndex long summary, long summary v2, chain-of-density, short answer, contextual reader, multi-facet summarizer |
 | `clarify_intent_model` | `VERY_CHEAP_LLM[0]` | `/clarify` slash command LLM call |
+| `pkb_nl_model` | `CHEAP_LLM[0]` (`anthropic/claude-haiku-4.5`) | PKB NL agent when invoked as a tool by the main LLM (search, add, edit, delete memories). `/pkb` and `/memory` slash commands use the main chat model instead. |
 
 ### Legacy Key Migration
 
@@ -136,12 +138,17 @@ The hardcoded vision sites use a specialized vision model and should not be over
 
 - **Clarify intent**: `endpoints/conversations.py` `/clarify_intent` endpoint.
 
+### `pkb_nl_model` (1 site)
+
+- **PKB NL agent tool**: `code_common/tools.py` `handle_pkb_nl_command()` — when the main LLM invokes `pkb_nl_command` as a tool. Default `CHEAP_LLM[0]`. Note: `/pkb` and `/memory` slash commands use the main chat model (from UI model selector) instead of this override.
+
+
 ## UI Implementation Details
 
-- **Modal**: `interface/interface.html` — Model Overrides modal with 5 dropdowns organized into labeled sections.
-- **Data loading**: `interface/chat.js` `populateModelOverrides()` creates dropdowns for each of the 5 keys.
+- **Modal**: `interface/interface.html` — Model Overrides modal with 6 dropdowns organized into labeled sections.
+- **Data loading**: `interface/chat.js` `populateModelOverrides()` creates dropdowns for each of the 6 keys.
 - **Loading values**: `interface/chat.js` `loadConversationSettings()` reads saved overrides into the dropdowns.
-- **Saving**: `interface/chat.js` `saveConversationSettings()` collects values from the 5 dropdowns and PUTs to the server.
+- **Saving**: `interface/chat.js` `saveConversationSettings()` collects values from the 6 dropdowns and PUTs to the server.
 - **Conversation switching**: `interface/common-chat.js` fetches settings on conversation load and updates `chatSettingsState`.
 
 ## Extending the Feature
@@ -157,7 +164,8 @@ To add a new override:
 
 ## Key Files
 
-- `Conversation.py` — override retrieval at 8+ CallLLm sites
+- `Conversation.py` — override retrieval at 8+ CallLLm sites; passes `model_overrides` to `ToolContext`
+- `code_common/tools.py` — `ToolContext.model_overrides` dict; `handle_pkb_nl_command` reads `pkb_nl_model` override
 - `DocIndex.py` — `doc_model` override for 10 sites; 5 hardcoded (3 vision, 2 utility class defaults)
 - `common.py` — `SUPERFAST_LLM` and other model constant definitions
 - `code_common/call_llm.py` — `_get_token_limit()` maps model constants to context window sizes; `SUPERFAST_LLM` mapped to 100k tokens

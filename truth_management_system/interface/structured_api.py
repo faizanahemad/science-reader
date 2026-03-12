@@ -192,6 +192,18 @@ class StructuredAPI:
         entities = entities or []
         warnings = []
 
+        # Enforce valid_to for time-bound claim types
+        if claim_type in ("task", "reminder") and not valid_to:
+            return ActionResult(
+                success=False,
+                action="add",
+                object_type="claim",
+                errors=[
+                    "valid_to is required for task and reminder claims. "
+                    "Please provide a deadline date (ISO 8601 format, e.g. '2025-07-20')."
+                ],
+            )
+
         try:
             # Auto-extract if enabled and LLM available
             if auto_extract and self.llm:
@@ -677,6 +689,9 @@ class StructuredAPI:
             ActionResult with list of SearchResult objects.
         """
         try:
+            # Lazy expiry: mark stale claims before searching
+            from ..utils import maybe_expire_claims
+            maybe_expire_claims(self.db, self.user_email)
             # Build filters (include user_email for multi-user support)
             search_filters = SearchFilters(
                 include_contested=include_contested, user_email=self.user_email

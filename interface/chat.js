@@ -658,7 +658,7 @@ function setModalFromState(state) {
             clarification: ['ask_clarification'],
             search: ['web_search', 'perplexity_search', 'jina_search', 'jina_read_page', 'read_link'],
             documents: ['document_lookup', 'docs_list_conversation_docs', 'docs_list_global_docs', 'docs_query', 'docs_get_full_text', 'docs_get_info', 'docs_answer_question', 'docs_get_global_doc_info', 'docs_query_global_doc', 'docs_get_global_doc_full_text'],
-            pkb: ['pkb_search', 'pkb_get_claim', 'pkb_resolve_reference', 'pkb_get_pinned_claims', 'pkb_add_claim', 'pkb_edit_claim', 'pkb_get_claims_by_ids', 'pkb_autocomplete', 'pkb_resolve_context', 'pkb_pin_claim'],
+            pkb: ['pkb_search', 'pkb_get_claim', 'pkb_resolve_reference', 'pkb_get_pinned_claims', 'pkb_add_claim', 'pkb_edit_claim', 'pkb_get_claims_by_ids', 'pkb_autocomplete', 'pkb_resolve_context', 'pkb_pin_claim', 'pkb_nl_command', 'pkb_delete_claim', 'pkb_propose_memory'],
             memory: ['conv_get_memory_pad', 'conv_set_memory_pad', 'conv_get_history', 'conv_get_user_detail', 'conv_get_user_preference', 'conv_get_messages', 'conv_set_user_detail'],
             conversation: ['search_messages', 'list_messages', 'read_message', 'get_conversation_details', 'get_conversation_memory_pad', 'search_conversations', 'list_user_conversations', 'get_conversation_summary'],
             code_runner: ['run_python_code'],
@@ -801,6 +801,7 @@ function loadConversationModelOverrides(conversationId) {
                 setModelOverrideValue('#settings-artefact-propose-model', overrides.artefact_propose_edits_model || '', DEFAULT_MODEL_OVERRIDES.artefact_propose_edits_model);
                 setModelOverrideValue('#settings-doc-model', overrides.doc_model || '', DEFAULT_MODEL_OVERRIDES.doc_model);
                 setModelOverrideValue('#settings-clarify-intent-model', overrides.clarify_intent_model || '', DEFAULT_MODEL_OVERRIDES.clarify_intent_model);
+                setModelOverrideValue('#settings-pkb-nl-model', overrides.pkb_nl_model || '', DEFAULT_MODEL_OVERRIDES.pkb_nl_model);
                 $('#model-overrides-modal').modal('show');
             },
             error: function (xhr) {
@@ -817,7 +818,8 @@ function saveConversationModelOverrides(conversationId) {
         quick_action_model: getModelOverrideValue('#settings-quick-action-model'),
         artefact_propose_edits_model: getModelOverrideValue('#settings-artefact-propose-model'),
         doc_model: getModelOverrideValue('#settings-doc-model'),
-        clarify_intent_model: getModelOverrideValue('#settings-clarify-intent-model')
+        clarify_intent_model: getModelOverrideValue('#settings-clarify-intent-model'),
+        pkb_nl_model: getModelOverrideValue('#settings-pkb-nl-model')
     };
     Object.keys(overrides).forEach(function (key) {
         if (!overrides[key]) {
@@ -989,7 +991,8 @@ function populateModelOverrideOptions() {
         '#settings-quick-action-model',
         '#settings-artefact-propose-model',
         '#settings-doc-model',
-        '#settings-clarify-intent-model'
+        '#settings-clarify-intent-model',
+        '#settings-pkb-nl-model'
     ];
     selects.forEach(function (selector) {
         const $select = $(selector);
@@ -1225,7 +1228,7 @@ function resetSettingsToDefaults() {
     // Tool Use
     $('#settings-enable_tool_use').prop('checked', true);
     $('#tool-use-options').show();
-    $('#settings-tool-selector').val(['ask_clarification']);
+    $('#settings-tool-selector').val(['ask_clarification', 'pkb_nl_command']);
     if (typeof $.fn.selectpicker !== 'undefined') {
         $('#settings-tool-selector').selectpicker('refresh');
     }
@@ -1442,3 +1445,111 @@ function displayLockStatus(data, conversationId) {
         $('#lock-clear-button').hide();
     }
 }
+
+// ---------- Model Selector Single/Multi Toggle ----------
+// Default: single-select mode (clicking a model replaces the previous selection).
+// A toggle button inside the dropdown lets the user switch to multi-select.
+(function initModelSelectorToggle() {
+    var STORAGE_KEY = 'modelSelectorMultiMode';
+    // Restore persisted preference (default false = single mode)
+    window._modelSelectorMultiMode = false;
+    try {
+        var stored = localStorage.getItem(STORAGE_KEY);
+        if (stored === 'true') window._modelSelectorMultiMode = true;
+    } catch(e) {}
+
+    function isMultiMode() { return !!window._modelSelectorMultiMode; }
+
+    function setMultiMode(on) {
+        window._modelSelectorMultiMode = !!on;
+        try { localStorage.setItem(STORAGE_KEY, !!on); } catch(e) {}
+        updateToggleButton();
+    }
+
+    function updateToggleButton() {
+        var $btn = $('#model-selector-multi-toggle');
+        if (!$btn.length) return;
+        if (isMultiMode()) {
+            $btn.html('<i class="fa fa-check-square-o"></i> Multi-select ON');
+            $btn.removeClass('btn-outline-secondary').addClass('btn-outline-primary');
+        } else {
+            $btn.html('<i class="fa fa-square-o"></i> Multi-select');
+            $btn.removeClass('btn-outline-primary').addClass('btn-outline-secondary');
+        }
+    }
+
+    // Inject the toggle button into the bootstrap-select dropdown once it renders.
+    // bootstrap-select creates .bootstrap-select > .dropdown-menu; we prepend a header.
+    function injectToggleButton() {
+        var $container = $('#settings-main-model-selector').closest('.bootstrap-select');
+        if (!$container.length) return;
+        var $menu = $container.find('.dropdown-menu');
+        if (!$menu.length) return;
+        // Avoid double-inject
+        if ($menu.find('#model-selector-multi-toggle').length) {
+            updateToggleButton();
+            return;
+        }
+        // Insert as the first child inside the .inner scrollable area (as a sticky header).
+        // Placing outside .inner causes clipping by the dropdown-menu's overflow:hidden.
+        var btnHtml = '<div class="model-multi-toggle-wrapper" style="padding: 4px 8px; border-bottom: 1px solid #ddd; position: sticky; top: 0; z-index: 2; background: #fff;">' +
+            '<button type="button" id="model-selector-multi-toggle" class="btn btn-sm btn-outline-secondary btn-block" ' +
+            'style="font-size: 11px;">' +
+            '<i class="fa fa-square-o"></i> Multi-select</button></div>';
+        var $inner = $menu.find('.inner').first();
+        if ($inner.length) {
+            $inner.prepend(btnHtml);
+        } else {
+            $menu.prepend(btnHtml);
+        }
+        updateToggleButton();
+
+        // Bind directly on the button to avoid bootstrap-select intercepting.
+        // Suppress both mousedown AND click so the dropdown doesn't close.
+        var $btn = $menu.find('#model-selector-multi-toggle');
+        $btn.on('mousedown click', function(e) {
+            e.stopImmediatePropagation();
+            e.stopPropagation();
+            e.preventDefault();
+            if (e.type === 'mousedown') {
+                setMultiMode(!isMultiMode());
+            }
+        });
+    }
+
+    // In single mode, when user selects a new option, deselect all others.
+    // bootstrap-select fires 'changed.bs.select' with (event, clickedIndex, isSelected, previousValue).
+    $(document).on('changed.bs.select', '#settings-main-model-selector', function(e, clickedIndex, isSelected, previousValue) {
+        if (isMultiMode()) return; // multi-select mode — don't interfere
+        if (!isSelected) return;   // user deselected something — allow it
+        // User selected a new option. Keep only that one.
+        var $sel = $(this);
+        var allSelected = $sel.val() || [];
+        if (allSelected.length <= 1) return; // already single
+        // Find the newly added value by diffing current vs previous
+        var prev = previousValue || [];
+        var newVal = allSelected.filter(function(v) { return prev.indexOf(v) === -1; });
+        if (newVal.length === 1) {
+            $sel.selectpicker('deselectAll');
+            $sel.selectpicker('val', newVal[0]);
+        } else {
+            // Fallback: keep just the last selected
+            $sel.selectpicker('deselectAll');
+            $sel.selectpicker('val', allSelected[allSelected.length - 1]);
+        }
+    });
+
+    // Inject the toggle every time the model selector dropdown is shown
+    $(document).on('shown.bs.dropdown', function(e) {
+        var $target = $(e.target);
+        // Only act on the bootstrap-select wrapper around our model selector
+        if ($target.find('#settings-main-model-selector').length || $target.closest('.bootstrap-select').find('#settings-main-model-selector').length) {
+            setTimeout(injectToggleButton, 0);
+        }
+    });
+
+    // Also inject when the settings modal opens (bootstrap-select may already be rendered)
+    $(document).on('shown.bs.modal', '#chat-settings-modal', function() {
+        setTimeout(injectToggleButton, 100);
+    });
+})();
