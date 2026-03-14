@@ -1,10 +1,11 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" style="height: 100%;">
 <head>
     <!-- Required meta tags -->
     <meta charset="utf-8">
     <link rel="manifest" href="/interface/manifest.json">
     <meta name="theme-color" content="#0b0f14">
+    <link rel="stylesheet" href="interface/heights.css?v=29">
     <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
     <script src="https://cdn.jsdelivr.net/npm/marked-katex-extension@5.1.5/lib/index.umd.js"></script>
@@ -186,7 +187,7 @@
 
     <title>Document Index Interface</title>
 </head>
-<body>
+<body style="height: 100%;">
     
     <div id="loader">
       <h1>
@@ -198,7 +199,7 @@
       </h1>
 
     </div>
-    <div class="container-fluid">
+    <div class="container-fluid" id="main-container" style="height: 100%;">
         <div class="row scrolling-row">
           <ul class="nav nav-tabs" id="pdf-details-tab" role="tablist">
             <li class="nav-item">
@@ -240,7 +241,7 @@
           </div>
           <span id="progress-status"></span>
         </div>
-        <div id="chat-content" class="row scrolling-row" style="height: calc(100% - 30px); max-height: calc(100vh - 30px);">
+        <div id="chat-content" class="row scrolling-row">
             
 
             <div class="col-md-10" id="content-col">
@@ -248,9 +249,9 @@
                 
                 <div id="chat-assistant-view" class="container-fluid" style="padding-left: 2px; padding-top: 2px;">
                   <div class="tab-content">
-                    <div class="tab-pane fade show active" id="assistant-view" role="tabpanel" style="height: calc(100vh - 55px) !important;">
-                      <div class="row scrolling-row">
-                        <div class="col-md-2 sidebar sticky-top scrollable-sidebar" id="chat-assistant-sidebar" style="height: calc(100vh - 55px) !important;">
+                    <div class="tab-pane fade show active" id="assistant-view" role="tabpanel">
+                      <div class="row scrolling-row" style="height: 100% !important;">
+                        <div class="col-md-2 sidebar sticky-top scrollable-sidebar" id="chat-assistant-sidebar">
                             <!-- Sidebar -->
                             <div class="sidebar-toolbar d-flex justify-content-between align-items-center mt-2">
                                 <h5 class="mb-0">Explorer</h5>
@@ -282,8 +283,8 @@
                                 <!-- jsTree will be initialised here -->
                             </div>
                         </div>
-                        <div class="col-md-10" id="chat-assistant" style="height: calc(100vh - 55px) !important;">
-                          <div id="mainView" class="container-fluid d-flex flex-column vh-100" style="height: calc(100vh - 55px) !important;">
+                        <div class="col-md-10" id="chat-assistant">
+                          <div id="mainView" class="container-fluid d-flex flex-column vh-100">
                               <div class="row d-flex align-items-center flex-nowrap">
                                   <!-- Col 1: Mobile-only toggle for chat-doc-view -->
                                   <div class="d-md-none mr-2">
