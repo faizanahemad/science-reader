@@ -223,6 +223,20 @@
             
             
             
+            <li class="nav-item dropdown d-md-none" id="chat-actions-nav">
+                <a class="nav-link dropdown-toggle" href="#" id="chat-actions-dropdown" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="Chat Actions">
+                    <i class="fa fa-ellipsis-v"></i>
+                </a>
+                <div class="dropdown-menu dropdown-menu-right" aria-labelledby="chat-actions-dropdown">
+                    <a class="dropdown-item" href="#" id="mob-get-chat-transcript"><i class="fa fa-download mr-2"></i>Download Transcript</a>
+                    <a class="dropdown-item" href="#" id="mob-share-chat"><i class="fa fa-share-alt mr-2"></i>Share Chat</a>
+                    <div class="dropdown-divider"></div>
+                    <a class="dropdown-item" href="#" id="mob-conversation-docs"><i class="fa fa-file mr-2"></i>Docs</a>
+                    <a class="dropdown-item" href="#" id="mob-global-docs"><i class="fa fa-globe mr-2"></i>Global Docs</a>
+                    <div class="dropdown-divider"></div>
+                    <a class="dropdown-item" href="#" id="mob-new-temp-chat"><i class="fa fa-eye-slash mr-2"></i>New Temp Chat</a>
+                </div>
+            </li>
             <li class="nav-item ml-auto">
                 <a class="nav-link" id="logout-link" href="#">
                     <span class="logout-text">Logout</span>
@@ -285,15 +299,9 @@
                         </div>
                         <div class="col-md-10" id="chat-assistant">
                           <div id="mainView" class="container-fluid d-flex flex-column vh-100">
-                              <div class="row d-flex align-items-center flex-nowrap">
-                                  <!-- Col 1: Mobile-only toggle for chat-doc-view -->
-                                  <div class="d-md-none mr-2">
-                                      <button id="toggleChatDocsView" class="btn btn-secondary btn-xs rounded-pill">
-                                        ▼
-                                      </button>
-                                  </div>
-                                  <!-- Col 2: Chat doc action buttons — hidden on mobile, toggled by Col 1 -->
-                                  <div id="chat-doc-view" class="d-none d-md-flex align-items-center flex-wrap">
+                              <!-- Desktop-only doc action row (hidden on mobile) -->
+                              <div class="row d-none d-md-flex align-items-center flex-nowrap">
+                                  <div id="chat-doc-view" class="d-flex align-items-center flex-wrap">
                                       <button id="get-chat-transcript" type="button" class="btn btn-primary mr-2 btn-sm mb-1"><i class="fa fa-download">&nbsp;</i></button>
                                       <button id="share-chat" type="button" class="btn btn-primary mr-2 btn-sm mb-1"><i class="fa fa-share-alt">&nbsp;</i></button>
                                       <button id="conversation-docs-button" type="button" class="btn btn-outline-primary mr-2 btn-sm mb-1"><i class="fa fa-file">&nbsp; Docs</i></button>
@@ -317,7 +325,6 @@
                                       <button id="ext-refresh-page" class="btn btn-outline-info mr-2 btn-sm mb-1 ext-btn" style="display:none;" title="Refresh page context"><i class="fa fa-refresh"></i> Refresh</button>
                                       <button id="ext-multi-tab" class="btn btn-outline-info mr-2 btn-sm mb-1 ext-btn" style="display:none;" title="Capture content from multiple tabs"><i class="fa fa-clone"></i> Multi-tab</button>
                                   </div>
-                                  <!-- Col 3: New Temp Chat — always visible, pushed to far right -->
                                   <div class="ml-auto">
                                       <button id="new-temp-chat" type="button" class="btn btn-outline-secondary btn-sm mb-1" title="New Temporary Chat (deleted on page reload)"><i class="fa fa-eye-slash">&nbsp;</i></button>
                                   </div>

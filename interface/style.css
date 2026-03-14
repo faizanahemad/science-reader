@@ -1,3 +1,12 @@
+/* ==========================================================================
+   BREAKPOINT CONSTANTS (CSS cannot use variables in @media queries)
+   To change mobile breakpoint, find-replace these values throughout this file:
+   
+   MOBILE_MAX_WIDTH:  768px    — max viewport width for mobile
+   MOBILE_MAX_HEIGHT: 768px    — max viewport height for mobile  
+   MOBILE_MIN_HEIGHT_INVERSE: 769px  — min-height for "not mobile" (MOBILE_MAX_HEIGHT + 1)
+   ========================================================================== */
+
 #ask-questions-view input {
     display: block;
     width: 100%;
@@ -718,7 +727,26 @@ textarea.form-control.dynamic-textarea {
 
 #pdf-details-tab {
     font-size: small;
+    position: relative;
+    z-index: 1050;
+    overflow: visible;
 }
+
+/* Allow navbar dropdown to overflow the scrolling-row wrapper */
+#main-container > .row.scrolling-row:first-child {
+    overflow: visible;
+}
+
+#chat-actions-nav .dropdown-menu {
+    min-width: 200px;
+    z-index: 1051;
+}
+
+#chat-actions-nav .dropdown-item {
+    font-size: small;
+    padding: 0.35rem 1rem;
+}
+
 
 pre code.hljs {
     display: block;
@@ -726,7 +754,7 @@ pre code.hljs {
     padding: 1.5em;
 }
 
-@media (max-width: 768px) {
+@media (max-width: 768px) and (pointer: coarse) and (max-height: 768px) {
     #pdf-tab-nav {
         display: none;
     }
@@ -735,9 +763,6 @@ pre code.hljs {
         display: none;
     }
 
-    #get-chat-transcript {
-        display: none;
-    }
 }
 
 table, tr, thead, th, td {
@@ -745,7 +770,7 @@ table, tr, thead, th, td {
 }
 
 
-@media screen and (max-width: 768px) {
+@media screen and (max-width: 768px) and (pointer: coarse) and (max-height: 768px) {
     
 
     #mainView {
@@ -764,11 +789,26 @@ table, tr, thead, th, td {
     }
 
 
-    #ext-refresh-page {
+}
+
+/* Narrow-but-not-mobile: sidebar extension, iframe, desktop narrow window.
+   Override Bootstrap d-md-* classes so desktop row shows and navbar dropdown hides. */
+@media (max-width: 767.98px) and (pointer: fine) {
+    /* Show the desktop doc-action row */
+    #mainView > .d-none.d-md-flex {
+        display: flex !important;
+    }
+    /* Hide the mobile navbar dropdown */
+    #chat-actions-nav.d-md-none {
         display: none !important;
     }
-
-    #ext-multi-tab {
+}
+@media (max-width: 767.98px) and (min-height: 769px) and (pointer: coarse) {
+    /* Tall touch device (e.g. tablet in portrait) - also use desktop layout */
+    #mainView > .d-none.d-md-flex {
+        display: flex !important;
+    }
+    #chat-actions-nav.d-md-none {
         display: none !important;
     }
 }
@@ -1294,7 +1334,7 @@ table, tr, thead, th, td {
 }
 
 /* Responsive adjustments */
-@media (max-width: 768px) {
+@media (max-width: 768px) and (pointer: coarse) and (max-height: 768px) {
     #message-edit-modal .modal-dialog {
         max-width: 100%;
         margin: 0.5rem;

@@ -1,3 +1,12 @@
+// Mobile navbar dropdown proxies → desktop button handlers
+$(function() {
+    $('#mob-get-chat-transcript').on('click', function(e) { e.preventDefault(); $('#get-chat-transcript').trigger('click'); });
+    $('#mob-share-chat').on('click', function(e) { e.preventDefault(); $('#share-chat').trigger('click'); });
+    $('#mob-conversation-docs').on('click', function(e) { e.preventDefault(); $('#conversation-docs-button').trigger('click'); });
+    $('#mob-global-docs').on('click', function(e) { e.preventDefault(); $('#global-docs-button').trigger('click'); });
+    $('#mob-new-temp-chat').on('click', function(e) { e.preventDefault(); $('#new-temp-chat').trigger('click'); });
+});
+
 // Global variables to track streaming controllers
 var currentStreamingController = null;
 var currentHintStreamingController = null;
@@ -3674,12 +3683,6 @@ function initializeChatControlsToggleHandler() {
             }, 150);
         });
         
-        // Also handle toggleChatDocsView
-        $('#toggleChatDocsView').on('click', function() {
-            setTimeout(function() {
-                ensureSuggestionsVisible();
-            }, 150);
-        });
         
         $('#chatSettingsButton').data('suggestions-handler-bound', true);
     }
