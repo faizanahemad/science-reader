@@ -785,19 +785,24 @@ table, tr, thead, th, td {
 @media screen and (max-width: 768px) and (pointer: coarse) and (max-height: 768px) {
     
 
+    #chat-content {
+        height: calc(100% - 30px) !important;
+        max-height: calc(100vh - 30px) !important;
+    }
+
     #mainView {
-        height: calc(100vh - 55px) !important;
-        max-height: calc(100vh - 55px) !important;
+        height: 100% !important;
+        max-height: 100% !important;
     }
 
     #chat-assistant {
-        height: calc(100vh - 55px) !important;
-        max-height: calc(100vh - 55px) !important;
+        height: calc(100vh - 35px) !important;
+        max-height: calc(100vh - 35px) !important;
     }
 
     #chat-assistant-sidebar {
-        height: calc(100vh - 55px) !important;
-        max-height: calc(100vh - 55px) !important;
+        height: calc(100vh - 35px) !important;
+        max-height: calc(100vh - 35px) !important;
     }
 
 
@@ -807,6 +812,10 @@ table, tr, thead, th, td {
    Override Bootstrap d-md-* classes so desktop row shows and navbar dropdown hides. */
 @media (max-width: 767.98px) and (pointer: fine) {
     /* Narrow-but-not-mobile: sidebar extension, iframe, desktop narrow window */
+    #chat-content {
+        height: calc(100% - 30px) !important;
+        max-height: calc(100vh - 30px) !important;
+    }
     #mainView > .d-none.d-md-flex {
         display: flex !important;
     }
@@ -814,8 +823,8 @@ table, tr, thead, th, td {
         display: none !important;
     }
     #mainView {
-        height: calc(100vh - 35px) !important;
-        max-height: calc(100vh - 35px) !important;
+        height: 100% !important;
+        max-height: 100% !important;
     }
     #chat-assistant {
         height: calc(100vh - 35px) !important;
@@ -828,6 +837,10 @@ table, tr, thead, th, td {
 }
 @media (max-width: 767.98px) and (min-height: 769px) and (pointer: coarse) {
     /* Tall touch device (e.g. tablet in portrait) - use desktop layout + heights */
+    #chat-content {
+        height: calc(100% - 30px) !important;
+        max-height: calc(100vh - 30px) !important;
+    }
     #mainView > .d-none.d-md-flex {
         display: flex !important;
     }
@@ -835,8 +848,8 @@ table, tr, thead, th, td {
         display: none !important;
     }
     #mainView {
-        height: calc(100vh - 35px) !important;
-        max-height: calc(100vh - 35px) !important;
+        height: 100% !important;
+        max-height: 100% !important;
     }
     #chat-assistant {
         height: calc(100vh - 35px) !important;
@@ -855,8 +868,8 @@ table, tr, thead, th, td {
     }
 
     #mainView {
-        height: calc(100vh - 35px) !important;
-        max-height: calc(100vh - 35px) !important;
+        height: 100% !important;
+        max-height: 100% !important;
     }
 
     #chat-assistant {
