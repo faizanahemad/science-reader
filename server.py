@@ -100,13 +100,13 @@ class OurFlask(Flask):
     json_provider_class = FlaskJSONProvider
 
 
-def _parse_argv(argv: Optional[list[str]] = None) -> tuple[str, bool]:
+def _parse_argv(argv: Optional[list[str]] = None) -> tuple[str, bool, bool]:
     """
     Parse CLI args for running the server.
 
     Returns
     -------
-    (folder, login_not_needed)
+    (folder, login_not_needed, no_cache)
     """
 
     parser = argparse.ArgumentParser()
@@ -121,9 +121,14 @@ def _parse_argv(argv: Optional[list[str]] = None) -> tuple[str, bool]:
         help="Whether we use google login or not.",
         action="store_true",
     )
+    parser.add_argument(
+        "--no-cache",
+        help="Disable service worker caching on this server restart. Forces browsers to re-fetch all UI assets.",
+        action="store_true",
+    )
     args = parser.parse_args(argv)
     folder = args.folder or "storage"
-    return folder, bool(args.login_not_needed)
+    return folder, bool(args.login_not_needed), bool(args.no_cache)
 
 
 def check_environment() -> None:
@@ -294,10 +299,17 @@ def create_app(argv: Optional[list[str]] = None) -> Flask:
         locks_dir, \
         conversation_folder
 
-    folder, login_not_needed = _parse_argv(argv)
+    folder, login_not_needed, no_cache = _parse_argv(argv)
     check_environment()
 
     app = OurFlask(__name__)
+
+    # When --no-cache is passed, generate a unique nonce so the service worker
+    # file content changes on every restart, forcing browsers to re-install the SW
+    # and purge all cached assets.
+    if no_cache:
+        import time
+        app.config["SW_CACHE_NONCE"] = str(int(time.time()))
 
     # Session config (legacy)
     app.config["SESSION_PERMANENT"] = True

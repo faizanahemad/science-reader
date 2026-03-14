@@ -12,7 +12,7 @@
 const DEBUG = false;
 
 // Bump cache when UI shell assets change.
-const CACHE_VERSION = "v32";
+const CACHE_VERSION = "v33";
 const UI_SHELL_CACHE = `ui-shell-${CACHE_VERSION}`;
 const META_CACHE = `meta-${CACHE_VERSION}`;
 
@@ -44,6 +44,7 @@ const PRECACHE_URLS = [
   // Local CSS
   "/interface/interface/style.css",
   "/interface/interface/workspace-styles.css",
+  "/interface/interface/css_patched_mobile_view.css",
 
   // Local JS (referenced by interface/interface.html)
   "/interface/interface/parseMessageForCheckBoxes.js",

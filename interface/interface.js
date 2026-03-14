@@ -63,39 +63,11 @@ function interface_readiness() {
 
     $('#logout-link').on('click', function(e) {
         e.preventDefault();
-        clearServiceWorkerCacheAndLogout();
-    });
-
-    function clearServiceWorkerCacheAndLogout() {
-        var tasks = [];
-
-        if ('caches' in window) {
-            tasks.push(
-                caches.keys().then(function(names) {
-                    return Promise.all(names.map(function(name) {
-                        console.log('[Logout] deleting cache:', name);
-                        return caches.delete(name);
-                    }));
-                })
-            );
-        }
-
-        if ('serviceWorker' in navigator) {
-            tasks.push(
-                navigator.serviceWorker.getRegistrations().then(function(regs) {
-                    return Promise.all(regs.map(function(reg) {
-                        console.log('[Logout] unregistering SW:', reg.scope);
-                        return reg.unregister();
-                    }));
-                })
-            );
-        }
-
-        Promise.all(tasks)
+        clearSwCaches()
             .then(function() { console.log('[Logout] caches cleared, redirecting'); })
             .catch(function(err) { console.warn('[Logout] cache clear error:', err); })
             .then(function() { window.location.href = '/logout'; });
-    }
+    });
     
 
 

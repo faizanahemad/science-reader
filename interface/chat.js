@@ -260,10 +260,16 @@ function chat_interface_readiness() {
         .then(data => {
             if (data.success) {
                 const clearedList = data.cleared.length > 0 ? data.cleared.join(', ') : 'None';
+                // Also clear SW caches alongside locks
+                fetch('/clear-sw-cache', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+                    .then(function() { return clearSwCaches(); })
+                    .then(function() { showToast('Service worker caches cleared', 'success'); })
+                    .catch(function(err) { console.warn('SW cache clear error:', err); });
                 $('#lock-status-content').html(
                     '<div class="alert alert-success">' +
                     '<i class="fa fa-check-circle"></i> <strong>Locks cleared successfully!</strong><br>' +
-                    '<small>Cleared: ' + clearedList + '</small>' +
+                    '<small>Cleared: ' + clearedList + '</small><br>' +
+                    '<small class="text-muted">SW caches also cleared.</small>' +
                     '</div>'
                 );
                 $('#lock-clear-button').hide();

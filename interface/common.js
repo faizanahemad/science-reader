@@ -4883,3 +4883,38 @@ function adjustCardHeightForSlides(slideWrapper) {
         console.warn('Service Worker registration error:', e);
     }
 })();
+
+/**
+ * Clear all Service Worker caches and unregister the SW.
+ * Calls the server endpoint first, then performs client-side cleanup.
+ * Returns a Promise that resolves when cleanup is complete.
+ */
+function clearSwCaches() {
+    var tasks = [];
+
+    if ('caches' in window) {
+        tasks.push(
+            caches.keys().then(function(names) {
+                return Promise.all(names.map(function(name) {
+                    console.log('[clearSwCaches] deleting cache:', name);
+                    return caches.delete(name);
+                }));
+            })
+        );
+    }
+
+    if ('serviceWorker' in navigator) {
+        tasks.push(
+            navigator.serviceWorker.getRegistrations().then(function(regs) {
+                return Promise.all(regs.map(function(reg) {
+                    console.log('[clearSwCaches] unregistering SW:', reg.scope);
+                    return reg.unregister();
+                }));
+            })
+        );
+    }
+
+    return Promise.all(tasks)
+        .then(function() { console.log('[clearSwCaches] all caches cleared'); })
+        .catch(function(err) { console.warn('[clearSwCaches] error:', err); });
+}

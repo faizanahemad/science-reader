@@ -254,6 +254,54 @@ def interface():
     return send_from_directory("interface", "interface.html", max_age=0)
 
 
+@static_bp.route("/interface/service-worker.js")
+@limiter.limit("200 per minute")
+def service_worker_js():
+    """Serve service-worker.js, optionally with a dynamic CACHE_VERSION.
+
+    When the server is started with ``--no-cache``, the hardcoded CACHE_VERSION
+    in the JS file is replaced with a startup-time nonce.  Because browsers
+    byte-compare the SW script on every navigation, this forces a reinstall
+    which purges all old caches.
+    """
+    import re
+
+    sw_path = os.path.join("interface", "service-worker.js")
+    nonce = current_app.config.get("SW_CACHE_NONCE")
+
+    if not nonce:
+        # Normal mode: serve the static file as-is.
+        return send_from_directory("interface", "service-worker.js", max_age=0)
+
+    # --no-cache mode: read file and replace CACHE_VERSION with nonce.
+    with open(sw_path, "r") as f:
+        content = f.read()
+
+    content = re.sub(
+        r'const CACHE_VERSION\s*=\s*"[^"]*"',
+        f'const CACHE_VERSION = "nocache-{nonce}"',
+        content,
+        count=1,
+    )
+
+    return Response(content, mimetype="application/javascript", headers={
+        "Cache-Control": "no-store",
+        "Service-Worker-Allowed": "/interface/",
+    })
+
+
+@static_bp.route("/clear-sw-cache", methods=["POST"])
+@limiter.limit("20 per minute")
+@login_required
+def clear_sw_cache():
+    """Signal the client to clear all service worker caches.
+
+    This endpoint doesn't clear caches server-side (SW caches are
+    browser-local).  Instead it returns a success response that the
+    client JS uses as confirmation to run the cache-clearing logic.
+    """
+    return jsonify({"success": True, "message": "Client should clear SW caches now."})
+
 # PWA assets that must be publicly accessible (browsers fetch these without cookies).
 # These contain no sensitive data and are required for PWA installability checks.
 PWA_PUBLIC_PATHS = {
