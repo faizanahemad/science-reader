@@ -794,22 +794,45 @@ table, tr, thead, th, td {
 /* Narrow-but-not-mobile: sidebar extension, iframe, desktop narrow window.
    Override Bootstrap d-md-* classes so desktop row shows and navbar dropdown hides. */
 @media (max-width: 767.98px) and (pointer: fine) {
-    /* Show the desktop doc-action row */
+    /* Narrow-but-not-mobile: sidebar extension, iframe, desktop narrow window */
     #mainView > .d-none.d-md-flex {
         display: flex !important;
     }
-    /* Hide the mobile navbar dropdown */
     #chat-actions-nav.d-md-none {
         display: none !important;
+    }
+    #mainView {
+        height: calc(100vh - 35px) !important;
+        max-height: calc(100vh - 35px) !important;
+    }
+    #chat-assistant {
+        height: calc(100vh - 35px) !important;
+        max-height: calc(100vh - 35px) !important;
+    }
+    #chat-assistant-sidebar {
+        height: calc(100vh - 35px) !important;
+        max-height: calc(100vh - 35px) !important;
     }
 }
 @media (max-width: 767.98px) and (min-height: 769px) and (pointer: coarse) {
-    /* Tall touch device (e.g. tablet in portrait) - also use desktop layout */
+    /* Tall touch device (e.g. tablet in portrait) - use desktop layout + heights */
     #mainView > .d-none.d-md-flex {
         display: flex !important;
     }
     #chat-actions-nav.d-md-none {
         display: none !important;
+    }
+    #mainView {
+        height: calc(100vh - 35px) !important;
+        max-height: calc(100vh - 35px) !important;
+    }
+    #chat-assistant {
+        height: calc(100vh - 35px) !important;
+        max-height: calc(100vh - 35px) !important;
+    }
+    #chat-assistant-sidebar {
+        height: calc(100vh - 35px) !important;
+        max-height: calc(100vh - 35px) !important;
     }
 }
 
