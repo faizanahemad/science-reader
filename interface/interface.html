@@ -2284,18 +2284,18 @@
                                                     <option hidden>InterviewSimulatorV2</option>
                                                     <option>NStepCodeAgent</option>
                                                     <option hidden>CodeSolveAgent</option>
-                                                    <option>InstructionFollowingAgent</option>
-                                                    <option hidden>MLSystemDesignAgent</option>
+                                                    <option hidden>InstructionFollowingAgent</option>
+                                                    <option>MLSystemDesignAgent</option>
                                                     <option hidden>NStepAgent</option>
-                                                    <option>NResponseAgent</option>
+                                                    <option hidden>NResponseAgent</option>
                                                     <option>PromptWorkflowAgent</option>
                                                     <option>ManagerAssistAgent</option>
                                                     <option>PerplexitySearch</option>
                                                     <option>JinaSearchAgent</option>
-                                                    <option>JinaDeepResearchAgent</option>
+                                                    <option hidden>JinaDeepResearchAgent</option>
                                                     <option>InterleavedWebSearchAgent</option>
-                                                    <option>WebSearch</option>
-                                                    <option>MultiSourceSearch</option>
+                                                    <option hidden>WebSearch</option>
+                                                    <option hidden>MultiSourceSearch</option>
                                                     <option hidden>BroadSearch</option>
                                                     <option>WhatIf</option>
                                                     <option hidden>LiteratureReview</option>
@@ -2315,13 +2315,13 @@
                             <div class="col-12">
                                 <h6 class="text-primary mb-3"><i class="fa fa-check-square"></i> Basic Options</h6>
                                 <div class="row">
-                                    <div class="col-md-3">
+                                    <div class="col-md-3" style="display:none;">
                                         <div class="form-check mb-2">
                                             <input class="form-check-input" id="settings-perform-web-search-checkbox" type="checkbox">
                                             <label class="form-check-label" for="settings-perform-web-search-checkbox">Search</label>
                                         </div>
                                     </div>
-                                    <div class="col-md-3">
+                                    <div class="col-md-3" style="display:none;">
                                         <div class="form-check mb-2">
                                             <input class="form-check-input" id="settings-search-exact" type="checkbox">
                                             <label class="form-check-label" for="settings-search-exact">Search Exact</label>
@@ -2339,7 +2339,7 @@
                                             <label class="form-check-label" for="settings-persist_or_not">Persist</label>
                                         </div>
                                     </div>
-                                    <div class="col-md-3">
+                                    <div class="col-md-3" style="display:none;">
                                         <div class="form-check mb-2">
                                             <input class="form-check-input" id="settings-ppt-answer" type="checkbox">
                                             <label class="form-check-label" for="settings-ppt-answer">PPT Answer</label>
@@ -2359,13 +2359,13 @@
                                             <label class="form-check-label" for="settings-enable_custom_context_menu">LLM Right-Click Menu</label>
                                         </div>
                                     </div>
-                                    <div class="col-md-3">
+                                    <div class="col-md-3" style="display:none;">
                                         <div class="form-check mb-2">
                                             <input class="form-check-input" id="settings-render-slides-inline" type="checkbox" checked>
                                             <label class="form-check-label" for="settings-render-slides-inline">Render Slides Inline</label>
                                         </div>
                                     </div>
-                                    <div class="col-md-3">
+                                    <div class="col-md-3" style="display:none;">
                                         <div class="form-check mb-2">
                                             <input class="form-check-input" id="settings-only-slides" type="checkbox">
                                             <label class="form-check-label" for="settings-only-slides">Only Slides</label>
@@ -2410,6 +2410,12 @@
                                         <div class="form-check mb-2">
                                             <input class="form-check-input" id="settings-enable_tool_use" type="checkbox" checked>
                                             <label class="form-check-label" for="settings-enable_tool_use">Enable Tools</label>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3">
+                                        <div class="form-check mb-2">
+                                            <input class="form-check-input" id="settings-compact_nav" type="checkbox">
+                                            <label class="form-check-label" for="settings-compact_nav">Compact Nav</label>
                                         </div>
                                     </div>
                                 </div>
@@ -2554,7 +2560,7 @@
                                             </div>
                                         </div>
                                     </div>
-                                    <div class="col-md-4">
+                                    <div class="col-md-4" style="display:none;">
                                         <div class="form-group">
                                             <label for="settings-rewardLevelSelector" class="form-label"><strong>Reward Level</strong></label>
                                             <div style="border: 1px solid #ccc; padding: 8px; border-radius: 12px; display: inline-flex; align-items: center; width: 100%;">
@@ -2578,80 +2584,81 @@
 
                         <!-- Actions Section -->
                         <div class="row mb-4">
-                            <div class="col-12">
-                                <h6 class="text-primary mb-3"><i class="fa fa-tools"></i> Actions</h6>
-                                <div class="row">
-                                    <div class="col">
-                                        <button id="settings-deleteLastTurn" class="btn btn-danger btn-sm rounded-pill w-100">
-                                            <i class="fa fa-trash"></i><span class="d-none d-sm-inline"> Last Turn</span>
-                                        </button>
-                                    </div>
-                                    <div class="col">
-                                        <button class="btn btn-info btn-sm rounded-pill w-100" id="settings-clarifyDraftButton" title="Generate clarification questions for the current draft message">
-                                            <i class="fa fa-question-circle"></i> Clarify
-                                        </button>
-                                    </div>
-                                    <div class="col">
-                                        <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-memory-pad-text-open-button">
-                                            <i class="bi bi-pen"></i> Memory
-                                        </button>
-                                    </div>
-                                    <div class="col">
-                                        <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-pkb-modal-open-button">
-                                            <i class="bi bi-brain"></i> PKB
-                                        </button>
-                                    </div>
-                                    <div class="col d-none d-sm-block">
-                                        <button class="btn btn-outline-secondary btn-sm rounded-pill w-100" id="settings-user-details-modal-open-button" title="Legacy - Use Personal Memory instead">
-                                            <i class="bi bi-pen"></i> User Details
-                                        </button>
-                                    </div>
-                                    <div class="col">
-                                        <button class="btn btn-warning btn-sm rounded-pill w-100" id="settings-clear-locks-modal-open-button" title="Check and clear stuck lock files">
-                                            <i class="fa fa-lock"></i> Clear
-                                        </button>
-                                    </div>
-                                    <div class="col">
-                                        <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-artefacts-modal-open-button">
-                                            <i class="bi bi-files"></i> Artefacts
-                                        </button>
-                                    </div>
-                                    <div class="col">
-                                        <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-code-editor-modal-open-button">  
-                                            <i class="bi bi-code-slash"></i> Code  
-                                        </button>  
-                                    </div>
-                                    <div class="col">
-                                        <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-prompt-manager-modal-open-button">
-                                            <i class="bi bi-pencil-square"></i> Prompts
-                                        </button>
-                                    </div>
-                                    <div class="col">
-                                        <button class="btn btn-outline-primary btn-sm rounded-pill w-100" id="settings-model-overrides-modal-open-button">
-                                            <i class="bi bi-sliders"></i> Model
-                                        </button>
-                                    </div>
-                                    <div class="col">
-                                        <button class="btn btn-outline-primary btn-sm rounded-pill w-100" id="settings-opencode-modal-open-button">
-                                            <i class="bi bi-terminal"></i> OpenCode
-                                        </button>
-                                    </div>
-                                    <div class="col">
-                                        <button class="btn btn-outline-info btn-sm rounded-pill w-100" id="settings-opencode-terminal-button" title="Open Terminal">
-                                            <i class="bi bi-terminal"></i> Terminal
-                                        </button>
-                                    </div>
-                                    <div class="col">
-                                        <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-file-browser-modal-open-button" title="Open File Browser" type="button">
-                                            <i class="bi bi-folder2-open"></i>
-                                        </button>
-                                    </div>
-                                    <div class="col">
-                                        <button class="btn btn-success btn-sm rounded-pill w-100" id="settings-generate-image-button" title="Generate Image with AI">
-                                            <i class="bi bi-image"></i> Image
-                                        </button>
-                                </div>
-                            </div>
+                              <div class="col-12">
+                                  <h6 class="text-primary mb-3"><i class="fa fa-tools"></i> Actions</h6>
+                                  <div class="row">
+                                      <div class="col">
+                                          <button id="settings-deleteLastTurn" class="btn btn-danger btn-sm rounded-pill w-100">
+                                              <i class="fa fa-trash"></i><span class="d-none d-sm-inline"> Last Turn</span>
+                                          </button>
+                                      </div>
+                                      <div class="col">
+                                          <button class="btn btn-info btn-sm rounded-pill w-100" id="settings-clarifyDraftButton" title="Generate clarification questions for the current draft message">
+                                              <i class="fa fa-question-circle"></i> Clarify
+                                          </button>
+                                      </div>
+                                      <div class="col">
+                                          <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-memory-pad-text-open-button">
+                                              <i class="bi bi-pen"></i> Memory
+                                          </button>
+                                      </div>
+                                      <div class="col">
+                                          <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-pkb-modal-open-button">
+                                              <i class="bi bi-brain"></i> PKB
+                                          </button>
+                                      </div>
+                                      <div class="col d-none d-sm-block">
+                                          <button class="btn btn-outline-secondary btn-sm rounded-pill w-100" id="settings-user-details-modal-open-button" title="Legacy - Use Personal Memory instead">
+                                              <i class="bi bi-pen"></i> User Details
+                                          </button>
+                                      </div>
+                                      <div class="col">
+                                          <button class="btn btn-warning btn-sm rounded-pill w-100" id="settings-clear-locks-modal-open-button" title="Check and clear stuck lock files">
+                                              <i class="fa fa-lock"></i> Clear
+                                          </button>
+                                      </div>
+                                      <div class="col">
+                                          <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-artefacts-modal-open-button">
+                                              <i class="bi bi-files"></i> Artefacts
+                                          </button>
+                                      </div>
+                                      <div class="col">
+                                          <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-code-editor-modal-open-button">  
+                                              <i class="bi bi-code-slash"></i> Code  
+                                          </button>  
+                                      </div>
+                                      <div class="col">
+                                          <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-prompt-manager-modal-open-button">
+                                              <i class="bi bi-pencil-square"></i> Prompts
+                                          </button>
+                                      </div>
+                                      <div class="col">
+                                          <button class="btn btn-outline-primary btn-sm rounded-pill w-100" id="settings-model-overrides-modal-open-button">
+                                              <i class="bi bi-sliders"></i> Model
+                                          </button>
+                                      </div>
+                                      <div class="col">
+                                          <button class="btn btn-outline-primary btn-sm rounded-pill w-100" id="settings-opencode-modal-open-button">
+                                              <i class="bi bi-terminal"></i> OpenCode
+                                          </button>
+                                      </div>
+                                      <div class="col">
+                                          <button class="btn btn-outline-info btn-sm rounded-pill w-100" id="settings-opencode-terminal-button" title="Open Terminal">
+                                              <i class="bi bi-terminal"></i> Terminal
+                                          </button>
+                                      </div>
+                                      <div class="col">
+                                          <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-file-browser-modal-open-button" title="Open File Browser" type="button">
+                                              <i class="bi bi-folder2-open"></i>
+                                          </button>
+                                      </div>
+                                      <div class="col">
+                                          <button class="btn btn-success btn-sm rounded-pill w-100" id="settings-generate-image-button" title="Generate Image with AI">
+                                              <i class="bi bi-image"></i> Image
+                                          </button>
+                                  </div>
+                              </div>
+                          </div>
                         </div>
 
                         <!-- Permanent Instructions Section -->
@@ -2752,7 +2759,7 @@ greet("World");</code></pre>
                                     </div>
                                 </div>
 
-                            </div>
+                            
                         </div>
                     </div>
                 </div>

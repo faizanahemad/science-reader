@@ -7,6 +7,18 @@
    MOBILE_MIN_HEIGHT_INVERSE: 769px  — min-height for "not mobile" (MOBILE_MAX_HEIGHT + 1)
    ========================================================================== */
 
+/* ==========================================================================
+   Compact Nav — force mobile-style navbar dropdown regardless of viewport.
+   Toggled via body.compact-nav class from Chat Settings > Compact Nav.
+   ========================================================================== */
+body.compact-nav #mainView > .d-none.d-md-flex,
+body.compact-nav #mainView > .row.d-none.d-md-flex {
+    display: none !important;
+}
+body.compact-nav #chat-actions-nav.d-md-none {
+    display: block !important;
+}
+
 #ask-questions-view input {
     display: block;
     width: 100%;

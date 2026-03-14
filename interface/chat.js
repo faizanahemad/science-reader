@@ -3,6 +3,20 @@
 // When disabled, settings will still work during the session but won't persist across page reloads
 const ENABLE_SETTINGS_PERSISTENCE = true;
 
+// ---------- Compact Nav (move action buttons into navbar dropdown) ----------
+function applyCompactNav(enabled) {
+    if (enabled) {
+        document.body.classList.add('compact-nav');
+    } else {
+        document.body.classList.remove('compact-nav');
+    }
+}
+$(function() {
+    $('#settings-compact_nav').on('change', function() {
+        applyCompactNav($(this).is(':checked'));
+    });
+});
+
 /**
  * Detects whether the current device is probably a mobile/touch-first device.
  *
@@ -615,6 +629,7 @@ function buildSettingsStateFromControlsOrDefaults() {
         search: $('#searchInput').length ? $('#searchInput').val() : ($('#settings-searchInput').val() || ''),
         enable_tool_use: $('#settings-enable_tool_use').is(':checked') || false,
         enabled_tools: getSelectPickerValue('#settings-tool-selector', []),
+        compact_nav: $('#settings-compact_nav').is(':checked') || false,
     };
     return state;
 }
@@ -654,6 +669,8 @@ function setModalFromState(state) {
     $('#settings-searchInput').val(state.search || '');
     $('#settings-enable_tool_use').prop('checked', state.enable_tool_use || false);
     $('#tool-use-options').toggle(!!state.enable_tool_use);
+    $('#settings-compact_nav').prop('checked', !!state.compact_nav);
+    applyCompactNav(!!state.compact_nav);
     // Restore tool selector — handle both new array format and legacy dict format
     if (Array.isArray(state.enabled_tools)) {
         $('#settings-tool-selector').val(state.enabled_tools);
@@ -760,6 +777,7 @@ function collectSettingsFromModal() {
         search: $('#settings-searchInput').val() || '',
         enable_tool_use: $('#settings-enable_tool_use').is(':checked'),
         enabled_tools: getSelectPickerValue('#settings-tool-selector', []),
+        compact_nav: $('#settings-compact_nav').is(':checked'),
         model_overrides: (window.chatSettingsState && window.chatSettingsState.model_overrides)
             ? window.chatSettingsState.model_overrides
             : undefined
