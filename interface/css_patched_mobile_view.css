@@ -1,0 +1,47 @@
+html {
+    height: 100% !important;
+}
+
+body {
+    height: 100% !important;
+}
+
+#chat-content {
+    height: 100% !important;
+}
+
+#chat-assistant-view {
+    height: 100% !important;
+}
+
+#chat-assistant-sidebar {
+    height: 100% !important;
+}
+
+#chat-content {
+    height: 100% !important;
+}
+
+.tab-content {
+    height: 100% !important;
+}
+
+#assistant-view {
+    height: 100% !important;
+}
+
+#chat-assistant {
+    padding-right: 5px !important;
+    padding-left: 5px !important;
+}
+
+.chat-card-body {
+    padding: 0.2rem !important;
+    margin-right: 0px !important;
+}
+
+#content-col {
+    padding-right: 0px !important;
+    padding-left: 10px !important;
+}
+
