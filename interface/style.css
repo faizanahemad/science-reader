@@ -791,18 +791,18 @@ table, tr, thead, th, td {
     }
 
     #mainView {
-        height: calc(100% - 42px) !important;
-        max-height: calc(100% - 42px) !important;
+        height: calc(100% - 20px) !important;
+        max-height: calc(100% - 20px) !important;
     }
 
     #chat-assistant {
-        height: calc(100vh - 55px) !important;
-        max-height: calc(100vh - 55px) !important;
+        height: calc(100vh - 25px) !important;
+        max-height: calc(100vh - 25px) !important;
     }
 
     #chat-assistant-sidebar {
-        height: calc(100vh - 55px) !important;
-        max-height: calc(100vh - 55px) !important;
+        height: calc(100vh - 25px) !important;
+        max-height: calc(100vh - 25px) !important;
     }
 
 
