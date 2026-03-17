@@ -18,7 +18,9 @@ Starlette ``ASGIApp`` ready to be run with uvicorn.
 from __future__ import annotations
 
 import contextlib
+import json
 import logging
+import threading
 import time
 from typing import Any
 
@@ -101,6 +103,8 @@ class JWTAuthMiddleware:
         # Attach client info to scope for downstream logging
         scope["mcp_client_email"] = payload.get("email", "unknown")
         scope["mcp_client_scopes"] = payload.get("scopes", [])
+        # Store email in thread-local for tool-call history recording
+        _mcp_request_context.user_email = payload.get("email", "unknown")
 
         await self.app(scope, receive, send)
 
@@ -249,6 +253,45 @@ def _collect_agent_output(agent: Any, query: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Thread-local request context for passing user_email to tool functions
+# ---------------------------------------------------------------------------
+
+_mcp_request_context = threading.local()
+
+
+def _record_mcp_tool_call(
+    tool_name: str,
+    tool_category: str,
+    args_dict: dict,
+    result_text: str,
+    duration: float,
+) -> None:
+    """Record an MCP tool call to history.  Fail-open — never raises."""
+    try:
+        from code_common.tool_call_history import get_tool_call_history_db, tool_call_hash
+        db = get_tool_call_history_db()
+        if db:
+            user_email = getattr(_mcp_request_context, 'user_email', 'unknown')
+            is_error = result_text.startswith("Search failed:") or result_text.startswith("Error")
+            db.record(
+                id=tool_call_hash(tool_name, args_dict),
+                tool_name=tool_name,
+                tool_category=tool_category,
+                args_json=json.dumps(args_dict, ensure_ascii=False),
+                result_text=result_text,
+                error=result_text if is_error else None,
+                user_email=user_email,
+                conversation_id=None,
+                timestamp=time.time(),
+                duration_seconds=duration,
+                result_chars=len(result_text),
+                source='mcp',
+            )
+    except Exception:
+        pass
+
+
+# ---------------------------------------------------------------------------
 # Factory: build the complete ASGI application
 # ---------------------------------------------------------------------------
 
@@ -322,7 +365,14 @@ def create_mcp_app(jwt_secret: str, rate_limit: int = 100) -> tuple[ASGIApp, Any
             f"[({repr(query)}, {repr(context)})]\n"
             f"```"
         )
-        return _collect_agent_output(agent, agent_input)
+        start_ts = time.time()
+        result = _collect_agent_output(agent, agent_input)
+        _record_mcp_tool_call(
+            "perplexity_search", "search",
+            {"query": query, "context": context, "detail_level": detail_level},
+            result, time.time() - start_ts,
+        )
+        return result
 
     # -----------------------------------------------------------------
     # Tool 2: jina_search
@@ -366,7 +416,14 @@ def create_mcp_app(jwt_secret: str, rate_limit: int = 100) -> tuple[ASGIApp, Any
             f"[({repr(query)}, {repr(context)})]\n"
             f"```"
         )
-        return _collect_agent_output(agent, agent_input)
+        start_ts = time.time()
+        result = _collect_agent_output(agent, agent_input)
+        _record_mcp_tool_call(
+            "jina_search", "search",
+            {"query": query, "context": context, "detail_level": detail_level},
+            result, time.time() - start_ts,
+        )
+        return result
 
 
     # -----------------------------------------------------------------
@@ -389,6 +446,7 @@ def create_mcp_app(jwt_secret: str, rate_limit: int = 100) -> tuple[ASGIApp, Any
         """
         import requests
 
+        start_ts = time.time()
         keys = _get_keys()
         jina_key = keys.get("jinaAIKey", "")
         if not jina_key:
@@ -416,7 +474,13 @@ def create_mcp_app(jwt_secret: str, rate_limit: int = 100) -> tuple[ASGIApp, Any
             if title:
                 result_parts.append(f"# {title}\n")
             result_parts.append(content)
-            return "\n".join(result_parts)
+            result_text = "\n".join(result_parts)
+            _record_mcp_tool_call(
+                "jina_read_page", "search",
+                {"url": url},
+                result_text, time.time() - start_ts,
+            )
+            return result_text
         except requests.exceptions.Timeout:
             return f"Error: Request timed out while reading {url}"
         except requests.exceptions.HTTPError as exc:
@@ -455,6 +519,7 @@ def create_mcp_app(jwt_secret: str, rate_limit: int = 100) -> tuple[ASGIApp, Any
             context: What you are looking for on this page. Helps focus extraction for images and long documents.
             detailed: If True, uses deeper extraction (more scraping services, longer timeouts). Default False.
         """
+        start_ts = time.time()
         keys = _get_keys()
 
         try:
@@ -489,7 +554,132 @@ def create_mcp_app(jwt_secret: str, rate_limit: int = 100) -> tuple[ASGIApp, Any
             meta += f" — ⚠ partial content ({result.get('error', 'unknown')})"
         parts.append(meta + "\n")
         parts.append(content)
-        return "\n".join(parts)
+        result_text = "\n".join(parts)
+        _record_mcp_tool_call(
+            "read_link", "search",
+            {"url": url, "context": context, "detailed": detailed},
+            result_text, time.time() - start_ts,
+        )
+        return result_text
+
+    # -----------------------------------------------------------------
+    # Tool Call History: list_search_history
+    # -----------------------------------------------------------------
+
+    @mcp.tool()
+    def list_search_history(
+        query_contains: str = "",
+        limit: int = 20,
+        since_hours: float = 0,
+    ) -> str:
+        """List previous web searches and page reads with metadata.
+
+        Returns ID, tool name, args summary, result size, duration, timestamp.
+        Use get_search_results with the IDs to retrieve full results.
+
+        Args:
+            query_contains: Filter to searches whose args contain this substring (case-insensitive).
+            limit: Maximum results to return (default 20, max 100).
+            since_hours: Only show searches from the last N hours. 0 = no filter.
+        """
+        from code_common.tool_call_history import get_tool_call_history_db
+        db = get_tool_call_history_db()
+        if not db:
+            return "Tool call history unavailable."
+        user_email = getattr(_mcp_request_context, 'user_email', 'unknown')
+        limit = min(max(limit, 1), 100)
+        since_ts = time.time() - since_hours * 3600 if since_hours > 0 else None
+        rows = db.list_calls(
+            user_email=user_email, tool_category="search",
+            limit=limit, since=since_ts,
+        )
+        if query_contains:
+            query_contains = query_contains.lower()
+            rows = [r for r in rows if query_contains in r.get("args_json", "").lower()]
+        for r in rows:
+            r["args_summary"] = (r.pop("args_json", "") or "")[:200]
+        return json.dumps(rows, default=str)
+
+    # -----------------------------------------------------------------
+    # Tool Call History: get_search_results
+    # -----------------------------------------------------------------
+
+    @mcp.tool()
+    def get_search_results(ids: list[str]) -> str:
+        """Get full result text of previous search/page-read calls by their IDs.
+
+        Use list_search_history first to find IDs.
+
+        Args:
+            ids: List of tool call IDs from list_search_history results.
+        """
+        from code_common.tool_call_history import get_tool_call_history_db
+        db = get_tool_call_history_db()
+        if not db:
+            return "Tool call history unavailable."
+        user_email = getattr(_mcp_request_context, 'user_email', 'unknown')
+        rows = db.get_results(user_email=user_email, ids=ids, tool_category="search")
+        return json.dumps(rows, default=str)
+
+    # -----------------------------------------------------------------
+    # Tool Call History: list_tool_call_history
+    # -----------------------------------------------------------------
+
+    @mcp.tool()
+    def list_tool_call_history(
+        tool_name_filter: str = "",
+        tool_category_filter: str = "",
+        limit: int = 20,
+        since_hours: float = 0,
+    ) -> str:
+        """List previous tool calls across all categories.
+
+        Returns ID, tool name, category, args summary, result size, duration, timestamp.
+        Use get_tool_call_results with the IDs to retrieve full results.
+
+        Args:
+            tool_name_filter: Filter by exact tool name (e.g. 'pkb_search').
+            tool_category_filter: Filter by category (search, documents, pkb, memory, etc.).
+            limit: Maximum results to return (default 20, max 100).
+            since_hours: Only show calls from the last N hours. 0 = no filter.
+        """
+        from code_common.tool_call_history import get_tool_call_history_db
+        db = get_tool_call_history_db()
+        if not db:
+            return "Tool call history unavailable."
+        user_email = getattr(_mcp_request_context, 'user_email', 'unknown')
+        limit = min(max(limit, 1), 100)
+        since_ts = time.time() - since_hours * 3600 if since_hours > 0 else None
+        rows = db.list_calls(
+            user_email=user_email,
+            tool_category=tool_category_filter or None,
+            tool_name=tool_name_filter or None,
+            limit=limit, since=since_ts,
+        )
+        for r in rows:
+            r["args_summary"] = (r.pop("args_json", "") or "")[:200]
+        return json.dumps(rows, default=str)
+
+    # -----------------------------------------------------------------
+    # Tool Call History: get_tool_call_results
+    # -----------------------------------------------------------------
+
+    @mcp.tool()
+    def get_tool_call_results(ids: list[str]) -> str:
+        """Get full result text of previous tool calls by their IDs (any category).
+
+        Use list_tool_call_history first to find IDs.
+
+        Args:
+            ids: List of tool call IDs from list_tool_call_history results.
+        """
+        from code_common.tool_call_history import get_tool_call_history_db
+        db = get_tool_call_history_db()
+        if not db:
+            return "Tool call history unavailable."
+        user_email = getattr(_mcp_request_context, 'user_email', 'unknown')
+        rows = db.get_results(user_email=user_email, ids=ids)
+        return json.dumps(rows, default=str)
 
     # -----------------------------------------------------------------
     # Build the Starlette ASGI app with middleware layers

@@ -3055,6 +3055,177 @@ def handle_get_conversation_summary(args: dict, context: ToolContext) -> ToolCal
         )
 
 # ---------------------------------------------------------------------------
+# Tool Call History Tools (category: conversation)
+# --- Uses code_common/tool_call_history.py ---
+# ---------------------------------------------------------------------------
+from code_common.tool_call_history import TOOL_HISTORY_TOOLS
+
+def _history_tool_kwargs(tool_name: str) -> dict:
+    """Return TOOL_HISTORY_TOOLS[tool_name] kwargs suitable for register_tool."""
+    return {k: v for k, v in TOOL_HISTORY_TOOLS[tool_name].items()
+            if k in ('name', 'description', 'parameters', 'is_interactive', 'category')}
+
+
+@register_tool(**_history_tool_kwargs("list_search_history"))
+def handle_list_search_history(args: dict, context: ToolContext) -> ToolCallResult:
+    """List previous web searches and page reads with metadata.
+
+    Queries the tool call history DB for search-category tool calls.
+    """
+    try:
+        from code_common.tool_call_history import get_tool_call_history_db, SEARCH_TOOL_NAMES
+        db = get_tool_call_history_db()
+        if not db:
+            return ToolCallResult(
+                tool_id="", tool_name="list_search_history",
+                error="Tool call history unavailable.",
+            )
+        user_email = getattr(context, 'user_email', '') or ''
+        conversation_id = getattr(context, 'conversation_id', '') or ''
+        limit = min(int(args.get("limit", 20)), 100)
+        since_hours = args.get("since_hours")
+        since_ts = None
+        if since_hours:
+            import time as _time
+            since_ts = _time.time() - float(since_hours) * 3600
+        conv_id = conversation_id if args.get("conversation_only") else None
+        rows = db.list_calls(
+            user_email=user_email,
+            tool_category="search",
+            conversation_id=conv_id,
+            since=since_ts,
+            limit=limit,
+        )
+        query_contains = (args.get("query_contains") or "").lower()
+        if query_contains:
+            rows = [r for r in rows if query_contains in r.get("args_json", "").lower()]
+        # Truncate args_json for readability
+        for r in rows:
+            r["args_summary"] = (r.pop("args_json", "") or "")[:200]
+        return ToolCallResult(
+            tool_id="", tool_name="list_search_history",
+            result=_truncate_result(json.dumps(rows, default=str)),
+        )
+    except Exception as e:
+        return ToolCallResult(
+            tool_id="", tool_name="list_search_history",
+            error=f"Error listing search history: {e}",
+        )
+
+
+@register_tool(**_history_tool_kwargs("get_search_results"))
+def handle_get_search_results(args: dict, context: ToolContext) -> ToolCallResult:
+    """Get full result text of previous search/page-read calls by ID.
+
+    Returns the most recent execution for each requested ID.
+    """
+    try:
+        from code_common.tool_call_history import get_tool_call_history_db
+        db = get_tool_call_history_db()
+        if not db:
+            return ToolCallResult(
+                tool_id="", tool_name="get_search_results",
+                error="Tool call history unavailable.",
+            )
+        user_email = getattr(context, 'user_email', '') or ''
+        ids = args.get("ids", [])
+        if not ids:
+            return ToolCallResult(
+                tool_id="", tool_name="get_search_results",
+                error="No IDs provided. Use list_search_history first to find IDs.",
+            )
+        rows = db.get_results(user_email=user_email, ids=ids, tool_category="search")
+        return ToolCallResult(
+            tool_id="", tool_name="get_search_results",
+            result=_truncate_result(json.dumps(rows, default=str)),
+        )
+    except Exception as e:
+        return ToolCallResult(
+            tool_id="", tool_name="get_search_results",
+            error=f"Error getting search results: {e}",
+        )
+
+
+@register_tool(**_history_tool_kwargs("list_tool_call_history"))
+def handle_list_tool_call_history(args: dict, context: ToolContext) -> ToolCallResult:
+    """List previous tool calls across all categories with metadata.
+
+    Queries the tool call history DB with optional filters.
+    """
+    try:
+        from code_common.tool_call_history import get_tool_call_history_db
+        db = get_tool_call_history_db()
+        if not db:
+            return ToolCallResult(
+                tool_id="", tool_name="list_tool_call_history",
+                error="Tool call history unavailable.",
+            )
+        user_email = getattr(context, 'user_email', '') or ''
+        conversation_id = getattr(context, 'conversation_id', '') or ''
+        limit = min(int(args.get("limit", 20)), 100)
+        since_hours = args.get("since_hours")
+        since_ts = None
+        if since_hours:
+            import time as _time
+            since_ts = _time.time() - float(since_hours) * 3600
+        conv_id = conversation_id if args.get("conversation_only") else None
+        tool_category = args.get("tool_category_filter") or None
+        tool_name = args.get("tool_name_filter") or None
+        rows = db.list_calls(
+            user_email=user_email,
+            tool_category=tool_category,
+            tool_name=tool_name,
+            conversation_id=conv_id,
+            since=since_ts,
+            limit=limit,
+        )
+        # Truncate args_json for readability
+        for r in rows:
+            r["args_summary"] = (r.pop("args_json", "") or "")[:200]
+        return ToolCallResult(
+            tool_id="", tool_name="list_tool_call_history",
+            result=_truncate_result(json.dumps(rows, default=str)),
+        )
+    except Exception as e:
+        return ToolCallResult(
+            tool_id="", tool_name="list_tool_call_history",
+            error=f"Error listing tool call history: {e}",
+        )
+
+
+@register_tool(**_history_tool_kwargs("get_tool_call_results"))
+def handle_get_tool_call_results(args: dict, context: ToolContext) -> ToolCallResult:
+    """Get full result text of previous tool calls by ID (any category).
+
+    Returns the most recent execution for each requested ID.
+    """
+    try:
+        from code_common.tool_call_history import get_tool_call_history_db
+        db = get_tool_call_history_db()
+        if not db:
+            return ToolCallResult(
+                tool_id="", tool_name="get_tool_call_results",
+                error="Tool call history unavailable.",
+            )
+        user_email = getattr(context, 'user_email', '') or ''
+        ids = args.get("ids", [])
+        if not ids:
+            return ToolCallResult(
+                tool_id="", tool_name="get_tool_call_results",
+                error="No IDs provided. Use list_tool_call_history first to find IDs.",
+            )
+        rows = db.get_results(user_email=user_email, ids=ids)
+        return ToolCallResult(
+            tool_id="", tool_name="get_tool_call_results",
+            result=_truncate_result(json.dumps(rows, default=str)),
+        )
+    except Exception as e:
+        return ToolCallResult(
+            tool_id="", tool_name="get_tool_call_results",
+            error=f"Error getting tool call results: {e}",
+        )
+
+# ---------------------------------------------------------------------------
 # MCP Code Runner Tools (category: code_runner)
 # ---------------------------------------------------------------------------
 

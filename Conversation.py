@@ -6764,7 +6764,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         return tools_param
 
     def _run_tool_loop(self, prompt, preamble, images, model_name, keys, tools_config,
-                       max_iterations=5, tool_response_waiter=None,
+                       max_iterations=10, tool_response_waiter=None,
                        conversation_id="", user_email=""):
         """Run the agentic tool loop — LLM calls with tool support.
         
@@ -7033,6 +7033,28 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     "content": tool_result_text,
                 })
 
+                # Record tool call to history (fail-open)
+                try:
+                    from code_common.tool_call_history import get_tool_call_history_db, tool_call_hash, get_tool_category
+                    _tch_db = get_tool_call_history_db()
+                    if _tch_db:
+                        _tch_db.record(
+                            id=tool_call_hash(tc_name, tc_args),
+                            tool_name=tc_name,
+                            tool_category=get_tool_category(tc_name),
+                            args_json=json.dumps(tc_args, ensure_ascii=False),
+                            result_text=tool_result_text,
+                            error=result.error if hasattr(result, 'error') else None,
+                            user_email=tool_context.user_email,
+                            conversation_id=tool_context.conversation_id,
+                            timestamp=time.time(),
+                            duration_seconds=tool_total_duration,
+                            result_chars=result_len,
+                            source='tool_calling',
+                        )
+                except Exception:
+                    pass  # Fail-open: never break tool execution for history recording
+
                 # Track for round summary
                 args_brief = json.dumps(tc_args, ensure_ascii=False)[:150]
                 result_brief = tool_result_text[:200] + ('...' if result_len > 200 else '')
@@ -7111,6 +7133,28 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     "tool_call_id": tc_id,
                     "content": tool_result_text,
                 })
+
+                # Record tool call to history (fail-open)
+                try:
+                    from code_common.tool_call_history import get_tool_call_history_db, tool_call_hash, get_tool_category
+                    _tch_db = get_tool_call_history_db()
+                    if _tch_db:
+                        _tch_db.record(
+                            id=tool_call_hash(tc_name, tc_args),
+                            tool_name=tc_name,
+                            tool_category=get_tool_category(tc_name),
+                            args_json=json.dumps(tc_args, ensure_ascii=False),
+                            result_text=tool_result_text,
+                            error=result.error if hasattr(result, 'error') else None,
+                            user_email=tool_context.user_email,
+                            conversation_id=tool_context.conversation_id,
+                            timestamp=time.time(),
+                            duration_seconds=tool_total_duration,
+                            result_chars=result_len,
+                            source='tool_calling',
+                        )
+                except Exception:
+                    pass  # Fail-open: never break tool execution for history recording
 
                 # Track for round summary
                 args_brief = json.dumps(tc_args, ensure_ascii=False)[:150]
@@ -9363,7 +9407,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             len(links) == 0
             and (
                 len(attached_docs) == 1
-                and not any([isinstance(d, ImageDocIndex) for d in attached_docs])
+                and not any([isinstance(d, (ImageDocIndex, FastImageDocIndex)) for d in attached_docs])
             )
             and not (google_scholar or perform_web_search)
             and provide_detailed_answers <= 2
@@ -9785,7 +9829,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         # For image documents, prefer the original image path used for vision LLM calls.
         # `ImageDocIndex.doc_source` may be rewritten to a PDF during initialization.
         images = [
-            d.llm_image_source for d in attached_docs if isinstance(d, ImageDocIndex)
+            d.llm_image_source for d in attached_docs if isinstance(d, (ImageDocIndex, FastImageDocIndex))
         ]
 
         # Merge inline images from extension query (base64 data URLs for viewport
@@ -10191,7 +10235,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                             model_name=model_name,
                             keys=self.get_api_keys(),
                             tools_config=tools_config,
-                            max_iterations=5,
+                            max_iterations=10,
                             tool_response_waiter=tool_response_waiter,
                             conversation_id=self.conversation_id,
                             user_email=query.get("_user_email", ""),

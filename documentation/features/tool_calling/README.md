@@ -6,7 +6,7 @@ The LLM Tool Calling Framework adds native, mid-response tool calling to the cha
 
 This transforms the application from a "configure then send" model to a truly agentic one where the LLM reasons about what it needs and acts accordingly. The framework supports multi-step tool chains (up to 5 iterations per turn), interactive tools that pause for user input, and server-side tools that execute silently.
 
-**Key numbers**: 53 tools across 9 categories. 1 interactive tool (`ask_clarification`). Master toggle + per-category toggles. 60-second interactive timeout. 5-iteration hard cap. 50000-character result truncation. Tool use enabled by default with `ask_clarification` pre-selected. Search-intent auto-detection dynamically adds web search tools based on message keywords.
+**Key numbers**: 57 tools across 10 categories. 1 interactive tool (`ask_clarification`). Master toggle + per-category toggles. 60-second interactive timeout. 5-iteration hard cap. 50000-character result truncation. Tool use enabled by default with `ask_clarification` pre-selected. Search-intent auto-detection dynamically adds web search tools based on message keywords. Tool call history records all executions in per-user SQLite for LLM-driven result reuse.
 
 **Plan reference**: `documentation/planning/plans/llm_tool_calling_framework.plan.md`
 
@@ -42,6 +42,7 @@ Settings are persisted per-conversation via the existing chat settings mechanism
 | `artefacts` | 8 | OFF | Conversation artefact (file) management. List, create, get, update, delete artefacts. LLM-powered propose/apply edits. |
 | `prompts` | 5 | OFF | Saved prompts and LLM actions. List, get, create, update prompts. Run ephemeral LLM actions (explain, critique, expand, ELI5). |
 | `conversation` | 5 | OFF | Search, list, and read individual messages. Get conversation overview and memory pad. BM25 keyword search + text/regex matching. |
+| `cross_conversation` | 3+4 | OFF | Cross-conversation search/list/summary (3 tools) + tool call history (4 tools: list/get for search history, list/get for all tool history). |
 
 Categories default to OFF for write-capable or resource-intensive tools (PKB, memory, code_runner, artefacts, prompts) and ON for read-only information retrieval (clarification, search, documents).
 
@@ -671,6 +672,21 @@ Manual testing checklist:
 - `get_conversation_details`: `conversation_id` (required)
 - `get_conversation_memory_pad`: `conversation_id` (required)
 
+### cross_conversation — Tool Call History (4 tools)
+
+| Tool | Description | Interactive |
+|---|---|---|
+| `list_search_history` | List previous web searches and page reads with metadata (ID, tool, query, result size, timestamp). Use before making a new search to check for duplicates. | No |
+| `get_search_results` | Get full result text of previous searches/page reads by ID list. Avoids re-executing expensive searches. | No |
+| `list_tool_call_history` | List previous tool calls across ALL categories (search, documents, PKB, etc.) with metadata. | No |
+| `get_tool_call_results` | Get full result text of any previous tool calls by ID list. | No |
+
+**Key parameters**:
+- `list_search_history`: `query_contains` (substring filter on args), `conversation_only` (bool, default false), `limit` (int, default 20, max 100), `since_hours` (number)
+- `get_search_results`: `ids` (required, array of strings, 1-10 IDs from list_search_history)
+- `list_tool_call_history`: `tool_name_filter` (exact tool name), `tool_category_filter` (category string), `conversation_only` (bool), `limit` (int, default 20), `since_hours` (number)
+- `get_tool_call_results`: `ids` (required, array of strings, 1-10 IDs from list_tool_call_history)
+
 ## Implementation Notes
 
 1. **Coexistence with `/clarify`**: The tool-based `ask_clarification` and the existing `/clarify` slash command + auto-clarify checkbox are independent systems. `/clarify` is a pre-send mechanism (intercepts before the message reaches the LLM). Tool-based clarification is mid-response (LLM decides to ask). Both can be active simultaneously without conflict.
@@ -788,3 +804,122 @@ The tool definitions sent to the LLM API are **partially caching-friendly**:
 - Different users with different selections = no shared prompt cache
 
 To maximize cache hits: keep the same tool selection between messages in a conversation. Toggling tools mid-conversation invalidates the API prompt cache.
+
+## Tool Call History
+
+### Motivation
+
+Tool results (the `role: "tool"` messages in the agentic loop) are ephemeral — they exist only during `_run_tool_loop()` and are stripped from persisted messages. The `<tool_calls_summary>` block is explicitly regex-removed before storage (Conversation.py lines 3836-3848). Only brief timing metadata (`time_dict.tool_calls`) survives. This means if a user asks a follow-up question that requires the same web search, the LLM must re-execute the search from scratch.
+
+The Tool Call History system solves this by recording every tool execution (inputs, outputs, timing) in a per-user SQLite database. The LLM can then query past results via 4 new tools, avoiding redundant re-execution and enabling cross-conversation knowledge reuse.
+
+### Architecture
+
+```
+Tool Execution (Conversation.py _run_tool_loop)
+    |
+    +-- record to ToolCallHistoryDB (fail-open, try/except)
+    |
+MCP Tool Execution (mcp_server/mcp_app.py)
+    |
+    +-- record via _record_mcp_tool_call() (fail-open)
+    |
+    v
+ToolCallHistoryDB (storage/users/tool_call_history.sqlite)
+    |
+    +-- Queried by 4 new LLM tools (list_search_history, get_search_results,
+    |   list_tool_call_history, get_tool_call_results)
+    |
+    +-- Queried by 4 new MCP tools (same names, same logic)
+    |
+    +-- Auto-pruned: 30-day age limit, 10,000 rows per user
+```
+
+### Storage Layer
+
+**Database**: `storage/users/tool_call_history.sqlite` — a separate SQLite file (not `users.db`) because tool history has high write frequency, large TEXT blobs, and aggressive pruning. Follows the `pkb.sqlite` / `search_index.db` precedent.
+
+**Schema** (`tool_call_history` table):
+
+| Column | Type | Description |
+|---|---|---|
+| `id` | TEXT | Deterministic hash of `tool_name + sorted(args_json)` — 16-char hex via SHA-256. Same inputs always produce the same ID. |
+| `tool_name` | TEXT | Registered tool name (e.g. `web_search`, `pkb_search`) |
+| `tool_category` | TEXT | Category from `TOOL_REGISTRY` (e.g. `search`, `documents`) |
+| `args_json` | TEXT | JSON-serialized tool arguments |
+| `result_text` | TEXT | Full result text (capped at 50,000 chars at recording time) |
+| `error` | TEXT | Error message if the tool failed, NULL otherwise |
+| `user_email` | TEXT | User who executed the tool (scoping key) |
+| `conversation_id` | TEXT | Conversation where the tool was called |
+| `timestamp` | REAL | Unix epoch of execution |
+| `duration_seconds` | REAL | Wall-clock execution time |
+| `result_chars` | INTEGER | Length of result_text |
+| `source` | TEXT | `"tool_calling"` or `"mcp"` |
+
+**Primary key**: `(id, timestamp)` — allows the same tool+args combination to have multiple executions over time (results may change for web searches).
+
+**Indexes**: user_email, tool_name, tool_category, timestamp, conversation_id, id, composite `(user_email, tool_category, timestamp DESC)`.
+
+**Singleton**: `get_tool_call_history_db()` returns a module-level singleton instance, lazy-initialized with double-checked locking. Thread-safe via WAL mode and `threading.Lock`.
+
+### Deterministic Hash IDs
+
+`tool_call_hash(tool_name, args_dict)` in `code_common/tool_call_history.py` computes a 16-character lowercase hex hash:
+
+```python
+canonical = json.dumps(args, sort_keys=True, ensure_ascii=False)
+raw = f"{tool_name}:{canonical}"
+return hashlib.sha256(raw.encode()).hexdigest()[:16]
+```
+
+This means:
+- Same tool + same arguments = same ID (enables deduplication)
+- Argument order doesn't matter (`sort_keys=True`)
+- The LLM can check if a search was already performed before re-executing it
+- 64 bits of entropy — collision probability is negligible at expected volumes (~10^-6 at 10,000 records)
+
+### Recording Hooks
+
+**Tool-calling framework** (`Conversation.py`, `_run_tool_loop()`):
+Two insertion points — one after the main tool execution block and one after interactive tool execution. Both wrapped in `try/except` with `logger.warning()` (fail-open). Records: tool_name, arguments, result_text (capped at 50,000 chars), user_email from `ToolContext`, conversation_id, duration, source=`"tool_calling"`.
+
+**MCP server** (`mcp_server/mcp_app.py`):
+A `_record_mcp_tool_call()` helper is called after each of the 4 existing MCP tool functions (`web_search`, `perplexity_search`, `jina_read_page`, `read_link`). User email is passed via `_mcp_request_context` thread-local, set in `JWTAuthMiddleware.__call__()` at JWT decode time. Also fail-open.
+
+### Search Tool Names
+
+`SEARCH_TOOL_NAMES` (frozen set in `code_common/tool_call_history.py`):
+- `web_search`
+- `perplexity_search`
+- `jina_search`
+- `jina_read_page`
+- `read_link`
+
+Used by `list_search_history` and `get_search_results` to filter to search/page-visit tools only. The `list_tool_call_history` and `get_tool_call_results` tools query ALL categories without this filter.
+
+### Shared Tool Metadata
+
+`TOOL_HISTORY_TOOLS` dict in `code_common/tool_call_history.py` defines canonical names, descriptions, parameter schemas, and usage guidelines for all 4 history tools. Imported by both `code_common/tools.py` (tool-calling registration) and `mcp_server/mcp_app.py` (MCP registration). Follows the same pattern as `CONVERSATION_TOOLS` in `code_common/conversation_search.py`.
+
+### Auto-Pruning
+
+On first access to `get_tool_call_history_db()`, the singleton runs `prune(max_age_days=30, max_rows_per_user=10000)`. Two passes:
+1. **Age-based**: Delete all records older than 30 days.
+2. **Per-user cap**: For each user, delete oldest rows beyond 10,000 (keeping newest).
+
+Pruning is logged but fail-open — if it errors, the DB continues to function.
+
+### Files
+
+| File | Type | Description |
+|---|---|---|
+| `code_common/tool_call_history.py` | **New** | `ToolCallHistoryDB` class, `tool_call_hash()`, `get_tool_category()`, `SEARCH_TOOL_NAMES`, `TOOL_HISTORY_TOOLS` shared metadata, `get_tool_call_history_db()` singleton |
+| `Conversation.py` | Modified | Import added, 2 recording hooks in `_run_tool_loop()` (after main tool execution and after interactive tool execution) |
+| `code_common/tools.py` | Modified | Import `TOOL_HISTORY_TOOLS`, 4 new `@register_tool` registrations in `cross_conversation` category |
+| `mcp_server/mcp_app.py` | Modified | `_mcp_request_context` thread-local, `_record_mcp_tool_call()` helper, recording in 4 existing tools, 4 new MCP tool functions |
+| `interface/interface.html` | Modified | 4 new `<option>` elements in cross-conversation `<optgroup>` |
+| `interface/chat.js` | Modified | 4 entries added to `categoryDefaults` mapping |
+
+### Plan Reference
+
+`documentation/planning/plans/tool_call_history.plan.md`

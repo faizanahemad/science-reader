@@ -1,6 +1,6 @@
 # MCP Web Search Server
 
-Expose the project's web search agents (Perplexity, Jina) as MCP tools accessible from external coding assistants like OpenCode and Claude Code, over streamable HTTP with JWT bearer-token authentication and per-token rate limiting. Also exposes page-reader tools (`jina_read_page`, `read_link`) for fetching web page, PDF, and image content.
+Expose the project's web search agents (Perplexity, Jina) as MCP tools accessible from external coding assistants like OpenCode and Claude Code, over streamable HTTP with JWT bearer-token authentication and per-token rate limiting. Also exposes page-reader tools (`jina_read_page`, `read_link`) for fetching web page, PDF, and image content. All tool executions are recorded in per-user SQLite for history/caching, and 4 additional MCP tools allow querying past results.
 
 ## Overview
 
@@ -27,6 +27,10 @@ python server.py
             |               +-- jina_search tool
             |               +-- jina_read_page tool
             |               +-- read_link tool
+            |               +-- list_search_history tool
+            |               +-- get_search_results tool
+            |               +-- list_tool_call_history tool
+            |               +-- get_tool_call_results tool
             |
             +-- uvicorn (runs inside daemon thread)
 ```
@@ -410,3 +414,76 @@ MCP server logs use Python's `logging.getLogger(__name__)` pattern. Look for:
 ## Planning Document
 
 Full design rationale, alternatives considered, and milestone breakdown: `documentation/planning/plans/mcp_web_search_server.plan.md`
+
+## Tool Call History
+
+### Overview
+
+All 4 existing MCP tool executions (`perplexity_search`, `jina_search`, `jina_read_page`, `read_link`) are recorded in a per-user SQLite database (`storage/users/tool_call_history.sqlite`). The same database is shared with the LLM tool-calling framework — both recording paths write to the same storage. This enables 4 additional MCP tools that allow external coding assistants to query past results and avoid redundant re-execution.
+
+### Recording Behavior
+
+After each existing MCP tool returns its result, a `_record_mcp_tool_call()` helper records:
+- **Tool name and arguments** (JSON-serialized)
+- **Full result text** (capped at 50,000 characters)
+- **User email** from JWT token (via `_mcp_request_context` thread-local)
+- **Timing** (duration in seconds)
+- **Source** = `"mcp"` (distinguishes from tool-calling framework recordings)
+
+Recording is **fail-open** — wrapped in `try/except` so tool execution is never affected by recording failures.
+
+### Thread-Local Auth Pattern
+
+The user's email (from JWT) must be available to the recording helper, but MCP tool functions don't receive ASGI scope directly. Solution:
+
+1. `JWTAuthMiddleware.__call__()` decodes the JWT and sets `_mcp_request_context.user_email` on a `threading.local()` instance.
+2. `_record_mcp_tool_call()` reads `_mcp_request_context.user_email` to scope the record to the authenticated user.
+3. If the email is not available (e.g. health check or auth bypass), recording is skipped silently.
+
+### New MCP Tools (4)
+
+#### list_search_history
+
+List previous web searches and page reads with metadata. Returns ID, tool name, arguments, result size, duration, timestamp for each call.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `limit` | int | 20 | Max results (capped at 100) |
+| `offset` | int | 0 | Pagination offset |
+| `tool_name` | str | None | Filter by exact tool name (e.g. `perplexity_search`) |
+
+#### get_search_results
+
+Get full result text of previous searches by ID list.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `call_ids` | list[str] | required | Tool call hash IDs from `list_search_history` (max 10) |
+
+#### list_tool_call_history
+
+List previous calls across ALL tool categories.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `limit` | int | 20 | Max results (capped at 100) |
+| `offset` | int | 0 | Pagination offset |
+| `tool_name` | str | None | Filter by exact tool name |
+
+#### get_tool_call_results
+
+Get full result text of any previous tool calls by ID list.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `call_ids` | list[str] | required | Tool call hash IDs from `list_tool_call_history` (max 10) |
+
+### Deterministic Hash IDs
+
+Each tool call gets a 16-character hex ID computed as `SHA-256(tool_name + sorted JSON args)[:16]`. Same tool + same arguments always produce the same ID, enabling the LLM to detect and reuse prior results.
+
+### Storage
+
+Shared SQLite at `storage/users/tool_call_history.sqlite`. Same database used by both the MCP server and the LLM tool-calling framework. Per-user scoping via `user_email` column. Auto-pruned on startup (30-day age limit, 10,000 rows per user).
+
+See `documentation/features/tool_calling/README.md` (Tool Call History section) for full schema, storage design, and implementation details.
