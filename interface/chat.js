@@ -686,7 +686,8 @@ function setModalFromState(state) {
             conversation: ['search_messages', 'list_messages', 'read_message', 'get_conversation_details', 'get_conversation_memory_pad', 'search_conversations', 'list_user_conversations', 'get_conversation_summary', 'list_search_history', 'get_search_results', 'list_tool_call_history', 'get_tool_call_results'],
             code_runner: ['run_python_code'],
             artefacts: ['artefacts_list', 'artefacts_create', 'artefacts_get', 'artefacts_get_file_path', 'artefacts_update', 'artefacts_delete', 'artefacts_propose_edits', 'artefacts_apply_edits'],
-            prompts: ['prompts_list', 'prompts_get', 'temp_llm_action', 'prompts_create', 'prompts_update']
+            prompts: ['prompts_list', 'prompts_get', 'temp_llm_action', 'prompts_create', 'prompts_update'],
+            aggregator: ['delegate_task']
         };
         Object.keys(state.enabled_tools).forEach(function(cat) {
             if (state.enabled_tools[cat] && categoryDefaults[cat]) {

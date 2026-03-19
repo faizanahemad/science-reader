@@ -6571,6 +6571,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 "code_runner": enabled_tools_config.get("code_runner", False),
                 "artefacts": enabled_tools_config.get("artefacts", False),
                 "prompts": enabled_tools_config.get("prompts", False),
+                "aggregator": enabled_tools_config.get("aggregator", False),
             }
             enabled_names = []
             for tool_def in TOOL_REGISTRY.get_all_tools():

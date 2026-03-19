@@ -6,7 +6,7 @@ The LLM Tool Calling Framework adds native, mid-response tool calling to the cha
 
 This transforms the application from a "configure then send" model to a truly agentic one where the LLM reasons about what it needs and acts accordingly. The framework supports multi-step tool chains (up to 5 iterations per turn), interactive tools that pause for user input, and server-side tools that execute silently.
 
-**Key numbers**: 57 tools across 10 categories. 1 interactive tool (`ask_clarification`). Master toggle + per-category toggles. 60-second interactive timeout. 5-iteration hard cap. 50000-character result truncation. Tool use enabled by default with `ask_clarification` pre-selected. Search-intent auto-detection dynamically adds web search tools based on message keywords. Tool call history records all executions in per-user SQLite for LLM-driven result reuse.
+**Key numbers**: 58 tools across 11 categories. 1 interactive tool (`ask_clarification`). Master toggle + per-category toggles. 60-second interactive timeout. 5-iteration hard cap. 50000-character result truncation. Tool use enabled by default with `ask_clarification` pre-selected. Search-intent auto-detection dynamically adds web search tools based on message keywords. Tool call history records all executions in per-user SQLite for LLM-driven result reuse.
 
 **Plan reference**: `documentation/planning/plans/llm_tool_calling_framework.plan.md`
 
@@ -43,6 +43,7 @@ Settings are persisted per-conversation via the existing chat settings mechanism
 | `prompts` | 5 | OFF | Saved prompts and LLM actions. List, get, create, update prompts. Run ephemeral LLM actions (explain, critique, expand, ELI5). |
 | `conversation` | 5 | OFF | Search, list, and read individual messages. Get conversation overview and memory pad. BM25 keyword search + text/regex matching. |
 | `cross_conversation` | 3+4 | OFF | Cross-conversation search/list/summary (3 tools) + tool call history (4 tools: list/get for search history, list/get for all tool history). |
+| `aggregator` | 1 | OFF | Delegate sub-tasks to an autonomous agent with its own tool access. The agent runs a multi-step tool loop (up to 5 iterations) and returns a synthesized answer. 3 profiles: research, documents, general. |
 
 Categories default to OFF for write-capable or resource-intensive tools (PKB, memory, code_runner, artefacts, prompts) and ON for read-only information retrieval (clarification, search, documents).
 
@@ -687,6 +688,28 @@ Manual testing checklist:
 - `list_tool_call_history`: `tool_name_filter` (exact tool name), `tool_category_filter` (category string), `conversation_only` (bool), `limit` (int, default 20), `since_hours` (number)
 - `get_tool_call_results`: `ids` (required, array of strings, 1-10 IDs from list_tool_call_history)
 
+
+### aggregator (1 tool)
+
+| Tool | Description | Interactive |
+|---|---|---|
+| `delegate_task` | Delegate a sub-task to an autonomous agent with its own tool access. The agent runs a multi-step tool loop (up to 5 iterations) and returns a synthesized text answer. 3 profiles control which tools the agent gets: `research` (web search + docs), `documents` (doc analysis + conversation), `general` (all non-interactive tools). | No |
+
+**Key parameters**:
+- `delegate_task`: `prompt` (required, task description), `profile` (required, enum: "research"/"documents"/"general")
+
+**Architecture notes**:
+- Core module: `code_common/agent_tool.py` — constants (`AGENT_DEFAULT_MODEL`, `AGENT_MAX_ITERATIONS`, `AGENT_PROFILES`), shared metadata (`AGENT_TOOLS`), and `run_agent_loop()` function.
+- Non-streaming sub-agent loop: calls `call_llm(stream=False, tools=...)` in a loop, parses mixed str/dict responses, executes tool calls via `TOOL_REGISTRY.execute()`.
+- Profile-based tool access: `AGENT_PROFILES` dict maps profile names to lists of tool names. Adding a new tool to a profile = adding its name to the list.
+- 1-level recursion: The `general` profile includes `delegate_task` itself. At depth >= 2, `delegate_task` is stripped from the tool list to prevent infinite recursion.
+- Sub-agent tool calls are explicitly recorded in `tool_call_history` with `source="agent_delegate"`.
+- MCP version in `mcp_server/mcp_app.py` constructs a `ToolContext` from `_mcp_request_context` and calls the same `run_agent_loop()`.
+- Default model: `openai/gpt-4o-mini` (configurable via `AGENT_DEFAULT_MODEL` or `model_overrides.agent_model`).
+- Wall-clock timeout: 5 minutes (`AGENT_TIMEOUT_SECONDS`).
+- Fail-open: all errors produce text error messages, never crash the main response.
+
+**Plan reference**: `documentation/planning/plans/agent_delegate_task.plan.md`
 ## Implementation Notes
 
 1. **Coexistence with `/clarify`**: The tool-based `ask_clarification` and the existing `/clarify` slash command + auto-clarify checkbox are independent systems. `/clarify` is a pre-send mechanism (intercepts before the message reaches the LLM). Tool-based clarification is mid-response (LLM decides to ask). Both can be active simultaneously without conflict.

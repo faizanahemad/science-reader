@@ -546,17 +546,17 @@ location /ws/terminal {
 
 **What it does**
  Adds native, mid-response tool calling to the chat pipeline — the LLM can autonomously invoke tools during a conversation turn.
- 56 tools across 9 categories: clarification (1), search (5), documents (10), pkb (10), memory (7), code_runner (1), artefacts (8), prompts (5), conversation (8 — including 3 cross-conversation search tools).
+ 58 tools across 11 categories: clarification (1), search (5), documents (10), pkb (10), memory (7), code_runner (1), artefacts (8), prompts (5), conversation (5), cross_conversation (7 — 3 cross-conversation search + 4 tool call history), aggregator (1 — delegate_task sub-agent).
  Multi-step agentic loop: up to 5 tool-call iterations per turn, with `tool_choice="none"` on the final iteration to force text output.
  Interactive tools (ask_clarification, pkb_propose_memory) pause streaming, show a Bootstrap modal for user input (MCQ questions or editable proposed claims), wait up to 60s via `threading.Event`, then resume.
  Server-side tools (web search, document lookup, PKB operations, code execution, etc.) execute silently with inline status indicators.
- Master toggle + Bootstrap Select multi-select dropdown with per-tool granularity (9 category optgroups, 56 individual tool options, search filtering, select all/deselect all). **Tool use enabled by default** with `ask_clarification` and `pkb_nl_command` pre-selected via `DEFAULT_ENABLED_TOOLS` (configured in `code_common/tools.py`, enforced in `interface/chat.js` `resetSettingsToDefaults()`). Write-capable categories default to OFF.
+ Master toggle + Bootstrap Select multi-select dropdown with per-tool granularity (11 category optgroups, 58 individual tool options, search filtering, select all/deselect all). **Tool use enabled by default** with `ask_clarification` and `pkb_nl_command` pre-selected via `DEFAULT_ENABLED_TOOLS` (configured in `code_common/tools.py`, enforced in `interface/chat.js` `resetSettingsToDefaults()`). Write-capable categories default to OFF.
  Backward-compatible: when tools disabled (`tools=None`), the entire call stack is unchanged.
- All 56 handlers have real implementations — mirrors the MCP server logic (DocIndex, StructuredAPI, Conversation methods, HTTP delegation for propose_edits/apply_edits/temp_llm_action).
+ All 58 handlers have real implementations — mirrors the MCP server logic (DocIndex, StructuredAPI, Conversation methods, HTTP delegation for propose_edits/apply_edits/temp_llm_action). Aggregator tool (`delegate_task`) runs a non-streaming sub-agent loop via `run_agent_loop()` in `code_common/agent_tool.py`.
  **Search-intent auto-detection**: the frontend automatically injects web search tools (`web_search`, `perplexity_search`, `jina_search`, `jina_read_page`, `read_link`) when the user's message contains search-intent keywords (e.g. "search the web", "google", "latest news about", "find me recent info"). Implemented via `detectSearchIntent()` and `mergeWebSearchTools()` in `common-chat.js` — 27 regex patterns with code-block stripping to avoid false positives. Fail-open: if detection throws, the message sends normally.
 
 **Architecture**
- Tool registry: `code_common/tools.py` — `ToolRegistry`, `ToolDefinition`, `ToolContext`, `ToolCallResult`, `@register_tool` decorator, `TOOL_REGISTRY` singleton, `DEFAULT_ENABLED_TOOLS` list.
+ Tool registry: `code_common/tools.py` — `ToolRegistry`, `ToolDefinition`, `ToolContext`, `ToolCallResult`, `@register_tool` decorator, `TOOL_REGISTRY` singleton, `DEFAULT_ENABLED_TOOLS` list. Agent sub-loop: `code_common/agent_tool.py` — `AGENT_PROFILES`, `AGENT_DEFAULT_MODEL`, `run_agent_loop()`.
  LLM integration: `call_chat_model()` and `call_llm()` accept `tools`/`tool_choice` params; `_extract_text_from_openai_response()` yields both `str` (text) and `dict` (tool_call) from streaming.
  Agentic loop: `Conversation._run_tool_loop()` generator — iterates up to 5 times, executes tools, handles interactive pausing, builds continuation messages. When multiple tool calls are returned in one LLM response, non-interactive tools execute in **parallel** via `ThreadPoolExecutor` (each thread gets a `deepcopy` of `ToolContext` for thread safety), while interactive tools execute sequentially.
  Tool awareness: preamble injection when tools enabled tells the LLM about available tools and **explicitly instructs it to issue multiple tool calls at once** for independent information needs (parallel execution means wall-clock time equals the slowest tool, not the sum).
@@ -577,6 +577,8 @@ location /ws/terminal {
 | `artefacts` | 8 | OFF | List/create/get/update/delete artefacts, LLM-powered edits |
 | `prompts` | 5 | OFF | List/get/create/update prompts, ephemeral LLM actions |
 | `conversation` | 5 | OFF | Search, list, read messages. Get conversation overview and memory pad. BM25 keyword search + text/regex matching. |
+| `cross_conversation` | 3+4 | OFF | Cross-conversation search/list/summary (3 tools) + tool call history (4 tools: list/get for search history, list/get for all tool history). |
+| `aggregator` | 1 | OFF | `delegate_task` meta-tool: delegates sub-tasks to an autonomous agent with its own tool access. 3 profiles (`research`, `documents`, `general`), up to 5 iterations, `gpt-4o-mini` default model, 1-level recursion. Core module: `code_common/agent_tool.py`. |
 
 **API**
  Settings: `checkboxes.enable_tool_use` (master toggle), `checkboxes.enabled_tools` (array of tool name strings, e.g. `["ask_clarification", "web_search", ...]`; legacy per-category dict format also accepted for backward compatibility).
@@ -591,21 +593,22 @@ location /ws/terminal {
  Tool results not separately persisted — they become part of the conversation messages.
 
 **Key files**
-`code_common/tools.py` — Tool registry + 56 tool definitions with real handlers, `DEFAULT_ENABLED_TOOLS`
+`code_common/tools.py` — Tool registry + 58 tool definitions with real handlers, `DEFAULT_ENABLED_TOOLS`
 `code_common/conversation_search.py` — Shared conversation tool metadata (`CONVERSATION_TOOLS`), BM25 message search index (`MessageSearchIndex`), markdown feature extraction
+`code_common/agent_tool.py` — Agent sub-loop: `AGENT_PROFILES`, `AGENT_DEFAULT_MODEL`, `AGENT_MAX_ITERATIONS`, `AGENT_TOOLS` shared metadata, `run_agent_loop()`
 `code_common/call_llm.py` — `tools`/`tool_choice` passthrough, streaming tool_call parsing
 `call_llm.py` (root) — `CallLLm` tools passthrough
 `Conversation.py` — `_get_enabled_tools()`, `_run_tool_loop()`, preamble injection, `reply()` tool branching, `search_messages()`, `list_messages()`, `read_message()`, `get_conversation_details()`, `_index_messages_for_search()`, `message_search_index` in `store_separate`
 `endpoints/conversations.py` — `POST /tool_response` endpoint, thread-safe response store
 `interface/tool-call-manager.js` — `ToolCallManager` singleton (inline status, modal, response submission)
-`interface/interface.html` — Bootstrap Select 1.13.18 CDN, tool settings `<select multiple>` with 9 optgroups and 56 options, `#tool-call-modal`
+`interface/interface.html` — Bootstrap Select 1.13.18 CDN, tool settings `<select multiple>` with 11 optgroups and 58 options, `#tool-call-modal`
 `interface/chat.js`, `interface/common.js`, `interface/common-chat.js` — settings persistence (selectpicker read/write with dual-format legacy support), stream handler, search-intent auto-detection (`detectSearchIntent`, `mergeWebSearchTools`, `SEARCH_INTENT_PATTERNS`), default tool enablement (`computeDefaultStateForTab` with `enable_tool_use: true`)
 `interface/service-worker.js` — cache version bump, precache
 
-**Docs:** `documentation/features/tool_calling/README.md`, `documentation/planning/plans/llm_tool_calling_framework.plan.md`
+**Docs:** `documentation/features/tool_calling/README.md`, `documentation/features/agent_delegate_task/README.md`, `documentation/planning/plans/llm_tool_calling_framework.plan.md`, `documentation/planning/plans/agent_delegate_task.plan.md`
 
 **Differentiator**
- Transforms the chat from a single-turn request-response system into an agentic system where the LLM can chain multiple tool calls (search, lookup documents, query PKB, execute code, manage artefacts) within a single response turn. No other chat system integrates document RAG, PKB memory, code execution, and web search as native LLM tools with a per-category permission model and interactive UI.
+ Transforms the chat from a single-turn request-response system into an agentic system where the LLM can chain multiple tool calls (search, lookup documents, query PKB, execute code, manage artefacts) within a single response turn, and delegate complex multi-tool workflows to autonomous sub-agents via `delegate_task`. No other chat system integrates document RAG, PKB memory, code execution, web search, and agent delegation as native LLM tools with a per-category permission model and interactive UI.
 
 ---
 

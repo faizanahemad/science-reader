@@ -1,6 +1,6 @@
 # MCP Web Search Server
 
-Expose the project's web search agents (Perplexity, Jina) as MCP tools accessible from external coding assistants like OpenCode and Claude Code, over streamable HTTP with JWT bearer-token authentication and per-token rate limiting. Also exposes page-reader tools (`jina_read_page`, `read_link`) for fetching web page, PDF, and image content. All tool executions are recorded in per-user SQLite for history/caching, and 4 additional MCP tools allow querying past results.
+Expose the project's web search agents (Perplexity, Jina) as MCP tools accessible from external coding assistants like OpenCode and Claude Code, over streamable HTTP with JWT bearer-token authentication and per-token rate limiting. Also exposes page-reader tools (`jina_read_page`, `read_link`) for fetching web page, PDF, and image content, a `delegate_task` aggregator tool for autonomous sub-agent task execution, and tool call history tools. All tool executions are recorded in per-user SQLite for history/caching.
 
 ## Overview
 
@@ -31,6 +31,7 @@ python server.py
             |               +-- get_search_results tool
             |               +-- list_tool_call_history tool
             |               +-- get_tool_call_results tool
+            |               +-- delegate_task tool (aggregator)
             |
             +-- uvicorn (runs inside daemon thread)
 ```
@@ -95,6 +96,18 @@ Read any link — web page, PDF, or image — and return its text content. Handl
 | `detailed` | bool | False | If True, uses deeper extraction (more scraping services, longer timeouts) |
 
 Wraps `download_link_data` from `base.py`. Requires scraping service API keys (`scrapingant`, `brightdataUrl`, or `jinaAIKey`). Image OCR requires `openAIKey` or `OPENROUTER_API_KEY`. YouTube transcription requires `ASSEMBLYAI_API_KEY`.
+
+
+### delegate_task
+
+Delegate a sub-task to an autonomous agent with its own tool access. The agent runs a multi-step tool loop (up to 5 iterations) with access to the tools specified by the chosen profile, and returns a synthesized text answer. Useful for complex research, document analysis, or multi-tool workflows.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `prompt` | str | required | The task description or question for the sub-agent |
+| `profile` | str | `"general"` | Tool profile: `"research"` (web search + docs), `"documents"` (doc analysis), `"general"` (all non-interactive tools) |
+
+Uses `run_agent_loop()` from `code_common/agent_tool.py`. Default model: `openai/gpt-4o-mini`. Max 5 tool-loop iterations. 5-minute wall-clock timeout. Supports 1-level recursion (the `general` profile includes `delegate_task` itself; at depth >= 2 it is stripped). Sub-agent tool calls are recorded in tool call history with `source="agent_delegate"`.
 
 ## Authentication
 

@@ -4473,3 +4473,45 @@ def handle_transcribe_audio(args: dict, context: ToolContext) -> ToolCallResult:
             error=f"Failed to transcribe audio: {exc}",
             result="",
         )
+
+
+# ===========================================================================
+# Aggregator tools — delegate_task
+# ===========================================================================
+
+from code_common.agent_tool import AGENT_TOOLS as _AGENT_TOOLS, _agent_tool_kwargs, run_agent_loop
+
+
+@register_tool(**_agent_tool_kwargs("delegate_task"))
+def handle_delegate_task(args: dict, context: ToolContext) -> ToolCallResult:
+    """Delegate a sub-task to an autonomous agent with its own tool access."""
+    prompt = args.get("prompt", "")
+    profile = args.get("profile", "general")
+
+    if not prompt:
+        return ToolCallResult(
+            tool_id="", tool_name="delegate_task",
+            error="Missing required parameter: prompt",
+            result="",
+        )
+
+    if profile not in ("research", "documents", "general"):
+        return ToolCallResult(
+            tool_id="", tool_name="delegate_task",
+            error=f"Invalid profile: {profile}. Must be 'research', 'documents', or 'general'.",
+            result="",
+        )
+
+    try:
+        result_text = run_agent_loop(prompt, profile, context, depth=1)
+        return ToolCallResult(
+            tool_id="", tool_name="delegate_task",
+            result=_truncate_result(result_text),
+        )
+    except Exception as exc:
+        logger.exception("delegate_task error: %s", exc)
+        return ToolCallResult(
+            tool_id="", tool_name="delegate_task",
+            error=f"Agent execution failed: {exc}",
+            result="",
+        )

@@ -682,6 +682,59 @@ def create_mcp_app(jwt_secret: str, rate_limit: int = 100) -> tuple[ASGIApp, Any
         return json.dumps(rows, default=str)
 
     # -----------------------------------------------------------------
+    # Aggregator: delegate_task
+    # -----------------------------------------------------------------
+
+    @mcp.tool()
+    def delegate_task(
+        prompt: str,
+        profile: str = "general",
+    ) -> str:
+        """Delegate a sub-task to an autonomous agent with its own tool access.
+
+        The agent runs a multi-step tool loop (up to 5 iterations) with
+        access to the tools specified by the chosen profile, and returns
+        a synthesized text answer.
+
+        Profiles:
+        - 'research': Web search + document query + conversation search.
+        - 'documents': Full document tools + conversation tools.
+        - 'general': All non-interactive tools (broadest capability).
+
+        Args:
+            prompt: The task description or question for the sub-agent.
+            profile: Tool profile ('research', 'documents', or 'general').
+        """
+        from code_common.agent_tool import run_agent_loop
+        from code_common.tools import ToolContext
+
+        if not prompt:
+            return "Error: Missing required parameter: prompt"
+
+        if profile not in ("research", "documents", "general"):
+            return f"Error: Invalid profile '{profile}'. Must be 'research', 'documents', or 'general'."
+
+        mcp_context = ToolContext(
+            conversation_id="",
+            user_email=getattr(_mcp_request_context, 'user_email', 'unknown'),
+            keys=_get_keys(),
+            model_overrides={},
+        )
+
+        start_ts = time.time()
+        try:
+            result = run_agent_loop(prompt, profile, mcp_context, depth=1)
+        except Exception as exc:
+            logger.exception("delegate_task MCP error: %s", exc)
+            result = f"Agent execution failed: {exc}"
+
+        _record_mcp_tool_call(
+            "delegate_task", "aggregator",
+            {"prompt": prompt, "profile": profile},
+            result, time.time() - start_ts,
+        )
+        return result
+    # -----------------------------------------------------------------
     # Build the Starlette ASGI app with middleware layers
     # -----------------------------------------------------------------
 

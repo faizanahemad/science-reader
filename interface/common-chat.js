@@ -738,6 +738,26 @@ var ConversationManager = {
                         fetchConversationUIState(conversationId, $chatView[0]);
                     }
                 } catch (_e) { /* ignore */ }
+
+                // Re-initialize vote banks for all snapshot-restored cards.
+                // The snapshot restores HTML but NOT JS event handlers (initialiseVoteBank
+                // was never called on these elements), so copy buttons and triple-dot
+                // dropdown menus would be broken without this re-initialization.
+                try {
+                    var _msgMap = {};
+                    msgList.forEach(function(msg) {
+                        if (msg.message_id) { _msgMap[String(msg.message_id)] = msg; }
+                    });
+                    $('#chatView').find('.message-card').each(function() {
+                        var $card = $(this);
+                        var msgId = $card.find('.history-message-checkbox').attr('message-id');
+                        var msg = _msgMap[String(msgId)];
+                        if (msg && msg.text && msg.text.trim().length > 0) {
+                            var _disable = (msg.sender === 'user');
+                            initialiseVoteBank($card, msg.text, msg.message_id, conversationId, _disable);
+                        }
+                    });
+                } catch (_reinit_err) { /* ignore */ }
             }
 
             // Common post-load focus
