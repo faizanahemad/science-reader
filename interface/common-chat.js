@@ -3315,6 +3315,8 @@ function sendMessageCallback(skipAutoClarify) {
             // (the NL agent handles its own PKB operations directly)
             if (options && options.pkb_nl_command) {
                 console.log('[common-chat] Skipping checkMemoryUpdates for /pkb command');
+            } else if (window.chatSettingsState && window.chatSettingsState.auto_pkb_extract === false) {
+                console.log('[common-chat] Skipping checkMemoryUpdates: auto-save facts disabled');
             } else {
                 setTimeout(function() {
                     var conversationSummary = '';

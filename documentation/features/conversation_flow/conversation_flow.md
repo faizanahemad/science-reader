@@ -242,6 +242,26 @@ Location: `interface/common-chat.js` (ConversationManager.activateConversation)
   - wiring document upload/download/share buttons
   - focusing the input and updating the URL
 
+#### DOM snapshot caching — what IS and IS NOT preserved
+
+The snapshot (`RenderedStateManager`, `interface/rendered-state-manager.js`) stores the **serialised innerHTML** of `#chatView` in IndexedDB. This means:
+
+- ✅ **Preserved**: rendered HTML of every message card (markdown → HTML, tabs, code blocks, MathJax output, slide iframes, section collapse state)
+- ❌ **NOT preserved**: JavaScript event handlers attached to DOM nodes — these are lost when `chatView.innerHTML` is overwritten on restore.
+
+Because event handlers are gone after a snapshot restore, any per-card JS initialisation that was performed during `renderMessages` must be **explicitly re-run** in the `keepSnapshot` branch (`activateConversation` ~line 729 of `common-chat.js`). Currently re-initialised after restore:
+
+| Initialisation | Why needed after restore |
+|---|---|
+| `initialiseVoteBank($card, text, ...)` for each `.message-card` | Wires the right-side copy button click handler and populates the triple-dot dropdown menu with TTS / Edit / Save-to-Memory items. Without this, both buttons silently do nothing. |
+| `attachSectionListeners($chatView[0])` | Re-attaches collapsible section toggle listeners. |
+| `fetchConversationUIState(conversationId, ...)` | Restores persisted section hidden/visible state from server. |
+
+**Developer rule**: if you add new JS-based initialisation inside `renderMessages` that attaches handlers to message cards (e.g. new button, new tooltip, new interactive widget), you **must** also call it in the `keepSnapshot` branch so snapshot-loaded conversations behave identically to freshly rendered ones.
+
+#### Snapshot version invalidation
+
+Snapshots are keyed by `RENDER_SNAPSHOT_VERSION` (defined in `interface/rendered-state-manager.js` via `window.UI_CACHE_VERSION`). Bump this version whenever the rendered HTML structure of message cards changes incompatibly (e.g. new card elements, changed class names, removed wrapper divs). Old snapshots whose version does not match are discarded and the conversation is re-rendered from the API. The service worker `CACHE_VERSION` in `interface/service-worker.js` should be bumped at the same time so clients pick up the new JS that reads the new snapshot format.
 ### `ChatManager.renderMessages()` (history + non-streaming)
 Location: `interface/common-chat.js`
 

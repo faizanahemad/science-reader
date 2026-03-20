@@ -433,6 +433,8 @@ This feature is sensitive to cached DOM snapshots and cached JS:
 
 When changing tab behavior, bump both together.
 
+**Important — snapshots preserve HTML only, not JS handlers.** When a snapshot is restored (`keepSnapshot = true` in `activateConversation`), `renderMessages` is skipped. Any per-card JS initialisation (click handlers, dropdown population) must be re-run explicitly in the `keepSnapshot` branch. See the *DOM snapshot caching* section in `documentation/features/conversation_flow/conversation_flow.md` for the full list and the developer rule for adding new initialisations.
+
 ## Stream-Safe TLDR Handling
 
 During streaming, `<answer_tldr>` tags may arrive without their closing counterpart. To prevent malformed HTML from hiding the main answer:
