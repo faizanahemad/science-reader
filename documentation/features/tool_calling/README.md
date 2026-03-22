@@ -6,7 +6,7 @@ The LLM Tool Calling Framework adds native, mid-response tool calling to the cha
 
 This transforms the application from a "configure then send" model to a truly agentic one where the LLM reasons about what it needs and acts accordingly. The framework supports multi-step tool chains (up to 5 iterations per turn), interactive tools that pause for user input, and server-side tools that execute silently.
 
-**Key numbers**: 58 tools across 11 categories. 1 interactive tool (`ask_clarification`). Master toggle + per-category toggles. 60-second interactive timeout. 5-iteration hard cap. 50000-character result truncation. Tool use enabled by default with `ask_clarification` pre-selected. Search-intent auto-detection dynamically adds web search tools based on message keywords. Tool call history records all executions in per-user SQLite for LLM-driven result reuse.
+**Key numbers**: 87 tools across 13 categories. 2 interactive tools (`ask_clarification`, `pkb_propose_memory`). Master toggle + per-category toggles. 60-second interactive timeout. 5-iteration hard cap. 50000-character result truncation. Tool use enabled by default with `ask_clarification` pre-selected. Search-intent auto-detection dynamically adds web search tools based on message keywords. Tool call history records all executions in per-user SQLite for LLM-driven result reuse.
 
 **Plan reference**: `documentation/planning/plans/llm_tool_calling_framework.plan.md`
 
@@ -17,7 +17,7 @@ This transforms the application from a "configure then send" model to a truly ag
 Tool calling is controlled via the chat settings panel (gear icon in the chat input area):
 
 1. **Master toggle**: "Enable Tools" checkbox -- gates all tool functionality. When OFF, the LLM behaves exactly as before (plain text responses, no tool invocations). **Enabled by default** for new sessions.
-2. **Tool selector dropdown**: When the master toggle is ON, a Bootstrap Select multi-select dropdown appears (`#settings-tool-selector`). This dropdown lists all 53 tools grouped by category using `<optgroup>` elements. Users can:
+2. **Tool selector dropdown**: When the master toggle is ON, a Bootstrap Select multi-select dropdown appears (`#settings-tool-selector`). This dropdown lists all 87 tools grouped by category using `<optgroup>` elements. Users can:
    - **Select/deselect individual tools** -- granular per-tool control
    - **Select/deselect entire categories** -- via the optgroup headers (Bootstrap Select `data-actions-box`)
    - **Search tools by name** -- via `data-live-search` filter
@@ -35,15 +35,17 @@ Settings are persisted per-conversation via the existing chat settings mechanism
 |---|---|---|---|
 | `clarification` | 1 | ON | Interactive clarification questions with MCQ options. Pauses stream, shows modal, collects user answers, resumes. |
 | `search` | 5 | ON | Web search (standard, Perplexity, Jina), page reading (Jina Reader, generic link reader). |
-| `documents` | 10 | ON | Search/query conversation docs and global docs. List, get metadata, get full text, semantic search, LLM-answered questions. |
-| `pkb` | 10 | OFF | Personal Knowledge Base operations. Search claims (hybrid/FTS/embedding), resolve `@`-references, get/add/edit/pin claims, autocomplete. |
+| `documents` | 14 | ON | Search/query conversation docs and global docs. List, get metadata, get full text, semantic search, LLM-answered questions. Upload, delete, tag, and folder-assign global docs. |
+| `pkb` | 16 | OFF | Personal Knowledge Base operations. Search claims (hybrid/FTS/embedding), resolve `@`-references, get/add/edit/delete/pin claims, autocomplete, NL command agent, interactive memory proposals, list contexts/entities/tags. |
 | `memory` | 7 | OFF | Conversation memory access. Memory pad read/write, conversation history, user detail/preferences, raw message retrieval. |
-| `code_runner` | 1 | OFF | Run Python code in the project's IPython environment. 120-second execution timeout. Sandboxed. |
+| `code_runner` | 1 | OFF | Run Python code in the project's conda environment. Default 30s timeout; LLM can specify custom timeout_seconds for longer tasks. Sandboxed. |
 | `artefacts` | 8 | OFF | Conversation artefact (file) management. List, create, get, update, delete artefacts. LLM-powered propose/apply edits. |
 | `prompts` | 5 | OFF | Saved prompts and LLM actions. List, get, create, update prompts. Run ephemeral LLM actions (explain, critique, expand, ELI5). |
 | `conversation` | 5 | OFF | Search, list, and read individual messages. Get conversation overview and memory pad. BM25 keyword search + text/regex matching. |
 | `cross_conversation` | 3+4 | OFF | Cross-conversation search/list/summary (3 tools) + tool call history (4 tools: list/get for search history, list/get for all tool history). |
-| `aggregator` | 1 | OFF | Delegate sub-tasks to an autonomous agent with its own tool access. The agent runs a multi-step tool loop (up to 5 iterations) and returns a synthesized answer. 3 profiles: research, documents, general. |
+| `aggregator` | 4 | OFF | Delegate sub-tasks to an autonomous agent. `delegate_task` (blocking), `delegate_task_background` (fires sub-agent in a daemon thread, returns task_id immediately so the main LLM can continue), `get_task_result` (polls by task_id), `list_background_tasks` (enumerate all tasks). 3 profiles: research, documents, general. |
+| `coding` | 12 | OFF | File system navigation, PDF reading (with page selection), image analysis via vision LLM, LLM-agent file structure/summary, todo list management. `fs_read_file` now handles PDFs and images. Dedicated `fs_read_pdf` with page selection + truncation flag. `fs_get_file_structure_and_summary` is a tool-calling agent loop (up to 5 sub-calls). All paths sandboxed to project root. |
+| `general` | 2 | OFF | Image generation and audio transcription. `generate_image`, `transcribe_audio`. |
 
 Categories default to OFF for write-capable or resource-intensive tools (PKB, memory, code_runner, artefacts, prompts) and ON for read-only information retrieval (clarification, search, documents).
 
@@ -289,7 +291,7 @@ Key methods:
 `renderStreamingResponse()` is extended to detect tool event types in JSON-line chunks and dispatch to `ToolCallManager` methods.
 
 **Settings UI** (`interface/interface.html` + `interface/chat.js`):
-Master toggle checkbox (`#settings-enable_tool_use`) controls visibility of the tool selector. When enabled, a Bootstrap Select multi-select dropdown (`#settings-tool-selector`) appears with 9 `<optgroup>` categories and 53 individual tool `<option>` elements. The dropdown supports:
+Master toggle checkbox (`#settings-enable_tool_use`) controls visibility of the tool selector. When enabled, a Bootstrap Select multi-select dropdown (`#settings-tool-selector`) appears with 13 `<optgroup>` categories and 87 individual tool `<option>` elements. The dropdown supports:
 - `data-live-search="true"` -- type-ahead search filtering
 - `data-actions-box="true"` -- Select All / Deselect All buttons
 - `data-selected-text-format="count > 3"` -- shows count when >3 tools selected
@@ -515,20 +517,20 @@ Manual testing checklist:
 
 | File | Type | Description |
 |---|---|---|
-| `code_common/tools.py` | **New** | Tool registry framework: `ToolRegistry`, `ToolDefinition`, `ToolContext`, `ToolCallResult`, `@register_tool` decorator, 53 tool definitions (48 original + 5 conversation), `TOOL_REGISTRY` singleton |
+| `code_common/tools.py` | **New** | Tool registry framework: `ToolRegistry`, `ToolDefinition`, `ToolContext`, `ToolCallResult`, `@register_tool` decorator, 87 tool definitions, `TOOL_REGISTRY` singleton |
 | `code_common/call_llm.py` | Modified | Added `tools` and `tool_choice` parameters to `call_chat_model()` and `call_llm()`. Extended `_extract_text_from_openai_response()` to parse streaming `delta.tool_calls` and yield tool call dicts. |
 | `call_llm.py` (project root) | Modified | Threaded `tools` and `tool_choice` through `CallLLm.__call__()` to the underlying `call_llm()` |
 | `Conversation.py` | Modified | Added `_get_enabled_tools(checkboxes)`, `_run_tool_loop()` generator method, tool-aware branching in `reply()`, preamble injection for tool awareness, `search_messages()`, `list_messages()`, `read_message()`, `get_conversation_details()`, `_get_or_create_search_index()`, `_index_messages_for_search()`, `message_search_index` in `store_separate` |
 | `endpoints/conversations.py` | Modified | Added `POST /tool_response/<conversation_id>/<tool_id>` endpoint, `wait_for_tool_response()` function, thread-safe response storage (`_tool_response_events`, `_tool_response_data`, `_tool_response_lock`). Added 5 conversation message tools (search, list, read, details, memory pad) |
 | `interface/tool-call-manager.js` | **New** | `ToolCallManager` singleton: inline status indicators, interactive tool modal rendering, MCQ form, response submission, event handler wiring |
-| `interface/interface.html` | Modified | Added Bootstrap Select 1.13.18 CDN (CSS + JS), master "Enable Tools" toggle, `<select multiple id="settings-tool-selector">` with 9 `<optgroup>` categories and 53 individual tool `<option>` elements, `#tool-call-modal` Bootstrap modal for interactive tools, CSS for dropdown max-height, Conversation optgroup (5 tools) |
+| `interface/interface.html` | Modified | Added Bootstrap Select 1.13.18 CDN (CSS + JS), master "Enable Tools" toggle, `<select multiple id="settings-tool-selector">` with 13 `<optgroup>` categories and 87 individual tool `<option>` elements, `#tool-call-modal` Bootstrap modal for interactive tools, CSS for dropdown max-height, Conversation optgroup (5 tools) |
 | `interface/chat.js` | Modified | Settings persistence for `enable_tool_use` and `enabled_tools` (reads from selectpicker as array of tool names), `setModalFromState()` with dual-format support (new array + legacy dict via `categoryDefaults` mapping), selectpicker refresh on modal open, `conversation` category in `categoryDefaults` |
 | `interface/common-chat.js` | Modified | Extended `renderStreamingResponse()` to detect and dispatch tool event types (`tool_call`, `tool_status`, `tool_input_request`, `tool_result`) to `ToolCallManager`. Added search-intent auto-detection: `WEB_SEARCH_TOOLS` constant, `SEARCH_INTENT_PATTERNS` (27 regex patterns), `detectSearchIntent()` and `mergeWebSearchTools()` functions, plus inline interception in `sendMessageCallback()` after `mergeOptions()`. |
 | `interface/common.js` | Modified | `getOptions()` reads tool settings from `#settings-tool-selector` selectpicker via IIFE with fallback |
 | `interface/service-worker.js` | Modified | Added `tool-call-manager.js` to precache file list |
 | `code_common/conversation_search.py` | **New** | Shared tool metadata (CONVERSATION_TOOLS dict), markdown extraction (`extract_markdown_features`), BM25 message index (`MessageSearchIndex`), tokenization with unigram+bigram support |
 
-## Tool Inventory (53 Tools)
+## Tool Inventory (87 Tools)
 
 ### clarification (1 tool)
 
@@ -555,7 +557,7 @@ Manual testing checklist:
 - `jina_read_page`: `url` (required)
 - `read_link`: `url` (required), `context` (string, default "Read and extract all content"), `detailed` (bool, default false)
 
-### documents (10 tools)
+### documents (14 tools)
 
 | Tool | Description | Interactive |
 |---|---|---|
@@ -569,14 +571,22 @@ Manual testing checklist:
 | `docs_get_global_doc_info` | Get metadata about a global document by doc_id (including priority, date_written, deprecated). | No |
 | `docs_query_global_doc` | Semantic search within a global document by doc_id. | No |
 | `docs_get_global_doc_full_text` | Retrieve full text content of a global document by doc_id. | No |
+| `upload_global_doc` | Upload a local file as a global document. Reads the file from the server filesystem, indexes it, and registers it. Optionally attach tags. | No |
+| `delete_global_doc` | Delete a global document by ID. Removes the database record (does not delete filesystem storage). | No |
+| `set_global_doc_tags` | Set tags on a global document (replaces existing tags). Atomically replaces all tags with the provided list. | No |
+| `assign_doc_to_folder` | Assign a global document to a folder, or move to Unfiled by passing empty folder_id. | No |
 
 **Key parameters**:
 - `document_lookup`: `query` (required), `doc_scope` (enum: "conversation"/"global"/"all", default "all")
 - `docs_query` / `docs_query_global_doc`: `doc_storage_path` or `doc_id` (required), `query` (required), `token_limit` (int, default 4096)
 - `docs_get_full_text` / `docs_get_global_doc_full_text`: `doc_storage_path` or `doc_id` (required), `token_limit` (int, default 16000)
 - `docs_answer_question`: `doc_storage_path` (required), `question` (required)
+- `upload_global_doc`: `file_path` (required), `tags` (array of strings, optional)
+- `delete_global_doc`: `doc_id` (required)
+- `set_global_doc_tags`: `doc_id` (required), `tags` (array of strings, required)
+- `assign_doc_to_folder`: `doc_id` (required), `folder_id` (required, empty string for Unfiled)
 
-### pkb (10 tools)
+### pkb (16 tools)
 
 | Tool | Description | Interactive |
 |---|---|---|
@@ -590,12 +600,24 @@ Manual testing checklist:
 | `pkb_autocomplete` | Autocomplete PKB friendly IDs by prefix. | No |
 | `pkb_resolve_context` | Resolve a context to its full claim tree. | No |
 | `pkb_pin_claim` | Pin or unpin a claim for prominence (write operation). | No |
+| `pkb_delete_claim` | Soft-delete (retract) a claim from the PKB. Marked as retracted and excluded from default search results. | No |
+| `pkb_nl_command` | Process a natural language command against the PKB. Accepts free-form text and performs multi-step CRUD operations using an internal agentic LLM loop. | No |
+| `pkb_propose_memory` | Propose memory entries (claims) to the user for review before saving. Shows a modal with pre-filled fields the user can edit and confirm. | Yes |
+| `pkb_list_contexts` | List all PKB contexts for the user. Returns context_id, name, description, and claim_count. | No |
+| `pkb_list_entities` | List all PKB entities for the user. Returns entity_id, entity_type, name, and metadata. | No |
+| `pkb_list_tags` | List all PKB tags for the user. Returns tag_id, name, parent_tag_id, and metadata. | No |
 
 **Key parameters**:
 - `pkb_search`: `query` (required), `k` (int, default 20), `strategy` (enum: "hybrid"/"fts"/"embedding", default "hybrid")
 - `pkb_add_claim`: `statement` (required), `claim_type` (required), `context_domain` (required), `tags` (array of strings)
 - `pkb_edit_claim`: `claim_id` (required), `statement` (optional), `tags` (optional)
 - `pkb_pin_claim`: `claim_id` (required), `pin` (bool, default true)
+- `pkb_delete_claim`: `claim_id` (required)
+- `pkb_nl_command`: `command` (required), `model` (optional, default openai/gpt-4o-mini)
+- `pkb_propose_memory`: `claims` (required, array of objects with `text`, `claim_type`, optional `valid_from`/`valid_to`/`tags`/`entities`/`context`), `message` (optional)
+- `pkb_list_contexts`: no required parameters
+- `pkb_list_entities`: `entity_type` (optional filter), `limit` (int, default 100)
+- `pkb_list_tags`: `limit` (int, default 100)
 
 ### memory (7 tools)
 
@@ -618,9 +640,9 @@ Manual testing checklist:
 
 | Tool | Description | Interactive |
 |---|---|---|
-| `run_python_code` | Run Python code in project's IPython environment with 120s timeout. | No |
+| `run_python_code` | Run Python code in project's conda environment. Default 30s timeout; LLM specifies custom `timeout_seconds` (e.g. 60-120) for longer tasks. | No |
 
-**Parameters**: `code_string` (required) -- the Python code to execute.
+**Parameters**: `code_string` (required) -- the Python code to execute. `timeout_seconds` (optional, default 30) -- max seconds to run; LLM should set higher (e.g. 60-120) for data processing or heavy computation.
 
 ### artefacts (8 tools)
 
@@ -689,27 +711,78 @@ Manual testing checklist:
 - `get_tool_call_results`: `ids` (required, array of strings, 1-10 IDs from list_tool_call_history)
 
 
-### aggregator (1 tool)
+### aggregator (4 tools)
 
 | Tool | Description | Interactive |
 |---|---|---|
-| `delegate_task` | Delegate a sub-task to an autonomous agent with its own tool access. The agent runs a multi-step tool loop (up to 5 iterations) and returns a synthesized text answer. 3 profiles control which tools the agent gets: `research` (web search + docs), `documents` (doc analysis + conversation), `general` (all non-interactive tools). | No |
+| `delegate_task` | Delegate a sub-task to an autonomous agent (blocking). Runs a full tool loop (up to 5 iterations) and returns a synthesised answer. 3 profiles: `research`, `documents`, `general`. | No |
+| `delegate_task_background` | Fire-and-forget version. Starts the sub-agent in a daemon thread and returns a `task_id` immediately so the main LLM can continue working in parallel. | No |
+| `get_task_result` | Poll for the result of a background task by `task_id`. Returns `{"status": "running"|"done"|"error", "result": "..."}`. | No |
+| `list_background_tasks` | List all background tasks (running and completed) in this server session. Returns task_id, status, age, and result preview. Expired tasks (>30 min) are pruned during this call. | No |
 
 **Key parameters**:
-- `delegate_task`: `prompt` (required, task description), `profile` (required, enum: "research"/"documents"/"general")
+- `delegate_task`: `prompt` (required), `profile` (required, enum: `"research"`/`"documents"`/`"general"`)
+- `delegate_task_background`: same params — returns `{"task_id": "<uuid>", "status": "running"}` immediately
+- `get_task_result`: `task_id` (required)
+- `list_background_tasks`: `status_filter` (enum: "all"/"running"/"done"/"error", default "all")
 
-**Architecture notes**:
-- Core module: `code_common/agent_tool.py` — constants (`AGENT_DEFAULT_MODEL`, `AGENT_MAX_ITERATIONS`, `AGENT_PROFILES`), shared metadata (`AGENT_TOOLS`), and `run_agent_loop()` function.
-- Non-streaming sub-agent loop: calls `call_llm(stream=False, tools=...)` in a loop, parses mixed str/dict responses, executes tool calls via `TOOL_REGISTRY.execute()`.
-- Profile-based tool access: `AGENT_PROFILES` dict maps profile names to lists of tool names. Adding a new tool to a profile = adding its name to the list.
-- 1-level recursion: The `general` profile includes `delegate_task` itself. At depth >= 2, `delegate_task` is stripped from the tool list to prevent infinite recursion.
-- Sub-agent tool calls are explicitly recorded in `tool_call_history` with `source="agent_delegate"`.
-- MCP version in `mcp_server/mcp_app.py` constructs a `ToolContext` from `_mcp_request_context` and calls the same `run_agent_loop()`.
-- Default model: `openai/gpt-4o-mini` (configurable via `AGENT_DEFAULT_MODEL` or `model_overrides.agent_model`).
-- Wall-clock timeout: 5 minutes (`AGENT_TIMEOUT_SECONDS`).
-- Fail-open: all errors produce text error messages, never crash the main response.
+**Background execution**: Tasks in `_BACKGROUND_TASKS` dict in `code_common/agent_tool.py`, keyed by UUID4. Daemon thread runs `run_agent_loop()`, writes result on completion. Tasks expire after 30 min. The `general` profile includes `delegate_task_background`.
+
+**Synchronous notes** (for `delegate_task`): `run_agent_loop()` is a plain blocking function. Calls `call_llm(stream=False)`, executes tool calls via `TOOL_REGISTRY.execute()`. 1-level recursion guard (stripped at depth ≥ 2). Default model: `openai/gpt-4o-mini`. 5-min wall-clock timeout.
 
 **Plan reference**: `documentation/planning/plans/agent_delegate_task.plan.md`
+
+### general (2 tools)
+
+| Tool | Description | Interactive |
+|---|---|---|
+| `generate_image` | Generate an image from a text prompt. Optionally accepts a base64 input image for editing/transformation. | No |
+| `transcribe_audio` | Transcribe an audio file to text. Reads the audio file from the server filesystem and returns transcribed text using OpenAI or AssemblyAI. | No |
+
+**Key parameters**:
+- `generate_image`: `prompt` (required), `base64_input` (optional, base64 data URI of existing image to edit)
+- `transcribe_audio`: `audio_file_path` (required)
+
+### coding (12 tools)
+
+| Tool | Description | Interactive |
+|---|---|---|
+| `fs_read_file` | Read file contents. Text: numbered lines with optional line range. PDF: page-separated text (pdfplumber). Image: vision LLM produces OCR + Scene + Objects + Summary. | No |
+| `fs_write_file` | Write (create or overwrite) a file within the project directory. Creates parent directories as needed. | No |
+| `fs_list_dir` | List entries in a project directory: name, type, size, last-modified. | No |
+| `fs_find_files` | Find files matching a glob pattern under a base directory (recursive). Returns paths relative to project root. | No |
+| `fs_grep` | Search file contents by regular expression. Returns matching lines with file and line number. | No |
+| `fs_file_info` | Get metadata (exists, type, size, modified) for a path. Useful for existence checks before reading/writing. | No |
+| `todo_write` | Write/replace a structured todo list (global or per-conversation). Each task: content, status, priority. | No |
+| `todo_read` | Read the current todo list (global or per-conversation). Returns JSON array of task objects. | No |
+| `fs_read_pdf` | Dedicated PDF reader with page selection (int, `'1-5'` range, `'1,3,5'` list, or array). Metadata header reports pages read, total, and truncation flag. | No |
+| `fs_get_file_structure_and_summary` | LLM agent loop (up to 5 sub-calls) to produce STRUCTURE outline + 2-3 paragraph SUMMARY. Autonomously picks strategy per file type. For images: single vision call. | No |
+| `fs_patch_file` | Replace a line range with new content. Write operation. | No |
+| `fs_bash` | Run a bash command in the project root. 300s timeout. Write-capable. | No |
+
+**Key parameters**:
+- `fs_read_file`: `path` (required), `start_line` (int, default 1), `end_line` (int, default 0 = end). Ignored for PDFs and images.
+- `fs_read_pdf`: `path` (required), `pages` (optional — int, string `'1-5'`/`'1,3,5'`, or int array)
+- `fs_get_file_structure_and_summary`: `path` (required)
+- `fs_write_file`: `path` (required), `content` (required)
+- `fs_patch_file`: `path` (required), `start_line` (required), `end_line` (required), `new_content` (required)
+- `fs_bash`: `command` (required), `timeout_seconds` (optional, default 30)
+- `fs_list_dir`: `path` (string, default ".")
+- `fs_find_files`: `pattern` (required), `base_path` (string, default "."), `max_results` (int, default 100)
+- `fs_grep`: `pattern` (required, Python regex), `path` (default "."), `include_glob` (default "*"), `case_sensitive` (bool, default true), `max_results` (int, default 100)
+- `fs_file_info`: `path` (required)
+- `todo_write`: `todos` (required, JSON string array), `scope` (enum: "global"/"conversation", default "global"), `conversation_id` (required when scope="conversation")
+- `todo_read`: `scope` (default "global"), `conversation_id` (required when scope="conversation")
+
+**Safety**: All file system tools enforce path-traversal protection — any path that resolves outside `os.getcwd()` (the project root) is rejected with an error. File operations cannot escape the project directory.
+
+**Todo storage**: Global todos → `storage/todo.json`. Conversation todos → `storage/conversations/{conv_id}/todo.json`. Task objects support arbitrary fields; recommended schema: `{id, content, status, priority}`. IDs are auto-assigned (1-based) if missing.
+
+**MCP server**: `mcp_server/coding_tools.py` — port 8108. All 12 coding tools available via MCP including `fs_read_pdf`, `fs_get_file_structure_and_summary`, and image/PDF branches of `fs_read_file`. Entry in `opencode.json` as `coding-tools`.
+
+**`fs_get_file_structure_and_summary` agent design**: Uses `TOOL_REGISTRY.get_openai_tools_param()` to give the LLM real OpenAI-format schemas for 5 tools (`fs_read_file`, `fs_read_pdf`, `fs_grep`, `fs_list_dir`, `fs_bash`). Calls `call_llm(stream=True, tools=[...], messages=[...])`, collects text chunks and tool-call dicts from the generator, executes via `TOOL_REGISTRY.execute()`, appends results to message history, loops back. On max tool calls: removes tools and nudges LLM to produce `STRUCTURE:` / `SUMMARY:` free text.
+
+**Image support** (`_FS_IMAGE_EXTENSIONS`): `.jpg/.jpeg/.png/.gif/.webp/.bmp/.tiff/.tif`. `_fs_describe_image()` calls `call_llm(..., images=[abs_path])` with `VERY_CHEAP_LLM[0]` = `google/gemini-3.1-flash-lite-preview` (confirmed vision-capable in `VISION_CAPABLE_MODELS`). Returns four sections: **OCR**, **Scene Description**, **Objects & Elements**, **Summary**.
 ## Implementation Notes
 
 1. **Coexistence with `/clarify`**: The tool-based `ask_clarification` and the existing `/clarify` slash command + auto-clarify checkbox are independent systems. `/clarify` is a pre-send mechanism (intercepts before the message reaches the LLM). Tool-based clarification is mid-response (LLM decides to ask). Both can be active simultaneously without conflict.
@@ -730,7 +803,7 @@ Manual testing checklist:
 
 9. **Service worker cache**: When modifying `tool-call-manager.js`, bump both `CACHE_VERSION` in `service-worker.js` and the `?v=N` query parameter in the script tag in `interface.html`.
 
-10. **Handler implementation status**: All 53 tool handlers have real implementations wired to the underlying business logic. No stubs remain. The handlers mirror the exact logic from the MCP server modules (`mcp_server/docs.py`, `mcp_server/pkb.py`, `mcp_server/conversation.py`, `mcp_server/code_runner_mcp.py`, `mcp_server/artefacts.py`, `mcp_server/prompts_actions.py`) and call the same underlying functions (e.g. `DocIndex.semantic_search_document()`, `StructuredAPI.for_user().search()`, `Conversation.list_artefacts()`) directly without going through MCP transport. Helper functions per category (e.g. `_docs_load_doc_index()`, `_get_pkb_api()`, `_conv_load()`, `_art_load_conversation()`, `_get_prompt_manager()`) are defined inline in `code_common/tools.py` before each category's tool registrations.
+10. **Handler implementation status**: All 87 tool handlers have real implementations wired to the underlying business logic. No stubs remain. The handlers mirror the exact logic from the MCP server modules (`mcp_server/docs.py`, `mcp_server/pkb.py`, `mcp_server/conversation.py`, `mcp_server/code_runner_mcp.py`, `mcp_server/artefacts.py`, `mcp_server/prompts_actions.py`) and call the same underlying functions (e.g. `DocIndex.semantic_search_document()`, `StructuredAPI.for_user().search()`, `Conversation.list_artefacts()`) directly without going through MCP transport. Helper functions per category (e.g. `_docs_load_doc_index()`, `_get_pkb_api()`, `_conv_load()`, `_art_load_conversation()`, `_get_prompt_manager()`) are defined inline in `code_common/tools.py` before each category's tool registrations.
 
 11. **HTTP-delegated tools**: Two artefact tools (`artefacts_propose_edits`, `artefacts_apply_edits`) and one prompt tool (`temp_llm_action`) delegate to Flask HTTP endpoints rather than calling business logic directly. This is because these operations involve complex LLM streaming or optimistic concurrency that is already implemented in the Flask endpoints.
 

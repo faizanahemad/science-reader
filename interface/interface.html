@@ -2424,6 +2424,12 @@
                                             <label class="form-check-label" for="settings-compact_nav">Compact Nav</label>
                                         </div>
                                     </div>
+                                    <div class="col-md-3">
+                                        <div class="form-check mb-2">
+                                            <input class="form-check-input" id="settings-default_temp_chat" type="checkbox">
+                                            <label class="form-check-label" for="settings-default_temp_chat">Default Temp Chat</label>
+                                        </div>
+                                    </div>
                                 </div>
                                 <div id="tool-use-options" class="mt-2">
                                     <label class="small text-muted mb-1 d-block">Select which tools the LLM can use:</label>
@@ -2511,6 +2517,23 @@
                                             </optgroup>
                                             <optgroup label="Aggregator">
                                                 <option value="delegate_task">Delegate Task</option>
+                                                <option value="delegate_task_background">Delegate Task (Background)</option>
+                                                <option value="get_task_result">Get Task Result</option>
+                                                <option value="list_background_tasks">List Background Tasks</option>
+                                            </optgroup>
+                                            <optgroup label="Coding &amp; Files">
+                                                <option value="fs_read_file">Read File</option>
+                                                <option value="fs_write_file">Write File</option>
+                                                <option value="fs_patch_file">Patch File (replace lines)</option>
+                                                <option value="fs_list_dir">List Directory</option>
+                                                <option value="fs_find_files">Find Files</option>
+                                                <option value="fs_grep">Grep / Search Content</option>
+                                                <option value="fs_file_info">File Info</option>
+                                                <option value="fs_bash">Run Bash Command</option>
+                                                <option value="todo_write">Todo Write</option>
+                                                <option value="todo_read">Todo Read</option>
+                                                <option value="fs_read_pdf">Read PDF (with page selection)</option>
+                                                <option value="fs_get_file_structure_and_summary">File Structure &amp; Summary</option>
                                             </optgroup>
                                         </select>
                                     </div>
@@ -2528,6 +2551,36 @@
                                             $('#settings-tool-selector').selectpicker('refresh');
                                         }
                                     });
+
+                                    // Group header mousedown: fires before bootstrap-select swallows the click event
+                                    $(document).on('mousedown.toolGroupHeader', function(e) {
+                                        var $li = $(e.target).closest('li.dropdown-header');
+                                        if (!$li.length) return;
+                                        // Only act on headers inside our tool selector
+                                        if (!$li.closest('.bootstrap-select').has('#settings-tool-selector').length) return;
+
+                                        e.preventDefault(); // prevent focus loss / dropdown close
+                                        e.stopPropagation();
+
+                                        var groupLabel = $li.find('.text').text().trim() || $li.text().trim();
+                                        var $optgroup = $('#settings-tool-selector optgroup').filter(function() {
+                                            return $(this).attr('label') === groupLabel;
+                                        });
+                                        if (!$optgroup.length) return;
+
+                                        var $options = $optgroup.find('option');
+                                        var allSelected = $options.length > 0 && $options.filter(':selected').length === $options.length;
+                                        $options.prop('selected', !allSelected);
+                                        $('#settings-tool-selector').selectpicker('refresh').trigger('change');
+                                    });
+
+                                    // Style group headers as clickable
+                                    $('<style id="tool-group-header-style">').text(
+                                        'li.dropdown-header { cursor: pointer !important; pointer-events: auto !important; user-select: none; }' +
+                                        'li.dropdown-header:hover { background-color: #cfe2ff !important; border-radius: 4px; }' +
+                                        'li.dropdown-header span.text::after { content: " \25be"; font-size: 0.75em; color: #6c757d; }' +
+                                        '#tool-use-options .bootstrap-select .inner { padding-bottom: 60px !important; }'
+                                    ).appendTo('head');
                                 });
                                 </script>
                             </div>

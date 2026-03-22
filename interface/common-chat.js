@@ -2867,7 +2867,28 @@ function loadConversations(autoselect = true) {
 }
 
 function activateChatTab() {
-    loadConversations();
+    // On first page load only: if 'Default Temp Chat' setting is on, skip normal
+    // autoselect and go directly to createTemporaryConversation() to avoid a
+    // double-render race where loadConversations + createTemporaryConversation both
+    // call _processAndRenderData before jsTree's ready.jstree fires.
+    if (!window._defaultTempChatCreated) {
+        window._defaultTempChatCreated = true;
+        var defaultTempChat = false;
+        try {
+            var tabName = typeof getCurrentActiveTab === 'function' ? getCurrentActiveTab() : 'assistant';
+            var raw = localStorage.getItem(tabName + 'chatSettingsState');
+            if (raw) { defaultTempChat = !!JSON.parse(raw).default_temp_chat; }
+        } catch (_e) {}
+        if (defaultTempChat) {
+            // Skip loadConversations; createTemporaryConversation handles sidebar render
+            WorkspaceManager.createTemporaryConversation();
+            // Fall through to finish the DOM setup below
+        } else {
+            loadConversations();
+        }
+    } else {
+        loadConversations();
+    }
     $('#review-assistant-view').hide();
     $('#references-view').hide();
     $('#pdf-view').hide();

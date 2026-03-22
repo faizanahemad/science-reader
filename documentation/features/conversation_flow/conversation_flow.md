@@ -120,6 +120,24 @@ Settings are managed via the **chat-settings-modal** in `interface/interface.htm
 3. **On send message**: `getOptions('chat-options', 'assistant')` (common.js) reads current checkbox/select state and returns the `checkboxes` object. This is merged with slash-command overrides from `parseMessageForCheckBoxes()` and sent in the POST body.
 4. **On reset**: `resetSettingsToDefaults()` resets all controls to hardcoded defaults.
 
+### Settings Storage & Retrieval — Where to Look
+
+All Basic Options settings share a single serialisation path. When adding or debugging a setting:
+
+| Question | Where to look |
+|---|---|
+| **Where is the checkbox HTML?** | `interface/interface.html` — search for `settings-<key>` in `#chat-settings-modal > .basic-options` area |
+| **What is the default value?** | `interface/chat.js` `buildSettingsStateFromControlsOrDefaults()` — each key's fallback is defined here |
+| **How is the modal restored on open?** | `interface/chat.js` `setModalFromState(state)` — maps `state.<key>` to `$('#settings-<key>').prop('checked', ...)` or `.val(...)` |
+| **How is the value collected on modal close?** | `interface/chat.js` `collectSettingsFromModal()` — reads DOM and returns plain object |
+| **How is it persisted across sessions?** | `interface/chat.js` `persistSettingsStateFromModal()` → `localStorage.setItem('${tab}chatSettingsState', JSON.stringify(state))` |
+| **How is it loaded on page load?** | `interface/chat.js` `getPersistedSettingsState()` → parses `localStorage.getItem('${tab}chatSettingsState')` |
+| **What is the in-memory runtime object?** | `window.chatSettingsState` — updated on every modal close and on page load |
+| **Settings that gate client-side behaviour only** | Check `interface/common-chat.js` (e.g. `auto_pkb_extract` gates `checkMemoryUpdates()`). These are NOT sent to the backend. |
+| **Settings sent to the backend** | `interface/common.js` `getOptions('chat-options', 'assistant')` reads DOM checkboxes in `#chat-options` and returns the `checkboxes` POST body key |
+
+**Key rule**: a setting that only controls frontend behaviour (like `auto_pkb_extract`) lives in `chatSettingsState` and is read from `window.chatSettingsState` in `common-chat.js`. A setting that controls backend behaviour (like `use_pkb`) must also flow through `getOptions()` so it appears in `checkboxes` in the POST body.
+
 ### Key Settings (Basic Options checkboxes)
 
 | Setting | DOM ID | Default | Backend key | What it controls |
@@ -131,8 +149,10 @@ Settings are managed via the **chat-settings-modal** in `interface/interface.htm
 | PPT Answer | `settings-ppt-answer` | off | `ppt_answer` | Slide/presentation mode |
 | Use Memory Pad | `settings-use_memory_pad` | off | `use_memory_pad` | Include memory pad in prompt |
 | Use PKB Memory | `settings-use_pkb` | **on** | `use_pkb` | PKB claim retrieval + user info distillation |
+| Auto-save facts | `settings-auto_pkb_extract` | **on** | `auto_pkb_extract` | Automatic post-message fact detection via `PKBManager.checkMemoryUpdates()` → `POST /pkb/propose_updates`. When OFF the 3-second delayed check is suppressed entirely — no HTTP call is made and no memory-proposal modal appears. Does not affect `/pkb` slash commands or the `pkb_propose_memory` interactive tool. See `documentation/features/truth_management_system/README.md#auto-save-facts-auto_pkb_extract`. |
 | LLM Right-Click Menu | `settings-enable_custom_context_menu` | on (desktop) | `enable_custom_context_menu` | Context menu on selected text |
 | Planner | `settings-enable_planner` | off | `enable_planner` | Multi-step planner agent (hidden) |
+| Default Temp Chat | `settings-default_temp_chat` | off | *(client-only)* | When ON, page load auto-creates a temporary chat (via `WorkspaceManager.createTemporaryConversation()`) instead of resuming the last conversation. Fires once per page load via `activateChatTab()` with a `window._defaultTempChatCreated` guard to prevent repeated creation on tab switches. |
 
 | Enable Tool Use | `settings-enable_tool_use` | off | `enable_tool_use` | Master toggle for LLM tool calling (requires at least one category enabled). **Default-enabled tools**: When tool use is enabled, `DEFAULT_ENABLED_TOOLS` (`ask_clarification`, `pkb_nl_command`) are always force-enabled regardless of per-category selection (configured in `code_common/tools.py` and enforced in `interface/chat.js` `resetSettingsToDefaults()`). |
 | Enabled Tools | `settings-enabled_tools` (per-category checkboxes) | all off | `enabled_tools` | Per-category tool toggles: clarification, search, documents, pkb, memory, code_runner, artefacts, prompts, conversation. PKB category includes `pkb_nl_command` (NL agent), `pkb_delete_claim`, and `pkb_propose_memory` (interactive modal). See `documentation/features/tool_calling/README.md` |

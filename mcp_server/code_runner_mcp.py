@@ -70,8 +70,8 @@ def create_code_runner_mcp_app(
     # -----------------------------------------------------------------
 
     @mcp.tool()
-    def run_python_code(user_email: str, code_string: str) -> str:
-        """Run Python code in the project's IPython environment.
+    def run_python_code(user_email: str, code_string: str, timeout_seconds: int = 30) -> str:
+        """Run Python code in the project's conda environment.
 
         Executes code in a sandboxed Python environment with access to
         project-installed libraries (pandas, numpy, scikit-learn, matplotlib, etc.).
@@ -79,28 +79,38 @@ def create_code_runner_mcp_app(
         This differs from OpenCode's built-in bash tool:
         - Runs inside the project's conda environment (science-reader)
         - Has access to all project-installed packages
-        - Uses IPython with persistent state across calls
-        - Output is cleaned and formatted for readability
-        - 120-second timeout
+        - Default timeout is 30 seconds; specify timeout_seconds for longer tasks
+          (e.g. 60 for data processing, 120 for heavy computation)
 
         Args:
             user_email: Email of the requesting user.
             code_string: Python code to execute. Can be multi-line.
+            timeout_seconds: Max seconds to run (default 30). Increase for long tasks.
 
         Returns:
             Formatted execution output (stdout, stderr, success/failure indicator).
         """
         try:
-            from code_runner import run_code_once
+            from code_runner import run_code_with_constraints_v2, PythonEnvironmentWithForceKill
 
             logger.info(
-                "run_python_code called by %s (code length=%d)",
+                "run_python_code called by %s (code length=%d, timeout=%ds)",
                 user_email,
                 len(code_string) if code_string else 0,
+                timeout_seconds,
             )
-            result = run_code_once(code_string)
-            # run_code_once returns a formatted markdown string directly
-            return result if isinstance(result, str) else str(result)
+            success, failure_reason, stdout, stderr = run_code_with_constraints_v2(
+                code_string,
+                session=PythonEnvironmentWithForceKill(),
+                timeout=timeout_seconds,
+                pad_code_string=False,
+            )
+            result_text = stdout or ""
+            if stderr:
+                result_text += f"\nSTDERR:\n{stderr}"
+            if not success:
+                result_text += f"\nFAILURE: {failure_reason}"
+            return result_text
         except Exception as exc:
             logger.exception("run_python_code error: %s", exc)
             return f"Code execution failed: {exc}"

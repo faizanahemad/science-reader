@@ -15,6 +15,7 @@ Conversation (port 8104)  — ``start_conversation_mcp_server()``
 Prompts      (port 8105)  — ``start_prompts_actions_mcp_server()``
 Code Runner  (port 8106)  — ``start_code_runner_mcp_server()``
 Image Gen    (port 8107)  — ``start_image_gen_mcp_server()``
+Coding Tools (port 8108)  — ``start_coding_tools_mcp_server()``
 Environment variables
 ---------------------
 MCP_ENABLED : str
@@ -40,6 +41,9 @@ PROMPTS_MCP_ENABLED, PROMPTS_MCP_PORT : str
 CODE_RUNNER_MCP_ENABLED, CODE_RUNNER_MCP_PORT : str
     Enable/port for Code Runner MCP (defaults ``"true"`` / ``8106``).
 IMAGE_GEN_MCP_ENABLED, IMAGE_GEN_MCP_PORT : str
+    Enable/port for Image Gen MCP (defaults ``"true"`` / ``8107``).
+CODING_TOOLS_MCP_ENABLED, CODING_TOOLS_MCP_PORT : str
+    Enable/port for Coding & File Tools MCP (defaults ``"true"`` / ``8108``).
     Enable/port for Image Gen MCP (defaults ``"true"`` / ``8107``).
 """
 
@@ -112,6 +116,7 @@ from mcp_server.conversation import start_conversation_mcp_server
 from mcp_server.prompts_actions import start_prompts_actions_mcp_server
 from mcp_server.code_runner_mcp import start_code_runner_mcp_server
 from mcp_server.image_gen import start_image_gen_mcp_server
+from mcp_server.coding_tools import start_coding_tools_mcp_server
 
 __all__ = [
     "start_mcp_server",
@@ -122,4 +127,5 @@ __all__ = [
     "start_prompts_actions_mcp_server",
     "start_code_runner_mcp_server",
     "start_image_gen_mcp_server",
+    "start_coding_tools_mcp_server",
 ]

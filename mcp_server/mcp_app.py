@@ -734,6 +734,113 @@ def create_mcp_app(jwt_secret: str, rate_limit: int = 100) -> tuple[ASGIApp, Any
             result, time.time() - start_ts,
         )
         return result
+
+    # -----------------------------------------------------------------
+    # Aggregator: delegate_task_background
+    # -----------------------------------------------------------------
+
+    @mcp.tool()
+    def delegate_task_background(
+        prompt: str,
+        profile: str = "general",
+    ) -> str:
+        """Fire-and-forget sub-agent: starts in a background thread, returns task_id.
+
+        The sub-agent has full access to all tools in the chosen profile
+        (including fs_*, run_python_code, web search, MCP tools, etc.).
+        Use get_task_result(task_id=...) to poll for the result and
+        list_background_tasks() to enumerate all active tasks.
+
+        Args:
+            prompt: The task description for the background sub-agent.
+            profile: Tool profile ('research', 'documents', or 'general').
+        """
+        import json as _json
+        from code_common.agent_tool import start_background_agent
+        from code_common.tools import ToolContext
+
+        if not prompt:
+            return _json.dumps({"error": "Missing required parameter: prompt"})
+        if profile not in ("research", "documents", "general"):
+            return _json.dumps({"error": f"Invalid profile '{profile}'."})
+
+        mcp_context = ToolContext(
+            conversation_id="",
+            user_email=getattr(_mcp_request_context, 'user_email', 'unknown'),
+            keys=_get_keys(),
+            model_overrides={},
+        )
+        start_ts = time.time()
+        task_id = start_background_agent(prompt, profile, mcp_context)
+        result = _json.dumps({
+            "task_id": task_id,
+            "status": "running",
+            "message": f"Sub-agent started. Use get_task_result(task_id='{task_id}') to poll.",
+        })
+        _record_mcp_tool_call(
+            "delegate_task_background", "aggregator",
+            {"prompt": prompt, "profile": profile},
+            result, time.time() - start_ts,
+        )
+        return result
+
+    # -----------------------------------------------------------------
+    # Aggregator: get_task_result
+    # -----------------------------------------------------------------
+
+    @mcp.tool()
+    def get_task_result(task_id: str) -> str:
+        """Poll a background task by task_id. Returns status and result.
+
+        Status values: 'running', 'done', 'error', 'not_found', 'expired'.
+        Tasks expire after 30 minutes.
+
+        Args:
+            task_id: The task_id returned by delegate_task_background.
+        """
+        import json as _json
+        from code_common.agent_tool import get_background_task_result
+
+        if not task_id:
+            return _json.dumps({"error": "Missing required parameter: task_id"})
+        start_ts = time.time()
+        task = get_background_task_result(task_id)
+        result = _json.dumps(task)
+        _record_mcp_tool_call(
+            "get_task_result", "aggregator",
+            {"task_id": task_id},
+            result, time.time() - start_ts,
+        )
+        return result
+
+    # -----------------------------------------------------------------
+    # Aggregator: list_background_tasks
+    # -----------------------------------------------------------------
+
+    @mcp.tool()
+    def list_background_tasks(status_filter: str = "all") -> str:
+        """List all background tasks in this server session with status and result preview.
+
+        Expired tasks (>30 min) are pruned during this call.
+
+        Args:
+            status_filter: Filter by status: 'all', 'running', 'done', or 'error'.
+        """
+        import json as _json
+        from code_common.agent_tool import list_all_background_tasks
+
+        start_ts = time.time()
+        tasks = list_all_background_tasks(status_filter=status_filter)
+        result = _json.dumps(tasks, indent=2) if tasks else f"No background tasks found with status='{status_filter}'."
+        _record_mcp_tool_call(
+            "list_background_tasks", "aggregator",
+            {"status_filter": status_filter},
+            result, time.time() - start_ts,
+        )
+        return result
+
+    # -----------------------------------------------------------------
+    # Build the Starlette ASGI app with middleware layers
     # -----------------------------------------------------------------
     # Build the Starlette ASGI app with middleware layers
     # -----------------------------------------------------------------

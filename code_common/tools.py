@@ -824,6 +824,7 @@ def handle_document_lookup(args: dict, context: ToolContext) -> ToolCallResult:
         },
         "required": ["query"],
     },
+    category="search",
 )
 def handle_perplexity_search(args: dict, context: ToolContext) -> ToolCallResult:
     """Search using Perplexity AI.
@@ -4476,10 +4477,1000 @@ def handle_transcribe_audio(args: dict, context: ToolContext) -> ToolCallResult:
 
 
 # ===========================================================================
+# Coding category tools — ported from mcp_server/coding_tools.py
+# ===========================================================================
+
+# Maximum characters returned by coding file tools to keep results LLM-friendly
+_FS_MAX_READ_CHARS = 100_000
+_FS_MAX_GREP_MATCHES = 200
+
+
+def _coding_resolve_safe_path(rel_or_abs: str) -> str:
+    """Resolve a path and verify it stays within the project root (cwd).
+
+    Raises ValueError if the resolved path escapes the project root.
+    """
+    root = os.getcwd()
+    resolved = os.path.normpath(os.path.join(root, rel_or_abs))
+    if not resolved.startswith(root):
+        raise ValueError(
+            f"Path '{rel_or_abs}' escapes the project root '{root}'. "
+            "Only paths within the project directory are allowed."
+        )
+    return resolved
+
+
+def _coding_todo_path(scope: str, conversation_id: str) -> str:
+    """Return the absolute path to the todo JSON file.
+
+    scope='global' -> <STORAGE_DIR>/todo.json
+    scope='conversation' -> <STORAGE_DIR>/conversations/<conversation_id>/todo.json
+    """
+    storage = os.environ.get("STORAGE_DIR", "storage")
+    root = os.getcwd()
+    if scope == "conversation":
+        if not conversation_id:
+            raise ValueError("conversation_id is required when scope='conversation'.")
+        return os.path.join(root, storage, "conversations", conversation_id, "todo.json")
+    return os.path.join(root, storage, "todo.json")
+
+
+def _coding_get_keys(context: ToolContext) -> dict:
+    """Get API keys from context, falling back to keyParser."""
+    keys = context.keys if context.keys else {}
+    if not keys.get("openAIKey"):
+        from endpoints.utils import keyParser
+        keys = keyParser({})
+    return keys
+
+
+# ---------------------------------------------------------------------------
+# Tool: fs_read_file
+# ---------------------------------------------------------------------------
+
+@register_tool(
+    name="fs_read_file",
+    description=(
+        "Read the contents of a file, optionally restricted to a line range. "
+        "Supports plain text files, PDF files (.pdf auto-detected via pdfplumber), "
+        "and image files (analysed via vision LLM). "
+        "For text files use start_line/end_line to read a specific section. "
+        "For PDF files returns extracted text grouped by page (start_line/end_line ignored)."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "File path (relative to project root or absolute). .pdf files are read as PDFs."},
+            "start_line": {"type": "integer", "description": "First line to return (1-indexed, default 1). Text files only.", "default": 1},
+            "end_line": {"type": "integer", "description": "Last line to return inclusive (0 = read to end). Text files only.", "default": 0},
+        },
+        "required": ["path"],
+    },
+    is_interactive=False,
+    category="coding",
+)
+def handle_fs_read_file(args: dict, context: ToolContext) -> ToolCallResult:
+    """Read file contents — text with line numbers, PDF via pdfplumber, image via vision LLM."""
+    path = args.get("path", "")
+    start_line = int(args.get("start_line", 1))
+    end_line = int(args.get("end_line", 0))
+    logger.info("fs_read_file invoked: path=%s, user=%s", path, context.user_email)
+
+    if not path:
+        return ToolCallResult(tool_id="", tool_name="fs_read_file", result="", error="path is required.")
+
+    try:
+        abs_path = _coding_resolve_safe_path(path)
+        if not os.path.isfile(abs_path):
+            return ToolCallResult(tool_id="", tool_name="fs_read_file", result="", error=f"File not found: {path}")
+
+        # PDF branch
+        if abs_path.lower().endswith(".pdf"):
+            try:
+                import pdfplumber
+                with pdfplumber.open(abs_path) as pdf:
+                    pages_text = []
+                    for i, page in enumerate(pdf.pages, 1):
+                        text = page.extract_text()
+                        if text and text.strip():
+                            pages_text.append(f"--- Page {i} ---\n{text.strip()}")
+                if not pages_text:
+                    raise ValueError("pdfplumber found no extractable text in PDF")
+                full_text = "\n\n".join(pages_text)
+            except ImportError:
+                from base import freePDFReader
+                full_text = freePDFReader(abs_path)
+                if not full_text or not full_text.strip():
+                    raise ValueError("freePDFReader found no extractable text in PDF")
+            if len(full_text) > _FS_MAX_READ_CHARS:
+                full_text = full_text[:_FS_MAX_READ_CHARS] + "\n\n... [truncated — PDF too large]"
+            return ToolCallResult(tool_id="", tool_name="fs_read_file", result=full_text)
+
+        # Image branch
+        _IMAGE_EXTS = frozenset({".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff", ".tif"})
+        if os.path.splitext(abs_path)[1].lower() in _IMAGE_EXTS:
+            try:
+                from code_common.call_llm import call_llm
+                from common import VERY_CHEAP_LLM
+                _keys = _coding_get_keys(context)
+                system = "You are an expert image analyst. Produce a comprehensive analysis."
+                prompt = (
+                    "Analyse this image and return exactly the following four sections:\n\n"
+                    "**OCR**\nTranscribe all readable text, preserving structure.\n\n"
+                    "**Scene Description**\nDescribe setting, layout, visual composition.\n\n"
+                    "**Objects & Elements**\nBullet list of all key objects and visual elements.\n\n"
+                    "**Summary**\n2-3 sentence summary of what this image communicates."
+                )
+                result = call_llm(keys=_keys, model_name=VERY_CHEAP_LLM[0],
+                                  text=prompt, images=[abs_path],
+                                  temperature=0.0, stream=False, system=system)
+                return ToolCallResult(
+                    tool_id="", tool_name="fs_read_file",
+                    result=result if isinstance(result, str) else "(empty)",
+                )
+            except Exception as img_exc:
+                logger.exception("fs_read_file image error: %s", img_exc)
+                return ToolCallResult(tool_id="", tool_name="fs_read_file", result="", error=f"Image analysis failed: {img_exc}")
+
+        # Text branch
+        with open(abs_path, "r", encoding="utf-8", errors="replace") as fh:
+            lines = fh.readlines()
+
+        total = len(lines)
+        s = max(1, start_line) - 1  # 0-indexed
+        e = total if end_line <= 0 else min(end_line, total)
+
+        selected = lines[s:e]
+        numbered = "".join(f"{s + i + 1}: {line}" for i, line in enumerate(selected))
+
+        if len(numbered) > _FS_MAX_READ_CHARS:
+            numbered = numbered[:_FS_MAX_READ_CHARS] + "\n... [truncated]"
+
+        return ToolCallResult(tool_id="", tool_name="fs_read_file", result=numbered)
+
+    except ValueError as ve:
+        return ToolCallResult(tool_id="", tool_name="fs_read_file", result="", error=str(ve))
+    except Exception as exc:
+        logger.exception("fs_read_file error: %s", exc)
+        return ToolCallResult(tool_id="", tool_name="fs_read_file", result="", error=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Tool: fs_read_pdf
+# ---------------------------------------------------------------------------
+
+@register_tool(
+    name="fs_read_pdf",
+    description=(
+        "Read a PDF file with optional page selection. "
+        "Page selection via pages argument: empty=all, single='3', range='1-5', list='1,3,5'. "
+        "Returns up to 100,000 characters of extracted text prefixed by a metadata header."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "PDF file path (relative to project root)."},
+            "pages": {"type": "string", "description": "Page selection: empty=all, '3'=single, '1-5'=range, '1,3,5'=list.", "default": ""},
+        },
+        "required": ["path"],
+    },
+    is_interactive=False,
+    category="coding",
+)
+def handle_fs_read_pdf(args: dict, context: ToolContext) -> ToolCallResult:
+    """Read a PDF with optional page selection; 100k char truncation with header metadata."""
+    path = args.get("path", "")
+    pages_spec = args.get("pages", "")
+    logger.info("fs_read_pdf invoked: path=%s, pages=%s, user=%s", path, pages_spec, context.user_email)
+
+    if not path:
+        return ToolCallResult(tool_id="", tool_name="fs_read_pdf", result="", error="path is required.")
+
+    def _parse_pages(spec):
+        if not spec or not spec.strip():
+            return None
+        spec = spec.strip()
+        if "-" in spec and "," not in spec:
+            parts = spec.split("-", 1)
+            try:
+                return list(range(int(parts[0]) - 1, int(parts[1])))
+            except ValueError:
+                pass
+        if "," in spec:
+            try:
+                return sorted({int(p.strip()) - 1 for p in spec.split(",") if p.strip()})
+            except ValueError:
+                pass
+        try:
+            return [int(spec) - 1]
+        except ValueError:
+            return None
+
+    try:
+        abs_path = _coding_resolve_safe_path(path)
+        if not os.path.isfile(abs_path):
+            return ToolCallResult(tool_id="", tool_name="fs_read_pdf", result="", error=f"File not found: {path}")
+        if not abs_path.lower().endswith(".pdf"):
+            return ToolCallResult(tool_id="", tool_name="fs_read_pdf", result="", error=f"Not a PDF file: {path}")
+
+        page_indices = _parse_pages(pages_spec)
+        import pdfplumber
+        with pdfplumber.open(abs_path) as _pdf:
+            total = len(_pdf.pages)
+            selected = list(range(total)) if page_indices is None else [i for i in page_indices if 0 <= i < total]
+            pages_text = []
+            for idx in selected:
+                t = _pdf.pages[idx].extract_text()
+                if t and t.strip():
+                    pages_text.append(f"--- Page {idx + 1} ---\n{t.strip()}")
+        full_text = "\n\n".join(pages_text)
+        if not full_text.strip():
+            return ToolCallResult(tool_id="", tool_name="fs_read_pdf", result="", error="No extractable text in PDF")
+        truncated = len(full_text) > _FS_MAX_READ_CHARS
+        if truncated:
+            full_text = full_text[:_FS_MAX_READ_CHARS]
+        read_label = (
+            ", ".join(str(i + 1) for i in sorted(page_indices))
+            if page_indices is not None else "all pages"
+        )
+        header = (
+            f"[PDF: {os.path.basename(path)} | Reading: {read_label} | "
+            f"{total} total pages | Truncated: {'Yes' if truncated else 'No'}]\n\n"
+        )
+        return ToolCallResult(tool_id="", tool_name="fs_read_pdf", result=header + full_text)
+
+    except ImportError:
+        try:
+            from base import freePDFReader
+            abs_path = _coding_resolve_safe_path(path)
+            text = freePDFReader(abs_path)
+            truncated = len(text) > _FS_MAX_READ_CHARS
+            if truncated:
+                text = text[:_FS_MAX_READ_CHARS]
+            return ToolCallResult(
+                tool_id="", tool_name="fs_read_pdf",
+                result=f"[PDF: {os.path.basename(path)} | Truncated: {'Yes' if truncated else 'No'}]\n\n" + text,
+            )
+        except Exception as fe:
+            return ToolCallResult(tool_id="", tool_name="fs_read_pdf", result="", error=f"PDF read failed: {fe}")
+    except ValueError as ve:
+        return ToolCallResult(tool_id="", tool_name="fs_read_pdf", result="", error=str(ve))
+    except Exception as exc:
+        logger.exception("fs_read_pdf error: %s", exc)
+        return ToolCallResult(tool_id="", tool_name="fs_read_pdf", result="", error=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Tool: fs_get_file_structure_and_summary
+# ---------------------------------------------------------------------------
+
+@register_tool(
+    name="fs_get_file_structure_and_summary",
+    description=(
+        "Get LLM-generated structure and summary of a file. "
+        "Supports text, Markdown, PDF, and image files. An LLM orchestrates up to "
+        "5 reading iterations to build full understanding, then returns a structured "
+        "outline and a 2-3 paragraph summary."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "File path (relative to project root)."},
+        },
+        "required": ["path"],
+    },
+    is_interactive=False,
+    category="coding",
+)
+def handle_fs_get_file_structure_and_summary(args: dict, context: ToolContext) -> ToolCallResult:
+    """LLM agent loop (max 5 iterations) for file structure and summary."""
+    import re as _re
+    path = args.get("path", "")
+    logger.info("fs_get_file_structure_and_summary invoked: path=%s, user=%s", path, context.user_email)
+
+    if not path:
+        return ToolCallResult(tool_id="", tool_name="fs_get_file_structure_and_summary", result="", error="path is required.")
+
+    try:
+        abs_path = _coding_resolve_safe_path(path)
+        if not os.path.isfile(abs_path):
+            return ToolCallResult(tool_id="", tool_name="fs_get_file_structure_and_summary", result="", error=f"File not found: {path}")
+
+        from code_common.call_llm import call_llm
+        from common import VERY_CHEAP_LLM
+        _keys = _coding_get_keys(context)
+        ext = os.path.splitext(abs_path)[1].lower()
+        basename = os.path.basename(abs_path)
+        file_size = os.path.getsize(abs_path)
+        MAX_ITER = 5
+        BUDGET = 12_000
+        _IMAGE_EXTS = frozenset({".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff", ".tif"})
+
+        # Image: single-shot vision call
+        if ext in _IMAGE_EXTS:
+            system = "You are an expert image analyst."
+            prompt = (
+                "Analyse this image and return exactly the following four sections:\n\n"
+                "**OCR**\nTranscribe all visible text.\n\n"
+                "**Scene Description**\nDescribe setting and composition.\n\n"
+                "**Objects & Elements**\nBullet list of key objects.\n\n"
+                "**Summary**\n2-3 sentence summary."
+            )
+            desc = call_llm(keys=_keys, model_name=VERY_CHEAP_LLM[0],
+                            text=prompt, images=[abs_path],
+                            temperature=0.0, stream=False, system=system)
+            return ToolCallResult(
+                tool_id="", tool_name="fs_get_file_structure_and_summary",
+                result=f"[File: {basename} | Type: image]\n\n{desc}",
+            )
+
+        # Text / PDF iterative reading with LLM JSON protocol
+        SYSTEM = (
+            "You are a file analysis assistant. You read files in parts and build structural understanding.\n"
+            "Respond ONLY with valid JSON in one of two schemas:\n"
+            'If you need more: {"action": "read_more", "reason": "...", '
+            '"request": {"start_line": N, "end_line": N}} (for PDFs use "pages": "N-M")\n'
+            'When ready: {"action": "done", "structure": [...], "summary": "..."}'
+        )
+
+        is_pdf = ext == ".pdf"
+        is_md = ext in (".md", ".markdown")
+
+        if is_pdf:
+            try:
+                import pdfplumber
+                with pdfplumber.open(abs_path) as _p:
+                    total_pages = len(_p.pages)
+                    pages_text = []
+                    for idx in range(min(5, total_pages)):
+                        t = _p.pages[idx].extract_text()
+                        if t and t.strip():
+                            pages_text.append(f"--- Page {idx+1} ---\n{t.strip()}")
+                accumulated = "\n\n".join(pages_text)[:BUDGET]
+            except Exception:
+                from base import freePDFReader
+                accumulated = freePDFReader(abs_path)[:BUDGET]
+                total_pages = -1
+            file_meta = {"name": basename, "type": "pdf", "total_pages": total_pages}
+        else:
+            with open(abs_path, "r", encoding="utf-8", errors="replace") as fh:
+                raw = fh.read()
+            headers = [l.strip() for l in raw.splitlines() if l.strip().startswith("#")] if is_md else []
+            file_meta = {"name": basename, "type": "markdown" if is_md else "text",
+                         "total_lines": raw.count("\n") + 1,
+                         "headers": headers[:50]}
+            accumulated = raw[:BUDGET]
+
+        structure, summary = [], ""
+        for iteration in range(1, MAX_ITER + 1):
+            user_msg = (
+                f"FILE METADATA: {json.dumps(file_meta)}\n\n"
+                f"CONTENT (iteration {iteration}/{MAX_ITER}):\n{accumulated}\n\n"
+                f"{'FINAL iteration — respond with action=done.' if iteration == MAX_ITER else ''}"
+            )
+            raw_resp = call_llm(keys=_keys, model_name=VERY_CHEAP_LLM[0],
+                               text=user_msg, temperature=0.0, stream=False, system=SYSTEM)
+            try:
+                clean = raw_resp.strip()
+                if clean.startswith("```"):
+                    clean = clean.split("\n", 1)[-1].rsplit("```", 1)[0]
+                llm_json = json.loads(clean)
+            except Exception:
+                m = _re.search(r"\{.*\}", raw_resp, _re.DOTALL)
+                llm_json = json.loads(m.group()) if m else None
+
+            if llm_json is None or llm_json.get("action") == "done" or iteration == MAX_ITER:
+                structure = (llm_json or {}).get("structure", [])
+                summary = (llm_json or {}).get("summary", "")
+                break
+
+            req = llm_json.get("request", {})
+            if is_pdf and "pages" in req:
+                try:
+                    import pdfplumber
+                    spec = req["pages"]
+                    parts = spec.split("-", 1)
+                    pidx = list(range(int(parts[0]) - 1, int(parts[1])))
+                    with pdfplumber.open(abs_path) as _p:
+                        more = []
+                        for idx in pidx:
+                            if 0 <= idx < len(_p.pages):
+                                t = _p.pages[idx].extract_text()
+                                if t:
+                                    more.append(f"--- Page {idx+1} ---\n{t.strip()}")
+                    accumulated += "\n\n" + "\n\n".join(more)[:BUDGET // 2]
+                except Exception:
+                    break
+            else:
+                s_line = max(0, req.get("start_line", 1) - 1)
+                e_line = req.get("end_line", s_line + 100)
+                with open(abs_path, "r", encoding="utf-8", errors="replace") as fh:
+                    all_lines = fh.readlines()
+                accumulated += "\n\n" + "".join(all_lines[s_line:min(len(all_lines), e_line)])[:BUDGET // 2]
+
+        structure_txt = "\n".join(structure) if structure else "(no structure extracted)"
+        out = (
+            f"[File: {basename} | Type: {file_meta.get('type', ext)} | Size: {file_size:,} bytes]\n\n"
+            f"STRUCTURE:\n{structure_txt}\n\nSUMMARY:\n{summary}"
+        )
+        return ToolCallResult(tool_id="", tool_name="fs_get_file_structure_and_summary", result=out[:_FS_MAX_READ_CHARS])
+
+    except ValueError as ve:
+        return ToolCallResult(tool_id="", tool_name="fs_get_file_structure_and_summary", result="", error=str(ve))
+    except Exception as exc:
+        logger.exception("fs_get_file_structure_and_summary error: %s", exc)
+        return ToolCallResult(tool_id="", tool_name="fs_get_file_structure_and_summary", result="", error=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Tool: fs_write_file
+# ---------------------------------------------------------------------------
+
+@register_tool(
+    name="fs_write_file",
+    description=(
+        "Write content to a file, creating it (and any parent directories) if needed. "
+        "Overwrites the file if it already exists. Paths are relative to the project root. "
+        "For targeted line-level edits, prefer fs_patch_file."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "Destination file path (relative to project root or absolute)."},
+            "content": {"type": "string", "description": "Full file content to write."},
+        },
+        "required": ["path", "content"],
+    },
+    is_interactive=False,
+    category="coding",
+)
+def handle_fs_write_file(args: dict, context: ToolContext) -> ToolCallResult:
+    """Write (create or overwrite) a file."""
+    path = args.get("path", "")
+    content = args.get("content", "")
+    logger.info("fs_write_file invoked: path=%s, user=%s", path, context.user_email)
+
+    if not path:
+        return ToolCallResult(tool_id="", tool_name="fs_write_file", result="", error="path is required.")
+
+    try:
+        abs_path = _coding_resolve_safe_path(path)
+        os.makedirs(os.path.dirname(abs_path), exist_ok=True)
+        encoded = content.encode("utf-8")
+        with open(abs_path, "w", encoding="utf-8") as fh:
+            fh.write(content)
+        return ToolCallResult(
+            tool_id="", tool_name="fs_write_file",
+            result=json.dumps({"status": "ok", "path": abs_path, "bytes": len(encoded)}),
+        )
+    except ValueError as ve:
+        return ToolCallResult(tool_id="", tool_name="fs_write_file", result="", error=str(ve))
+    except Exception as exc:
+        logger.exception("fs_write_file error: %s", exc)
+        return ToolCallResult(tool_id="", tool_name="fs_write_file", result="", error=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Tool: fs_patch_file
+# ---------------------------------------------------------------------------
+
+@register_tool(
+    name="fs_patch_file",
+    description=(
+        "Replace a range of lines in a file with new content. "
+        "Lines are 1-indexed and inclusive. For example, start_line=3, end_line=5 "
+        "replaces lines 3, 4, and 5 with new_content. To insert without removing "
+        "any lines use start_line=N+1, end_line=N. To delete lines pass new_content=''."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "File path (relative to project root or absolute)."},
+            "start_line": {"type": "integer", "description": "First line to replace (1-indexed, inclusive)."},
+            "end_line": {"type": "integer", "description": "Last line to replace (1-indexed, inclusive)."},
+            "new_content": {"type": "string", "description": "Replacement text. May be empty to delete lines."},
+        },
+        "required": ["path", "start_line", "end_line", "new_content"],
+    },
+    is_interactive=False,
+    category="coding",
+)
+def handle_fs_patch_file(args: dict, context: ToolContext) -> ToolCallResult:
+    """Replace a range of lines in a file with new content."""
+    path = args.get("path", "")
+    start_line = int(args.get("start_line", 1))
+    end_line = int(args.get("end_line", 1))
+    new_content = args.get("new_content", "")
+    logger.info("fs_patch_file invoked: path=%s, lines=%d-%d, user=%s", path, start_line, end_line, context.user_email)
+
+    if not path:
+        return ToolCallResult(tool_id="", tool_name="fs_patch_file", result="", error="path is required.")
+
+    try:
+        abs_path = _coding_resolve_safe_path(path)
+        if not os.path.isfile(abs_path):
+            return ToolCallResult(tool_id="", tool_name="fs_patch_file", result="", error=f"File not found: {path}")
+        with open(abs_path, "r", encoding="utf-8", errors="replace") as fh:
+            lines = fh.readlines()
+        total = len(lines)
+        s = max(1, start_line) - 1   # 0-indexed
+        e = min(end_line, total)      # 0-indexed exclusive end
+        if s > total:
+            return ToolCallResult(
+                tool_id="", tool_name="fs_patch_file", result="",
+                error=f"start_line {start_line} exceeds file length {total}.",
+            )
+        replacement: list = []
+        if new_content:
+            for chunk in new_content.split("\n"):
+                replacement.append(chunk + "\n")
+            # If new_content didn't end with \n, strip the spurious trailing newline
+            if not new_content.endswith("\n") and replacement:
+                replacement[-1] = replacement[-1].rstrip("\n")
+        new_lines = lines[:s] + replacement + lines[e:]
+        with open(abs_path, "w", encoding="utf-8") as fh:
+            fh.writelines(new_lines)
+        removed = e - s
+        added = len(replacement)
+        return ToolCallResult(
+            tool_id="", tool_name="fs_patch_file",
+            result=json.dumps({"status": "ok", "lines_removed": removed, "lines_added": added, "total_lines": len(new_lines)}),
+        )
+    except ValueError as ve:
+        return ToolCallResult(tool_id="", tool_name="fs_patch_file", result="", error=str(ve))
+    except Exception as exc:
+        logger.exception("fs_patch_file error: %s", exc)
+        return ToolCallResult(tool_id="", tool_name="fs_patch_file", result="", error=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Tool: fs_list_dir
+# ---------------------------------------------------------------------------
+
+@register_tool(
+    name="fs_list_dir",
+    description=(
+        "List the entries in a directory. Returns file names, types (file/dir), sizes, "
+        "and modification times. Hidden files and __pycache__ entries are included but labelled."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "Directory path (relative to project root, default '.')." , "default": "."},
+        },
+        "required": [],
+    },
+    is_interactive=False,
+    category="coding",
+)
+def handle_fs_list_dir(args: dict, context: ToolContext) -> ToolCallResult:
+    """List directory entries with metadata."""
+    path = args.get("path", ".")
+    logger.info("fs_list_dir invoked: path=%s, user=%s", path, context.user_email)
+
+    try:
+        abs_path = _coding_resolve_safe_path(path)
+        if not os.path.isdir(abs_path):
+            return ToolCallResult(tool_id="", tool_name="fs_list_dir", result="", error=f"Not a directory: {path}")
+
+        entries = []
+        for name in sorted(os.listdir(abs_path)):
+            full = os.path.join(abs_path, name)
+            try:
+                stat = os.stat(full)
+                entries.append({
+                    "name": name,
+                    "type": "dir" if os.path.isdir(full) else "file",
+                    "size_bytes": stat.st_size,
+                    "modified": stat.st_mtime,
+                })
+            except OSError:
+                entries.append({"name": name, "type": "unknown"})
+
+        return ToolCallResult(tool_id="", tool_name="fs_list_dir", result=json.dumps(entries))
+    except ValueError as ve:
+        return ToolCallResult(tool_id="", tool_name="fs_list_dir", result="", error=str(ve))
+    except Exception as exc:
+        logger.exception("fs_list_dir error: %s", exc)
+        return ToolCallResult(tool_id="", tool_name="fs_list_dir", result="", error=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Tool: fs_find_files
+# ---------------------------------------------------------------------------
+
+@register_tool(
+    name="fs_find_files",
+    description=(
+        "Find files matching a glob pattern under a base directory. "
+        "Common patterns: '*.py', '**/*.json', 'src/**/*.ts'. The search is always recursive."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "pattern": {"type": "string", "description": "Glob pattern relative to base_path."},
+            "base_path": {"type": "string", "description": "Directory to search in (relative to project root, default '.').", "default": "."},
+            "max_results": {"type": "integer", "description": "Maximum number of paths to return (default 100).", "default": 100},
+        },
+        "required": ["pattern"],
+    },
+    is_interactive=False,
+    category="coding",
+)
+def handle_fs_find_files(args: dict, context: ToolContext) -> ToolCallResult:
+    """Find files matching a glob pattern."""
+    import glob as _glob
+    pattern = args.get("pattern", "")
+    base_path = args.get("base_path", ".")
+    max_results = int(args.get("max_results", 100))
+    logger.info("fs_find_files invoked: pattern=%s, base=%s, user=%s", pattern, base_path, context.user_email)
+
+    if not pattern:
+        return ToolCallResult(tool_id="", tool_name="fs_find_files", result="", error="pattern is required.")
+
+    try:
+        abs_base = _coding_resolve_safe_path(base_path)
+        if not os.path.isdir(abs_base):
+            return ToolCallResult(tool_id="", tool_name="fs_find_files", result="", error=f"Not a directory: {base_path}")
+
+        root = os.getcwd()
+        full_pattern = os.path.join(abs_base, pattern)
+        matches = _glob.glob(full_pattern, recursive=True)
+
+        rel_matches = []
+        for m in sorted(matches)[:max_results]:
+            try:
+                rel_matches.append(os.path.relpath(m, root))
+            except ValueError:
+                rel_matches.append(m)
+
+        return ToolCallResult(tool_id="", tool_name="fs_find_files", result=json.dumps(rel_matches))
+    except ValueError as ve:
+        return ToolCallResult(tool_id="", tool_name="fs_find_files", result="", error=str(ve))
+    except Exception as exc:
+        logger.exception("fs_find_files error: %s", exc)
+        return ToolCallResult(tool_id="", tool_name="fs_find_files", result="", error=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Tool: fs_grep
+# ---------------------------------------------------------------------------
+
+@register_tool(
+    name="fs_grep",
+    description=(
+        "Search file contents for lines matching a regular expression. "
+        "Recursively searches all files under path that match include_glob. "
+        "Returns matching lines with file path and line number."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "pattern": {"type": "string", "description": "Python regular expression to search for."},
+            "path": {"type": "string", "description": "File or directory to search (relative to project root, default '.').", "default": "."},
+            "include_glob": {"type": "string", "description": "Only search files whose names match this glob (e.g. '*.py').", "default": "*"},
+            "case_sensitive": {"type": "boolean", "description": "Whether to match case-sensitively (default true).", "default": True},
+            "max_results": {"type": "integer", "description": "Maximum number of matching lines to return (default 100).", "default": 100},
+        },
+        "required": ["pattern"],
+    },
+    is_interactive=False,
+    category="coding",
+)
+def handle_fs_grep(args: dict, context: ToolContext) -> ToolCallResult:
+    """Search file contents by regex."""
+    import re as _re
+    import fnmatch as _fnmatch
+    pattern = args.get("pattern", "")
+    path = args.get("path", ".")
+    include_glob = args.get("include_glob", "*")
+    case_sensitive = args.get("case_sensitive", True)
+    max_results = int(args.get("max_results", 100))
+    logger.info("fs_grep invoked: pattern=%s, path=%s, user=%s", pattern, path, context.user_email)
+
+    if not pattern:
+        return ToolCallResult(tool_id="", tool_name="fs_grep", result="", error="pattern is required.")
+
+    try:
+        abs_path = _coding_resolve_safe_path(path)
+        flags = 0 if case_sensitive else _re.IGNORECASE
+        compiled = _re.compile(pattern, flags)
+    except _re.error as re_err:
+        return ToolCallResult(tool_id="", tool_name="fs_grep", result="", error=f"Invalid regex: {re_err}")
+    except ValueError as ve:
+        return ToolCallResult(tool_id="", tool_name="fs_grep", result="", error=str(ve))
+
+    try:
+        root = os.getcwd()
+        results = []
+
+        def _search_file(file_path: str) -> None:
+            if len(results) >= max_results:
+                return
+            try:
+                with open(file_path, "r", encoding="utf-8", errors="replace") as fh:
+                    for lineno, line in enumerate(fh, 1):
+                        if compiled.search(line):
+                            results.append({
+                                "file": os.path.relpath(file_path, root),
+                                "line_number": lineno,
+                                "line": line.rstrip("\n"),
+                            })
+                            if len(results) >= max_results:
+                                return
+            except (OSError, UnicodeDecodeError):
+                pass
+
+        if os.path.isfile(abs_path):
+            _search_file(abs_path)
+        elif os.path.isdir(abs_path):
+            for dirpath, _dirs, filenames in os.walk(abs_path):
+                for fname in sorted(filenames):
+                    if _fnmatch.fnmatch(fname, include_glob):
+                        _search_file(os.path.join(dirpath, fname))
+                    if len(results) >= max_results:
+                        break
+        else:
+            return ToolCallResult(tool_id="", tool_name="fs_grep", result="", error=f"Path not found: {path}")
+
+        return ToolCallResult(tool_id="", tool_name="fs_grep", result=json.dumps(results))
+    except Exception as exc:
+        logger.exception("fs_grep error: %s", exc)
+        return ToolCallResult(tool_id="", tool_name="fs_grep", result="", error=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Tool: fs_file_info
+# ---------------------------------------------------------------------------
+
+@register_tool(
+    name="fs_file_info",
+    description=(
+        "Get metadata about a file or directory path. "
+        "Useful for checking existence, type, and size before reading or writing."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "path": {"type": "string", "description": "Path to inspect (relative to project root or absolute)."},
+        },
+        "required": ["path"],
+    },
+    is_interactive=False,
+    category="coding",
+)
+def handle_fs_file_info(args: dict, context: ToolContext) -> ToolCallResult:
+    """Get path metadata (exists, type, size, mtime)."""
+    path = args.get("path", "")
+    logger.info("fs_file_info invoked: path=%s, user=%s", path, context.user_email)
+
+    if not path:
+        return ToolCallResult(tool_id="", tool_name="fs_file_info", result="", error="path is required.")
+
+    try:
+        abs_path = _coding_resolve_safe_path(path)
+        root = os.getcwd()
+
+        if not os.path.exists(abs_path):
+            return ToolCallResult(
+                tool_id="", tool_name="fs_file_info",
+                result=json.dumps({"exists": False, "abs_path": abs_path, "rel_path": os.path.relpath(abs_path, root)}),
+            )
+
+        stat = os.stat(abs_path)
+        if os.path.isfile(abs_path):
+            ftype = "file"
+        elif os.path.isdir(abs_path):
+            ftype = "dir"
+        else:
+            ftype = "other"
+
+        return ToolCallResult(
+            tool_id="", tool_name="fs_file_info",
+            result=json.dumps({
+                "exists": True, "type": ftype, "size_bytes": stat.st_size,
+                "modified": stat.st_mtime, "abs_path": abs_path,
+                "rel_path": os.path.relpath(abs_path, root),
+            }),
+        )
+    except ValueError as ve:
+        return ToolCallResult(tool_id="", tool_name="fs_file_info", result="", error=str(ve))
+    except Exception as exc:
+        logger.exception("fs_file_info error: %s", exc)
+        return ToolCallResult(tool_id="", tool_name="fs_file_info", result="", error=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Tool: fs_bash
+# ---------------------------------------------------------------------------
+
+@register_tool(
+    name="fs_bash",
+    description=(
+        "Execute a bash shell command in the project directory. "
+        "Runs the command in a subprocess with a configurable timeout (max 300s). "
+        "Use for: running tests, build commands, git operations, installing packages."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "command": {"type": "string", "description": "Shell command string to execute (passed to bash -c)."},
+            "workdir": {"type": "string", "description": "Working directory (relative to project root, default '.').", "default": "."},
+            "timeout": {"type": "integer", "description": "Maximum seconds to wait (default 60, max 300).", "default": 60},
+        },
+        "required": ["command"],
+    },
+    is_interactive=False,
+    category="coding",
+)
+def handle_fs_bash(args: dict, context: ToolContext) -> ToolCallResult:
+    """Execute a bash shell command in the project directory."""
+    import subprocess
+    command = args.get("command", "")
+    workdir = args.get("workdir", ".")
+    timeout = int(args.get("timeout", 60))
+    logger.info("fs_bash invoked: command=%s, workdir=%s, user=%s", command[:100], workdir, context.user_email)
+
+    if not command:
+        return ToolCallResult(tool_id="", tool_name="fs_bash", result="", error="command is required.")
+
+    try:
+        abs_workdir = _coding_resolve_safe_path(workdir)
+        if not os.path.isdir(abs_workdir):
+            return ToolCallResult(tool_id="", tool_name="fs_bash", result="", error=f"workdir not a directory: {workdir}")
+        effective_timeout = min(max(1, timeout), 300)
+        proc = subprocess.run(
+            ["bash", "-c", command],
+            cwd=abs_workdir,
+            capture_output=True,
+            text=True,
+            timeout=effective_timeout,
+        )
+        stdout = proc.stdout
+        stderr = proc.stderr
+        if len(stdout) > 50_000:
+            stdout = stdout[:50_000] + "\n... [stdout truncated]"
+        if len(stderr) > 10_000:
+            stderr = stderr[:10_000] + "\n... [stderr truncated]"
+        return ToolCallResult(
+            tool_id="", tool_name="fs_bash",
+            result=json.dumps({"exit_code": proc.returncode, "success": proc.returncode == 0, "stdout": stdout, "stderr": stderr}),
+        )
+    except subprocess.TimeoutExpired:
+        return ToolCallResult(
+            tool_id="", tool_name="fs_bash",
+            result=json.dumps({"exit_code": -1, "success": False, "error": f"Command timed out after {timeout}s.", "stdout": "", "stderr": ""}),
+        )
+    except ValueError as ve:
+        return ToolCallResult(tool_id="", tool_name="fs_bash", result="", error=str(ve))
+    except Exception as exc:
+        logger.exception("fs_bash error: %s", exc)
+        return ToolCallResult(tool_id="", tool_name="fs_bash", result="", error=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Tool: todo_write
+# ---------------------------------------------------------------------------
+
+@register_tool(
+    name="todo_write",
+    description=(
+        "Write (replace) the todo list. Stores a structured task list as JSON. "
+        "Each task should be an object with at least a 'content' field. "
+        "Recommended fields: content, status (pending/in_progress/completed/cancelled), "
+        "priority (high/medium/low), id (auto-assigned if missing)."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "todos": {"type": "string", "description": "JSON string — an array of task objects."},
+            "scope": {"type": "string", "description": "'global' (default) or 'conversation'.", "default": "global"},
+            "conversation_id": {"type": "string", "description": "Required when scope='conversation'.", "default": ""},
+        },
+        "required": ["todos"],
+    },
+    is_interactive=False,
+    category="coding",
+)
+def handle_todo_write(args: dict, context: ToolContext) -> ToolCallResult:
+    """Write/replace the todo list (global or per-conversation)."""
+    todos_str = args.get("todos", "")
+    scope = args.get("scope", "global")
+    conversation_id = args.get("conversation_id", "") or context.conversation_id
+    logger.info("todo_write invoked: scope=%s, user=%s", scope, context.user_email)
+
+    if not todos_str:
+        return ToolCallResult(tool_id="", tool_name="todo_write", result="", error="todos is required.")
+
+    try:
+        parsed = json.loads(todos_str)
+        if not isinstance(parsed, list):
+            return ToolCallResult(tool_id="", tool_name="todo_write", result="", error="'todos' must be a JSON array.")
+
+        # Auto-assign IDs if missing
+        for i, task in enumerate(parsed):
+            if isinstance(task, dict) and "id" not in task:
+                task["id"] = str(i + 1)
+
+        todo_file = _coding_todo_path(scope, conversation_id)
+        os.makedirs(os.path.dirname(todo_file), exist_ok=True)
+
+        with open(todo_file, "w", encoding="utf-8") as fh:
+            json.dump(parsed, fh, indent=2)
+
+        return ToolCallResult(
+            tool_id="", tool_name="todo_write",
+            result=json.dumps({"status": "ok", "count": len(parsed), "path": todo_file}),
+        )
+    except json.JSONDecodeError as je:
+        return ToolCallResult(tool_id="", tool_name="todo_write", result="", error=f"Invalid JSON in todos: {je}")
+    except ValueError as ve:
+        return ToolCallResult(tool_id="", tool_name="todo_write", result="", error=str(ve))
+    except Exception as exc:
+        logger.exception("todo_write error: %s", exc)
+        return ToolCallResult(tool_id="", tool_name="todo_write", result="", error=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Tool: todo_read
+# ---------------------------------------------------------------------------
+
+@register_tool(
+    name="todo_read",
+    description=(
+        "Read the current todo list. Returns the JSON array of task objects, "
+        "or an empty list if no todo list has been created yet."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "scope": {"type": "string", "description": "'global' (default) or 'conversation'.", "default": "global"},
+            "conversation_id": {"type": "string", "description": "Required when scope='conversation'.", "default": ""},
+        },
+        "required": [],
+    },
+    is_interactive=False,
+    category="coding",
+)
+def handle_todo_read(args: dict, context: ToolContext) -> ToolCallResult:
+    """Read the current todo list."""
+    scope = args.get("scope", "global")
+    conversation_id = args.get("conversation_id", "") or context.conversation_id
+    logger.info("todo_read invoked: scope=%s, user=%s", scope, context.user_email)
+
+    try:
+        todo_file = _coding_todo_path(scope, conversation_id)
+
+        if not os.path.isfile(todo_file):
+            return ToolCallResult(
+                tool_id="", tool_name="todo_read",
+                result=json.dumps({"todos": [], "message": "No todo list found."}),
+            )
+
+        with open(todo_file, "r", encoding="utf-8") as fh:
+            todos = json.load(fh)
+
+        return ToolCallResult(tool_id="", tool_name="todo_read", result=json.dumps(todos))
+    except ValueError as ve:
+        return ToolCallResult(tool_id="", tool_name="todo_read", result="", error=str(ve))
+    except Exception as exc:
+        logger.exception("todo_read error: %s", exc)
+        return ToolCallResult(tool_id="", tool_name="todo_read", result="", error=str(exc))
+
+
+
+# ===========================================================================
 # Aggregator tools — delegate_task
 # ===========================================================================
 
-from code_common.agent_tool import AGENT_TOOLS as _AGENT_TOOLS, _agent_tool_kwargs, run_agent_loop
+from code_common.agent_tool import (
+    AGENT_TOOLS as _AGENT_TOOLS,
+    _agent_tool_kwargs,
+    run_agent_loop,
+    start_background_agent,
+    get_background_task_result,
+    list_all_background_tasks,
+)
 
 
 @register_tool(**_agent_tool_kwargs("delegate_task"))
@@ -4515,3 +5506,107 @@ def handle_delegate_task(args: dict, context: ToolContext) -> ToolCallResult:
             error=f"Agent execution failed: {exc}",
             result="",
         )
+
+
+# ===========================================================================
+# delegate_task_background — fire-and-forget sub-agent
+# ===========================================================================
+
+
+@register_tool(**_agent_tool_kwargs("delegate_task_background"))
+def handle_delegate_task_background(args: dict, context: ToolContext) -> ToolCallResult:
+    """Start a sub-agent in a background thread; return task_id immediately.
+
+    The sub-agent receives full access to all tools in the chosen profile
+    (fs_*, run_python_code, web search, document query, MCP tools, etc.).
+    Use get_task_result(task_id=...) to poll and list_background_tasks() to
+    enumerate all active/completed tasks in this server session.
+    """
+    prompt = args.get("prompt", "")
+    profile = args.get("profile", "general")
+    if not prompt:
+        return ToolCallResult(
+            tool_id="", tool_name="delegate_task_background",
+            error="Missing required parameter: prompt", result="",
+        )
+    if profile not in ("research", "documents", "general"):
+        return ToolCallResult(
+            tool_id="", tool_name="delegate_task_background",
+            error=f"Invalid profile '{profile}'. Must be 'research', 'documents', or 'general'.",
+            result="",
+        )
+    try:
+        task_id = start_background_agent(prompt, profile, context)
+        return ToolCallResult(
+            tool_id="", tool_name="delegate_task_background",
+            result=json.dumps({
+                "task_id": task_id,
+                "status": "running",
+                "message": (
+                    "Sub-agent started in background. "
+                    "Call get_task_result(task_id='{task_id}') to check progress. "
+                    "Call list_background_tasks() to see all tasks."
+                ).format(task_id=task_id),
+            }),
+        )
+    except Exception as exc:
+        logger.exception("delegate_task_background error: %s", exc)
+        return ToolCallResult(
+            tool_id="", tool_name="delegate_task_background",
+            error=f"Failed to start background agent: {exc}", result="",
+        )
+
+
+# ===========================================================================
+# get_task_result — poll a background task by task_id
+# ===========================================================================
+
+
+@register_tool(**_agent_tool_kwargs("get_task_result"))
+def handle_get_task_result(args: dict, context: ToolContext) -> ToolCallResult:
+    """Poll a background task by task_id. Returns status + full result when done.
+
+    Status values:
+      'running'   — sub-agent still working
+      'done'      — completed successfully; 'result' contains the full answer
+      'error'     — sub-agent failed; 'result' contains the error message
+      'not_found' — no task with this id (wrong id or never started)
+      'expired'   — task older than 30 min; result purged from memory
+    """
+    task_id = args.get("task_id", "")
+    if not task_id:
+        return ToolCallResult(
+            tool_id="", tool_name="get_task_result",
+            error="Missing required parameter: task_id", result="",
+        )
+    task = get_background_task_result(task_id)
+    return ToolCallResult(
+        tool_id="", tool_name="get_task_result",
+        result=json.dumps(task),
+    )
+
+
+# ===========================================================================
+# list_background_tasks — enumerate all tasks in this server session
+# ===========================================================================
+
+
+@register_tool(**_agent_tool_kwargs("list_background_tasks"))
+def handle_list_background_tasks(args: dict, context: ToolContext) -> ToolCallResult:
+    """List all background tasks (running, done, error) with status and result preview.
+
+    Expired tasks (>30 min) are pruned lazily during this call.
+    Use status_filter to narrow results: 'running', 'done', 'error', or 'all' (default).
+    """
+    status_filter = args.get("status_filter", "all")
+    tasks = list_all_background_tasks(status_filter=status_filter)
+    if not tasks:
+        suffix = f" with status='{status_filter}'" if status_filter != "all" else ""
+        return ToolCallResult(
+            tool_id="", tool_name="list_background_tasks",
+            result=f"No background tasks found{suffix}.",
+        )
+    return ToolCallResult(
+        tool_id="", tool_name="list_background_tasks",
+        result=json.dumps(tasks, indent=2),
+    )

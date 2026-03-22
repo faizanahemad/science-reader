@@ -124,7 +124,7 @@ var GlobalDocsManager = {
             if (isDeprecated) $item.css('opacity', '0.5');
 
             // --- Top row: info + action buttons ---
-            var $topRow = $('<div class="d-flex justify-content-between align-items-center"></div>');
+            var $topRow = $('<div class="d-flex flex-wrap justify-content-between align-items-start"></div>');
 
             var $info = $('<div></div>');
             $info.append($('<span class="badge badge-info mr-2"></span>').text('#gdoc_' + doc.index));
@@ -162,7 +162,7 @@ var GlobalDocsManager = {
             $tagWrap.append($addTagBtn);
             $info.append($tagWrap);
 
-            var $actions = $('<div class="d-flex flex-nowrap"></div>');
+            var $actions = $('<div class="d-flex flex-nowrap flex-shrink-0 mt-1"></div>');
 
             var $viewBtn = $('<button class="btn btn-sm btn-outline-primary mr-1" title="View"></button>')
                 .append('<i class="fa fa-eye"></i>');

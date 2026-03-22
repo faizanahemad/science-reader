@@ -546,7 +546,7 @@ location /ws/terminal {
 
 **What it does**
  Adds native, mid-response tool calling to the chat pipeline — the LLM can autonomously invoke tools during a conversation turn.
- 58 tools across 11 categories: clarification (1), search (5), documents (10), pkb (10), memory (7), code_runner (1), artefacts (8), prompts (5), conversation (5), cross_conversation (7 — 3 cross-conversation search + 4 tool call history), aggregator (1 — delegate_task sub-agent).
+ 87 tools across 13 categories: clarification (1), search (5), documents (14), pkb (16), memory (7), code_runner (1), artefacts (8), prompts (5), conversation (5), cross_conversation (7 — 3 cross-conversation search + 4 tool call history), aggregator (4 — delegate_task, delegate_task_background, get_task_result, list_background_tasks), coding (12 — file system, PDF, image analysis, agent file summary, bash, todos), general (2 — generate_image, transcribe_audio).
  Multi-step agentic loop: up to 5 tool-call iterations per turn, with `tool_choice="none"` on the final iteration to force text output.
  Interactive tools (ask_clarification, pkb_propose_memory) pause streaming, show a Bootstrap modal for user input (MCQ questions or editable proposed claims), wait up to 60s via `threading.Event`, then resume.
  Server-side tools (web search, document lookup, PKB operations, code execution, etc.) execute silently with inline status indicators.
@@ -706,6 +706,7 @@ The backend resolver (`resolve_reference()`) uses suffix-based routing for fast 
 
 **Toggle**
 - Controlled by `checkboxes.use_pkb` (UI: "Use PKB Memory" checkbox, default enabled). When unchecked, PKB retrieval and user info distillation are skipped entirely.
+- **Auto-save facts** (`auto_pkb_extract`, UI: "Auto-save facts" checkbox, default ON): controls the client-side automatic fact-detection call fired 3 seconds after every message. When OFF, `PKBManager.checkMemoryUpdates()` is never called, no `POST /pkb/propose_updates` request is made, and the memory-proposal modal (`#memory-proposal-modal`) never appears. This is a **client-only** setting — it is stored in `chatSettingsState.auto_pkb_extract` via `localStorage` and checked in `interface/common-chat.js` before the delayed call. It does not affect `/pkb`/`/memory` slash commands or the `pkb_propose_memory` interactive tool.
 
 **APIs**
 - PKB management and retrieval:

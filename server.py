@@ -589,6 +589,7 @@ def main(argv: Optional[list[str]] = None) -> int:
         start_prompts_actions_mcp_server,
         start_code_runner_mcp_server,
         start_image_gen_mcp_server,
+        start_coding_tools_mcp_server,
     )
 
     start_mcp_server()
@@ -599,6 +600,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     start_prompts_actions_mcp_server()
     start_code_runner_mcp_server()
     start_image_gen_mcp_server()
+    start_coding_tools_mcp_server()
 
 
     # Check OpenCode server availability (non-blocking, just logs status)

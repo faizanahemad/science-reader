@@ -434,7 +434,7 @@ var LocalDocsManager = {
             if (isDeprecated) $item.css('opacity', '0.5');
 
             // --- Top row: info + action buttons ---
-            var $topRow = $('<div class="d-flex justify-content-between align-items-center"></div>');
+            var $topRow = $('<div class="d-flex flex-wrap justify-content-between align-items-start"></div>');
 
             // Left: index badge + optional display-name badge + title + source/date
             var $info = $('<div></div>');
@@ -452,7 +452,7 @@ var LocalDocsManager = {
             $info.append($('<small class="text-muted"></small>').text(sourceDisplay + (doc.created_at ? ' | ' + doc.created_at : '')));
 
             // Right: action buttons
-            var $actions = $('<div class="d-flex flex-nowrap"></div>');
+            var $actions = $('<div class="d-flex flex-nowrap flex-shrink-0 mt-1"></div>');
 
             // View button — opens PDF viewer via /proxy_shared (local doc path)
             var $viewBtn = $('<button class="btn btn-sm btn-outline-primary mr-1" title="View"></button>')

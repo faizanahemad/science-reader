@@ -8,7 +8,7 @@ For feature details and architecture of the web search server, see `documentatio
 
 ## Architecture Overview
 
-The science-reader process (`python server.py`) starts the Flask web app **and** spawns 7 MCP servers as daemon threads. Two additional MCP servers run as local npx processes managed by OpenCode.
+The science-reader process (`python server.py`) starts the Flask web app **and** spawns 8 MCP servers as daemon threads. Two additional MCP servers run as local npx processes managed by OpenCode.
 
 ```
 python server.py
@@ -19,16 +19,17 @@ python server.py
   ├── Artefacts MCP     (port 8103)  — mcp_server/artefacts.py
   ├── Conversation MCP  (port 8104)  — mcp_server/conversation.py
   ├── Prompts MCP       (port 8105)  — mcp_server/prompts_actions.py
-  └── Code Runner MCP   (port 8106)  — mcp_server/code_runner_mcp.py
+  ├── Code Runner MCP   (port 8106)  — mcp_server/code_runner_mcp.py
+  └── Coding Tools MCP  (port 8108)  — mcp_server/coding_tools.py
 
 OpenCode (port 4096)
   ├── pdf-reader MCP    (local npx)  — @sylphx/pdf-reader-mcp
   └── context7 MCP      (local npx)  — @upstash/context7-mcp
 ```
 
-All 7 remote MCP servers use JWT bearer-token authentication with the same `MCP_JWT_SECRET`. The pdf-reader and context7 are local stdio-based servers managed by OpenCode that don't need auth.
+All 8 remote MCP servers use JWT bearer-token authentication with the same `MCP_JWT_SECRET`. The pdf-reader and context7 are local stdio-based servers managed by OpenCode that don't need auth.
 
-**Total tools: 49** across all 9 servers (7 remote + 2 local npx).
+**Total tools: 57** across all 10 servers (8 remote + 2 local npx).
 
 ---
 
@@ -151,6 +152,7 @@ python server.py
 | `CONVERSATION_MCP_PORT` | `8104` | Conversation |
 | `PROMPTS_MCP_PORT` | `8105` | Prompts & Actions |
 | `CODE_RUNNER_MCP_PORT` | `8106` | Code Runner |
+| `CODING_TOOLS_MCP_PORT` | `8108` | Coding & File Tools |
 
 **Per-server enable flags (all default to `"true"`):**
 
@@ -162,6 +164,7 @@ python server.py
 | `CONVERSATION_MCP_ENABLED` | Conversation |
 | `PROMPTS_MCP_ENABLED` | Prompts & Actions |
 | `CODE_RUNNER_MCP_ENABLED` | Code Runner |
+| `CODING_TOOLS_MCP_ENABLED` | Coding & File Tools |
 
 The MCP servers also need the same API keys as the Flask server (loaded via `keyParser({})`): `OPENROUTER_API_KEY`, `jinaAIKey`, `openAIKey`, scraping keys, etc.
 
@@ -427,6 +430,22 @@ The Documents MCP server (port 8102) exposes different tool sets depending on th
 |------|-------------|------------|
 | `run_python_code` | Execute Python in project's IPython env | `code_string` |
 
+### Coding & File Tools (port 8108) — 8 tools
+
+| Tool | Description | Key params |
+|------|-------------|------------|
+| `fs_read_file` | Read file contents with optional line range | `path`, `start_line`, `end_line` |
+| `fs_write_file` | Write/create a file (creates parent dirs) | `path`, `content` |
+| `fs_list_dir` | List directory entries (name, type, size, mtime) | `path` (default `.`) |
+| `fs_find_files` | Find files by glob pattern (recursive) | `pattern`, `base_path`, `max_results` |
+| `fs_grep` | Search file contents by regex | `pattern`, `path`, `include_glob`, `case_sensitive`, `max_results` |
+| `fs_file_info` | Get path metadata (exists, type, size, mtime) | `path` |
+| `todo_write` | Write/replace structured todo list | `todos` (JSON array), `scope`, `conversation_id` |
+| `todo_read` | Read current todo list | `scope`, `conversation_id` |
+
+**Safety note**: All `fs_*` tools are path-sandboxed to the server's working directory (`os.getcwd()`). Paths that resolve outside the project root are rejected. Paths may be relative to the project root or absolute.
+
+**Todo storage**: `scope="global"` → `storage/todo.json`. `scope="conversation"` → `storage/conversations/{conv_id}/todo.json`.
 ### PDF Reader (local npx) — 1 tool
 
 | Tool | Description | Key params |
@@ -631,7 +650,9 @@ opencode web --port 3000 --hostname 127.0.0.1
 | `mcp_server/conversation.py` | Conversation MCP — 15 memory/history/search tools (port 8104) |
 | `mcp_server/prompts_actions.py` | Prompts MCP — 5 prompt/action tools (port 8105) |
 | `mcp_server/code_runner_mcp.py` | Code Runner MCP — 1 Python execution tool (port 8106) |
+| `mcp_server/coding_tools.py` | Coding & File Tools MCP — 8 fs/todo tools (port 8108) |
 | `server.py` | Integration point (calls all `start_*_mcp_server()` in `main()`) |
+| `opencode.json` | OpenCode config — 8 remote MCP server definitions |
 | `opencode.json` | OpenCode config — 7 remote MCP server definitions |
 | `opencode.jsonc` | OpenCode config — local pdf-reader MCP server |
 | `/tmp/run_science_reader.sh` | Production startup script with all env vars |

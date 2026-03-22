@@ -100,10 +100,13 @@
       },
       "enabled": true
     },
-    "filesystem": {
+    "coding-tools": {
       "type": "remote",
-      "url": "http://127.0.0.1:0/mcp",
+      "url": "http://127.0.0.1:8108/",
       "oauth": false,
+      "headers": {
+        "Authorization": "Bearer {env:MCP_JWT_TOKEN}"
+      },
       "enabled": true
     }
   },

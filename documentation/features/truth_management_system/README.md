@@ -229,6 +229,15 @@ When the PKB NL agent or main LLM is uncertain about a user's memory request, it
 ### Default-Enabled Tools
 `DEFAULT_ENABLED_TOOLS` in `code_common/tools.py` defines tools that are always enabled when tool use is on: `["ask_clarification", "pkb_nl_command"]`. The `pkb_nl_command` tool allows the main LLM to invoke the PKB NL agent directly during conversation.
 
+### Auto-Save Facts (`auto_pkb_extract`)
+After every chat message (except `/pkb`/`/memory` commands), the frontend fires a 3-second-delayed call to `PKBManager.checkMemoryUpdates()` which POSTs to `POST /pkb/propose_updates`. The backend runs `ConversationDistiller.extract_and_propose()` using a cheap LLM to detect memorable facts in the user message, then returns proposed actions. If any are found, `showBulkProposalModal()` shows the `#memory-proposal-modal` for the user to review, edit, and approve before anything is saved.
+
+**Controlling this behavior:**
+- **UI toggle**: Chat Settings → Basic Options → **"Auto-save facts"** checkbox (`id="settings-auto_pkb_extract"`, default ON).
+- **When OFF**: `common-chat.js` skips the `checkMemoryUpdates` call entirely — no HTTP request is made and no modal appears.
+- **Persistence**: Stored in `chatSettingsState.auto_pkb_extract` via `localStorage` (same mechanism as all other Basic Options).
+- **Setting key files**: `interface/chat.js` (`buildSettingsStateFromControlsOrDefaults`, `setModalFromState`, `collectSettingsFromModal`), `interface/common-chat.js` (guard before `setTimeout`), `interface/interface.html` (checkbox HTML).
+
 ---
 
 ## File Locations
@@ -300,6 +309,7 @@ interface/interface.html                # UI components (tool selector with 3 ne
 - **`DEFAULT_ENABLED_TOOLS`**: `["ask_clarification", "pkb_nl_command"]` in `code_common/tools.py` — tools always enabled when tool use is on.
 - **Tool selector updates**: 3 new tools in PKB optgroup (`pkb_nl_command`, `pkb_delete_claim`, `pkb_propose_memory`). `pkb_nl_command` selected by default. Category defaults updated in `chat.js`.
 - **`checkMemoryUpdates` skipped for `/pkb`**: When `/pkb` or `/memory` is used, the automatic post-message `PKBManager.checkMemoryUpdates()` call is skipped (no duplicate memory proposals).
+- **`auto_pkb_extract` setting**: New Basic Options checkbox **"Auto-save facts"** (`id="settings-auto_pkb_extract"`, default ON). When OFF, the client-side `checkMemoryUpdates()` call is suppressed entirely — no `POST /pkb/propose_updates` is fired and no proposal modal appears. Persisted in `localStorage` via `chatSettingsState`. Controlled in `interface/chat.js` (`buildSettingsStateFromControlsOrDefaults`, `setModalFromState`, `collectSettingsFromModal`) and gated in `interface/common-chat.js` before the 3-second `setTimeout` that fires `PKBManager.checkMemoryUpdates()`.
 - **Bug fixes**: Moved `/pkb` override before `use_pkb` read in `Conversation.py` (PKB retrieval now correctly skipped for `/pkb` commands). Fixed `enable_tools` → `enable_tool_use` key mismatch.
 
 **Previous Changes (v0.8):**

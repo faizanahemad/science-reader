@@ -631,6 +631,7 @@ function buildSettingsStateFromControlsOrDefaults() {
         enable_tool_use: $('#settings-enable_tool_use').is(':checked') || false,
         enabled_tools: getSelectPickerValue('#settings-tool-selector', []),
         compact_nav: $('#settings-compact_nav').is(':checked') || false,
+        default_temp_chat: $('#settings-default_temp_chat').is(':checked') || false,
     };
     return state;
 }
@@ -673,6 +674,7 @@ function setModalFromState(state) {
     $('#tool-use-options').toggle(!!state.enable_tool_use);
     $('#settings-compact_nav').prop('checked', !!state.compact_nav);
     applyCompactNav(!!state.compact_nav);
+    $('#settings-default_temp_chat').prop('checked', !!state.default_temp_chat);
     // Restore tool selector — handle both new array format and legacy dict format
     if (Array.isArray(state.enabled_tools)) {
         $('#settings-tool-selector').val(state.enabled_tools);
@@ -689,7 +691,8 @@ function setModalFromState(state) {
             code_runner: ['run_python_code'],
             artefacts: ['artefacts_list', 'artefacts_create', 'artefacts_get', 'artefacts_get_file_path', 'artefacts_update', 'artefacts_delete', 'artefacts_propose_edits', 'artefacts_apply_edits'],
             prompts: ['prompts_list', 'prompts_get', 'temp_llm_action', 'prompts_create', 'prompts_update'],
-            aggregator: ['delegate_task']
+            aggregator: ['delegate_task', 'delegate_task_background', 'get_task_result', 'list_background_tasks'],
+            coding: ['fs_read_file', 'fs_write_file', 'fs_patch_file', 'fs_list_dir', 'fs_find_files', 'fs_grep', 'fs_file_info', 'fs_bash', 'todo_write', 'todo_read', 'fs_read_pdf', 'fs_get_file_structure_and_summary']
         };
         Object.keys(state.enabled_tools).forEach(function(cat) {
             if (state.enabled_tools[cat] && categoryDefaults[cat]) {
@@ -782,6 +785,7 @@ function collectSettingsFromModal() {
         enable_tool_use: $('#settings-enable_tool_use').is(':checked'),
         enabled_tools: getSelectPickerValue('#settings-tool-selector', []),
         compact_nav: $('#settings-compact_nav').is(':checked'),
+        default_temp_chat: $('#settings-default_temp_chat').is(':checked'),
         model_overrides: (window.chatSettingsState && window.chatSettingsState.model_overrides)
             ? window.chatSettingsState.model_overrides
             : undefined

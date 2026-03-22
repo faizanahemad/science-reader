@@ -1541,7 +1541,7 @@ def create_temporary_conversation(domain: str):
     new_conv_metadata["workspace_id"] = (
         ws_info["workspace_id"] if ws_info else workspace_id
     )
-    new_conv_metadata["workspace_name"] = ws_info["workspace_name"] if ws_info else ""
+    new_conv_metadata["workspace_name"] = ws_info.get("workspace_name", "") if ws_info else ""
     new_conv_metadata["domain"] = domain
 
     # ------------------------------------------------------------------
