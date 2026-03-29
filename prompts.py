@@ -99,6 +99,7 @@ preamble_argumentative = manager["preamble_argumentative"]
 preamble_blackmail = manager["preamble_blackmail"]
 preamble_web_search = manager["preamble_web_search"]
 preamble_no_ai = manager["preamble_no_ai"]
+preamble_no_ai_short = manager["preamble_no_ai_short"]
 
 
 

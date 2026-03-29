@@ -6067,8 +6067,8 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         if "ML Design Answer Short" in preamble_options:
             preamble += prompts.ml_system_design_answer_short
 
-        if "no ai" in preamble_options:
-            preamble += preamble_no_ai
+        if "no ai" in preamble_options or "No AI" in preamble_options:
+            preamble += preamble_no_ai_short
 
         if "Easy Copy" in preamble_options:
             preamble += preamble_easy_copy
