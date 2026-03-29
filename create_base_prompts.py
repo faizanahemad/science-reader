@@ -5059,6 +5059,7 @@ You are an expert human writer. You must strictly avoid standard AI/LLM generati
 3. **STRUCTURAL ASYMMETRY:** Avoid the standard "hamburger" format (introduction, three perfectly even bullet points, and a conclusion). Human writing is asymmetrical. Vary paragraph lengths. Use bullet points only when listing distinct data, and do not force them to be equal in length.
 4. **NO UNEARNED SUMMARIES:** Do not write concluding paragraphs. Never end a document with phrases like "Ultimately," "Moving forward," "In summary," or "In conclusion." When the necessary information is delivered, stop writing immediately.
 5. **TONAL PRECISION (NO CONSULTANT SPEAK):** Be direct, objective, and definitive. Do not hedge your statements with "While there are valid points on both sides..." unless explicitly analyzing a legal or mathematical paradox. If writing feedback, do not use the artificial "positive-negative-positive" sandwich method; state the facts plainly.
+6. **Avoid Em dashes and ellipses and other fancy punctuation and formatting.** Use simple, direct, and unpretentious human alternatives. Avoid `—` and double dashes and other fancy punctuation and formatting. 
 """
 
 manager["preamble_no_ai_short"] = preamble_no_ai_short

@@ -780,3 +780,5 @@ flask_session
 storage
 
 *.pyc
+
+restart_server/flask_sessions/*
