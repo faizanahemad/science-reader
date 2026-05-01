@@ -140,6 +140,7 @@ try:
         OPENCODE_DEFAULT_MODEL,
         OPENCODE_DEFAULT_PROVIDER,
     )
+
     OPENCODE_AVAILABLE = True
 except ImportError:
     OpencodeClient = None
@@ -153,6 +154,7 @@ except ImportError:
 # =============================================================================
 try:
     from code_common.tools import TOOL_REGISTRY, ToolContext, ToolCallResult
+
     TOOLS_AVAILABLE = True
 except ImportError:
     TOOL_REGISTRY = None
@@ -983,7 +985,9 @@ Important Guidelines:
 
 Write new information below in bullet points below:
 """
-        internal_model = self.get_model_override("conversation_internal_model", SUPERFAST_LLM[0])
+        internal_model = self.get_model_override(
+            "conversation_internal_model", SUPERFAST_LLM[0]
+        )
         llm = CallLLm(
             self.get_api_keys(),
             model_name=internal_model,
@@ -1031,7 +1035,9 @@ Compact list of bullet points:
             system = """You are an information merger and compaction agent who takes multiple sources of information and merges them into a single compact list of bullet points. You are given important factual information from four sources in the form of bullet points. You will now merge the two sources of information into a single compact list of bullet points. You will remove any redundant information and merge any similar information. You will write compactly and in a brief manner while capturing the information."""
             memory_parts_futures = []
             for i in range(0, len(memory_parts), 4):
-                internal_model = self.get_model_override("conversation_internal_model", SUPERFAST_LLM[0])
+                internal_model = self.get_model_override(
+                    "conversation_internal_model", SUPERFAST_LLM[0]
+                )
                 llm = CallLLm(
                     self.get_api_keys(),
                     model_name=internal_model,
@@ -1176,7 +1182,6 @@ Compact list of bullet points:
             "artefacts",
             "artefact_message_links",
             "conversation_settings",
-
             "message_search_index",
         ]
 
@@ -1621,14 +1626,24 @@ Compact list of bullet points:
     def _format_doc_info_line(idx, doc):
         """Format a single doc_infos line with priority and deprecated metadata."""
         from DocIndex import PRIORITY_LABELS
-        priority_label = PRIORITY_LABELS.get(getattr(doc, '_priority', 3), 'medium')
-        date_str = getattr(doc, '_date_written', None)
-        meta_parts = [f'reliability: {priority_label}']
+
+        priority_label = PRIORITY_LABELS.get(getattr(doc, "_priority", 3), "medium")
+        date_str = getattr(doc, "_date_written", None)
+        meta_parts = [f"reliability: {priority_label}"]
         if date_str:
-            meta_parts.append(f'date: {date_str}')
-        deprecated_tag = ' [DEPRECATED]' if getattr(doc, '_deprecated', False) else ''
+            meta_parts.append(f"date: {date_str}")
+        deprecated_tag = " [DEPRECATED]" if getattr(doc, "_deprecated", False) else ""
         return f"#doc_{idx + 1}: ({doc.title})[{doc.doc_source}] [{', '.join(meta_parts)}]{deprecated_tag}"
-    def add_fast_uploaded_document(self, pdf_url, display_name=None, priority=3, date_written=None, deprecated=False, docs_folder=None):
+
+    def add_fast_uploaded_document(
+        self,
+        pdf_url,
+        display_name=None,
+        priority=3,
+        date_written=None,
+        deprecated=False,
+        docs_folder=None,
+    ):
         """Create a fast-indexed document (BM25, no FAISS/LLM) and store in uploaded_documents_list.
         Add Document modal.  Identical to add_message_attached_document() but stores
         the result in ``uploaded_documents_list`` so it appears in the conversation
@@ -1655,67 +1670,87 @@ Compact list of bullet points:
             _keys = self.get_api_keys()  # close over keys for build_fn
             _display_name = display_name
             _pdf_url = pdf_url
+
             def _build(canonical_parent):
                 idx = create_fast_document_index(_pdf_url, canonical_parent, _keys)
                 idx._visible = True
                 idx._display_name = _display_name or None
                 idx.save_local()
                 return idx
-            canonical_storage = _canonical_docs.store_or_get(docs_folder, u_hash, pdf_url, _build)
+
+            canonical_storage = _canonical_docs.store_or_get(
+                docs_folder, u_hash, pdf_url, _build
+            )
             from DocIndex import DocIndex as _DocIndex
+
             doc_index = _DocIndex.load_local(canonical_storage)
             if doc_index is None:
                 return None
             doc_index._display_name = display_name or None
             doc_index._priority = priority
-            doc_index._date_written = date_written or datetime.now().strftime('%Y-%m-%d')
+            doc_index._date_written = date_written or datetime.now().strftime(
+                "%Y-%m-%d"
+            )
             doc_index._deprecated = deprecated
         else:
-            doc_index = create_fast_document_index(pdf_url, self.documents_path, self.get_api_keys())
+            doc_index = create_fast_document_index(
+                pdf_url, self.documents_path, self.get_api_keys()
+            )
             doc_index._visible = True
             doc_index._display_name = display_name or None
             doc_index._priority = priority
-            doc_index._date_written = date_written or datetime.now().strftime('%Y-%m-%d')
+            doc_index._date_written = date_written or datetime.now().strftime(
+                "%Y-%m-%d"
+            )
             doc_index._deprecated = deprecated
             doc_index.save_local()
             doc_index.save_local()
         doc_id = doc_index.doc_id
         doc_storage = doc_index._storage
         previous_docs = self.get_field("uploaded_documents_list") or []
-        all_docs = previous_docs + [(doc_id, doc_storage, doc_index.doc_source, display_name)]
+        all_docs = previous_docs + [
+            (doc_id, doc_storage, doc_index.doc_source, display_name)
+        ]
         self.set_field("uploaded_documents_list", all_docs, overwrite=True)
         current_documents = self.get_uploaded_documents(readonly=True)
         doc_infos = "\n".join(
-            [
-                self._format_doc_info_line(i, d)
-                for i, d in enumerate(current_documents)
-            ]
+            [self._format_doc_info_line(i, d) for i, d in enumerate(current_documents)]
         )
         self.doc_infos = doc_infos
         return doc_index
 
-
-    def add_uploaded_document(self, pdf_url, priority=3, date_written=None, deprecated=False, docs_folder=None):
+    def add_uploaded_document(
+        self, pdf_url, priority=3, date_written=None, deprecated=False, docs_folder=None
+    ):
         # TODO: check file md5 hash to see if it is already uploaded
         if docs_folder is not None:
             u_hash = _canonical_docs.user_hash(self.user_id)
             _keys = self.get_api_keys()
             _pdf_url = pdf_url
+
             def _build(canonical_parent):
                 idx = create_immediate_document_index(_pdf_url, canonical_parent, _keys)
                 idx._visible = False
                 idx.save_local()
                 return idx
-            canonical_storage = _canonical_docs.store_or_get(docs_folder, u_hash, pdf_url, _build)
+
+            canonical_storage = _canonical_docs.store_or_get(
+                docs_folder, u_hash, pdf_url, _build
+            )
             from DocIndex import DocIndex as _DocIndex
+
             doc_index = _DocIndex.load_local(canonical_storage)
             if doc_index is None:
                 return None
         else:
-            doc_index: DocIndex = create_immediate_document_index(pdf_url, self.documents_path, self.get_api_keys())
+            doc_index: DocIndex = create_immediate_document_index(
+                pdf_url, self.documents_path, self.get_api_keys()
+            )
             doc_index._visible = False
             doc_index._priority = priority
-            doc_index._date_written = date_written or datetime.now().strftime('%Y-%m-%d')
+            doc_index._date_written = date_written or datetime.now().strftime(
+                "%Y-%m-%d"
+            )
             doc_index._deprecated = deprecated
             doc_index.save_local()
             doc_index.save_local()
@@ -1731,15 +1766,14 @@ Compact list of bullet points:
         ]
         attached_docs.append(doc_index)
         doc_infos = "\n".join(
-            [
-                self._format_doc_info_line(i, d)
-                for i, d in enumerate(attached_docs)
-            ]
+            [self._format_doc_info_line(i, d) for i, d in enumerate(attached_docs)]
         )
         self.doc_infos = doc_infos
         self.set_field("uploaded_documents_list", all_docs, overwrite=True)
 
-    def get_uploaded_documents(self, doc_id=None, readonly=False, docs_folder=None) -> List[DocIndex]:
+    def get_uploaded_documents(
+        self, doc_id=None, readonly=False, docs_folder=None
+    ) -> List[DocIndex]:
         try:
             doc_list = self.get_field("uploaded_documents_list")
         except ValueError as e:
@@ -1755,11 +1789,16 @@ Compact list of bullet points:
                 doc_storage = entry[1]
                 _display_name = entry[3] if len(entry) > 3 else None
                 # Lazy migration: move old per-conversation path to canonical store
-                if docs_folder is not None and not _canonical_docs.is_canonical_path(docs_folder, doc_storage):
+                if docs_folder is not None and not _canonical_docs.is_canonical_path(
+                    docs_folder, doc_storage
+                ):
                     _entry_doc_id = entry[0]
                     u_hash = _canonical_docs.user_hash(self.user_id)
                     new_storage = _canonical_docs.migrate_doc_to_canonical(
-                        docs_folder, u_hash, str(_entry_doc_id), doc_storage,
+                        docs_folder,
+                        u_hash,
+                        str(_entry_doc_id),
+                        doc_storage,
                         source_path=entry[2] if len(entry) > 2 else "",
                     )
                     if new_storage != doc_storage:
@@ -1798,14 +1837,13 @@ Compact list of bullet points:
             current_documents[d - 1] for d in attached_docs
         ]
         doc_infos = "\n".join(
-            [
-                self._format_doc_info_line(i, d)
-                for i, d in enumerate(attached_docs)
-            ]
+            [self._format_doc_info_line(i, d) for i, d in enumerate(attached_docs)]
         )
         self.doc_infos = doc_infos
 
-    def replace_uploaded_document(self, old_doc_id, new_doc_id, new_doc_storage, new_doc_source, display_name=None):
+    def replace_uploaded_document(
+        self, old_doc_id, new_doc_id, new_doc_storage, new_doc_source, display_name=None
+    ):
         """Replace a document in uploaded_documents_list with new identity.
 
         Swaps the tuple for old_doc_id with a new tuple pointing to
@@ -1859,21 +1897,28 @@ Compact list of bullet points:
             u_hash = _canonical_docs.user_hash(self.user_id)
             _keys = self.get_api_keys()
             _pdf_url = pdf_url
+
             def _build(canonical_parent):
                 idx = create_fast_document_index(_pdf_url, canonical_parent, _keys)
                 idx._visible = False
                 idx.save_local()
                 return idx
-            canonical_storage = _canonical_docs.store_or_get(docs_folder, u_hash, pdf_url, _build)
+
+            canonical_storage = _canonical_docs.store_or_get(
+                docs_folder, u_hash, pdf_url, _build
+            )
             from DocIndex import DocIndex as _DocIndex
+
             doc_index = _DocIndex.load_local(canonical_storage)
             if doc_index is None:
                 return None
         else:
-            doc_index = create_fast_document_index(pdf_url, self.documents_path, self.get_api_keys())
+            doc_index = create_fast_document_index(
+                pdf_url, self.documents_path, self.get_api_keys()
+            )
             doc_index._visible = False
             doc_index._priority = 3
-            doc_index._date_written = datetime.now().strftime('%Y-%m-%d')
+            doc_index._date_written = datetime.now().strftime("%Y-%m-%d")
             doc_index._deprecated = False
             doc_index.save_local()
             doc_index.save_local()
@@ -1890,10 +1935,7 @@ Compact list of bullet points:
             if loaded is not None:
                 all_docs.append(loaded)
         doc_infos = "\n".join(
-            [
-                self._format_doc_info_line(i, d)
-                for i, d in enumerate(all_docs)
-            ]
+            [self._format_doc_info_line(i, d) for i, d in enumerate(all_docs)]
         )
         self.doc_infos = doc_infos
         return doc_index
@@ -1937,7 +1979,6 @@ Compact list of bullet points:
                 )
         return docs
 
-
     def delete_message_attached_document(self, doc_id):
         """Remove a message-attached FastDocIndex from message_attached_documents_list.
 
@@ -1947,7 +1988,8 @@ Compact list of bullet points:
             The document ID to remove.
         """
         all_docs = [
-            d for d in (self.get_field("message_attached_documents_list") or [])
+            d
+            for d in (self.get_field("message_attached_documents_list") or [])
             if d[0] != doc_id
         ]
         self.set_field("message_attached_documents_list", all_docs, overwrite=True)
@@ -1983,10 +2025,15 @@ Compact list of bullet points:
         _doc_id, _doc_storage, actual_source = target
         # ---- Load fast doc to preserve metadata ----
         from DocIndex import DocIndex as _FastDocIndex
+
         fast_doc = _FastDocIndex.load_local(_doc_storage)
         old_priority = getattr(fast_doc, "_priority", 3) if fast_doc is not None else 3
-        old_date = getattr(fast_doc, "_date_written", None) if fast_doc is not None else None
-        old_deprecated = getattr(fast_doc, "_deprecated", False) if fast_doc is not None else False
+        old_date = (
+            getattr(fast_doc, "_date_written", None) if fast_doc is not None else None
+        )
+        old_deprecated = (
+            getattr(fast_doc, "_deprecated", False) if fast_doc is not None else False
+        )
         # actual_source is the post-move path stored by add_message_attached_document
         # ---- Remove from message_attached list ----
         remaining = [d for d in msg_docs if d[0] != doc_id]
@@ -1996,21 +2043,30 @@ Compact list of bullet points:
             u_hash = _canonical_docs.user_hash(self.user_id)
             _keys = self.get_api_keys()
             _actual_source = actual_source
+
             def _build(canonical_parent):
-                idx = create_immediate_document_index(_actual_source, canonical_parent, _keys)
+                idx = create_immediate_document_index(
+                    _actual_source, canonical_parent, _keys
+                )
                 idx._visible = True
                 idx._priority = old_priority
                 idx._date_written = old_date
                 idx._deprecated = old_deprecated
                 idx.save_local()
                 return idx
-            canonical_storage = _canonical_docs.store_or_get(docs_folder, u_hash, actual_source, _build)
+
+            canonical_storage = _canonical_docs.store_or_get(
+                docs_folder, u_hash, actual_source, _build
+            )
             from DocIndex import DocIndex as _DocIndex
+
             full_doc_index = _DocIndex.load_local(canonical_storage)
             if full_doc_index is None:
                 return None
         else:
-            full_doc_index = create_immediate_document_index(actual_source, self.documents_path, self.get_api_keys())
+            full_doc_index = create_immediate_document_index(
+                actual_source, self.documents_path, self.get_api_keys()
+            )
             full_doc_index._visible = True
             full_doc_index._priority = old_priority
             full_doc_index._date_written = old_date
@@ -2028,10 +2084,7 @@ Compact list of bullet points:
         # ---- Rebuild doc_infos ----
         current_documents = self.get_uploaded_documents()
         doc_infos = "\n".join(
-            [
-                self._format_doc_info_line(i, d)
-                for i, d in enumerate(current_documents)
-            ]
+            [self._format_doc_info_line(i, d) for i, d in enumerate(current_documents)]
         )
         self.doc_infos = doc_infos
         self.save_local()
@@ -3266,7 +3319,9 @@ Extract facts, details, numbers, code snippets, decisions, preferences, and any 
             )
 
             # Fire async LLM call
-            internal_model = self.get_model_override("conversation_internal_model", SUPERFAST_LLM[0])
+            internal_model = self.get_model_override(
+                "conversation_internal_model", SUPERFAST_LLM[0]
+            )
             llm = CallLLm(
                 self.get_api_keys(),
                 model_name=internal_model,
@@ -3535,7 +3590,9 @@ Give 4 suggestions.
                 summary=previous_summary,
             )
         )
-        internal_model = self.get_model_override("conversation_internal_model", SUPERFAST_LLM[0])
+        internal_model = self.get_model_override(
+            "conversation_internal_model", SUPERFAST_LLM[0]
+        )
         llm = CallLLm(
             self.get_api_keys(),
             model_name=internal_model,
@@ -3772,7 +3829,9 @@ Give 4 suggestions.
             previous_messages_text=previous_messages_text,
             previous_summary=previous_summary,
         )
-        summary_model = self.get_model_override("conversation_internal_model", SUPERFAST_LLM[0])
+        summary_model = self.get_model_override(
+            "conversation_internal_model", SUPERFAST_LLM[0]
+        )
         llm = CallLLm(
             self.get_api_keys(),
             model_name=summary_model,
@@ -3838,10 +3897,17 @@ Give 4 suggestions.
         # user can see which tools ran during streaming, but we don't want it in
         # the saved message text.
         try:
-            if isinstance(response_to_store, str) and '<tool_calls_summary>' in response_to_store.lower():
-                _tc_pattern = r'<\s*tool_calls_summary\s*>.*?<\s*/\s*tool_calls_summary\s*>'
+            if (
+                isinstance(response_to_store, str)
+                and "<tool_calls_summary>" in response_to_store.lower()
+            ):
+                _tc_pattern = (
+                    r"<\s*tool_calls_summary\s*>.*?<\s*/\s*tool_calls_summary\s*>"
+                )
                 response_to_store = re.sub(
-                    _tc_pattern, '', response_to_store,
+                    _tc_pattern,
+                    "",
+                    response_to_store,
                     flags=re.IGNORECASE | re.DOTALL,
                 )
         except Exception:
@@ -3939,8 +4005,10 @@ Your response will be in below xml style format:
 
             # Cross-conversation search index update (non-critical, fail-open)
             try:
-                if hasattr(self, '_cross_conv_index') and self._cross_conv_index:
-                    self._cross_conv_index.index_new_messages(self, len(preserved_messages))
+                if hasattr(self, "_cross_conv_index") and self._cross_conv_index:
+                    self._cross_conv_index.index_new_messages(
+                        self, len(preserved_messages)
+                    )
                     self._cross_conv_index.update_metadata(self)
             except Exception:
                 pass  # Cross-conv indexing failure must never block persistence
@@ -4040,7 +4108,7 @@ Your response will be in below xml style format:
         self.save_local()
         # Cross-conversation search: title changed
         try:
-            if hasattr(self, '_cross_conv_index') and self._cross_conv_index:
+            if hasattr(self, "_cross_conv_index") and self._cross_conv_index:
                 self._cross_conv_index.update_metadata(self)
         except Exception:
             pass
@@ -4819,7 +4887,7 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         self.save_local()
         # Cross-conversation search: message deleted — full reindex needed
         try:
-            if hasattr(self, '_cross_conv_index') and self._cross_conv_index:
+            if hasattr(self, "_cross_conv_index") and self._cross_conv_index:
                 self._cross_conv_index.index_conversation(self)
         except Exception:
             pass
@@ -4840,7 +4908,7 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         self.save_local()
         # Cross-conversation search: message edited — full reindex needed
         try:
-            if hasattr(self, '_cross_conv_index') and self._cross_conv_index:
+            if hasattr(self, "_cross_conv_index") and self._cross_conv_index:
                 self._cross_conv_index.index_conversation(self)
         except Exception:
             pass
@@ -4878,13 +4946,16 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         """Return a shared OpencodeClient instance, creating one if needed."""
         if not OPENCODE_AVAILABLE:
             raise RuntimeError("opencode_client package is not installed")
-        if not hasattr(self, '_opencode_client') or self._opencode_client is None:
+        if not hasattr(self, "_opencode_client") or self._opencode_client is None:
             self._opencode_client = OpencodeClient()
         return self._opencode_client
 
     def _get_opencode_session_manager(self):
         """Return a SessionManager wired to this conversation's settings persistence."""
-        if not hasattr(self, '_opencode_session_manager') or self._opencode_session_manager is None:
+        if (
+            not hasattr(self, "_opencode_session_manager")
+            or self._opencode_session_manager is None
+        ):
             client = self._get_opencode_client()
             self._opencode_session_manager = SessionManager(
                 client=client,
@@ -4918,7 +4989,11 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         dict or None
             ``{"providerID": ..., "modelID": ...}`` or None for server default.
         """
-        model_id = checkboxes.get("opencode_model") or oc_config.get("opencode_model") or OPENCODE_DEFAULT_MODEL
+        model_id = (
+            checkboxes.get("opencode_model")
+            or oc_config.get("opencode_model")
+            or OPENCODE_DEFAULT_MODEL
+        )
         provider_id = oc_config.get("opencode_provider") or OPENCODE_DEFAULT_PROVIDER
         if not model_id:
             return None
@@ -4947,6 +5022,7 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
                     "No Bedrock model ID mapping for '%s'; passing as-is", model_id
                 )
         return {"providerID": provider_id, "modelID": model_id}
+
     def _build_opencode_system_prompt(self, userData=None):
         """Build the system prompt for OpenCode sessions.
 
@@ -4967,18 +5043,26 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         user_email = userData.get("user_email", "") if userData else ""
         if user_email:
             parts.append(f"You are assisting user with email: {user_email}")
-            parts.append(f"When calling PKB or document MCP tools, pass user_email='{user_email}'.")
+            parts.append(
+                f"When calling PKB or document MCP tools, pass user_email='{user_email}'."
+            )
         if self.conversation_id:
-            parts.append(f"Current conversation ID: {self.conversation_id}. Pass this as conversation_id to conversation MCP tools (search_messages, list_messages, read_message, get_conversation_details, get_conversation_memory_pad).")
+            parts.append(
+                f"Current conversation ID: {self.conversation_id}. Pass this as conversation_id to conversation MCP tools (search_messages, list_messages, read_message, get_conversation_details, get_conversation_memory_pad)."
+            )
 
         title = self.get_field("memory").get("title")
         if title and title != "Start the Conversation":
             parts.append(f"Conversation title: {title}")
 
-        parts.append("Provide detailed, well-structured responses. Use markdown formatting.")
+        parts.append(
+            "Provide detailed, well-structured responses. Use markdown formatting."
+        )
         return "\n".join(parts) if parts else ""
 
-    def _assemble_opencode_context(self, query, injection_level, pkb_context_future=None):
+    def _assemble_opencode_context(
+        self, query, injection_level, pkb_context_future=None
+    ):
         """Build context string to inject as a noReply message.
 
         Parameters
@@ -5051,6 +5135,7 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
             ``{"text": ..., "status": ...}`` chunks for Flask streaming.
         """
         import time as _time
+
         oc_start = _time.time()
 
         yield {"text": "", "status": "Connecting to OpenCode..."}
@@ -5068,7 +5153,8 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         try:
             session_id = sm.get_or_create_session(
                 self.conversation_id,
-                title=self.get_field("memory").get("title") or f"Conversation {self.conversation_id[:8]}"
+                title=self.get_field("memory").get("title")
+                or f"Conversation {self.conversation_id[:8]}",
             )
             is_new_session = session_id not in (oc_config.get("session_ids") or [])
             yield {"text": "", "status": f"OpenCode session: {session_id[:12]}..."}
@@ -5076,12 +5162,15 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
             logger.error("OpenCode server not reachable: %s", e)
             yield {
                 "text": "\n\n**OpenCode server is not running.** Start it with `opencode serve` on port 4096, then retry.",
-                "status": "Error"
+                "status": "Error",
             }
             return
         except Exception as e:
             logger.exception("Failed to get/create OpenCode session: %s", e)
-            yield {"text": f"\n\nFailed to create OpenCode session: {e}", "status": "Error"}
+            yield {
+                "text": f"\n\nFailed to create OpenCode session: {e}",
+                "status": "Error",
+            }
             return
 
         # --- Resolve model ---
@@ -5090,21 +5179,32 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
             logger.info("OpenCode model resolved: %s", model_dict)
         except Exception as e:
             import traceback
+
             tb = traceback.format_exc()
             logger.error("OpenCode model resolution failed: %s\n%s", e, tb)
             print(f"[OpenCode ERROR] Model resolution failed: {e}\n{tb}")
-            yield {"text": f"\n\n**OpenCode error (model resolution):** {e}\n```\n{tb}\n```", "status": "Error"}
+            yield {
+                "text": f"\n\n**OpenCode error (model resolution):** {e}\n```\n{tb}\n```",
+                "status": "Error",
+            }
             return
         # --- Build and send system prompt for new sessions ---
         try:
             system_prompt = self._build_opencode_system_prompt(userData)
-            logger.info("OpenCode system prompt built (%d chars)", len(system_prompt) if system_prompt else 0)
+            logger.info(
+                "OpenCode system prompt built (%d chars)",
+                len(system_prompt) if system_prompt else 0,
+            )
         except Exception as e:
             import traceback
+
             tb = traceback.format_exc()
             logger.error("OpenCode system prompt build failed: %s\n%s", e, tb)
             print(f"[OpenCode ERROR] System prompt build failed: {e}\n{tb}")
-            yield {"text": f"\n\n**OpenCode error (system prompt):** {e}\n```\n{tb}\n```", "status": "Error"}
+            yield {
+                "text": f"\n\n**OpenCode error (system prompt):** {e}\n```\n{tb}\n```",
+                "status": "Error",
+            }
             return
         # --- Assemble and inject context ---
         injection_level = oc_config.get("injection_level", "medium")
@@ -5112,17 +5212,28 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
             context_text = self._assemble_opencode_context(
                 query, injection_level, pkb_context_future=pkb_context_future
             )
-            logger.info("OpenCode context assembled (%d chars, level=%s)", len(context_text) if context_text else 0, injection_level)
+            logger.info(
+                "OpenCode context assembled (%d chars, level=%s)",
+                len(context_text) if context_text else 0,
+                injection_level,
+            )
         except Exception as e:
             import traceback
+
             tb = traceback.format_exc()
             logger.error("OpenCode context assembly failed: %s\n%s", e, tb)
             print(f"[OpenCode ERROR] Context assembly failed: {e}\n{tb}")
-            yield {"text": f"\n\n**OpenCode error (context assembly):** {e}\n```\n{tb}\n```", "status": "Error"}
+            yield {
+                "text": f"\n\n**OpenCode error (context assembly):** {e}\n```\n{tb}\n```",
+                "status": "Error",
+            }
             return
         if context_text:
             try:
-                yield {"text": "", "status": "Injecting context into OpenCode session..."}
+                yield {
+                    "text": "",
+                    "status": "Injecting context into OpenCode session...",
+                }
                 client.send_context(
                     session_id,
                     text=context_text,
@@ -5137,21 +5248,33 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
             user_parts = [{"type": "text", "text": query["messageText"]}]
             # Only send system prompt if we didn't already send it with context
             msg_system = system_prompt if (system_prompt and not context_text) else None
-            logger.info("Sending message to OpenCode session %s, model=%s, system=%s chars, parts=%d",
-                        session_id, model_dict, len(msg_system) if msg_system else 0, len(user_parts))
+            logger.info(
+                "Sending message to OpenCode session %s, model=%s, system=%s chars, parts=%d",
+                session_id,
+                model_dict,
+                len(msg_system) if msg_system else 0,
+                len(user_parts),
+            )
             client.send_message_async(
                 session_id,
                 parts=user_parts,
                 model=model_dict,
                 system=msg_system,
             )
-            yield {"text": "", "status": "Message sent to OpenCode, waiting for response..."}
+            yield {
+                "text": "",
+                "status": "Message sent to OpenCode, waiting for response...",
+            }
         except Exception as e:
             import traceback
+
             tb = traceback.format_exc()
             logger.exception("Failed to send message to OpenCode: %s\n%s", e, tb)
             print(f"[OpenCode ERROR] send_message_async failed: {e}\n{tb}")
-            yield {"text": f"\n\nFailed to send message to OpenCode: {e}\n```\n{traceback.format_exc()}\n```", "status": "Error"}
+            yield {
+                "text": f"\n\nFailed to send message to OpenCode: {e}\n```\n{traceback.format_exc()}\n```",
+                "status": "Error",
+            }
             return
 
         # --- Stream SSE events via SSEBridge ---
@@ -5170,6 +5293,7 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         # backslash sequences and get eaten by the JS/HTML parser.
         try:
             from math_formatting import process_math_formatting
+
             _math_fmt = process_math_formatting
         except ImportError:
             _math_fmt = None
@@ -5187,6 +5311,7 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         # Apply math formatting to accumulated response
         try:
             from math_formatting import ensure_display_math_newlines
+
             answer = ensure_display_math_newlines(answer)
         except ImportError:
             pass  # math_formatting not available
@@ -5198,16 +5323,23 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         answer_word_count = len(answer_content.split())
         if answer_word_count > 1000 and not self.is_cancelled():
             try:
-                yield {"text": "\n\n", "status": "Generating TLDR summary for long answer..."}
+                yield {
+                    "text": "\n\n",
+                    "status": "Generating TLDR summary for long answer...",
+                }
                 answer += "\n\n---\n\n"
                 answer += "<answer_tldr>\n"
                 tldr_prompt_formatted = tldr_summary_prompt.format(
                     query=query["messageText"],
-                    summary=self.running_summary or "No previous conversation summary available.",
+                    summary=self.running_summary
+                    or "No previous conversation summary available.",
                     answer=answer_content,
                 )
-                tldr_model = self.get_model_override("conversation_internal_model", SUPERFAST_LLM[0])
+                tldr_model = self.get_model_override(
+                    "conversation_internal_model", SUPERFAST_LLM[0]
+                )
                 from call_llm import CallLLm
+
                 tldr_llm = CallLLm(
                     self.get_api_keys(),
                     model_name=tldr_model,
@@ -5270,7 +5402,9 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         oc_elapsed = _time.time() - oc_start
         time_dict = {
             "opencode_session_id": session_id,
-            "opencode_model": model_dict.get("modelID", "default") if model_dict else "default",
+            "opencode_model": model_dict.get("modelID", "default")
+            if model_dict
+            else "default",
             "total_time_to_reply": oc_elapsed,
             "answer_length_words": answer_word_count,
             "injection_level": injection_level,
@@ -5316,11 +5450,21 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
             sm = self._get_opencode_session_manager()
             session_id = sm.get_active_session_id(self.conversation_id)
             if not session_id:
-                yield {"text": "No active OpenCode session. Send a message first.", "status": "Error"}
+                yield {
+                    "text": "No active OpenCode session. Send a message first.",
+                    "status": "Error",
+                }
                 return
             result = client.execute_command(session_id, command_name)
-            result_text = json.dumps(result, indent=2) if isinstance(result, dict) else str(result)
-            yield {"text": f"**/{command_name} result:**\n```json\n{result_text}\n```\n", "status": f"/{command_name} complete"}
+            result_text = (
+                json.dumps(result, indent=2)
+                if isinstance(result, dict)
+                else str(result)
+            )
+            yield {
+                "text": f"**/{command_name} result:**\n```json\n{result_text}\n```\n",
+                "status": f"/{command_name} complete",
+            }
         except Exception as e:
             logger.exception("OpenCode command /%s failed: %s", command_name, e)
             yield {"text": f"\n\n/{command_name} failed: {e}", "status": "Error"}
@@ -5360,9 +5504,12 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
             sm = self._get_opencode_session_manager()
             new_id = sm.create_new_session(
                 self.conversation_id,
-                title=self.get_title() or f"Conversation {self.conversation_id[:8]}"
+                title=self.get_title() or f"Conversation {self.conversation_id[:8]}",
             )
-            yield {"text": f"New OpenCode session created: `{new_id}`", "status": "Session created"}
+            yield {
+                "text": f"New OpenCode session created: `{new_id}`",
+                "status": "Session created",
+            }
         except Exception as e:
             logger.exception("Failed to create new OpenCode session: %s", e)
             yield {"text": f"Failed to create session: {e}", "status": "Error"}
@@ -5380,7 +5527,10 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
             sm = self._get_opencode_session_manager()
             sessions = sm.list_sessions_for_conversation(self.conversation_id)
             if not sessions:
-                yield {"text": "No OpenCode sessions for this conversation.", "status": "Done"}
+                yield {
+                    "text": "No OpenCode sessions for this conversation.",
+                    "status": "Done",
+                }
                 return
             lines = ["**OpenCode Sessions:**\n"]
             for s in sessions:
@@ -5407,14 +5557,28 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
             sm = self._get_opencode_session_manager()
             session_id = sm.get_active_session_id(self.conversation_id)
             if not session_id:
-                yield {"text": "No active OpenCode session to summarize.", "status": "Error"}
+                yield {
+                    "text": "No active OpenCode session to summarize.",
+                    "status": "Error",
+                }
                 return
             oc_config = self.get_conversation_settings().get("opencode_config", {})
             model_dict = self._resolve_opencode_model({}, oc_config)
-            provider_id = model_dict.get("providerID", OPENCODE_DEFAULT_PROVIDER) if model_dict else OPENCODE_DEFAULT_PROVIDER
-            model_id = model_dict.get("modelID", OPENCODE_DEFAULT_MODEL) if model_dict else OPENCODE_DEFAULT_MODEL
+            provider_id = (
+                model_dict.get("providerID", OPENCODE_DEFAULT_PROVIDER)
+                if model_dict
+                else OPENCODE_DEFAULT_PROVIDER
+            )
+            model_id = (
+                model_dict.get("modelID", OPENCODE_DEFAULT_MODEL)
+                if model_dict
+                else OPENCODE_DEFAULT_MODEL
+            )
             client.summarize_session(session_id, provider_id, model_id)
-            yield {"text": "OpenCode session summarized for context compaction.", "status": "Summarized"}
+            yield {
+                "text": "OpenCode session summarized for context compaction.",
+                "status": "Summarized",
+            }
         except Exception as e:
             logger.exception("OpenCode summarize failed: %s", e)
             yield {"text": f"Summarize failed: {e}", "status": "Error"}
@@ -5500,9 +5664,15 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
             msg_id = last_msg.get("id", "") if isinstance(last_msg, dict) else ""
             if msg_id:
                 client.revert_message(session_id, msg_id)
-                yield {"text": f"Reverted message `{msg_id[:12]}...`", "status": "Reverted"}
+                yield {
+                    "text": f"Reverted message `{msg_id[:12]}...`",
+                    "status": "Reverted",
+                }
             else:
-                yield {"text": "Could not determine last message ID.", "status": "Error"}
+                yield {
+                    "text": "Could not determine last message ID.",
+                    "status": "Error",
+                }
         except Exception as e:
             logger.exception("OpenCode revert failed: %s", e)
             yield {"text": f"Revert failed: {e}", "status": "Error"}
@@ -5519,8 +5689,15 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         try:
             client = self._get_opencode_client()
             mcp_status = client.get_mcp_status()
-            status_text = json.dumps(mcp_status, indent=2) if isinstance(mcp_status, dict) else str(mcp_status)
-            yield {"text": f"**MCP Server Status:**\n```json\n{status_text}\n```\n", "status": "MCP status retrieved"}
+            status_text = (
+                json.dumps(mcp_status, indent=2)
+                if isinstance(mcp_status, dict)
+                else str(mcp_status)
+            )
+            yield {
+                "text": f"**MCP Server Status:**\n```json\n{status_text}\n```\n",
+                "status": "MCP status retrieved",
+            }
         except Exception as e:
             logger.exception("OpenCode MCP status failed: %s", e)
             yield {"text": f"MCP status failed: {e}", "status": "Error"}
@@ -5537,8 +5714,15 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         try:
             client = self._get_opencode_client()
             providers = client.get_providers()
-            providers_text = json.dumps(providers, indent=2) if isinstance(providers, dict) else str(providers)
-            yield {"text": f"**Available Models:**\n```json\n{providers_text}\n```\n", "status": "Models listed"}
+            providers_text = (
+                json.dumps(providers, indent=2)
+                if isinstance(providers, dict)
+                else str(providers)
+            )
+            yield {
+                "text": f"**Available Models:**\n```json\n{providers_text}\n```\n",
+                "status": "Models listed",
+            }
         except Exception as e:
             logger.exception("OpenCode models failed: %s", e)
             yield {"text": f"Models listing failed: {e}", "status": "Error"}
@@ -5595,14 +5779,29 @@ Any other `/command` is passed through to OpenCode directly.
             sm = self._get_opencode_session_manager()
             session_id = sm.get_active_session_id(self.conversation_id)
             if not session_id:
-                yield {"text": "No active OpenCode session. Send a message first.", "status": "Error"}
+                yield {
+                    "text": "No active OpenCode session. Send a message first.",
+                    "status": "Error",
+                }
                 return
-            result = client.execute_command(session_id, command_name, arguments=arguments)
-            result_text = json.dumps(result, indent=2) if isinstance(result, dict) else str(result)
-            yield {"text": f"**/{command_name} result:**\n```json\n{result_text}\n```\n", "status": f"/{command_name} complete"}
+            result = client.execute_command(
+                session_id, command_name, arguments=arguments
+            )
+            result_text = (
+                json.dumps(result, indent=2)
+                if isinstance(result, dict)
+                else str(result)
+            )
+            yield {
+                "text": f"**/{command_name} result:**\n```json\n{result_text}\n```\n",
+                "status": f"/{command_name} complete",
+            }
         except Exception as e:
-            logger.exception("OpenCode passthrough command /%s failed: %s", command_name, e)
+            logger.exception(
+                "OpenCode passthrough command /%s failed: %s", command_name, e
+            )
             yield {"text": f"\n\n/{command_name} failed: {e}", "status": "Error"}
+
     # Add this method to the Conversation class
     def is_cancelled(self):
         """Check if this conversation has been cancelled"""
@@ -5687,17 +5886,20 @@ Any other `/command` is passed through to OpenCode directly.
             # replace each of the #doc_1, #doc_2 etc with the doc_infos
             if replace_reference:
                 from DocIndex import PRIORITY_LABELS
+
                 for i, d in enumerate(attached_docs_names):
                     doc = attached_docs[i]
                     doc_title = doc_infos[i]
-                    priority_label = PRIORITY_LABELS.get(getattr(doc, '_priority', 3), 'medium')
-                    date_str = getattr(doc, '_date_written', None)
-                    meta_parts = [f'Reliability: {priority_label}']
+                    priority_label = PRIORITY_LABELS.get(
+                        getattr(doc, "_priority", 3), "medium"
+                    )
+                    date_str = getattr(doc, "_date_written", None)
+                    meta_parts = [f"Reliability: {priority_label}"]
                     if date_str:
-                        meta_parts.append(f'Date written: {date_str}')
-                    deprecated_caveat = ''
-                    if getattr(doc, '_deprecated', False):
-                        deprecated_caveat = '[DEPRECATED DOCUMENT \u2014 included for reference only, prefer other sources]\n'
+                        meta_parts.append(f"Date written: {date_str}")
+                    deprecated_caveat = ""
+                    if getattr(doc, "_deprecated", False):
+                        deprecated_caveat = "[DEPRECATED DOCUMENT \u2014 included for reference only, prefer other sources]\n"
                     messageText = messageText.replace(
                         d,
                         f"{d} (Title of {d} '{doc_title}') [{', '.join(meta_parts)}]\n"
@@ -5739,36 +5941,54 @@ Any other `/command` is passed through to OpenCode directly.
         gdoc_ref_names = [f"#gdoc_{r}" for r in gdoc_refs]
 
         # --- NEW: #folder: references ---
-        folder_refs = re.findall(r'#folder:([\w/\-\.]+)', messageText)
+        folder_refs = re.findall(r"#folder:([\w/\-\.]+)", messageText)
         for folder_name in folder_refs:
             from database.doc_folders import get_folder_by_name as _get_folder_by_name
             from database.doc_folders import get_docs_in_folder as _get_docs_in_folder
+
             _folder = _get_folder_by_name(
                 users_dir=users_dir, user_email=user_email, name=folder_name
             )
             if _folder:
-                _folder_doc_ids = set(_get_docs_in_folder(
-                    users_dir=users_dir, user_email=user_email,
-                    folder_id=_folder['folder_id'], recursive=True
-                ))
+                _folder_doc_ids = set(
+                    _get_docs_in_folder(
+                        users_dir=users_dir,
+                        user_email=user_email,
+                        folder_id=_folder["folder_id"],
+                        recursive=True,
+                    )
+                )
                 from database.global_docs import list_global_docs as _lgd_folder
+
                 _all_rows = _lgd_folder(users_dir=users_dir, user_email=user_email)
                 for _idx0, _row in enumerate(_all_rows):
-                    if _row['doc_id'] in _folder_doc_ids and (_idx0 + 1) not in gdoc_indices and not _row.get('deprecated', False):
+                    if (
+                        _row["doc_id"] in _folder_doc_ids
+                        and (_idx0 + 1) not in gdoc_indices
+                        and not _row.get("deprecated", False)
+                    ):
                         gdoc_indices.append(_idx0 + 1)
                         gdoc_ref_names.append(f"#gdoc_{_idx0 + 1}")
 
         # --- NEW: #tag: references ---
-        tag_refs = re.findall(r'#tag:([\w\-\.]+)', messageText)
+        tag_refs = re.findall(r"#tag:([\w\-\.]+)", messageText)
         for tag_name in tag_refs:
             from database.doc_tags import list_docs_by_tag as _list_docs_by_tag
-            _tagged_doc_ids = set(_list_docs_by_tag(
-                users_dir=users_dir, user_email=user_email, tag=tag_name
-            ))
+
+            _tagged_doc_ids = set(
+                _list_docs_by_tag(
+                    users_dir=users_dir, user_email=user_email, tag=tag_name
+                )
+            )
             from database.global_docs import list_global_docs as _lgd_tag
+
             _all_rows = _lgd_tag(users_dir=users_dir, user_email=user_email)
             for _idx0, _row in enumerate(_all_rows):
-                if _row['doc_id'] in _tagged_doc_ids and (_idx0 + 1) not in gdoc_indices and not _row.get('deprecated', False):
+                if (
+                    _row["doc_id"] in _tagged_doc_ids
+                    and (_idx0 + 1) not in gdoc_indices
+                    and not _row.get("deprecated", False)
+                ):
                     gdoc_indices.append(_idx0 + 1)
                     gdoc_ref_names.append(f"#gdoc_{_idx0 + 1}")
 
@@ -5879,19 +6099,22 @@ Any other `/command` is passed through to OpenCode directly.
 
             if replace_reference:
                 from DocIndex import PRIORITY_LABELS
+
                 doc_infos = [d.title for d in attached_docs]
                 doc_infos_data = [d.title for d in attached_docs_data]
                 for i, name in enumerate(attached_docs_names):
                     doc = attached_docs[i]
                     doc_title = doc_infos[i]
-                    priority_label = PRIORITY_LABELS.get(getattr(doc, '_priority', 3), 'medium')
-                    date_str = getattr(doc, '_date_written', None)
-                    meta_parts = [f'Reliability: {priority_label}']
+                    priority_label = PRIORITY_LABELS.get(
+                        getattr(doc, "_priority", 3), "medium"
+                    )
+                    date_str = getattr(doc, "_date_written", None)
+                    meta_parts = [f"Reliability: {priority_label}"]
                     if date_str:
-                        meta_parts.append(f'Date written: {date_str}')
-                    deprecated_caveat = ''
-                    if getattr(doc, '_deprecated', False):
-                        deprecated_caveat = '[DEPRECATED DOCUMENT \u2014 included for reference only, prefer other sources]\n'
+                        meta_parts.append(f"Date written: {date_str}")
+                    deprecated_caveat = ""
+                    if getattr(doc, "_deprecated", False):
+                        deprecated_caveat = "[DEPRECATED DOCUMENT \u2014 included for reference only, prefer other sources]\n"
                     messageText = messageText.replace(
                         name,
                         f"{name} (Title of {name} '{doc_title}') [{', '.join(meta_parts)}]\n"
@@ -6515,18 +6738,18 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
     def _get_enabled_tools(self, checkboxes, user_email="", users_dir=""):
         """Read tool settings from query checkboxes and return OpenAI tools param.
-        
+
         Reads 'enable_tool_use' master toggle and 'enabled_tools' from
         the checkboxes. Supports two formats:
         - List of tool names: ["ask_clarification", "web_search", ...]
         - Dict of category booleans: {"clarification": True, "search": True, ...}
-        
+
         When user_email and users_dir are provided, document tool descriptions
         are dynamically enriched with the actual list of available documents so
         the LLM can skip calling list tools.
-        
+
         Returns None if tools are disabled.
-        
+
         Parameters
         ----------
         checkboxes : dict
@@ -6535,28 +6758,39 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             Current user email for fetching global docs.
         users_dir : str, optional
             Users directory path for global doc DB lookups.
-        
+
         Returns
         -------
         list[dict] or None
             OpenAI-format tools list, or None if tools disabled.
         """
         if not TOOLS_AVAILABLE or TOOL_REGISTRY is None:
-            logger.warning('[_get_enabled_tools] Tools not available: TOOLS_AVAILABLE=%s, TOOL_REGISTRY=%s', TOOLS_AVAILABLE, TOOL_REGISTRY)
+            logger.warning(
+                "[_get_enabled_tools] Tools not available: TOOLS_AVAILABLE=%s, TOOL_REGISTRY=%s",
+                TOOLS_AVAILABLE,
+                TOOL_REGISTRY,
+            )
             return None
         if not checkboxes:
-            logger.warning('[_get_enabled_tools] No checkboxes provided')
+            logger.warning("[_get_enabled_tools] No checkboxes provided")
             return None
-        
-        enable_tool_use = checkboxes.get('enable_tool_use', False)
+
+        enable_tool_use = checkboxes.get("enable_tool_use", False)
         if not enable_tool_use:
-            logger.warning('[_get_enabled_tools] enable_tool_use is False/missing. checkboxes keys: %s', list(checkboxes.keys()))
+            logger.warning(
+                "[_get_enabled_tools] enable_tool_use is False/missing. checkboxes keys: %s",
+                list(checkboxes.keys()),
+            )
             return None
-        logger.warning('[_get_enabled_tools] enable_tool_use=%s', enable_tool_use)
-        
+        logger.warning("[_get_enabled_tools] enable_tool_use=%s", enable_tool_use)
+
         enabled_tools_config = checkboxes.get("enabled_tools", None)
-        logger.warning('[_get_enabled_tools] enabled_tools_config type=%s, value=%s', type(enabled_tools_config).__name__, str(enabled_tools_config)[:200])
-        
+        logger.warning(
+            "[_get_enabled_tools] enabled_tools_config type=%s, value=%s",
+            type(enabled_tools_config).__name__,
+            str(enabled_tools_config)[:200],
+        )
+
         if isinstance(enabled_tools_config, list):
             # New format: list of individual tool names
             enabled_names = [name for name in enabled_tools_config if name]
@@ -6581,20 +6815,23 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         else:
             # No config provided but master toggle is on — enable all
             enabled_names = [t.name for t in TOOL_REGISTRY.get_all_tools()]
-        
+
         if not enabled_names:
-            logger.warning('[_get_enabled_tools] No enabled tool names found')
+            logger.warning("[_get_enabled_tools] No enabled tool names found")
             return None
-        
+
         tools_param = TOOL_REGISTRY.get_openai_tools_param(enabled_names)
         # Inject dynamic document listings into doc tool descriptions
         if tools_param and user_email:
             tools_param = self._inject_dynamic_doc_descriptions(
                 tools_param, user_email, users_dir
             )
-        logger.warning('[_get_enabled_tools] Returning %d tools (first 5: %s)', len(tools_param) if tools_param else 0, [t["function"]["name"] for t in (tools_param or [])[:5]])
+        logger.warning(
+            "[_get_enabled_tools] Returning %d tools (first 5: %s)",
+            len(tools_param) if tools_param else 0,
+            [t["function"]["name"] for t in (tools_param or [])[:5]],
+        )
         return tools_param if tools_param else None
-
 
     # -- Dynamic tool description injection for documents ----------------
 
@@ -6626,7 +6863,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
         # Lazy-loaded data (only fetched when a matching tool is found)
         _global_docs = None  # list[dict] | None
-        _conv_docs = None    # list[tuple] | None
+        _conv_docs = None  # list[tuple] | None
 
         def _get_global_docs():
             nonlocal _global_docs
@@ -6634,15 +6871,17 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 return _global_docs
             try:
                 from database.global_docs import list_global_docs
+
                 _users = users_dir
                 if not _users:
                     # Try common fallback from endpoints.state
                     try:
                         from endpoints.state import get_state
+
                         st = get_state()
-                        _users = getattr(st, 'users_dir', '') if st else ''
+                        _users = getattr(st, "users_dir", "") if st else ""
                     except Exception:
-                        _users = ''
+                        _users = ""
                 if _users:
                     _global_docs = list_global_docs(
                         users_dir=_users, user_email=user_email
@@ -6650,7 +6889,10 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 else:
                     _global_docs = []
             except Exception:
-                logger.debug('_inject_dynamic_doc_descriptions: failed to load global docs', exc_info=True)
+                logger.debug(
+                    "_inject_dynamic_doc_descriptions: failed to load global docs",
+                    exc_info=True,
+                )
                 _global_docs = []
             return _global_docs
 
@@ -6659,7 +6901,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             if _conv_docs is not None:
                 return _conv_docs
             try:
-                _conv_docs = self.get_field('uploaded_documents_list') or []
+                _conv_docs = self.get_field("uploaded_documents_list") or []
             except Exception:
                 _conv_docs = []
             return _conv_docs
@@ -6669,15 +6911,29 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             cap = self._DOC_LIST_CAP
             lines = []
             for idx, row in enumerate(rows[:cap]):
-                name = row.get('display_name') or row.get('title') or row.get('doc_id', '?')
-                path = row.get('doc_storage', '')
-                label = {1: 'very low', 2: 'low', 3: 'medium', 4: 'high', 5: 'very high'}.get(row.get('priority', 3), 'medium')
-                date_part = f", date: {row['date_written']}" if row.get('date_written') else ''
-                deprecated_tag = ' [DEPRECATED]' if row.get('deprecated') else ''
-                lines.append(f'  {idx + 1}. {name} (doc_id: {row.get("doc_id", "")}, path: {path}, reliability: {label}{date_part}){deprecated_tag}')
+                name = (
+                    row.get("display_name")
+                    or row.get("title")
+                    or row.get("doc_id", "?")
+                )
+                path = row.get("doc_storage", "")
+                label = {
+                    1: "very low",
+                    2: "low",
+                    3: "medium",
+                    4: "high",
+                    5: "very high",
+                }.get(row.get("priority", 3), "medium")
+                date_part = (
+                    f", date: {row['date_written']}" if row.get("date_written") else ""
+                )
+                deprecated_tag = " [DEPRECATED]" if row.get("deprecated") else ""
+                lines.append(
+                    f"  {idx + 1}. {name} (doc_id: {row.get('doc_id', '')}, path: {path}, reliability: {label}{date_part}){deprecated_tag}"
+                )
             if len(rows) > cap:
-                lines.append(f'  ... and {len(rows) - cap} more.')
-            return '\n'.join(lines)
+                lines.append(f"  ... and {len(rows) - cap} more.")
+            return "\n".join(lines)
 
         def _fmt_conv(entries):
             """Format conversation docs listing with priority and deprecated metadata."""
@@ -6685,19 +6941,39 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             lines = []
             for idx, entry in enumerate(entries[:cap]):
                 name = entry[3] if len(entry) > 3 and entry[3] else entry[0]
-                path = entry[1] if len(entry) > 1 else ''
+                path = entry[1] if len(entry) > 1 else ""
                 # Load DocIndex to get metadata
                 try:
                     doc = DocIndex.load_local(path)
-                    label = {1: 'very low', 2: 'low', 3: 'medium', 4: 'high', 5: 'very high'}.get(getattr(doc, '_priority', 3), 'medium') if doc else 'medium'
-                    date_part = f", date: {getattr(doc, '_date_written', '')}" if doc and getattr(doc, '_date_written', None) else ''
-                    deprecated_tag = ' [DEPRECATED]' if doc and getattr(doc, '_deprecated', False) else ''
+                    label = (
+                        {
+                            1: "very low",
+                            2: "low",
+                            3: "medium",
+                            4: "high",
+                            5: "very high",
+                        }.get(getattr(doc, "_priority", 3), "medium")
+                        if doc
+                        else "medium"
+                    )
+                    date_part = (
+                        f", date: {getattr(doc, '_date_written', '')}"
+                        if doc and getattr(doc, "_date_written", None)
+                        else ""
+                    )
+                    deprecated_tag = (
+                        " [DEPRECATED]"
+                        if doc and getattr(doc, "_deprecated", False)
+                        else ""
+                    )
                 except Exception:
-                    label, date_part, deprecated_tag = 'medium', '', ''
-                lines.append(f'  {idx + 1}. {name} (#doc_{idx + 1}, path: {path}, reliability: {label}{date_part}){deprecated_tag}')
+                    label, date_part, deprecated_tag = "medium", "", ""
+                lines.append(
+                    f"  {idx + 1}. {name} (#doc_{idx + 1}, path: {path}, reliability: {label}{date_part}){deprecated_tag}"
+                )
             if len(entries) > cap:
-                lines.append(f'  ... and {len(entries) - cap} more.')
-            return '\n'.join(lines)
+                lines.append(f"  ... and {len(entries) - cap} more.")
+            return "\n".join(lines)
 
         def _fmt_all_paths(conv_entries, global_rows):
             """Format combined doc_storage_path listing for query/full-text tools."""
@@ -6705,76 +6981,109 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             lines = []
             for idx, entry in enumerate(conv_entries[:cap]):
                 name = entry[3] if len(entry) > 3 and entry[3] else entry[0]
-                lines.append(f'  - {name}: {entry[1] if len(entry) > 1 else ""}')
+                lines.append(f"  - {name}: {entry[1] if len(entry) > 1 else ''}")
             for idx, row in enumerate(global_rows[:cap]):
-                name = row.get('display_name') or row.get('title') or row.get('doc_id', '?')
-                lines.append(f'  - {name}: {row.get("doc_storage", "")}')
+                name = (
+                    row.get("display_name")
+                    or row.get("title")
+                    or row.get("doc_id", "?")
+                )
+                lines.append(f"  - {name}: {row.get('doc_storage', '')}")
             total = len(conv_entries) + len(global_rows)
             if total > cap * 2:
-                lines.append(f'  ... and more.')
-            return '\n'.join(lines)
+                lines.append(f"  ... and more.")
+            return "\n".join(lines)
 
         # Names of tools whose descriptions we want to enrich
         DOC_TOOL_NAMES = {
-            'docs_list_global_docs', 'docs_list_conversation_docs',
-            'docs_query', 'docs_get_full_text', 'docs_get_info',
-            'docs_answer_question', 'docs_get_global_doc_info',
-            'docs_query_global_doc', 'docs_get_global_doc_full_text',
+            "docs_list_global_docs",
+            "docs_list_conversation_docs",
+            "docs_query",
+            "docs_get_full_text",
+            "docs_get_info",
+            "docs_answer_question",
+            "docs_get_global_doc_info",
+            "docs_query_global_doc",
+            "docs_get_global_doc_full_text",
         }
 
         for tool in tools_param:
-            func_name = tool.get('function', {}).get('name', '')
+            func_name = tool.get("function", {}).get("name", "")
             if func_name not in DOC_TOOL_NAMES:
                 continue
 
-            desc = tool['function']['description']
+            desc = tool["function"]["description"]
 
-            if func_name == 'docs_list_global_docs':
+            if func_name == "docs_list_global_docs":
                 rows = _get_global_docs()
                 if rows:
-                    desc += '\n\nCurrently available global documents:\n' + _fmt_global(rows)
+                    desc += "\n\nCurrently available global documents:\n" + _fmt_global(
+                        rows
+                    )
                 else:
-                    desc += '\n\nNo global documents currently available.'
+                    desc += "\n\nNo global documents currently available."
 
-            elif func_name == 'docs_list_conversation_docs':
+            elif func_name == "docs_list_conversation_docs":
                 entries = _get_conv_docs()
                 if entries:
-                    desc += '\n\nCurrently attached conversation documents:\n' + _fmt_conv(entries)
+                    desc += (
+                        "\n\nCurrently attached conversation documents:\n"
+                        + _fmt_conv(entries)
+                    )
                 else:
-                    desc += '\n\nNo documents attached to this conversation.'
+                    desc += "\n\nNo documents attached to this conversation."
 
-            elif func_name in ('docs_query', 'docs_get_full_text', 'docs_get_info',
-                               'docs_answer_question'):
+            elif func_name in (
+                "docs_query",
+                "docs_get_full_text",
+                "docs_get_info",
+                "docs_answer_question",
+            ):
                 # Inject available doc_storage_paths so LLM can use directly
                 conv = _get_conv_docs()
                 gbl = _get_global_docs()
                 if conv or gbl:
-                    desc += '\n\nAvailable doc_storage_path values:\n' + _fmt_all_paths(conv, gbl)
+                    desc += "\n\nAvailable doc_storage_path values:\n" + _fmt_all_paths(
+                        conv, gbl
+                    )
 
-            elif func_name in ('docs_get_global_doc_info', 'docs_query_global_doc',
-                               'docs_get_global_doc_full_text'):
+            elif func_name in (
+                "docs_get_global_doc_info",
+                "docs_query_global_doc",
+                "docs_get_global_doc_full_text",
+            ):
                 rows = _get_global_docs()
                 if rows:
-                    desc += '\n\nAvailable global doc_id values:\n'
+                    desc += "\n\nAvailable global doc_id values:\n"
                     cap = self._DOC_LIST_CAP
                     for i, row in enumerate(rows[:cap]):
-                        name = row.get('display_name') or row.get('title') or '?'
-                        desc += f'  - {row.get("doc_id", "")}: {name}\n'
+                        name = row.get("display_name") or row.get("title") or "?"
+                        desc += f"  - {row.get('doc_id', '')}: {name}\n"
 
-            tool['function']['description'] = desc
+            tool["function"]["description"] = desc
 
         return tools_param
 
-    def _run_tool_loop(self, prompt, preamble, images, model_name, keys, tools_config,
-                       max_iterations=10, tool_response_waiter=None,
-                       conversation_id="", user_email=""):
+    def _run_tool_loop(
+        self,
+        prompt,
+        preamble,
+        images,
+        model_name,
+        keys,
+        tools_config,
+        max_iterations=10,
+        tool_response_waiter=None,
+        conversation_id="",
+        user_email="",
+    ):
         """Run the agentic tool loop — LLM calls with tool support.
-        
+
         This generator yields dict chunks for the streaming response.
         All yielded dicts include 'text' and 'status' keys for compatibility
         with the existing streaming loop. Tool event dicts additionally include
         a 'type' field and tool-specific metadata.
-        
+
         Chunk types:
         - {"text": "...", "status": "..."} — text from the LLM
         - {"text": "", "status": "...", "type": "tool_call", "tool_id": "...",
@@ -6785,13 +7094,13 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
           "result_summary": "..."}
         - {"text": "", "status": "...", "type": "tool_input_request",
           "tool_id": "...", "tool_name": "...", "ui_schema": {...}}
-        
+
         The loop:
         1. Call LLM with tools
         2. If LLM returns text only → yield text, exit
         3. If LLM returns tool_calls → execute tools, feed results back, repeat
         4. Hard cap at max_iterations tool rounds
-        
+
         Parameters
         ----------
         prompt : str
@@ -6818,21 +7127,26 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             For ToolContext.
         """
         from call_llm import CallLLm
-        
-        logger.warning('[_run_tool_loop] Starting tool loop | model=%s | tools_count=%d | tool_names=%s',
-                        model_name, len(tools_config) if tools_config else 0,
-                        [t['function']['name'] for t in (tools_config or [])[:5]])
-        
+
+        logger.warning(
+            "[_run_tool_loop] Starting tool loop | model=%s | tools_count=%d | tool_names=%s",
+            model_name,
+            len(tools_config) if tools_config else 0,
+            [t["function"]["name"] for t in (tools_config or [])[:5]],
+        )
+
         llm = CallLLm(keys, model_name=model_name)
-        
+
         # Build ToolContext for handlers
         tool_context = ToolContext(
             conversation_id=conversation_id,
             user_email=user_email,
             keys=keys,
-            model_overrides=self.get_conversation_settings().get("model_overrides", {}) if isinstance(self.get_conversation_settings(), dict) else {},
+            model_overrides=self.get_conversation_settings().get("model_overrides", {})
+            if isinstance(self.get_conversation_settings(), dict)
+            else {},
         )
-        
+
         # Messages array for continuation (built up across iterations)
         messages = [
             {"role": "system", "content": preamble},
@@ -6844,41 +7158,63 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 "role": "user",
                 "content": [
                     {"type": "text", "text": prompt},
-                ] + [{"type": "image_url", "image_url": {"url": img}} for img in images]
+                ]
+                + [{"type": "image_url", "image_url": {"url": img}} for img in images],
             }
-        
+
         iteration = 0
-        use_messages_mode = False  # First call uses simple mode; continuations use messages mode
-        
+        use_messages_mode = (
+            False  # First call uses simple mode; continuations use messages mode
+        )
+
         while iteration <= max_iterations:
             # Determine tool_choice for this iteration
             current_tool_choice = None
             if iteration == max_iterations:
                 # Final iteration: force text-only response
                 current_tool_choice = "none"
-                yield {"text": "", "status": "Generating final response (tool iteration limit reached)..."}
-            
+                yield {
+                    "text": "",
+                    "status": "Generating final response (tool iteration limit reached)...",
+                }
+
             # Make the LLM call
-            logger.warning('[_run_tool_loop] iter=%d | use_messages_mode=%s | tool_choice=%s | tools_count=%d',
-                            iteration, use_messages_mode, current_tool_choice, len(tools_config) if tools_config else 0)
+            logger.warning(
+                "[_run_tool_loop] iter=%d | use_messages_mode=%s | tool_choice=%s | tools_count=%d",
+                iteration,
+                use_messages_mode,
+                current_tool_choice,
+                len(tools_config) if tools_config else 0,
+            )
             if not use_messages_mode:
                 # First call: simple mode (text + system)
-                gen = llm(prompt, images=images, system=preamble, temperature=0.3,
-                          stream=True, tools=tools_config, tool_choice=current_tool_choice)
+                gen = llm(
+                    prompt,
+                    images=images,
+                    system=preamble,
+                    temperature=0.3,
+                    stream=True,
+                    tools=tools_config,
+                    tool_choice=current_tool_choice,
+                )
             else:
                 # Continuation calls: messages mode
                 from code_common.call_llm import call_llm as _cc_call_llm
+
                 gen = _cc_call_llm(
-                    keys=keys, model_name=model_name,
-                    messages=messages, temperature=0.3, stream=True,
+                    keys=keys,
+                    model_name=model_name,
+                    messages=messages,
+                    temperature=0.3,
+                    stream=True,
                     tools=tools_config if current_tool_choice != "none" else None,
                     tool_choice=current_tool_choice,
                 )
-            
+
             # Consume the generator, collecting text and tool calls
             accumulated_text = ""
             tool_calls_in_round = []
-            
+
             for chunk in gen:
                 if isinstance(chunk, str):
                     # Text chunk — yield to stream
@@ -6887,14 +7223,21 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 elif isinstance(chunk, dict) and chunk.get("type") == "tool_call":
                     # Tool call dict from _extract_text_from_openai_response
                     tool_calls_in_round.append(chunk)
-            
+
             # If no tool calls were made, we're done (LLM gave text-only response)
-            logger.warning('[_run_tool_loop] iter=%d | accumulated_text_len=%d | tool_calls_count=%d',
-                            iteration, len(accumulated_text), len(tool_calls_in_round))
+            logger.warning(
+                "[_run_tool_loop] iter=%d | accumulated_text_len=%d | tool_calls_count=%d",
+                iteration,
+                len(accumulated_text),
+                len(tool_calls_in_round),
+            )
             if not tool_calls_in_round:
-                logger.warning('[_run_tool_loop] No tool calls in round %d — LLM gave text-only response, exiting loop', iteration)
+                logger.warning(
+                    "[_run_tool_loop] No tool calls in round %d — LLM gave text-only response, exiting loop",
+                    iteration,
+                )
                 break
-            
+
             # Process tool calls
             # Build the assistant message with tool_calls for the messages array
             assistant_msg = {"role": "assistant"}
@@ -6902,20 +7245,22 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 assistant_msg["content"] = accumulated_text
             else:
                 assistant_msg["content"] = None
-            
+
             assistant_msg["tool_calls"] = []
             for tc in tool_calls_in_round:
-                assistant_msg["tool_calls"].append({
-                    "id": tc["id"],
-                    "type": "function",
-                    "function": {
-                        "name": tc["function"]["name"],
-                        "arguments": tc["function"]["arguments"],
+                assistant_msg["tool_calls"].append(
+                    {
+                        "id": tc["id"],
+                        "type": "function",
+                        "function": {
+                            "name": tc["function"]["name"],
+                            "arguments": tc["function"]["arguments"],
+                        },
                     }
-                })
-            
+                )
+
             messages.append(assistant_msg)
-            
+
             # Execute tool calls — parallel for non-interactive, sequential for interactive
             tool_round_details = []  # Collect (name, args_brief, result_brief, result_len, clarification_qa, exec_dur, total_dur)
 
@@ -6930,10 +7275,13 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     tc_args = {}
 
                 # Force detail_level=1 for tools that support it (keep responses concise)
-                if tc_name in ('perplexity_search', 'jina_search') and 'detail_level' not in tc_args:
-                    tc_args['detail_level'] = 1
-                if tc_name == 'read_link' and 'detailed' not in tc_args:
-                    tc_args['detailed'] = False
+                if (
+                    tc_name in ("perplexity_search", "jina_search")
+                    and "detail_level" not in tc_args
+                ):
+                    tc_args["detail_level"] = 1
+                if tc_name == "read_link" and "detailed" not in tc_args:
+                    tc_args["detailed"] = False
                 parsed_tool_calls.append((tc_id, tc_name, tc_args))
 
             # Classify tool calls into interactive and non-interactive
@@ -6949,7 +7297,8 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             # --- Notify UI about ALL tool calls first ---
             for tc_id, tc_name, tc_args in parsed_tool_calls:
                 yield {
-                    "text": "", "status": f"Tool call: {tc_name}",
+                    "text": "",
+                    "status": f"Tool call: {tc_name}",
                     "type": "tool_call",
                     "tool_id": tc_id,
                     "tool_name": tc_name,
@@ -6972,15 +7321,19 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     handlers cannot mutate shared state across threads.
                     """
                     exec_start = time.time()
-                    result = TOOL_REGISTRY.execute(tc_name, tc_args, ctx, tool_call_id=tc_id)
+                    result = TOOL_REGISTRY.execute(
+                        tc_name, tc_args, ctx, tool_call_id=tc_id
+                    )
                     exec_dur = round(time.time() - exec_start, 2)
                     return tc_id, tc_name, tc_args, result, exec_dur
 
                 # Yield 'executing' status for all non-interactive tools
                 for tc_id, tc_name, tc_args in non_interactive_calls:
                     yield {
-                        "text": "", "status": f"Executing tool: {tc_name}...",
-                        "type": "tool_status", "tool_id": tc_id,
+                        "text": "",
+                        "status": f"Executing tool: {tc_name}...",
+                        "type": "tool_status",
+                        "tool_id": tc_id,
                         "tool_name": tc_name,
                         "tool_status": "executing",
                     }
@@ -6993,16 +7346,32 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     for tc_id, tc_name, tc_args in non_interactive_calls:
                         # Deep-copy context so each thread has its own isolated state
                         thread_ctx = deepcopy(tool_context)
-                        fut = pool.submit(_execute_tool_in_thread, tc_id, tc_name, tc_args, thread_ctx)
+                        fut = pool.submit(
+                            _execute_tool_in_thread, tc_id, tc_name, tc_args, thread_ctx
+                        )
                         futures[fut] = tc_id
 
                     for fut in as_completed(futures):
-                        tc_id_done, tc_name_done, tc_args_done, result_done, exec_dur_done = fut.result()
-                        non_interactive_results[tc_id_done] = (result_done, tc_name_done, tc_args_done, exec_dur_done)
+                        (
+                            tc_id_done,
+                            tc_name_done,
+                            tc_args_done,
+                            result_done,
+                            exec_dur_done,
+                        ) = fut.result()
+                        non_interactive_results[tc_id_done] = (
+                            result_done,
+                            tc_name_done,
+                            tc_args_done,
+                            exec_dur_done,
+                        )
 
                 parallel_duration = round(time.time() - parallel_start, 2)
-                logger.warning('[_run_tool_loop] Parallel execution of %d non-interactive tools completed in %.2fs',
-                                len(non_interactive_calls), parallel_duration)
+                logger.warning(
+                    "[_run_tool_loop] Parallel execution of %d non-interactive tools completed in %.2fs",
+                    len(non_interactive_calls),
+                    parallel_duration,
+                )
 
             # --- Emit results for non-interactive tools (in original call order) ---
             for tc_id, tc_name, tc_args in non_interactive_calls:
@@ -7012,32 +7381,51 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 tool_exec_duration = exec_dur
 
                 result_len = len(tool_result_text)
-                result_summary = tool_result_text[:200] + '...' if result_len > 200 else tool_result_text
-                logger.warning('[_run_tool_loop] Tool %s completed | result_len=%d chars | duration=%.2fs | result_preview=%s',
-                                tc_name, result_len, tool_total_duration, tool_result_text[:100].replace('\n', ' '))
+                result_summary = (
+                    tool_result_text[:200] + "..."
+                    if result_len > 200
+                    else tool_result_text
+                )
+                logger.warning(
+                    "[_run_tool_loop] Tool %s completed | result_len=%d chars | duration=%.2fs | result_preview=%s",
+                    tc_name,
+                    result_len,
+                    tool_total_duration,
+                    tool_result_text[:100].replace("\n", " "),
+                )
                 yield {
-                    'text': '', 'status': f'Tool {tc_name} completed (result: {result_len} chars, {tool_total_duration:.1f}s)',
-                    'type': 'tool_result',
-                    'tool_id': tc_id,
-                    'tool_name': tc_name,
-                    'result_summary': result_summary,
-                    'duration_seconds': tool_total_duration,
+                    "text": "",
+                    "status": f"Tool {tc_name} completed (result: {result_len} chars, {tool_total_duration:.1f}s)",
+                    "type": "tool_result",
+                    "tool_id": tc_id,
+                    "tool_name": tc_name,
+                    "result_summary": result_summary,
+                    "duration_seconds": tool_total_duration,
                 }
                 yield {
-                    "text": "", "status": f"Tool {tc_name} completed",
-                    "type": "tool_status", "tool_id": tc_id,
+                    "text": "",
+                    "status": f"Tool {tc_name} completed",
+                    "type": "tool_status",
+                    "tool_id": tc_id,
                     "tool_name": tc_name,
                     "tool_status": "completed",
                 }
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc_id,
-                    "content": tool_result_text,
-                })
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc_id,
+                        "content": tool_result_text,
+                    }
+                )
 
                 # Record tool call to history (fail-open)
                 try:
-                    from code_common.tool_call_history import get_tool_call_history_db, tool_call_hash, get_tool_category
+                    from code_common.tool_call_history import (
+                        get_tool_call_history_db,
+                        tool_call_hash,
+                        get_tool_category,
+                    )
+
                     _tch_db = get_tool_call_history_db()
                     if _tch_db:
                         _tch_db.record(
@@ -7046,47 +7434,66 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                             tool_category=get_tool_category(tc_name),
                             args_json=json.dumps(tc_args, ensure_ascii=False),
                             result_text=tool_result_text,
-                            error=result.error if hasattr(result, 'error') else None,
+                            error=result.error if hasattr(result, "error") else None,
                             user_email=tool_context.user_email,
                             conversation_id=tool_context.conversation_id,
                             timestamp=time.time(),
                             duration_seconds=tool_total_duration,
                             result_chars=result_len,
-                            source='tool_calling',
+                            source="tool_calling",
                         )
                 except Exception:
                     pass  # Fail-open: never break tool execution for history recording
 
                 # Track for round summary
                 args_brief = json.dumps(tc_args, ensure_ascii=False)[:150]
-                result_brief = tool_result_text[:200] + ('...' if result_len > 200 else '')
-                tool_round_details.append((tc_name, args_brief, result_brief, result_len, None, tool_exec_duration, tool_total_duration))
+                result_brief = tool_result_text[:200] + (
+                    "..." if result_len > 200 else ""
+                )
+                tool_round_details.append(
+                    (
+                        tc_name,
+                        args_brief,
+                        result_brief,
+                        result_len,
+                        None,
+                        tool_exec_duration,
+                        tool_total_duration,
+                    )
+                )
 
             # --- Execute interactive tools sequentially (they need user input) ---
             for tc_id, tc_name, tc_args in interactive_calls:
                 yield {
-                    "text": "", "status": f"Executing tool: {tc_name}...",
-                    "type": "tool_status", "tool_id": tc_id,
+                    "text": "",
+                    "status": f"Executing tool: {tc_name}...",
+                    "type": "tool_status",
+                    "tool_id": tc_id,
                     "tool_name": tc_name,
                     "tool_status": "executing",
                 }
                 tool_exec_start = time.time()
-                result = TOOL_REGISTRY.execute(tc_name, tc_args, tool_context, tool_call_id=tc_id)
+                result = TOOL_REGISTRY.execute(
+                    tc_name, tc_args, tool_context, tool_call_id=tc_id
+                )
                 tool_exec_duration = round(time.time() - tool_exec_start, 2)
                 tool_total_start = tool_exec_start
                 user_response = None
 
                 if result.needs_user_input:
                     yield {
-                        "text": "", "status": f"Waiting for user input: {tc_name}",
+                        "text": "",
+                        "status": f"Waiting for user input: {tc_name}",
                         "type": "tool_input_request",
                         "tool_id": tc_id,
                         "tool_name": tc_name,
                         "ui_schema": result.ui_schema,
                     }
                     yield {
-                        "text": "", "status": f"Waiting for user response...",
-                        "type": "tool_status", "tool_id": tc_id,
+                        "text": "",
+                        "status": f"Waiting for user response...",
+                        "type": "tool_status",
+                        "tool_id": tc_id,
                         "tool_name": tc_name,
                         "tool_status": "waiting_for_user",
                     }
@@ -7103,7 +7510,10 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                                 q = ans.get("question", "")
                                 a = ans.get("selected_option", "")
                                 answer_lines.append(f"Q: {q}\nA: {a}")
-                            tool_result_text = "[Clarifications from user]\n" + "\n\n".join(answer_lines)
+                            tool_result_text = (
+                                "[Clarifications from user]\n"
+                                + "\n\n".join(answer_lines)
+                            )
                         else:
                             tool_result_text = json.dumps(user_response)
                     else:
@@ -7113,32 +7523,51 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
                 tool_total_duration = round(time.time() - tool_total_start, 2)
                 result_len = len(tool_result_text)
-                result_summary = tool_result_text[:200] + '...' if result_len > 200 else tool_result_text
-                logger.warning('[_run_tool_loop] Tool %s completed | result_len=%d chars | duration=%.2fs | result_preview=%s',
-                                tc_name, result_len, tool_total_duration, tool_result_text[:100].replace('\n', ' '))
+                result_summary = (
+                    tool_result_text[:200] + "..."
+                    if result_len > 200
+                    else tool_result_text
+                )
+                logger.warning(
+                    "[_run_tool_loop] Tool %s completed | result_len=%d chars | duration=%.2fs | result_preview=%s",
+                    tc_name,
+                    result_len,
+                    tool_total_duration,
+                    tool_result_text[:100].replace("\n", " "),
+                )
                 yield {
-                    'text': '', 'status': f'Tool {tc_name} completed (result: {result_len} chars, {tool_total_duration:.1f}s)',
-                    'type': 'tool_result',
-                    'tool_id': tc_id,
-                    'tool_name': tc_name,
-                    'result_summary': result_summary,
-                    'duration_seconds': tool_total_duration,
+                    "text": "",
+                    "status": f"Tool {tc_name} completed (result: {result_len} chars, {tool_total_duration:.1f}s)",
+                    "type": "tool_result",
+                    "tool_id": tc_id,
+                    "tool_name": tc_name,
+                    "result_summary": result_summary,
+                    "duration_seconds": tool_total_duration,
                 }
                 yield {
-                    "text": "", "status": f"Tool {tc_name} completed",
-                    "type": "tool_status", "tool_id": tc_id,
+                    "text": "",
+                    "status": f"Tool {tc_name} completed",
+                    "type": "tool_status",
+                    "tool_id": tc_id,
                     "tool_name": tc_name,
                     "tool_status": "completed",
                 }
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc_id,
-                    "content": tool_result_text,
-                })
+                messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc_id,
+                        "content": tool_result_text,
+                    }
+                )
 
                 # Record tool call to history (fail-open)
                 try:
-                    from code_common.tool_call_history import get_tool_call_history_db, tool_call_hash, get_tool_category
+                    from code_common.tool_call_history import (
+                        get_tool_call_history_db,
+                        tool_call_hash,
+                        get_tool_category,
+                    )
+
                     _tch_db = get_tool_call_history_db()
                     if _tch_db:
                         _tch_db.record(
@@ -7147,86 +7576,143 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                             tool_category=get_tool_category(tc_name),
                             args_json=json.dumps(tc_args, ensure_ascii=False),
                             result_text=tool_result_text,
-                            error=result.error if hasattr(result, 'error') else None,
+                            error=result.error if hasattr(result, "error") else None,
                             user_email=tool_context.user_email,
                             conversation_id=tool_context.conversation_id,
                             timestamp=time.time(),
                             duration_seconds=tool_total_duration,
                             result_chars=result_len,
-                            source='tool_calling',
+                            source="tool_calling",
                         )
                 except Exception:
                     pass  # Fail-open: never break tool execution for history recording
 
                 # Track for round summary
                 args_brief = json.dumps(tc_args, ensure_ascii=False)[:150]
-                result_brief = tool_result_text[:200] + ('...' if result_len > 200 else '')
+                result_brief = tool_result_text[:200] + (
+                    "..." if result_len > 200 else ""
+                )
                 clarification_qa = None
-                if tc_name == 'ask_clarification' and user_response and user_response.get('answers'):
-                    questions_from_llm = tc_args.get('questions', [])
-                    answers_from_user = user_response.get('answers', [])
+                if (
+                    tc_name == "ask_clarification"
+                    and user_response
+                    and user_response.get("answers")
+                ):
+                    questions_from_llm = tc_args.get("questions", [])
+                    answers_from_user = user_response.get("answers", [])
                     qa_lines = []
                     for idx, ans in enumerate(answers_from_user):
-                        q_text = ans.get('question', '')
-                        a_text = ans.get('selected_option', '')
+                        q_text = ans.get("question", "")
+                        a_text = ans.get("selected_option", "")
                         original_options = []
                         if idx < len(questions_from_llm):
-                            original_options = questions_from_llm[idx].get('options', [])
-                        options_str = ', '.join(f'`{o}`' for o in original_options) if original_options else ''
-                        qa_lines.append({'question': q_text, 'answer': a_text, 'options': options_str})
+                            original_options = questions_from_llm[idx].get(
+                                "options", []
+                            )
+                        options_str = (
+                            ", ".join(f"`{o}`" for o in original_options)
+                            if original_options
+                            else ""
+                        )
+                        qa_lines.append(
+                            {
+                                "question": q_text,
+                                "answer": a_text,
+                                "options": options_str,
+                            }
+                        )
                     clarification_qa = qa_lines
-                tool_round_details.append((tc_name, args_brief, result_brief, result_len, clarification_qa, tool_exec_duration, tool_total_duration))
+                tool_round_details.append(
+                    (
+                        tc_name,
+                        args_brief,
+                        result_brief,
+                        result_len,
+                        clarification_qa,
+                        tool_exec_duration,
+                        tool_total_duration,
+                    )
+                )
 
             # Yield a collapsible tool-call summary for this round (visible in UI, stripped before save)
             if tool_round_details:
-                round_label = f'Round {iteration + 1}' if max_iterations > 1 else ''
+                round_label = f"Round {iteration + 1}" if max_iterations > 1 else ""
                 summary_lines = []
                 persistent_qa_blocks = []
-                for t_name, t_args, t_result, t_len, t_clarification_qa, t_exec_dur, t_total_dur in tool_round_details:
-                    if t_name == 'ask_clarification' and t_clarification_qa:
+                for (
+                    t_name,
+                    t_args,
+                    t_result,
+                    t_len,
+                    t_clarification_qa,
+                    t_exec_dur,
+                    t_total_dur,
+                ) in tool_round_details:
+                    if t_name == "ask_clarification" and t_clarification_qa:
                         # Rich Q&A format for ask_clarification
-                        qa_summary = '- **' + t_name + '** (' + str(t_len) + ' chars, ' + f'{t_total_dur:.1f}' + 's)' + '\n'
+                        qa_summary = (
+                            "- **"
+                            + t_name
+                            + "** ("
+                            + str(t_len)
+                            + " chars, "
+                            + f"{t_total_dur:.1f}"
+                            + "s)"
+                            + "\n"
+                        )
                         for qa in t_clarification_qa:
-                            qa_summary += f'  - **Q:** {qa["question"]}\n'
-                            if qa['options']:
-                                qa_summary += f'    - Options: {qa["options"]}\n'
-                            qa_summary += f'    - **A:** {qa["answer"]}\n'
+                            qa_summary += f"  - **Q:** {qa['question']}\n"
+                            if qa["options"]:
+                                qa_summary += f"    - Options: {qa['options']}\n"
+                            qa_summary += f"    - **A:** {qa['answer']}\n"
                         summary_lines.append(qa_summary)
                         # Also build a persistent block (not stripped on save)
                         persist_lines = []
                         for qi, qa in enumerate(t_clarification_qa, 1):
-                            persist_lines.append(f'**Q{qi}:** {qa["question"]}')
-                            if qa['options']:
-                                persist_lines.append(f'  - Options: {qa["options"]}')
-                            persist_lines.append(f'  - **Selected:** {qa["answer"]}\n')
-                        persistent_qa_blocks.append('\n'.join(persist_lines))
+                            persist_lines.append(f"**Q{qi}:** {qa['question']}")
+                            if qa["options"]:
+                                persist_lines.append(f"  - Options: {qa['options']}")
+                            persist_lines.append(f"  - **Selected:** {qa['answer']}\n")
+                        persistent_qa_blocks.append("\n".join(persist_lines))
                     else:
-                        summary_lines.append('- **' + t_name + '** (' + str(t_len) + ' chars, ' + f'{t_total_dur:.1f}' + 's) \u2014 `' + t_args + '`')
-                summary_body = '\n'.join(summary_lines)
-                header_text = f'🔧 Tools Called {round_label}'.strip()
+                        summary_lines.append(
+                            "- **"
+                            + t_name
+                            + "** ("
+                            + str(t_len)
+                            + " chars, "
+                            + f"{t_total_dur:.1f}"
+                            + "s) \u2014 `"
+                            + t_args
+                            + "`"
+                        )
+                summary_body = "\n".join(summary_lines)
+                header_text = f"🔧 Tools Called {round_label}".strip()
                 details_html = (
-                    f'\n<tool_calls_summary>\n'
-                    f'<details>\n'
-                    f'<summary><strong>{header_text}</strong></summary>\n\n'
-                    f'{summary_body}\n\n'
-                    f'</details>\n'
-                    f'</tool_calls_summary>\n'
+                    f"\n<tool_calls_summary>\n"
+                    f"<details>\n"
+                    f"<summary><strong>{header_text}</strong></summary>\n\n"
+                    f"{summary_body}\n\n"
+                    f"</details>\n"
+                    f"</tool_calls_summary>\n"
                 )
-                yield {"text": details_html, "status": f"Tool round {iteration + 1} complete"}
+                yield {
+                    "text": details_html,
+                    "status": f"Tool round {iteration + 1} complete",
+                }
                 # Yield persistent Q&A blocks OUTSIDE tool_calls_summary so they survive save-stripping
                 for pqa in persistent_qa_blocks:
                     persist_block = (
-                        f'\n<details open>\n'
-                        f'<summary><strong>💬 Clarification Q&A</strong></summary>\n\n'
-                        f'{pqa}\n\n'
-                        f'</details>\n'
+                        f"\n<details open>\n"
+                        f"<summary><strong>💬 Clarification Q&A</strong></summary>\n\n"
+                        f"{pqa}\n\n"
+                        f"</details>\n"
                     )
                     yield {"text": persist_block, "status": "Clarification Q&A"}
 
             # Next iteration uses messages mode
             use_messages_mode = True
             iteration += 1
-
 
     def reply(self, query, userData=None):
         time_logger.info(f"[Conversation] reply called for chat Assistant.")
@@ -7331,7 +7817,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             checkboxes["use_pkb"] = False  # Agent handles its own PKB operations
             checkboxes["perform_web_search"] = False
             checkboxes["googleScholar"] = False
-            checkboxes["preamble_options"] = checkboxes.get("preamble_options", [])  # preserve but won't add extra
+            checkboxes["preamble_options"] = checkboxes.get(
+                "preamble_options", []
+            )  # preserve but won't add extra
             # Use short conversation history (3 turns = 6 messages)
             checkboxes["enable_previous_messages"] = "3"
             # Disable tools (agent has its own tool loop)
@@ -7408,6 +7896,11 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         enablePreviousMessages = str(
             checkboxes.get("enable_previous_messages", "infinite")
         ).strip()
+
+        # ∅ (-1) means fully stateless turn: no history AND no summary
+        if enablePreviousMessages == "-1":
+            summary_text = ""
+            summary_text_init = ""
 
         log = success_logger if "success_logger" in globals() else time_logger
 
@@ -7588,8 +8081,12 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         # ── /image command: generate image and return early ──────────────
         if checkboxes.get("generate_image"):
             yield from self._handle_image_generation(
-                query, checkboxes, persist_or_not, users_dir,
-                enablePreviousMessages, previous_messages_long,
+                query,
+                checkboxes,
+                persist_or_not,
+                users_dir,
+                enablePreviousMessages,
+                previous_messages_long,
                 past_message_ids,
             )
             return
@@ -7745,14 +8242,15 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             persist_or_not = False
             yield {"text": "", "status": "Temporary mode enabled ..."}
 
-
         # =================================================================
         # OpenCode routing — check if this message should go via OpenCode
         # =================================================================
         opencode_for_this_message = checkboxes.get("opencode_enabled", False)
         oc_config = self.get_conversation_settings().get("opencode_config", {})
         opencode_always = oc_config.get("always_enabled", False)
-        _opencode_active = (opencode_for_this_message or opencode_always) and OPENCODE_AVAILABLE
+        _opencode_active = (
+            opencode_for_this_message or opencode_always
+        ) and OPENCODE_AVAILABLE
 
         if _opencode_active:
             # --- OpenCode slash command routing ---
@@ -7779,15 +8277,18 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             if cmd_word and cmd_word in opencode_commands:
                 yield from opencode_commands[cmd_word]()
                 return
-            elif cmd_word and cmd_word.startswith("/") and cmd_word not in ("/title", "/set_title", "/temp", "/temporary"):
+            elif (
+                cmd_word
+                and cmd_word.startswith("/")
+                and cmd_word not in ("/title", "/set_title", "/temp", "/temporary")
+            ):
                 # Unknown slash command — pass through to OpenCode as-is
                 yield from self._opencode_passthrough_command(msg_text)
                 return
 
             # --- Normal message routing via OpenCode ---
             yield from self._reply_via_opencode(
-                query, userData, checkboxes,
-                pkb_context_future=pkb_context_future
+                query, userData, checkboxes, pkb_context_future=pkb_context_future
             )
             return
 
@@ -8061,30 +8562,34 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             user_email=user_email,
         )
         yield {"text": "", "status": "Preamble got ..."}
-        
+
         # Inject tool awareness into preamble when tools are enabled
         tools_config = self._get_enabled_tools(
             checkboxes,
-            user_email=user_email or '',
-            users_dir=users_dir or '',
+            user_email=user_email or "",
+            users_dir=users_dir or "",
         )
-        logger.warning('[reply] tools_config from _get_enabled_tools: %s (count=%d)', 'present' if tools_config else 'None', len(tools_config) if tools_config else 0)
+        logger.warning(
+            "[reply] tools_config from _get_enabled_tools: %s (count=%d)",
+            "present" if tools_config else "None",
+            len(tools_config) if tools_config else 0,
+        )
         if tools_config and TOOLS_AVAILABLE:
             tool_descriptions = []
             # Use the enriched descriptions from tools_config (which have
             # dynamic doc listings injected) rather than static TOOL_REGISTRY.
-            _tc_descs = {tc['function']['name']: tc['function']['description']
-                         for tc in tools_config}
+            _tc_descs = {
+                tc["function"]["name"]: tc["function"]["description"]
+                for tc in tools_config
+            }
             for t in TOOL_REGISTRY.get_all_tools():
                 if t.name in _tc_descs:
                     tool_descriptions.append(f"- {t.name}: {_tc_descs[t.name]}")
-            
+
             tool_awareness_text = (
                 "\n\n## Available Tools\n"
                 "You have access to the following tools that you can invoke "
-                "during your response:\n"
-                + "\n".join(tool_descriptions)
-                + "\n\n"
+                "during your response:\n" + "\n".join(tool_descriptions) + "\n\n"
                 "### Tool Usage Tips\n"
                 "- **perplexity_search**: Accepts a rich `context` parameter alongside the query. "
                 "Provide as much relevant background, intent, and specifics as possible in the context "
@@ -8197,7 +8702,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             all_doc_ids = [
                 "#doc_{}".format(idx + 1)
                 for idx, d in enumerate(all_docs)
-                if not getattr(d, '_deprecated', False)
+                if not getattr(d, "_deprecated", False)
             ]
             attached_docs_future = get_async_future(
                 self.get_uploaded_documents_for_query,
@@ -8225,11 +8730,13 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     users_dir=_gdoc_users_dir, user_email=_gdoc_user_email
                 )
                 # Exclude deprecated docs from #gdoc_all
-                all_gdoc_ids = " ".join([
-                    "#gdoc_{}".format(idx + 1)
-                    for idx, row in enumerate(all_gdoc_rows)
-                    if not row.get('deprecated', False)
-                ])
+                all_gdoc_ids = " ".join(
+                    [
+                        "#gdoc_{}".format(idx + 1)
+                        for idx, row in enumerate(all_gdoc_rows)
+                        if not row.get("deprecated", False)
+                    ]
+                )
                 gdocs_future = get_async_future(
                     self.get_global_documents_for_query,
                     {"messageText": all_gdoc_ids},
@@ -8731,13 +9238,15 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             Write the extracted user preferences and user memory below in bullet points. Write in concise manner.""")
             llm = CallLLm(
                 self.get_api_keys(),
-                model_name=VERY_CHEAP_LLM[0], 
+                model_name=VERY_CHEAP_LLM[0],
                 use_gpt4=True,
                 use_16k=True,
             )
             llm2 = CallLLm(
                 self.get_api_keys(),
-                model_name=self.get_model_override("conversation_internal_model", SUPERFAST_LLM[0]),
+                model_name=self.get_model_override(
+                    "conversation_internal_model", SUPERFAST_LLM[0]
+                ),
                 use_gpt4=True,
                 use_16k=True,
             )
@@ -9102,7 +9611,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     link_result_text="",
                     conversation_docs_answer="",
                 )
-                internal_model = self.get_model_override("conversation_internal_model", SUPERFAST_LLM[0])
+                internal_model = self.get_model_override(
+                    "conversation_internal_model", SUPERFAST_LLM[0]
+                )
                 answer_summary = CallLLm(
                     self.get_api_keys(),
                     model_name=internal_model,
@@ -9409,7 +9920,12 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             len(links) == 0
             and (
                 len(attached_docs) == 1
-                and not any([isinstance(d, (ImageDocIndex, FastImageDocIndex)) for d in attached_docs])
+                and not any(
+                    [
+                        isinstance(d, (ImageDocIndex, FastImageDocIndex))
+                        for d in attached_docs
+                    ]
+                )
             )
             and not (google_scholar or perform_web_search)
             and provide_detailed_answers <= 2
@@ -9742,9 +10258,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             f"Time to wait before preparing prompt from start time to wait = {(time.time() - st):.2f}"
         )
         yield {"text": "", "status": "Preparing prompt ..."}
-        time_logger.info(
-            f"[REPLY] Prompt assembly started | t={time.time() - st:.2f}s"
-        )
+        time_logger.info(f"[REPLY] Prompt assembly started | t={time.time() - st:.2f}s")
 
         # Log what's going into permanent_instructions
         time_logger.info(
@@ -9831,7 +10345,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         # For image documents, prefer the original image path used for vision LLM calls.
         # `ImageDocIndex.doc_source` may be rewritten to a PDF during initialization.
         images = [
-            d.llm_image_source for d in attached_docs if isinstance(d, (ImageDocIndex, FastImageDocIndex))
+            d.llm_image_source
+            for d in attached_docs
+            if isinstance(d, (ImageDocIndex, FastImageDocIndex))
         ]
 
         # Merge inline images from extension query (base64 data URLs for viewport
@@ -9854,9 +10370,12 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 gen_imgs = msg.get("generated_images", [])
                 if gen_imgs and msg.get("sender") == "model":
                     for img_info in gen_imgs[:2]:  # max 2 images per message
-                        img_path = os.path.join(self._storage, "images", img_info.get("filename", ""))
+                        img_path = os.path.join(
+                            self._storage, "images", img_info.get("filename", "")
+                        )
                         if os.path.isfile(img_path):
                             import base64 as _b64
+
                             with open(img_path, "rb") as _f:
                                 img_data = _b64.b64encode(_f.read()).decode("utf-8")
                             images.append(f"data:image/png;base64,{img_data}")
@@ -10558,15 +11077,22 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 # Pass through tool events intact so the UI receives type, tool_id,
                 # tool_name, ui_schema etc. These events have text="" so they
                 # don't affect answer accumulation.
-                event_type = dcit.get('type')
-                if event_type in ('tool_call', 'tool_input_request', 'tool_status', 'tool_result'):
+                event_type = dcit.get("type")
+                if event_type in (
+                    "tool_call",
+                    "tool_input_request",
+                    "tool_status",
+                    "tool_result",
+                ):
                     # Accumulate tool timing into time_dict for the end-of-message summary
-                    if event_type == 'tool_result':
-                        time_dict.setdefault('tool_calls', []).append({
-                            'name': dcit.get('tool_name', dcit.get('tool_id', '')),
-                            'duration_s': dcit.get('duration_seconds', 0),
-                            'result_chars': len(dcit.get('result_summary', '')),
-                        })
+                    if event_type == "tool_result":
+                        time_dict.setdefault("tool_calls", []).append(
+                            {
+                                "name": dcit.get("tool_name", dcit.get("tool_id", "")),
+                                "duration_s": dcit.get("duration_seconds", 0),
+                                "result_chars": len(dcit.get("result_summary", "")),
+                            }
+                        )
                     yield dcit
                     continue
                 txt = dcit["text"]
@@ -10668,7 +11194,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 )
 
                 # Use a fast, cheap model for TLDR generation
-                tldr_model = self.get_model_override("conversation_internal_model", SUPERFAST_LLM[0])
+                tldr_model = self.get_model_override(
+                    "conversation_internal_model", SUPERFAST_LLM[0]
+                )
                 tldr_llm = CallLLm(
                     self.get_api_keys(),
                     model_name=tldr_model,
@@ -10793,8 +11321,14 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
     # ── /image command handler ────────────────────────────────────────────
 
     def _handle_image_generation(
-        self, query, checkboxes, persist_or_not, users_dir,
-        enablePreviousMessages, previous_messages_long, past_message_ids,
+        self,
+        query,
+        checkboxes,
+        persist_or_not,
+        users_dir,
+        enablePreviousMessages,
+        previous_messages_long,
+        past_message_ids,
     ):
         """Handle the /image slash-command inside reply().
 
@@ -10835,7 +11369,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 for img in query_images:
                     if isinstance(img, str) and img.strip().startswith("data:"):
                         input_image = img.strip()
-                        logger.info("Image gen: using user-uploaded image from current message as input")
+                        logger.info(
+                            "Image gen: using user-uploaded image from current message as input"
+                        )
                         break
             # Fallback: last assistant turn's generated image
             if not input_image:
@@ -10846,22 +11382,34 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                         gen_imgs = msg.get("generated_images", [])
                         if gen_imgs:
                             img_info = gen_imgs[0]
-                            img_path = os.path.join(self._storage, "images", img_info.get("filename", ""))
+                            img_path = os.path.join(
+                                self._storage, "images", img_info.get("filename", "")
+                            )
                             if os.path.isfile(img_path):
                                 import base64 as _b64_edit
+
                                 with open(img_path, "rb") as _f:
-                                    img_data = _b64_edit.b64encode(_f.read()).decode("utf-8")
+                                    img_data = _b64_edit.b64encode(_f.read()).decode(
+                                        "utf-8"
+                                    )
                                 input_image = f"data:image/png;base64,{img_data}"
-                                logger.info("Image gen: using last-turn generated image '%s' as input", img_info.get("filename"))
+                                logger.info(
+                                    "Image gen: using last-turn generated image '%s' as input",
+                                    img_info.get("filename"),
+                                )
                         break  # Only check the immediately preceding assistant message
         except Exception:
-            logger.warning("Image gen: failed to detect input image, proceeding without", exc_info=True)
+            logger.warning(
+                "Image gen: failed to detect input image, proceeding without",
+                exc_info=True,
+            )
 
         # 1. Gather context: summary + last 2 messages + deep context (defaults for /image)
         context_parts = None
         try:
             context_parts = gather_conversation_context(
-                self, prompt,
+                self,
+                prompt,
                 include_context=True,
                 deep_context=True,
                 include_summary=True,
@@ -10874,7 +11422,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         # 2. Refine prompt via LLM ("better context")
         yield {"text": "", "status": "Refining image prompt..."}
         try:
-            refined_prompt = _refine_prompt_with_llm(prompt, context_parts, self.api_keys)
+            refined_prompt = _refine_prompt_with_llm(
+                prompt, context_parts, self.api_keys
+            )
         except Exception:
             logger.warning("Image gen: LLM refinement failed, using raw", exc_info=True)
             refined_prompt = _build_image_prompt(prompt, context_parts)
@@ -10937,7 +11487,12 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         response_to_store = answer.strip()
 
         from concurrent.futures import Future
-        get_async_future = lambda fn, *a, **kw: self._executor.submit(fn, *a, **kw) if hasattr(self, '_executor') else fn(*a, **kw)
+
+        get_async_future = (
+            lambda fn, *a, **kw: self._executor.submit(fn, *a, **kw)
+            if hasattr(self, "_executor")
+            else fn(*a, **kw)
+        )
 
         try:
             self.persist_current_turn(
@@ -11203,6 +11758,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
         # Extract markdown features
         from code_common.conversation_search import extract_markdown_features
+
         features = extract_markdown_features(target.get("text", ""))
 
         # Get context (1 before, 1 after)
@@ -11213,12 +11769,14 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             if i == target_idx:
                 continue
             m = messages[i]
-            context_msgs.append({
-                "index": i,
-                "message_id": m.get("message_id", ""),
-                "sender": m.get("sender", ""),
-                "preview": m.get("text", "")[:300],
-            })
+            context_msgs.append(
+                {
+                    "index": i,
+                    "message_id": m.get("message_id", ""),
+                    "sender": m.get("sender", ""),
+                    "preview": m.get("text", "")[:300],
+                }
+            )
 
         result = {
             "index": target_idx,
@@ -11232,7 +11790,12 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             "context": context_msgs,
         }
         # Include optional fields
-        for key in ("answer_tldr", "config", "message_short_hash", "display_attachments"):
+        for key in (
+            "answer_tldr",
+            "config",
+            "message_short_hash",
+            "display_attachments",
+        ):
             if key in target and target[key]:
                 result[key] = target[key]
         return result
@@ -11268,21 +11831,25 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         for entry in doc_list:
             doc_id = entry[0] if len(entry) > 0 else ""
             display = entry[3] if len(entry) > 3 else doc_id
-            documents.append({
-                "doc_id": doc_id,
-                "display_name": display,
-            })
+            documents.append(
+                {
+                    "doc_id": doc_id,
+                    "display_name": display,
+                }
+            )
 
         # Artefacts
         artefacts = self.get_field("artefacts") or []
         artefact_list = []
         for art in artefacts:
-            artefact_list.append({
-                "id": art.get("id", ""),
-                "name": art.get("name", ""),
-                "file_type": art.get("file_type", ""),
-                "size_bytes": art.get("size_bytes", 0),
-            })
+            artefact_list.append(
+                {
+                    "id": art.get("id", ""),
+                    "name": art.get("name", ""),
+                    "file_type": art.get("file_type", ""),
+                    "size_bytes": art.get("size_bytes", 0),
+                }
+            )
 
         summary = self.running_summary
         if isinstance(summary, list):
@@ -11891,7 +12458,9 @@ Please provide your explanation or answer to the user's doubt in a clear, struct
 
             # Initialize the LLM with appropriate model
             api_keys = self.get_api_keys()
-            doubt_model = self.get_model_override("quick_action_model", SUPERFAST_LLM[0])
+            doubt_model = self.get_model_override(
+                "quick_action_model", SUPERFAST_LLM[0]
+            )
             llm = CallLLm(
                 api_keys, model_name=doubt_model, use_gpt4=False, use_16k=False
             )
@@ -12136,7 +12705,9 @@ Your response:""",
 
             # Initialize LLM
             api_keys = self.get_api_keys()
-            context_action_model = self.get_model_override("quick_action_model", SUPERFAST_LLM[0])
+            context_action_model = self.get_model_override(
+                "quick_action_model", SUPERFAST_LLM[0]
+            )
             llm = CallLLm(
                 api_keys,
                 model_name=context_action_model,
@@ -12576,11 +13147,23 @@ def model_name_to_canonical_name(model_name):
         model_name = "openai/gpt-4.1"
     elif model_name == "gpt-4.1":
         model_name = "gpt-4.1"
-    elif model_name == "openai/gpt-5.2":
-        model_name = "openai/gpt-5.2"
-    elif model_name == "openai/gpt-5.4":
-        model_name = "openai/gpt-5.4"
-        model_name = "openai/gpt-5.2"
+     elif model_name == "openai/gpt-5.2":
+         model_name = "openai/gpt-5.2"
+     elif model_name == "openai/gpt-5.4":
+         model_name = "openai/gpt-5.4"
+         model_name = "openai/gpt-5.2"
+     elif model_name == "openai/gpt-5.5":
+         model_name = "openai/gpt-5.5"
+     elif model_name == "openai/gpt-latest":
+         model_name = "openai/gpt-latest"
+     elif model_name == "anthropic/claude-opus-latest":
+         model_name = "anthropic/claude-opus-latest"
+     elif model_name == "google/gemini-pro-latest":
+         model_name = "google/gemini-pro-latest"
+     elif model_name == "google/gemini-flash-latest":
+         model_name = "google/gemini-flash-latest"
+     elif model_name == "deepseek/deepseek-v4-pro":
+         model_name = "deepseek/deepseek-v4-pro"
     elif model_name == "gpt-5.2":
         model_name = "gpt-5.2"
     elif (

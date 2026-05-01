@@ -2855,7 +2855,12 @@ def ext_validate_script():
 # =============================================================================
 
 AVAILABLE_MODELS = [
+    "google/gemini-flash-latest",
     "google/gemini-2.5-flash",
+    "anthropic/claude-opus-latest",
+    "google/gemini-pro-latest",
+    "openai/gpt-5.5",
+    "openai/gpt-latest",
     "anthropic/claude-sonnet-4.5",
     "anthropic/claude-opus-4.5",
     "openai/gpt-5.2",

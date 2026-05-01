@@ -94,8 +94,14 @@ CHEAP_LLM = [
     "anthropic/claude-haiku-4.5",
     "gpt-4o",
     "openai/gpt-5-mini",
+    "deepseek/deepseek-v4-pro",
+    "google/gemini-flash-latest",
 ]
 EXPENSIVE_LLM = [
+    "anthropic/claude-opus-latest",
+    "google/gemini-pro-latest",
+    "openai/gpt-latest",
+    "openai/gpt-5.5",
     "anthropic/claude-sonnet-4.5",
     "openai/gpt-5.1",
     "anthropic/claude-sonnet-4.6",
@@ -135,6 +141,8 @@ OPENAI_CHEAP_LLM = "openai/gpt-5-mini"
 
 
 CHEAP_LONG_CONTEXT_LLM = [
+    "google/gemini-flash-latest",
+    "deepseek/deepseek-v4-pro",
     "google/gemini-3-flash-preview",
     "google/gemini-2.5-flash",
     "google/gemini-3.1-flash-lite-preview",

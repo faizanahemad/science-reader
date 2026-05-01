@@ -79,7 +79,7 @@ else:  # pragma: no cover
 MODEL_TOKEN_LIMITS = {
     "cheap_long_context": 800_000,
     "long_context": 900_000,
-    "expensive": 200_000,
+    "expensive": 150_000,
     "superfast": 100_000,
     "gemini_flash": 400_000,
     "gemini_other": 500_000,
@@ -197,10 +197,14 @@ VISION_CAPABLE_MODELS = frozenset(
         "anthropic/claude-3.7-sonnet:beta",
         "anthropic/claude-sonnet-4.5",
         "anthropic/claude-sonnet-4.6",
-        "google/gemini-3.1-pro-preview",
         "google/gemini-3.1-flash-image-preview",
         "google/gemini-3.1-flash-lite-preview",
         "qwen/qwen3.5-flash-02-23",
+        "anthropic/claude-opus-latest",
+        "google/gemini-pro-latest",
+        "openai/gpt-latest",
+        "openai/gpt-5.5",
+        "google/gemini-flash-latest",
         
     }
 )
