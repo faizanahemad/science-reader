@@ -13147,23 +13147,22 @@ def model_name_to_canonical_name(model_name):
         model_name = "openai/gpt-4.1"
     elif model_name == "gpt-4.1":
         model_name = "gpt-4.1"
-     elif model_name == "openai/gpt-5.2":
-         model_name = "openai/gpt-5.2"
-     elif model_name == "openai/gpt-5.4":
-         model_name = "openai/gpt-5.4"
-         model_name = "openai/gpt-5.2"
-     elif model_name == "openai/gpt-5.5":
-         model_name = "openai/gpt-5.5"
-     elif model_name == "openai/gpt-latest":
-         model_name = "openai/gpt-latest"
-     elif model_name == "anthropic/claude-opus-latest":
-         model_name = "anthropic/claude-opus-latest"
-     elif model_name == "google/gemini-pro-latest":
-         model_name = "google/gemini-pro-latest"
-     elif model_name == "google/gemini-flash-latest":
-         model_name = "google/gemini-flash-latest"
-     elif model_name == "deepseek/deepseek-v4-pro":
-         model_name = "deepseek/deepseek-v4-pro"
+    elif model_name == "openai/gpt-5.2":
+        model_name = "openai/gpt-5.2"
+    elif model_name == "openai/gpt-5.4":
+        model_name = "openai/gpt-5.4"
+    elif model_name == "openai/gpt-5.5":
+        model_name = "openai/gpt-5.5"
+    elif model_name == "openai/gpt-latest":
+        model_name = "openai/gpt-latest"
+    elif model_name == "anthropic/claude-opus-latest":
+        model_name = "anthropic/claude-opus-latest"
+    elif model_name == "google/gemini-pro-latest":
+        model_name = "google/gemini-pro-latest"
+    elif model_name == "google/gemini-flash-latest":
+        model_name = "google/gemini-flash-latest"
+    elif model_name == "deepseek/deepseek-v4-pro":
+        model_name = "deepseek/deepseek-v4-pro"
     elif model_name == "gpt-5.2":
         model_name = "gpt-5.2"
     elif (
