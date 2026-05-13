@@ -534,6 +534,14 @@ def call_chat_model(model, text, images, temperature, system, keys, messages=Non
         Tool call dicts when the model invokes tools (only when tools is not None).
         Each dict has the shape: {"type": "tool_call", "id": str, "function": {"name": str, "arguments": str}}.
     """
+    _latest_model_map = {
+        "google/gemini-flash-latest": "google/gemini-2.5-flash",
+        "google/gemini-pro-latest": "google/gemini-2.5-pro",
+        "openai/gpt-latest": "openai/gpt-5.5",
+        "anthropic/claude-opus-latest": "anthropic/claude-opus-4.6",
+    }
+    model = _latest_model_map.get(model, model)
+
     api_key = keys["OPENROUTER_API_KEY"]
     extras = dict(
         base_url="https://openrouter.ai/api/v1",
