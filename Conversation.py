@@ -13154,13 +13154,13 @@ def model_name_to_canonical_name(model_name):
     elif model_name == "openai/gpt-5.5":
         model_name = "openai/gpt-5.5"
     elif model_name == "openai/gpt-latest":
-        model_name = "openai/gpt-latest"
+        model_name = "openai/gpt-5.5"
     elif model_name == "anthropic/claude-opus-latest":
-        model_name = "anthropic/claude-opus-latest"
+        model_name = "anthropic/claude-opus-4.6"
     elif model_name == "google/gemini-pro-latest":
-        model_name = "google/gemini-pro-latest"
+        model_name = "google/gemini-2.5-pro"
     elif model_name == "google/gemini-flash-latest":
-        model_name = "google/gemini-flash-latest"
+        model_name = "google/gemini-2.5-flash"
     elif model_name == "deepseek/deepseek-v4-pro":
         model_name = "deepseek/deepseek-v4-pro"
     elif model_name == "gpt-5.2":
