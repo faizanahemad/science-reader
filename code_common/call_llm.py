@@ -535,10 +535,10 @@ def call_chat_model(model, text, images, temperature, system, keys, messages=Non
         Each dict has the shape: {"type": "tool_call", "id": str, "function": {"name": str, "arguments": str}}.
     """
     _latest_model_map = {
-        "google/gemini-flash-latest": "google/gemini-2.5-flash",
-        "google/gemini-pro-latest": "google/gemini-2.5-pro",
+        "google/gemini-flash-latest": "google/gemini-3.5-flash",
+        "google/gemini-pro-latest": "google/gemini-3.1-pro-preview",
         "openai/gpt-latest": "openai/gpt-5.5",
-        "anthropic/claude-opus-latest": "anthropic/claude-opus-4.6",
+        "anthropic/claude-opus-latest": "anthropic/claude-opus-4.7",
     }
     model = _latest_model_map.get(model, model)
 
