@@ -2213,6 +2213,37 @@ $(document).on('click', '.delete-message-button', function(e) {
     ChatManager.deleteMessage(conversationId, messageId, messageIndex);
 });
 
+$(document).on('click', '.delete-pair-button', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    var $btn = $(this);
+    var messageId = $btn.attr('message-id');
+    var messageIndex = $btn.attr('message-index');
+    var sender = $btn.attr('message-sender');
+    var conversationId = (typeof ConversationManager !== 'undefined' && ConversationManager.activeConversationId)
+        ? ConversationManager.activeConversationId : null;
+    if (!conversationId) { console.error('No active conversation for delete pair'); return; }
+    var $clickedCard = $btn.closest('.card.message-card');
+    ChatManager.deleteMessagePair(conversationId, messageId, messageIndex).done(function(response) {
+        var $partnerCard;
+        if (sender === 'user') {
+            $partnerCard = $clickedCard.next('.card.message-card');
+        } else {
+            $partnerCard = $clickedCard.prev('.card.message-card');
+        }
+        $clickedCard.remove();
+        if ($partnerCard && $partnerCard.length) $partnerCard.remove();
+    }).fail(function(xhr) {
+        var msg = 'Failed to delete message pair';
+        try { msg = JSON.parse(xhr.responseText).error || msg; } catch(_) {}
+        if (typeof showToast === 'function') {
+            showToast(msg, 'danger');
+        } else {
+            alert(msg);
+        }
+    });
+});
+
 // Delegated handler for move-message-up/down-button (survives snapshot restore)
 $(document).on('click', '.move-message-up-button, .move-message-down-button', function(e) {
     e.preventDefault();

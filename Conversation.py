@@ -4892,6 +4892,66 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         except Exception:
             pass
 
+    def delete_message_pair(self, index):
+        """Delete a user+assistant message pair by the index of either message.
+
+        Returns list of deleted message_ids on success.
+        Raises ValueError with a user-facing message if the pair is invalid.
+        """
+        try:
+            index_int = int(index)
+        except Exception:
+            raise ValueError(f"Invalid index: {index!r}")
+
+        get_async_future(
+            self.set_field,
+            "memory",
+            {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")},
+        )
+        messages = self.get_field("messages") or []
+        if not isinstance(messages, list):
+            raise ValueError("Conversation messages field is not a list")
+
+        if index_int < 0 or index_int >= len(messages):
+            raise ValueError("Message index out of range")
+
+        clicked_msg = messages[index_int]
+        clicked_sender = clicked_msg.get("sender", "")
+
+        if clicked_sender == "user":
+            partner_index = index_int + 1
+            if partner_index >= len(messages):
+                raise ValueError("No assistant response found after this user message")
+            if messages[partner_index].get("sender", "") == "user":
+                raise ValueError("Next message is also a user message, not a valid pair")
+        elif clicked_sender in ("server", "assistant"):
+            partner_index = index_int - 1
+            if partner_index < 0:
+                raise ValueError("No user message found before this assistant message")
+            if messages[partner_index].get("sender", "") != "user":
+                raise ValueError("Previous message is not a user message, not a valid pair")
+        else:
+            raise ValueError("Unknown message sender type")
+
+        indices_to_delete = {index_int, partner_index}
+        deleted_message_ids = []
+        for idx in indices_to_delete:
+            mid = messages[idx].get("message_id")
+            if mid:
+                deleted_message_ids.append(str(mid))
+
+        remaining = [m for i, m in enumerate(messages) if i not in indices_to_delete]
+        self.set_messages_field(remaining, overwrite=True)
+        self.save_local()
+
+        try:
+            if hasattr(self, "_cross_conv_index") and self._cross_conv_index:
+                self._cross_conv_index.index_conversation(self)
+        except Exception:
+            pass
+
+        return deleted_message_ids
+
     def edit_message(self, message_id, index, text):
         get_async_future(
             self.set_field,

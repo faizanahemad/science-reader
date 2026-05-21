@@ -675,6 +675,70 @@ def delete_message_from_conversation(conversation_id: str, message_id: str, inde
     )
 
 
+@conversations_bp.route(
+    "/delete_message_pair/<conversation_id>/<message_id>/<index>",
+    methods=["DELETE"],
+)
+@limiter.limit("300 per minute")
+@login_required
+def delete_message_pair(conversation_id: str, message_id: str, index: str):
+    """Delete a user+assistant message pair.
+
+    Validates that the clicked message and its partner form a valid user/assistant pair.
+    If clicked on a user message, the next message must be an assistant message.
+    If clicked on an assistant message, the previous message must be a user message.
+    Returns 400 if the pair is invalid (e.g., two consecutive user messages).
+    """
+    email, _name, _loggedin = get_session_identity()
+    keys = keyParser(session)
+    state = get_state()
+
+    if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
+        return json_error(
+            "Conversation not found", status=404, code="conversation_not_found"
+        )
+
+    conversation = get_conversation_with_keys(
+        state, conversation_id=conversation_id, keys=keys
+    )
+
+    try:
+        deleted_message_ids = conversation.delete_message_pair(index)
+    except ValueError as e:
+        return json_error(str(e), status=400, code="no_pair_found")
+    except json.JSONDecodeError:
+        logger.exception(
+            f"Conversation JSON storage is corrupted for conversation_id={conversation_id}"
+        )
+        return json_error(
+            "Conversation storage is corrupted",
+            status=500,
+            code="conversation_storage_corrupt",
+        )
+    except Exception as e:
+        logger.exception(
+            f"Failed to delete message pair for conversation_id={conversation_id}, index={index}: {e}"
+        )
+        return json_error(
+            "Failed to delete message pair", status=500, code="delete_pair_failed"
+        )
+
+    for mid in deleted_message_ids:
+        try:
+            conversation.delete_artefact_message_link(mid)
+        except Exception:
+            logger.exception(
+                f"Failed to delete artefact link for conversation_id={conversation_id}, message_id={mid}"
+            )
+
+    return jsonify(
+        {
+            "message": "Message pair deleted",
+            "deleted_message_ids": deleted_message_ids,
+        }
+    )
+
+
 @conversations_bp.route("/delete_last_message/<conversation_id>", methods=["DELETE"])
 @limiter.limit("30 per minute")
 @login_required
