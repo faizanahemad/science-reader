@@ -4924,7 +4924,7 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
                 raise ValueError("No assistant response found after this user message")
             if messages[partner_index].get("sender", "") == "user":
                 raise ValueError("Next message is also a user message, not a valid pair")
-        elif clicked_sender in ("server", "assistant"):
+        elif clicked_sender in ("server", "assistant", "model"):
             partner_index = index_int - 1
             if partner_index < 0:
                 raise ValueError("No user message found before this assistant message")
