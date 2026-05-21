@@ -2200,6 +2200,104 @@ $(document).on('click', '.show-more', function(e) {
     } catch (e) { /* ignore */ }
 });
 
+// Delegated handler for delete-message-button (survives snapshot restore)
+$(document).on('click', '.delete-message-button', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    var messageId = $(this).attr('message-id');
+    var messageIndex = $(this).attr('message-index');
+    var conversationId = (typeof ConversationManager !== 'undefined' && ConversationManager.activeConversationId)
+        ? ConversationManager.activeConversationId : null;
+    if (!conversationId) { console.error('No active conversation for delete'); return; }
+    $(this).closest('.card').remove();
+    ChatManager.deleteMessage(conversationId, messageId, messageIndex);
+});
+
+// Delegated handler for move-message-up/down-button (survives snapshot restore)
+$(document).on('click', '.move-message-up-button, .move-message-down-button', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    var direction = $(this).hasClass('move-message-up-button') ? 'up' : 'down';
+    var messageId = $(this).attr('message-id');
+    var ids = [];
+    $(".history-message-checkbox:checked").each(function() {
+        ids.push($(this).attr('message-id'));
+        $(this).prop('checked', false);
+    });
+    if (messageId) ids.push(messageId);
+    if (!ids.length) return;
+    ChatManager.moveMessagesUpOrDown(ids, direction).done(function() {
+        var selectedCards = [];
+        ids.forEach(function(id) {
+            var card = $('[message-id="' + id + '"]').closest('.card');
+            if (card.length) selectedCards.push(card);
+        });
+        selectedCards.sort(function(a, b) { return a.index() - b.index(); });
+        if (direction === 'up') {
+            selectedCards.forEach(function(card) {
+                var prev = card.prev('.card');
+                if (prev.length) card.insertBefore(prev);
+            });
+        } else {
+            selectedCards.reverse().forEach(function(card) {
+                var next = card.next('.card');
+                if (next.length) card.insertAfter(next);
+            });
+        }
+    });
+});
+
+$(document).on('click', '.show-doubts-button', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    var messageId = $(this).attr('message-id');
+    var conversationId = (typeof ConversationManager !== 'undefined' && ConversationManager.activeConversationId)
+        ? ConversationManager.activeConversationId : null;
+    if (!conversationId || typeof DoubtManager === 'undefined') return;
+    DoubtManager.showDoubtsOverview(conversationId, messageId);
+});
+
+$(document).on('click', '.ask-doubt-button', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    var messageId = $(this).attr('message-id');
+    var conversationId = (typeof ConversationManager !== 'undefined' && ConversationManager.activeConversationId)
+        ? ConversationManager.activeConversationId : null;
+    if (!conversationId || typeof DoubtManager === 'undefined') return;
+    DoubtManager.askNewDoubt(conversationId, messageId);
+});
+
+$(document).on('click', '.open-artefacts-button', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    var conversationId = (typeof ConversationManager !== 'undefined' && ConversationManager.activeConversationId)
+        ? ConversationManager.activeConversationId : null;
+    if (!conversationId) return;
+    if (typeof ArtefactsManager !== 'undefined') {
+        ArtefactsManager.openModal(conversationId);
+    } else {
+        if (typeof showToast === 'function') showToast('Artefacts manager not loaded', 'error');
+    }
+});
+
+$(document).on('click', '.message-ref-badge', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    var hash = $(this).data('msg-hash');
+    var idx = $(this).data('msg-idx');
+    var convFid = (typeof ConversationManager !== 'undefined' && ConversationManager.activeConversationFriendlyId)
+        ? ConversationManager.activeConversationFriendlyId : '';
+    if (!convFid) return;
+    var msgPart = hash ? hash : idx;
+    var ref = '@conversation_' + convFid + '_message_' + msgPart;
+    var badge = $(this);
+    navigator.clipboard.writeText(ref).then(function () {
+        var original = badge.text();
+        badge.text('Copied!');
+        setTimeout(function () { badge.text(original); }, 1200);
+    });
+});
+
 const markdownParser = new marked.Renderer();
 
 // Create a marked extension for math
