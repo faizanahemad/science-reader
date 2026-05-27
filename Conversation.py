@@ -12425,7 +12425,8 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             del doubt_cancellation_requests[self.conversation_id]
 
     def clear_doubt(
-        self, message_id, doubt_text="", doubt_history=None, reward_level=0
+        self, message_id, doubt_text="", doubt_history=None, reward_level=0,
+        selected_text="", with_context=False
     ):
         """Clear a doubt about a specific message - streaming response"""
         from call_llm import CallLLm
@@ -12444,7 +12445,6 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     reward_level, doubt_text, message_id
                 )
 
-            # Get the target message and surrounding context
             target_message, context_messages = self.get_context_around_message(
                 message_id, context_messages_before=4, context_messages_after=2
             )
@@ -12453,22 +12453,17 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 yield "Error: Message not found. Please check the message ID and try again."
                 return
 
-            # Get conversation summary and history
-            conversation_summary = self.running_summary
-            # conversation_history = self.get_conversation_history()
-
-            # Build the context for doubt clearing
             context_text = ""
 
-            # Add conversation summary
-            if conversation_summary and len(conversation_summary) > 0:
-                if isinstance(conversation_summary, list):
-                    summary_text = "\n".join(conversation_summary)
-                else:
-                    summary_text = str(conversation_summary)
-                context_text += f"# Conversation Summary\n\n{summary_text}\n\n"
+            if with_context:
+                conversation_summary = self.running_summary
+                if conversation_summary and len(conversation_summary) > 0:
+                    if isinstance(conversation_summary, list):
+                        summary_text = "\n".join(conversation_summary)
+                    else:
+                        summary_text = str(conversation_summary)
+                    context_text += f"# Conversation Summary\n\n{summary_text}\n\n"
 
-            # Add doubt history if this is a follow-up
             if doubt_history and len(doubt_history) > 0:
                 context_text += "# Previous Doubt History\n\n"
                 context_text += "This is a follow-up question. Here's the previous doubt conversation:\n\n"
@@ -12480,18 +12475,26 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     )
                 context_text += f"**Current Follow-up Question:** {doubt_text}\n\n"
 
-            # Add context messages
-            if context_messages:
-                context_text += "# Relevant Context Messages\n\n"
-                for i, msg in enumerate(context_messages):
-                    sender_label = (
-                        "**User**" if msg["sender"] == "user" else "**Assistant**"
-                    )
-                    is_target = msg["message_id"] == message_id
-                    marker = " ← **[TARGET MESSAGE]**" if is_target else ""
-                    context_text += f"{sender_label}{marker}:\n{msg['text']}\n\n"
+            if with_context:
+                if context_messages:
+                    context_text += "# Relevant Context Messages\n\n"
+                    for i, msg in enumerate(context_messages):
+                        sender_label = (
+                            "**User**" if msg["sender"] == "user" else "**Assistant**"
+                        )
+                        is_target = msg["message_id"] == message_id
+                        marker = " ← **[TARGET MESSAGE]**" if is_target else ""
+                        context_text += f"{sender_label}{marker}:\n{msg['text']}\n\n"
+            else:
+                sender_label = (
+                    "**User**" if target_message["sender"] == "user" else "**Assistant**"
+                )
+                context_text += f"# Target Message\n\n{sender_label} ← **[TARGET MESSAGE]**:\n{target_message['text']}\n\n"
 
-            # Build the doubt clearing prompt
+            selected_text_section = ""
+            if selected_text and selected_text.strip():
+                selected_text_section = f"\n**Selected Text the user is asking about:** \"{selected_text.strip()}\"\n"
+
             doubt_prompt = f"""You are an AI assistant helping to clear doubts about a specific message in a conversation. 
 
 <prior_context>
@@ -12500,7 +12503,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
 # User's Doubt/Question
 The user has a specific doubt or question about the message marked as **[TARGET MESSAGE]** above:
-
+{selected_text_section}
 **User's Doubt:** {doubt_text if doubt_text.strip() else "Please explain this message in more detail. Take care to explain ambiguity and possible confusion that might be present to help the user understand better."}
 
 # Your Task

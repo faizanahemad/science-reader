@@ -55,6 +55,12 @@ def clear_doubt_route(conversation_id: str, message_id: str):
         (request.json.get("reward_level", 0) if request.is_json and request.json else 0)
         or 0
     )
+    selected_text = (
+        request.json.get("selected_text", "") if request.is_json and request.json else ""
+    ) or ""
+    with_context = bool(
+        request.json.get("with_context", False) if request.is_json and request.json else False
+    )
 
     try:
         if not checkConversationExists(
@@ -104,7 +110,8 @@ def clear_doubt_route(conversation_id: str, message_id: str):
                         )
 
                 doubt_generator = conversation.clear_doubt(
-                    message_id, doubt_text, doubt_history, reward_level
+                    message_id, doubt_text, doubt_history, reward_level,
+                    selected_text=selected_text, with_context=with_context
                 )
 
                 accumulated_text = ""

@@ -425,20 +425,19 @@ const ContextMenuManager = {
      * Handle the "Ask a Doubt" action
      * Uses the existing DoubtManager to open the doubt modal
      * 
-     * @param {boolean} withContext - Whether to include conversation context
+     * @param {boolean} withContext - Whether to include conversation summary and surrounding messages
      */
     handleAskDoubt: function(withContext = false) {
         if (typeof DoubtManager !== 'undefined' && this.currentConversationId && this.currentMessageId) {
-            // Store context info for potential use
             if (withContext) {
-                DoubtManager.withContext = true;
-                DoubtManager.contextSelection = this.currentSelection;
                 this.showToast('Opening doubt with conversation context...', 'info');
-            } else {
-                DoubtManager.withContext = false;
-                DoubtManager.contextSelection = '';
             }
-            DoubtManager.askNewDoubt(this.currentConversationId, this.currentMessageId);
+            DoubtManager.askNewDoubt(
+                this.currentConversationId,
+                this.currentMessageId,
+                this.currentSelection || '',
+                withContext
+            );
         } else if (typeof DoubtManager !== 'undefined' && this.currentConversationId) {
             // If no specific message, try to use the last message
             this.showToast('Please right-click on a specific message to ask a doubt', 'info');

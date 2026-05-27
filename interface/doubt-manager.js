@@ -6,6 +6,8 @@ const DoubtManager = {
     currentConversationId: null,
     currentMessageId: null,
     currentDoubtHistory: [],
+    withContext: false,
+    selectedText: '',
     
     /**
      * Show doubts overview modal for a specific message
@@ -139,10 +141,11 @@ const DoubtManager = {
     /**
      * Ask a new doubt (opens chat modal, loading existing doubts as history)
      */
-    askNewDoubt: function(conversationId, messageId) {
+    askNewDoubt: function(conversationId, messageId, selectedText = '', withContext = false) {
         this.currentConversationId = conversationId;
         this.currentMessageId = messageId;
-        
+        this.selectedText = selectedText;
+        this.withContext = withContext;
         
         this.currentDoubtHistory = [];
         this.openDoubtChatModal();
@@ -463,7 +466,9 @@ const DoubtManager = {
         
         const requestBody = {
             doubt_text: doubtText,
-            reward_level: rewardLevel
+            reward_level: rewardLevel,
+            selected_text: this.selectedText || '',
+            with_context: this.withContext || false
         };
         
         if (parentDoubtId) {
