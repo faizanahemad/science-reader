@@ -5003,10 +5003,27 @@ function adjustCardHeightForSlides(slideWrapper) {
 
         navigator.serviceWorker
             .register('/interface/service-worker.js', { scope: '/interface/' })
+            .then(function(reg) {
+                if (reg.waiting) {
+                    reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+                }
+                reg.addEventListener('updatefound', function() {
+                    var newWorker = reg.installing;
+                    if (!newWorker) return;
+                    newWorker.addEventListener('statechange', function() {
+                        if (newWorker.state === 'installed' && reg.active) {
+                            newWorker.postMessage({ type: 'SKIP_WAITING' });
+                        }
+                    });
+                });
+            })
             .catch(function (err) {
-                // Non-fatal: UI should work even if SW registration fails.
                 console.warn('Service Worker registration failed:', err);
             });
+
+        navigator.serviceWorker.addEventListener('controllerchange', function() {
+            window.location.reload();
+        });
     } catch (e) {
         // Non-fatal: never block UI boot.
         console.warn('Service Worker registration error:', e);

@@ -12,7 +12,7 @@
 const DEBUG = false;
 
 // Bump cache when UI shell assets change.
-const CACHE_VERSION = "v38";
+const CACHE_VERSION = "v39";
 const UI_SHELL_CACHE = `ui-shell-${CACHE_VERSION}`;
 const META_CACHE = `meta-${CACHE_VERSION}`;
 
@@ -343,4 +343,11 @@ self.addEventListener("fetch", (event) => {
   }
 
   // Default: NetworkOnly for any other same-origin GET under `/interface/*` or `/static/*`.
+});
+
+// Allow clients to force-activate a waiting SW via postMessage({type:'SKIP_WAITING'}).
+self.addEventListener("message", (event) => {
+  if (event.data && event.data.type === "SKIP_WAITING") {
+    self.skipWaiting();
+  }
 });
