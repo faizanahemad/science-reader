@@ -85,55 +85,26 @@ SUPERFAST_LLM = ["inception/mercury-2"]
 
 VERY_CHEAP_LLM = [
     "google/gemini-3.1-flash-lite-preview",
-    "google/gemini-2.5-flash-lite",
-    "google/gemini-2.5-flash",
     "openai/gpt-5-mini",
     "inception/mercury-2",
 ]
 CHEAP_LLM = [
     "anthropic/claude-haiku-4.5",
-    "gpt-4o",
-    "openai/gpt-5-mini",
     "deepseek/deepseek-v4-pro",
     "google/gemini-flash-latest",
+    "qwen/qwen3.7-max",
 ]
 EXPENSIVE_LLM = [
     "anthropic/claude-opus-latest",
     "google/gemini-pro-latest",
     "openai/gpt-latest",
     "openai/gpt-5.5",
-    "anthropic/claude-sonnet-4.5",
-    "openai/gpt-5.1",
-    "anthropic/claude-sonnet-4.6",
-    "openai/gpt-5.2",
-    "openai/gpt-5.4",
     "google/gemini-3.1-pro-preview",
-    "openai/gpt-5.2-codex",
-    "mistralai/mistral-large-2512",
-    "qwen/qwen3-coder-plus",
-    "gpt-5.2-codex",
-    "google/gemini-3-pro-preview",
-    "anthropic/claude-opus-4.5",
     "anthropic/claude-opus-4.6",
-    "openai/gpt-5.2-pro",
-    "x-ai/grok-3",
-    "moonshotai/kimi-k2.5",
+    "moonshotai/kimi-k2.6",
 ]
 UNUSED_EXPENSIVE_LLM = [
-    "anthropic/claude-3.7-sonnet:beta",
-    "openai/chatgpt-4o-latest",
-    "anthropic/claude-3.5-sonnet:beta",
-    "anthropic/claude-3.7-sonnet",
-    "o3-mini",
-    "anthropic/claude-3-opus:beta",
-    "mistralai/pixtral-large-2411",
-    "cohere/command-r-plus-08-2024",
-    "o1",
-    "cohere/command-a",
-    "ai21/jamba-1.6-large",
-    "qwen/qwen3-coder-plus",
-    "qwen/qwen3-coder",
-    "openai/gpt-5",
+    
 ]
 
 OPENAI_CHEAP_LLM = "openai/gpt-5-mini"
@@ -145,13 +116,9 @@ CHEAP_LONG_CONTEXT_LLM = [
     "deepseek/deepseek-v4-pro",
     "google/gemini-3-flash-preview",
     "google/gemini-2.5-flash",
-    "google/gemini-3.1-flash-lite-preview",
-    "qwen/qwen3.5-flash-02-23",
     "openai/gpt-5-mini",
-    "gpt-4.1-mini",
-    "x-ai/grok-4-fast",
 ]
-LONG_CONTEXT_LLM = ["google/gemini-3-flash-preview", "google/gemini-3.1-pro-preview", "google/gemini-2.5-pro", "minimax/minimax-m1"]
+LONG_CONTEXT_LLM = ["google/gemini-3-flash-preview", "google/gemini-3.5-flash", "google/gemini-3.1-pro-preview"]
 
 COMMON_SALT_STRING = "31256greagy89"
 
