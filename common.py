@@ -101,6 +101,7 @@ EXPENSIVE_LLM = [
     "openai/gpt-5.5",
     "google/gemini-3.1-pro-preview",
     "anthropic/claude-opus-4.6",
+    "anthropic/claude-sonnet-4.6",
     "moonshotai/kimi-k2.6",
 ]
 UNUSED_EXPENSIVE_LLM = [
