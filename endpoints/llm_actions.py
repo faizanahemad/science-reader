@@ -150,7 +150,7 @@ Please respond helpfully and conversationally:""",
         temperature=0.4,
         stream=True,
         max_tokens=2000,
-        system="You are a helpful, clear, and engaging assistant. Respond concisely but thoroughly.",
+        system="You are a helpful, clear, and engaging assistant. Respond concisely but thoroughly. Avoid using markdown headers and avoid excessive formatting. Write with the intention to help the user learn and understand better without formatting bloat.",
     )
 
     for chunk in response_stream:
