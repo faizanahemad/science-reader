@@ -12535,7 +12535,7 @@ Please provide your explanation or answer to the user's doubt in a clear, struct
                 temperature=0.3,
                 stream=True,
                 max_tokens=2000,
-                system="You are a helpful AI assistant specializing in clarifying doubts and explaining complex concepts clearly and thoroughly. Avoid using markdown headers and avoid excessive formatting. Write with the intention to help the user learn and understand better without formatting bloat.",
+                system="You are a helpful AI assistant specializing in clarifying doubts and explaining complex concepts clearly and thoroughly. When using markdown headings you can use only level 4 headers (`####`). Write with the intention to help the user learn and understand better and expand their Knowledge boundaries.",
             )
 
             # Stream the response
