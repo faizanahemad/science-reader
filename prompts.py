@@ -178,6 +178,51 @@ tldr_summary_prompt = f"""{tldr_summary_prompt_system}
 Write the short version of the answer below:
 """.lstrip()
 
+user_ask_tldr_prompt = """Summarize the user's message below in 1-2 short sentences capturing the core intent and key details.
+Be extremely concise. Output only the summary, no preamble.
+
+User message:
+'''
+{query}
+'''
+
+One-line summary:""".lstrip()
+
+keyword_extraction_prompt = """Extract keywords and keyphrases from the text below.
+Rules:
+- Each keyword/keyphrase must be 2-4 words (no single generic words like "the", "how", "what")
+- Focus on specific technical terms, named entities, concepts, and meaningful phrases
+- Output valid JSON only, no explanation
+
+Text:
+'''
+{text}
+'''
+
+Output JSON:
+{{
+  "entities": ["proper nouns, names, products, systems, tools"],
+  "topics": ["subject areas, concepts, themes"],
+  "technical_terms": ["domain-specific technical phrases"],
+  "general_terms": ["other meaningful multi-word phrases not fitting above"]
+}}""".lstrip()
+
+user_ask_prior_context_prompt = """Write 2-3 sentences describing the conversation state at the moment this user message was sent.
+Capture: what was being discussed, what decisions or conclusions had been reached, and what the user's overall goal appears to be.
+Be factual and brief. Output only the context sentences, no preamble.
+
+Conversation summary so far:
+'''
+{summary}
+'''
+
+User message:
+'''
+{query}
+'''
+
+Context at time of message:""".lstrip()
+
 chain_of_density_system_prompt = """You are an expert summarizer using the Chain of Density technique. Your goal is to create increasingly dense and informative summaries while maintaining clarity and readability. Follow these key principles:
 
 1. Information Preservation:

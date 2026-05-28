@@ -3141,304 +3141,14 @@ Now return JSON with 'ops' and 'notes'.
     def retrieve_prior_context_llm_based(
         self, query, past_message_ids=[], required_message_lookback=30
     ):
-        """
-        Retrieves prior context from conversation messages using LLM-based extraction.
-
-        For each window of 3 messages, an LLM extracts relevant facts, details, and information
-        that can help answer the user query. The extraction is done in parallel across all windows.
-
-        Args:
-            query: The current user query that needs context for answering.
-            past_message_ids: Optional list of specific message IDs to consider. If provided,
-                             only these messages will be used for context extraction.
-            required_message_lookback: Maximum number of messages to look back (default 30).
-
-        Returns:
-            dict: A dictionary containing:
-                - extracted_context: Concatenated bullet points of extracted facts from all windows.
-                - summary: The running summary of the conversation.
-                - window_count: Number of message windows processed.
-                - message_count: Total number of messages processed.
-
-        The objective is to retrieve information useful for answering the query, not to answer
-        the query itself. Each window extraction runs in parallel for efficiency.
-        """
-        st = time.time()
-        time_logger.info(
-            f"Starting retrieve_prior_context_llm_based, time = {time.time() - st:.2f}s"
+        """Delegate to code_common.auto_context.retrieve_prior_context_llm_based (DEEP mode)."""
+        from code_common.auto_context import retrieve_prior_context_llm_based as _rpc_llm, AutoContextMode
+        return _rpc_llm(
+            self, query,
+            past_message_ids=past_message_ids,
+            required_message_lookback=required_message_lookback,
+            mode=AutoContextMode.DEEP,
         )
-        running_summary = self.running_summary
-
-        # Get messages asynchronously
-        futures = [
-            get_async_future(self.get_field, "memory"),
-            get_async_future(self.get_field, "messages"),
-        ]
-        memory, messages = [sleep_and_get_future_result(f) for f in futures]
-        time_logger.info(f"Got memory and messages, time = {time.time() - st:.2f}s")
-        # Handle empty messages
-        if not messages or len(messages) == 0:
-            time_logger.info(
-                f"No messages found for context extraction, time = {time.time() - st:.2f}s"
-            )
-            return dict(
-                extracted_context="",
-                summary=running_summary,
-                window_count=0,
-                message_count=0,
-            )
-
-        # Filter messages by past_message_ids if provided
-        if past_message_ids and len(past_message_ids) > 0:
-            messages = [m for m in messages if m["message_id"] in past_message_ids]
-            required_message_lookback = min(required_message_lookback, 16)
-
-        # Limit to required_message_lookback most recent messages
-        messages = (
-            messages[-required_message_lookback:]
-            if len(messages) > required_message_lookback
-            else messages
-        )
-
-        # Handle case with very few messages
-        if len(messages) == 0:
-            time_logger.info(
-                f"No messages after filtering for context extraction, time = {time.time() - st:.2f}s"
-            )
-            return dict(
-                extracted_context="",
-                summary=running_summary,
-                window_count=0,
-                message_count=0,
-            )
-
-        # Create non-overlapping windows of 3 messages (stride=3, window=3)
-        # Create non-overlapping windows with variable sizes
-        # Recent messages (end of array) use smaller windows (3)
-        # Older messages (beginning of array) use larger windows (5, then 4)
-        message_windows = []
-        i = 0
-
-        temp_messages = messages.copy()
-        messages = messages[:-2]
-        while i < len(messages):
-            # Determine window size and stride based on position from the end
-            remaining_messages = len(messages) - i
-
-            if remaining_messages <= 6:  # Last 6 messages: use window_size=3, stride=3
-                window_size = 3
-                stride = 3
-            elif (
-                remaining_messages <= 16
-            ):  # Next 16 messages: use window_size=5, stride=5
-                window_size = 5
-                stride = 5
-            else:  # Earlier messages: use window_size=5, stride=5
-                window_size = 6
-                stride = 6
-
-            window = messages[i : i + window_size]
-            if len(window) > 0:  # Include even partial windows at the end
-                message_windows.append(window)
-
-            i += stride
-
-        # If the last window has only one message, merge it with the previous window
-        if len(message_windows) > 1 and len(message_windows[-1]) == 1:
-            # Merge the last single message into the previous window
-            message_windows[-2].extend(message_windows[-1])
-            # Remove the last window
-            message_windows.pop()
-
-        messages = temp_messages
-
-        # Prompt template for extracting relevant context from a message window
-        time_logger.info(f"Creating extraction prompt template")
-
-        system = dedent(f"""
-        You are an assistant that extracts relevant information from conversation messages to help answer a user query.
-        You will write in compact bullet points.
-        You will include specific details like numbers, names, dates, code references, technical terms, etc.
-        You will focus on actual information extraction in bullet points format by writing in a very short and concise manner.
-        You will be brief and concise. Exact facts and numbers.
-        Be short, brief and concise.
-        If the messages contain nothing relevant to the query, write "No relevant information in this segment."
-        """)
-        extraction_prompt_template = """You are an assistant that extracts relevant information from conversation messages to help answer a user query.
-
-## User Query (to be answered later):
-{query}
-
-## Conversation Summary (for context):
-{summary}
-
-## Messages to Extract From:
-{messages_text}
-
----
-
-## Your Task:
-Extract facts, details, numbers, code snippets, decisions, preferences, and any other information from the above messages that would be useful for answering the user query. 
-
-**Important Guidelines:**
-- Understand the goal of the user query and the conversation summary.
-- Focus ONLY on extracting relevant information, do NOT attempt to answer the user query.
-- Write in compact bullet points.
-- When you mention a document, mention the document id and title.
-- Include specific details like numbers, names, dates, code references, technical terms.
-- Capture user preferences, constraints, and requirements mentioned.
-- Note any decisions made or conclusions reached in the conversation.
-- If the messages contain nothing relevant to the query, write "No relevant information in this segment."
-- Focus on actual information extraction in bullet points format by writing in a very short and concise manner.
-- Be short, brief and concise.
-
-## Extracted Information (bullet points):
-"""
-
-        # Create async futures for each window
-        time_logger.info(
-            f"Creating async futures for {len(message_windows)} message windows"
-        )
-        extraction_futures = []
-        for window_idx, window in enumerate(message_windows):
-            # Format messages in this window
-            messages_text = "\n\n".join(
-                [
-                    f"<{m['sender']}>\n{extract_user_answer(m['text'])}\n</{m['sender']}>"
-                    for m in window
-                ]
-            )
-
-            # Create the prompt for this window
-            prompt = extraction_prompt_template.format(
-                query=query,
-                summary=running_summary
-                if running_summary
-                else "(No summary available)",
-                messages_text=messages_text,
-            )
-
-            # Fire async LLM call
-            internal_model = self.get_model_override(
-                "conversation_internal_model", SUPERFAST_LLM[0]
-            )
-            llm = CallLLm(
-                self.get_api_keys(),
-                model_name=internal_model,
-                use_gpt4=False,
-                use_16k=False,
-            )
-            future = get_async_future(
-                llm, prompt, temperature=0.2, system=system, stream=False
-            )
-            time_logger.info(
-                f"Prompt length = {get_gpt4_word_count(prompt)} tokens and dtype = {type(prompt)}, model_name = {llm.model_name}, system type = {type(system)}"
-            )
-            extraction_futures.append((window_idx, future))
-
-        # Collect results in order
-        time_logger.info(
-            f"Collecting results in order for {len(extraction_futures)} async futures"
-        )
-        extraction_results = []
-        success_and_failed_windows = []
-        for window_idx, future in extraction_futures:
-            try:
-                time_logger.info(
-                    f"Waiting for result from window {window_idx + 1} of {len(message_windows)}"
-                )
-                result = sleep_and_get_future_result(future, timeout=120)
-                time_logger.info(
-                    f"Result from window {window_idx + 1} of {len(message_windows)} obtained"
-                )
-                if (
-                    result
-                    and result.strip()
-                    and "No relevant information" not in result
-                ):
-                    extraction_results.append((window_idx, result.strip()))
-                    time_logger.info(
-                        f"Extracted context from window {window_idx + 1} of {len(message_windows)}, with len = {len(result.strip().split())} tokens and dtype = {type(result.strip())}"
-                    )
-                    success_and_failed_windows.append(
-                        (
-                            window_idx,
-                            True,
-                            {
-                                "model_name": llm.model_name,
-                                "prompt": str(type(prompt)),
-                                "system": str(type(system)),
-                            },
-                        )
-                    )
-            except Exception as e:
-                error_logger.error(
-                    f"Error extracting context from window {window_idx}: {e}, type prompt = {type(prompt)}, type system = {type(system)}"
-                )
-                time_logger.info(
-                    f"Error extracting context from window {window_idx + 1} of {len(message_windows)}, with error = {e}"
-                )
-
-                success_and_failed_windows.append(
-                    (
-                        window_idx,
-                        False,
-                        {
-                            "model_name": llm.model_name,
-                            "prompt": str(type(prompt)),
-                            "system": str(type(system)),
-                        },
-                    )
-                )
-                continue
-
-        time_logger.info(
-            f"Time taken to extract context = {time.time() - st:.2f} seconds"
-        )
-        time_logger.info(
-            f"Success and failed windows = {json.dumps(success_and_failed_windows, indent=4)}"
-        )
-        # Sort by window index to maintain chronological order
-        extraction_results.sort(key=lambda x: x[0])
-
-        # Concatenate all extracted information
-        time_logger.info(
-            f"Concatenating {len(extraction_results)} extracted information"
-        )
-        if extraction_results:
-            # Add window markers for clarity
-            extracted_parts = []
-            for window_idx, result in extraction_results:
-                # Clean up the result - remove excessive newlines
-                result = re.sub(r"\n{3,}", "\n\n", result)
-                extracted_parts.append(
-                    f"### Context from messages {window_idx * stride + 1}-{min((window_idx + 1) * stride, len(messages))}:\n{result}"
-                )
-
-            extracted_context = "\n\n".join(extracted_parts)
-        else:
-            extracted_context = ""
-
-        # Build the result dictionary
-        results = dict(
-            extracted_context=extracted_context,
-            summary=running_summary,
-            window_count=len(message_windows),
-            message_count=len(messages),
-        )
-
-        # Log timing and statistics
-        time_spent = time.time() - st
-        logger.info(
-            f"LLM-based context extraction: {len(message_windows)} windows processed, "
-            f"{len(extraction_results)} yielded results, "
-            f"extracted_context length = {get_gpt4_word_count(extracted_context)} tokens"
-        )
-        time_logger.info(
-            f"Time taken for LLM-based context retrieval = {time_spent:.2f} seconds"
-        )
-
-        return results
 
     def get_conversation_history(self, query=""):
         """Generate a comprehensive conversation history combining summary and recent messages"""
@@ -3780,6 +3490,9 @@ Give 4 suggestions.
         past_message_ids=None,
         users_dir=None,
         display_attachments=None,
+        user_ask_tldr_future=None,
+        user_ask_keywords_future=None,
+        user_ask_prior_context_future=None,
     ):
         """Persist the current user-assistant turn to conversation storage.
 
@@ -3953,6 +3666,44 @@ Your response will be in below xml style format:
             }
             if display_attachments:
                 user_msg_dict["display_attachments"] = display_attachments
+            if user_ask_tldr_future is not None:
+                try:
+                    _tldr = sleep_and_get_future_result(user_ask_tldr_future, timeout=30)
+                    if _tldr and isinstance(_tldr, str):
+                        user_msg_dict["user_ask_tldr"] = _tldr.strip()
+                except Exception:
+                    pass  # fail-open: never break persistence
+            if user_ask_keywords_future is not None:
+                try:
+                    _kw_raw = sleep_and_get_future_result(user_ask_keywords_future, timeout=30)
+                    if _kw_raw and isinstance(_kw_raw, str):
+                        import json as _json
+                        _kw = _json.loads(_kw_raw.strip())
+                        if isinstance(_kw, dict):
+                            user_msg_dict["user_ask_keywords"] = _kw
+                except Exception:
+                    pass
+            if user_ask_prior_context_future is not None:
+                try:
+                    _pc = sleep_and_get_future_result(user_ask_prior_context_future, timeout=30)
+                    if _pc and isinstance(_pc, str):
+                        user_msg_dict["user_ask_prior_context"] = _pc.strip()
+                except Exception:
+                    pass
+
+            # Generate answer_keywords async — collected before writing messages
+            _answer_text = extract_user_answer(response)
+            _answer_words = len(_answer_text.split())
+            if _answer_words > 20:
+                _kw_model = self.get_model_override("conversation_internal_model", SUPERFAST_LLM[0])
+                _ans_kw_llm = CallLLm(self.get_api_keys(), model_name=_kw_model, use_gpt4=False, use_16k=False)
+                _ans_kw_future = get_async_future(
+                    _ans_kw_llm,
+                    prompts.keyword_extraction_prompt.format(text=_answer_text[:3000]),
+                    temperature=0.1, stream=False,
+                )
+            else:
+                _ans_kw_future = None
             preserved_messages = [
                 user_msg_dict,
                 {
@@ -3966,6 +3717,18 @@ Your response will be in below xml style format:
                     "answer_tldr": answer_tldr,
                 },
             ]
+
+            # Collect answer_keywords if generated
+            if _ans_kw_future is not None:
+                try:
+                    _ans_kw_raw = sleep_and_get_future_result(_ans_kw_future, timeout=30)
+                    if _ans_kw_raw and isinstance(_ans_kw_raw, str):
+                        import json as _json2
+                        _ans_kw = _json2.loads(_ans_kw_raw.strip())
+                        if isinstance(_ans_kw, dict):
+                            preserved_messages[1]["answer_keywords"] = _ans_kw
+                except Exception:
+                    pass
 
             # Compute message_short_hash if conversation_friendly_id is already available.
             # For first-turn conversations (no friendly_id yet), hashes are backfilled
@@ -5448,6 +5211,9 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
             past_message_ids,
             users_dir=users_dir,
             display_attachments=query.get("display_attachments"),
+            user_ask_tldr_future=user_ask_tldr_future,
+            user_ask_keywords_future=user_ask_keywords_future,
+            user_ask_prior_context_future=user_ask_prior_context_future,
         )
 
         # --- Emit message IDs ---
@@ -7980,8 +7746,25 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             message_lookback = (
                 10 * 2
             )  # 10 messages * 2 (each message is 2 - user and assistant)
+        elif enablePreviousMessages.startswith("auto-"):
+            message_lookback = 4  # placeholder; overwritten below by auto config
         else:
             message_lookback = int(enablePreviousMessages) * 2
+
+        # Auto context modes — use smart context assembly instead of fixed lookback
+        _AUTO_MODE_MAP = {
+            "auto-deep":   "DEEP",
+            "auto-medium": "MEDIUM",
+            "auto-light":  "LIGHT",
+        }
+        _auto_context_mode_name = _AUTO_MODE_MAP.get(enablePreviousMessages)
+        if _auto_context_mode_name:
+            from code_common.auto_context import AutoContextMode, AUTO_CONTEXT_CONFIGS
+            _auto_context_mode = AutoContextMode(_auto_context_mode_name.lower())
+            _auto_cfg = AUTO_CONTEXT_CONFIGS[_auto_context_mode]
+            message_lookback = _auto_cfg["lookback_turns"] * 2
+        else:
+            _auto_context_mode = None
         checkboxes["ppt_answer"] = (
             checkboxes["ppt_answer"]
             if "ppt_answer" in checkboxes and bool(checkboxes["ppt_answer"])
@@ -8010,6 +7793,43 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             past_message_ids=past_message_ids,
             required_message_lookback=message_lookback,
         )
+        # Generate user_ask_tldr async in parallel — zero latency since it resolves
+        # during streaming and is collected in persist_current_turn.
+        _user_msg_words = len(query["messageText"].split())
+        _internal_model = self.get_model_override("conversation_internal_model", SUPERFAST_LLM[0])
+        if _user_msg_words > 50:
+            _user_ask_tldr_llm = CallLLm(self.get_api_keys(), model_name=_internal_model, use_gpt4=False, use_16k=False)
+            user_ask_tldr_future = get_async_future(
+                _user_ask_tldr_llm,
+                prompts.user_ask_tldr_prompt.format(query=query["messageText"]),
+                temperature=0.2, stream=False,
+            )
+        else:
+            user_ask_tldr_future = wrap_in_future("")
+
+        # Keyword extraction for user message (multi-word phrases, structured JSON)
+        if _user_msg_words > 20:
+            _kw_llm = CallLLm(self.get_api_keys(), model_name=_internal_model, use_gpt4=False, use_16k=False)
+            user_ask_keywords_future = get_async_future(
+                _kw_llm,
+                prompts.keyword_extraction_prompt.format(text=query["messageText"]),
+                temperature=0.1, stream=False,
+            )
+        else:
+            user_ask_keywords_future = wrap_in_future("")
+
+        # Prior context: 2-3 sentence conversation state at time of this message
+        if _user_msg_words > 20 and summary_text:
+            _pc_llm = CallLLm(self.get_api_keys(), model_name=_internal_model, use_gpt4=False, use_16k=False)
+            user_ask_prior_context_future = get_async_future(
+                _pc_llm,
+                prompts.user_ask_prior_context_prompt.format(
+                    summary=summary_text, query=query["messageText"]
+                ),
+                temperature=0.2, stream=False,
+            )
+        else:
+            user_ask_prior_context_future = wrap_in_future("")
         if message_lookback >= 4:
             prior_context_llm_based_future = get_async_future(
                 self.retrieve_prior_context_llm_based,
@@ -8020,6 +7840,34 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             prior_context_llm_based_future = wrap_in_future(
                 dict(extracted_context="", summary="", window_count=0, message_count=0)
             )
+
+        # Auto context: fire classifier and agentic finder in parallel
+        if _auto_context_mode is not None:
+            from code_common.auto_context import (
+                classify_messages_for_context, agentic_context_finder
+            )
+            _last_turn_text = ""
+            try:
+                _msgs = self.get_field("messages") or []
+                if len(_msgs) >= 2:
+                    _last_turn_text = (
+                        _msgs[-2].get("text", "")[:500] + "\n" +
+                        _msgs[-1].get("text", "")[:500]
+                    )
+            except Exception:
+                pass
+            _auto_classifier_future = get_async_future(
+                classify_messages_for_context,
+                self, query["messageText"], summary_text, _auto_context_mode,
+            )
+            _auto_agent_future = get_async_future(
+                agentic_context_finder,
+                self, query["messageText"], summary_text, _last_turn_text,
+                self.get_api_keys(), _auto_context_mode,
+            )
+        else:
+            _auto_classifier_future = None
+            _auto_agent_future = None
 
         prior_context = prior_context_future.result()
 
@@ -8419,6 +8267,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 past_message_ids,
                 users_dir=users_dir,
                 display_attachments=query.get("display_attachments"),
+                user_ask_tldr_future=user_ask_tldr_future,
+            user_ask_keywords_future=user_ask_keywords_future,
+            user_ask_prior_context_future=user_ask_prior_context_future,
             )
             # Process reward evaluation after summary streaming completes
             _collect_reward_output(block=True)
@@ -8529,6 +8380,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     past_message_ids,
                     users_dir=users_dir,
                     display_attachments=query.get("display_attachments"),
+                    user_ask_tldr_future=user_ask_tldr_future,
+            user_ask_keywords_future=user_ask_keywords_future,
+            user_ask_prior_context_future=user_ask_prior_context_future,
                 )
                 message_ids = self.get_message_ids(query["messageText"], answer)
                 # Process reward evaluation before saving message
@@ -9583,6 +9437,34 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             + str(len(prior_context_llm_based_context.split()))
             + " tokens ...",
         }
+
+        # Auto context: merge classifier + agent results, override previous_messages
+        if _auto_context_mode is not None and _auto_classifier_future is not None:
+            from code_common.auto_context import assemble_auto_context, AUTO_CONTEXT_CONFIGS
+            try:
+                _classifier_result = _auto_classifier_future.result() or []
+            except Exception:
+                _classifier_result = []
+            try:
+                _agent_result = _auto_agent_future.result() or []
+            except Exception:
+                _agent_result = []
+            _auto_assembled = assemble_auto_context(
+                self, _classifier_result, _agent_result,
+                prior_context_llm_based_context, _auto_context_mode,
+            )
+            # Override: auto context replaces the raw previous_messages + llm_based context
+            previous_messages = _auto_assembled
+            previous_messages_short = _auto_assembled
+            previous_messages_long = _auto_assembled
+            previous_messages_very_long = _auto_assembled
+            prior_context_llm_based_context = ""  # already embedded in assembled context
+            # Memory pad: inject if mode config says so (unless already enabled by user)
+            _auto_cfg = AUTO_CONTEXT_CONFIGS[_auto_context_mode]
+            if _auto_cfg["inject_memory_pad"] and not use_memory_pad:
+                use_memory_pad = True
+                checkboxes["use_memory_pad"] = True
+            yield {"text": "", "status": f"Auto context [{_auto_context_mode.value}] assembled ..."}
         new_line = "\n"
         if perform_web_search or google_scholar:
             search_results = next(web_results.result()[0].result())
@@ -9924,6 +9806,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     past_message_ids,
                     users_dir=users_dir,
                     display_attachments=query.get("display_attachments"),
+                    user_ask_tldr_future=user_ask_tldr_future,
+            user_ask_keywords_future=user_ask_keywords_future,
+            user_ask_prior_context_future=user_ask_prior_context_future,
                 )
                 return
 
@@ -9967,6 +9852,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 past_message_ids,
                 users_dir=users_dir,
                 display_attachments=query.get("display_attachments"),
+                user_ask_tldr_future=user_ask_tldr_future,
+            user_ask_keywords_future=user_ask_keywords_future,
+            user_ask_prior_context_future=user_ask_prior_context_future,
             )
             message_ids = self.get_message_ids(query["messageText"], answer)
             yield {
@@ -10026,6 +9914,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 past_message_ids,
                 users_dir=users_dir,
                 display_attachments=query.get("display_attachments"),
+                user_ask_tldr_future=user_ask_tldr_future,
+            user_ask_keywords_future=user_ask_keywords_future,
+            user_ask_prior_context_future=user_ask_prior_context_future,
             )
             message_ids = self.get_message_ids(query["messageText"], answer)
             yield {
@@ -10059,6 +9950,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 past_message_ids,
                 users_dir=users_dir,
                 display_attachments=query.get("display_attachments"),
+                user_ask_tldr_future=user_ask_tldr_future,
+            user_ask_keywords_future=user_ask_keywords_future,
+            user_ask_prior_context_future=user_ask_prior_context_future,
             )
             message_ids = self.get_message_ids(query["messageText"], answer)
             yield {
@@ -11353,6 +11247,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             past_message_ids,
             users_dir=users_dir,
             display_attachments=query.get("display_attachments"),
+            user_ask_tldr_future=user_ask_tldr_future,
+            user_ask_keywords_future=user_ask_keywords_future,
+            user_ask_prior_context_future=user_ask_prior_context_future,
         )
         message_ids = self.get_message_ids(query["messageText"], answer)
         yield {
@@ -11566,6 +11463,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 past_message_ids,
                 users_dir=users_dir,
                 display_attachments=query.get("display_attachments"),
+                user_ask_tldr_future=user_ask_tldr_future,
+            user_ask_keywords_future=user_ask_keywords_future,
+            user_ask_prior_context_future=user_ask_prior_context_future,
             )
         except Exception:
             logger.warning("Image gen: persist failed", exc_info=True)
@@ -11771,6 +11671,11 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             tldr = msg.get("answer_tldr", "")
             if tldr:
                 entry["answer_tldr"] = tldr
+            # Include new metadata fields for auto-context
+            for field in ("user_ask_tldr", "user_ask_keywords", "user_ask_prior_context", "answer_keywords"):
+                val = msg.get(field)
+                if val:
+                    entry[field] = val
             # Include short hash if present
             short_hash = msg.get("message_short_hash", "")
             if short_hash:
