@@ -134,6 +134,18 @@ ACTION_COMMANDS = [
         "type": "toggle",
     },
     {
+        "command": "aside",
+        "description": "Open temp chat with question (not sent to conversation)",
+        "flag": "aside_request",
+        "type": "client_action",
+    },
+    {
+        "command": "btw",
+        "description": "Alias for /aside — open temp chat with question",
+        "flag": "aside_request",
+        "type": "client_action",
+    },
+    {
         "command": "title <text>",
         "description": "Set conversation title manually",
         "type": "client_action",

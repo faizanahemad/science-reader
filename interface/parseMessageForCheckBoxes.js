@@ -237,6 +237,21 @@ function parseMessageForCheckBoxes(text) {
     };
     processClarifyCommand();
 
+    // /aside and /btw: open temp LLM chat modal with the message text as the question.
+    // Can appear on ANY line outside backticks. Sets aside_request=true and strips the token.
+    const processAsideCommand = () => {
+        const regex = /\/(?:aside|btw)\b/i;
+        for (let li = 0; li < lines.length; li++) {
+            const found = findFirstMatchOutsideInlineCode(lines[li], regex);
+            if (found) {
+                result['aside_request'] = true;
+                lines[li] = replaceAtIndexWithSpace(lines[li], found.index, found.match[0].length);
+                break;
+            }
+        }
+    };
+    processAsideCommand();
+
     // Handle commands without numbers specifically, to ensure no leftover words like "then_no_number"
     // Only remove these bare tokens if they occur on the FIRST LINE and outside backticks.
     const removeBareTokenFromFirstLine = (regex) => {

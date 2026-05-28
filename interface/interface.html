@@ -354,7 +354,7 @@
                                 <div id="attachment-preview" class="attachment-preview" style="display: none;"></div>
                                 <div class="row mb-1"> <!-- Reduced margin bottom -->
                                     
-                                    <div class="input-group" style="width: calc(100% - 90px);">
+                                    <div class="input-group chat-input-group" style="width: calc(100% - 90px);">
                                         <div class="input-group-prepend">
                                             <span class="input-group-text" id="chat-file-upload-span" style="border-right: none; background-color: transparent;">
                                                 <label for="chat-file-upload" class="mb-0" style="cursor: pointer;">
@@ -375,6 +375,9 @@
                                     <div class="input-group-append" style="margin-left: 5px;">
                                         <button id="sendMessageButton" class="btn btn-success">
                                             ➤<!-- i class="fas fa-paper-plane"></i--> <!-- You can also add "Send" text here if needed -->
+                                        </button>
+                                        <button id="asideButton" class="btn btn-outline-secondary d-none d-sm-inline-block" title="Open aside chat (Ctrl+Shift+Space)" style="margin-left: 3px;">
+                                            💬
                                         </button>
                                         <button id="stopResponseButton" class="btn btn-danger" style="display: none; margin-left: 5px; position: relative;">
                                             ⏹
@@ -4876,6 +4879,13 @@ greet("World");</code></pre>
     p {
         margin-top: 0;
         margin-bottom: 0.5rem;
+    }
+
+    /* On sm+ screens the aside button (💬) is visible — shrink the textarea group to compensate */
+    @media (min-width: 576px) {
+        .chat-input-group {
+            width: calc(100% - 133px) !important;
+        }
     }
     </style>
     <script>

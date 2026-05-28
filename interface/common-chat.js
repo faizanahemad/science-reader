@@ -5,6 +5,21 @@ $(function() {
     $('#mob-conversation-docs').on('click', function(e) { e.preventDefault(); $('#conversation-docs-button').trigger('click'); });
     $('#mob-global-docs').on('click', function(e) { e.preventDefault(); $('#global-docs-button').trigger('click'); });
     $('#mob-new-temp-chat').on('click', function(e) { e.preventDefault(); $('#new-temp-chat').trigger('click'); });
+
+    // Aside button: open temp LLM chat with current textarea content as the question
+    $('#asideButton').on('click', function() {
+        var text = $('#messageText').val().trim();
+        openAsideChatModal(text);
+    });
+
+    // Ctrl+Shift+Space: open aside chat modal (same as aside button)
+    $(document).on('keydown.asideShortcut', function(e) {
+        if (e.ctrlKey && e.shiftKey && e.code === 'Space') {
+            e.preventDefault();
+            var text = $('#messageText').val().trim();
+            openAsideChatModal(text);
+        }
+    });
 });
 
 // Global variables to track streaming controllers
@@ -2980,6 +2995,30 @@ function moveMessagesUpOrDownCallback(direction, messageId=null, messageIndex=nu
 
 
 // ---------------------------------------------------------------------------
+// openAsideChatModal: opens the temp LLM chat modal pre-filled with a question,
+// using the current conversation as context. Called by /aside, /btw, the aside
+// button, and the Ctrl+Shift+Space shortcut.
+// ---------------------------------------------------------------------------
+function openAsideChatModal(questionText) {
+    if (typeof TempLLMManager === 'undefined') return;
+    var conversationId = (typeof ConversationManager !== 'undefined')
+        ? ConversationManager.activeConversationId : null;
+    var messageContext = { conversationId: conversationId };
+    TempLLMManager.openTempChatModal(questionText || '', messageContext, true);
+    // If there's a pre-filled question, auto-submit it after the modal opens
+    if (questionText && questionText.trim().length > 0) {
+        setTimeout(function() {
+            var $input = $('#temp-llm-user-input');
+            if ($input.length && $input.val().trim() === '') {
+                $input.val(questionText.trim());
+                $input.trigger('input');
+            }
+            $('#temp-llm-send-btn').trigger('click');
+        }, 150);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Search-intent auto-detection: when the user's message contains keywords
 // indicating web-search intent, automatically enable the web search tool set.
 // This mirrors the /clarify interception pattern but does NOT return early —
@@ -3205,6 +3244,22 @@ function sendMessageCallback(skipAutoClarify) {
         }
     } catch (e) {
         console.warn('/clarify interception failed (proceeding without clarifications):', e);
+    }
+
+    // /aside and /btw command interception: opens temp LLM chat modal with the message as the question.
+    // The message text (with token stripped) becomes the pre-filled question; modal opens with full conversation context.
+    try {
+        if (!!options.aside_request && messageText.trim().length > 0 &&
+                typeof TempLLMManager !== 'undefined') {
+            var asideText = messageText
+                .replace(/[ \t]*\/(?:aside|btw)\b[ \t]*/gi, '')
+                .replace(/^[ \t]*\n/mg, '')
+                .replace(/\s+$/, '');
+            openAsideChatModal(asideText);
+            return;
+        }
+    } catch (e) {
+        console.warn('/aside interception failed (proceeding normally):', e);
     }
 
     // Auto-clarify interception (optional, enabled via settings).
