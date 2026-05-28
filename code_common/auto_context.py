@@ -174,19 +174,27 @@ _EXTRACT_PROMPT_MEDIUM = """\
 ## Messages:
 {messages_text}
 
-Extract ONLY the most directly relevant facts for answering the query. \
-Omit background, context, and tangential details. 3-5 bullet points max per window.
+Extract the most directly relevant facts for answering the query. \
+Skip background and tangential details. 3-5 bullet points max per window. \
+If nothing is relevant, write "No relevant information in this segment."
 
 ## Key facts (bullet points):
 """
 
 _EXTRACT_PROMPT_LIGHT = """\
-Query: {query}
-Summary: {summary}
-Messages:
+## User Query:
+{query}
+
+## Conversation Summary:
+{summary}
+
+## Messages:
 {messages_text}
 
-List only facts strictly necessary to answer the query. 1-3 bullets max. Be extremely terse.
+List only facts strictly necessary to answer the query. 1-3 bullets max. \
+If nothing is relevant, write "No relevant information in this segment."
+
+## Facts:
 """
 
 
@@ -335,24 +343,34 @@ No explanation, no markdown fences.
 """).strip()
 
 _CLASSIFY_SYSTEM_MEDIUM = dedent("""
-You classify conversation messages for relevance to a user query. Be conservative — only mark
-messages verbatim if the exact wording is truly necessary. Prefer "summarised" over "verbatim".
+You classify conversation messages for relevance to a user query.
+For each message output one of:
+  "verbatim"    — full text needed (code, exact specs, critical details)
+  "summarised"  — summary/TLDR is enough to answer the query
+  "none"        — not relevant
+
+Prefer "summarised" over "verbatim". Only use "none" if the message is clearly unrelated.
 Output ONLY a JSON array: [{"index": <int>, "message_id": "<str>", "classification": "verbatim"|"summarised"|"none"}, ...]
 """).strip()
 
 _CLASSIFY_SYSTEM_LIGHT = dedent("""
-Classify messages as "summarised" or "none" only. Never output "verbatim".
+You classify conversation messages for relevance to a user query.
+For each message output "summarised" or "none" only (never "verbatim").
+  "summarised"  — message is relevant and its summary helps answer the query
+  "none"        — not relevant
+
+Only mark as "none" if the message is clearly unrelated to the query.
 Output ONLY a JSON array: [{"index": <int>, "message_id": "<str>", "classification": "summarised"|"none"}, ...]
-Mark only the most directly relevant messages as "summarised". Be aggressive about "none".
 """).strip()
 
 _CLASSIFY_PROMPT = dedent("""
 Current user query: {query}
 Conversation summary: {summary}
-Messages (compact metadata):
+
+Messages to classify (each has: index, message_id, sender, tldr=summary of message, keywords, prior_context=conversation state when sent):
 {messages_json}
 
-Classify each message. Output JSON array only.
+Classify each message based on relevance to the query. Output JSON array only.
 """).strip()
 
 
@@ -421,6 +439,11 @@ def classify_messages_for_context(
             logger.warning("classify_messages_for_context [%s]: window failed: %s", mode.value, e)
 
     results.sort(key=lambda x: x.get("index", 0))
+    logger.info(
+        "classify_messages_for_context [%s]: %d messages classified, %d non-none",
+        mode.value, len(results),
+        sum(1 for r in results if r.get("classification", "none") != "none"),
+    )
     return results
 
 
@@ -441,17 +464,18 @@ Rules:
 """).strip()
 
 _AGENT_SYSTEM_MEDIUM = dedent("""
-You are a context-finding agent. Find the most relevant conversation messages for the user query.
-Prefer "paraphrased" over "verbatim" unless exact wording is critical.
-Use tools efficiently. Output JSON when done:
+You are a context-finding agent. Find conversation messages relevant to answering the current user query.
+Use tools to search and read messages. Prefer "paraphrased" over "verbatim" unless exact wording is critical.
+After reading, output your findings as JSON:
 {"decisions": [{"message_id": "<id>", "mode": "verbatim"|"paraphrased"}], "done": true}
+If nothing relevant: {"decisions": [], "done": true}
 """).strip()
 
 _AGENT_SYSTEM_LIGHT = dedent("""
-You are a context-finding agent. Find only the most essential messages for the user query.
-Use at most 2 tool calls total. Output only "paraphrased" (never "verbatim").
-Output JSON when done: {"decisions": [{"message_id": "<id>", "mode": "paraphrased"}], "done": true}
-If unsure, output {"decisions": [], "done": true}.
+You are a context-finding agent. Find the most relevant conversation messages for the user query.
+Use at most 2 tool calls. Output only "paraphrased" mode (never "verbatim").
+After searching, output JSON: {"decisions": [{"message_id": "<id>", "mode": "paraphrased"}], "done": true}
+If nothing relevant: {"decisions": [], "done": true}
 """).strip()
 
 _AGENT_INITIAL_PROMPT = dedent("""
@@ -531,7 +555,18 @@ def agentic_context_finder(
                 if isinstance(chunk, str):
                     accumulated_text += chunk
                 elif isinstance(chunk, dict) and chunk.get("type") == "tool_call":
-                    tool_calls_in_round.append(chunk)
+                    # call_llm yields: {"type":"tool_call","id":...,"function":{"name":...,"arguments":...}}
+                    fn = chunk.get("function", {})
+                    raw_args = fn.get("arguments", "{}")
+                    try:
+                        parsed_args = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+                    except Exception:
+                        parsed_args = {}
+                    tool_calls_in_round.append({
+                        "tool_id":   chunk.get("id", ""),
+                        "tool_name": fn.get("name", ""),
+                        "tool_input": parsed_args,
+                    })
 
             if accumulated_text:
                 parsed = _parse_agent_decisions(accumulated_text)
@@ -680,6 +715,16 @@ def assemble_auto_context(
                 final = "paraphrased"  # light never uses verbatim
         if final != "none":
             merged[mid] = final
+
+    # Fallback: if finders produced nothing useful (all none or empty),
+    # include pre-anchor messages as paraphrased so context is never completely empty
+    if not merged:
+        _anchor = AUTO_CONTEXT_CONFIGS[mode]["lookback_turns"] * 2
+        _fallback = messages[:-_anchor] if len(messages) > _anchor else messages
+        for msg in _fallback:
+            mid = msg.get("message_id", "")
+            if mid:
+                merged[mid] = "paraphrased"
 
     if not merged:
         result = ""

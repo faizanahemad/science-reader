@@ -71,15 +71,17 @@ def make_async(fn, execution_trace="", executor=executor):
 
 def get_async_future(fn, *args, **kwargs):
     import traceback
-    execution_trace = traceback.format_exc()
-    # Make your function async
+    # traceback.format_exc() only returns a stacktrace if an exception is being handled.
+    # If no exception is present, it will just return an empty string.
+    # To capture the *current* stack trace regardless of exception,
+    # use traceback.format_stack() instead.
+    execution_trace = ''.join(traceback.format_stack())
+
     if "executor" in kwargs:
         executor = kwargs.pop("executor")
-    
         afn = make_async(fn, execution_trace, executor)
     else:
         afn = make_async(fn, execution_trace)
-    # This will return a Future object, you can call .result() on it to get the result
     future = afn(*args, **kwargs)
     return future
 

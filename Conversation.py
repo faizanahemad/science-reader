@@ -3529,6 +3529,42 @@ Give 4 suggestions.
         self.clear_cancellation()
         if not persist_or_not:
             return
+        try:
+            self._persist_current_turn_inner(
+                query=query,
+                response=response,
+                config=config,
+                previous_messages_text=previous_messages_text,
+                previous_summary=previous_summary,
+                new_docs=new_docs,
+                past_message_ids=past_message_ids,
+                users_dir=users_dir,
+                display_attachments=display_attachments,
+                user_ask_tldr_future=user_ask_tldr_future,
+                user_ask_keywords_future=user_ask_keywords_future,
+                user_ask_prior_context_future=user_ask_prior_context_future,
+            )
+        except Exception as _pct_exc:
+            error_logger.error(
+                "[persist_current_turn] FAILED conv=%s: %s",
+                self.conversation_id, _pct_exc, exc_info=True,
+            )
+
+    def _persist_current_turn_inner(
+        self,
+        query,
+        response,
+        config,
+        previous_messages_text,
+        previous_summary,
+        new_docs,
+        past_message_ids=None,
+        users_dir=None,
+        display_attachments=None,
+        user_ask_tldr_future=None,
+        user_ask_keywords_future=None,
+        user_ask_prior_context_future=None,
+    ):
         # message format = `{"message_id": "one", "text": "Hello", "sender": "user/model", "user_id": "user_1", "conversation_id": "conversation_id"}`
         # set the two messages in the message list as per above format.
 
@@ -3699,7 +3735,7 @@ Your response will be in below xml style format:
                 _ans_kw_llm = CallLLm(self.get_api_keys(), model_name=_kw_model, use_gpt4=False, use_16k=False)
                 _ans_kw_future = get_async_future(
                     _ans_kw_llm,
-                    prompts.keyword_extraction_prompt.format(text=_answer_text[:3000]),
+                    keyword_extraction_prompt.format(text=_answer_text[:3000]),
                     temperature=0.1, stream=False,
                 )
             else:
@@ -5144,7 +5180,7 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         # --- TLDR generation for long answers ---
         answer_content = answer.replace("<answer>", "").replace("</answer>", "").strip()
         answer_word_count = len(answer_content.split())
-        if answer_word_count > 1000 and not self.is_cancelled():
+        if answer_word_count > 300 and not self.is_cancelled():
             try:
                 yield {
                     "text": "\n\n",
@@ -7797,11 +7833,11 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         # during streaming and is collected in persist_current_turn.
         _user_msg_words = len(query["messageText"].split())
         _internal_model = self.get_model_override("conversation_internal_model", SUPERFAST_LLM[0])
-        if _user_msg_words > 50:
+        if _user_msg_words > 20:
             _user_ask_tldr_llm = CallLLm(self.get_api_keys(), model_name=_internal_model, use_gpt4=False, use_16k=False)
             user_ask_tldr_future = get_async_future(
                 _user_ask_tldr_llm,
-                prompts.user_ask_tldr_prompt.format(query=query["messageText"]),
+                user_ask_tldr_prompt.format(query=query["messageText"]),
                 temperature=0.2, stream=False,
             )
         else:
@@ -7812,7 +7848,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             _kw_llm = CallLLm(self.get_api_keys(), model_name=_internal_model, use_gpt4=False, use_16k=False)
             user_ask_keywords_future = get_async_future(
                 _kw_llm,
-                prompts.keyword_extraction_prompt.format(text=query["messageText"]),
+                keyword_extraction_prompt.format(text=query["messageText"]),
                 temperature=0.1, stream=False,
             )
         else:
@@ -7823,7 +7859,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             _pc_llm = CallLLm(self.get_api_keys(), model_name=_internal_model, use_gpt4=False, use_16k=False)
             user_ask_prior_context_future = get_async_future(
                 _pc_llm,
-                prompts.user_ask_prior_context_prompt.format(
+                user_ask_prior_context_prompt.format(
                     summary=summary_text, query=query["messageText"]
                 ),
                 temperature=0.2, stream=False,
@@ -9429,7 +9465,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         previous_messages_long = prior_context["previous_messages_long"]
         previous_messages_very_long = prior_context["previous_messages_very_long"]
         yield {"text": "", "status": "Prior context got ..."}
-        prior_context_llm_based = prior_context_llm_based_future.result()
+        prior_context_llm_based = sleep_and_get_future_result(prior_context_llm_based_future, timeout=120)
         prior_context_llm_based_context = prior_context_llm_based["extracted_context"]
         yield {
             "text": "",
@@ -9441,30 +9477,38 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         # Auto context: merge classifier + agent results, override previous_messages
         if _auto_context_mode is not None and _auto_classifier_future is not None:
             from code_common.auto_context import assemble_auto_context, AUTO_CONTEXT_CONFIGS
-            try:
-                _classifier_result = _auto_classifier_future.result() or []
-            except Exception:
-                _classifier_result = []
-            try:
-                _agent_result = _auto_agent_future.result() or []
-            except Exception:
-                _agent_result = []
-            _auto_assembled = assemble_auto_context(
-                self, _classifier_result, _agent_result,
-                prior_context_llm_based_context, _auto_context_mode,
-            )
-            # Override: auto context replaces the raw previous_messages + llm_based context
-            previous_messages = _auto_assembled
-            previous_messages_short = _auto_assembled
-            previous_messages_long = _auto_assembled
-            previous_messages_very_long = _auto_assembled
-            prior_context_llm_based_context = ""  # already embedded in assembled context
-            # Memory pad: inject if mode config says so (unless already enabled by user)
+            # Memory pad: set before assembly so it applies even if assembly fails
             _auto_cfg = AUTO_CONTEXT_CONFIGS[_auto_context_mode]
             if _auto_cfg["inject_memory_pad"] and not use_memory_pad:
                 use_memory_pad = True
                 checkboxes["use_memory_pad"] = True
-            yield {"text": "", "status": f"Auto context [{_auto_context_mode.value}] assembled ..."}
+            try:
+                _classifier_result = sleep_and_get_future_result(_auto_classifier_future, timeout=90) or []
+            except Exception:
+                _classifier_result = []
+            try:
+                _agent_result = sleep_and_get_future_result(_auto_agent_future, timeout=90) or []
+            except Exception:
+                _agent_result = []
+            try:
+                _auto_assembled = assemble_auto_context(
+                    self, _classifier_result, _agent_result,
+                    prior_context_llm_based_context, _auto_context_mode,
+                )
+                # Override: auto context replaces the raw previous_messages + llm_based context
+                previous_messages = _auto_assembled
+                previous_messages_short = _auto_assembled
+                previous_messages_long = _auto_assembled
+                previous_messages_very_long = _auto_assembled
+                prior_context_llm_based_context = ""  # already embedded in assembled context
+                time_logger.info(
+                    "[AutoContext] mode=%s classifier=%d agent=%d assembled_tokens=%d",
+                    _auto_context_mode.value, len(_classifier_result), len(_agent_result),
+                    get_gpt4_word_count(_auto_assembled),
+                )
+                yield {"text": "", "status": f"Auto context [{_auto_context_mode.value}] assembled with {get_gpt4_word_count(_auto_assembled)} tokens ..."}
+            except Exception as _e:
+                logger.warning("[AutoContext] assembly failed, using standard context: %s", _e, exc_info=True)
         new_line = "\n"
         if perform_web_search or google_scholar:
             search_results = next(web_results.result()[0].result())
@@ -11122,7 +11166,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         answer_word_count = len(answer_content_for_tldr.split())
 
         if (
-            answer_word_count > 1000
+            answer_word_count > 300
             and model_name != FILLER_MODEL
             and not self.is_cancelled()
             and agent is None
