@@ -12708,6 +12708,23 @@ Please respond helpfully, clearly, and conversationally. Address the user's ques
 **Important:** Don't use LaTeX or math notation. Use single backticks for inline code and triple backticks for code blocks.
 
 Your response:""",
+                "explain_visual": f"""You are an expert at creating visual explanations. Explain the following text using BOTH ASCII diagrams AND a Mermaid diagram in a single combined answer.
+
+{f"## Background Context" + chr(10) + context_text if context_text else ""}
+
+## Text to Explain Visually
+```
+{selected_text}
+```
+
+Structure your answer as follows:
+1. **ASCII Diagram** — use box/arrow/tree/table art to show the structure or flow. Plain text characters only.
+2. **Mermaid Diagram** — wrap in ```mermaid fences. Choose the most appropriate type (flowchart, sequence, class, state, mindmap, etc.).
+3. **One-paragraph explanation** — briefly describe what both diagrams show and why this visual representation helps.
+
+Do not add any preamble or meta-commentary. Go straight into the diagrams.
+
+Your visual explanation:""",
             }
 
             if user_message:

@@ -735,6 +735,7 @@ const DoubtManager = {
                         } else {
                             assistantBody.html(accumulatedText.replace(/\n/g, '<br>'));
                         }
+                        if (typeof renderMermaidIn === 'function') renderMermaidIn(assistantBody);
                     }
                     
                     if (part.completed) {

@@ -351,6 +351,20 @@ const ContextMenuManager = {
                     this.showToast('Please select some text first', 'warning');
                 }
                 break;
+
+            case 'explain_visual': {
+                // Use full message text if selection is too short (< 3 words)
+                const self = this;
+                const visualText = (self.currentSelection.trim().split(/\s+/).length < 3)
+                    ? self.currentMessageText
+                    : self.currentSelection;
+                TempLLMManager.executeAction('explain_visual', visualText, {
+                    messageId: self.currentMessageId,
+                    messageText: self.currentMessageText,
+                    conversationId: self.currentConversationId
+                }, false);
+                break;
+            }
                 
             case 'ask-doubt':
                 // Open the existing doubt modal

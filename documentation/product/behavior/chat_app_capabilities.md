@@ -153,6 +153,9 @@ Server-side injection:
   - rolling summary (`running_summary`)
   - recent messages formatted into a narrative-like view
 - Also supports LLM-based context extraction windows for long chats.
+- **Auto Context modes** (Light / Medium / Deep) intelligently select which past messages to include per query — see [`documentation/features/auto_context/README.md`](../features/auto_context/README.md).
+
+**History selector options:** `∅` (stateless), `1`–`10` (fixed turns), `infinite`, `auto-light`, `auto-medium` (default), `auto-deep`.
 
 **API**
 - `GET /get_conversation_history/<conversation_id>?query=...`
@@ -904,6 +907,11 @@ The `@pkb:claim_id` prefix is supported as a legacy alias alongside `@memory:` a
 - A dedicated endpoint that streams an explanation of a specific message.
 - Persists the doubt and its answer into SQLite (`DoubtsClearing`), supports follow-up chains.
 - Supports cancellation of doubt clearing independently from main chat cancellation.
+- **Temporary LLM actions** — ephemeral explain/critique/expand/eli5/ask_temp on selected text via right-click context menu. History kept client-side only (`TempLLMManager.currentHistory`), lost on modal close. Route: `POST /temporary_llm_action`.
+- **`/aside` and `/btw` slash commands** — type `/aside <question>` or `/btw <question>` in the main message box to open the temp chat modal with the question pre-filled and auto-submitted (full conversation context included). Token is stripped before sending.
+- **💬 Aside button** — next to the send button (hidden on mobile `d-none d-sm-inline-block`). Opens temp chat modal with current textarea content.
+- **Ctrl+Shift+Space** — keyboard shortcut, same as aside button.
+- All three aside entry points call `openAsideChatModal(text)` → `TempLLMManager.openTempChatModal(text, {conversationId}, true)`. Full details: [`documentation/features/doubt_and_temp_llm/README.md`](../features/doubt_and_temp_llm/README.md)
 
 **API**
 - `POST /clear_doubt/<conversation_id>/<message_id>` (streaming)

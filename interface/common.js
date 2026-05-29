@@ -2,7 +2,7 @@ window.katex = katex;
 
 // Keep this aligned with `CACHE_VERSION` in `interface/service-worker.js` when you want
 // deterministic invalidation of cached UI assets and rendered-state snapshots.
-window.UI_CACHE_VERSION = "v16";
+window.UI_CACHE_VERSION = "v18";
 var currentDomain = {
     domain: 'assistant', // finchat, search
     page_loaded: false,
@@ -2708,6 +2708,27 @@ function normalizeMermaidBlocks(rootElem) {
             block.textContent = cleanMermaidCode(code);
         }
     });
+}
+
+/**
+ * Render any unrendered mermaid blocks inside a jQuery container.
+ * Safe to call repeatedly — skips blocks that already contain an SVG.
+ * @param {jQuery} $container
+ */
+function renderMermaidIn($container) {
+    if (typeof mermaid === 'undefined') return;
+    var blocks = $container.find('pre.mermaid').filter(function() {
+        return !this.querySelector('svg');
+    });
+    if (!blocks.length) return;
+    blocks.each(function() {
+        this.textContent = cleanMermaidCode(this.textContent || '');
+    });
+    mermaid.run({ nodes: blocks.toArray(), useMaxWidth: false, suppressErrors: true })
+        .then(function() {
+            blocks.find('svg').each(function() { $(this).attr('height', null); });
+        })
+        .catch(function(err) { console.warn('Mermaid render error:', err); });
 }
 
 function normalizeTextForClipboard(textElem, textToCopy, mode) {

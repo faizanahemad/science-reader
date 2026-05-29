@@ -27,7 +27,8 @@ const TempLLMManager = {
         'critique': '🔍 Critique This',
         'expand': '📖 Expand This',
         'eli5': '🧒 ELI5 (Explain Like I\'m 5)',
-        'ask_temp': '💬 Ask Temporarily'
+        'ask_temp': '💬 Ask Temporarily',
+        'explain_visual': '🎨 Explain Visually'
     },
     
     /**
@@ -304,7 +305,7 @@ const TempLLMManager = {
             message_text: this.currentMessageContext?.messageText,
             conversation_id: this.currentMessageContext?.conversationId,
             history: this.currentHistory,
-            with_context: this.withContext || false  // Include conversation context flag
+            with_context: this.withContext || false
         };
         
         // Make the streaming request
@@ -423,6 +424,7 @@ const TempLLMManager = {
                             } else {
                                 assistantBody.html(accumulatedText.replace(/\n/g, '<br>'));
                             }
+                            if (typeof renderMermaidIn === 'function') renderMermaidIn(assistantBody);
                             
                             // NOTE: No automatic scroll during streaming - user may be reading
                             // Scroll will happen only at the end when streaming completes
