@@ -7907,6 +7907,11 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             _auto_classifier_future = None
             _auto_agent_future = None
 
+        time_logger.warning(
+            "[STREAM][CHECKPOINT-A] waiting on prior_context_future.result() (no timeout) | conv=%s | t=%.2fs",
+            self.conversation_id,
+            time.time() - st,
+        )
         prior_context = prior_context_future.result()
 
         logger.warning(
@@ -7914,7 +7919,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             time.time() - st,
         )
         time_logger.warning(
-            "[STREAM] prior_context ready | t=%.2fs",
+            "[STREAM][CHECKPOINT-A] prior_context ready | t=%.2fs",
             time.time() - st,
         )
         log.warning(
@@ -8812,7 +8817,15 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     "[PKB-REPLY] pkb_context_future exists, waiting for result..."
                 )
                 try:
+                    time_logger.warning(
+                        "[STREAM][CHECKPOINT-E] waiting on pkb_context_future.result() (no timeout) | t=%.2fs",
+                        time.time() - st,
+                    )
                     pkb_context = pkb_context_future.result()
+                    time_logger.warning(
+                        "[STREAM][CHECKPOINT-E] pkb_context ready | chars=%d | t=%.2fs",
+                        len(pkb_context) if pkb_context else 0, time.time() - st,
+                    )
                     time_logger.info(
                         f"[PKB-REPLY] pkb_context_future.result() returned {len(pkb_context) if pkb_context else 0} chars"
                     )
@@ -9464,6 +9477,10 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 time.sleep(3.0)
 
         yield {"text": "", "status": "Prior context extraction started ..."}
+        time_logger.warning(
+            "[STREAM][CHECKPOINT-B] waiting on prior_context_future.result() #2 (no timeout) | t=%.2fs",
+            time.time() - st,
+        )
         prior_context = prior_context_future.result()
 
         logger.warning(
@@ -9484,7 +9501,15 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         previous_messages_long = prior_context["previous_messages_long"]
         previous_messages_very_long = prior_context["previous_messages_very_long"]
         yield {"text": "", "status": "Prior context got ..."}
+        time_logger.warning(
+            "[STREAM][CHECKPOINT-C] waiting on prior_context_llm_based_future (timeout=120s) | t=%.2fs",
+            time.time() - st,
+        )
         prior_context_llm_based = sleep_and_get_future_result(prior_context_llm_based_future, timeout=120)
+        time_logger.warning(
+            "[STREAM][CHECKPOINT-C] prior_context_llm_based ready | t=%.2fs",
+            time.time() - st,
+        )
         prior_context_llm_based_context = prior_context_llm_based["extracted_context"]
         yield {
             "text": "",
@@ -9502,12 +9527,36 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 use_memory_pad = True
                 checkboxes["use_memory_pad"] = True
             try:
+                time_logger.warning(
+                    "[STREAM][CHECKPOINT-D1] waiting on auto-context classifier (timeout=90s) | mode=%s | t=%.2fs",
+                    _auto_context_mode.value, time.time() - st,
+                )
                 _classifier_result = sleep_and_get_future_result(_auto_classifier_future, timeout=90) or []
-            except Exception:
+                time_logger.warning(
+                    "[STREAM][CHECKPOINT-D1] classifier ready | count=%d | t=%.2fs",
+                    len(_classifier_result), time.time() - st,
+                )
+            except Exception as _cl_e:
+                time_logger.warning(
+                    "[STREAM][CHECKPOINT-D1] classifier FAILED/timeout: %s | t=%.2fs",
+                    _cl_e, time.time() - st,
+                )
                 _classifier_result = []
             try:
+                time_logger.warning(
+                    "[STREAM][CHECKPOINT-D2] waiting on auto-context agentic finder (timeout=90s) | t=%.2fs",
+                    time.time() - st,
+                )
                 _agent_result = sleep_and_get_future_result(_auto_agent_future, timeout=90) or []
-            except Exception:
+                time_logger.warning(
+                    "[STREAM][CHECKPOINT-D2] agentic finder ready | count=%d | t=%.2fs",
+                    len(_agent_result), time.time() - st,
+                )
+            except Exception as _ag_e:
+                time_logger.warning(
+                    "[STREAM][CHECKPOINT-D2] agentic finder FAILED/timeout: %s | t=%.2fs",
+                    _ag_e, time.time() - st,
+                )
                 _agent_result = []
             try:
                 _auto_assembled = assemble_auto_context(
@@ -10346,6 +10395,11 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         # logger.info(f"link_result_text: {link_result_text}")
         # logger.info(f"conversation_docs_answer: {conversation_docs_answer}")
         # logger.info(f"Prompt length: {len(enc.encode(prompt))}, prompt - ```\n{prompt}\n```")
+        time_logger.warning(
+            "[STREAM][CHECKPOINT-G] prompt assembled, reached main answer dispatch | model=%s | agent=%s | tools=%s | t=%.2fs",
+            str(model_name), type(agent).__name__ if agent is not None else "None",
+            bool(tools_config), time.time() - st,
+        )
         answer += "<answer>\n"
         yield {"text": "<answer>\n", "status": "stage 2 answering in progress"}
         if self.is_cancelled():
@@ -11256,15 +11310,14 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             try:
                 _visual_result = sleep_and_get_future_result(_visual_tab_future, timeout=30)
                 if _visual_result and len(_visual_result.strip()) > 50:
-                    _visual_wrapped = collapsible_wrapper(
-                        _visual_result,
-                        header="🎨 Visual Explanation",
-                        show_initially=False,
-                        add_close_button=True,
-                    )
-                    _visual_wrapped = convert_stream_to_iterable(_visual_wrapped)
-                    yield {"text": _visual_wrapped, "status": "Visual explanation ready"}
-                    answer += _visual_wrapped
+                    # Emit as raw markdown inside <answer_visual> tags.
+                    # The --- creates a new section so marked renders the markdown.
+                    # The frontend converts <answer_visual> to a div and picks it up as a tab.
+                    _visual_text = "\n\n---\n\n<answer_visual>\n\n"
+                    _visual_text += _visual_result
+                    _visual_text += "\n\n</answer_visual>\n"
+                    yield {"text": _visual_text, "status": "Visual explanation ready"}
+                    answer += _visual_text
             except Exception as _ve:
                 error_logger.error(f"Error collecting visual tab: {_ve}")
 

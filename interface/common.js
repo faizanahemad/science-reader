@@ -2937,6 +2937,8 @@ function applyModelResponseTabs(elem_to_render_in) {
     var $tldrWrapper = $root.find('[data-answer-tldr]').first();
     // Check for meaningful content in TLDR wrapper, not just any content (fixes empty TLDR tab issue)
     var hasTldrWrapper = $tldrWrapper.length > 0 && hasMeaningfulContent($tldrWrapper);
+    var $visualWrapper = $root.find('[data-answer-visual]').first();
+    var hasVisualWrapper = $visualWrapper.length > 0 && hasMeaningfulContent($visualWrapper);
     var $tldrFallbackDetails = $root.find('details').filter(function() {
         var summaryText = ($(this).find('> summary').first().text() || '').trim().toLowerCase();
         return summaryText.indexOf('tldr') !== -1;
@@ -3093,7 +3095,7 @@ function applyModelResponseTabs(elem_to_render_in) {
     
     // Final check: do we actually have meaningful TLDR content?
     var actuallyHasTldrContent = tldrContentClone !== null && hasMeaningfulContent(tldrContentClone);
-    var actuallyHasVisualContent = visualDetails.length > 0 && hasMeaningfulContent(visualDetails[0].element);
+    var actuallyHasVisualContent = hasVisualWrapper || (visualDetails.length > 0 && hasMeaningfulContent(visualDetails[0].element));
     
     // Check if this card is currently streaming
     // During live streaming, DON'T build single-model+TLDR tabs because:
@@ -3209,7 +3211,7 @@ function applyModelResponseTabs(elem_to_render_in) {
         tabItems.push({
             key: 'visual',
             label: '🎨 Visual',
-            element: visualDetails[0].element,
+            element: hasVisualWrapper ? $visualWrapper : (visualDetails.length > 0 ? visualDetails[0].element : null),
             type: 'visual'
         });
     }
@@ -3271,6 +3273,7 @@ function applyModelResponseTabs(elem_to_render_in) {
             // Don't show the showMore toggle inside the tab pane.
             $mainClone.find('a.show-more').remove();
             $mainClone.find('[data-answer-tldr]').remove();
+            $mainClone.find('[data-answer-visual]').remove();
             $mainClone.find('details').each(function() {
                 var $details = $(this);
                 var summaryText = ($details.find('> summary').first().text() || '').trim().toLowerCase();
@@ -3287,6 +3290,7 @@ function applyModelResponseTabs(elem_to_render_in) {
             // Same as above: cloned model details can contain an existing tabs container.
             $detailsClone.find('.model-tabs-container').remove();
             $detailsClone.find('[data-answer-tldr]').remove();
+            $detailsClone.find('[data-answer-visual]').remove();
             $detailsClone.find('details').each(function() {
                 var $details = $(this);
                 var summaryText = ($details.find('> summary').first().text() || '').trim().toLowerCase();
@@ -3406,6 +3410,9 @@ function applyModelResponseTabs(elem_to_render_in) {
     // Remove visual source details (content is now in the Visual tab)
     if (actuallyHasVisualContent) {
         visualDetails.forEach(function(item) { item.element.remove(); });
+        if (hasVisualWrapper && $visualWrapper.length > 0) {
+            $visualWrapper.remove();
+        }
     }
 
     if (scrollTop) {
@@ -3772,6 +3779,10 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
         html = html.replace(/<\s*answer_tldr\s*>/gi, '<div data-answer-tldr="true">')
             .replace(/<\s*\/\s*answer_tldr\s*>/gi, '</div>');
     }
+
+    // Convert <answer_visual> tags to div wrappers (same pattern as answer_tldr)
+    html = html.replace(/<\s*answer_visual\s*>/gi, '<div data-answer-visual="true">')
+        .replace(/<\s*\/\s*answer_visual\s*>/gi, '</div>');
 
     // Check if we should wrap sections (you might want to make this configurable)
     var wrapSectionsInDetails = true; // You can make this configurable via options

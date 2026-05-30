@@ -17,6 +17,7 @@ import json
 import os
 import time
 import threading
+import traceback
 import logging
 import secrets
 import string
@@ -1763,36 +1764,59 @@ def send_message(conversation_id: str):
             conversation_id,
             time.time(),
         )
-        for chunk in conversation(query, user_details):
-            # `Conversation.__call__` yields JSON-lines: json.dumps(dict) + "\n"
-            # We parse best-effort to extract `message_ids` and reconstruct the same answer
-            # that gets persisted (i.e., stop collecting once status flips to "saving answer ...").
+        try:
+            for chunk in conversation(query, user_details):
+                # `Conversation.__call__` yields JSON-lines: json.dumps(dict) + "\n"
+                # We parse best-effort to extract `message_ids` and reconstruct the same answer
+                # that gets persisted (i.e., stop collecting once status flips to "saving answer ...").
+                try:
+                    if isinstance(chunk, str):
+                        parsed = json.loads(chunk.strip())
+                        if isinstance(parsed, dict):
+                            if not captured_response_message_id:
+                                mids = parsed.get("message_ids") or {}
+                                if isinstance(mids, dict) and isinstance(
+                                    mids.get("response_message_id"), str
+                                ):
+                                    captured_response_message_id = mids[
+                                        "response_message_id"
+                                    ]
+
+                            status = str(parsed.get("status", "") or "").lower()
+                            if "saving answer" in status:
+                                answer_done = True
+
+                            if not answer_done:
+                                txt = parsed.get("text", "")
+                                if isinstance(txt, str) and txt:
+                                    captured_answer_parts.append(txt)
+                except Exception:
+                    # Never let analytics/capture interfere with streaming.
+                    pass
+
+                response_queue.put(chunk)
+        except Exception as gen_err:
+            # The reply generator raised. Without this guard the END sentinel
+            # below would never be queued and run_queue() would hang forever,
+            # leaving the client stuck with no error. Surface it as a chunk.
+            logger.error(
+                "[send_message] reply generator failed | conv=%s | err=%s\n%s",
+                conversation_id,
+                gen_err,
+                traceback.format_exc(),
+            )
             try:
-                if isinstance(chunk, str):
-                    parsed = json.loads(chunk.strip())
-                    if isinstance(parsed, dict):
-                        if not captured_response_message_id:
-                            mids = parsed.get("message_ids") or {}
-                            if isinstance(mids, dict) and isinstance(
-                                mids.get("response_message_id"), str
-                            ):
-                                captured_response_message_id = mids[
-                                    "response_message_id"
-                                ]
-
-                        status = str(parsed.get("status", "") or "").lower()
-                        if "saving answer" in status:
-                            answer_done = True
-
-                        if not answer_done:
-                            txt = parsed.get("text", "")
-                            if isinstance(txt, str) and txt:
-                                captured_answer_parts.append(txt)
+                response_queue.put(
+                    json.dumps(
+                        {
+                            "text": f"\n\n**Error: response generation failed — {gen_err}**",
+                            "status": "Error in response generation",
+                        }
+                    )
+                    + "\n"
+                )
             except Exception:
-                # Never let analytics/capture interfere with streaming.
                 pass
-
-            response_queue.put(chunk)
         logger.warning(
             "[send_message] Conversation.__call__ done | conv=%s | t=%.2fs",
             conversation_id,
