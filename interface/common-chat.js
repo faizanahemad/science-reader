@@ -1152,7 +1152,7 @@ function getTextAfterLastBreakpoint(text) {
             };
         }
         
-        console.log('Found breakpoint at line ' + lastBreakpointIndex + ' (type: ' + breakpointType + ')');
+        // console.log('Found breakpoint at line ' + lastBreakpointIndex + ' (type: ' + breakpointType + ')');
         
         return {
             hasBreakpoint: true,
@@ -1474,7 +1474,23 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
             // Check for breakpoints in the current rendered text
             const breakpointResult = getTextAfterLastBreakpoint(rendered_answer);
             
+            // Don't split if the breakpoint falls inside an <answer_visual> block
+            var _skipBreakpoint = false;
             if (breakpointResult.hasBreakpoint) {
+                var _visOpenIdx = rendered_answer.indexOf('<answer_visual>');
+                if (_visOpenIdx !== -1) {
+                    var _visCloseIdx = rendered_answer.indexOf('</answer_visual>');
+                    // If open exists but no close, or breakpoint is between open and close, skip
+                    if (_visCloseIdx === -1 || breakpointResult.textBeforeBreakpoint.indexOf('<answer_visual>') !== -1) {
+                        _skipBreakpoint = true;
+                        console.warn('[STREAM] Skipping breakpoint split — inside answer_visual block');
+                    }
+                }
+                if (!_skipBreakpoint) {
+                    console.warn('[STREAM] Breakpoint WILL split | hasVisOpen:', rendered_answer.indexOf('<answer_visual>') !== -1, '| hasVisClose:', rendered_answer.indexOf('</answer_visual>') !== -1, '| beforeLen:', breakpointResult.textBeforeBreakpoint.length, '| afterLen:', breakpointResult.textAfterBreakpoint.length);
+                }
+            }
+            if (breakpointResult.hasBreakpoint && !_skipBreakpoint) {
                 // Render the current section one last time with complete content
                 mathjax_elem = renderInnerContentAsMarkdown(elem_to_render,
                     callback = null, continuous = true, html = breakpointResult.textBeforeBreakpoint); // rendered_answer
@@ -1521,7 +1537,9 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
             }
             
             if ((part['text'].includes('</answer>')) && card.find("#message-render-space-md-render").length > 0) {
-                if (elem_to_render && elem_to_render.length > 0 && rendered_answer.length > 0 && !rendered_till_now.includes(rendered_answer)) {
+                var _willRerender = elem_to_render && elem_to_render.length > 0 && rendered_answer.length > 0 && !rendered_till_now.includes(rendered_answer);
+                console.warn('[STREAM] </answer> detected | willRerender:', _willRerender, '| rendered_answer len:', rendered_answer.length, '| hasVisualOpen:', rendered_answer.indexOf('<answer_visual>') !== -1, '| hasVisualClose:', rendered_answer.indexOf('</answer_visual>') !== -1, '| elem_to_render id:', (elem_to_render && elem_to_render.attr ? elem_to_render.attr('id') : 'N/A'));
+                if (_willRerender) {
                     mathjax_elem = renderInnerContentAsMarkdown(elem_to_render, 
                         immediate_callback = function() {
                             elem_to_render.attr('data-fully-rendered', 'true');
@@ -1700,6 +1718,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
             
             function show_more() {
                 if (show_more_called.value == true) {
+                    console.warn('[STREAM DONE] show_more SKIPPED (already called)');
                     return;
                 }
                 show_more_called.value = true;
@@ -1708,10 +1727,13 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                 // check if textElem is hidden by display: none
                 
                 text = card.find('#message-render-space').html()
+                var _mdRenderText = card.find('#message-render-space-md-render').html() || '';
+                console.warn('[STREAM DONE] show_more | #message-render-space len:', (text||'').length, '| #message-render-space-md-render len:', _mdRenderText.length, '| mdRender hasVisualDiv:', _mdRenderText.indexOf('data-answer-visual') !== -1);
                 if (text.length == 0) {
                     textElem = card.find('#message-render-space-md-render');
                     text = card.find('#message-render-space-md-render').html();
                 }
+                console.warn('[STREAM DONE] show_more | USING textElem:', textElem.attr('id'), '| text len:', (text||'').length, '| hasVisualDiv:', (text||'').indexOf('data-answer-visual') !== -1);
                 const hasSlides = (
                     !!card.find('.slide-presentation-wrapper').length ||
                     !!card.find('.slide-external-link').length ||
@@ -1729,13 +1751,14 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
             if (last_elem_to_render && last_elem_to_render.length > 0) {
                 const alreadyRendered = rendered_till_now.includes(last_rendered_answer);
                 
-                // Diagnostic logs for tab/TLDR detection — uncomment to debug:
-                // console.warn('[done] lastRendered:', (last_rendered_answer || '').length, 'alreadyRendered:', alreadyRendered, 'hasTldr:', (answer || '').indexOf('<answer_tldr') !== -1);
+                console.warn('[STREAM DONE] lastRendered len:', (last_rendered_answer || '').length, '| alreadyRendered:', alreadyRendered, '| hasVisualTag:', (answer || '').indexOf('answer_visual') !== -1, '| data-live-stream:', card.attr('data-live-stream'));
                 
                 if (!alreadyRendered) {
                     renderInnerContentAsMarkdown(last_elem_to_render, 
                         immediate_callback=function() {
                             last_elem_to_render.attr('data-fully-rendered', 'true');
+                            var _mdRender = card.find('#message-render-space-md-render');
+                            console.warn('[STREAM DONE] before show_more | mdRender children:', _mdRender.children().length, '| mdRender has visual div:', _mdRender.find('[data-answer-visual]').length, '| last_elem id:', last_elem_to_render.attr('id'));
                             show_more();
                             handleMessageFocus(response_message_id, conversationId);
                         }, 
@@ -1745,6 +1768,8 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                     rendered_till_now = rendered_till_now + last_rendered_answer;
                 } else {
                     // Content was already rendered, just call show_more
+                    var _mdRender = card.find('#message-render-space-md-render');
+                    console.warn('[STREAM DONE] before show_more (alreadyRendered) | mdRender children:', _mdRender.children().length, '| mdRender has visual div:', _mdRender.find('[data-answer-visual]').length);
                     show_more();
                     handleMessageFocus(response_message_id, conversationId);
                 }

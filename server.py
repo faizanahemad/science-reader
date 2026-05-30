@@ -47,6 +47,21 @@ sys.setrecursionlimit(sys.getrecursionlimit() * 16)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
+
+class _PWAIconLogFilter(logging.Filter):
+    """Suppress noisy Werkzeug access logs for PWA icon fetches.
+
+    Browsers re-fetch manifest icons (often bypassing the SW cache) on every
+    manifest parse, producing repetitive 200 log lines. These are harmless.
+    """
+
+    def filter(self, record):
+        msg = record.getMessage()
+        return not ("/interface/icons/" in msg and " 200 " in msg)
+
+
+logging.getLogger("werkzeug").addFilter(_PWAIconLogFilter())
+
 # --- OpenCode integration -------------------------------------------------
 OPENCODE_AVAILABLE: bool = False
 

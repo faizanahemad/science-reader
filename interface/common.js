@@ -2,7 +2,7 @@ window.katex = katex;
 
 // Keep this aligned with `CACHE_VERSION` in `interface/service-worker.js` when you want
 // deterministic invalidation of cached UI assets and rendered-state snapshots.
-window.UI_CACHE_VERSION = "v19";
+window.UI_CACHE_VERSION = "v20";
 var currentDomain = {
     domain: 'assistant', // finchat, search
     page_loaded: false,
@@ -2728,6 +2728,7 @@ function renderMermaidIn($container) {
     blocks.each(function(i) {
         sources[i] = cleanMermaidCode(this.textContent || '');
         this.textContent = sources[i];
+        this.setAttribute('data-mermaid-source', sources[i]);
     });
 
     mermaid.run({ nodes: blocks.toArray(), useMaxWidth: false, suppressErrors: true })
@@ -2945,9 +2946,9 @@ function applyModelResponseTabs(elem_to_render_in) {
     }).not('.section-details').not('.model-tabs-container details');
 
     // DIAGNOSTIC: Log what applyModelResponseTabs found
-    // Diagnostic logs removed — uncomment below to debug tab detection:
-    // console.warn('[applyModelResponseTabs] $root:', $root.prop('tagName'), $root.attr('class'));
-    // console.warn('[applyModelResponseTabs] detailsBlocks:', $detailsBlocks.length, 'hasTldrWrapper:', hasTldrWrapper);
+    if (!isLiveStreaming) {
+        console.warn('[applyModelResponseTabs] $root:', $root.prop('tagName'), $root.attr('class'), '| visualWrapper:', $visualWrapper.length, '| hasVisualWrapper:', hasVisualWrapper, '| tldrWrapper:', $tldrWrapper.length, '| hasTldrWrapper:', hasTldrWrapper, '| isLiveStreaming:', isLiveStreaming);
+    }
     if ($detailsBlocks.length > 0) {
         $detailsBlocks.each(function(i) {
             var sum = ($(this).find('> summary').first().text() || '').trim();
@@ -3137,6 +3138,9 @@ function applyModelResponseTabs(elem_to_render_in) {
         }
     }
 
+    if (!isLiveStreaming) {
+        console.warn('[applyModelResponseTabs] shouldBuildTabs:', shouldBuildTabs, '| models:', modelDetails.length, '| actuallyHasTldrContent:', actuallyHasTldrContent, '| actuallyHasVisualContent:', actuallyHasVisualContent, '| isLiveStreaming:', isLiveStreaming);
+    }
     if (!shouldBuildTabs) {
         if ($existingContainer.length > 0) {
             $existingContainer.remove();
@@ -3273,7 +3277,15 @@ function applyModelResponseTabs(elem_to_render_in) {
             // Don't show the showMore toggle inside the tab pane.
             $mainClone.find('a.show-more').remove();
             $mainClone.find('[data-answer-tldr]').remove();
-            $mainClone.find('[data-answer-visual]').remove();
+            // Remove visual wrapper and its parent section-details
+            $mainClone.find('[data-answer-visual]').each(function() {
+                var $parentSection = $(this).closest('.section-details');
+                if ($parentSection.length > 0) {
+                    $parentSection.remove();
+                } else {
+                    $(this).remove();
+                }
+            });
             $mainClone.find('details').each(function() {
                 var $details = $(this);
                 var summaryText = ($details.find('> summary').first().text() || '').trim().toLowerCase();
@@ -3407,11 +3419,12 @@ function applyModelResponseTabs(elem_to_render_in) {
         } catch (e) { /* ignore */ }
     }
 
-    // Remove visual source details (content is now in the Visual tab)
+    // Hide visual source (content is now in the Visual tab)
     if (actuallyHasVisualContent) {
-        visualDetails.forEach(function(item) { item.element.remove(); });
+        visualDetails.forEach(function(item) { item.element.attr('data-model-tabs-hidden', 'true'); item.element[0].style.display = 'none'; });
         if (hasVisualWrapper && $visualWrapper.length > 0) {
-            $visualWrapper.remove();
+            $visualWrapper.attr('data-model-tabs-hidden', 'true');
+            $visualWrapper[0].style.display = 'none';
         }
     }
 
@@ -3442,7 +3455,26 @@ function applyModelResponseTabs(elem_to_render_in) {
     try {
         $container.off('shown.bs.tab').on('shown.bs.tab', function(e) {
             var $pane = $($(e.target).attr('href'));
-            if (typeof renderMermaidIn === 'function') renderMermaidIn($pane);
+            // Delay slightly to ensure pane is fully visible (fade transition)
+            setTimeout(function() {
+                // Reset failed mermaid blocks so they can be re-rendered now that the pane is visible
+                $pane.find('pre.mermaid[data-mermaid-failed]').each(function() {
+                    this.removeAttribute('data-mermaid-failed');
+                    $(this).next('button').remove(); // remove fix button
+                    $(this).css({ 'font-size': '', 'opacity': '', 'white-space': '' });
+                });
+                // Also reset blocks with error SVGs
+                $pane.find('pre.mermaid').has('svg').each(function() {
+                    var svg = this.querySelector('svg');
+                    var isError = svg && (svg.querySelector('.error-text') ||
+                        (svg.textContent || '').indexOf('Syntax error') !== -1);
+                    if (isError) {
+                        var src = this.getAttribute('data-mermaid-source') || '';
+                        if (src) { $(this).empty().text(src); }
+                    }
+                });
+                if (typeof renderMermaidIn === 'function') renderMermaidIn($pane);
+            }, 200);
         });
         // Also render in the currently active pane
         var $activePane = $container.find('.tab-pane.show.active').first();
@@ -3780,9 +3812,25 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
             .replace(/<\s*\/\s*answer_tldr\s*>/gi, '</div>');
     }
 
-    // Convert <answer_visual> tags to div wrappers (same pattern as answer_tldr)
-    html = html.replace(/<\s*answer_visual\s*>/gi, '<div data-answer-visual="true">')
-        .replace(/<\s*\/\s*answer_visual\s*>/gi, '</div>');
+    // Convert <answer_visual> tags: use comment placeholders so they survive marked processing
+    // (marked treats <div> as HTML blocks and won't render markdown inside them).
+    // The actual div conversion happens AFTER marked renders the content.
+    var hasOpenAnswerVisual = /<\s*answer_visual\s*>/i.test(html);
+    var hasCloseAnswerVisual = /<\s*\/\s*answer_visual\s*>/i.test(html);
+    if (html.indexOf('answer_visual') !== -1) {
+        console.warn('[renderInnerContentAsMarkdown] FOUND answer_visual in input | continuous:', continuous, '| len:', html.length, '| hasOpen:', hasOpenAnswerVisual, '| hasClose:', hasCloseAnswerVisual);
+    }
+    if (hasOpenAnswerVisual && hasCloseAnswerVisual) {
+        // Both tags present — safe to convert
+        html = html.replace(/<\s*answer_visual\s*>/gi, '<!--ANSWER_VISUAL_OPEN-->')
+            .replace(/<\s*\/\s*answer_visual\s*>/gi, '<!--ANSWER_VISUAL_CLOSE-->');
+    } else if (hasOpenAnswerVisual && !hasCloseAnswerVisual) {
+        // Opening tag without closing — strip it to prevent malformed HTML during streaming
+        html = html.replace(/<\s*answer_visual\s*>/gi, '');
+    } else if (!hasOpenAnswerVisual && hasCloseAnswerVisual) {
+        // Closing tag without opening — strip it
+        html = html.replace(/<\s*\/\s*answer_visual\s*>/gi, '');
+    }
 
     // Check if we should wrap sections (you might want to make this configurable)
     var wrapSectionsInDetails = true; // You can make this configurable via options
@@ -4290,6 +4338,17 @@ ${innerSectionRendered}
         htmlChunk = marked.marked(normalizeOverIndentedLists(html), { renderer: markdownParser });
         htmlChunk = removeEmTags(htmlChunk);
     }
+
+    // Post-marked: convert answer_visual comment placeholders to div wrappers
+    // (done after marked so markdown inside the visual block is rendered properly)
+    if (htmlChunk.indexOf('ANSWER_VISUAL') !== -1) {
+        console.warn('[renderInnerContentAsMarkdown] ANSWER_VISUAL comment found in htmlChunk, converting to div');
+    }
+    htmlChunk = htmlChunk.replace(/<!--ANSWER_VISUAL_OPEN-->/g, '<div data-answer-visual="true">')
+        .replace(/<!--ANSWER_VISUAL_CLOSE-->/g, '</div>');
+    if (htmlChunk.indexOf('data-answer-visual') !== -1) {
+        console.warn('[renderInnerContentAsMarkdown] SUCCESS: data-answer-visual div is in final htmlChunk');
+    }
     
     // Helper for scheduling non-critical work during idle time
     // Falls back to setTimeout if requestIdleCallback is not available
@@ -4330,10 +4389,22 @@ ${innerSectionRendered}
         try { $(elem_to_render_in).html(htmlChunk); } catch (e) { /* ignore */ }
     }
 
+    // Verify visual div survived DOM insertion
+    if (htmlChunk.indexOf('data-answer-visual') !== -1) {
+        var _domHasIt = targetElement.innerHTML.indexOf('data-answer-visual') !== -1;
+        console.warn('[renderInnerContentAsMarkdown] POST-innerHTML | div in DOM:', _domHasIt, '| targetElement id:', targetElement.id, '| parentId:', (targetElement.parentElement||{}).id);
+    }
+
     try {
         applyModelResponseTabs(elem_to_render_in);
     } catch (e) {
         console.warn('Model tabs render failed:', e);
+    }
+
+    // Verify visual div survived applyModelResponseTabs
+    if (htmlChunk.indexOf('data-answer-visual') !== -1) {
+        var _domHasItAfterTabs = targetElement.innerHTML.indexOf('data-answer-visual') !== -1;
+        console.warn('[renderInnerContentAsMarkdown] POST-applyTabs | div in DOM:', _domHasItAfterTabs);
     }
 
     // Update Table of Contents (ToC) for long answers.

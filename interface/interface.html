@@ -4530,6 +4530,14 @@ greet("World");</code></pre>
       });
   </script>
   <style>
+    /* Model response tabs - ensure inactive panes are hidden */
+    .model-tabs-container .tab-content > .tab-pane:not(.active) {
+        display: none !important;
+    }
+    .model-tabs-container .tab-content > .tab-pane.active {
+        display: block !important;
+    }
+
     .details-close-btn {
         background-color: #f0f0f0;
         border: 1px solid #ccc;

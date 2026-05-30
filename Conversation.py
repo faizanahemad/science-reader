@@ -8524,15 +8524,20 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         _visual_tab_future = None
         if "Deep Learn" in preambles and agent is None:
             try:
-                _visual_model = self.get_model_override("conversation_internal_model", SUPERFAST_LLM[0])
-                _visual_llm = CallLLm(self.get_api_keys(), model_name=_visual_model, use_gpt4=False, use_16k=False)
-                _visual_prompt = visual_tab_prompt.format(
-                    query=query["messageText"],
-                    summary=summary_text[:2000] if summary_text else "No conversation context.",
-                )
-                _visual_tab_future = get_async_future(
-                    _visual_llm, _visual_prompt, temperature=0.4, stream=False,
-                )
+                if "Debug LLM" in preambles:
+                    _mock_visual = "## ASCII Diagram\n\n```\n\u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510     \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510     \u250c\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n\u2502   Input     \u2502\u2500\u2500\u2500\u2500\u25b6\u2502  Processing \u2502\u2500\u2500\u2500\u2500\u25b6\u2502   Output    \u2502\n\u2502   Layer     \u2502     \u2502   Layer     \u2502     \u2502   Layer     \u2502\n\u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518     \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518     \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\n       \u2502                   \u2502                    \u2502\n       \u25bc                   \u25bc                    \u25bc\n  [Raw Data]         [Transform]          [Results]\n```\n\n## Mermaid Diagram\n\n```mermaid\nflowchart TD\n    A[User Query] --> B{Parse Intent}\n    B -->|Learning| C[Deep Learn Mode]\n    B -->|Quick| D[Standard Mode]\n    C --> E[Generate Visual]\n    C --> F[Generate TLDR]\n    D --> G[Direct Answer]\n    E --> H[Tab Display]\n    F --> H\n    G --> H\n```\n\n```mermaid\nmindmap\n  root((Concepts))\n    Mathematics\n      Algebra\n      Calculus\n    Computer Science\n      Algorithms\n      Data Structures\n    Engineering\n      Design\n      Testing\n```\n\nThese diagrams show the processing pipeline (ASCII) and the concept hierarchy (Mermaid mindmap)."
+                    _visual_tab_future = wrap_in_future(_mock_visual)
+                else:
+                    from call_llm import CallLLm as _CallLLm_visual
+                    _visual_model = self.get_model_override("conversation_internal_model", SUPERFAST_LLM[0])
+                    _visual_llm = _CallLLm_visual(self.get_api_keys(), model_name=_visual_model, use_gpt4=False, use_16k=False)
+                    _visual_prompt = visual_tab_prompt.format(
+                        query=query["messageText"],
+                        summary=summary_text[:2000] if summary_text else "No conversation context.",
+                    )
+                    _visual_tab_future = get_async_future(
+                        _visual_llm, _visual_prompt, temperature=0.4, stream=False,
+                    )
             except Exception:
                 _visual_tab_future = None
 
@@ -10784,6 +10789,10 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                         if isinstance(model_name, (list, tuple))
                         else model_name
                     )
+                    time_logger.warning(
+                        "[STREAM][DEBUG] MockCallLLm check | 'Debug LLM' in preambles=%s | preambles=%s",
+                        "Debug LLM" in preambles, preambles,
+                    )
                     if "Debug LLM" in preambles:
                         llm = MockCallLLm(
                             self.get_api_keys(),
@@ -10810,7 +10819,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                         + str(model_name)
                         + f" done, time from start = {(time.time() - st):.2f} ...",
                     }
-                    if tools_config:
+                    if tools_config and "Debug LLM" not in preambles:
                         # Agentic tool loop path
                         yield {
                             "text": "",
@@ -11117,6 +11126,11 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         }
         time_logger.info("[STREAM] starting to iterate main_ans_gen")
         log.info("[STREAM] starting to iterate main_ans_gen")
+        time_logger.warning(
+            "[STREAM][DEBUG] llm type=%s | main_ans_gen type=%s",
+            type(llm).__name__ if llm is not None else "None",
+            type(main_ans_gen).__name__,
+        )
         stream_iter_start = time.perf_counter()
         first_stream_chunk_logged = False
         for dcit in main_ans_gen:
@@ -11312,7 +11326,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     # Emit as raw markdown inside <answer_visual> tags.
                     # The --- creates a new section so marked renders the markdown.
                     # The frontend converts <answer_visual> to a div and picks it up as a tab.
-                    _visual_text = "\n\n---\n\n<answer_visual>\n\n"
+                    _visual_text = "\n\n<answer_visual>\n\n"
                     _visual_text += _visual_result
                     _visual_text += "\n\n</answer_visual>\n"
                     yield {"text": _visual_text, "status": "Visual explanation ready"}
