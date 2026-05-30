@@ -8524,7 +8524,6 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         _visual_tab_future = None
         if "Deep Learn" in preambles and agent is None:
             try:
-                from call_llm import CallLLm
                 _visual_model = self.get_model_override("conversation_internal_model", SUPERFAST_LLM[0])
                 _visual_llm = CallLLm(self.get_api_keys(), model_name=_visual_model, use_gpt4=False, use_16k=False)
                 _visual_prompt = visual_tab_prompt.format(
