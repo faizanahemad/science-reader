@@ -8515,6 +8515,23 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         )
         yield {"text": "", "status": "Preamble got ..."}
 
+        # Fire visual explanation tab in parallel (Deep Learn mode)
+        _visual_tab_future = None
+        if "Deep Learn" in preambles and agent is None:
+            try:
+                from call_llm import CallLLm
+                _visual_model = self.get_model_override("conversation_internal_model", SUPERFAST_LLM[0])
+                _visual_llm = CallLLm(self.get_api_keys(), model_name=_visual_model, use_gpt4=False, use_16k=False)
+                _visual_prompt = visual_tab_prompt.format(
+                    query=query["messageText"],
+                    summary=summary_text[:2000] if summary_text else "No conversation context.",
+                )
+                _visual_tab_future = get_async_future(
+                    _visual_llm, _visual_prompt, temperature=0.4, stream=False,
+                )
+            except Exception:
+                _visual_tab_future = None
+
         # Inject tool awareness into preamble when tools are enabled
         tools_config = self._get_enabled_tools(
             checkboxes,
@@ -11233,6 +11250,23 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 )
                 # Continue without TLDR if there's an error - don't break the main flow
                 time_dict["tldr_error"] = str(e)
+
+        # --- Visual explanation tab (Deep Learn mode, fired in parallel at start) ---
+        if _visual_tab_future is not None and answer_word_count > 200 and not self.is_cancelled():
+            try:
+                _visual_result = sleep_and_get_future_result(_visual_tab_future, timeout=30)
+                if _visual_result and len(_visual_result.strip()) > 50:
+                    _visual_wrapped = collapsible_wrapper(
+                        _visual_result,
+                        header="🎨 Visual Explanation",
+                        show_initially=False,
+                        add_close_button=True,
+                    )
+                    _visual_wrapped = convert_stream_to_iterable(_visual_wrapped)
+                    yield {"text": _visual_wrapped, "status": "Visual explanation ready"}
+                    answer += _visual_wrapped
+            except Exception as _ve:
+                error_logger.error(f"Error collecting visual tab: {_ve}")
 
         answer += "</answer>\n"
         yield {"text": "</answer>\n", "status": "answering ended ..."}

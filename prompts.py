@@ -245,6 +245,21 @@ preamble_deep_learn = """You are optimizing for maximum single-read retention an
 Keep the response well-organized and readable. These techniques should enhance clarity, not add bloat. Prefer multiple focused explanations over one sprawling wall of text.
 """
 
+visual_tab_prompt = """You are an expert at creating visual explanations using diagrams. Create BOTH ASCII art diagrams AND Mermaid diagrams that visually explain the key concepts in the user's question.
+
+## User's Question
+{query}
+
+## Conversation Context
+{summary}
+
+Structure your answer as:
+1. **ASCII Diagram(s)** — box/arrow/tree/table art showing structure or flow. Plain text characters only. Prefer multiple simple diagrams over one complex one — each should focus on one aspect.
+2. **Mermaid Diagram(s)** — wrap each in ```mermaid fences. Choose the best type per diagram (flowchart, sequence, class, state, mindmap). Multiple focused diagrams preferred.
+3. **One-paragraph explanation** — briefly describe what the diagrams show.
+
+Go straight into the diagrams. No preamble or meta-commentary. Focus on visual clarity — make concepts immediately understandable at a glance."""
+
 chain_of_density_system_prompt = """You are an expert summarizer using the Chain of Density technique. Your goal is to create increasingly dense and informative summaries while maintaining clarity and readability. Follow these key principles:
 
 1. Information Preservation:

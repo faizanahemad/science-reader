@@ -2,7 +2,7 @@ window.katex = katex;
 
 // Keep this aligned with `CACHE_VERSION` in `interface/service-worker.js` when you want
 // deterministic invalidation of cached UI assets and rendered-state snapshots.
-window.UI_CACHE_VERSION = "v18";
+window.UI_CACHE_VERSION = "v19";
 var currentDomain = {
     domain: 'assistant', // finchat, search
     page_loaded: false,
@@ -2713,22 +2713,110 @@ function normalizeMermaidBlocks(rootElem) {
 /**
  * Render any unrendered mermaid blocks inside a jQuery container.
  * Safe to call repeatedly — skips blocks that already contain an SVG.
+ * On syntax errors, shows a "Fix Diagram" button that calls the LLM.
  * @param {jQuery} $container
  */
 function renderMermaidIn($container) {
     if (typeof mermaid === 'undefined') return;
     var blocks = $container.find('pre.mermaid').filter(function() {
-        return !this.querySelector('svg');
+        return !this.querySelector('svg') && !this.getAttribute('data-mermaid-failed');
     });
     if (!blocks.length) return;
-    blocks.each(function() {
-        this.textContent = cleanMermaidCode(this.textContent || '');
+
+    // Store original source before mermaid mutates it
+    var sources = [];
+    blocks.each(function(i) {
+        sources[i] = cleanMermaidCode(this.textContent || '');
+        this.textContent = sources[i];
     });
+
     mermaid.run({ nodes: blocks.toArray(), useMaxWidth: false, suppressErrors: true })
         .then(function() {
-            blocks.find('svg').each(function() { $(this).attr('height', null); });
+            blocks.each(function(i) {
+                var svg = this.querySelector('svg');
+                if (!svg) return;
+                $(svg).attr('height', null);
+                // Detect error: mermaid error SVGs contain .error-text or "Syntax error"
+                var isError = svg.querySelector('.error-text') ||
+                    (svg.textContent || '').indexOf('Syntax error') !== -1 ||
+                    (svg.getAttribute('aria-roledescription') || '') === '';
+                if (isError && sources[i]) {
+                    _showMermaidFixButton(this, sources[i], $container);
+                }
+            });
         })
-        .catch(function(err) { console.warn('Mermaid render error:', err); });
+        .catch(function() {
+            // Total failure — all blocks errored
+            blocks.each(function(i) {
+                if (sources[i]) {
+                    _showMermaidFixButton(this, sources[i], $container);
+                }
+            });
+        });
+}
+
+function _showMermaidFixButton(block, source, $container) {
+    block.setAttribute('data-mermaid-failed', 'true');
+    var $block = $(block);
+    // Show source code instead of error SVG
+    $block.empty().text(source).css({ 'font-size': '12px', 'opacity': '0.6', 'white-space': 'pre-wrap' });
+    var $btn = $('<button class="btn btn-sm btn-outline-warning mt-1" style="font-size:11px;">⚠️ Fix Diagram</button>');
+    $block.after($btn);
+    $btn.one('click', function() {
+        $btn.prop('disabled', true).text('Fixing...');
+        // Get surrounding answer text for context
+        var answerContext = '';
+        try {
+            var $card = $container.closest('.card-body, .model-tab-body, .doubt-conversation-card');
+            answerContext = ($card.text() || '').substring(0, 3000);
+        } catch (e) { /* ignore */ }
+        // Call LLM to fix
+        $.ajax({
+            url: '/temporary_llm_action',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                action_type: 'ask_temp',
+                selected_text: source,
+                user_message: 'This mermaid diagram has a syntax error. Output ONLY the corrected mermaid code (no explanation, no markdown fences, just the raw mermaid syntax). Here is the surrounding context for understanding what the diagram should show:\n\n' + answerContext.substring(0, 2000),
+                history: [],
+                with_context: false
+            }),
+            success: function(responseText) {
+                // Parse streaming response to get accumulated text
+                var fixed = '';
+                (responseText || '').split('\n').forEach(function(line) {
+                    if (!line.trim()) return;
+                    try {
+                        var chunk = JSON.parse(line);
+                        if (chunk.text) fixed += chunk.text;
+                    } catch (e) { /* ignore */ }
+                });
+                fixed = cleanMermaidCode(fixed.replace(/```mermaid/g, '').replace(/```/g, '').trim());
+                if (fixed.length > 10) {
+                    $btn.remove();
+                    block.removeAttribute('data-mermaid-failed');
+                    block.textContent = fixed;
+                    $(block).css({ 'font-size': '', 'opacity': '', 'white-space': '' });
+                    mermaid.run({ nodes: [block], useMaxWidth: false, suppressErrors: true })
+                        .then(function() {
+                            var svg = block.querySelector('svg');
+                            if (svg) $(svg).attr('height', null);
+                        })
+                        .catch(function() {
+                            block.setAttribute('data-mermaid-failed', 'true');
+                            $(block).text(fixed).css({ 'font-size': '12px', 'opacity': '0.6', 'white-space': 'pre-wrap' });
+                            $(block).after('<small class="text-danger">Fix failed — syntax still invalid</small>');
+                        });
+                } else {
+                    $btn.text('Fix failed').addClass('btn-outline-danger');
+                }
+            },
+            error: function() {
+                $btn.text('Fix failed').addClass('btn-outline-danger');
+            }
+        });
+    });
 }
 
 function normalizeTextForClipboard(textElem, textToCopy, mode) {
@@ -2876,6 +2964,7 @@ function applyModelResponseTabs(elem_to_render_in) {
 
     var modelDetails = [];
     var tldrDetails = [];
+    var visualDetails = [];
 
     function restoreHiddenForClone($elem) {
         if (!$elem || $elem.length === 0) return;
@@ -2902,6 +2991,7 @@ function applyModelResponseTabs(elem_to_render_in) {
         var summaryText = ($details.find('> summary').first().text() || '').trim();
         var isModel = summaryText.toLowerCase().indexOf('response from') === 0;
         var isTldr = summaryText.toLowerCase().indexOf('tldr summary') !== -1 || summaryText.toLowerCase().indexOf('tldr') !== -1 || summaryText.indexOf('📝 TLDR Summary') !== -1;
+        var isVisual = summaryText.indexOf('🎨') !== -1 || summaryText.toLowerCase().indexOf('visual explanation') !== -1;
         if (!isTldr) {
             var hasTldrAncestor = $details.closest('[data-answer-tldr]').length > 0;
             if (hasTldrAncestor) {
@@ -2917,6 +3007,13 @@ function applyModelResponseTabs(elem_to_render_in) {
         }
         if (isTldr) {
             tldrDetails.push({
+                summary: summaryText,
+                element: $details,
+                index: index
+            });
+        }
+        if (isVisual) {
+            visualDetails.push({
                 summary: summaryText,
                 element: $details,
                 index: index
@@ -2996,6 +3093,7 @@ function applyModelResponseTabs(elem_to_render_in) {
     
     // Final check: do we actually have meaningful TLDR content?
     var actuallyHasTldrContent = tldrContentClone !== null && hasMeaningfulContent(tldrContentClone);
+    var actuallyHasVisualContent = visualDetails.length > 0 && hasMeaningfulContent(visualDetails[0].element);
     
     // Check if this card is currently streaming
     // During live streaming, DON'T build single-model+TLDR tabs because:
@@ -3023,13 +3121,13 @@ function applyModelResponseTabs(elem_to_render_in) {
         // Multiple models = always show tabs (one tab per model)
         // Safe during streaming because each model <details> block is complete
         shouldBuildTabs = true;
-    } else if (modelDetails.length === 1 && actuallyHasTldrContent) {
+    } else if (modelDetails.length === 1 && (actuallyHasTldrContent || actuallyHasVisualContent)) {
         // Single model WITH meaningful TLDR = show tabs (Main + TLDR)
         // But NOT during live streaming - wait until streaming ends
         if (!isLiveStreaming) {
             shouldBuildTabs = true;
         }
-    } else if (modelDetails.length === 0 && actuallyHasTldrContent) {
+    } else if (modelDetails.length === 0 && (actuallyHasTldrContent || actuallyHasVisualContent)) {
         // No model details but has meaningful TLDR = show tabs (Main + TLDR)
         // But NOT during live streaming - wait until streaming ends
         if (!isLiveStreaming) {
@@ -3071,7 +3169,7 @@ function applyModelResponseTabs(elem_to_render_in) {
     var tabItems = [];
     if (modelDetails.length > 0) {
         // Only consider it a "single model with TLDR" if TLDR actually has meaningful content
-        var singleModel = modelDetails.length === 1 && actuallyHasTldrContent;
+        var singleModel = modelDetails.length === 1 && (actuallyHasTldrContent || actuallyHasVisualContent);
         modelDetails.forEach(function(item, idx) {
             var label = item.summary.replace(/^Response from\s*/i, '').trim();
             if (singleModel) {
@@ -3086,8 +3184,8 @@ function applyModelResponseTabs(elem_to_render_in) {
                 type: 'model'
             });
         });
-    } else if (actuallyHasTldrContent) {
-        // No model details but we have TLDR - add a "Main" tab for the content
+    } else if (actuallyHasTldrContent || actuallyHasVisualContent) {
+        // No model details but we have TLDR or Visual - add a "Main" tab for the content
         tabItems.push({
             key: 'main',
             label: 'Main',
@@ -3103,6 +3201,16 @@ function applyModelResponseTabs(elem_to_render_in) {
             label: 'TLDR',
             element: tldrDetails.length > 0 ? tldrDetails[0].element : null,
             type: 'tldr'
+        });
+    }
+
+    // Add Visual tab if present
+    if (actuallyHasVisualContent) {
+        tabItems.push({
+            key: 'visual',
+            label: '🎨 Visual',
+            element: visualDetails[0].element,
+            type: 'visual'
         });
     }
 
@@ -3166,7 +3274,7 @@ function applyModelResponseTabs(elem_to_render_in) {
             $mainClone.find('details').each(function() {
                 var $details = $(this);
                 var summaryText = ($details.find('> summary').first().text() || '').trim().toLowerCase();
-                if (summaryText.indexOf('tldr') !== -1 || summaryText.indexOf('tldr summary') !== -1) {
+                if (summaryText.indexOf('tldr') !== -1 || summaryText.indexOf('tldr summary') !== -1 || summaryText.indexOf('visual explanation') !== -1 || summaryText.indexOf('🎨') !== -1) {
                     $details.remove();
                 }
             });
@@ -3295,6 +3403,11 @@ function applyModelResponseTabs(elem_to_render_in) {
         } catch (e) { /* ignore */ }
     }
 
+    // Remove visual source details (content is now in the Visual tab)
+    if (actuallyHasVisualContent) {
+        visualDetails.forEach(function(item) { item.element.remove(); });
+    }
+
     if (scrollTop) {
         $content.scrollTop(scrollTop);
     }
@@ -3316,6 +3429,17 @@ function applyModelResponseTabs(elem_to_render_in) {
         if (_heightLockEl && _heightLockValue > 0) {
             _heightLockEl.style.minHeight = '';
         }
+    } catch (e) { /* ignore */ }
+
+    // Render mermaid diagrams when a tab becomes visible (mermaid needs visible DOM)
+    try {
+        $container.off('shown.bs.tab').on('shown.bs.tab', function(e) {
+            var $pane = $($(e.target).attr('href'));
+            if (typeof renderMermaidIn === 'function') renderMermaidIn($pane);
+        });
+        // Also render in the currently active pane
+        var $activePane = $container.find('.tab-pane.show.active').first();
+        if ($activePane.length && typeof renderMermaidIn === 'function') renderMermaidIn($activePane);
     } catch (e) { /* ignore */ }
     
 }
