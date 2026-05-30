@@ -6179,6 +6179,8 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             preamble += relationship_prompt
         if "Dating Maverick" in preamble_options:
             preamble += dating_maverick_prompt
+        if "Deep Learn" in preamble_options:
+            preamble += preamble_deep_learn
         if "More Related Coding Questions" in preamble_options:
             preamble += more_related_questions_prompt
 
@@ -12718,9 +12720,9 @@ Your response:""",
 ```
 
 Structure your answer as follows:
-1. **ASCII Diagram** — use box/arrow/tree/table art to show the structure or flow. Plain text characters only.
-2. **Mermaid Diagram** — wrap in ```mermaid fences. Choose the most appropriate type (flowchart, sequence, class, state, mindmap, etc.).
-3. **One-paragraph explanation** — briefly describe what both diagrams show and why this visual representation helps.
+1. **ASCII Diagram(s)** — use box/arrow/tree/table art to show the structure or flow. Plain text characters only. Prefer multiple simple or moderately complex diagrams over one large diagram — each diagram should focus on one aspect.
+2. **Mermaid Diagram(s)** — wrap each in ```mermaid fences. Choose the most appropriate type per diagram (flowchart, sequence, class, state, mindmap, etc.). Again, prefer several focused diagrams over one sprawling one.
+3. **One-paragraph explanation** — briefly describe what the diagrams show and why this visual representation helps.
 
 Do not add any preamble or meta-commentary. Go straight into the diagrams.
 

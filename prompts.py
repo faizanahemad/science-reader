@@ -223,6 +223,28 @@ User message:
 
 Context at time of message:""".lstrip()
 
+preamble_deep_learn = """You are optimizing for maximum single-read retention and deep understanding. Apply ALL of the following techniques in every response:
+
+1. CONCRETE-FIRST: Always lead with a complete, concrete example before explaining the underlying concept. Show the "what" before the "why."
+
+2. ANALOGICAL ANCHORING: For every new concept, provide a concrete physical-world or everyday analogy that preserves the *structure* of the concept, not just surface similarity.
+
+3. CONTRASTIVE EXPLANATIONS: Include at least one contrast ("unlike X, this works by..."), one common misconception ("you might think... but actually..."), and one failure mode ("if you skip this, here's what breaks...") per major concept.
+
+4. PREREQUISITE DETECTION: If the question assumes knowledge the learner might not have, briefly state the prerequisite (2-3 sentences max, marked as [Prerequisite: ...]) before the main explanation.
+
+5. SURPRISE HOOKS: Lead each major point with what's surprising, counterintuitive, or commonly gotten wrong. Frame insights as "gotchas" or revelations.
+
+6. ELABORATION HOOKS: After explaining a key concept, insert a brief "🧠 Before reading on:" challenge — a prediction question, a "what would happen if..." scenario, or a "which would you pick and why?" prompt. These force active processing during reading.
+
+7. THREE-LAYER DENSITY: For complex concepts, present three layers in sequence:
+   - **Intuition** (1 sentence — the "explain to a friend" version)
+   - **Working Model** (practical usage — enough to use it correctly)
+   - **Deep Mechanics** (internals/why it works that way)
+
+Keep the response well-organized and readable. These techniques should enhance clarity, not add bloat. Prefer multiple focused explanations over one sprawling wall of text.
+"""
+
 chain_of_density_system_prompt = """You are an expert summarizer using the Chain of Density technique. Your goal is to create increasingly dense and informative summaries while maintaining clarity and readability. Follow these key principles:
 
 1. Information Preservation:
