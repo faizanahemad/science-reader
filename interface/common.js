@@ -2,7 +2,7 @@ window.katex = katex;
 
 // Keep this aligned with `CACHE_VERSION` in `interface/service-worker.js` when you want
 // deterministic invalidation of cached UI assets and rendered-state snapshots.
-window.UI_CACHE_VERSION = "v20";
+window.UI_CACHE_VERSION = "v21";
 var currentDomain = {
     domain: 'assistant', // finchat, search
     page_loaded: false,
@@ -3421,6 +3421,7 @@ function applyModelResponseTabs(elem_to_render_in) {
 
     // Hide visual source (content is now in the Visual tab)
     if (actuallyHasVisualContent) {
+        console.warn('[applyModelResponseTabs] HIDING visual source | visualDetails:', visualDetails.length, '| hasVisualWrapper:', hasVisualWrapper, '| $visualWrapper.length:', $visualWrapper.length);
         visualDetails.forEach(function(item) { item.element.attr('data-model-tabs-hidden', 'true'); item.element[0].style.display = 'none'; });
         if (hasVisualWrapper && $visualWrapper.length > 0) {
             $visualWrapper.attr('data-model-tabs-hidden', 'true');
