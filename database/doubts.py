@@ -390,3 +390,26 @@ def get_doubt_history(*, doubt_id: str, users_dir: str | None = None, logger: lo
         conn.close()
 
 
+
+def get_message_ids_with_doubts(
+    *,
+    conversation_id: str,
+    users_dir: str | None = None,
+    logger: logging.Logger | None = None,
+) -> list[str]:
+    """Return distinct message_ids that have at least one root doubt in this conversation."""
+    log = logger or logging.getLogger(__name__)
+    users_dir_resolved = _resolve_users_dir(users_dir)
+    conn = create_connection(_db_path(users_dir=users_dir_resolved))
+    try:
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT DISTINCT message_id FROM DoubtsClearing WHERE conversation_id = ? AND is_root_doubt = 1",
+            (conversation_id,),
+        )
+        return [row[0] for row in cur.fetchall()]
+    except Exception as e:
+        log.error(f"Error getting message_ids with doubts: {e}")
+        return []
+    finally:
+        conn.close()

@@ -231,3 +231,9 @@ Used when no conversation context is available. Builds the same action prompts b
 | Model | `EXPENSIVE_LLM` (doubt model) | `SUPERFAST_LLM` via `quick_action_model` override |
 | Entry point | Right-click → "Ask a Doubt" | Right-click → explain/critique/expand/eli5/ask |
 | View history | Yes — "View Doubts" button on message | No |
+
+---
+
+## Doubts Indicator Button
+
+Messages that have existing doubts show a `<i class="bi bi-chat-left-text"></i>` button in the card header (left side, next to the ⋮ dropdown). Clicking it opens the doubts overview modal. The button is revealed via `GET /get_messages_with_doubts/<conversation_id>` on conversation load and immediately after a new doubt stream completes. See [Message Card Header](../message_card_header/README.md) for full details.

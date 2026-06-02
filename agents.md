@@ -55,6 +55,7 @@
 
 ### Documentation guidelines
 - View the docs in `documentation` folder by running `tree documentation` bash command. View the docs also when asked for context around a functionality or plan.
+- Before starting a task, search the docs for relevant existing documentation: `grep -rn "keyword" documentation/` or dispatch a parallel sub-agent to search. Key entry points: `documentation/README.md` (feature index with one-line summaries) and `documentation/product/behavior/chat_app_capabilities.md` (full system overview, feature map, UI surface area). These two files together cover what exists and where to find details.
 - Update docs when you add or change behavior. Docs are markdown files in the documentation folder.
 - When creating or updating documentation, add motivation and background, UI details if applicable, API details, function details, feature details, implementation notes and files modified.
 - Write in markdown format but don't make diagrams. Our docs are intended to be friendly to LLM agents; diagrams are not.

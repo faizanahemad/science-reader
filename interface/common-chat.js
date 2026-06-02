@@ -778,6 +778,8 @@ var ConversationManager = {
             // Common post-load focus
             $('#messageText').focus();
             $("#show-sidebar").focus();
+            // Reveal doubts indicator buttons for messages that have doubts
+            revealDoubtsButtons(conversationId);
         }).fail(function () {
             // API call failed (e.g. 404 for deleted conversation).
             // Clear stale state and fall back gracefully.
@@ -1254,7 +1256,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
         // Add click event handler
         cardElement.off('click').on('click', function(e) {
             // Don't trigger on button clicks, checkboxes, or dropdown elements
-            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
+            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                 return;
             }
             
@@ -1264,7 +1266,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
         // Add text selection event handler
         cardElement.off('selectstart mouseup').on('selectstart mouseup', function(e) {
             // Don't trigger on button clicks, checkboxes, or dropdown elements
-            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
+            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                 return;
             }
             
@@ -1280,7 +1282,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
         // Add focus event handler for keyboard navigation
         cardElement.off('focus focusin').on('focus focusin', function(e) {
             // Don't trigger on button clicks, checkboxes, or dropdown elements
-            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
+            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                 return;
             }
             
@@ -1575,6 +1577,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                 last_card = $(card).prevAll('.card').first()
                 Array.from(last_card.find('.history-message-checkbox'))[0].setAttribute('message-id', user_message_id);
                 Array.from(last_card.find('.history-message-checkbox'))[0].setAttribute('id', `message-checkbox-${user_message_id}`);
+                last_card.find('.has-doubts-btn').attr('message-id', user_message_id);
                 
                 // Update the card header with message-id attribute
                 card.find('.card-header').attr('message-id', response_message_id);
@@ -1583,6 +1586,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                 card.find('.ask-doubt-button').attr('message-id', response_message_id);
                 card.find('.move-message-up-button').attr('message-id', response_message_id);
                 card.find('.move-message-down-button').attr('message-id', response_message_id);
+                card.find('.has-doubts-btn').attr('message-id', response_message_id);
                 
                 // Re-setup event handlers now that we have the message ID
                 setupStreamingCardEventHandlers(card, response_message_id);
@@ -1800,6 +1804,8 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
             
             
             initialiseVoteBank(card, `${answer}`, contentId = null, activeDocId = ConversationManager.activeConversationId);
+            // Reveal doubts button after delay (auto-takeaways may create a doubt async)
+            setTimeout(function() { revealDoubtsButtons(ConversationManager.activeConversationId); }, 5000);
             if (typeof normalizeMermaidBlocks === 'function') {
                 normalizeMermaidBlocks(document);
             }
@@ -2451,6 +2457,7 @@ var ChatManager = {
                     <input type="checkbox" class="history-message-checkbox mr-2" id="message-checkbox-${message.message_id}" message-id=${message.message_id}>
                     <small><small><strong>` + senderText + `</strong><span class="message-ref-badge text-muted" style="font-family:monospace;font-size:0.65rem;cursor:pointer;margin-left:4px;" data-msg-idx="${displayIndex}" data-msg-hash="${msgHash}" title="Click to copy message reference">${refBadgeText}</span></small></small>
                     ${actionDropdown}
+                    <button class="btn btn-sm p-1 has-doubts-btn" title="Show Doubts" message-id="${message.message_id}" style="display:none;"><i class="bi bi-chat-left-text"></i></button>
                 </div>
                 <div class="d-flex align-items-center">
                     <button class="btn btn-sm p-1 copy-btn-header" title="Copy Text">
@@ -2607,7 +2614,7 @@ var ChatManager = {
             // Add event handlers for immediate focus
             messageElement.on('click', function(e) {
                 // Don't trigger on button clicks, checkboxes, or dropdown elements
-            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
+            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                     return;
                 }
                 
@@ -2617,7 +2624,7 @@ var ChatManager = {
             // Add text selection event handler
             messageElement.on('selectstart mouseup', function(e) {
                 // Don't trigger on button clicks, checkboxes, or dropdown elements
-            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
+            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                     return;
                 }
                 
@@ -2633,7 +2640,7 @@ var ChatManager = {
             // Add focus event handler for keyboard navigation
             messageElement.on('focus focusin', function(e) {
                 // Don't trigger on button clicks, checkboxes, or dropdown elements
-            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
+            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                     return;
                 }
                 
@@ -2695,6 +2702,13 @@ var ChatManager = {
         });
         
         $(".show-doubts-button").off().on("click", function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            var messageId = $(this).attr('message-id');
+            DoubtManager.showDoubtsOverview(conversationId, messageId);
+        });
+
+        $(".has-doubts-btn").off().on("click", function (event) {
             event.preventDefault();
             event.stopPropagation();
             var messageId = $(this).attr('message-id');
@@ -2910,6 +2924,20 @@ function clearUrlofConversationId() {
     window.history.pushState({}, '', '/interface/');
 }
 
+
+function revealDoubtsButtons(conversationId) {
+    if (!conversationId) return;
+    fetch('/get_messages_with_doubts/' + conversationId)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success && data.message_ids && data.message_ids.length > 0) {
+                data.message_ids.forEach(function(mid) {
+                    $('.has-doubts-btn[message-id="' + mid + '"]').show();
+                });
+            }
+        })
+        .catch(function() { /* silent */ });
+}
 
 function loadConversations(autoselect = true) {
     return WorkspaceManager.loadConversationsWithWorkspaces(autoselect);

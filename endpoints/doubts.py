@@ -19,6 +19,7 @@ from database.doubts import (
     get_doubt,
     get_doubt_history,
     get_doubts_for_message,
+    get_message_ids_with_doubts,
 )
 from endpoints.auth import login_required
 from endpoints.request_context import attach_keys, get_state_and_keys
@@ -456,4 +457,23 @@ def get_doubts_for_message_route(conversation_id: str, message_id: str):
         logger.error(
             f"Error getting doubts for message {conversation_id}/{message_id}: {str(e)}"
         )
+        return json_error(str(e), status=500, code="internal_error")
+
+
+@doubts_bp.route("/get_messages_with_doubts/<conversation_id>", methods=["GET"])
+@limiter.limit("100 per minute")
+@login_required
+def get_messages_with_doubts_route(conversation_id: str):
+    """Return message_ids that have at least one doubt in this conversation."""
+    email, _name, _loggedin = get_session_identity()
+    state = get_state()
+    try:
+        if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
+            return json_error("Conversation not found", status=404, code="conversation_not_found")
+        message_ids = get_message_ids_with_doubts(
+            conversation_id=conversation_id, users_dir=state.users_dir, logger=logger
+        )
+        return jsonify({"success": True, "message_ids": message_ids})
+    except Exception as e:
+        logger.error(f"Error getting messages with doubts: {e}")
         return json_error(str(e), status=500, code="internal_error")

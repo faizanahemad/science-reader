@@ -597,6 +597,9 @@ const DoubtManager = {
                         }
                     }
                     
+                    // Reveal doubts indicator for this message
+                    $('.has-doubts-btn[message-id="' + self.currentMessageId + '"]').show();
+                    
                     // Add scroll-to-top button for streamed doubt response if long enough
                     console.log('=== DOUBT BUTTON ADDITION DEBUG ===');
                     console.log('Text length:', accumulatedText.length);
@@ -766,6 +769,8 @@ const DoubtManager = {
                         // Ensure stop button is hidden on completion
                         $('#stop-doubt-chat-button').hide();
                         currentDoubtStreamingController = null;
+                        // Reveal doubts indicator for this message
+                        $('.has-doubts-btn[message-id="' + self.currentMessageId + '"]').show();
                         
                         // Add scroll-to-top button when streaming completes via completed flag
                         console.log('=== DOUBT BUTTON ADDITION DEBUG (via completed flag) ===');
