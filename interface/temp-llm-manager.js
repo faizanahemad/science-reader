@@ -277,6 +277,15 @@ const TempLLMManager = {
             }, 50);
         }
         
+        // Trigger MathJax typesetting for assistant cards
+        if (!isUser && text) {
+            setTimeout(function() {
+                if (typeof MathJax !== 'undefined' && MathJax.Hub) {
+                    MathJax.Hub.Queue(["Typeset", MathJax.Hub, card.find('.card-body')[0]]);
+                }
+            }, 50);
+        }
+        
         return card;
     },
     
@@ -390,6 +399,10 @@ const TempLLMManager = {
                             }
                         }, 100);
                     }
+                    // Trigger MathJax typesetting on completed response
+                    if (typeof MathJax !== 'undefined' && MathJax.Hub) {
+                        MathJax.Hub.Queue(["Typeset", MathJax.Hub, assistantBody[0]]);
+                    }
                     
                     // Reset input state
                     self.resetInputState();
@@ -459,6 +472,10 @@ const TempLLMManager = {
                                         }
                                     }
                                 }, 100);
+                            }
+                            // Trigger MathJax typesetting on completed response
+                            if (typeof MathJax !== 'undefined' && MathJax.Hub) {
+                                MathJax.Hub.Queue(["Typeset", MathJax.Hub, assistantBody[0]]);
                             }
                             
                             self.resetInputState();
