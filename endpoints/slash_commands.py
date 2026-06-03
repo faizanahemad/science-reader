@@ -197,6 +197,7 @@ ENABLE_DISABLE_SETTINGS = [
     ("opencode", "OpenCode", "enable_opencode", "settings-enable_opencode"),
     ("planner", "planner", "enable_planner", "settings-enable_planner"),
     ("tools", "tool use", "enable_tool_use", "settings-enable_tool_use"),
+    ("auto_doubts", "auto doubts", "auto_doubts_enabled", "settings-auto_doubts_enabled"),
 ]
 
 

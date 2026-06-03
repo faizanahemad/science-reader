@@ -2,7 +2,7 @@ window.katex = katex;
 
 // Keep this aligned with `CACHE_VERSION` in `interface/service-worker.js` when you want
 // deterministic invalidation of cached UI assets and rendered-state snapshots.
-window.UI_CACHE_VERSION = "v22";
+window.UI_CACHE_VERSION = "v24";
 var currentDomain = {
     domain: 'assistant', // finchat, search
     page_loaded: false,
@@ -2244,6 +2244,18 @@ $(document).on('click', '.delete-pair-button', function(e) {
     });
 });
 
+// Delegated handler for has-doubts-btn (survives re-renders)
+$(document).on('click', '.has-doubts-btn', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    var messageId = $(this).attr('message-id');
+    var conversationId = (typeof ConversationManager !== 'undefined' && ConversationManager.activeConversationId)
+        ? ConversationManager.activeConversationId : null;
+    if (conversationId && messageId && messageId !== 'undefined') {
+        DoubtManager.showDoubtsOverview(conversationId, messageId);
+    }
+});
+
 // Delegated handler for move-message-up/down-button (survives snapshot restore)
 $(document).on('click', '.move-message-up-button, .move-message-down-button', function(e) {
     e.preventDefault();
@@ -2372,9 +2384,10 @@ markdownParser.text = function(text) {
 };
 
 const options = {
-    throwOnError: false
+    throwOnError: false,
+    nonStandard: true,
   };
-  
+
 marked.use(markedKatex(options));
 
 
@@ -4819,6 +4832,7 @@ function getOptions(parentElementId, type) {
         use_pkb: $('#settings-use_pkb').length ? $('#settings-use_pkb').is(':checked') : true,
         opencode_enabled: $('#settings-enable_opencode').length ? $('#settings-enable_opencode').is(':checked') : false,
         enable_tool_use: $('#settings-enable_tool_use').length ? $('#settings-enable_tool_use').is(':checked') : false,
+        auto_doubts_enabled: $('#settings-auto_doubts_enabled').length ? $('#settings-auto_doubts_enabled').is(':checked') : true,
         enabled_tools: (function() {
             var $sel = $('#settings-tool-selector');
             if (!$sel.length) return [];

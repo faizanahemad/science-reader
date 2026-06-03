@@ -331,6 +331,15 @@ const DoubtManager = {
             </div>
         `);
         
+        // Trigger MathJax typesetting for assistant cards
+        if (!isUser) {
+            setTimeout(function() {
+                if (typeof MathJax !== 'undefined' && MathJax.Hub) {
+                    MathJax.Hub.Queue(["Typeset", MathJax.Hub, card.find('.card-body')[0]]);
+                }
+            }, 50);
+        }
+        
         // Add scroll-to-top button for assistant messages that are long enough
         if (!isUser && text.length > 300) {
             // Use setTimeout to ensure card is in DOM before adding button
@@ -377,6 +386,12 @@ const DoubtManager = {
         const self = this;
         const input = $('#doubt-chat-input');
         const sendBtn = $('#doubt-chat-send-btn');
+
+        // Back button — close chat and reopen overview
+        $('#doubt-chat-back-btn').off('click').on('click', function() {
+            $('#doubt-chat-modal').modal('hide');
+            DoubtManager.showDoubtsOverview(self.currentConversationId, self.currentMessageId);
+        });
         
         // Send button click
         sendBtn.off('click').on('click', function() {
@@ -599,6 +614,10 @@ const DoubtManager = {
                     
                     // Reveal doubts indicator for this message
                     $('.has-doubts-btn[message-id="' + self.currentMessageId + '"]').show();
+                    // Trigger MathJax typesetting on completed response
+                    if (typeof MathJax !== 'undefined' && MathJax.Hub) {
+                        MathJax.Hub.Queue(["Typeset", MathJax.Hub, assistantBody[0]]);
+                    }
                     
                     // Add scroll-to-top button for streamed doubt response if long enough
                     console.log('=== DOUBT BUTTON ADDITION DEBUG ===');
@@ -771,6 +790,10 @@ const DoubtManager = {
                         currentDoubtStreamingController = null;
                         // Reveal doubts indicator for this message
                         $('.has-doubts-btn[message-id="' + self.currentMessageId + '"]').show();
+                        // Trigger MathJax typesetting on completed response
+                        if (typeof MathJax !== 'undefined' && MathJax.Hub) {
+                            MathJax.Hub.Queue(["Typeset", MathJax.Hub, assistantBody[0]]);
+                        }
                         
                         // Add scroll-to-top button when streaming completes via completed flag
                         console.log('=== DOUBT BUTTON ADDITION DEBUG (via completed flag) ===');

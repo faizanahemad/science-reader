@@ -547,7 +547,7 @@ def call_chat_model(model, text, images, temperature, system, keys, messages=Non
     _reasoning_config_map = {
         "gemini-flash-3.5-non-reasoning": (
             "google/gemini-3.5-flash",
-            {"enabled": False, "effort": "minimal"},
+            {"enabled": True, "effort": "minimal"},
         ),
     }
     _reasoning_payload = None

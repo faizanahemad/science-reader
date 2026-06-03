@@ -27,7 +27,7 @@ Users often want to ask follow-up questions about a specific assistant (or user)
 8. After streaming completes, the final chunk contains `<doubt_id>...</doubt_id>` — the saved DB record ID
 9. Follow-up doubts: user can ask again in the same modal; `parent_doubt_id` is passed so the backend retrieves the full thread history
 
-A separate **"View Doubts"** button on each message opens a doubts overview modal showing all past doubt threads for that message, rendered as nested trees.
+A separate **"View Doubts"** button on each message opens a doubts overview modal showing all past doubt threads for that message, rendered as nested trees. When viewing a specific doubt thread (`doubt-chat-modal`), a **← back button** in the modal header returns to the doubts overview without needing to re-click the entry point.
 
 ### API
 
@@ -237,3 +237,69 @@ Used when no conversation context is available. Builds the same action prompts b
 ## Doubts Indicator Button
 
 Messages that have existing doubts show a `<i class="bi bi-chat-left-text"></i>` button in the card header (left side, next to the ⋮ dropdown). Clicking it opens the doubts overview modal. The button is revealed via `GET /get_messages_with_doubts/<conversation_id>` on conversation load and immediately after a new doubt stream completes. See [Message Card Header](../message_card_header/README.md) for full details.
+
+---
+
+## Auto-Doubts System
+
+After every assistant message streams completely, up to 5 pre-emptive doubt threads are created automatically in parallel to maximize learning and understanding. Controlled by the **"Auto-doubts"** checkbox in Chat Settings → Basic Options (default: enabled).
+
+### Threads
+
+| # | Root doubt_text | Structure | Purpose |
+|---|---|---|---|
+| 1 | **Auto takeaways** | Root + up to 4 children | Summary of key takeaways, then answers each next-question suggestion in detail (parallelized) |
+| 2 | **Maximize Learning and Perspectives** | Root + 1 child | Expands on 3-5 critical concepts with intuition → Diverse Expert Perspectives (staff eng, principal eng, ML eng, EM, PM) |
+| 3 | **Challenge & Verify** | Root + 1 child | Devil's Advocate (weaknesses, reasoning chains) → Common Mistakes (implementation + production/scale cascading failures) |
+| 4 | **Foundations & Practice** | Root + 1 child | Prerequisites Check (mental models, not just definitions) → Apply It (exercise with non-obvious twist + solution) |
+| 5 | **Answer Raised Questions** | Root | Finds and answers all questions the LLM posed in its response; skips if no questions found |
+
+### Flow
+
+1. Streaming completes → `generate_response()` puts `<--END-->` on queue
+2. Checks `persist_or_not` AND `auto_doubts_enabled` from `checkboxes`
+3. Dispatches all 5 functions via `get_async_future()` in parallel
+4. Each function:
+   - Resolves `message_id` + `answer_text` (fast path if captured during stream, else polls up to 120s)
+   - Dedup: skips if a doubt with same `doubt_text` already exists for that message
+   - Calls `gemini-flash-3.5-non-reasoning` (fast, cheap) — except Auto Takeaways root which uses `VERY_CHEAP_LLM[0]`
+   - Persists via `add_doubt()` with appropriate `parent_doubt_id` for threading
+
+### Auto Takeaways — Next-Question Expansion
+
+After creating the root summary, waits (initial 10s then polls every 1s up to 60s total) for `conversation.next_question_suggestions` (set by `persist_current_turn()`), then for each suggestion (up to 4):
+- Answers the question in detail (reasoning, intuition, examples) using conversation context
+- All 4 LLM calls run in parallel via `ThreadPoolExecutor(max_workers=4)`
+- Results are chained in order as a linked-list thread
+
+### Internal Parallelization
+
+Within each doubt function, sub-prompts also run in parallel:
+- **Maximize Learning**: learning concepts + diverse perspectives → 2 parallel LLM calls
+- **Challenge & Verify**: devil's advocate + common mistakes → 2 parallel LLM calls
+- **Foundations & Practice**: prerequisites + apply-it exercise → 2 parallel LLM calls
+- **Auto Takeaways** children: all 4 next-Q answers → 4 parallel LLM calls
+
+### Configuration
+
+- **UI**: "Auto-doubts" checkbox in Basic Options (`#settings-auto_doubts_enabled`), default checked
+- **Backend key**: `checkboxes.auto_doubts_enabled` (default: `True`)
+- **Slash commands**: `/enable_auto_doubts` and `/disable_auto_doubts` for per-turn override
+- **Browser persistence**: localStorage via `chatSettingsState` — persists across sessions on same device (same mechanism as all Basic Options: persist, use_pkb, auto_pkb_extract, etc.)
+- **Cross-device**: Not synced (same limitation as all Basic Options — localStorage only)
+- **Per-conversation override**: Not currently supported. The setting is global. Could be extended via `PUT /set_conversation_settings` in future.
+
+### Key Files
+
+| File | What |
+|------|------|
+| `endpoints/conversations.py` ~L1830 | Scheduling block (dispatches all 5) |
+| `endpoints/conversations.py` `_create_auto_takeaways_doubt_for_last_assistant_message` | Takeaways + next-Q children |
+| `endpoints/conversations.py` `_create_maximize_learning_doubt` | Critical concepts expansion |
+| `endpoints/conversations.py` `_create_challenge_and_verify_doubt` | Devil's Advocate + Common Mistakes |
+| `endpoints/conversations.py` `_create_foundations_and_practice_doubt` | Prerequisites + Apply It |
+| `endpoints/conversations.py` `_create_answer_raised_questions_doubt` | Answers LLM's own questions |
+| `endpoints/conversations.py` `_resolve_message_id_and_text` | Shared helper for message resolution |
+| `interface/interface.html` | Checkbox (`#settings-auto_doubts_enabled`) |
+| `interface/chat.js` | Settings state wiring |
+| `interface/common.js` `getOptions()` | Includes `auto_doubts_enabled` in checkboxes payload |

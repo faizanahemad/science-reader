@@ -2708,12 +2708,7 @@ var ChatManager = {
             DoubtManager.showDoubtsOverview(conversationId, messageId);
         });
 
-        $(".has-doubts-btn").off().on("click", function (event) {
-            event.preventDefault();
-            event.stopPropagation();
-            var messageId = $(this).attr('message-id');
-            DoubtManager.showDoubtsOverview(conversationId, messageId);
-        });
+        // has-doubts-btn uses document delegation (set up once, see below renderMessages)
         
         $(".ask-doubt-button").off().on("click", function (event) {
             event.preventDefault();

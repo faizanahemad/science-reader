@@ -1829,14 +1829,16 @@ def send_message(conversation_id: str):
             persist_or_not = bool(
                 query.get("checkboxes", {}).get("persist_or_not", True)
             )
-            if persist_or_not:
+            auto_doubts_enabled = bool(
+                query.get("checkboxes", {}).get("auto_doubts_enabled", True)
+            )
+            if persist_or_not and auto_doubts_enabled:
                 captured_answer_text = (
                     "".join(captured_answer_parts).strip()
                     if captured_answer_parts
                     else ""
                 )
-                get_async_future(
-                    _create_auto_takeaways_doubt_for_last_assistant_message,
+                _auto_doubt_kwargs = dict(
                     message=query["messageText"],
                     conversation=conversation,
                     conversation_id=conversation_id,
@@ -1845,9 +1847,29 @@ def send_message(conversation_id: str):
                     message_id=captured_response_message_id,
                     answer_text=captured_answer_text,
                 )
+                get_async_future(
+                    _create_auto_takeaways_doubt_for_last_assistant_message,
+                    **_auto_doubt_kwargs,
+                )
+                get_async_future(
+                    _create_maximize_learning_doubt,
+                    **_auto_doubt_kwargs,
+                )
+                get_async_future(
+                    _create_challenge_and_verify_doubt,
+                    **_auto_doubt_kwargs,
+                )
+                get_async_future(
+                    _create_foundations_and_practice_doubt,
+                    **_auto_doubt_kwargs,
+                )
+                get_async_future(
+                    _create_answer_raised_questions_doubt,
+                    **_auto_doubt_kwargs,
+                )
         except Exception as e:
             logger.error(
-                f"[send_message] Failed to schedule auto-takeaways: {e}", exc_info=True
+                f"[send_message] Failed to schedule auto-doubts: {e}", exc_info=True
             )
 
     _future = get_async_future(generate_response)
@@ -2332,10 +2354,664 @@ Assistant answer:
             users_dir=users_dir,
             logger=logger,
         )
+
+        # --- Answer next-question suggestions as child doubts ---
+        try:
+            import time as _time
+
+            # Wait for next_question_suggestions: initial 10s then check every 1s up to 60s
+            suggestions = None
+            _time.sleep(10)
+            for _ in range(50):  # 50 checks × 1s = 50s more (60s total)
+                suggestions = conversation.next_question_suggestions
+                if suggestions and len(suggestions) > 0:
+                    break
+                _time.sleep(1)
+
+            if not suggestions:
+                return
+
+            nq_model = "gemini-flash-3.5-non-reasoning"
+            nq_llm = CallLLm(
+                conversation.get_api_keys(),
+                model_name=nq_model,
+                use_gpt4=False,
+                use_16k=False,
+            )
+
+            # Get the root doubt_id for "Auto takeaways" to attach children
+            root_doubts = get_doubts_for_message(
+                conversation_id=conversation_id,
+                message_id=message_id,
+                user_email=user_email,
+                users_dir=users_dir,
+                logger=logger,
+            )
+            takeaways_doubt_id = None
+            for d in root_doubts:
+                if d.get("doubt_text") == "Auto takeaways":
+                    takeaways_doubt_id = d.get("doubt_id")
+                    break
+
+            if not takeaways_doubt_id:
+                return
+
+            parent_id = takeaways_doubt_id
+            selected_suggestions = suggestions[:4]
+
+            # Generate all answers in parallel
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
+            def _answer_suggestion(suggestion):
+                nq_prompt = f"""Answer the following question in detail based on the conversation context.
+
+Provide:
+- A thorough explanation with reasoning and intuition behind the answer
+- Concrete examples or scenarios where relevant
+- Non-obvious insights or surprising connections that deepen understanding
+- Practical implications and how this knowledge connects to the bigger picture
+- Where applicable, mention edge cases or caveats the reader should be aware of
+
+Conversation context:
+\"\"\"{conversation_summary}\"\"\"
+
+Original user question:
+\"\"\"{message}\"\"\"
+
+Assistant answer:
+\"\"\"{answer_trimmed[:20000]}\"\"\"
+
+Question to answer:
+{suggestion}
+"""
+                return nq_llm(
+                    nq_prompt,
+                    images=[],
+                    temperature=0.3,
+                    stream=False,
+                    max_tokens=1500,
+                    system="Answer thoroughly in markdown with depth, practical insight, and nuance. Explain the 'why' behind things. No preamble.",
+                )
+
+            # Fire all LLM calls in parallel
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                future_to_idx = {
+                    executor.submit(_answer_suggestion, s): i
+                    for i, s in enumerate(selected_suggestions)
+                }
+                results = [None] * len(selected_suggestions)
+                for future in as_completed(future_to_idx):
+                    idx = future_to_idx[future]
+                    try:
+                        results[idx] = future.result()
+                    except Exception as nq_err:
+                        logger.error(f"[auto_takeaways] Error answering next-Q: {nq_err}")
+
+            # Chain results in order as child doubts
+            for i, nq_answer in enumerate(results):
+                try:
+                    if isinstance(nq_answer, str) and nq_answer.strip():
+                        new_doubt_id = add_doubt(
+                            conversation_id=conversation_id,
+                            user_email=user_email,
+                            message_id=message_id,
+                            doubt_text=selected_suggestions[i],
+                            doubt_answer=nq_answer.strip(),
+                            parent_doubt_id=parent_id,
+                            users_dir=users_dir,
+                            logger=logger,
+                        )
+                        parent_id = new_doubt_id
+                except Exception as nq_err:
+                    logger.error(f"[auto_takeaways] Error persisting next-Q '{selected_suggestions[i]}': {nq_err}")
+        except Exception as nq_outer_err:
+            logger.error(f"[auto_takeaways] Error in next-Q expansion: {nq_outer_err}", exc_info=True)
+
     except Exception as e:
         logger.error(
             f"[auto_takeaways] Error generating/persisting: {e}", exc_info=True
         )
+
+
+def _create_maximize_learning_doubt(
+    *,
+    message: str,
+    conversation: Conversation,
+    conversation_id: str,
+    user_email: str,
+    users_dir: str,
+    message_id: str | None = None,
+    answer_text: str | None = None,
+) -> None:
+    """
+    Generate a "Maximize Learning and Perspectives" root doubt that expands on critical
+    concepts, plus a child doubt with diverse expert perspectives. Both LLM calls run in parallel.
+    """
+    try:
+        from database.doubts import add_doubt, get_doubts_for_message
+        from call_llm import CallLLm
+        from concurrent.futures import ThreadPoolExecutor
+
+        message_id, answer_text = _resolve_message_id_and_text(
+            message_id, answer_text, conversation
+        )
+        if not message_id or not answer_text:
+            return
+
+        # Dedup
+        try:
+            existing = get_doubts_for_message(
+                conversation_id=conversation_id,
+                message_id=message_id,
+                user_email=user_email,
+                users_dir=users_dir,
+                logger=logger,
+            )
+        except Exception:
+            existing = []
+
+        for d in existing:
+            if isinstance(d, dict) and d.get("doubt_text") == "Maximize Learning and Perspectives":
+                return
+
+        answer_trimmed = " ".join(str(answer_text).split())[:50_000]
+        conversation_summary = (
+            conversation.running_summary
+            if hasattr(conversation, "running_summary")
+            else ""
+        )
+
+        learning_prompt = f"""Analyze the following assistant answer and identify 3-5 critical concepts, techniques, or facts that are:
+- Important for deep understanding but likely less familiar to the reader
+- Worth expanding on with additional context, examples, or caveats
+- Not obvious from a surface reading
+
+For each concept, provide:
+- The concept name as a bold heading
+- A detailed expansion with practical insight and concrete examples if needed
+- Provide detailed explanation and intuition behind the concept
+- Any common misconceptions or pitfalls, provide their detailed mitigation as well
+
+Use markdown. No preamble.
+
+Conversation context:
+\"\"\"{conversation_summary}\"\"\"
+
+User question:
+\"\"\"{message}\"\"\"
+
+Assistant answer:
+\"\"\"{answer_trimmed}\"\"\"
+"""
+
+        perspectives_prompt = f"""Analyze the following question and answer from multiple expert perspectives. Each persona should offer their unique lens — what they'd focus on, what concerns them, what opportunities they see, and what non-obvious advice they'd give.
+
+**Staff Engineer**
+- Systemic implications: how does this interact with the broader system/codebase over time?
+- Technical debt and maintainability trajectory
+- What would you insist on before approving this in a design review?
+- Cross-team dependencies or coordination risks
+
+**Principal Engineer**
+- What's the 3-year view? How does this decision compound?
+- Architectural trade-offs being made implicitly
+- What would you simplify or eliminate entirely?
+- Where is accidental complexity being introduced?
+
+**Experienced ML Engineer**
+- Data assumptions and distribution shift risks
+- Evaluation gaps — what's not being measured that should be?
+- Reproducibility and experiment hygiene concerns
+- Where will this break when inputs change or scale increases?
+
+**Engineering Manager**
+- Execution risk: what makes this hard to ship reliably?
+- Team skill gaps or knowledge concentration risks
+- Operational burden this creates for the on-call team
+
+**Business/Product Manager**
+- What user impact is being overlooked?
+- Cost/benefit framing: is the juice worth the squeeze?
+- What would you push back on or reprioritize?
+
+For each perspective: lead with the single most surprising or non-obvious insight from that persona, then expand with detailed supporting points. Elaborate on the nuance — explain the reasoning chain behind each concern, describe the specific scenarios where it manifests, and articulate the trade-offs involved. Don't just state concerns — explain WHY they matter, what second-order effects they create, and what the persona would actually DO about it. Skip any perspective that has nothing meaningful to add for this specific topic.
+
+Markdown with bold headings per persona. No preamble.
+
+Conversation context:
+\"\"\"{conversation_summary}\"\"\"
+
+User question:
+\"\"\"{message}\"\"\"
+
+Assistant answer:
+\"\"\"{answer_trimmed}\"\"\"
+"""
+
+        llm = CallLLm(
+            conversation.get_api_keys(),
+            model_name="gemini-flash-3.5-non-reasoning",
+            use_gpt4=False,
+            use_16k=False,
+        )
+
+        # Run both LLM calls in parallel
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            learning_future = executor.submit(
+                llm, learning_prompt, images=[], temperature=0.3, stream=False,
+                max_tokens=1500,
+                system="You identify and explain critical concepts that deepen understanding. Be precise and practical.",
+            )
+            perspectives_future = executor.submit(
+                llm, perspectives_prompt, images=[], temperature=0.4, stream=False,
+                max_tokens=2000,
+                system="You inhabit multiple expert personas simultaneously. Each perspective is authentic — reflecting genuine concerns and priorities of that role, not generic platitudes. Surprise the reader with insights they wouldn't get from a single viewpoint.",
+            )
+
+            learning_content = learning_future.result()
+            perspectives_content = perspectives_future.result()
+
+        if not isinstance(learning_content, str) or not learning_content.strip():
+            return
+
+        root_id = add_doubt(
+            conversation_id=conversation_id,
+            user_email=user_email,
+            message_id=message_id,
+            doubt_text="Maximize Learning and Perspectives",
+            doubt_answer=learning_content.strip(),
+            parent_doubt_id=None,
+            users_dir=users_dir,
+            logger=logger,
+        )
+
+        # Add perspectives as child doubt
+        if isinstance(perspectives_content, str) and perspectives_content.strip():
+            add_doubt(
+                conversation_id=conversation_id,
+                user_email=user_email,
+                message_id=message_id,
+                doubt_text="Diverse Expert Perspectives",
+                doubt_answer=perspectives_content.strip(),
+                parent_doubt_id=root_id,
+                users_dir=users_dir,
+                logger=logger,
+            )
+    except Exception as e:
+        logger.error(
+            f"[maximize_learning] Error generating/persisting: {e}", exc_info=True
+        )
+
+
+def _create_challenge_and_verify_doubt(
+    *,
+    message: str,
+    conversation: Conversation,
+    conversation_id: str,
+    user_email: str,
+    users_dir: str,
+    message_id: str | None = None,
+    answer_text: str | None = None,
+) -> None:
+    """
+    Create a 'Challenge & Verify' doubt thread with Devil's Advocate (root)
+    + Common Mistakes (child). Both LLM calls run in parallel.
+    """
+    try:
+        from database.doubts import add_doubt, get_doubts_for_message
+        from call_llm import CallLLm
+        from concurrent.futures import ThreadPoolExecutor
+
+        message_id, answer_text = _resolve_message_id_and_text(
+            message_id, answer_text, conversation
+        )
+        if not message_id or not answer_text:
+            return
+
+        # Dedup
+        try:
+            existing = get_doubts_for_message(
+                conversation_id=conversation_id, message_id=message_id,
+                user_email=user_email, users_dir=users_dir, logger=logger,
+            )
+        except Exception:
+            existing = []
+        for d in existing:
+            if isinstance(d, dict) and d.get("doubt_text") == "Challenge & Verify":
+                return
+
+        answer_trimmed = " ".join(str(answer_text).split())[:50_000]
+        conversation_summary = getattr(conversation, "running_summary", "") or ""
+
+        llm = CallLLm(
+            conversation.get_api_keys(),
+            model_name="gemini-flash-3.5-non-reasoning",
+            use_gpt4=False, use_16k=False,
+        )
+
+        devils_prompt = f"""Critically analyze the following answer with depth. For each issue you identify, explain WHY it matters and HOW it manifests in practice.
+
+Cover:
+- Hidden assumptions that may not hold — explain what breaks when they don't hold and in what real scenarios this happens
+- Edge cases or scenarios where this advice would fail — describe the failure mode in detail with a concrete example
+- Counterarguments or alternative perspectives that challenge the main claims — explain the reasoning behind each alternative and when you'd prefer it
+- Important nuance or context that was glossed over — explain why it matters and what changes when you account for it
+- Surprising implications that a reader might miss on first reading — connect the dots to show non-obvious consequences
+
+For each point, provide the intuition and reasoning chain, not just the conclusion. Help the reader build a mental model of WHY these issues exist.
+
+Markdown. No preamble.
+
+Conversation context:
+\"\"\"{conversation_summary}\"\"\"
+
+User question:
+\"\"\"{message}\"\"\"
+
+Assistant answer:
+\"\"\"{answer_trimmed}\"\"\"
+"""
+
+        mistakes_prompt = f"""Based on the concepts in this answer, identify mistakes people make at multiple levels:
+
+**Section 1: Common Implementation Mistakes**
+- Subtle misunderstandings that lead to bugs — explain the flawed mental model that causes them
+- Anti-patterns that arise from partial understanding — show what the code/design looks like and why it's wrong
+- "Gotchas" that trip up even experienced practitioners — explain the surprising behavior and its root cause
+- For each: explain WHY the mistake happens (the intuition gap), WHAT goes wrong (the failure mode), and HOW to fix it (the correct mental model + concrete fix)
+
+**Section 2: Mistakes That Cascade at Scale / in Production**
+Think like a staff engineer or principal engineer reviewing this for production readiness:
+- What works fine locally but breaks at scale (concurrency, data volume, network partitions, thundering herds)? Explain the mechanics of WHY scale changes behavior.
+- What appears correct in dev but causes cascading failures in production (retry storms, resource exhaustion, subtle race conditions, backpressure issues)? Trace the cascade chain.
+- What monitoring/observability gaps would hide these issues until they explode? What metrics/alerts would catch them early?
+- For each: explain the failure mechanism step by step, why local testing doesn't catch it (what's different about prod), and the production-grade mitigation with implementation details
+
+Be detailed with concrete scenarios. Show the reasoning chain from root cause to visible symptom. Markdown. No preamble.
+
+Conversation context:
+\"\"\"{conversation_summary}\"\"\"
+
+User question:
+\"\"\"{message}\"\"\"
+
+Assistant answer:
+\"\"\"{answer_trimmed[:30000]}\"\"\"
+"""
+
+        # Run both LLM calls in parallel
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            devils_future = executor.submit(
+                llm, devils_prompt, images=[], temperature=0.3, stream=False, max_tokens=1500,
+                system="You are a senior engineer and critical thinker. For every weakness you identify, explain the mechanism of failure and the intuition behind why it happens. Never be vague — always show the 'why' and trace the reasoning chain.",
+            )
+            mistakes_future = executor.submit(
+                llm, mistakes_prompt, images=[], temperature=0.3, stream=False, max_tokens=2000,
+                system="You are a principal engineer reviewing code and architecture for production readiness. You think in terms of failure modes at scale, cascading effects, and the gap between 'works on my machine' and 'works under load'. Trace each failure from root cause through propagation to visible symptom.",
+            )
+
+            devils_answer = devils_future.result()
+            mistakes_answer = mistakes_future.result()
+
+        if not isinstance(devils_answer, str) or not devils_answer.strip():
+            return
+
+        root_id = add_doubt(
+            conversation_id=conversation_id, user_email=user_email,
+            message_id=message_id, doubt_text="Challenge & Verify",
+            doubt_answer=devils_answer.strip(), parent_doubt_id=None,
+            users_dir=users_dir, logger=logger,
+        )
+
+        if isinstance(mistakes_answer, str) and mistakes_answer.strip():
+            add_doubt(
+                conversation_id=conversation_id, user_email=user_email,
+                message_id=message_id, doubt_text="Common Mistakes",
+                doubt_answer=mistakes_answer.strip(), parent_doubt_id=root_id,
+                users_dir=users_dir, logger=logger,
+            )
+    except Exception as e:
+        logger.error(f"[challenge_verify] Error: {e}", exc_info=True)
+
+
+def _create_foundations_and_practice_doubt(
+    *,
+    message: str,
+    conversation: Conversation,
+    conversation_id: str,
+    user_email: str,
+    users_dir: str,
+    message_id: str | None = None,
+    answer_text: str | None = None,
+) -> None:
+    """
+    Create a 'Foundations & Practice' doubt thread with Prerequisites Check (root)
+    + Apply It (child). Both LLM calls run in parallel.
+    """
+    try:
+        from database.doubts import add_doubt, get_doubts_for_message
+        from call_llm import CallLLm
+        from concurrent.futures import ThreadPoolExecutor
+
+        message_id, answer_text = _resolve_message_id_and_text(
+            message_id, answer_text, conversation
+        )
+        if not message_id or not answer_text:
+            return
+
+        # Dedup
+        try:
+            existing = get_doubts_for_message(
+                conversation_id=conversation_id, message_id=message_id,
+                user_email=user_email, users_dir=users_dir, logger=logger,
+            )
+        except Exception:
+            existing = []
+        for d in existing:
+            if isinstance(d, dict) and d.get("doubt_text") == "Foundations & Practice":
+                return
+
+        answer_trimmed = " ".join(str(answer_text).split())[:50_000]
+        conversation_summary = getattr(conversation, "running_summary", "") or ""
+
+        llm = CallLLm(
+            conversation.get_api_keys(),
+            model_name="gemini-flash-3.5-non-reasoning",
+            use_gpt4=False, use_16k=False,
+        )
+
+        prereq_prompt = f"""What foundational knowledge does this answer assume the reader already has?
+
+Identify and explain:
+- Key concepts or terminology used without explanation — provide a clear, intuitive explanation of each (not just a definition, but WHY it works that way and how to think about it)
+- Background knowledge required to fully understand the answer — explain the mental models or frameworks needed
+- Prerequisite skills or experience assumed — describe what level of experience is expected and what gaps might exist
+- Connections between prerequisites — show how these foundational concepts relate to each other and to the main answer
+
+For each prerequisite, provide enough explanation that someone missing that knowledge can build the right mental model. Include analogies or concrete examples where helpful.
+
+Markdown. No preamble.
+
+Conversation context:
+\"\"\"{conversation_summary}\"\"\"
+
+User question:
+\"\"\"{message}\"\"\"
+
+Assistant answer:
+\"\"\"{answer_trimmed}\"\"\"
+"""
+
+        apply_prompt = f"""Generate a practice exercise or thought experiment that tests deep comprehension of the key concepts in this answer.
+
+Requirements:
+- Should require genuine application of the concepts (not just recall)
+- Should expose whether the reader truly understands the 'why' or just memorized the 'what'
+- Include a scenario that has a non-obvious twist or subtlety that tests deeper understanding
+- Provide: the exercise, a hint (that doesn't give it away), and a detailed solution with explanation of the reasoning
+- The solution should explain common wrong answers and why they're wrong
+- If applicable, include a follow-up variation that tests a related but different aspect
+
+Make it engaging and thought-provoking. Markdown. No preamble.
+
+Conversation context:
+\"\"\"{conversation_summary}\"\"\"
+
+User question:
+\"\"\"{message}\"\"\"
+
+Assistant answer:
+\"\"\"{answer_trimmed[:30000]}\"\"\"
+"""
+
+        # Run both LLM calls in parallel
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            prereq_future = executor.submit(
+                llm, prereq_prompt, images=[], temperature=0.3, stream=False, max_tokens=1500,
+                system="You identify knowledge prerequisites and explain them with depth and intuition. Build mental models, not just definitions.",
+            )
+            apply_future = executor.submit(
+                llm, apply_prompt, images=[], temperature=0.4, stream=False, max_tokens=1500,
+                system="You create insightful practice exercises that reveal whether someone truly understands a concept or just memorized it. Design for 'aha moments'.",
+            )
+
+            prereq_answer = prereq_future.result()
+            apply_answer = apply_future.result()
+
+        if not isinstance(prereq_answer, str) or not prereq_answer.strip():
+            return
+
+        root_id = add_doubt(
+            conversation_id=conversation_id, user_email=user_email,
+            message_id=message_id, doubt_text="Foundations & Practice",
+            doubt_answer=prereq_answer.strip(), parent_doubt_id=None,
+            users_dir=users_dir, logger=logger,
+        )
+
+        if isinstance(apply_answer, str) and apply_answer.strip():
+            add_doubt(
+                conversation_id=conversation_id, user_email=user_email,
+                message_id=message_id, doubt_text="Apply It",
+                doubt_answer=apply_answer.strip(), parent_doubt_id=root_id,
+                users_dir=users_dir, logger=logger,
+            )
+    except Exception as e:
+        logger.error(f"[foundations_practice] Error: {e}", exc_info=True)
+
+
+def _create_answer_raised_questions_doubt(
+    *,
+    message: str,
+    conversation: Conversation,
+    conversation_id: str,
+    user_email: str,
+    users_dir: str,
+    message_id: str | None = None,
+    answer_text: str | None = None,
+) -> None:
+    """
+    Create an 'Answer Raised Questions' doubt that answers any questions the LLM
+    posed in its response (e.g. from Deep Learn preamble's thought-provoking questions).
+    """
+    try:
+        from database.doubts import add_doubt, get_doubts_for_message
+        from call_llm import CallLLm
+
+        message_id, answer_text = _resolve_message_id_and_text(
+            message_id, answer_text, conversation
+        )
+        if not message_id or not answer_text:
+            return
+
+        # Dedup
+        try:
+            existing = get_doubts_for_message(
+                conversation_id=conversation_id, message_id=message_id,
+                user_email=user_email, users_dir=users_dir, logger=logger,
+            )
+        except Exception:
+            existing = []
+        for d in existing:
+            if isinstance(d, dict) and d.get("doubt_text") == "Answer Raised Questions":
+                return
+
+        answer_trimmed = " ".join(str(answer_text).split())[:50_000]
+        conversation_summary = getattr(conversation, "running_summary", "") or ""
+
+        llm = CallLLm(
+            conversation.get_api_keys(),
+            model_name="gemini-flash-3.5-non-reasoning",
+            use_gpt4=False, use_16k=False,
+        )
+
+        # First extract questions, then answer them
+        answer_prompt = f"""The following assistant response contains questions posed to the user (to stimulate thinking, guide exploration, or suggest next steps).
+
+Your task:
+1. Identify ALL questions the assistant asked in its response (look for question marks, rhetorical questions, "consider...", "what if...", "have you thought about..." patterns)
+2. Answer each one thoroughly but concisely
+
+Format: For each question, show the question as a bold heading then provide the answer (3-5 sentences each).
+
+If the assistant did not ask any questions, respond with exactly: "No questions found in the response."
+
+Markdown. No preamble.
+
+Conversation context:
+\"\"\"{conversation_summary}\"\"\"
+
+User question:
+\"\"\"{message}\"\"\"
+
+Assistant response:
+\"\"\"{answer_trimmed}\"\"\"
+"""
+        answers = llm(
+            answer_prompt, images=[], temperature=0.3, stream=False, max_tokens=1500,
+            system="You answer thought-provoking questions thoroughly and clearly to help the user learn.",
+        )
+        if not isinstance(answers, str) or not answers.strip():
+            return
+        if "no questions found" in answers.lower()[:100]:
+            return
+
+        add_doubt(
+            conversation_id=conversation_id, user_email=user_email,
+            message_id=message_id, doubt_text="Answer Raised Questions",
+            doubt_answer=answers.strip(), parent_doubt_id=None,
+            users_dir=users_dir, logger=logger,
+        )
+    except Exception as e:
+        logger.error(f"[answer_raised_questions] Error: {e}", exc_info=True)
+
+
+def _resolve_message_id_and_text(
+    message_id: str | None,
+    answer_text: str | None,
+    conversation: Conversation,
+    max_wait_seconds: int = 120,
+) -> tuple[str | None, str | None]:
+    """Shared helper: resolve message_id and answer_text, polling if needed."""
+    if (
+        isinstance(message_id, str) and message_id.strip()
+        and isinstance(answer_text, str) and answer_text.strip()
+    ):
+        return message_id, answer_text
+
+    import time as _time
+
+    for _ in range(int(max_wait_seconds / 0.5)):
+        try:
+            messages = conversation.get_field("messages") or []
+        except Exception:
+            messages = []
+        for msg in reversed(messages):
+            if isinstance(msg, dict) and msg.get("sender") == "model":
+                if msg.get("message_id") and msg.get("text"):
+                    return msg["message_id"], msg["text"]
+                break
+        _time.sleep(0.5)
+    return None, None
 
 
 # ---------------------------------------------------------------------------
