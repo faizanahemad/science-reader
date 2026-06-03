@@ -93,6 +93,7 @@ CHEAP_LLM = [
     "deepseek/deepseek-v4-pro",
     "google/gemini-flash-latest",
     "qwen/qwen3.7-max",
+    "gemini-flash-3.5-non-reasoning",
 ]
 EXPENSIVE_LLM = [
     "anthropic/claude-opus-latest",
@@ -118,6 +119,7 @@ CHEAP_LONG_CONTEXT_LLM = [
     "google/gemini-3-flash-preview",
     "google/gemini-2.5-flash",
     "openai/gpt-5-mini",
+    "gemini-flash-3.5-non-reasoning",
 ]
 LONG_CONTEXT_LLM = ["google/gemini-3-flash-preview", "google/gemini-3.5-flash", "google/gemini-3.1-pro-preview"]
 

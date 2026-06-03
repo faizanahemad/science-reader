@@ -190,6 +190,47 @@ Add the `hidden` attribute to the `<option>` in `interface.html`:
 ```
 This keeps the model functional for existing conversations but hides it from the dropdown. No backend changes needed.
 
+### Adding a Reasoning-Variant Model (Synthetic Config Name)
+
+OpenRouter accepts a `reasoning` object in the request body that controls reasoning/thinking behaviour (see the [reasoning docs](https://openrouter.ai/docs/use-cases/reasoning-tokens)). To expose the *same* underlying model with a fixed reasoning configuration, register a **synthetic config name** that resolves to a real OpenRouter model plus a reasoning payload.
+
+This is handled in `call_chat_model()` in `code_common/call_llm.py` via the `_reasoning_config_map`, which sits next to `_latest_model_map` and rewrites the synthetic name at the API boundary:
+
+```python
+# code_common/call_llm.py, inside call_chat_model()
+_reasoning_config_map = {
+    "gemini-flash-3.5-non-reasoning": (
+        "google/gemini-3.5-flash",
+        {"enabled": False, "effort": "minimal"},
+    ),
+}
+_reasoning_payload = None
+if model in _reasoning_config_map:
+    model, _reasoning_payload = _reasoning_config_map[model]
+```
+
+The payload is forwarded verbatim to OpenRouter via `extra_body` (the OpenAI SDK passes unknown params through):
+
+```python
+if _reasoning_payload is not None:
+    create_kwargs['extra_body'] = {"reasoning": _reasoning_payload}
+```
+
+Reasoning payload options (one of `effort` or `max_tokens`, not both):
+- `"effort"`: `"xhigh"`, `"high"`, `"medium"`, `"low"`, `"minimal"`, or `"none"` (OpenAI-style)
+- `"max_tokens"`: integer token budget (Anthropic-style)
+- `"enabled"`: bool — default inferred from `effort`/`max_tokens`
+- `"exclude"`: bool — set `true` to omit reasoning tokens from the response
+
+**To add a reasoning variant:**
+1. Add the synthetic name → `(real_model, reasoning_payload)` entry to `_reasoning_config_map`.
+2. Add the synthetic name to the appropriate tier list(s) in `common.py` (e.g. `CHEAP_LLM`, `CHEAP_LONG_CONTEXT_LLM`). **Append** to the end so the `[0]` defaults used by override slots stay stable.
+3. No `model_name_to_canonical_name()` entry is needed if the synthetic name is used directly as a tier-list/override value (overrides pass the stored value straight through). Add a `<option>` + canonical mapping only if you also want it in the main UI selector.
+
+`_get_token_limit()` matches tier-list membership first, so a synthetic name in a tier list inherits that tier's token limit (e.g. `gemini-flash-3.5-non-reasoning` in `CHEAP_LONG_CONTEXT_LLM` → 800K) without any extra branch.
+
+**Example added:** `gemini-flash-3.5-non-reasoning` → `google/gemini-3.5-flash` with `{"enabled": False, "effort": "minimal"}`, registered in `CHEAP_LLM` and `CHEAP_LONG_CONTEXT_LLM`. It is also surfaced in the main UI selector via an `<option>gemini-flash-3.5-non-reasoning</option>` in `interface.html` ("Newer Models" optgroup) plus an **identity passthrough** entry in `model_name_to_canonical_name()` (the synthetic name must reach `call_chat_model()` unchanged for the reasoning config to apply — do NOT map it to the real model).
+
 ---
 
 ## Part 2: Model Override Dropdowns (Per-Conversation Settings)

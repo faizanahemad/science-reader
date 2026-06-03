@@ -542,6 +542,18 @@ def call_chat_model(model, text, images, temperature, system, keys, messages=Non
     }
     model = _latest_model_map.get(model, model)
 
+    # Synthetic config names → (real OpenRouter model, reasoning payload).
+    # Lets us expose a same-model variant with a fixed reasoning config.
+    _reasoning_config_map = {
+        "gemini-flash-3.5-non-reasoning": (
+            "google/gemini-3.5-flash",
+            {"enabled": False, "effort": "minimal"},
+        ),
+    }
+    _reasoning_payload = None
+    if model in _reasoning_config_map:
+        model, _reasoning_payload = _reasoning_config_map[model]
+
     api_key = keys["OPENROUTER_API_KEY"]
     extras = dict(
         base_url="https://openrouter.ai/api/v1",
@@ -610,6 +622,9 @@ def call_chat_model(model, text, images, temperature, system, keys, messages=Non
         if tool_choice is not None:
             create_kwargs['tool_choice'] = tool_choice
             logger.warning('[call_chat_model] tool_choice=%s', tool_choice)
+        if _reasoning_payload is not None:
+            # OpenRouter-specific param; forwarded verbatim via extra_body.
+            create_kwargs['extra_body'] = {"reasoning": _reasoning_payload}
         logger.warning('[call_chat_model] Calling OpenRouter API | model=%s | keys_in_create_kwargs=%s',
                         model, list(create_kwargs.keys()))
         response = client.chat.completions.create(**create_kwargs)

@@ -13292,6 +13292,10 @@ def model_name_to_canonical_name(model_name):
         model_name = "google/gemini-3.1-pro-preview"
     elif model_name == "google/gemini-flash-latest":
         model_name = "google/gemini-3.5-flash"
+    elif model_name == "gemini-flash-3.5-non-reasoning":
+        # Synthetic name — must pass through unchanged so call_chat_model's
+        # _reasoning_config_map applies the non-reasoning config.
+        model_name = "gemini-flash-3.5-non-reasoning"
     elif model_name == "deepseek/deepseek-v4-pro":
         model_name = "deepseek/deepseek-v4-pro"
     elif model_name == "gpt-5.2":
