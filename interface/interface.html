@@ -4553,6 +4553,46 @@ greet("World");</code></pre>
         display: none !important;
     }
 
+    /* Tabbed-answer collapse toggle: top (right of nav-tabs ul) + bottom (left of scroll-to-top btn) */
+    .model-tabs-container .nav-tabs .model-tabs-collapse-li {
+        display: flex;
+        align-items: center;
+        border: none;
+        background: transparent;
+    }
+    .model-tabs-container .nav-tabs .model-tabs-collapse-li .model-tabs-collapse-toggle {
+        border: none;
+        background: transparent;
+        color: #007bff;
+        font-size: 0.78rem;
+        line-height: 1;
+        padding: 2px 6px;
+        text-decoration: none;
+        white-space: nowrap;
+        cursor: pointer;
+    }
+    .model-tabs-container .nav-tabs .model-tabs-collapse-li .model-tabs-collapse-toggle:hover {
+        text-decoration: underline;
+    }
+    .model-tabs-collapse-toggle-bottom {
+        position: absolute;
+        bottom: 5px;
+        /* right offset is set inline relative to the scroll-to-top button width */
+        padding: 2px 8px;
+        font-size: 0.75rem;
+        color: #007bff;
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        opacity: 0.8;
+        z-index: 10;
+        cursor: pointer;
+        transition: opacity 0.2s;
+    }
+    .model-tabs-collapse-toggle-bottom:hover {
+        opacity: 1;
+    }
+
     .details-close-btn {
         background-color: #f0f0f0;
         border: 1px solid #ccc;

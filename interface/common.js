@@ -3494,8 +3494,157 @@ function applyModelResponseTabs(elem_to_render_in) {
         var $activePane = $container.find('.tab-pane.show.active').first();
         if ($activePane.length && typeof renderMermaidIn === 'function') renderMermaidIn($activePane);
     } catch (e) { /* ignore */ }
-    
+
+    // Ensure the collapse [show]/[hide] toggle exists for tabbed answers and re-apply
+    // any persisted collapsed state. Called on every (re)render so streaming rebuilds
+    // (which empty the nav) keep the toggle and its state intact.
+    try { ensureTabsAnswerToggle($container); } catch (e) { /* ignore */ }
 }
+
+// ============================================================================
+// Tabbed-answer collapse [show]/[hide] toggle
+// ----------------------------------------------------------------------------
+// When a response renders as model tabs (.model-tabs-container), the original
+// showMore() [show]/[hide] toggle is unavailable: its host (#message-render-space)
+// is force-hidden (both via JS data-model-tabs-hidden and the CSS :has() rule in
+// interface.html), and the cloned tab content has `a.show-more` stripped out.
+// These helpers add an equivalent collapse control that hides the tab CONTENT
+// (.tab-content) while keeping the nav bar (and toggle) visible, and persist the
+// state via the SAME /show_hide_message_from_conversation backend used by
+// showMore() — so the collapsed/expanded choice is remembered across sessions.
+// ============================================================================
+
+/**
+ * Resolve {conversationId, messageId} for a tabs container.
+ * Returns empty strings when not resolvable (e.g. doubt / temp-llm cards), in
+ * which case persistence is skipped but the local toggle still works.
+ *
+ * @param {jQuery} $container - .model-tabs-container
+ * @returns {{conversationId: string, messageId: string}}
+ */
+function getTabsAnswerIds($container) {
+    var conversationId = '';
+    try {
+        if (typeof ConversationManager !== 'undefined' && ConversationManager) {
+            conversationId = ConversationManager.activeConversationId ||
+                (ConversationManager.getActiveConversation ? ConversationManager.getActiveConversation() : '') || '';
+        }
+    } catch (e) { /* ignore */ }
+    var messageId = '';
+    try {
+        var $card = $container.closest('.card.message-card');
+        if ($card.length) {
+            messageId = $card.find('.card-header[message-id]').first().attr('message-id') || '';
+        }
+    } catch (e) { /* ignore */ }
+    return { conversationId: conversationId, messageId: messageId };
+}
+
+/**
+ * Apply collapsed/expanded visual state to a tabs container.
+ * collapsed => hide .tab-content (nav + toggle stay visible), toggles read "[show]".
+ * expanded  => show .tab-content, toggles read "[hide]".
+ * The state is stored on the container via data-answer-collapsed so streaming
+ * re-renders (which rebuild the nav/content) can re-apply it.
+ *
+ * @param {jQuery} $container - .model-tabs-container
+ * @param {boolean} collapsed
+ */
+function applyTabsCollapsedState($container, collapsed) {
+    if (!$container || !$container.length) return;
+    var $content = $container.find('> .tab-content').first();
+    if (!$content.length) $content = $container.find('.tab-content').first();
+    if (collapsed) {
+        if ($content.length) $content[0].style.display = 'none';
+        $container.attr('data-answer-collapsed', 'true');
+    } else {
+        if ($content.length) $content[0].style.display = '';
+        $container.removeAttr('data-answer-collapsed');
+    }
+    var label = collapsed ? '[show]' : '[hide]';
+    $container.find('.model-tabs-collapse-toggle').text(label);
+    var $card = $container.closest('.card');
+    if ($card.length) {
+        $card.find('.model-tabs-collapse-toggle-bottom').text(label);
+    }
+}
+
+/**
+ * Idempotently inject the collapse toggles for a tabs container and re-apply the
+ * persisted collapsed state. Safe to call on every render.
+ *
+ * Top toggle:    an `ml-auto` <li> at the right edge of the .nav-tabs ul (above
+ *                the per-pane ToC). Re-injected when missing, because the nav is
+ *                emptied/rebuilt on streaming re-renders.
+ * Bottom toggle: a button on the card, positioned just left of the
+ *                scroll-to-top (".scroll-to-top-btn") button.
+ *
+ * @param {jQuery} $container - .model-tabs-container
+ */
+function ensureTabsAnswerToggle($container) {
+    if (!$container || !$container.length) return;
+    var $nav = $container.find('> .nav').first();
+    if (!$nav.length) $nav = $container.find('.nav').first();
+    if (!$nav.length) return;
+
+    // --- Top toggle (right side of the nav-tabs ul) ---
+    if (!$nav.find('.model-tabs-collapse-li').length) {
+        var $li = $('<li class="nav-item model-tabs-collapse-li ml-auto"></li>');
+        var $a = $('<a href="#" class="model-tabs-collapse-toggle" title="Collapse / expand this answer">[hide]</a>');
+        $li.append($a);
+        $nav.append($li);
+    }
+
+    // --- Bottom toggle (left of the scroll-to-top button) ---
+    var $card = $container.closest('.card');
+    if ($card.length && !$card.find('> .model-tabs-collapse-toggle-bottom').length) {
+        var $btn = $('<button type="button" class="model-tabs-collapse-toggle-bottom" title="Collapse / expand this answer">[hide]</button>');
+        if (($card.css('position') || 'static') === 'static') {
+            $card.css('position', 'relative');
+        }
+        // Sit to the left of the scroll-to-top button if it's present, else a sane default.
+        var rightOffset = 130;
+        var $scrollBtn = $card.find('> .scroll-to-top-btn').first();
+        if ($scrollBtn.length) {
+            rightOffset = ($scrollBtn.outerWidth(true) || 110) + 12;
+        }
+        $btn.css('right', rightOffset + 'px');
+        $card.append($btn);
+    }
+
+    // Re-apply persisted collapsed state (data-answer-collapsed survives re-renders).
+    var collapsed = $container.attr('data-answer-collapsed') === 'true';
+    applyTabsCollapsedState($container, collapsed);
+}
+
+// Delegated handler — survives DOM rebuilds (applyModelResponseTabs re-renders and
+// RenderedStateManager snapshot restores). Toggles the collapse state and persists
+// via the same per-message backend used by showMore().
+$(document).on('click', '.model-tabs-collapse-toggle, .model-tabs-collapse-toggle-bottom', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    // Top toggle lives inside the container; bottom toggle is a sibling of the
+    // card body, so fall back to a card-scoped lookup for it.
+    var $container = $(this).closest('.model-tabs-container');
+    if (!$container.length) {
+        $container = $(this).closest('.card').find('.model-tabs-container').first();
+    }
+    if (!$container.length) return;
+
+    var nowCollapsed = !($container.attr('data-answer-collapsed') === 'true');
+    applyTabsCollapsedState($container, nowCollapsed);
+
+    // Persist (best-effort) using the existing /show_hide_message_from_conversation API.
+    var ids = getTabsAnswerIds($container);
+    if (ids.conversationId && ids.messageId) {
+        var show_hide = nowCollapsed ? 'hide' : 'show';
+        apiCall('/show_hide_message_from_conversation/' + ids.conversationId + '/' + ids.messageId + '/0',
+            'POST', { 'show_hide': show_hide })
+            .fail(function(xhr, status, error) {
+                console.error('Failed to save tabbed show/hide state:', (xhr && xhr.responseJSON && xhr.responseJSON.message) || error || 'Unknown error');
+            });
+    }
+});
 
 // Function to attach listeners directly to section elements
 function attachSectionListeners(elem_to_render_in) {
@@ -3699,6 +3848,19 @@ function fetchConversationUIState(conversation_id, elem_to_render_in) {
                     var $header = $chatView.find('.card-header[message-id="' + messageId + '"]');
                     if (!$header.length) return;
                     var $card = $header.closest('.card.message-card');
+                    // Tabbed responses: collapse the tab CONTENT via the dedicated
+                    // toggle path (the #message-render-space / .more-text source is
+                    // force-hidden under tabs, so the legacy logic below is a no-op).
+                    var $tabsContainer = $card.find('.model-tabs-container').first();
+                    if ($tabsContainer.length) {
+                        if (typeof ensureTabsAnswerToggle === 'function') {
+                            try { ensureTabsAnswerToggle($tabsContainer); } catch (e) { /* ignore */ }
+                        }
+                        if (typeof applyTabsCollapsedState === 'function') {
+                            applyTabsCollapsedState($tabsContainer, showHide === 'hide');
+                        }
+                        return;
+                    }
                     var $moreText = $card.find('.more-text');
                     var $lessText = $card.find('.less-text');
                     var $showMoreLinks = $card.find('.show-more');
