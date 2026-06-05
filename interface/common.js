@@ -3597,6 +3597,13 @@ function positionTabsBottomToggle($card) {
         rightOffset = 5 + ($scrollBtn.outerWidth(true) || 120) + 10;
     }
     $btn.css('right', rightOffset + 'px');
+
+    // Doubt-modal ingress sits just to the LEFT of the show/hide toggle, so the
+    // bottom row reads (right -> left): [scroll-to-top] [show/hide] [doubts].
+    var $doubt = $card.find('> .model-tabs-doubt-ingress-bottom').first();
+    if ($doubt.length) {
+        $doubt.css('right', (rightOffset + ($btn.outerWidth(true) || 50) + 8) + 'px');
+    }
 }
 
 /**
@@ -3628,12 +3635,20 @@ function ensureTabsAnswerToggle($container) {
     // --- Bottom toggle (left of the scroll-to-top button) ---
     var $card = $container.closest('.card');
     if ($card.length) {
+        if (($card.css('position') || 'static') === 'static') {
+            $card.css('position', 'relative');
+        }
         if (!$card.find('> .model-tabs-collapse-toggle-bottom').length) {
             var $btn = $('<button type="button" class="model-tabs-collapse-toggle-bottom" title="Collapse / expand this answer">[hide]</button>');
-            if (($card.css('position') || 'static') === 'static') {
-                $card.css('position', 'relative');
-            }
             $card.append($btn);
+        }
+        // Doubt-modal ingress, mirroring the header's doubts button. Sits to the left
+        // of the bottom show/hide toggle and opens the doubts overview for this
+        // message. The message_id is read from the card header at click time (it may
+        // be a placeholder until a freshly-streamed message is assigned its real id).
+        if (!$card.find('> .model-tabs-doubt-ingress-bottom').length) {
+            var $doubtBtn = $('<button type="button" class="model-tabs-doubt-ingress-bottom" title="View / ask doubts"><i class="bi bi-chat-left-text"></i></button>');
+            $card.append($doubtBtn);
         }
         // (Re)position relative to the scroll-to-top button. Do it now AND on the
         // next frame: the scroll-to-top button is frequently appended AFTER this
@@ -3678,6 +3693,23 @@ $(document).on('click', '.model-tabs-collapse-toggle, .model-tabs-collapse-toggl
             .fail(function(xhr, status, error) {
                 console.error('Failed to save tabbed show/hide state:', (xhr && xhr.responseJSON && xhr.responseJSON.message) || error || 'Unknown error');
             });
+    }
+});
+
+// Delegated handler — bottom doubt-modal ingress on tabbed answer cards. Mirrors
+// the header doubts button: opens the doubts overview for this message. The
+// message id is read from the card header at click time (it may be a placeholder
+// until a freshly-streamed message is assigned its real id).
+$(document).on('click', '.model-tabs-doubt-ingress-bottom', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    var $card = $(this).closest('.card.message-card');
+    if (!$card.length) $card = $(this).closest('.card');
+    var messageId = $card.find('.card-header[message-id]').attr('message-id');
+    var conversationId = (typeof ConversationManager !== 'undefined' && ConversationManager.activeConversationId)
+        ? ConversationManager.activeConversationId : null;
+    if (conversationId && messageId && messageId !== 'undefined' && typeof DoubtManager !== 'undefined') {
+        DoubtManager.showDoubtsOverview(conversationId, messageId);
     }
 });
 
