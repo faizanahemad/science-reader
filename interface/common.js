@@ -3646,37 +3646,35 @@ $(document).on('click', '.model-tabs-collapse-toggle, .model-tabs-collapse-toggl
     }
 });
 
-// Function to attach listeners directly to section elements
+// Function to attach listeners for section <details>/<summary> toggles.
+//
+// The native <details> `toggle` event does NOT bubble, so it cannot be
+// delegated. Instead we delegate the summary CLICK on `document` (mirroring the
+// `.close-section-btn` handler) and read the post-toggle open state on the next
+// tick. Binding on `document` — rather than on the per-render `elem_to_render_in`
+// — is essential: it ensures the handler also fires for sections that live
+// OUTSIDE that element, e.g. the section clones placed inside a
+// `.model-tabs-container` tab pane, and snapshot-restored cards. Previously the
+// handler was bound on `elem_to_render_in`, so toggling such sections via the
+// summary never reached it and the state was never persisted (only the
+// document-delegated "Close Section" button worked). A namespaced off/on keeps
+// the binding idempotent across repeated render calls.
 function attachSectionListeners(elem_to_render_in) {
-    $(elem_to_render_in).off('click', 'details summary');
-    
-    $(elem_to_render_in).on('click', 'details summary', function() {
-        // Check if this is a section-details element and handle state persistence
-        const sectionDetails = $(this).closest('.section-details');
-        var sectionId = $(this).closest('details').attr('id');
-        var sectionHash = $(this).closest('details').attr('data-section-hash');
-        var detailsElement = $(document.getElementById(sectionId));
-        if (sectionDetails.length > 0) {
-            const sectionHash = sectionDetails.attr('data-section-hash');
-            
-            // Use setTimeout to read state after the browser has toggled it
+    $(document)
+        .off('click.sectionToggle', '.section-details > summary')
+        .on('click.sectionToggle', '.section-details > summary', function() {
+            var $section = $(this).closest('.section-details');
+            if (!$section.length) return;
+            var sectionHash = $section.attr('data-section-hash');
+            // Read the open state AFTER the browser applies the native toggle.
             setTimeout(function() {
-                const isOpen = sectionDetails.prop('open');
-                const isHidden = !isOpen;
-                
-                console.log('Section toggled via closest section-details:', sectionHash, 'isHidden:', isHidden);
-                
+                var isHidden = !$section.prop('open');
                 var convId = (typeof ConversationManager !== 'undefined' && ConversationManager && ConversationManager.getActiveConversation() != '') ? ConversationManager.getActiveConversation() : '';
                 if (convId && sectionHash) {
                     persistSectionState(convId, sectionHash, isHidden);
                 }
             }, 0);
-        }
-        const details = $(this).parent('details')[0];
-        const willBeOpen = !details.hasAttribute('open');
-        console.log('details clicked, will be open:', willBeOpen);
-
-    });
+        });
 }
 
 
