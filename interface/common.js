@@ -3758,20 +3758,11 @@ function fetchAndApplySectionStates(conversation_id, elem_to_render_in) {
     // Collect section IDs
     const sectionIds = [];
     sectionElements.each(function() {
-        const sectionId = $(this).attr('id');
-        if (sectionId) {
-            // Remove the "section-details-" prefix from the ID
-            const cleanedId = sectionId.replace(/^section-details-/, '');
-            sectionIds.push(cleanedId);
+        // Use data-section-hash (the persist key) so it matches stored records.
+        var sectionKey = $(this).attr('data-section-hash') || ($(this).attr('id') || '').replace(/^section-details-/, '');
+        if (sectionKey) {
+            sectionIds.push(sectionKey);
         }
-        
-        // if (sectionId) {
-        //     // Extract just the hash part of the ID (e.g., "section-details-conv123-abc123" -> "abc123")
-        //     const match = sectionId.match(/section-details-[^-]+-(.+)$/);
-        //     if (match && match[1]) {
-        //         sectionIds.push(match[1]);
-        //     }
-        // }
     });
     
     if (sectionIds.length === 0) return;
@@ -3789,15 +3780,11 @@ function fetchAndApplySectionStates(conversation_id, elem_to_render_in) {
                 // Apply the states to the details elements
                 sectionElements.each(function() {
                     const sectionElement = $(this);
-                    const sectionId = sectionElement.attr('id');
-                    if (sectionId) {
-                        const cleanedId = sectionId.replace(/^section-details-/, '');
-                        const sectionData = response.section_details[cleanedId];
-                        if (sectionData && sectionData.hidden) {
-                            // Close the section if it's marked as hidden
-                            sectionElement.prop('open', false);
-                        }
-                        
+                    var sectionKey = sectionElement.attr('data-section-hash') || (sectionElement.attr('id') || '').replace(/^section-details-/, '');
+                    const sectionData = sectionKey ? response.section_details[sectionKey] : undefined;
+                    if (sectionData && sectionData.hidden) {
+                        // Close the section if it's marked as hidden
+                        sectionElement.prop('open', false);
                     }
                 });
             }
@@ -3830,12 +3817,26 @@ function fetchConversationUIState(conversation_id, elem_to_render_in) {
                 var $container = $(elem_to_render_in);
                 $container.find('.section-details').each(function() {
                     var $el = $(this);
-                    var sectionId = $el.attr('id');
-                    if (!sectionId) return;
-                    var cleanedId = sectionId.replace(/^section-details-/, '');
-                    var data = response.section_details[cleanedId];
+                    // The restore key MUST match the key used when persisting, which is
+                    // the section's data-section-hash (see persistSectionState /
+                    // closeSectionDetails / the .close-section-btn handler /
+                    // attachSectionListeners). Keying off the id-derived value only
+                    // coincidentally matches for top-level sections; nested sections
+                    // persist a BARE hash while their id carries the conversation_id
+                    // prefix, so an id-based lookup silently fails for them.
+                    var sectionKey = $el.attr('data-section-hash');
+                    var data = sectionKey ? response.section_details[sectionKey] : undefined;
+                    if (!data) {
+                        // Fallback for any legacy/edge sections keyed by the id.
+                        var sectionId = $el.attr('id');
+                        if (sectionId) {
+                            data = response.section_details[sectionId.replace(/^section-details-/, '')];
+                        }
+                    }
                     if (data && data.hidden) {
                         $el.prop('open', false);
+                    } else if (data && data.hidden === false) {
+                        $el.prop('open', true);
                     }
                 });
             }
