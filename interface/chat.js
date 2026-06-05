@@ -17,6 +17,27 @@ $(function() {
     });
 });
 
+// ---------- Recent Conversations count (left sidebar) ----------
+// Normalises the configured count (clamped to 1..50, default 10) and applies it
+// live to the sidebar's Recent Conversations section.
+function applyRecentConversationsCount(count) {
+    var n = parseInt(count, 10);
+    if (isNaN(n) || n < 1) { n = 10; }
+    if (n > 50) { n = 50; }
+    if (typeof WorkspaceManager !== 'undefined') {
+        WorkspaceManager._recentSectionCount = n;
+        if (typeof WorkspaceManager.renderRecentConversations === 'function') {
+            try { WorkspaceManager.renderRecentConversations(); } catch (e) {}
+        }
+    }
+    return n;
+}
+$(function() {
+    $('#settings-recent-conversations-count').on('change input', function() {
+        applyRecentConversationsCount($(this).val());
+    });
+});
+
 /**
  * Detects whether the current device is probably a mobile/touch-first device.
  *
@@ -633,6 +654,7 @@ function buildSettingsStateFromControlsOrDefaults() {
         enabled_tools: getSelectPickerValue('#settings-tool-selector', []),
         compact_nav: $('#settings-compact_nav').is(':checked') || false,
         default_temp_chat: $('#settings-default_temp_chat').is(':checked') || false,
+        recent_conversations_count: parseInt($('#settings-recent-conversations-count').val(), 10) || 10,
     };
     return state;
 }
@@ -677,6 +699,11 @@ function setModalFromState(state) {
     $('#settings-compact_nav').prop('checked', !!state.compact_nav);
     applyCompactNav(!!state.compact_nav);
     $('#settings-default_temp_chat').prop('checked', !!state.default_temp_chat);
+    var recentCount = (state.recent_conversations_count !== undefined && state.recent_conversations_count !== null)
+        ? state.recent_conversations_count
+        : 10;
+    $('#settings-recent-conversations-count').val(recentCount);
+    applyRecentConversationsCount(recentCount);
     // Restore tool selector — handle both new array format and legacy dict format
     if (Array.isArray(state.enabled_tools)) {
         $('#settings-tool-selector').val(state.enabled_tools);
@@ -789,6 +816,7 @@ function collectSettingsFromModal() {
         enabled_tools: getSelectPickerValue('#settings-tool-selector', []),
         compact_nav: $('#settings-compact_nav').is(':checked'),
         default_temp_chat: $('#settings-default_temp_chat').is(':checked'),
+        recent_conversations_count: parseInt($('#settings-recent-conversations-count').val(), 10) || 10,
         model_overrides: (window.chatSettingsState && window.chatSettingsState.model_overrides)
             ? window.chatSettingsState.model_overrides
             : undefined
@@ -1290,6 +1318,10 @@ function resetSettingsToDefaults() {
     $('#settings-linkInput').val('');
     $('#settings-searchInput').val('');
 
+    // Recent conversations count (sidebar)
+    $('#settings-recent-conversations-count').val(10);
+    applyRecentConversationsCount(10);
+
     // Conversation model overrides (reset for UI state)
     if (window.chatSettingsState) {
         delete window.chatSettingsState.model_overrides;
@@ -1364,7 +1396,8 @@ function computeDefaultStateForTab(tab) {
         field: getDefaultAgentForTab(tab),
         permanentText: '',
         links: '',
-        search: ''
+        search: '',
+        recent_conversations_count: 10
     };
 }
 
