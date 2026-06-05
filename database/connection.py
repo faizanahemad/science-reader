@@ -123,6 +123,7 @@ def create_tables(*, users_dir: str, logger: Optional[logging.Logger] = None) ->
                                     doubt_answer text,
                                     parent_doubt_id text,
                                     is_root_doubt boolean DEFAULT 1,
+                                    show_hide text,
                                     created_at text,
                                     updated_at text,
                                     FOREIGN KEY (parent_doubt_id) REFERENCES DoubtsClearing (doubt_id)
@@ -264,6 +265,15 @@ def create_tables(*, users_dir: str, logger: Optional[logging.Logger] = None) ->
     try:
         cur.execute("ALTER TABLE DoubtsClearing ADD COLUMN child_doubt_id text")
         log.info("Added child_doubt_id column to DoubtsClearing table")
+    except Exception:
+        # Column already exists or other error - this is fine
+        pass
+
+    # Add show_hide column if it doesn't exist (per-doubt collapse state for the
+    # doubt chat modal; NULL/empty is treated as expanded by the UI).
+    try:
+        cur.execute("ALTER TABLE DoubtsClearing ADD COLUMN show_hide text")
+        log.info("Added show_hide column to DoubtsClearing table")
     except Exception:
         # Column already exists or other error - this is fine
         pass

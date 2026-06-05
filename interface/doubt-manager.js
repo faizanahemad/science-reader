@@ -286,7 +286,7 @@ const DoubtManager = {
             messagesContainer.append(userCard);
             
             // Add assistant answer message
-            const assistantCard = this.createDoubtChatCard(doubt.doubt_answer, 'assistant', doubt.doubt_id);
+            const assistantCard = this.createDoubtChatCard(doubt.doubt_answer, 'assistant', doubt.doubt_id, doubt.show_hide || 'show');
             messagesContainer.append(assistantCard);
         });
         
@@ -295,9 +295,38 @@ const DoubtManager = {
     },
     
     /**
+     * Inject (idempotently) the [show]/[hide] collapse toggle into an assistant
+     * doubt card header and apply the collapsed state. Mirrors the main-answer
+     * show/hide. Safe to call repeatedly on the same card.
+     *
+     * @param {jQuery} card    - the .doubt-conversation-card element
+     * @param {string} doubtId - the saved doubt_id (enables persistence)
+     * @param {string} showHide - 'show' (expanded) or 'hide' (collapsed)
+     */
+    ensureDoubtAnswerToggle: function(card, doubtId, showHide) {
+        if (!card || !card.length || !card.hasClass('assistant-doubt')) return;
+        const $header = card.find('> .card-header').first();
+        if (!$header.length) return;
+
+        let $toggle = $header.find('.doubt-answer-collapse-toggle').first();
+        if (!$toggle.length) {
+            // Lay the header out as [ sender ............ toggle ].
+            $header.addClass('d-flex justify-content-between align-items-center');
+            $toggle = $('<a href="#" class="doubt-answer-collapse-toggle" title="Collapse / expand this answer">[hide]</a>');
+            $header.append($toggle);
+        }
+        if (doubtId) {
+            $toggle.attr('data-doubt-id', doubtId);
+        }
+        const collapsed = (showHide === 'hide');
+        card.toggleClass('doubt-answer-collapsed', collapsed);
+        $toggle.text(collapsed ? '[show]' : '[hide]');
+    },
+
+    /**
      * Create a chat card for doubt conversation
      */
-    createDoubtChatCard: function(text, sender, doubtId) {
+    createDoubtChatCard: function(text, sender, doubtId, showHide) {
         const isUser = sender === 'user';
         const senderClass = isUser ? 'user-doubt' : 'assistant-doubt';
         const senderText = isUser ? 'You' : 'Assistant';
@@ -349,7 +378,13 @@ const DoubtManager = {
                 }
             }, 50);
         }
-        
+
+        // Add the collapse (show/hide) toggle for long assistant answers, mirroring
+        // the main-answer show/hide. Restores the persisted state (default expanded).
+        if (!isUser && text && text.length > 300) {
+            this.ensureDoubtAnswerToggle(card, doubtId, showHide || 'show');
+        }
+
         return card;
     },
     
@@ -411,6 +446,31 @@ const DoubtManager = {
             e.stopPropagation();
             const doubtId = $(this).data('doubt-id');
             self.deleteDoubt(doubtId);
+        });
+
+        // Collapse / expand an assistant doubt answer (persisted per doubt).
+        $(document).off('click', '#doubt-chat-messages .doubt-answer-collapse-toggle').on('click', '#doubt-chat-messages .doubt-answer-collapse-toggle', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const $toggle = $(this);
+            const $card = $toggle.closest('.doubt-conversation-card');
+            const nowCollapsed = !$card.hasClass('doubt-answer-collapsed');
+            $card.toggleClass('doubt-answer-collapsed', nowCollapsed);
+            $toggle.text(nowCollapsed ? '[show]' : '[hide]');
+
+            // Persist (best-effort) — only once the doubt has a saved id.
+            const doubtId = $toggle.attr('data-doubt-id');
+            if (doubtId) {
+                fetch('/show_hide_doubt/' + encodeURIComponent(doubtId), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ show_hide: nowCollapsed ? 'hide' : 'show' })
+                }).then(function(r) {
+                    if (!r.ok) console.error('Failed to persist doubt show/hide:', r.status);
+                }).catch(function(err) {
+                    console.error('Failed to persist doubt show/hide:', err);
+                });
+            }
         });
     },
     
@@ -619,6 +679,18 @@ const DoubtManager = {
                         MathJax.Hub.Queue(["Typeset", MathJax.Hub, assistantBody[0]]);
                     }
                     
+                    // Inject the collapse (show/hide) toggle on the freshly-streamed
+                    // answer (expanded). data-doubt-id is set so the toggle persists.
+                    if (accumulatedText.length > 300) {
+                        setTimeout(function() {
+                            let toggleCard = storedCardId ? $('[data-card-id="' + storedCardId + '"]') : null;
+                            if (!toggleCard || !toggleCard.length) toggleCard = assistantCard;
+                            if (toggleCard && toggleCard.length) {
+                                self.ensureDoubtAnswerToggle(toggleCard, doubtId, 'show');
+                            }
+                        }, 60);
+                    }
+
                     // Add scroll-to-top button for streamed doubt response if long enough
                     console.log('=== DOUBT BUTTON ADDITION DEBUG ===');
                     console.log('Text length:', accumulatedText.length);
@@ -795,6 +867,18 @@ const DoubtManager = {
                             MathJax.Hub.Queue(["Typeset", MathJax.Hub, assistantBody[0]]);
                         }
                         
+                        // Inject the collapse (show/hide) toggle on the freshly-streamed
+                        // answer (expanded). data-doubt-id is set so the toggle persists.
+                        if (accumulatedText.length > 300) {
+                            setTimeout(function() {
+                                let toggleCard = storedCardId ? $('[data-card-id="' + storedCardId + '"]') : null;
+                                if (!toggleCard || !toggleCard.length) toggleCard = assistantCard;
+                                if (toggleCard && toggleCard.length) {
+                                    self.ensureDoubtAnswerToggle(toggleCard, doubtId, 'show');
+                                }
+                            }, 60);
+                        }
+
                         // Add scroll-to-top button when streaming completes via completed flag
                         console.log('=== DOUBT BUTTON ADDITION DEBUG (via completed flag) ===');
                         console.log('Text length:', accumulatedText.length);

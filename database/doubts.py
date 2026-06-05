@@ -162,9 +162,63 @@ def delete_doubt(*, doubt_id: str, users_dir: str | None = None, logger: logging
         conn.close()
 
 
+def update_doubt_show_hide(
+    *,
+    doubt_id: str,
+    show_hide: str,
+    users_dir: str | None = None,
+    logger: logging.Logger | None = None,
+) -> bool:
+    """
+    Persist the per-doubt collapse state for the doubt chat modal.
+
+    Parameters
+    ----------
+    doubt_id : str
+        The doubt record to update.
+    show_hide : str
+        Either ``"show"`` (expanded) or ``"hide"`` (collapsed).
+
+    Returns
+    -------
+    bool
+        True if a row was updated, False otherwise.
+    """
+
+    log = logger or logging.getLogger(__name__)
+    users_dir_resolved = _resolve_users_dir(users_dir)
+
+    # Normalise to the two accepted values; anything else is treated as expanded.
+    normalised = "hide" if str(show_hide).lower() == "hide" else "show"
+
+    conn = create_connection(_db_path(users_dir=users_dir_resolved))
+    try:
+        cur = conn.cursor()
+        now = datetime.now().isoformat()
+        cur.execute(
+            """
+            UPDATE DoubtsClearing
+            SET show_hide = ?, updated_at = ?
+            WHERE doubt_id = ?
+            """,
+            (normalised, now, doubt_id),
+        )
+        updated = cur.rowcount
+        conn.commit()
+        if updated > 0:
+            log.info(f"Updated show_hide={normalised} for doubt {doubt_id}")
+            return True
+        log.warning(f"No doubt found with ID {doubt_id} to update show_hide")
+        return False
+    except Exception as e:
+        log.error(f"Error updating doubt show_hide: {e}")
+        raise
+    finally:
+        conn.close()
+
+
 def get_doubt(*, doubt_id: str, users_dir: str | None = None, logger: logging.Logger | None = None):
     """Retrieve a doubt clearing record by doubt_id."""
-
     log = logger or logging.getLogger(__name__)
     users_dir_resolved = _resolve_users_dir(users_dir)
 
@@ -174,7 +228,7 @@ def get_doubt(*, doubt_id: str, users_dir: str | None = None, logger: logging.Lo
         cur.execute(
             """
             SELECT doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer,
-                   parent_doubt_id, is_root_doubt, created_at, updated_at
+                   parent_doubt_id, is_root_doubt, created_at, updated_at, show_hide
             FROM DoubtsClearing
             WHERE doubt_id = ?
             """,
@@ -193,6 +247,7 @@ def get_doubt(*, doubt_id: str, users_dir: str | None = None, logger: logging.Lo
                 "is_root_doubt": bool(row[7]),
                 "created_at": row[8],
                 "updated_at": row[9],
+                "show_hide": row[10] or "show",
             }
         return None
     except Exception as e:
@@ -214,7 +269,7 @@ def get_doubt_children(*, doubt_id: str, users_dir: str | None = None, logger: l
         cur.execute(
             """
             SELECT doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer,
-                   parent_doubt_id, is_root_doubt, created_at, updated_at
+                   parent_doubt_id, is_root_doubt, created_at, updated_at, show_hide
             FROM DoubtsClearing
             WHERE parent_doubt_id = ?
             ORDER BY created_at ASC
@@ -234,6 +289,7 @@ def get_doubt_children(*, doubt_id: str, users_dir: str | None = None, logger: l
                 "is_root_doubt": bool(row[7]),
                 "created_at": row[8],
                 "updated_at": row[9],
+                "show_hide": row[10] or "show",
             }
             for row in rows
         ]
@@ -291,7 +347,7 @@ def get_doubts_for_message(
             cur.execute(
                 """
                 SELECT doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer,
-                       parent_doubt_id, is_root_doubt, created_at, updated_at
+                       parent_doubt_id, is_root_doubt, created_at, updated_at, show_hide
                 FROM DoubtsClearing
                 WHERE conversation_id = ? AND message_id = ? AND user_email = ? AND is_root_doubt = 1
                 ORDER BY created_at DESC
@@ -302,7 +358,7 @@ def get_doubts_for_message(
             cur.execute(
                 """
                 SELECT doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer,
-                       parent_doubt_id, is_root_doubt, created_at, updated_at
+                       parent_doubt_id, is_root_doubt, created_at, updated_at, show_hide
                 FROM DoubtsClearing
                 WHERE conversation_id = ? AND message_id = ? AND is_root_doubt = 1
                 ORDER BY created_at DESC
@@ -323,6 +379,7 @@ def get_doubts_for_message(
                 "is_root_doubt": bool(row[7]),
                 "created_at": row[8],
                 "updated_at": row[9],
+                "show_hide": row[10] or "show",
             }
             for row in rows
         ]
@@ -355,7 +412,7 @@ def get_doubt_history(*, doubt_id: str, users_dir: str | None = None, logger: lo
             cur.execute(
                 """
                 SELECT doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer,
-                       parent_doubt_id, is_root_doubt, created_at, updated_at
+                       parent_doubt_id, is_root_doubt, created_at, updated_at, show_hide
                 FROM DoubtsClearing
                 WHERE doubt_id = ?
                 """,
@@ -377,6 +434,7 @@ def get_doubt_history(*, doubt_id: str, users_dir: str | None = None, logger: lo
                     "is_root_doubt": bool(row[7]),
                     "created_at": row[8],
                     "updated_at": row[9],
+                    "show_hide": row[10] or "show",
                 }
             )
             current_doubt_id = row[6]

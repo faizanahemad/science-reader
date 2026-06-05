@@ -51,6 +51,7 @@ Streaming response (newline-delimited JSON):
 **`GET /get_doubts/<conversation_id>/<message_id>`** — returns all doubt trees for a message  
 **`GET /get_doubt/<doubt_id>`** — fetch a single doubt record  
 **`DELETE /delete_doubt/<doubt_id>`** — delete with tree restructuring  
+**`POST /show_hide_doubt/<doubt_id>`** — persist a doubt answer card's collapse state (body `{ "show_hide": "show" | "hide" }`)  
 **`POST /cancel_doubt_clearing/<conversation_id>`** — cancel an in-progress stream
 
 ### Backend: `Conversation.clear_doubt()`
@@ -86,6 +87,7 @@ doubt_answer      — full LLM response (saved after streaming completes)
 parent_doubt_id   — NULL for root doubts; points to parent for follow-ups
 child_doubt_id    — forward pointer to next follow-up (singly linked)
 is_root_doubt     — 1 if no parent
+show_hide         — 'show' | 'hide' collapse state of the answer card in the doubt modal (NULL/empty = expanded)
 created_at
 updated_at
 ```
@@ -100,8 +102,19 @@ updated_at
 | `get_doubts_for_message()` | Fetches all root doubts for a message, then recursively builds full trees via `build_doubt_tree()` |
 | `get_doubt_history()` | Walks `parent_doubt_id` chain backwards to root, reverses → chronological thread for LLM context |
 | `delete_doubt()` | Deletes node and re-parents its children to its parent (linked-list deletion) |
+| `update_doubt_show_hide()` | Persists the per-doubt answer collapse state (`show`/`hide`) |
 
 **When is the answer saved?** Only after the full stream completes, in the `finally` block of the stream generator. If streaming is interrupted, a partial answer may still be saved if `accumulated_doubt_answer` is non-empty.
+
+### Answer Show/Hide (Collapse) in the Doubt Modal
+
+Assistant doubt answer cards in the doubt chat modal (`#doubt-chat-modal`) carry a `[show]`/`[hide]` collapse toggle in the card header, mirroring the main-answer show/hide. This keeps long threads (especially the auto-doubts, which can be lengthy) scannable.
+
+- **Where it appears:** assistant answer cards whose text is longer than 300 chars (the same threshold as the scroll-to-top button). User-question cards and short answers have no toggle. The overview preview cards (`createDoubtPreviewCard`) already truncate to 150 chars and are unaffected.
+- **Collapse behaviour:** toggling adds/removes the `doubt-answer-collapsed` class on the card, which hides the `.card-body` (and the answer's scroll-to-top button) via CSS.
+- **Persistence:** each toggle POSTs to `/show_hide_doubt/<doubt_id>` which calls `update_doubt_show_hide()`. State is restored when a thread is reopened (`renderDoubtHistory` passes `doubt.show_hide` into `createDoubtChatCard`).
+- **Defaults:** a `NULL`/empty `show_hide` is treated as **expanded**, so existing doubts and freshly-streamed answers render expanded; only an explicit user collapse persists as `hide`.
+- **Implementation:** `DoubtManager.ensureDoubtAnswerToggle(card, doubtId, showHide)` injects the toggle idempotently and applies the state. It is called from `createDoubtChatCard` (history render) and from both streaming-completion branches once the `doubt_id` is known. A document-delegated click handler in `setupChatEventHandlers` performs the toggle + persistence.
 
 ### Key Files
 

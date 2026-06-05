@@ -20,6 +20,7 @@ from database.doubts import (
     get_doubt_history,
     get_doubts_for_message,
     get_message_ids_with_doubts,
+    update_doubt_show_hide,
 )
 from endpoints.auth import login_required
 from endpoints.request_context import attach_keys, get_state_and_keys
@@ -419,6 +420,68 @@ def delete_doubt_route(doubt_id: str):
         )
     except Exception as e:
         logger.error(f"Error deleting doubt {doubt_id}: {str(e)}")
+        return json_error(str(e), status=500, code="internal_error")
+
+
+@doubts_bp.route("/show_hide_doubt/<doubt_id>", methods=["POST"])
+@limiter.limit("100 per minute")
+@login_required
+def show_hide_doubt_route(doubt_id: str):
+    """Persist the collapse (show/hide) state of a doubt answer card."""
+
+    email, _name, _loggedin = get_session_identity()
+    state = get_state()
+
+    try:
+        data = request.get_json(silent=True) or {}
+        show_hide = str(data.get("show_hide", "show")).lower()
+        if show_hide not in ("show", "hide"):
+            return json_error(
+                "show_hide must be 'show' or 'hide'",
+                status=400,
+                code="invalid_argument",
+                success=False,
+            )
+
+        doubt_record = get_doubt(
+            doubt_id=doubt_id, users_dir=state.users_dir, logger=logger
+        )
+        if not doubt_record:
+            return json_error(
+                "No doubt clearing found with this ID",
+                status=404,
+                code="doubt_not_found",
+                success=False,
+            )
+
+        if not checkConversationExists(
+            email, doubt_record["conversation_id"], users_dir=state.users_dir
+        ):
+            logger.warning(
+                f"User {email} attempted to update doubt {doubt_id} without permission"
+            )
+            return json_error(
+                "Conversation not found or access denied",
+                status=404,
+                code="conversation_not_found",
+            )
+
+        updated = update_doubt_show_hide(
+            doubt_id=doubt_id,
+            show_hide=show_hide,
+            users_dir=state.users_dir,
+            logger=logger,
+        )
+        if updated:
+            return jsonify({"success": True, "show_hide": show_hide})
+        return json_error(
+            "Failed to update doubt show/hide state",
+            status=500,
+            code="internal_error",
+            success=False,
+        )
+    except Exception as e:
+        logger.error(f"Error updating show_hide for doubt {doubt_id}: {str(e)}")
         return json_error(str(e), status=500, code="internal_error")
 
 

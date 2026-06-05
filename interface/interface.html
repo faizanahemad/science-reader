@@ -4758,6 +4758,29 @@ greet("World");</code></pre>
         font-size: 0.9rem;
         line-height: 1.4;
     }
+
+    /* Show/hide (collapse) toggle on assistant doubt answer cards */
+    .doubt-answer-collapse-toggle {
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: #007bff;
+        text-decoration: none;
+        cursor: pointer;
+        white-space: nowrap;
+        margin-left: 0.5rem;
+        flex: 0 0 auto;
+    }
+    .doubt-answer-collapse-toggle:hover {
+        color: #0056b3;
+        text-decoration: underline;
+    }
+    /* Collapsed: hide the answer body and its scroll-to-top button */
+    .doubt-conversation-card.doubt-answer-collapsed .card-body {
+        display: none;
+    }
+    .doubt-conversation-card.doubt-answer-collapsed .scroll-to-top-btn {
+        display: none !important;
+    }
     
     #doubt-chat-input {
         border: 2px solid #e9ecef;
