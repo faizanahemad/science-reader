@@ -2169,11 +2169,10 @@
                                                         <!-- <option>Google Behavioral Interview</option> -->
                                                         
                                                         <option>Short</option>
+                                                        <option>Deep Learn</option>
+                                                        <option>Software and ML Learning</option>
                                                         
-                                                        <option>Manager Assist Short</option>
-                                                        <option>Manager to Manager Framework</option>
-                                                        <option>Short Coding Interview</option>
-                                                        <option>No Code</option>
+                                                        
                                                         <option>ML Design Answer Short</option>
                                                         
                                                         <option>Argumentative</option>
@@ -2183,14 +2182,18 @@
                                                         <option>Diagram</option>
                                                         <option>Easy Copy</option>
                                                         <option>Creative</option>
-                                                        <option>Deep Learn</option>
+                                                        
+                                                        <option hidden>Manager Assist Short</option>
+                                                        <option hidden>Manager to Manager Framework</option>
+                                                        <option hidden>Short Coding Interview</option>
+                                                        <option hidden>No Code</option>
                                                         <option>No AI</option>
                                                         
                                                         
                                                         
                                                         <option>Relationship</option>
                                                         <option>Dating Maverick</option>
-                                                        <option>Manager Assist</option>
+                                                        <option hidden>Manager Assist</option>
                                                         <option>Debug LLM</option>
                                                     </optgroup>
                                                     <optgroup label="Custom Prompts" id="custom-prompts-group">
@@ -5087,10 +5090,15 @@ greet("World");</code></pre>
                     
                     // Filter out default prompts that are already in the default group
                     const defaultPrompts = [
-                        'No Links', 'Wife Prompt', 'Debug LLM', 'Short', 'Google GL', 'Google Behavioral Interview',
-                        'Short Coding Interview', 'No Code', 'ML Design Answer Short',
-                        'Argumentative', 'Blackmail', 'More Related Coding Questions',
-                        'Diagram', 'Easy Copy', 'Creative', 'Explore',
+                        'No Links', 'Wife Prompt', 'Debug LLM', 'Short', 
+                        // 'Google GL', 'Google Behavioral Interview', 
+                        'Software and ML Learning', 'Deep Learn',
+                        // 'Short Coding Interview', 'No Code', 
+                        'ML Design Answer Short',
+                        'Argumentative', 
+                        // 'Blackmail', 'More Related Coding Questions',
+                        'Diagram', 'Creative', 
+                        // 'Easy Copy', 'Explore', 
                         'Relationship', 'Dating Maverick'
                     ];
                     

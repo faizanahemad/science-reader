@@ -6181,6 +6181,8 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             preamble += dating_maverick_prompt
         if "Deep Learn" in preamble_options:
             preamble += preamble_deep_learn
+        if "Software and ML Learning" in preamble_options:
+            preamble += preamble_software_and_ml_learning
         if "More Related Coding Questions" in preamble_options:
             preamble += more_related_questions_prompt
 
