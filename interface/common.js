@@ -1511,22 +1511,52 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
         const messageId = cardElem.find('.card-header').last().attr('message-id');
         const messageIndex = cardElem.find('.card-header').last().attr('message-index');
         const targetCardElem = cardElem;
-        
-        // Use the new MarkdownEditorManager for enhanced editing experience
-        if (typeof MarkdownEditorManager !== 'undefined') {
-            MarkdownEditorManager.openEditor(text, function(newtext) {
-                ConversationManager.saveMessageEditText(newtext, messageId, messageIndex, targetCardElem);
+        const conversationId = ConversationManager.activeConversationId;
+        const fallbackText = text;
+
+        // Open the editor with the supplied source text.
+        function openEditorWith(sourceText) {
+            // Use the new MarkdownEditorManager for enhanced editing experience
+            if (typeof MarkdownEditorManager !== 'undefined') {
+                MarkdownEditorManager.openEditor(sourceText, function(newtext) {
+                    ConversationManager.saveMessageEditText(newtext, messageId, messageIndex, targetCardElem);
+                });
+            } else {
+                // Fallback to original behavior if MarkdownEditorManager is not loaded
+                $('#message-edit-text').val(sourceText);
+                $('#message-edit-modal').modal('show');
+                $('#message-edit-text-save-button').off();
+                $('#message-edit-text-save-button').click(function () {
+                    var newtext = $('#message-edit-text').val();
+                    ConversationManager.saveMessageEditText(newtext, messageId, messageIndex, targetCardElem);
+                    $('#message-edit-modal').modal('hide');
+                });
+            }
+        }
+
+        // Prefer the PERSISTED message text (single source of truth) over the live
+        // card text. The live text accumulated during streaming includes display-only
+        // blocks that the backend never saves (e.g. the "PKB Retrieval Details"
+        // collapsible and <tool_calls_summary>); editing the live text would re-save
+        // that junk. Fetching the stored text mirrors what a page reload shows.
+        // Fall back to the live card text when the message isn't persisted yet
+        // (e.g. temporary/stateless chats) or the fetch fails.
+        if (conversationId && messageId && messageId !== 'undefined') {
+            $.ajax({
+                url: '/get_message_text/' + encodeURIComponent(conversationId) + '/' + encodeURIComponent(messageId),
+                type: 'GET',
+                dataType: 'json',
+                success: function (resp) {
+                    var storedText = (resp && typeof resp.text === 'string') ? resp.text : fallbackText;
+                    openEditorWith(storedText);
+                },
+                error: function () {
+                    // Not persisted (temp chat) or transient error — edit the live text.
+                    openEditorWith(fallbackText);
+                }
             });
         } else {
-            // Fallback to original behavior if MarkdownEditorManager is not loaded
-            $('#message-edit-text').val(text);
-            $('#message-edit-modal').modal('show');
-            $('#message-edit-text-save-button').off();
-            $('#message-edit-text-save-button').click(function () {
-                var newtext = $('#message-edit-text').val();
-                ConversationManager.saveMessageEditText(newtext, messageId, messageIndex, targetCardElem);
-                $('#message-edit-modal').modal('hide');
-            });
+            openEditorWith(fallbackText);
         }
     });
 

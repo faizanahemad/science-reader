@@ -489,6 +489,63 @@ def edit_message_from_conversation(conversation_id: str, message_id: str, index:
     return jsonify({"message": f"Message {message_id} deleted"})
 
 
+@conversations_bp.route(
+    "/get_message_text/<conversation_id>/<message_id>",
+    methods=["GET"],
+)
+@limiter.limit("120 per minute")
+@login_required
+def get_message_text(conversation_id: str, message_id: str):
+    """Return the persisted text of a single message.
+
+    This is the canonical source of truth for a message body. The UI uses it to
+    populate the edit dialog so that display-only content streamed during a turn
+    (e.g. the "PKB Retrieval Details" collapsible or ``<tool_calls_summary>``
+    blocks) — which is intentionally NOT saved to the backend — cannot leak into
+    an edit and get re-persisted as junk. The stored text already contains the
+    persisted parts (such as the ``<answer_tldr>`` collapsible), so editing it is
+    consistent with what a page reload would show.
+
+    Parameters
+    ----------
+    conversation_id : str
+        The conversation that owns the message.
+    message_id : str
+        The id of the message whose stored text is requested.
+
+    Returns
+    -------
+    flask.Response
+        JSON ``{"message_id", "index", "text"}`` on success, or a JSON error with
+        a 404 status if the conversation or message does not exist.
+    """
+    email, _name, _loggedin = get_session_identity()
+    keys = keyParser(session)
+
+    state = get_state()
+    if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
+        return json_error(
+            "Conversation not found", status=404, code="conversation_not_found"
+        )
+
+    conversation = get_conversation_with_keys(
+        state, conversation_id=conversation_id, keys=keys
+    )
+    message, index = conversation.get_message_by_id(message_id)
+    if message is None:
+        return json_error(
+            "Message not found", status=404, code="message_not_found"
+        )
+
+    return jsonify(
+        {
+            "message_id": message_id,
+            "index": index,
+            "text": message.get("text", ""),
+        }
+    )
+
+
 @conversations_bp.route("/move_messages_up_or_down/<conversation_id>", methods=["POST"])
 @limiter.limit("30 per minute")
 @login_required
