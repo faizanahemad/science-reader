@@ -707,30 +707,47 @@ var ConversationManager = {
             restorePromise = $.Deferred().resolve(null).promise();
         }
 
-        var messagesRequest = ChatManager.listMessages(conversationId);
+        var messagesRequest = ChatManager.listMessages(conversationId, true);
 
         $.when(restorePromise, messagesRequest).done(function (snapshotMeta, messages) {
             // When used inside $.when, a jQuery.ajax success value becomes:
             //   messages = [data, statusText, jqXHR]
-            // where `data` is the actual list of message objects.
-            var msgList = [];
+            // where `data` is either the message array (legacy shape) or, with
+            // include_ui_state=true, an object { messages, section_details }.
+            var payload = messages;
             try {
-                if (Array.isArray(messages)) {
-                    // Detect the $.when(jqXHR) tuple shape.
-                    if (messages.length === 3 && Array.isArray(messages[0]) && typeof messages[1] === 'string') {
-                        msgList = messages[0];
-                    } else {
-                        // Normal case: already an array of message objects
-                        msgList = messages;
+                if (Array.isArray(messages) && messages.length === 3 && typeof messages[1] === 'string') {
+                    payload = messages[0];
+                }
+            } catch (_e) { payload = messages; }
+
+            var msgList = [];
+            var sectionDetails = {};
+            try {
+                if (Array.isArray(payload)) {
+                    // Legacy bare-array shape.
+                    msgList = payload;
+                } else if (payload && typeof payload === 'object') {
+                    if (Array.isArray(payload.messages)) {
+                        msgList = payload.messages;
+                        sectionDetails = payload.section_details || {};
+                    } else if (Array.isArray(payload[0])) {
+                        msgList = payload[0];
                     }
-                } else if (messages && Array.isArray(messages[0])) {
-                    msgList = messages[0];
-                } else {
-                    msgList = [];
                 }
             } catch (_e) {
                 msgList = [];
             }
+
+            // Populate the UI-state cache BEFORE rendering so section/answer collapse
+            // is applied synchronously at render time (no expand-then-collapse flash)
+            // and so the debounced fetchConversationUIState / snapshot restore can read
+            // it instead of making a second backend call.
+            try {
+                if (window.ConversationUIState) {
+                    window.ConversationUIState.setFromList(conversationId, msgList, sectionDetails);
+                }
+            } catch (_e) { /* ignore */ }
 
             var keepSnapshot = false;
             try {
@@ -2283,9 +2300,16 @@ function setupPaperclipAndPageDrop(conversationId) {
 
 var ChatManager = {
     shownDoc: null,
-    listMessages: function (conversationId) {
+    listMessages: function (conversationId, includeUiState) {
+        var url = '/list_messages_by_conversation/' + conversationId;
+        if (includeUiState) {
+            // Fold section-collapse state into the response so the load flow reaches
+            // final rendered state in ONE round trip (and one server-side conversation
+            // load). Per-message show_hide already ships in each message object.
+            url += '?include_ui_state=true';
+        }
         return $.ajax({
-            url: '/list_messages_by_conversation/' + conversationId,
+            url: url,
             type: 'GET'
         });
     },

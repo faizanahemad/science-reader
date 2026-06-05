@@ -1445,6 +1445,9 @@ function showMore(parentElem, text = null, textElem = null, as_html = false, sho
             var show_hide = moreText.is(':visible') ? 'show' : 'hide';
             var message_id = server_side.message_id;
             var conversation_id = ConversationManager.activeConversationId;
+            if (window.ConversationUIState) {
+                window.ConversationUIState.updateMessage(conversation_id, message_id, show_hide);
+            }
             
             // Make API call to save show/hide state
             apiCall(`/show_hide_message_from_conversation/${conversation_id}/${message_id}/0`, 'POST', {
@@ -2188,6 +2191,9 @@ $(document).on('click', '.show-more', function(e) {
             var convId = ConversationManager.activeConversationId;
             if (convId) {
                 var showHide = $moreText.is(':visible') ? 'show' : 'hide';
+                if (window.ConversationUIState) {
+                    window.ConversationUIState.updateMessage(convId, messageId, showHide);
+                }
                 apiCall('/show_hide_message_from_conversation/' + convId + '/' + messageId + '/0', 'POST', {
                     'show_hide': showHide
                 }).done(function() {
@@ -3638,6 +3644,9 @@ $(document).on('click', '.model-tabs-collapse-toggle, .model-tabs-collapse-toggl
     var ids = getTabsAnswerIds($container);
     if (ids.conversationId && ids.messageId) {
         var show_hide = nowCollapsed ? 'hide' : 'show';
+        if (window.ConversationUIState) {
+            window.ConversationUIState.updateMessage(ids.conversationId, ids.messageId, show_hide);
+        }
         apiCall('/show_hide_message_from_conversation/' + ids.conversationId + '/' + ids.messageId + '/0',
             'POST', { 'show_hide': show_hide })
             .fail(function(xhr, status, error) {
@@ -3793,89 +3802,147 @@ function fetchAndApplySectionStates(conversation_id, elem_to_render_in) {
     });
 }
 
+// ============================================================================
+// Conversation UI-state cache
+// ----------------------------------------------------------------------------
+// Section-collapse states + per-message show/hide are needed to render a
+// conversation in its FINAL state. To avoid a second backend round trip (and a
+// second full conversation load on the server), this state is folded into the
+// /list_messages_by_conversation?include_ui_state=true response and stashed
+// here. Render-time code reads it to paint sections/answers already collapsed
+// (no expand-then-collapse flash), and fetchConversationUIState() reads it
+// instead of hitting the network. User toggles keep it fresh so it stays
+// authoritative for the whole session.
+// ============================================================================
+window.ConversationUIState = window.ConversationUIState || {
+    _cache: {},
+    /** Populate from a list_messages payload: per-message show_hide + section map. */
+    setFromList: function(convId, msgList, sectionDetails) {
+        if (!convId) return;
+        var messageShowHide = {};
+        (msgList || []).forEach(function(m) {
+            if (m && m.message_id) { messageShowHide[m.message_id] = m.show_hide || 'show'; }
+        });
+        this._cache[convId] = { section_details: sectionDetails || {}, message_show_hide: messageShowHide };
+    },
+    /** Populate from an explicit {section_details, message_show_hide} (network shape). */
+    set: function(convId, sectionDetails, messageShowHide) {
+        if (!convId) return;
+        this._cache[convId] = { section_details: sectionDetails || {}, message_show_hide: messageShowHide || {} };
+    },
+    has: function(convId) { return !!(convId && this._cache[convId]); },
+    get: function(convId) { return this._cache[convId]; },
+    updateSection: function(convId, sectionHash, hidden) {
+        if (!convId || !sectionHash) return;
+        var e = this._cache[convId] || (this._cache[convId] = { section_details: {}, message_show_hide: {} });
+        e.section_details[sectionHash] = { hidden: !!hidden };
+    },
+    updateMessage: function(convId, messageId, showHide) {
+        if (!convId || !messageId) return;
+        var e = this._cache[convId] || (this._cache[convId] = { section_details: {}, message_show_hide: {} });
+        e.message_show_hide[messageId] = showHide;
+    }
+};
+
+/**
+ * Apply conversation UI state (section collapse + message show/hide) to the DOM.
+ * Pure DOM work — no network. Shared by the render-time path, the snapshot-restore
+ * path, and fetchConversationUIState (cache or network).
+ *
+ * @param {Object} section_details   — { data-section-hash : {hidden: bool} }
+ * @param {Object} message_show_hide — { message_id : 'show' | 'hide' }
+ * @param {HTMLElement|jQuery} elem_to_render_in
+ */
+function applyConversationUIState(section_details, message_show_hide, elem_to_render_in) {
+    var $container = $(elem_to_render_in);
+
+    // --- Section collapse states ---
+    if (section_details) {
+        $container.find('.section-details').each(function() {
+            var $el = $(this);
+            // Key MUST match the persist key = data-section-hash (see persistSectionState
+            // and friends). The id-derived value only coincidentally matches for
+            // top-level sections; nested sections persist a bare hash.
+            var sectionKey = $el.attr('data-section-hash');
+            var data = sectionKey ? section_details[sectionKey] : undefined;
+            if (!data) {
+                var sectionId = $el.attr('id');
+                if (sectionId) { data = section_details[sectionId.replace(/^section-details-/, '')]; }
+            }
+            if (data && data.hidden) {
+                $el.prop('open', false);
+            } else if (data && data.hidden === false) {
+                $el.prop('open', true);
+            }
+        });
+    }
+
+    // --- Message show/hide states ---
+    if (message_show_hide) {
+        Object.keys(message_show_hide).forEach(function(messageId) {
+            var showHide = message_show_hide[messageId];
+            var $header = $container.find('.card-header[message-id="' + messageId + '"]');
+            if (!$header.length) return;
+            var $card = $header.closest('.card.message-card');
+            // Tabbed responses: collapse the tab CONTENT via the dedicated toggle path
+            // (the #message-render-space / .more-text source is force-hidden under tabs).
+            var $tabsContainer = $card.find('.model-tabs-container').first();
+            if ($tabsContainer.length) {
+                if (typeof ensureTabsAnswerToggle === 'function') {
+                    try { ensureTabsAnswerToggle($tabsContainer); } catch (e) { /* ignore */ }
+                }
+                if (typeof applyTabsCollapsedState === 'function') {
+                    applyTabsCollapsedState($tabsContainer, showHide === 'hide');
+                }
+                return;
+            }
+            var $moreText = $card.find('.more-text');
+            var $lessText = $card.find('.less-text');
+            var $showMoreLinks = $card.find('.show-more');
+            if (!$moreText.length) return;
+
+            if (showHide === 'show') {
+                $moreText.show();
+                $lessText.hide();
+                $showMoreLinks.each(function() { $(this).text('[hide]'); });
+            } else if (showHide === 'hide') {
+                $moreText.hide();
+                $lessText.show();
+                $showMoreLinks.each(function() { $(this).text('[show]'); });
+            }
+        });
+    }
+}
+
 /**
  * Unified fetch for conversation UI state — section collapse states AND
- * message show/hide in a single API call.  Replaces the separate
- * fetchAndApplySectionStates + per-message show_hide restore flow.
+ * message show/hide.  Cache-first: when the state was already delivered via
+ * /list_messages_by_conversation?include_ui_state=true it applies from the
+ * client cache with NO network call (avoiding a redundant second conversation
+ * load on the server). Falls back to /get_conversation_ui_state otherwise.
  *
  * @param {string} conversation_id
- * @param {HTMLElement} elem_to_render_in  — container to apply section states to (usually #chatView)
+ * @param {HTMLElement} elem_to_render_in  — container to apply states to (usually #chatView)
  */
 function fetchConversationUIState(conversation_id, elem_to_render_in) {
     if (!conversation_id || MOCK_SECTION_STATE_API) return;
+
+    // Cache-first — no second backend conversation load.
+    if (window.ConversationUIState && window.ConversationUIState.has(conversation_id)) {
+        var entry = window.ConversationUIState.get(conversation_id);
+        applyConversationUIState(entry.section_details, entry.message_show_hide, elem_to_render_in);
+        return;
+    }
 
     $.ajax({
         url: '/get_conversation_ui_state/' + encodeURIComponent(conversation_id),
         method: 'GET',
         success: function(response) {
             if (!response) return;
-
-            // --- Apply section hidden states ---
-            if (response.section_details) {
-                var $container = $(elem_to_render_in);
-                $container.find('.section-details').each(function() {
-                    var $el = $(this);
-                    // The restore key MUST match the key used when persisting, which is
-                    // the section's data-section-hash (see persistSectionState /
-                    // closeSectionDetails / the .close-section-btn handler /
-                    // attachSectionListeners). Keying off the id-derived value only
-                    // coincidentally matches for top-level sections; nested sections
-                    // persist a BARE hash while their id carries the conversation_id
-                    // prefix, so an id-based lookup silently fails for them.
-                    var sectionKey = $el.attr('data-section-hash');
-                    var data = sectionKey ? response.section_details[sectionKey] : undefined;
-                    if (!data) {
-                        // Fallback for any legacy/edge sections keyed by the id.
-                        var sectionId = $el.attr('id');
-                        if (sectionId) {
-                            data = response.section_details[sectionId.replace(/^section-details-/, '')];
-                        }
-                    }
-                    if (data && data.hidden) {
-                        $el.prop('open', false);
-                    } else if (data && data.hidden === false) {
-                        $el.prop('open', true);
-                    }
-                });
+            if (window.ConversationUIState) {
+                window.ConversationUIState.set(conversation_id, response.section_details || {}, response.message_show_hide || {});
             }
-
-            // --- Apply message show/hide states ---
-            if (response.message_show_hide) {
-                var $chatView = $(elem_to_render_in);
-                Object.keys(response.message_show_hide).forEach(function(messageId) {
-                    var showHide = response.message_show_hide[messageId];
-                    var $header = $chatView.find('.card-header[message-id="' + messageId + '"]');
-                    if (!$header.length) return;
-                    var $card = $header.closest('.card.message-card');
-                    // Tabbed responses: collapse the tab CONTENT via the dedicated
-                    // toggle path (the #message-render-space / .more-text source is
-                    // force-hidden under tabs, so the legacy logic below is a no-op).
-                    var $tabsContainer = $card.find('.model-tabs-container').first();
-                    if ($tabsContainer.length) {
-                        if (typeof ensureTabsAnswerToggle === 'function') {
-                            try { ensureTabsAnswerToggle($tabsContainer); } catch (e) { /* ignore */ }
-                        }
-                        if (typeof applyTabsCollapsedState === 'function') {
-                            applyTabsCollapsedState($tabsContainer, showHide === 'hide');
-                        }
-                        return;
-                    }
-                    var $moreText = $card.find('.more-text');
-                    var $lessText = $card.find('.less-text');
-                    var $showMoreLinks = $card.find('.show-more');
-                    if (!$moreText.length) return;
-
-                    if (showHide === 'show') {
-                        $moreText.show();
-                        $lessText.hide();
-                        $showMoreLinks.each(function() { $(this).text('[hide]'); });
-                    } else if (showHide === 'hide') {
-                        $moreText.hide();
-                        $lessText.show();
-                        $showMoreLinks.each(function() { $(this).text('[show]'); });
-                    }
-                });
-            }
+            applyConversationUIState(response.section_details, response.message_show_hide, elem_to_render_in);
         },
         error: function(xhr, status, error) {
             console.error('Failed to fetch conversation UI state:', error);
@@ -3891,6 +3958,11 @@ function persistSectionState(conversation_id, sectionHash, isHidden) {
     
     const sectionDetails = {};
     sectionDetails[sectionHash] = { hidden: isHidden };
+    // Keep the client UI-state cache authoritative so a later cache-first
+    // fetchConversationUIState / re-render doesn't revert this toggle.
+    if (window.ConversationUIState) {
+        window.ConversationUIState.updateSection(conversation_id, sectionHash, isHidden);
+    }
     
     $.ajax({
         url: '/update_section_hidden_details',
@@ -4650,8 +4722,33 @@ ${innerSectionRendered}
     if (immediate_callback) {
         immediate_callback();
     }
-    
-    // NOTE: Scroll restoration is handled at the outermost level in common-chat.js streaming handler.
+
+    // Paint sections in their FINAL collapsed/expanded state synchronously — before
+    // the browser paints — using the cached UI state folded into the list_messages
+    // response. This removes the expand-then-collapse flash that the debounced
+    // fetchConversationUIState (below) otherwise caused. No-op while streaming or
+    // when the cache is empty (the debounced call then handles it). Scoped to the
+    // card body so it also covers section clones inside a .model-tabs-container.
+    if (!continuous && !MOCK_SECTION_STATE_API) {
+        try {
+            var _uiConvId = (typeof ConversationManager !== 'undefined' && ConversationManager && ConversationManager.getActiveConversation && ConversationManager.getActiveConversation() != '') ? ConversationManager.getActiveConversation() : '';
+            if (_uiConvId && window.ConversationUIState && window.ConversationUIState.has(_uiConvId)) {
+                var _uiEntry = window.ConversationUIState.get(_uiConvId);
+                // Scope to the whole message card so BOTH section collapse and the
+                // tabbed-answer collapse paint in their final state. applyModelResponseTabs
+                // runs synchronously inside showMore() (the immediate_callback above), so
+                // any .model-tabs-container already exists at this point. Non-tabbed
+                // messages were already placed in final state via showMore's show_at_start,
+                // so re-applying here is a harmless idempotent no-op.
+                var $_uiCard = $(elem_to_render_in).closest('.card.message-card');
+                var _uiScope = $_uiCard.length
+                    ? $_uiCard
+                    : ($(elem_to_render_in).closest('.chat-card-body').length ? $(elem_to_render_in).closest('.chat-card-body') : elem_to_render_in);
+                applyConversationUIState(_uiEntry.section_details, _uiEntry.message_show_hide, _uiScope);
+            }
+        } catch (e) { /* ignore */ }
+    }
+
     
     // Defer non-critical DOM operations to avoid blocking the main thread
     // Use requestAnimationFrame for operations that need to happen soon but shouldn't block

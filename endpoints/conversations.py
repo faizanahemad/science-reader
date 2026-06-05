@@ -130,6 +130,33 @@ def list_messages_by_conversation(conversation_id: str):
         get_state(), conversation_id=conversation_id, keys=keys
     )
     messages = conversation.get_message_list()
+
+    # Optionally fold the conversation UI state into this response so the UI can
+    # reach its final rendered state from a SINGLE round trip (and a SINGLE
+    # backend conversation load). Message show/hide already ships per-message in
+    # `messages` (the `show_hide` field), so we only need to attach the section
+    # collapse states, which live in a separate table. This lets the client skip
+    # the otherwise-redundant /get_conversation_ui_state call, which re-loads and
+    # re-decrypts the conversation purely to re-extract `show_hide`.
+    include_ui_state = str(request.args.get("include_ui_state", "")).lower() in (
+        "1",
+        "true",
+        "yes",
+    )
+    if include_ui_state:
+        try:
+            from database.sections import get_all_section_hidden_details
+
+            section_details = get_all_section_hidden_details(
+                conversation_id=conversation_id,
+                users_dir=get_state().users_dir,
+                logger=logger,
+            )
+        except Exception as e:  # pragma: no cover - defensive
+            logger.error(f"Failed to load section_details for {conversation_id}: {e}")
+            section_details = {}
+        return jsonify({"messages": messages, "section_details": section_details})
+
     return jsonify(messages)
 
 
