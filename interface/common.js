@@ -3576,6 +3576,30 @@ function applyTabsCollapsedState($container, collapsed) {
 }
 
 /**
+ * Position the bottom collapse toggle just to the LEFT of the scroll-to-top
+ * button. The scroll-to-top button is absolutely positioned at right:5px, so the
+ * toggle's right offset must clear the button's full measured width PLUS that 5px
+ * base, plus a small gap. Measured each call because the scroll button may be
+ * appended AFTER the toggle in the same render tick.
+ *
+ * @param {jQuery} $card - the .card containing both controls
+ */
+function positionTabsBottomToggle($card) {
+    if (!$card || !$card.length) return;
+    var $btn = $card.find('> .model-tabs-collapse-toggle-bottom').first();
+    if (!$btn.length) return;
+    var $scrollBtn = $card.find('> .scroll-to-top-btn').first();
+    // Fallback (used only momentarily before the scroll button exists/measures);
+    // generous enough to clear the wide "↑ Top of Answer" button.
+    var rightOffset = 150;
+    if ($scrollBtn.length) {
+        // 5px = scroll button's own right offset; +10px gap between the two.
+        rightOffset = 5 + ($scrollBtn.outerWidth(true) || 120) + 10;
+    }
+    $btn.css('right', rightOffset + 'px');
+}
+
+/**
  * Idempotently inject the collapse toggles for a tabs container and re-apply the
  * persisted collapsed state. Safe to call on every render.
  *
@@ -3603,19 +3627,21 @@ function ensureTabsAnswerToggle($container) {
 
     // --- Bottom toggle (left of the scroll-to-top button) ---
     var $card = $container.closest('.card');
-    if ($card.length && !$card.find('> .model-tabs-collapse-toggle-bottom').length) {
-        var $btn = $('<button type="button" class="model-tabs-collapse-toggle-bottom" title="Collapse / expand this answer">[hide]</button>');
-        if (($card.css('position') || 'static') === 'static') {
-            $card.css('position', 'relative');
+    if ($card.length) {
+        if (!$card.find('> .model-tabs-collapse-toggle-bottom').length) {
+            var $btn = $('<button type="button" class="model-tabs-collapse-toggle-bottom" title="Collapse / expand this answer">[hide]</button>');
+            if (($card.css('position') || 'static') === 'static') {
+                $card.css('position', 'relative');
+            }
+            $card.append($btn);
         }
-        // Sit to the left of the scroll-to-top button if it's present, else a sane default.
-        var rightOffset = 130;
-        var $scrollBtn = $card.find('> .scroll-to-top-btn').first();
-        if ($scrollBtn.length) {
-            rightOffset = ($scrollBtn.outerWidth(true) || 110) + 12;
-        }
-        $btn.css('right', rightOffset + 'px');
-        $card.append($btn);
+        // (Re)position relative to the scroll-to-top button. Do it now AND on the
+        // next frame: the scroll-to-top button is frequently appended AFTER this
+        // runs in the same render tick, so the synchronous pass may not see it yet
+        // and would fall back to the default offset (causing the toggle to overlay
+        // the button). The rAF pass runs before paint, so it never visibly overlaps.
+        positionTabsBottomToggle($card);
+        requestAnimationFrame(function() { positionTabsBottomToggle($card); });
     }
 
     // Re-apply persisted collapsed state (data-answer-collapsed survives re-renders).
