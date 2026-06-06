@@ -895,7 +895,13 @@ function saveConversationModelOverrides(conversationId) {
         contentType: 'application/json',
         data: JSON.stringify({ model_overrides: overrides }),
         success: function () {
-            ConversationManager.conversationSettings = { model_overrides: overrides };
+            // Merge (don't replace) so we keep other cached settings such as
+            // opencode_config — the backend now does a partial update too.
+            ConversationManager.conversationSettings = Object.assign(
+                {},
+                ConversationManager.conversationSettings || {},
+                { model_overrides: overrides }
+            );
             if (window.chatSettingsState) {
                 window.chatSettingsState.model_overrides = overrides;
             }

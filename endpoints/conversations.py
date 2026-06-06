@@ -262,11 +262,15 @@ def _dedupe_models(models: list[str]) -> list[str]:
     return deduped
 
 
-@conversations_bp.route("/model_catalog", methods=["GET"])
-@limiter.limit("300 per minute")
-@login_required
-def get_model_catalog():
-    models = _dedupe_models(
+def _catalog_model_list() -> list:
+    """Deduped union of every model offered in the model-override UI dropdowns.
+
+    This is the single source of truth for which models the UI exposes. The
+    ``/model_catalog`` endpoint and the ``set_conversation_settings`` validator
+    both use it so that any model a user can pick in the dropdown is also
+    accepted on save (see ``set_conversation_settings``).
+    """
+    return _dedupe_models(
         SUPERFAST_LLM
         + VERY_CHEAP_LLM
         + CHEAP_LLM
@@ -274,6 +278,13 @@ def get_model_catalog():
         + CHEAP_LONG_CONTEXT_LLM
         + LONG_CONTEXT_LLM
     )
+
+
+@conversations_bp.route("/model_catalog", methods=["GET"])
+@limiter.limit("300 per minute")
+@login_required
+def get_model_catalog():
+    models = _catalog_model_list()
     defaults = {
         "conversation_internal_model": SUPERFAST_LLM[0],
         "quick_action_model": SUPERFAST_LLM[0],
@@ -320,6 +331,10 @@ def set_conversation_settings(conversation_id: str):
         state, conversation_id=conversation_id, keys=keys
     )
     payload = request.json if request.is_json and request.json else {}
+    # Partial update: only fields explicitly present in the payload are written.
+    # This prevents one settings modal (e.g. OpenCode) from clobbering another's
+    # settings (e.g. model_overrides) just because it didn't send them.
+    has_model_overrides = "model_overrides" in payload
     model_overrides = payload.get("model_overrides")
     if model_overrides is None:
         model_overrides = {}
@@ -338,6 +353,7 @@ def set_conversation_settings(conversation_id: str):
         "clarify_intent_model",
         "pkb_nl_model",
     }
+    catalog_models = set(_catalog_model_list())
     normalized_overrides = {}
     for key, value in model_overrides.items():
         if key not in allowed_keys:
@@ -350,11 +366,17 @@ def set_conversation_settings(conversation_id: str):
         try:
             normalized_overrides[key] = model_name_to_canonical_name(value_str)
         except Exception:
-            return json_error(
-                f"Model name {value_str} not found in the list",
-                status=400,
-                code="invalid_model",
-            )
+            # The legacy canonicalizer doesn't know every model. Accept any value
+            # the model catalog actually offers (the same list that populates the
+            # UI dropdowns) so newly-added models can be selected without a 400.
+            if value_str in catalog_models:
+                normalized_overrides[key] = value_str
+            else:
+                return json_error(
+                    f"Model name {value_str} not found in the list",
+                    status=400,
+                    code="invalid_model",
+                )
 
     # --- opencode_config (optional) ---
     opencode_config = payload.get("opencode_config")
@@ -411,7 +433,8 @@ def set_conversation_settings(conversation_id: str):
         validated_oc = None
     existing = conversation.get_conversation_settings()
     updated = dict(existing) if isinstance(existing, dict) else {}
-    updated["model_overrides"] = normalized_overrides
+    if has_model_overrides:
+        updated["model_overrides"] = normalized_overrides
     if validated_oc is not None:
         updated["opencode_config"] = validated_oc
     conversation.set_conversation_settings(updated, overwrite=True)
