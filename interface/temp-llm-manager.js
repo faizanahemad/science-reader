@@ -157,6 +157,47 @@ const TempLLMManager = {
             self.currentSelection = '';
             self.currentMessageContext = null;
         });
+
+        // Copy a card's text (user prompt or assistant answer).
+        $(document).off('click', '#temp-llm-messages .temp-llm-copy-btn').on('click', '#temp-llm-messages .temp-llm-copy-btn', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            self.copyCardText($(this).closest('.temp-llm-card'));
+        });
+    },
+
+    /**
+     * Copy a temp-LLM card's text to the clipboard. Prefers the stashed raw
+     * markdown/plain text; falls back to the rendered body's text.
+     *
+     * @param {jQuery} $card - the .temp-llm-card element
+     */
+    copyCardText: function($card) {
+        if (!$card || !$card.length) return;
+        let text = $card.data('rawText');
+        if (!text) {
+            const $body = $card.find('.card-body').first();
+            text = $body.length ? ($body[0].innerText || $body.text() || '') : '';
+        }
+        const ok = function() { if (typeof showToast === 'function') showToast('Copied to clipboard', 'success'); };
+        const bad = function() { if (typeof showToast === 'function') showToast('Failed to copy', 'error'); };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(ok).catch(bad);
+        } else {
+            try {
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.position = 'fixed';
+                ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+                ok();
+            } catch (err) {
+                bad();
+            }
+        }
     },
     
     /**
@@ -251,14 +292,20 @@ const TempLLMManager = {
         
         const card = $(`
             <div class="card temp-llm-card ${senderClass}" style="position: relative;">
-                <div class="card-header">
-                    ${senderText}
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span class="temp-llm-card-sender">${senderText}</span>
+                    <span class="temp-llm-card-actions d-flex align-items-center">
+                        <button class="temp-llm-copy-btn btn btn-sm p-1" title="Copy text"><i class="bi bi-clipboard"></i></button>
+                    </span>
                 </div>
                 <div class="card-body">
                     ${renderedContent}
                 </div>
             </div>
         `);
+        // Stash the raw text so the copy button preserves the original markdown /
+        // plain text rather than the rendered HTML.
+        card.data('rawText', text || '');
         
         messagesContainer.append(card);
         
@@ -374,6 +421,11 @@ const TempLLMManager = {
                     $('#stop-temp-llm-button').hide();
                     self.currentStreamingController = null;
                     self.isStreaming = false;
+                    
+                    // Preserve the original markdown for the copy button.
+                    if (accumulatedText) {
+                        assistantCard.data('rawText', accumulatedText);
+                    }
                     
                     // Add to history
                     if (accumulatedText) {
