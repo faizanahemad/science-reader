@@ -322,9 +322,51 @@ const DoubtManager = {
         if (doubtId) {
             $toggle.attr('data-doubt-id', doubtId);
         }
+
+        // Bottom mirror of the show/hide toggle — sits just left of the
+        // scroll-to-top ("Top") button, mirroring the tabbed-answer bottom
+        // toggle. Shares the .doubt-answer-collapse-toggle class so the existing
+        // delegated click handler drives it.
+        let $bottomToggle = card.find('> .doubt-answer-collapse-toggle-bottom').first();
+        if (!$bottomToggle.length) {
+            $bottomToggle = $('<a href="#" class="doubt-answer-collapse-toggle doubt-answer-collapse-toggle-bottom" title="Collapse / expand this answer">[hide]</a>');
+            card.append($bottomToggle);
+        }
+        if (doubtId) {
+            $bottomToggle.attr('data-doubt-id', doubtId);
+        }
+
         const collapsed = (showHide === 'hide');
         card.toggleClass('doubt-answer-collapsed', collapsed);
         $toggle.text(collapsed ? '[show]' : '[hide]');
+        $bottomToggle.text(collapsed ? '[show]' : '[hide]');
+
+        // Position the bottom toggle after the Top button has been laid out
+        // (it is added with a short delay), and again on the next frame.
+        const self = this;
+        setTimeout(function() { self.positionDoubtBottomToggle(card); }, 60);
+        if (typeof requestAnimationFrame === 'function') {
+            requestAnimationFrame(function() { self.positionDoubtBottomToggle(card); });
+        }
+    },
+
+    /**
+     * Position the bottom show/hide toggle just to the LEFT of the card's
+     * scroll-to-top button, mirroring positionTabsBottomToggle() for tabs.
+     *
+     * @param {jQuery} card - the .doubt-conversation-card element
+     */
+    positionDoubtBottomToggle: function(card) {
+        if (!card || !card.length) return;
+        const $btn = card.find('> .doubt-answer-collapse-toggle-bottom').first();
+        if (!$btn.length) return;
+        const $scrollBtn = card.find('> .scroll-to-top-btn').first();
+        let rightOffset = 70; // fallback before the Top button measures
+        if ($scrollBtn.length) {
+            // 5px = Top button's own right offset; +10px gap between the two.
+            rightOffset = 5 + ($scrollBtn.outerWidth(true) || 60) + 10;
+        }
+        $btn.css('right', rightOffset + 'px');
     },
 
     /**
@@ -478,7 +520,8 @@ const DoubtManager = {
             const $card = $toggle.closest('.doubt-conversation-card');
             const nowCollapsed = !$card.hasClass('doubt-answer-collapsed');
             $card.toggleClass('doubt-answer-collapsed', nowCollapsed);
-            $toggle.text(nowCollapsed ? '[show]' : '[hide]');
+            // Sync every toggle on this card (header + bottom mirror).
+            $card.find('.doubt-answer-collapse-toggle').text(nowCollapsed ? '[show]' : '[hide]');
 
             // Persist (best-effort) — only once the doubt has a saved id.
             const doubtId = $toggle.attr('data-doubt-id');

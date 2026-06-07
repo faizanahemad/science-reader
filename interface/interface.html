@@ -4855,11 +4855,38 @@ greet("World");</code></pre>
         color: #0056b3;
         text-decoration: underline;
     }
+    /* Bottom mirror of the show/hide toggle: absolute, just left of the
+       scroll-to-top button (right offset set inline relative to its width). */
+    .doubt-answer-collapse-toggle-bottom {
+        position: absolute;
+        bottom: 5px;
+        margin-left: 0;
+        padding: 2px 8px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        line-height: 1;
+        color: #007bff;
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        text-decoration: none;
+        opacity: 0.8;
+        z-index: 10;
+        cursor: pointer;
+        transition: opacity 0.2s;
+    }
+    .doubt-answer-collapse-toggle-bottom:hover {
+        opacity: 1;
+        text-decoration: none;
+    }
     /* Collapsed: hide the answer body and its scroll-to-top button */
     .doubt-conversation-card.doubt-answer-collapsed .card-body {
         display: none;
     }
     .doubt-conversation-card.doubt-answer-collapsed .scroll-to-top-btn {
+        display: none !important;
+    }
+    .doubt-conversation-card.doubt-answer-collapsed .doubt-answer-collapse-toggle-bottom {
         display: none !important;
     }
     
