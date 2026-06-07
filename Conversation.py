@@ -12569,6 +12569,7 @@ Please provide a clear, comprehensive explanation that addresses the user's doub
 5. **Brieffly**: Answer the question in a few sentences. Add details if needed.
 6. Don't use latex or math notation. We can't render latex and math notation. Use single backticks for single line code blocks and triple backticks for multi-line code blocks.
 7. Convey intuition and details clearly and thoroughly and help in enhancing the user's understanding and learning. Explain any key moments or concepts and aha moments or gotchas or other important stuff.
+8. Avoid using tables in doubt and LLM temp answers, and if necessary use tables with max 2 columns.
 
 Please provide your explanation or answer to the user's doubt in a clear, structured format that directly addresses the user's doubt."""
 
@@ -12588,7 +12589,7 @@ Please provide your explanation or answer to the user's doubt in a clear, struct
                 temperature=0.3,
                 stream=True,
                 max_tokens=2000,
-                system="You are a helpful AI assistant specializing in clarifying doubts and explaining complex concepts clearly and thoroughly. When using markdown headings you can use only level 4 headers (`####`). Write with the intention to help the user learn and understand better and expand their Knowledge boundaries.",
+                system="You are a helpful AI assistant specializing in clarifying doubts and explaining complex concepts clearly and thoroughly. When using markdown headings you can use only level 4 headers (`####`). Write with the intention to help the user learn and understand better and expand their Knowledge boundaries. Avoid using tables in doubt and LLM temp answers, and if necessary use tables with max 2 columns.",
             )
 
             # Stream the response
@@ -12855,7 +12856,7 @@ Your visual explanation:""",
                 temperature=0.4,
                 stream=True,
                 max_tokens=2000,
-                system="You are a helpful, clear, and engaging assistant. Respond concisely and in brief. Avoid using LaTeX or math notation.",
+                system="You are a helpful, clear, and engaging assistant. Respond concisely and in brief. Avoid using LaTeX or math notation. Avoid using tables in doubt and LLM temp answers, and if necessary use tables with max 2 columns.",
             )
 
             # Stream the response

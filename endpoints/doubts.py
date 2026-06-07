@@ -410,7 +410,11 @@ def delete_doubt_route(doubt_id: str):
         )
         if deleted:
             return jsonify(
-                {"success": True, "message": "Doubt clearing deleted successfully"}
+                {
+                    "success": True,
+                    "message": "Doubt clearing deleted successfully",
+                    "deleted_doubt_ids": deleted,
+                }
             )
         return json_error(
             "Failed to delete doubt clearing",

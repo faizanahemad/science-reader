@@ -2178,6 +2178,163 @@ $(document).on('click', '.scroll-to-top-btn', function(e) {
     }
 });
 
+/**
+ * Resolve the nearest scrollable container for a card. Mirrors the logic used by
+ * the scroll-to-top button so the Top/Bottom controls behave identically across
+ * the main chat view, the doubt modal and the temp-LLM modal.
+ * @param {jQuery} $card
+ * @returns {jQuery|null}
+ */
+window.getCardScrollableContainer = function($card) {
+    var preferredContainers = $('#doubt-chat-messages, #temp-llm-messages, #chatView');
+    for (var i = 0; i < preferredContainers.length; i++) {
+        var $container = $(preferredContainers[i]);
+        if ($container.length > 0 && $container.find($card).length > 0) {
+            return $container;
+        }
+    }
+    var $parents = $card.parents();
+    for (var j = 0; j < $parents.length; j++) {
+        var $p = $($parents[j]);
+        var ov = ($p.css('overflow-y') || '').toLowerCase();
+        if ((ov === 'auto' || ov === 'scroll') && $p[0] && $p[0].scrollHeight > $p[0].clientHeight) {
+            return $p;
+        }
+    }
+    return null;
+};
+
+/**
+ * Create a "Bottom of answer" button (text + down arrow) that lives in a card
+ * header's right-hand control group. Behaviour is provided by the delegated
+ * `.scroll-to-bottom-btn` handler below, so this only builds the element.
+ *
+ * @param {string} buttonText  - label (default "Bottom" + a down arrow)
+ * @param {string} buttonClass - extra css classes
+ * @returns {jQuery} the button element
+ */
+window.makeScrollToBottomButton = function(buttonText, buttonClass) {
+    return $('<button type="button">')
+        .addClass('btn btn-sm p-1 scroll-to-bottom-btn ' + (buttonClass || ''))
+        .attr('title', 'Jump to the bottom of this message')
+        .html(buttonText || 'Bottom <i class="bi bi-arrow-down-short"></i>');
+};
+
+/**
+ * Idempotently inject a Bottom button into a card's header right-side control
+ * group (the `.d-flex.align-items-center` that holds copy/vote). Used to add the
+ * control to freshly-streamed cards. Returns the button (existing or new).
+ *
+ * @param {jQuery} cardElem
+ * @param {string} buttonText
+ * @param {string} buttonClass
+ */
+window.addScrollToBottomButton = function(cardElem, buttonText, buttonClass) {
+    var $card = (cardElem && cardElem.jquery) ? cardElem : $(cardElem);
+    if (!$card || !$card.length) return null;
+    var $existing = $card.find('> .card-header .scroll-to-bottom-btn').first();
+    if ($existing.length) return $existing;
+    var $headerRight = $card.find('> .card-header > .d-flex.align-items-center').last();
+    if (!$headerRight.length) $headerRight = $card.find('> .card-header').first();
+    if (!$headerRight.length) return null;
+    var $btn = window.makeScrollToBottomButton(buttonText, buttonClass);
+    $headerRight.prepend($btn);
+    return $btn;
+};
+
+// Delegated handler for scroll-to-bottom buttons (Top button's counterpart).
+// Scrolls the card's BOTTOM edge into view within its scrollable container.
+$(document).on('click', '.scroll-to-bottom-btn', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    var $btn = $(this);
+    var $card = $btn.closest('.card');
+    if (!$card.length) return;
+
+    var $container = window.getCardScrollableContainer($card);
+    if ($container && $container.length) {
+        var containerEl = $container[0];
+        var cardEl = $card[0];
+        var containerRect = containerEl.getBoundingClientRect();
+        var cardRect = cardEl.getBoundingClientRect();
+        // Align the card's bottom to the container's bottom.
+        var delta = cardRect.bottom - containerRect.bottom;
+        var targetScrollTop = $container.scrollTop() + delta;
+        if (isFinite(targetScrollTop)) {
+            $container.animate({ scrollTop: targetScrollTop }, 300, 'swing');
+            return;
+        }
+    }
+    // Fallback: scroll the window so the card bottom sits near the viewport bottom.
+    var cardBottom = $card.offset().top + $card.outerHeight();
+    var target = cardBottom - ($(window).height() - 20);
+    if (isFinite(target)) {
+        $('html, body').animate({ scrollTop: Math.max(0, target) }, 300, 'swing');
+    }
+});
+
+// Delegated handler for the non-tabbed header hide toggle. Rather than introduce
+// a competing collapse mechanism, it PROXIES the in-body showMore [show]/[hide]
+// link, so collapse state and its server-side persistence stay unified with the
+// existing per-message show/hide. (Tabbed answers keep their own nav toggle.)
+$(document).on('click', '.header-hide-toggle', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    var $toggle = $(this);
+    var $card = $toggle.closest('.card');
+    if (!$card.length) return;
+    var $sm = $card.find('.actual-card-text .show-more').first();
+    if (!$sm.length) $sm = $card.find('.show-more').first();
+    if ($sm.length) { $sm.trigger('click'); }
+    // Sync this toggle's label to the resulting collapse state.
+    setTimeout(function() {
+        var $more = $card.find('.actual-card-text .more-text').first();
+        if (!$more.length) $more = $card.find('.more-text').first();
+        var collapsed = $more.length ? !$more.is(':visible') : false;
+        $toggle.text(collapsed ? '[show]' : '[hide]');
+    }, 0);
+});
+
+/**
+ * Reveal + wire the header navigation controls (Bottom button, and for non-tabbed
+ * answers a header [hide] toggle) on a rendered message card, and add the Top
+ * button. Idempotent and safe to call from both the history-render and the
+ * streaming-completion paths. The Top/Bottom buttons appear on BOTH user and
+ * assistant cards once content is long enough.
+ *
+ * @param {jQuery} cardElem - the .message-card
+ * @param {string} showHide - persisted 'show'/'hide' state for the answer
+ */
+window.decorateMessageCardNav = function(cardElem, showHide) {
+    var $card = (cardElem && cardElem.jquery) ? cardElem : $(cardElem);
+    if (!$card || !$card.length) return;
+
+    // Bottom button (header, top-right) — reveal for any card that is long enough.
+    var $bottom = $card.find('> .card-header .scroll-to-bottom-btn').first();
+    if ($bottom.length) { $bottom.show(); }
+
+    // Top button (absolute, bottom-right) — now on user cards too.
+    if ($card.find('.scroll-to-top-btn').length === 0 && typeof window.addScrollToTopButton === 'function') {
+        window.addScrollToTopButton($card, '\u2191 Top of Answer', 'chat-scroll-top');
+    }
+
+    // Header hide toggle — only for NON-tabbed answers that actually have an
+    // in-body showMore control to proxy (tabbed answers collapse via their nav
+    // toggle). Reflect the persisted state; behaviour comes from the delegated
+    // .header-hide-toggle proxy.
+    var isTabbed = $card.find('.model-tabs-container').length > 0;
+    var hasShowMore = $card.find('.actual-card-text .show-more, .show-more').length > 0;
+    var $hide = $card.find('> .card-header .header-hide-toggle').first();
+    if ($hide.length) {
+        if (isTabbed || !hasShowMore) {
+            $hide.hide();
+        } else {
+            var collapsed = (showHide === 'hide');
+            $hide.text(collapsed ? '[show]' : '[hide]').show();
+        }
+    }
+};
+
 // Delegated handler for show-more toggle links
 $(document).on('click', '.show-more', function(e) {
     e.preventDefault();

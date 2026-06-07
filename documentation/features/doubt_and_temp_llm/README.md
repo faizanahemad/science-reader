@@ -50,7 +50,7 @@ Streaming response (newline-delimited JSON):
 
 **`GET /get_doubts/<conversation_id>/<message_id>`** — returns all doubt trees for a message  
 **`GET /get_doubt/<doubt_id>`** — fetch a single doubt record  
-**`DELETE /delete_doubt/<doubt_id>`** — delete with tree restructuring  
+**`DELETE /delete_doubt/<doubt_id>`** — delete a doubt and its entire sub-tree (recursive). Response includes `deleted_doubt_ids` (the target plus all descendants).  
 **`POST /show_hide_doubt/<doubt_id>`** — persist a doubt answer card's collapse state (body `{ "show_hide": "show" | "hide" }`)  
 **`POST /cancel_doubt_clearing/<conversation_id>`** — cancel an in-progress stream
 
@@ -101,7 +101,7 @@ updated_at
 | `add_doubt()` | Insert new record; if follow-up, also updates parent's `child_doubt_id` |
 | `get_doubts_for_message()` | Fetches all root doubts for a message, then recursively builds full trees via `build_doubt_tree()` |
 | `get_doubt_history()` | Walks `parent_doubt_id` chain backwards to root, reverses → chronological thread for LLM context |
-| `delete_doubt()` | Deletes node and re-parents its children to its parent (linked-list deletion) |
+| `delete_doubt()` | Recursively deletes the node and its entire sub-tree (all descendants). Returns the list of deleted `doubt_id`s. Deleting a root doubt removes its whole tree |
 | `update_doubt_show_hide()` | Persists the per-doubt answer collapse state (`show`/`hide`) |
 
 **When is the answer saved?** Only after the full stream completes, in the `finally` block of the stream generator. If streaming is interrupted, a partial answer may still be saved if `accumulated_doubt_answer` is non-empty.

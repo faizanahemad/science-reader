@@ -310,11 +310,15 @@ const DoubtManager = {
 
         let $toggle = $header.find('.doubt-answer-collapse-toggle').first();
         if (!$toggle.length) {
-            // Lay the header out as [ sender ............ toggle ].
+            // Lay the header out as [ sender ............ actions ].
             $header.addClass('d-flex justify-content-between align-items-center');
             $toggle = $('<a href="#" class="doubt-answer-collapse-toggle" title="Collapse / expand this answer">[hide]</a>');
-            $header.append($toggle);
+            // Prefer the right-hand actions group so it sits beside copy/Bottom.
+            const $actions = $header.find('.doubt-card-actions').first();
+            ($actions.length ? $actions : $header).append($toggle);
         }
+        // Long answers also expose the Bottom button.
+        $header.find('.scroll-to-bottom-btn').show();
         if (doubtId) {
             $toggle.attr('data-doubt-id', doubtId);
         }
@@ -350,15 +354,23 @@ const DoubtManager = {
         }
         
         const card = $(`
-            <div class="card doubt-conversation-card ${senderClass}" style="position: relative;">
-                <div class="card-header">
-                    ${senderText} ${deleteBtn}
+            <div class="card doubt-conversation-card ${senderClass}" data-doubt-id="${doubtId || ''}" style="position: relative;">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <span class="doubt-card-sender">${senderText}</span>
+                    <span class="doubt-card-actions d-flex align-items-center">
+                        <button class="btn btn-sm p-1 scroll-to-bottom-btn doubt-scroll-bottom" title="Jump to the bottom of this message" style="display:none;">Bottom <i class="bi bi-arrow-down-short"></i></button>
+                        <button class="doubt-copy-btn btn btn-sm p-1" title="Copy text"><i class="bi bi-clipboard"></i></button>
+                        ${deleteBtn}
+                    </span>
                 </div>
                 <div class="card-body">
                     ${renderedContent}
                 </div>
             </div>
         `);
+        // Stash the raw text so the copy button preserves the original markdown /
+        // plain text rather than the rendered HTML.
+        card.data('rawText', text || '');
         
         // Trigger MathJax typesetting for assistant cards
         if (!isUser) {
@@ -369,8 +381,10 @@ const DoubtManager = {
             }, 50);
         }
         
-        // Add scroll-to-top button for assistant messages that are long enough
-        if (!isUser && text.length > 300) {
+        // Add Top/Bottom nav controls for messages that are long enough — on BOTH
+        // user question cards and assistant answer cards.
+        if (text && text.length > 300) {
+            card.find('.scroll-to-bottom-btn').show();
             // Use setTimeout to ensure card is in DOM before adding button
             setTimeout(function() {
                 if (typeof window.addScrollToTopButton === 'function') {
@@ -446,6 +460,14 @@ const DoubtManager = {
             e.stopPropagation();
             const doubtId = $(this).data('doubt-id');
             self.deleteDoubt(doubtId);
+        });
+
+        // Copy a doubt card's text (works for both the user question and the
+        // assistant answer cards).
+        $(document).off('click', '#doubt-chat-messages .doubt-copy-btn').on('click', '#doubt-chat-messages .doubt-copy-btn', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            self.copyDoubtCardText($(this).closest('.doubt-conversation-card'));
         });
 
         // Collapse / expand an assistant doubt answer (persisted per doubt).
@@ -635,6 +657,10 @@ const DoubtManager = {
                                 const userDeleteBtn = userCard.find('.doubt-delete-btn');
                                 userDeleteBtn.data('doubt-id', doubtId);
                                 userDeleteBtn.prop('disabled', false).removeClass('text-muted');
+                                userCard.attr('data-doubt-id', doubtId);
+                            }
+                            if (typeof assistantCard !== 'undefined' && assistantCard && assistantCard.length > 0) {
+                                assistantCard.attr('data-doubt-id', doubtId);
                             }
                             
                             // Update the current doubt history for follow-up questions
@@ -653,6 +679,7 @@ const DoubtManager = {
                     if (doubtId) {
                         // Update assistant card (if it has a delete button)
                         assistantCard.find('.doubt-delete-btn').data('doubt-id', doubtId);
+                        assistantCard.attr('data-doubt-id', doubtId);
                         
                         // Update user card with doubt ID - this is the main fix
                         if (userCard && userCard.length > 0) {
@@ -660,6 +687,7 @@ const DoubtManager = {
                             userDeleteBtn.data('doubt-id', doubtId);
                             // Re-enable the delete button and remove muted styling
                             userDeleteBtn.prop('disabled', false).removeClass('text-muted');
+                            userCard.attr('data-doubt-id', doubtId);
                         }
                         
                         // Update the current doubt history for follow-up questions
@@ -845,6 +873,10 @@ const DoubtManager = {
                                 const userDeleteBtn = userCard.find('.doubt-delete-btn');
                                 userDeleteBtn.data('doubt-id', doubtId);
                                 userDeleteBtn.prop('disabled', false).removeClass('text-muted');
+                                userCard.attr('data-doubt-id', doubtId);
+                            }
+                            if (typeof assistantCard !== 'undefined' && assistantCard && assistantCard.length > 0) {
+                                assistantCard.attr('data-doubt-id', doubtId);
                             }
                             
                             // Update the current doubt history
@@ -954,6 +986,40 @@ const DoubtManager = {
     },
     
     /**
+     * Copy a doubt card's text to the clipboard. Prefers the stashed raw text
+     * (original markdown / question) and falls back to the rendered body text.
+     *
+     * @param {jQuery} $card - the .doubt-conversation-card
+     */
+    copyDoubtCardText: function($card) {
+        if (!$card || !$card.length) return;
+        let text = $card.data('rawText');
+        if (!text) {
+            const $body = $card.find('.card-body').first();
+            text = $body.length ? ($body[0].innerText || $body.text() || '') : '';
+        }
+        const ok = function() { if (typeof showToast === 'function') showToast('Copied to clipboard', 'success'); };
+        const bad = function() { if (typeof showToast === 'function') showToast('Failed to copy', 'error'); };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(ok).catch(bad);
+        } else {
+            try {
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                ta.style.position = 'fixed';
+                ta.style.opacity = '0';
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+                ok();
+            } catch (e) {
+                bad();
+            }
+        }
+    },
+
+    /**
      * Delete a doubt
      */
     deleteDoubt: function(doubtId) {
@@ -963,10 +1029,11 @@ const DoubtManager = {
             return;
         }
         
-        if (!confirm('Are you sure you want to delete this doubt? This action cannot be undone.')) {
+        if (!confirm('Are you sure you want to delete this doubt? This will also delete all of its follow-up doubts (its entire sub-tree). This action cannot be undone.')) {
             return;
         }
         
+        const self = this;
         fetch(`/delete_doubt/${doubtId}`, {
             method: 'DELETE',
             headers: {
@@ -986,16 +1053,21 @@ const DoubtManager = {
                 // Refresh current view
                 if ($('#doubts-overview-modal').hasClass('show')) {
                     // Refresh overview
-                    this.showDoubtsOverview(this.currentConversationId, this.currentMessageId);
+                    self.showDoubtsOverview(self.currentConversationId, self.currentMessageId);
                 }
                 
                 if ($('#doubt-chat-modal').hasClass('show')) {
-                    // Remove the doubt from chat view
-                    $(`.doubt-conversation-card .doubt-delete-btn[data-doubt-id="${doubtId}"]`)
-                        .closest('.doubt-conversation-card')
-                        .fadeOut(300, function() {
-                            $(this).remove();
-                        });
+                    // The backend deletes the whole sub-tree, so remove every card
+                    // (question + answer) belonging to the deleted doubt ids.
+                    const deletedIds = (data.deleted_doubt_ids && data.deleted_doubt_ids.length)
+                        ? data.deleted_doubt_ids
+                        : [doubtId];
+                    deletedIds.forEach(function(id) {
+                        $(`#doubt-chat-messages .doubt-conversation-card[data-doubt-id="${id}"]`)
+                            .fadeOut(300, function() {
+                                $(this).remove();
+                            });
+                    });
                 }
             } else {
                 throw new Error(data.message || 'Failed to delete doubt');

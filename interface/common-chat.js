@@ -1273,7 +1273,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
         // Add click event handler
         cardElement.off('click').on('click', function(e) {
             // Don't trigger on button clicks, checkboxes, or dropdown elements
-            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
+            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .scroll-to-bottom-btn, .header-hide-toggle, .scroll-to-top-btn, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                 return;
             }
             
@@ -1283,7 +1283,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
         // Add text selection event handler
         cardElement.off('selectstart mouseup').on('selectstart mouseup', function(e) {
             // Don't trigger on button clicks, checkboxes, or dropdown elements
-            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
+            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .scroll-to-bottom-btn, .header-hide-toggle, .scroll-to-top-btn, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                 return;
             }
             
@@ -1299,7 +1299,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
         // Add focus event handler for keyboard navigation
         cardElement.off('focus focusin').on('focus focusin', function(e) {
             // Don't trigger on button clicks, checkboxes, or dropdown elements
-            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
+            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .scroll-to-bottom-btn, .header-hide-toggle, .scroll-to-top-btn, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                 return;
             }
             
@@ -1828,9 +1828,12 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
             }
             mermaid.run({querySelector: "pre.mermaid"});
             
-            // Add scroll-to-top button for streamed messages
+            // Add Top/Bottom nav controls + (non-tabbed) header hide toggle for the
+            // freshly streamed message (expanded by default).
             if (card && answer.length > 300) { // Only add for longer messages
-                if (typeof window.addScrollToTopButton === 'function') {
+                if (typeof window.decorateMessageCardNav === 'function') {
+                    window.decorateMessageCardNav(card, 'show');
+                } else if (typeof window.addScrollToTopButton === 'function') {
                     window.addScrollToTopButton(card, '↑ Top of Answer', 'chat-scroll-top');
                 }
             }
@@ -2484,6 +2487,8 @@ var ChatManager = {
                     <button class="btn btn-sm p-1 has-doubts-btn" title="Show Doubts" message-id="${message.message_id}" style="display:none;"><i class="bi bi-chat-left-text"></i></button>
                 </div>
                 <div class="d-flex align-items-center">
+                    <button class="btn btn-sm p-1 scroll-to-bottom-btn chat-scroll-bottom" title="Jump to the bottom of this message" style="display:none;">Bottom <i class="bi bi-arrow-down-short"></i></button>
+                    <a href="#" class="header-hide-toggle" title="Collapse / expand this answer" style="display:none;">[hide]</a>
                     <button class="btn btn-sm p-1 copy-btn-header" title="Copy Text">
                         <i class="bi bi-clipboard"></i>
                     </button>
@@ -2584,12 +2589,11 @@ var ChatManager = {
                                 });
                             }
                             
-                            // Add scroll-to-top button for old messages (assistant messages only)
-                            if (_currentMessage.sender !== 'user' && _currentMessage.text.length > 300) {
-                                if (_currentMessageElement.find('.scroll-to-top-btn').length === 0) {
-                                    if (typeof window.addScrollToTopButton === 'function') {
-                                        window.addScrollToTopButton(_currentMessageElement, '↑ Top of Answer', 'chat-scroll-top');
-                                    }
+                            // Add Top/Bottom nav controls + (non-tabbed) header hide
+                            // toggle for long messages — on BOTH user and assistant cards.
+                            if (_currentMessage.text.length > 300) {
+                                if (typeof window.decorateMessageCardNav === 'function') {
+                                    window.decorateMessageCardNav(_currentMessageElement, _showHide);
                                 }
                             }
                         },
@@ -2638,7 +2642,7 @@ var ChatManager = {
             // Add event handlers for immediate focus
             messageElement.on('click', function(e) {
                 // Don't trigger on button clicks, checkboxes, or dropdown elements
-            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
+            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .scroll-to-bottom-btn, .header-hide-toggle, .scroll-to-top-btn, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                     return;
                 }
                 
@@ -2648,7 +2652,7 @@ var ChatManager = {
             // Add text selection event handler
             messageElement.on('selectstart mouseup', function(e) {
                 // Don't trigger on button clicks, checkboxes, or dropdown elements
-            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
+            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .scroll-to-bottom-btn, .header-hide-toggle, .scroll-to-top-btn, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                     return;
                 }
                 
@@ -2664,7 +2668,7 @@ var ChatManager = {
             // Add focus event handler for keyboard navigation
             messageElement.on('focus focusin', function(e) {
                 // Don't trigger on button clicks, checkboxes, or dropdown elements
-            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
+            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .scroll-to-bottom-btn, .header-hide-toggle, .scroll-to-top-btn, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                     return;
                 }
                 

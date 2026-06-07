@@ -110,11 +110,16 @@ def add_doubt(
         conn.close()
 
 
-def delete_doubt(*, doubt_id: str, users_dir: str | None = None, logger: logging.Logger | None = None) -> bool:
+def delete_doubt(*, doubt_id: str, users_dir: str | None = None, logger: logging.Logger | None = None) -> list[str]:
     """
-    Delete a doubt clearing record by doubt_id with tree restructuring.
+    Delete a doubt clearing record by doubt_id, including its entire subtree.
 
-    When deleting a node, attach its children to its parent (linked-list style deletion).
+    Deletion is recursive: the target doubt and all of its descendants
+    (children, grandchildren, ...) are removed. Deleting a root doubt therefore
+    removes its whole tree.
+
+    Returns the list of deleted doubt_ids (the target plus all descendants), or
+    an empty list if the target doubt did not exist / nothing was deleted.
     """
 
     log = logger or logging.getLogger(__name__)
@@ -123,38 +128,47 @@ def delete_doubt(*, doubt_id: str, users_dir: str | None = None, logger: logging
     conn = create_connection(_db_path(users_dir=users_dir_resolved))
     try:
         cur = conn.cursor()
-        cur.execute("SELECT parent_doubt_id FROM DoubtsClearing WHERE doubt_id = ?", (doubt_id,))
-        row = cur.fetchone()
-        if not row:
+        cur.execute("SELECT doubt_id FROM DoubtsClearing WHERE doubt_id = ?", (doubt_id,))
+        if not cur.fetchone():
             log.warning(f"No doubt clearing found with ID {doubt_id}")
-            return False
+            return []
 
-        parent_doubt_id = row[0]
-
-        cur.execute("SELECT doubt_id FROM DoubtsClearing WHERE parent_doubt_id = ?", (doubt_id,))
-        children = cur.fetchall()
-        child_doubt_ids = [child[0] for child in children]
-
-        for child_doubt_id in child_doubt_ids:
+        # Collect the target plus all descendants via a breadth-first walk of the
+        # parent_doubt_id links, then delete them all in one statement.
+        ids_to_delete: list[str] = [doubt_id]
+        frontier: list[str] = [doubt_id]
+        while frontier:
+            placeholders = ",".join("?" for _ in frontier)
             cur.execute(
-                """
-                UPDATE DoubtsClearing
-                SET parent_doubt_id = ?, is_root_doubt = ?
-                WHERE doubt_id = ?
-                """,
-                (parent_doubt_id, parent_doubt_id is None, child_doubt_id),
+                f"SELECT doubt_id FROM DoubtsClearing WHERE parent_doubt_id IN ({placeholders})",
+                tuple(frontier),
             )
+            children = [r[0] for r in cur.fetchall()]
+            # Guard against accidental cycles in the data.
+            children = [c for c in children if c not in ids_to_delete]
+            if not children:
+                break
+            ids_to_delete.extend(children)
+            frontier = children
 
-        cur.execute("DELETE FROM DoubtsClearing WHERE doubt_id = ?", (doubt_id,))
+        placeholders = ",".join("?" for _ in ids_to_delete)
+        cur.execute(
+            f"DELETE FROM DoubtsClearing WHERE doubt_id IN ({placeholders})",
+            tuple(ids_to_delete),
+        )
         deleted_count = cur.rowcount
         conn.commit()
 
         if deleted_count > 0:
-            log.info(f"Deleted doubt clearing with ID {doubt_id} and restructured {len(child_doubt_ids)} children")
-            return True
+            log.info(
+                f"Deleted doubt clearing with ID {doubt_id} and "
+                f"{len(ids_to_delete) - 1} descendant(s) "
+                f"({deleted_count} record(s) removed)"
+            )
+            return ids_to_delete
 
         log.warning(f"Failed to delete doubt clearing with ID {doubt_id}")
-        return False
+        return []
     except Exception as e:
         log.error(f"Error deleting doubt clearing: {e}")
         raise

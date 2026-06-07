@@ -4622,6 +4622,61 @@ greet("World");</code></pre>
         opacity: 1;
     }
 
+    /* Header "Bottom of answer" button (top-right of card header) + the non-tabbed
+       header [hide] toggle that proxies the in-body show/hide. */
+    .scroll-to-bottom-btn {
+        font-size: 0.7rem;
+        line-height: 1;
+        color: #007bff;
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+        border-radius: 4px;
+        padding: 2px 6px;
+        opacity: 0.85;
+        white-space: nowrap;
+        transition: opacity 0.2s;
+    }
+    .scroll-to-bottom-btn:hover {
+        opacity: 1;
+    }
+    .header-hide-toggle {
+        font-size: 0.72rem;
+        font-weight: 600;
+        color: #007bff;
+        text-decoration: none;
+        cursor: pointer;
+        white-space: nowrap;
+        margin: 0 0.35rem;
+        flex: 0 0 auto;
+    }
+    .header-hide-toggle:hover {
+        color: #0056b3;
+        text-decoration: underline;
+    }
+
+    /* Doubt card header controls (copy + Bottom) sit in .doubt-card-actions. */
+    .doubt-card-actions {
+        gap: 0.25rem;
+    }
+    .doubt-copy-btn {
+        font-size: 0.72rem;
+        line-height: 1;
+        color: #007bff;
+        background: transparent;
+        border: none;
+        cursor: pointer;
+        padding: 2px 4px;
+        opacity: 0.85;
+        transition: opacity 0.2s;
+    }
+    .doubt-copy-btn:hover {
+        opacity: 1;
+        color: #0056b3;
+    }
+    .doubt-scroll-bottom {
+        padding: 1px 5px;
+    }
+
     .details-close-btn {
         background-color: #f0f0f0;
         border: 1px solid #ccc;
