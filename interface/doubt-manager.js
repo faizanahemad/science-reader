@@ -192,6 +192,10 @@ const DoubtManager = {
         })
         .then(data => {
             if (data.success && data.doubt) {
+                // Restore with_context from the root doubt so follow-up questions
+                // use the same mode the thread was originally created with.
+                self.withContext = !!data.doubt.with_context;
+
                 // Get the full tree for this message and find the conversation thread
                 const conversationId = data.doubt.conversation_id;
                 const messageId = data.doubt.message_id;
@@ -609,7 +613,8 @@ const DoubtManager = {
             doubt_text: doubtText,
             reward_level: rewardLevel,
             selected_text: this.selectedText || '',
-            with_context: this.withContext || false
+            with_context: this.withContext || false,
+            preamble_options: (window.chatSettingsState && window.chatSettingsState.preamble_options) || []
         };
         
         if (parentDoubtId) {

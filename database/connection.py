@@ -124,6 +124,7 @@ def create_tables(*, users_dir: str, logger: Optional[logging.Logger] = None) ->
                                     parent_doubt_id text,
                                     is_root_doubt boolean DEFAULT 1,
                                     show_hide text,
+                                    with_context boolean DEFAULT 0,
                                     created_at text,
                                     updated_at text,
                                     FOREIGN KEY (parent_doubt_id) REFERENCES DoubtsClearing (doubt_id)
@@ -276,6 +277,14 @@ def create_tables(*, users_dir: str, logger: Optional[logging.Logger] = None) ->
         log.info("Added show_hide column to DoubtsClearing table")
     except Exception:
         # Column already exists or other error - this is fine
+        pass
+
+    # Add with_context column if it doesn't exist (preserves whether the doubt
+    # was asked with conversation context so follow-ups restore the same mode).
+    try:
+        cur.execute("ALTER TABLE DoubtsClearing ADD COLUMN with_context boolean DEFAULT 0")
+        log.info("Added with_context column to DoubtsClearing table")
+    except Exception:
         pass
 
     # create indexes for DoubtsClearing table

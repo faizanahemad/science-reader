@@ -63,6 +63,9 @@ def clear_doubt_route(conversation_id: str, message_id: str):
     with_context = bool(
         request.json.get("with_context", False) if request.is_json and request.json else False
     )
+    preamble_options = (
+        request.json.get("preamble_options", []) if request.is_json and request.json else []
+    ) or []
 
     try:
         if not checkConversationExists(
@@ -113,7 +116,8 @@ def clear_doubt_route(conversation_id: str, message_id: str):
 
                 doubt_generator = conversation.clear_doubt(
                     message_id, doubt_text, doubt_history, reward_level,
-                    selected_text=selected_text, with_context=with_context
+                    selected_text=selected_text, with_context=with_context,
+                    preamble_options=preamble_options
                 )
 
                 accumulated_text = ""
@@ -148,6 +152,7 @@ def clear_doubt_route(conversation_id: str, message_id: str):
                                 or "Please explain this message in more detail.",
                                 doubt_answer=accumulated_doubt_answer,
                                 parent_doubt_id=parent_doubt_id,
+                                with_context=with_context,
                                 users_dir=state.users_dir,
                                 logger=logger,
                             )
