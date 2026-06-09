@@ -338,6 +338,8 @@ VISIBLE_PREAMBLES = [
     "Creative",
     "Relationship",
     "Dating Maverick",
+    "Senior Engineer Summary",
+    "Senior Engineer Mental Models",
 ]
 
 

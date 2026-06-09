@@ -6183,6 +6183,10 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             preamble += preamble_deep_learn
         if "Software and ML Learning" in preamble_options:
             preamble += preamble_software_and_ml_learning
+        if "Senior Engineer Summary" in preamble_options:
+            preamble += senior_engineer_summary_prompt
+        if "Senior Engineer Mental Models" in preamble_options:
+            preamble += senior_engineer_mental_models_and_thought_process_prompt
         if "More Related Coding Questions" in preamble_options:
             preamble += more_related_questions_prompt
 
@@ -12479,7 +12483,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
     def clear_doubt(
         self, message_id, doubt_text="", doubt_history=None, reward_level=0,
-        selected_text="", with_context=False
+        selected_text="", with_context=False, preamble_options=None
     ):
         """Clear a doubt about a specific message - streaming response"""
         from call_llm import CallLLm
@@ -12582,6 +12586,13 @@ Please provide your explanation or answer to the user's doubt in a clear, struct
                 api_keys, model_name=doubt_model, use_gpt4=False, use_16k=False
             )
 
+            base_system = "You are a helpful AI assistant specializing in clarifying doubts and explaining complex concepts clearly and thoroughly. When using markdown headings you can use only level 4 headers (`####`). Write with the intention to help the user learn and understand better and expand their Knowledge boundaries. Avoid using tables in doubt and LLM temp answers, and if necessary use tables with max 2 columns."
+            if preamble_options:
+                extra_preamble, _ = self.get_preamble(preamble_options, None)
+                system = base_system + "\n\n" + extra_preamble
+            else:
+                system = base_system
+
             # Generate streaming response
             response_stream = llm(
                 doubt_prompt,
@@ -12589,7 +12600,7 @@ Please provide your explanation or answer to the user's doubt in a clear, struct
                 temperature=0.3,
                 stream=True,
                 max_tokens=2000,
-                system="You are a helpful AI assistant specializing in clarifying doubts and explaining complex concepts clearly and thoroughly. When using markdown headings you can use only level 4 headers (`####`). Write with the intention to help the user learn and understand better and expand their Knowledge boundaries. Avoid using tables in doubt and LLM temp answers, and if necessary use tables with max 2 columns.",
+                system=system,
             )
 
             # Stream the response

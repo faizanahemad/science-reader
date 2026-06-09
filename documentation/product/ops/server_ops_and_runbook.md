@@ -8,6 +8,19 @@
 
 ---
 
+## TL;DR: Adding a New Preamble in 4 Steps
+
+| Step | File | What to do |
+|------|------|------------|
+| 1 | `prompts.py` | Add a module-level string variable with the prompt text |
+| 2 | `Conversation.py` → `get_preamble()` | Add `if "Display Name" in preamble_options: preamble += your_variable` |
+| 3 | `interface/interface.html` | Add `<option>Display Name</option>` in `#settings-preamble-selector` optgroup |
+| 4 | `endpoints/slash_commands.py` | Add `"Display Name"` to `VISIBLE_PREAMBLES` list |
+
+The display name string must match exactly across steps 2, 3, and 4. The slash command short name is auto-derived (lowercased, spaces → underscores), so `/preamble_display_name` works automatically.
+
+See [Slash Command System — Adding a new preamble](../../features/slash_command_system.md) for full details and code examples.
+
 ## Configurable Constants
 
 | Constant | Value | File | Description |

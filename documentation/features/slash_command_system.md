@@ -241,11 +241,47 @@ The `@` references support these prefixes for PKB claim lookup:
 2. Add `processCommand()` calls (enable + disable) in `parseMessageForCheckBoxes.js`
 3. Verify backend reads the flag
 
-### Adding a new model/agent/preamble
+### Adding a new model/agent
 
-1. Add to `VISIBLE_MODELS` / `VISIBLE_AGENTS` / `VISIBLE_PREAMBLES` in `endpoints/slash_commands.py`
-2. Corresponding `<option>` should exist in `interface.html` settings modal
-3. No parsing changes needed — the `/model_*`, `/agent_*`, `/preamble_*` patterns are generic
+1. Add to `VISIBLE_MODELS` / `VISIBLE_AGENTS` in `endpoints/slash_commands.py`
+2. Add corresponding `<option>` in `interface.html` settings modal
+3. No parsing changes needed — the `/model_*`, `/agent_*` patterns are generic
+
+### Adding a new preamble
+
+Four steps are required (all must be done together):
+
+**Step 1: Define the prompt text in `prompts.py`**
+Add a module-level string variable with the prompt content:
+```python
+my_new_preamble_prompt = """
+Your prompt instructions here...
+"""
+```
+
+**Step 2: Wire the display name to the variable in `Conversation.py` → `get_preamble()`**
+Add an `if` block alongside the existing preamble checks (~line 6185):
+```python
+if "My New Preamble" in preamble_options:
+    preamble += my_new_preamble_prompt
+```
+The variable is available via `from prompts import *` at the top of the file.
+
+**Step 3: Add `<option>` to `interface/interface.html` preamble dropdown**
+Inside `#settings-preamble-selector` → `optgroup label="Default Prompts"`:
+```html
+<option>My New Preamble</option>
+```
+The option text must exactly match the string used in Step 2.
+
+**Step 4: Add to `VISIBLE_PREAMBLES` in `endpoints/slash_commands.py`**
+```python
+VISIBLE_PREAMBLES = [
+    ...
+    "My New Preamble",
+]
+```
+This enables the `/preamble_my_new_preamble` slash command autocomplete. The short name is auto-derived (lowercased, spaces → underscores).
 
 ### Updating after modal changes
 
