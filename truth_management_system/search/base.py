@@ -304,8 +304,11 @@ def apply_recency_confidence_rerank(
 
     w_recency = float(getattr(config, "w_recency", 0.0) or 0.0)
     w_confidence = float(getattr(config, "w_confidence", 0.0) or 0.0)
+    # Contested down-ranking (C2): multiplier applied to contested claims.
+    # 1.0 (default) = no-op.
+    contested_penalty = float(getattr(config, "contested_penalty", 1.0) or 1.0)
     # Fast path: nothing to do, preserve order and scores exactly.
-    if w_recency == 0.0 and w_confidence == 0.0:
+    if w_recency == 0.0 and w_confidence == 0.0 and contested_penalty == 1.0:
         return results
 
     now = now or datetime.now(timezone.utc)
@@ -336,9 +339,15 @@ def apply_recency_confidence_rerank(
             conf = max(conf, 1e-6)  # guard against 0 ** w collapsing everything
 
         base_score = result.metadata.get("rrf_score", result.score)
-        result.score = base_score * (recency ** w_recency) * (conf ** w_confidence)
+        # Contested down-ranking (C2): bury claims known to be in conflict.
+        penalty = 1.0
+        if contested_penalty != 1.0 and \
+                getattr(claim, "status", None) == ClaimStatus.CONTESTED.value:
+            penalty = contested_penalty
+        result.score = base_score * (recency ** w_recency) * (conf ** w_confidence) * penalty
         result.metadata["recency_factor"] = recency
         result.metadata["confidence_factor"] = conf
+        result.metadata["contested_factor"] = penalty
 
     results.sort(key=lambda r: r.score, reverse=True)
     return results

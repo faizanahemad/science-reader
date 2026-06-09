@@ -37,6 +37,9 @@ from ..crud.links import (
     link_claim_tag,
     unlink_claim_tag,
     get_claim_tags,
+    link_claims,
+    get_supersession_head,
+    LINK_SUPERSEDES,
 )
 from ..search import HybridSearchStrategy, SearchFilters, SearchResult
 from ..search.notes_search import NotesSearchStrategy
@@ -398,6 +401,23 @@ class StructuredAPI:
                     logger.warning(
                         f"Failed to cache embedding for {claim.claim_id}: {e}"
                     )
+
+            # D1: optional explicit supersession. When the caller knows this new
+            # claim replaces existing one(s), `supersedes` carries the old
+            # claim_id (or a list); link them and retire the old claim(s).
+            supersedes = kwargs.get("supersedes")
+            if supersedes:
+                old_ids = supersedes if isinstance(supersedes, list) else [supersedes]
+                for old_id in old_ids:
+                    if not old_id:
+                        continue
+                    sres = self.supersede_claim(claim.claim_id, old_id)
+                    if sres.success:
+                        warnings.append(
+                            f"Superseded claim {str(old_id)[:8]}"
+                        )
+                    else:
+                        warnings.extend(sres.errors or [])
 
             return ActionResult(
                 success=True,
@@ -994,6 +1014,29 @@ class StructuredAPI:
             )
 
             if conflict_set:
+                # D1: when the user picks a winner, the losers were just moved to
+                # `superseded` by ConflictCRUD.resolve. Record the supersession
+                # graph (winner -supersedes-> each loser) so chain-head retrieval
+                # and "what replaced this?" queries work.
+                if winning_claim_id:
+                    try:
+                        rows = self.db.fetchall(
+                            "SELECT claim_id FROM conflict_set_members WHERE conflict_set_id = ?",
+                            (conflict_set_id,),
+                        )
+                        for row in rows:
+                            loser = row["claim_id"]
+                            if loser != winning_claim_id:
+                                link_claims(
+                                    self.db, winning_claim_id, loser,
+                                    link_type=LINK_SUPERSEDES,
+                                    user_email=self.user_email,
+                                )
+                    except Exception as e:
+                        logger.warning(
+                            f"Could not record supersession links for "
+                            f"conflict {conflict_set_id}: {e}"
+                        )
                 return ActionResult(
                     success=True,
                     action="resolve_conflict",
@@ -1284,6 +1327,101 @@ class StructuredAPI:
                 action="decay",
                 object_type="claim",
                 errors=[str(e)],
+            )
+
+    def supersede_claim(
+        self,
+        new_claim_id: str,
+        old_claim_id: str,
+        resolution_notes: Optional[str] = None,
+    ) -> ActionResult:
+        """
+        Record that ``new_claim_id`` supersedes ``old_claim_id`` (Workstream D1).
+
+        Creates a ``supersedes`` link (new -> old) and moves the old claim to
+        ``superseded`` status, so it drops out of default search
+        (``ClaimStatus.default_search_statuses`` omits it) while staying
+        retrievable/visible and queryable through the link graph. Retrieval then
+        naturally prefers the chain head — the newest claim, found via
+        ``get_supersession_head``.
+
+        Guards: refuses self-supersession and missing claims; idempotent on the
+        link (a duplicate edge is ignored). Use when the user confirms that a new
+        claim replaces an older one.
+
+        Args:
+            new_claim_id: The newer claim that replaces the old one.
+            old_claim_id: The claim being superseded.
+            resolution_notes: Optional note stored on the link.
+
+        Returns:
+            ActionResult with ``data`` = {"new_claim_id", "old_claim_id",
+            "link_id", "head_claim_id"}.
+        """
+        try:
+            if new_claim_id == old_claim_id:
+                return ActionResult(
+                    success=False, action="supersede", object_type="claim",
+                    object_id=old_claim_id,
+                    errors=["A claim cannot supersede itself"],
+                )
+
+            new_claim = self.claims.get(new_claim_id)
+            old_claim = self.claims.get(old_claim_id)
+            if new_claim is None:
+                return ActionResult(
+                    success=False, action="supersede", object_type="claim",
+                    object_id=new_claim_id,
+                    errors=[f"New claim {new_claim_id} not found"],
+                )
+            if old_claim is None:
+                return ActionResult(
+                    success=False, action="supersede", object_type="claim",
+                    object_id=old_claim_id,
+                    errors=[f"Old claim {old_claim_id} not found"],
+                )
+
+            meta_json = None
+            if resolution_notes:
+                import json as _json
+                meta_json = _json.dumps({"resolution_notes": resolution_notes})
+
+            link_id = link_claims(
+                self.db, new_claim_id, old_claim_id,
+                link_type=LINK_SUPERSEDES,
+                user_email=self.user_email, meta_json=meta_json,
+            )
+
+            warnings = []
+            if link_id is None:
+                warnings.append(
+                    f"Supersession link {new_claim_id[:8]} -> {old_claim_id[:8]} "
+                    f"already existed"
+                )
+
+            # Move the old claim to superseded (idempotent if already there).
+            if old_claim.status != ClaimStatus.SUPERSEDED.value:
+                self.claims.edit(
+                    old_claim_id, {"status": ClaimStatus.SUPERSEDED.value}
+                )
+
+            head = get_supersession_head(self.db, old_claim_id)
+            return ActionResult(
+                success=True, action="supersede", object_type="claim",
+                object_id=old_claim_id,
+                data={
+                    "new_claim_id": new_claim_id,
+                    "old_claim_id": old_claim_id,
+                    "link_id": link_id,
+                    "head_claim_id": head,
+                },
+                warnings=warnings,
+            )
+        except Exception as e:
+            logger.error(f"Failed to supersede claim: {e}")
+            return ActionResult(
+                success=False, action="supersede", object_type="claim",
+                object_id=old_claim_id, errors=[str(e)],
             )
 
     def get_pinned_claims(self, limit: int = 50) -> ActionResult:

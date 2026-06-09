@@ -928,7 +928,8 @@ inside `HybridSearchStrategy.search`:
 ```
 recency = 0.5 ** (age_days / half_life)          # 1.0 fresh -> 0.5 at one half-life
 conf    = claim.confidence or default_confidence
-final   = rrf_score * (recency ** w_recency) * (conf ** w_confidence)
+penalty = contested_penalty if claim.status == "contested" else 1.0   # C2
+final   = rrf_score * (recency ** w_recency) * (conf ** w_confidence) * penalty
 ```
 
 - **Default is an exact no-op.** With `w_recency = w_confidence = 0` (the
@@ -942,14 +943,18 @@ final   = rrf_score * (recency ** w_recency) * (conf ** w_confidence)
 - **Pinned override (C1b):** a pinned claim (`meta_json.pinned`) keeps `recency = 1.0`.
 - **New-claim grace (C1b):** claims younger than `recency_grace_days` keep
   `recency = 1.0` so fresh claims aren't buried by long-lived ones.
-- **Status (C2):** `expired`/`retracted`/`superseded` are already excluded
-  upstream by `SearchFilters` default statuses; explicit contested down-ranking
-  is not yet wired in.
+- **Status & contested down-ranking (C2):** `expired`/`retracted`/`superseded`/
+  `dormant` are excluded upstream by `SearchFilters` default statuses
+  (`default_search_statuses` = `[active, contested]`). Contested claims still
+  surface (with warnings) but can be **buried** via `contested_penalty` — a
+  multiplier applied to a contested claim's score (default `1.0` = no-op; e.g.
+  `0.5` sinks it below uncontested peers). The fast-path no-op return also
+  checks `contested_penalty == 1.0`, so default ranking is untouched.
 
 **Config (C3, all in `PKBConfig`):** `recency_rerank_enabled`, `w_recency`,
 `w_confidence`, `default_confidence`, `recency_half_life_days`,
-`half_life_by_type`, `recency_grace_days` — all sweepable via the eval harness
-(`EvalRunner(config=PKBConfig(w_recency=...))`).
+`half_life_by_type`, `recency_grace_days`, `contested_penalty` — all sweepable
+via the eval harness (`EvalRunner(config=PKBConfig(w_recency=...))`).
 
 **Measured (eval harness, FTS-only, k=5):** at the default `w_recency = 0` the
 `recency` and `conflict` categories score MRR 0.500; enabling `w_recency = 1.0`
@@ -957,7 +962,8 @@ final   = rrf_score * (recency ** w_recency) * (conf ** w_confidence)
 and overall recall stay unchanged — i.e. the re-rank fixes newer-vs-older
 ordering without disturbing strong lexical matches. Unit-tested in
 `tests/test_recency_rerank.py` (zero-weight no-op, newer-promotion, pinned
-override, grace floor, per-type half-life, confidence weighting).
+override, grace floor, per-type half-life, confidence weighting, and the C2
+contested-penalty no-op/bury/compose cases).
 
 ### Reinforcement & Decay — Schema v8 (Workstream H)
 
@@ -1055,6 +1061,55 @@ all types decayable). Unit-tested in `tests/test_decay.py` (9: inert default,
 stale→dormant, fresh survives, `last_reinforced_at` clock, pinned/exempt/per-type
 half-life skips, reinforce-revives-decayed, the API entry point, and the F3
 default-search-vs-visible status split).
+
+### Supersession — Schema v9 (Workstream D1)
+
+Contradiction handling needs more than flipping a status: when "I live in
+Bengaluru" becomes "I live in Mumbai", the system should record *which* claim
+replaced *which*, retire the old one, and retrieve only the current head. D1 adds
+a typed claim-to-claim graph.
+
+- **`claim_links` table (v9):** `(link_id, user_email, from_claim_id,
+  to_claim_id, link_type, created_at, meta_json)` with
+  `UNIQUE(from_claim_id, to_claim_id, link_type)` and indexes on both endpoints
+  + `link_type`. The base DDL creates it (and its indexes) with `IF NOT EXISTS`,
+  and `_migrate_v8_to_v9` re-creates it defensively for upgrading DBs — verified
+  on a copy of the real DB (v6→v9, 49 claims preserved, idempotent). Unlike the
+  v8 column-index, these indexes live in base DDL safely because the table is
+  brand new (no migration-added column to wait on).
+- **Direction convention:** a `supersedes` link runs **from the newer claim to
+  the older one** (`from` supersedes `to`).
+- **`crud/links.py`:** `link_claims` (rejects self-links, idempotent on the
+  UNIQUE edge), `unlink_claims`, `get_outgoing_links`/`get_incoming_links`, and
+  `get_supersession_head(db, claim_id)` which walks the chain forward to the
+  newest non-superseded claim (cycle- and depth-guarded, `max_hops=50`).
+- **`StructuredAPI.supersede_claim(new_id, old_id, resolution_notes=None)`:**
+  creates the link and moves the old claim to `superseded` (refuses
+  self-supersession and missing claims; idempotent — a duplicate edge is warned,
+  not errored). Returns the resolved chain head.
+- **Two confirmed entry points (no silent edits):** (1) `add_claim(...,
+  supersedes=<id|list>)` retires the named claim(s) right after creating the new
+  one; (2) `resolve_conflict_set(..., winning_claim_id=W)` — where the user
+  already picks a winner — now records `W -supersedes-> loser` for every loser
+  (which `ConflictCRUD.resolve` had already moved to `superseded`), so the graph
+  is captured, not just the status.
+- **Chain-head retrieval comes for free:** `superseded` is absent from
+  `SearchFilters` default statuses (`default_search_statuses` =
+  `[active, contested]`, applied as `c.status IN (...)`), so the old claim drops
+  out of normal search while the active head remains. `get_supersession_head`
+  is there for callers that explicitly land on a superseded claim and want to
+  jump to the current one. The H4 safeguard already refuses to reinforce a
+  `superseded` claim, so a retired claim can't be silently revived.
+- **Deferred follow-up:** the `ConversationDistiller` currently classifies
+  matches only as `duplicate`/`related` by score — it has no contradiction
+  detector — so an automatic distiller→supersede proposal is left as a follow-up
+  (the API and confirmation surfaces above are in place for it to call).
+
+Unit-tested in `tests/test_supersession.py` (12: schema/table presence, link
+CRUD + multi-hop head, self/dup rejection, cycle guard, the supersede transition
+and guards, idempotent link, `add_claim(supersedes=)`, conflict-resolution link
+recording, superseded-excluded-from-active-set, and the no-reinforce-superseded
+bridge).
 
 ### Pattern 3: Memory Update from Chat
 

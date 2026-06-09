@@ -22,7 +22,8 @@ All tables use:
 """
 
 SCHEMA_VERSION = (
-    8  # v8: Added last_reinforced_at + reinforcement_count to claims (Workstream H: reinforcement & decay)
+    9  # v9: Added claim_links table (Workstream D1: supersession & typed claim-claim links)
+    # 8: Added last_reinforced_at + reinforcement_count to claims (Workstream H: reinforcement & decay)
 )
 
 
@@ -142,6 +143,24 @@ CREATE TABLE IF NOT EXISTS conflict_set_members (
     conflict_set_id TEXT NOT NULL REFERENCES conflict_sets(conflict_set_id) ON DELETE CASCADE,
     claim_id TEXT NOT NULL REFERENCES claims(claim_id) ON DELETE CASCADE,
     PRIMARY KEY (conflict_set_id, claim_id)
+);
+
+-- =============================================================================
+-- Claim-to-claim links: typed directed edges between claims (v9, Workstream D1)
+-- The canonical use is supersession: a `supersedes` link runs from the NEWER
+-- claim (from_claim_id) to the OLDER one it replaces (to_claim_id). The old
+-- claim is moved to `superseded` status; retrieval prefers the chain head
+-- (the newest claim that is not itself superseded).
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS claim_links (
+    link_id TEXT PRIMARY KEY,
+    user_email TEXT,                    -- Owner email for multi-user support
+    from_claim_id TEXT NOT NULL REFERENCES claims(claim_id) ON DELETE CASCADE,
+    to_claim_id TEXT NOT NULL REFERENCES claims(claim_id) ON DELETE CASCADE,
+    link_type TEXT NOT NULL,            -- supersedes (extensible for future relations)
+    created_at TEXT NOT NULL,
+    meta_json TEXT,
+    UNIQUE(from_claim_id, to_claim_id, link_type)
 );
 
 -- =============================================================================
@@ -267,6 +286,13 @@ CREATE INDEX IF NOT EXISTS idx_conflict_sets_user_email ON conflict_sets(user_em
 CREATE INDEX IF NOT EXISTS idx_conflict_sets_status ON conflict_sets(status);
 CREATE INDEX IF NOT EXISTS idx_conflict_set_members_claim_id ON conflict_set_members(claim_id);
 
+-- Claim-link indexes (v9, Workstream D1). Safe in base DDL: claim_links is a
+-- brand-new table created earlier in this same DDL script (unlike v8's index on
+-- a migration-added column).
+CREATE INDEX IF NOT EXISTS idx_claim_links_from ON claim_links(from_claim_id);
+CREATE INDEX IF NOT EXISTS idx_claim_links_to ON claim_links(to_claim_id);
+CREATE INDEX IF NOT EXISTS idx_claim_links_type ON claim_links(link_type);
+
 -- v3 indexes for claims.friendly_id and contexts are created by the migration
 -- or by _ensure_v3_indexes() during initialization. They are NOT included here
 -- because for a v2 database, claims.friendly_id doesn't exist yet, and
@@ -387,6 +413,7 @@ def get_tables_list() -> list:
         "claim_entities",
         "conflict_sets",
         "conflict_set_members",
+        "claim_links",
         "claim_embeddings",
         "note_embeddings",
         "contexts",

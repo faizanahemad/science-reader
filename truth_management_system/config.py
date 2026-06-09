@@ -71,6 +71,10 @@ class PKBConfig:
     recency_rerank_enabled: bool = True
     w_recency: float = 0.0
     w_confidence: float = 0.0
+    # Contested down-ranking (C2): multiplier applied to a contested claim's
+    # score in the re-rank. 1.0 (default) = no-op; e.g. 0.5 halves it so
+    # in-conflict claims sink below uncontested ones.
+    contested_penalty: float = 1.0
     # Confidence assumed when a claim has no explicit confidence value.
     default_confidence: float = 0.5
     # Default half-life (days) for recency decay; per-type overrides below.
@@ -151,6 +155,7 @@ class PKBConfig:
             'recency_rerank_enabled': self.recency_rerank_enabled,
             'w_recency': self.w_recency,
             'w_confidence': self.w_confidence,
+            'contested_penalty': self.contested_penalty,
             'default_confidence': self.default_confidence,
             'recency_half_life_days': self.recency_half_life_days,
             'half_life_by_type': dict(self.half_life_by_type),
@@ -185,6 +190,7 @@ class PKBConfig:
             'default_k', 'include_contested_by_default', 'validity_filter_default',
             'conflict_scan_limit',
             'recency_rerank_enabled', 'w_recency', 'w_confidence',
+            'contested_penalty',
             'default_confidence', 'recency_half_life_days', 'half_life_by_type',
             'recency_grace_days',
             'reinforce_alpha', 'reinforce_ttl_days_by_type',
@@ -248,6 +254,7 @@ def load_config(
         'RECENCY_RERANK_ENABLED': ('recency_rerank_enabled', lambda x: x.lower() in ('true', '1', 'yes')),
         'W_RECENCY': ('w_recency', float),
         'W_CONFIDENCE': ('w_confidence', float),
+        'CONTESTED_PENALTY': ('contested_penalty', float),
         'DEFAULT_CONFIDENCE': ('default_confidence', float),
         'RECENCY_HALF_LIFE_DAYS': ('recency_half_life_days', float),
         'RECENCY_GRACE_DAYS': ('recency_grace_days', float),

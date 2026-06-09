@@ -255,6 +255,10 @@ class PKBDatabase:
         if from_version < 8 <= to_version:
             self._migrate_v7_to_v8(conn)
 
+        # Migration from v8 to v9: Add claim_links table (Workstream D1)
+        if from_version < 9 <= to_version:
+            self._migrate_v8_to_v9(conn)
+
     def _migrate_v1_to_v2(self, conn: sqlite3.Connection) -> None:
         """
         Migrate from schema v1 to v2: Add user_email column for multi-user support.
@@ -795,6 +799,48 @@ class PKBDatabase:
         )
 
         logger.info("Migration to v8 complete")
+
+    def _migrate_v8_to_v9(self, conn: sqlite3.Connection) -> None:
+        """
+        Migrate from schema v8 to v9: Add the ``claim_links`` table (Workstream
+        D1: supersession & typed claim-to-claim links).
+
+        The base DDL already creates ``claim_links`` (and its indexes) with
+        ``IF NOT EXISTS`` on every ``initialize_schema`` call, so this migration
+        is defensive/idempotent — it guarantees the table exists for databases
+        whose recorded version is being advanced to v9, independent of base-DDL
+        ordering.
+
+        Args:
+            conn: Active database connection.
+        """
+        logger.info("Migrating to v9: Adding claim_links table (Workstream D1)")
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS claim_links (
+                link_id TEXT PRIMARY KEY,
+                user_email TEXT,
+                from_claim_id TEXT NOT NULL REFERENCES claims(claim_id) ON DELETE CASCADE,
+                to_claim_id TEXT NOT NULL REFERENCES claims(claim_id) ON DELETE CASCADE,
+                link_type TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                meta_json TEXT,
+                UNIQUE(from_claim_id, to_claim_id, link_type)
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_claim_links_from ON claim_links(from_claim_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_claim_links_to ON claim_links(to_claim_id)"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_claim_links_type ON claim_links(link_type)"
+        )
+
+        logger.info("Migration to v9 complete")
 
     def _ensure_catalog_seeded(self, conn: sqlite3.Connection) -> None:
         """

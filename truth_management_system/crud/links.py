@@ -411,3 +411,156 @@ def get_or_create_entity_by_name(
     db.connect().commit()
     
     return entity_id
+
+
+# =============================================================================
+# Claim-to-Claim Links (v9, Workstream D1)
+# =============================================================================
+
+# Canonical link type: a `supersedes` edge runs from the NEWER claim
+# (from_claim_id) to the OLDER claim it replaces (to_claim_id).
+LINK_SUPERSEDES = "supersedes"
+
+
+def link_claims(
+    db: PKBDatabase,
+    from_claim_id: str,
+    to_claim_id: str,
+    link_type: str = LINK_SUPERSEDES,
+    user_email: Optional[str] = None,
+    meta_json: Optional[str] = None,
+) -> Optional[str]:
+    """
+    Create a typed directed link between two claims.
+
+    For ``supersedes``, ``from_claim_id`` is the newer claim and
+    ``to_claim_id`` is the older one it replaces.
+
+    Args:
+        db: PKBDatabase instance.
+        from_claim_id: Source claim (the newer claim for supersession).
+        to_claim_id: Target claim (the older claim for supersession).
+        link_type: Relationship type (default ``supersedes``).
+        user_email: Optional owner email.
+        meta_json: Optional JSON metadata.
+
+    Returns:
+        The new link_id, or None if the link already exists or is invalid
+        (e.g. a self-link).
+    """
+    if from_claim_id == to_claim_id:
+        logger.warning("Refusing to link a claim to itself (%s)", from_claim_id)
+        return None
+
+    link_id = generate_uuid()
+    with db.transaction() as conn:
+        try:
+            conn.execute(
+                "INSERT INTO claim_links "
+                "(link_id, user_email, from_claim_id, to_claim_id, link_type, created_at, meta_json) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (link_id, user_email, from_claim_id, to_claim_id, link_type,
+                 now_iso(), meta_json),
+            )
+            logger.debug(
+                "Linked claim %s -%s-> %s", from_claim_id, link_type, to_claim_id
+            )
+            return link_id
+        except Exception:
+            # UNIQUE(from_claim_id, to_claim_id, link_type) violation
+            return None
+
+
+def unlink_claims(
+    db: PKBDatabase,
+    from_claim_id: str,
+    to_claim_id: str,
+    link_type: Optional[str] = None,
+) -> bool:
+    """
+    Remove claim-to-claim link(s). If ``link_type`` is None, removes all types
+    between the pair.
+
+    Returns:
+        True if any link was removed.
+    """
+    with db.transaction() as conn:
+        if link_type:
+            cur = conn.execute(
+                "DELETE FROM claim_links WHERE from_claim_id = ? AND to_claim_id = ? AND link_type = ?",
+                (from_claim_id, to_claim_id, link_type),
+            )
+        else:
+            cur = conn.execute(
+                "DELETE FROM claim_links WHERE from_claim_id = ? AND to_claim_id = ?",
+                (from_claim_id, to_claim_id),
+            )
+        return cur.rowcount > 0
+
+
+def get_outgoing_links(
+    db: PKBDatabase, claim_id: str, link_type: Optional[str] = None
+) -> List[Dict]:
+    """
+    Links where ``claim_id`` is the source (``from_claim_id``).
+
+    For ``supersedes``, these are the older claims this claim replaces.
+    """
+    sql = "SELECT * FROM claim_links WHERE from_claim_id = ?"
+    params: list = [claim_id]
+    if link_type:
+        sql += " AND link_type = ?"
+        params.append(link_type)
+    return [dict(row) for row in db.fetchall(sql, tuple(params))]
+
+
+def get_incoming_links(
+    db: PKBDatabase, claim_id: str, link_type: Optional[str] = None
+) -> List[Dict]:
+    """
+    Links where ``claim_id`` is the target (``to_claim_id``).
+
+    For ``supersedes``, these point to the newer claim(s) that replace this one.
+    """
+    sql = "SELECT * FROM claim_links WHERE to_claim_id = ?"
+    params: list = [claim_id]
+    if link_type:
+        sql += " AND link_type = ?"
+        params.append(link_type)
+    return [dict(row) for row in db.fetchall(sql, tuple(params))]
+
+
+def get_supersession_head(
+    db: PKBDatabase, claim_id: str, max_hops: int = 50
+) -> str:
+    """
+    Walk the ``supersedes`` chain forward to the head — the newest claim that
+    replaces ``claim_id`` (transitively) and is not itself superseded.
+
+    Returns ``claim_id`` unchanged if nothing supersedes it. Cycle- and
+    depth-guarded.
+
+    Args:
+        db: PKBDatabase instance.
+        claim_id: Any claim in the chain.
+        max_hops: Safety cap on chain length.
+
+    Returns:
+        The head claim_id.
+    """
+    current = claim_id
+    seen = {current}
+    for _ in range(max_hops):
+        row = db.fetchone(
+            "SELECT from_claim_id FROM claim_links "
+            "WHERE to_claim_id = ? AND link_type = ? LIMIT 1",
+            (current, LINK_SUPERSEDES),
+        )
+        if row is None:
+            break
+        nxt = row["from_claim_id"]
+        if nxt in seen:  # cycle guard
+            break
+        seen.add(nxt)
+        current = nxt
+    return current
