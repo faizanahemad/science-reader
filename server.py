@@ -564,6 +564,15 @@ def create_app(argv: Optional[list[str]] = None) -> Flask:
 
     threading.Thread(target=_backfill_search_index, daemon=True, name='search-backfill').start()
 
+    # PKB lifecycle sweep (Workstream F1): periodic hard-TTL expiry + soft-TTL
+    # dormancy. Config-gated (sweep_interval_seconds <= 0 disables it), so this
+    # is a no-op by default; the lazy on-search sweep remains as a fallback.
+    try:
+        from endpoints.pkb import start_pkb_background_jobs
+        start_pkb_background_jobs()
+    except Exception as e:
+        logger.warning('Failed to start PKB background jobs: %s', e)
+
     # One-time migration: move existing flat global docs into folder subdirectories.
     # Safe to run on every startup — skips docs already in the correct location.
     _run_global_docs_migration(global_docs_dir=global_docs_dir, users_dir=users_dir)

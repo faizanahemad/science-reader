@@ -111,6 +111,13 @@ class PKBConfig:
     # Claim types that never decay to dormant even when dormancy is enabled
     # (e.g. ["fact", "identity"]). Empty (default) = every type is decayable.
     dormancy_exempt_types: List[str] = field(default_factory=list)
+    # F1 scheduled sweep: interval (seconds) for the background lifecycle sweep
+    # (hard-TTL expiry + soft-TTL dormancy). 0 (default) disables the scheduler
+    # and leaves the existing lazy on-search sweep as the only trigger.
+    sweep_interval_seconds: int = 0
+    # F4 notifications: how many days ahead a task/reminder counts as
+    # "soon to expire", and the window for "newly dormant" claims.
+    notify_expiry_within_days: int = 7
 
     # LLM settings
     llm_model: str = "google/gemini-3.1-flash-lite-preview"
@@ -173,6 +180,8 @@ class PKBConfig:
             'reinforce_on_duplicate': self.reinforce_on_duplicate,
             'dormancy_threshold': self.dormancy_threshold,
             'dormancy_exempt_types': list(self.dormancy_exempt_types),
+            'sweep_interval_seconds': self.sweep_interval_seconds,
+            'notify_expiry_within_days': self.notify_expiry_within_days,
             'llm_model': self.llm_model,
             'embedding_model': self.embedding_model,
             'llm_temperature': self.llm_temperature,
@@ -205,6 +214,7 @@ class PKBConfig:
             'reinforce_alpha', 'reinforce_ttl_days_by_type',
             'reinforce_on_duplicate', 'dormancy_threshold',
             'dormancy_exempt_types',
+            'sweep_interval_seconds', 'notify_expiry_within_days',
             'llm_model', 'embedding_model', 'llm_temperature',
             'max_parallel_llm_calls', 'max_parallel_embedding_calls',
             'log_llm_calls', 'log_search_queries'
@@ -264,6 +274,8 @@ def load_config(
         'W_RECENCY': ('w_recency', float),
         'W_CONFIDENCE': ('w_confidence', float),
         'CONTESTED_PENALTY': ('contested_penalty', float),
+        'SWEEP_INTERVAL_SECONDS': ('sweep_interval_seconds', int),
+        'NOTIFY_EXPIRY_WITHIN_DAYS': ('notify_expiry_within_days', int),
         'CONSOLIDATION_SIMILARITY_THRESHOLD': ('consolidation_similarity_threshold', float),
         'ENTITY_DEDUP_THRESHOLD': ('entity_dedup_threshold', float),
         'DEFAULT_CONFIDENCE': ('default_confidence', float),

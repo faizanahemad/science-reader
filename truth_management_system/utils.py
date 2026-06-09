@@ -319,6 +319,32 @@ def maybe_expire_claims(db, user_email: Optional[str] = None, config=None) -> No
     if config is not None:
         decay_dormant_claims(db, config, user_email)
 
+
+def run_lifecycle_sweep(db, config=None, user_email: Optional[str] = None,
+                        now: Optional[datetime] = None) -> Dict[str, int]:
+    """
+    Run the full lifecycle sweep **unconditionally** (Workstream F1 job body).
+
+    Unlike ``maybe_expire_claims`` there is no ``EXPIRY_CHECK_INTERVAL`` guard —
+    the caller (the background scheduler or an on-demand endpoint) controls
+    cadence. Runs hard-TTL expiry and, when a ``config`` is supplied, the
+    soft-TTL dormancy decay (inert unless ``dormancy_threshold > 0``).
+
+    Args:
+        db: PKBDatabase instance.
+        config: Optional PKBConfig (required for the dormancy pass).
+        user_email: Optional user scope; ``None`` sweeps across all users.
+        now: Optional reference time for the dormancy pass (testing).
+
+    Returns:
+        Dict ``{"expired": N, "dormant": M}`` with the counts transitioned.
+    """
+    expired = expire_stale_claims(db, user_email)
+    dormant = 0
+    if config is not None:
+        dormant = decay_dormant_claims(db, config, user_email, now=now)
+    return {"expired": expired, "dormant": dormant}
+
 # =============================================================================
 # JSON Validation and Manipulation
 # =============================================================================

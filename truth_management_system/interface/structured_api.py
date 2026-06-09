@@ -1363,6 +1363,125 @@ class StructuredAPI:
                 errors=[str(e)],
             )
 
+    def run_lifecycle_sweep(self) -> ActionResult:
+        """
+        Run the full lifecycle sweep now (Workstream F1): hard-TTL expiry +
+        soft-TTL dormancy decay, scoped to this API's user.
+
+        This is the on-demand counterpart to the background scheduler — useful
+        for an admin/maintenance trigger. Inert dormancy unless
+        ``dormancy_threshold > 0``.
+
+        Returns:
+            ActionResult whose ``data`` is ``{"expired": N, "dormant": M}``.
+        """
+        try:
+            from ..utils import run_lifecycle_sweep
+
+            counts = run_lifecycle_sweep(self.db, self.config, self.user_email)
+            return ActionResult(
+                success=True, action="sweep", object_type="claim", data=counts,
+            )
+        except Exception as e:
+            logger.error(f"Lifecycle sweep failed: {e}")
+            return ActionResult(
+                success=False, action="sweep", object_type="claim", errors=[str(e)],
+            )
+
+    def get_lifecycle_notifications(
+        self, within_days: int = None, limit: int = 50
+    ) -> ActionResult:
+        """
+        Surface claims needing attention (Workstream F4).
+
+        Two buckets, scoped to this API's user:
+        - ``soon_to_expire``: active ``task``/``reminder`` claims whose
+          ``valid_to`` falls within the next ``within_days`` days.
+        - ``newly_dormant``: claims flipped to ``dormant`` within the last
+          ``within_days`` days (the decay sweep stamps ``updated_at`` on flip).
+
+        Args:
+            within_days: look-ahead / look-back window (defaults to
+                ``config.notify_expiry_within_days``).
+            limit: max rows per bucket.
+
+        Returns:
+            ActionResult with ``data`` = {"soon_to_expire": [...],
+            "newly_dormant": [...], "counts": {...}}.
+        """
+        try:
+            from ..utils import now_iso
+            from datetime import datetime, timezone, timedelta
+
+            if within_days is None:
+                within_days = self.config.notify_expiry_within_days
+
+            now_dt = datetime.now(timezone.utc)
+            now = now_iso()
+            horizon = (now_dt + timedelta(days=within_days)).isoformat()
+            lookback = (now_dt - timedelta(days=within_days)).isoformat()
+
+            def _scope(sql, params):
+                if self.user_email:
+                    sql += " AND user_email = ?"
+                    params.append(self.user_email)
+                else:
+                    sql += " AND user_email IS NULL"
+                return sql, params
+
+            # Soon-to-expire task/reminder claims still active.
+            exp_sql = (
+                "SELECT claim_id, statement, claim_type, valid_to, status "
+                "FROM claims WHERE status = 'active' "
+                "AND claim_type IN ('task', 'reminder') "
+                "AND valid_to IS NOT NULL AND valid_to != '' "
+                "AND valid_to >= ? AND valid_to <= ?"
+            )
+            exp_sql, exp_params = _scope(exp_sql, [now, horizon])
+            exp_sql += " ORDER BY valid_to ASC LIMIT ?"
+            exp_params.append(limit)
+            soon = [
+                {
+                    "claim_id": r["claim_id"], "statement": r["statement"],
+                    "claim_type": r["claim_type"], "valid_to": r["valid_to"],
+                }
+                for r in self.db.fetchall(exp_sql, tuple(exp_params))
+            ]
+
+            # Recently-dormant claims.
+            dorm_sql = (
+                "SELECT claim_id, statement, claim_type, updated_at, status "
+                "FROM claims WHERE status = 'dormant' AND updated_at >= ?"
+            )
+            dorm_sql, dorm_params = _scope(dorm_sql, [lookback])
+            dorm_sql += " ORDER BY updated_at DESC LIMIT ?"
+            dorm_params.append(limit)
+            dormant = [
+                {
+                    "claim_id": r["claim_id"], "statement": r["statement"],
+                    "claim_type": r["claim_type"], "updated_at": r["updated_at"],
+                }
+                for r in self.db.fetchall(dorm_sql, tuple(dorm_params))
+            ]
+
+            return ActionResult(
+                success=True, action="list", object_type="claim",
+                data={
+                    "soon_to_expire": soon,
+                    "newly_dormant": dormant,
+                    "counts": {
+                        "soon_to_expire": len(soon),
+                        "newly_dormant": len(dormant),
+                    },
+                    "within_days": within_days,
+                },
+            )
+        except Exception as e:
+            logger.error(f"Failed to build lifecycle notifications: {e}")
+            return ActionResult(
+                success=False, action="list", object_type="claim", errors=[str(e)],
+            )
+
     def supersede_claim(
         self,
         new_claim_id: str,

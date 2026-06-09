@@ -1062,6 +1062,43 @@ stale→dormant, fresh survives, `last_reinforced_at` clock, pinned/exempt/per-t
 half-life skips, reinforce-revives-decayed, the API entry point, and the F3
 default-search-vs-visible status split).
 
+### Scheduled Sweep & Notifications (Workstream F1/F4)
+
+F2 made the sweep *correct*; F1 makes it *timely* and F4 makes it *visible*.
+
+**F1 — scheduled sweep.** The expiry/dormancy passes previously ran only lazily
+(before search, behind the `EXPIRY_CHECK_INTERVAL` guard) so a quiet PKB never
+swept. `utils.run_lifecycle_sweep(db, config, user_email=None, now=None)` runs
+hard-TTL `expire_stale_claims` + soft-TTL `decay_dormant_claims`
+**unconditionally** (no interval guard — the caller controls cadence) and
+returns `{"expired": N, "dormant": M}`. A new `truth_management_system/
+scheduler.py` runs it on a daemon thread:
+`start_lifecycle_sweep_scheduler(db, config, interval_seconds=None)` spins a
+`threading.Thread` + `threading.Event` loop (matching the existing `server.py`
+background-thread convention — no new dependency), `stop_lifecycle_sweep_
+scheduler()` signals it to stop, and `is_running()` reports liveness. It is
+**config-gated** (`sweep_interval_seconds <= 0` disables it, leaving the lazy
+path as the only trigger) and **idempotent** (a second start while alive is a
+no-op). `endpoints.pkb.start_pkb_background_jobs()` initializes the shared PKB DB
+and starts the scheduler; `server.py` calls it at startup next to the
+search-backfill thread. `StructuredAPI.run_lifecycle_sweep()` exposes the same
+sweep on demand, surfaced at `POST /pkb/sweep`.
+
+**F4 — notifications.** `StructuredAPI.get_lifecycle_notifications(within_days=
+None, limit=50)` returns two buckets (scoped to the user): `soon_to_expire` —
+active `task`/`reminder` claims whose `valid_to` is within the next
+`within_days` days — and `newly_dormant` — claims flipped to `dormant` within
+the last `within_days` days (the decay sweep stamps `updated_at` on flip, so the
+window is precise). `within_days` defaults to `config.notify_expiry_within_days`
+(7). Surfaced at `GET /pkb/notifications` for a UI badge/affordance.
+
+Config knobs: `sweep_interval_seconds` (0 = disabled) and
+`notify_expiry_within_days` (7), both with `to_dict`/`from_dict`/env wiring.
+Unit-tested in `tests/test_lifecycle_sweep.py` (8: unconditional expiry,
+dormancy via injected `now`, the API sweep, scheduler disabled/enabled/idempotent
++ stop, the soon-to-expire window, the task/reminder type filter, and
+newly-dormant detection).
+
 ### Supersession — Schema v9 (Workstream D1)
 
 Contradiction handling needs more than flipping a status: when "I live in

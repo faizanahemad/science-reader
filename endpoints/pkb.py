@@ -167,6 +167,32 @@ def get_pkb_api_for_user(user_email: str, keys: dict | None = None):
     return StructuredAPI(db, keys or {}, config, user_email=user_email)
 
 
+def start_pkb_background_jobs():
+    """
+    Start PKB background jobs at server startup (Workstream F1).
+
+    Initializes the shared PKB database and starts the periodic lifecycle-sweep
+    scheduler. The scheduler is config-gated (``sweep_interval_seconds <= 0``
+    disables it), so this is a safe no-op by default. Best-effort: any failure
+    is logged and swallowed so it never blocks server startup.
+
+    Returns:
+        The sweep Thread, or None when PKB is unavailable / scheduler disabled.
+    """
+    if not PKB_AVAILABLE:
+        return None
+    try:
+        db, config = get_pkb_db()
+        if db is None or config is None:
+            return None
+        from truth_management_system.scheduler import start_lifecycle_sweep_scheduler
+
+        return start_lifecycle_sweep_scheduler(db, config)
+    except Exception as e:
+        logger.warning(f"Failed to start PKB background jobs: {e}")
+        return None
+
+
 def serialize_claim(claim):
     """Convert a Claim object to a JSON-serializable dict."""
 
@@ -794,6 +820,73 @@ def pkb_entity_merge_route():
         )
     except Exception as e:
         logger.error(f"Error in pkb_entity_merge: {e}")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
+
+
+@pkb_bp.route("/pkb/sweep", methods=["POST"])
+@limiter.limit("6 per minute")
+@login_required
+def pkb_sweep_route():
+    """Run the lifecycle sweep on demand (Workstream F1): expiry + dormancy."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
+
+        result = api.run_lifecycle_sweep()
+        if result.success:
+            return jsonify(result.data)
+        return json_error(
+            "; ".join(result.errors) or "Sweep failed",
+            status=500, code="sweep_failed",
+        )
+    except Exception as e:
+        logger.error(f"Error in pkb_sweep: {e}")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
+
+
+@pkb_bp.route("/pkb/notifications", methods=["GET"])
+@limiter.limit("30 per minute")
+@login_required
+def pkb_notifications_route():
+    """Soon-to-expire and newly-dormant claims for the user (Workstream F4)."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
+
+        within_days = request.args.get("within_days", type=int)
+        result = api.get_lifecycle_notifications(within_days=within_days)
+        if result.success:
+            return jsonify(result.data)
+        return json_error(
+            "; ".join(result.errors) or "Notifications failed",
+            status=500, code="notifications_failed",
+        )
+    except Exception as e:
+        logger.error(f"Error in pkb_notifications: {e}")
         return json_error(
             f"An error occurred: {str(e)}", status=500, code="internal_error"
         )
