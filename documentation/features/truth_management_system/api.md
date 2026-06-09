@@ -940,6 +940,13 @@ All operations are automatically scoped to the authenticated user's data.
 | POST | `/pkb/analyze_statement` | Analyze statement, extract type/domain/tags/questions `{statement}` | 20/min |
 | DELETE | `/pkb/claims/<id>/delete` | Hard-delete claim by ID (v0.9) | 15/min |
 | POST | `/pkb/nl_command` | NL command `{command, conversation_context?, claim_types?}` (v0.9) | 10/min |
+| GET | `/pkb/claims/<id>/provenance` | "Why do I know this?" — source conversation/message for a claim (E1) | 30/min |
+| GET | `/pkb/consolidation/candidates` | Clusters of near-duplicate claims proposed for merge (query: threshold, limit) (D2) | 10/min |
+| POST | `/pkb/consolidation/merge` | Merge a duplicate cluster `{claim_ids, keep_id?}` — keeper kept, rest superseded (D2) | 15/min |
+| GET | `/pkb/entities/duplicates` | Clusters of entity name variants proposed for merge (query: entity_type, threshold) (D3) | 10/min |
+| POST | `/pkb/entities/merge` | Merge entity into canonical one `{source_id, target_id}`, keeping aliases (D3) | 15/min |
+| POST | `/pkb/sweep` | Run lifecycle sweep now (hard-TTL expiry + soft-TTL dormancy) → `{expired, dormant}` (F1) | 6/min |
+| GET | `/pkb/notifications` | Soon-to-expire task/reminder + newly-dormant claims (query: within_days) (F4) | 30/min |
 
 **Plan Storage Note:** `/pkb/propose_updates` and `/pkb/ingest_text` store plans in server memory (`_memory_update_plans`, `_text_ingestion_plans`). Plans are lost on server restart. The frontend should execute plans promptly after receiving them.
 

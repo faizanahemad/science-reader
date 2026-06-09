@@ -4,6 +4,11 @@
 
 This directory contains comprehensive documentation for the Truth Management System (PKB), a SQLite-backed personal knowledge base designed for LLM chatbot applications.
 
+> **For agents starting here:** This README covers all key concepts, features, integration points, version history, and file locations — enough to understand and navigate the system. However, it intentionally omits implementation internals. When you need to go deeper, the two files to reach for are:
+> - **`implementation_deep_dive.md`** — architecture diagrams, complete data-flow walkthroughs, algorithm details (RRF, recency re-rank, reinforcement, decay, supersession, provenance), server integration internals, eval harness, and step-by-step development patterns.
+> - **`pkb_reference_resolution_flow.md`** — exact resolution algorithm for every `@reference` type, recursive context SQL, XML context format details, cross-conversation message references, and the two-stage distillation/re-injection mechanism.
+> Both files contain details not repeated here. Check them before concluding something is undocumented.
+
 ---
 
 ## Documentation Files
@@ -38,6 +43,15 @@ End-to-end documentation of how @references work:
 - Complete data flow diagrams
 
 **When to use:** Understanding how `@ssdva` or `@claim_42` gets resolved, debugging reference issues, implementing new reference features.
+
+> **Details only in this file (not in README):**
+> - `parseMemoryReferences()` regex patterns, exclusion rules (email detection, min-length), and all 13 test cases
+> - Sequential resolution strategy (claim_N → claim friendly_id → context friendly_id → context name fallback) with exact SQL
+> - Recursive context CTE SQL (`WITH RECURSIVE ctx_tree`) with depth cap and deduplication
+> - XML `<pkb_item source="..." type="..." ref="...">` format and why it replaced the `- [SOURCE]` bullet format (newlines in content broke boundary parsing)
+> - `_extract_referenced_claims()` implementation: DOTALL regex parsing, legacy bullet fallback
+> - Cross-conversation message references (`@conversation_<fid>_message_<hash>`): `CONV_REF_PATTERN`, how they're partitioned from PKB refs before resolution, `_resolve_conversation_message_refs()`, how they coexist with PKB refs in the same message
+> - Complete end-to-end data flow trace for a message containing both `@context_fid` and `@claim_fid`
 
 ---
 
@@ -78,6 +92,22 @@ In-depth technical documentation including:
 - **Troubleshooting Guide**: Common issues with diagnosis and solutions
 
 **When to use:** Development work, debugging, understanding data flows, implementing new features, troubleshooting issues.
+
+> **Details only in this file (not in README):**
+> - 5-layer architecture diagram with component interaction map
+> - Complete `add_claim` transaction flow (FTS trigger sync, embedding cache population on insert, conflict scan with `conflict_scan_limit`)
+> - RRF merge algorithm details and recency/confidence re-rank math (`apply_recency_confidence_rerank`, `w_recency`, `w_confidence`, `half_life_by_type`, `contested_penalty`)
+> - Reinforcement system: `reinforce_claim()`, `last_reinforced_at`, `reinforcement_count`, `reinforce_on_duplicate` config, H4 safeguard (refuses reinforcing contested/superseded)
+> - Soft-TTL decay sweep: `decay_dormant_claims()`, `dormancy_threshold`, `dormant` status, how it interacts with the recency re-rank clock
+> - Supersession graph: `claim_links` table (schema v9), `supersede_claim()`, `get_supersession_head()`, `add_claim(supersedes=)`, conflict-resolution link recording
+> - Provenance tracking: `source_conversation_id`/`source_message_id` in `meta_json`, `source:conversation` tag, `GET /pkb/claims/<id>/provenance`, distiller threading
+> - Consolidation & entity resolution: near-duplicate claim clustering (`search/consolidation.py`, cosine union-find), `find_consolidation_candidates()`/`consolidate_claims()` (tag union + supersede), entity-variant dedup with aliases (`find_entity_duplicates()`/`merge_entities()`), REST `/pkb/consolidation/*` and `/pkb/entities/{duplicates,merge}`
+> - Scheduled lifecycle sweep & notifications: `run_lifecycle_sweep()`, the config-gated `scheduler.py` daemon (`sweep_interval_seconds`), `start_pkb_background_jobs()` wired into server startup, `get_lifecycle_notifications()` (`notify_expiry_within_days`), REST `POST /pkb/sweep` and `GET /pkb/notifications`
+> - Full server startup and state initialization: `AppState`, blueprint registration, lazy DB init, plan storage lifecycle, ephemeral vs persistent state table
+> - `_get_pkb_context()` priority/deduplication logic with full code walkthrough (5 priority levels, seen_ids deduplication, search-query enrichment with conversation summary)
+> - Two-stage LLM injection: distillation → verbatim re-injection of referenced claims (why and how)
+> - Retrieval eval harness: category definitions (`lexical`, `semantic`, `recency`, `conflict`, `hard_negative`, `scoped`, `lifecycle`), FTS baseline numbers, regression guards in `test_eval_harness.py`
+> - All development patterns: step-by-step guides for adding a new endpoint, CRUD operation, or search strategy
 
 ---
 
