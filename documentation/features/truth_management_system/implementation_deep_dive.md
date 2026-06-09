@@ -1111,6 +1111,58 @@ and guards, idempotent link, `add_claim(supersedes=)`, conflict-resolution link
 recording, superseded-excluded-from-active-set, and the no-reinforce-superseded
 bridge).
 
+### Consolidation & Entity Resolution (Workstream D2/D3)
+
+Once claims accumulate, near-duplicates and entity-name variants clutter the
+graph. D2/D3 add **on-demand** passes (no LLM) that detect and merge them,
+reusing the A1 embedding cache and the D1 supersession links. The clustering
+itself lives in a pure, dependency-free helper module
+`search/consolidation.py` (single-linkage union-find), so it is trivially
+unit-testable offline.
+
+**D2 — claim consolidation.**
+- `cluster_near_duplicate_claims(embeddings, threshold)` normalises the cached
+  vectors, computes pairwise cosine similarity, and single-linkage clusters any
+  pair at/above `threshold` (default `config.consolidation_similarity_threshold
+  = 0.95`). Returns clusters of size >= 2 sorted by max similarity.
+- `StructuredAPI.find_consolidation_candidates(threshold, limit)` pulls all
+  active/contested vectors via `EmbeddingStore.get_all_embeddings(SearchFilters())`,
+  clusters them, and annotates each cluster with a `suggested_keep_id` chosen by
+  `_suggest_keeper` (highest confidence, tie-broken by most recent). These are
+  merge **proposals** for the existing confirmation/proposal modal.
+- `StructuredAPI.consolidate_claims(claim_ids, keep_id=None)` executes a merge:
+  it unions the duplicates' tags onto the keeper, then calls the D1
+  `supersede_claim(keep, dup)` for each duplicate — so duplicates become
+  `superseded` (dropping out of default search but staying linked and
+  reversible), and the keeper stays active.
+
+**D3 — canonical entity resolution.**
+- `entity_name_similarity(a, b, threshold)` scores two names: exact normalised
+  match = 1.0; a `difflib` character ratio otherwise; with a **token-subset
+  boost** so `"john"` clusters with `"John Smith"` (one name's tokens ⊆ the
+  other's → at least `threshold`).
+- `cluster_entity_variants(entities, threshold)` single-linkage clusters
+  same-type entities, picking the longest name as the canonical
+  `suggested_keep_id`.
+- `StructuredAPI.find_entity_duplicates(entity_type, threshold)` runs this per
+  `EntityType` (default `config.entity_dedup_threshold = 0.85`).
+- `StructuredAPI.merge_entities(source_id, target_id)` records the source's name
+  (and any aliases it already held) in the target's `meta_json.aliases`, then
+  re-points the source's `claim_entities` to the target and deletes the source
+  via the existing `EntityCRUD.merge` — turning `claim_entities` into a cleaner
+  graph without losing the variant name.
+
+**REST surface:** `GET /pkb/consolidation/candidates`,
+`POST /pkb/consolidation/merge` (`{claim_ids, keep_id?}`),
+`GET /pkb/entities/duplicates`, `POST /pkb/entities/merge`
+(`{source_id, target_id}`).
+
+Config knobs: `consolidation_similarity_threshold`, `entity_dedup_threshold`
+(both with `to_dict`/`from_dict`/env wiring). Unit-tested in
+`tests/test_consolidation.py` (12: clustering helpers, name similarity,
+consolidate supersede+tag-union, default keeper, guards, alias-merge,
+claim re-pointing, duplicate detection).
+
 ### Provenance — "Why do I know this?" (Workstream E1/E2)
 
 Auto-distilled claims should be traceable back to the conversation that produced

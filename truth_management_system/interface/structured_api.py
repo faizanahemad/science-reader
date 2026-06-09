@@ -1458,6 +1458,246 @@ class StructuredAPI:
                 object_id=old_claim_id, errors=[str(e)],
             )
 
+    # ----------------------------------------------------------------- #
+    # D2 — Consolidation: cluster near-duplicate claims and merge them.
+    # ----------------------------------------------------------------- #
+    def _suggest_keeper(self, claims: List["Claim"]) -> "Claim":
+        """Pick the canonical claim of a duplicate cluster: highest confidence,
+        tie-broken by most recent creation."""
+        def key(c):
+            conf = c.confidence if c.confidence is not None else 0.0
+            return (conf, c.created_at or "")
+        return max(claims, key=key)
+
+    def find_consolidation_candidates(
+        self, threshold: float = None, limit: int = 50
+    ) -> ActionResult:
+        """
+        Cluster near-duplicate active claims via cached embeddings (Workstream D2).
+
+        Uses the A1 embedding cache (no LLM): pulls all active/contested claim
+        vectors, single-linkage clusters those within ``threshold`` cosine
+        similarity, and returns merge proposals for the existing proposal flow.
+
+        Args:
+            threshold: cosine-similarity cutoff (defaults to
+                ``config.consolidation_similarity_threshold``).
+            limit: maximum number of clusters to return.
+
+        Returns:
+            ActionResult with ``data`` = list of
+            {claim_ids, statements, suggested_keep_id, max_similarity}.
+        """
+        try:
+            store = self._get_embedding_store()
+            if store is None:
+                return ActionResult(
+                    success=False, action="list", object_type="claim",
+                    errors=["Embedding cache unavailable (disabled or no API key)"],
+                )
+            if threshold is None:
+                threshold = self.config.consolidation_similarity_threshold
+
+            from ..search.consolidation import cluster_near_duplicate_claims
+            embeddings = store.get_all_embeddings(SearchFilters())
+            clusters = cluster_near_duplicate_claims(embeddings, threshold)
+
+            out = []
+            for cl in clusters[:limit]:
+                claims = [self.claims.get(cid) for cid in cl["claim_ids"]]
+                claims = [c for c in claims if c is not None]
+                if len(claims) < 2:
+                    continue
+                keeper = self._suggest_keeper(claims)
+                out.append({
+                    "claim_ids": [c.claim_id for c in claims],
+                    "statements": {c.claim_id: c.statement for c in claims},
+                    "suggested_keep_id": keeper.claim_id,
+                    "max_similarity": cl["max_similarity"],
+                })
+
+            return ActionResult(
+                success=True, action="list", object_type="claim", data=out,
+            )
+        except Exception as e:
+            logger.error(f"Failed to find consolidation candidates: {e}")
+            return ActionResult(
+                success=False, action="list", object_type="claim", errors=[str(e)],
+            )
+
+    def consolidate_claims(
+        self, claim_ids: List[str], keep_id: str = None
+    ) -> ActionResult:
+        """
+        Merge a near-duplicate cluster into one canonical claim (Workstream D2).
+
+        Keeps ``keep_id`` (or the suggested keeper) active, unions the
+        duplicates' tags onto it, and supersedes the rest via D1 supersession
+        links (so they stay linked and drop out of default search). Reversible
+        by un-superseding the retired claims.
+
+        Args:
+            claim_ids: claim ids forming the duplicate cluster (>= 2).
+            keep_id: the claim to keep; defaults to the suggested keeper.
+
+        Returns:
+            ActionResult with ``data`` = {"kept", "superseded": [...]}.
+        """
+        try:
+            if not claim_ids or len(claim_ids) < 2:
+                return ActionResult(
+                    success=False, action="update", object_type="claim",
+                    errors=["consolidate_claims needs at least two claim_ids"],
+                )
+            claims = {cid: self.claims.get(cid) for cid in set(claim_ids)}
+            missing = [cid for cid, c in claims.items() if c is None]
+            if missing:
+                return ActionResult(
+                    success=False, action="update", object_type="claim",
+                    errors=[f"Claims not found: {', '.join(missing)}"],
+                )
+            if keep_id is None:
+                keep_id = self._suggest_keeper(list(claims.values())).claim_id
+            elif keep_id not in claims:
+                return ActionResult(
+                    success=False, action="update", object_type="claim",
+                    object_id=keep_id,
+                    errors=[f"keep_id {keep_id} is not in the cluster"],
+                )
+
+            from ..crud.links import get_claim_tags, link_claim_tag
+            superseded = []
+            for cid, claim in claims.items():
+                if cid == keep_id:
+                    continue
+                # Preserve the duplicate's tags on the keeper (idempotent).
+                for tag in get_claim_tags(self.db, cid):
+                    link_claim_tag(self.db, keep_id, tag.tag_id)
+                res = self.supersede_claim(
+                    keep_id, cid, resolution_notes="consolidated duplicate (D2)"
+                )
+                if res.success:
+                    superseded.append(cid)
+
+            return ActionResult(
+                success=True, action="update", object_type="claim",
+                object_id=keep_id,
+                data={"kept": keep_id, "superseded": superseded},
+            )
+        except Exception as e:
+            logger.error(f"Failed to consolidate claims: {e}")
+            return ActionResult(
+                success=False, action="update", object_type="claim", errors=[str(e)],
+            )
+
+    # ----------------------------------------------------------------- #
+    # D3 — Canonical entity resolution: dedupe entity variants w/ aliases.
+    # ----------------------------------------------------------------- #
+    def find_entity_duplicates(
+        self, entity_type: str = None, threshold: float = None
+    ) -> ActionResult:
+        """
+        Detect entity name variants of the same type (Workstream D3).
+
+        Clusters same-type entities whose names are variants of one another
+        ("john" vs "John Smith") using string similarity + a token-subset rule.
+        No LLM required.
+
+        Args:
+            entity_type: restrict to one type; defaults to all EntityType values.
+            threshold: name-similarity cutoff (defaults to
+                ``config.entity_dedup_threshold``).
+
+        Returns:
+            ActionResult with ``data`` = list of
+            {entity_ids, names, suggested_keep_id, max_similarity}.
+        """
+        try:
+            if threshold is None:
+                threshold = self.config.entity_dedup_threshold
+            types = [entity_type] if entity_type else [e.value for e in EntityType]
+
+            from ..search.consolidation import cluster_entity_variants
+            out = []
+            for et in types:
+                ents = self.entities.get_by_type(et, limit=1000)
+                out.extend(cluster_entity_variants(ents, threshold))
+
+            out.sort(key=lambda c: c["max_similarity"], reverse=True)
+            return ActionResult(
+                success=True, action="list", object_type="entity", data=out,
+            )
+        except Exception as e:
+            logger.error(f"Failed to find entity duplicates: {e}")
+            return ActionResult(
+                success=False, action="list", object_type="entity", errors=[str(e)],
+            )
+
+    def merge_entities(self, source_id: str, target_id: str) -> ActionResult:
+        """
+        Merge a duplicate entity into a canonical one, keeping aliases (D3).
+
+        Records the source's name (and any aliases it already carried) in the
+        target's ``meta_json.aliases``, then re-points the source's claim links
+        to the target and deletes the source (via ``EntityCRUD.merge``).
+
+        Args:
+            source_id: entity to merge from (deleted).
+            target_id: canonical entity to keep.
+
+        Returns:
+            ActionResult with ``data`` = {"entity_id", "aliases", "merged_from"}.
+        """
+        try:
+            if source_id == target_id:
+                return ActionResult(
+                    success=False, action="merge", object_type="entity",
+                    object_id=target_id, errors=["Cannot merge an entity into itself"],
+                )
+            source = self.entities.get(source_id)
+            target = self.entities.get(target_id)
+            if source is None or target is None:
+                missing = source_id if source is None else target_id
+                return ActionResult(
+                    success=False, action="merge", object_type="entity",
+                    object_id=missing, errors=[f"Entity {missing} not found"],
+                )
+
+            from ..utils import parse_meta_json
+            import json as _json
+            aliases = set()
+            for ent in (target, source):
+                meta = parse_meta_json(ent.meta_json) or {}
+                aliases.update(meta.get("aliases", []) or [])
+            aliases.add(source.name)
+            aliases.discard(target.name)
+
+            tmeta = parse_meta_json(target.meta_json) or {}
+            tmeta["aliases"] = sorted(aliases)
+            self.entities.edit(target_id, {"meta_json": _json.dumps(tmeta)})
+
+            merged = self.entities.merge(source_id, target_id)
+            if merged is None:
+                return ActionResult(
+                    success=False, action="merge", object_type="entity",
+                    object_id=target_id, errors=["Merge failed"],
+                )
+            return ActionResult(
+                success=True, action="merge", object_type="entity",
+                object_id=target_id,
+                data={
+                    "entity_id": target_id,
+                    "aliases": tmeta["aliases"],
+                    "merged_from": source_id,
+                },
+            )
+        except Exception as e:
+            logger.error(f"Failed to merge entities: {e}")
+            return ActionResult(
+                success=False, action="merge", object_type="entity",
+                object_id=target_id, errors=[str(e)],
+            )
+
     def get_claim_provenance(self, claim_id: str) -> ActionResult:
         """
         Return where a claim came from — "why do I know this?" (Workstream E1).

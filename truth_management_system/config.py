@@ -75,6 +75,12 @@ class PKBConfig:
     # score in the re-rank. 1.0 (default) = no-op; e.g. 0.5 halves it so
     # in-conflict claims sink below uncontested ones.
     contested_penalty: float = 1.0
+    # D2 consolidation: cosine-similarity threshold above which two active
+    # claims are clustered as near-duplicates and proposed for merge.
+    consolidation_similarity_threshold: float = 0.95
+    # D3 entity resolution: name-similarity threshold above which two entities
+    # of the same type are proposed as variants of one canonical entity.
+    entity_dedup_threshold: float = 0.85
     # Confidence assumed when a claim has no explicit confidence value.
     default_confidence: float = 0.5
     # Default half-life (days) for recency decay; per-type overrides below.
@@ -156,6 +162,8 @@ class PKBConfig:
             'w_recency': self.w_recency,
             'w_confidence': self.w_confidence,
             'contested_penalty': self.contested_penalty,
+            'consolidation_similarity_threshold': self.consolidation_similarity_threshold,
+            'entity_dedup_threshold': self.entity_dedup_threshold,
             'default_confidence': self.default_confidence,
             'recency_half_life_days': self.recency_half_life_days,
             'half_life_by_type': dict(self.half_life_by_type),
@@ -191,6 +199,7 @@ class PKBConfig:
             'conflict_scan_limit',
             'recency_rerank_enabled', 'w_recency', 'w_confidence',
             'contested_penalty',
+            'consolidation_similarity_threshold', 'entity_dedup_threshold',
             'default_confidence', 'recency_half_life_days', 'half_life_by_type',
             'recency_grace_days',
             'reinforce_alpha', 'reinforce_ttl_days_by_type',
@@ -255,6 +264,8 @@ def load_config(
         'W_RECENCY': ('w_recency', float),
         'W_CONFIDENCE': ('w_confidence', float),
         'CONTESTED_PENALTY': ('contested_penalty', float),
+        'CONSOLIDATION_SIMILARITY_THRESHOLD': ('consolidation_similarity_threshold', float),
+        'ENTITY_DEDUP_THRESHOLD': ('entity_dedup_threshold', float),
         'DEFAULT_CONFIDENCE': ('default_confidence', float),
         'RECENCY_HALF_LIFE_DAYS': ('recency_half_life_days', float),
         'RECENCY_GRACE_DAYS': ('recency_grace_days', float),

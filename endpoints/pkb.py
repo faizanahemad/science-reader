@@ -645,6 +645,160 @@ def pkb_get_claim_provenance_route(claim_id: str):
         )
 
 
+@pkb_bp.route("/pkb/consolidation/candidates", methods=["GET"])
+@limiter.limit("10 per minute")
+@login_required
+def pkb_consolidation_candidates_route():
+    """Clusters of near-duplicate claims proposed for merge (Workstream D2)."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
+
+        threshold = request.args.get("threshold", type=float)
+        limit = request.args.get("limit", default=50, type=int)
+        result = api.find_consolidation_candidates(threshold=threshold, limit=limit)
+        if result.success:
+            return jsonify({"clusters": result.data})
+        return json_error(
+            "; ".join(result.errors) or "Consolidation unavailable",
+            status=503, code="consolidation_unavailable",
+        )
+    except Exception as e:
+        logger.error(f"Error in pkb_consolidation_candidates: {e}")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
+
+
+@pkb_bp.route("/pkb/consolidation/merge", methods=["POST"])
+@limiter.limit("15 per minute")
+@login_required
+def pkb_consolidation_merge_route():
+    """Merge a near-duplicate cluster into one canonical claim (Workstream D2)."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        data = request.get_json() or {}
+        claim_ids = data.get("claim_ids")
+        keep_id = data.get("keep_id")
+        if not claim_ids or not isinstance(claim_ids, list) or len(claim_ids) < 2:
+            return json_error(
+                "claim_ids must be a list of at least two ids",
+                status=400, code="bad_request",
+            )
+
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
+
+        result = api.consolidate_claims(claim_ids, keep_id=keep_id)
+        if result.success:
+            return jsonify(result.data)
+        return json_error(
+            "; ".join(result.errors) or "Consolidation failed",
+            status=400, code="consolidation_failed",
+        )
+    except Exception as e:
+        logger.error(f"Error in pkb_consolidation_merge: {e}")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
+
+
+@pkb_bp.route("/pkb/entities/duplicates", methods=["GET"])
+@limiter.limit("10 per minute")
+@login_required
+def pkb_entity_duplicates_route():
+    """Clusters of entity name variants proposed for merge (Workstream D3)."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
+
+        entity_type = request.args.get("entity_type")
+        threshold = request.args.get("threshold", type=float)
+        result = api.find_entity_duplicates(entity_type=entity_type, threshold=threshold)
+        if result.success:
+            return jsonify({"clusters": result.data})
+        return json_error(
+            "; ".join(result.errors) or "Entity dedup failed",
+            status=400, code="entity_dedup_failed",
+        )
+    except Exception as e:
+        logger.error(f"Error in pkb_entity_duplicates: {e}")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
+
+
+@pkb_bp.route("/pkb/entities/merge", methods=["POST"])
+@limiter.limit("15 per minute")
+@login_required
+def pkb_entity_merge_route():
+    """Merge a duplicate entity into a canonical one, keeping aliases (D3)."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        data = request.get_json() or {}
+        source_id = data.get("source_id")
+        target_id = data.get("target_id")
+        if not source_id or not target_id:
+            return json_error(
+                "source_id and target_id are required",
+                status=400, code="bad_request",
+            )
+
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
+
+        result = api.merge_entities(source_id, target_id)
+        if result.success:
+            return jsonify(result.data)
+        return json_error(
+            "; ".join(result.errors) or "Entity merge failed",
+            status=400, code="entity_merge_failed",
+        )
+    except Exception as e:
+        logger.error(f"Error in pkb_entity_merge: {e}")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
+
+
 @pkb_bp.route("/pkb/claims/<claim_id>", methods=["PUT"])
 @limiter.limit("15 per minute")
 @login_required
