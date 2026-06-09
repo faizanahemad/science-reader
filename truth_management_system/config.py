@@ -119,6 +119,14 @@ class PKBConfig:
     # "soon to expire", and the window for "newly dormant" claims.
     notify_expiry_within_days: int = 7
 
+    # G2 batch enrichment: when True (default), add_claim's auto-extract path
+    # uses a single combined LLM call (analyze_claim_statement) to derive
+    # type/domain/tags/entities/possible_questions, instead of ~5-6 separate
+    # field-extraction calls + a separate question-generation call. Bulk adds
+    # fan these combined calls out in parallel (batch_analyze). Set False to
+    # restore the legacy multi-call extraction path.
+    combined_enrichment: bool = True
+
     # LLM settings
     llm_model: str = "google/gemini-3.1-flash-lite-preview"
     embedding_model: str = "openai/text-embedding-3-small"
@@ -182,6 +190,7 @@ class PKBConfig:
             'dormancy_exempt_types': list(self.dormancy_exempt_types),
             'sweep_interval_seconds': self.sweep_interval_seconds,
             'notify_expiry_within_days': self.notify_expiry_within_days,
+            'combined_enrichment': self.combined_enrichment,
             'llm_model': self.llm_model,
             'embedding_model': self.embedding_model,
             'llm_temperature': self.llm_temperature,
@@ -215,6 +224,7 @@ class PKBConfig:
             'reinforce_on_duplicate', 'dormancy_threshold',
             'dormancy_exempt_types',
             'sweep_interval_seconds', 'notify_expiry_within_days',
+            'combined_enrichment',
             'llm_model', 'embedding_model', 'llm_temperature',
             'max_parallel_llm_calls', 'max_parallel_embedding_calls',
             'log_llm_calls', 'log_search_queries'
@@ -276,6 +286,7 @@ def load_config(
         'CONTESTED_PENALTY': ('contested_penalty', float),
         'SWEEP_INTERVAL_SECONDS': ('sweep_interval_seconds', int),
         'NOTIFY_EXPIRY_WITHIN_DAYS': ('notify_expiry_within_days', int),
+        'COMBINED_ENRICHMENT': ('combined_enrichment', lambda x: x.lower() in ('true', '1', 'yes')),
         'CONSOLIDATION_SIMILARITY_THRESHOLD': ('consolidation_similarity_threshold', float),
         'ENTITY_DEDUP_THRESHOLD': ('entity_dedup_threshold', float),
         'DEFAULT_CONFIDENCE': ('default_confidence', float),

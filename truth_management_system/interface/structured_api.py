@@ -255,22 +255,50 @@ class StructuredAPI:
             )
 
         try:
+            # G2: combined-enrichment path. When enabled, derive
+            # type/tags/entities/possible_questions from ONE combined LLM call
+            # (analyze_claim_statement) instead of extract_single's 4-5 calls +
+            # a separate generate_possible_questions call. A precomputed
+            # analysis (e.g. from add_claims_bulk's parallel batch_analyze) can
+            # be injected via the private `_analysis` kwarg to skip the call.
+            analysis_questions = None
+            precomputed = kwargs.get("_analysis")
+            use_combined = (
+                getattr(self.config, "combined_enrichment", True)
+                or precomputed is not None
+            )
+
             # Auto-extract if enabled and LLM available
+            if auto_extract and (self.llm or precomputed is not None):
+                if use_combined:
+                    analysis = precomputed
+                    if analysis is None:
+                        analysis = self.llm.analyze_claim_statement(statement)
+                    if not tags:
+                        tags = list(analysis.tags or [])
+                    if not entities:
+                        entities = list(analysis.entities or [])
+                    if claim_type == "observation" and analysis.claim_type:
+                        claim_type = analysis.claim_type
+                    # Reuse the questions from the same call (no extra LLM hit).
+                    analysis_questions = analysis.possible_questions or None
+                elif self.llm:
+                    extraction = self.llm.extract_single(statement, context_domain)
+
+                    # Merge extracted tags with provided
+                    if not tags:
+                        tags = extraction.tags
+
+                    # Merge extracted entities with provided
+                    if not entities:
+                        entities = extraction.entities
+
+                    # Use extracted type if not provided or generic
+                    if claim_type == "observation":
+                        claim_type = extraction.claim_type
+
+            # Similarity / duplicate check (shared by both enrichment paths).
             if auto_extract and self.llm:
-                extraction = self.llm.extract_single(statement, context_domain)
-
-                # Merge extracted tags with provided
-                if not tags:
-                    tags = extraction.tags
-
-                # Merge extracted entities with provided
-                if not entities:
-                    entities = extraction.entities
-
-                # Use extracted type if not provided or generic
-                if claim_type == "observation":
-                    claim_type = extraction.claim_type
-
                 # Check for similar claims
                 existing = self.claims.get_active(context_domain=context_domain)
 
@@ -362,8 +390,12 @@ class StructuredAPI:
                     possible_questions_json = raw_pq  # already JSON string
                 elif isinstance(raw_pq, list):
                     possible_questions_json = _json.dumps(raw_pq)
-            elif auto_extract and self.llm:
-                # Auto-generate questions using LLM
+            elif analysis_questions:
+                # G2: reuse the questions produced by the single combined
+                # analyze_claim_statement call — no extra LLM round-trip.
+                possible_questions_json = _json.dumps(analysis_questions)
+            elif auto_extract and self.llm and not use_combined:
+                # Legacy path only: a separate question-generation LLM call.
                 try:
                     questions = self.llm.generate_possible_questions(
                         statement, claim_type
@@ -654,6 +686,25 @@ class StructuredAPI:
         added_count = 0
         failed_count = 0
 
+        # G2: when auto-extracting, fan the combined per-claim analysis calls
+        # out in parallel up-front (one combined LLM call each, run
+        # concurrently) instead of letting each add_claim block on its own
+        # synchronous call. The precomputed result is injected into add_claim.
+        analyses = None
+        if (
+            auto_extract
+            and self.llm
+            and getattr(self.config, "combined_enrichment", True)
+        ):
+            try:
+                statements = [
+                    (c.get("statement") or "").strip() for c in claims
+                ]
+                analyses = self.llm.batch_analyze(statements)
+            except Exception as e:
+                logger.warning(f"Bulk batch_analyze failed, falling back: {e}")
+                analyses = None
+
         for i, claim_data in enumerate(claims):
             try:
                 # Extract claim fields with defaults
@@ -682,6 +733,9 @@ class StructuredAPI:
                 meta_json = claim_data.get("meta_json")
 
                 # Add the claim using existing add_claim method
+                add_kwargs = {}
+                if analyses is not None and i < len(analyses) and analyses[i] is not None:
+                    add_kwargs["_analysis"] = analyses[i]
                 result = self.add_claim(
                     statement=statement,
                     claim_type=claim_type,
@@ -691,6 +745,7 @@ class StructuredAPI:
                     auto_extract=auto_extract,
                     confidence=confidence,
                     meta_json=meta_json,
+                    **add_kwargs,
                 )
 
                 if result.success:

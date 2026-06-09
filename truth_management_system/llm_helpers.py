@@ -763,3 +763,30 @@ Response:"""
         except Exception as e:
             logger.error(f"Claim analysis failed: {e}")
             return ClaimAnalysisResult()
+
+    def batch_analyze(
+        self, statements: List[str], model: str = None
+    ) -> List[ClaimAnalysisResult]:
+        """
+        Analyze multiple claim statements in parallel (Workstream G2).
+
+        Each statement is run through ``analyze_claim_statement`` — a single
+        combined LLM call per claim — and the calls are fanned out across the
+        shared parallel executor. This is the bulk/background enrichment path:
+        N claims cost N combined calls run concurrently, instead of N x (4-5)
+        sequential field-extraction calls.
+
+        Args:
+            statements: Claim statements to analyze.
+            model: Optional model override (defaults to ``config.llm_model``).
+
+        Returns:
+            A list of ``ClaimAnalysisResult``, aligned with ``statements``.
+        """
+        if not statements:
+            return []
+
+        def analyze_one(stmt: str) -> ClaimAnalysisResult:
+            return self.analyze_claim_statement(stmt, model=model)
+
+        return self.executor.map_parallel(analyze_one, statements, timeout=180.0)
