@@ -1341,6 +1341,63 @@ no-contradiction / config-disabled / no-LLM no-ops, the supersede proposal and
 its priority over duplicate, and end-to-end execution (old claim → `superseded`,
 new claim active, `supersedes` link present).
 
+### Vector Index for Embedding Search (Workstream B)
+
+Embedding search used to score candidates with a Python `for` loop calling
+`_cosine_similarity` once per claim — fine at dozens of claims, linear and
+interpreter-bound at thousands. `search/ann_vector_index.py` introduces a
+`VectorIndex` with two pluggable backends behind one interface:
+
+- **`flat`** (default): all of a user's embeddings are stacked into one
+  L2-normalized `(N, d)` matrix; a query is scored with a single `matrix @ q`
+  BLAS matmul and a partial sort (`argpartition`). This is **exact** — it
+  returns the same ranking as the linear scan — but moves the O(N·d) work into
+  vectorized native code. Needs no third-party dependency.
+- **`hnsw`** (optional): a faiss `IndexHNSWFlat` (inner product over normalized
+  vectors) for approximate, sub-linear search at very large corpora. Selected
+  only when `ann_backend="hnsw"` *and* faiss is importable; otherwise the index
+  transparently degrades to `flat`.
+
+**Backend choice.** The plan recommended `sqlite-vec` to stay single-file, but
+`sqlite-vec`/`sqlite-vss`/`hnswlib` aren't installed in this environment (and
+can't be added without network). faiss *is* available, so the design keeps an
+exact, dependency-free `flat` default and uses faiss for the optional `hnsw`
+mode — which also sidesteps the per-user index-*file* lifecycle (creation,
+corruption recovery) the original plan flagged as the main risk.
+
+**Lifecycle.** Indexes build lazily from the A1 embedding cache
+(`claim_embeddings`) and are cached per-user in a process-level dict keyed by
+`(id(db), user_email)`. Each lookup computes a cheap **staleness signature** —
+`(COUNT(*), MAX(created_at))` of the user's cached embeddings — and rebuilds when
+it changes. Adds/deletes change the count; an edit re-embeds and bumps
+`created_at`; so the signature catches all three without an explicit
+maintenance hook. This is the plan's "rebuild if missing + checksum" mitigation.
+
+**Query path & filter correctness.** `EmbeddingSearchStrategy.search` calls
+`_ann_search` first. It over-fetches `k * ann_overfetch` (default 5) hits from
+the index — more than `k`, to survive post-filtering — then loads *only* those
+claims via `_load_claims_by_ids`, which re-applies the full `SearchFilters` SQL
+(`status`/`domain`/`type`/`validity`/`user`). So the fast path honors exactly the
+same constraints as the linear scan; it simply avoids loading and scanning every
+embedding. `_ann_search` returns `None` — signalling the caller to use the
+exhaustive linear scan — whenever the index is unavailable, the user has fewer
+than `ann_min_claims` (default 200) cached embeddings, or there are no hits.
+That threshold is the key safety valve: the unit tests and the 49-claim eval
+corpus sit far below it, so they stay on the exact linear path and the retrieval
+baseline (`precision@5=0.537 recall@5=0.763 mrr=0.664`) is unchanged.
+
+**Benchmark** (`tests/eval/benchmark_vector_index.py`, synthetic random vectors,
+dim 1536, k 20): the `flat` backend is ~3.6× faster than the Python loop at 1k
+vectors and **~13× faster at 50k** (82.8 ms → 6.3 ms/query); `hnsw` is faster
+still (~1.2 ms at 50k) but its recall on *uniform random* vectors is low (0.12 at
+50k) — random high-dimensional points are nearly equidistant, the adversarial
+worst case for a graph index. Real embeddings cluster, so HNSW recall is far
+higher in practice; the benchmark's value is the flat-vs-linear scaling curve,
+which is why `flat` is the default. Tests: `tests/test_vector_index.py` (11) —
+`flat` equals brute force, top-k edge cases, zero-vector query, HNSW build + the
+no-faiss fallback, cache hit + staleness rebuild, per-user scoping, the
+filter-preserving claim load, and the engage/decline threshold.
+
 ### Pattern 3: Memory Update from Chat
 
 ```
