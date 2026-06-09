@@ -21,6 +21,21 @@ The display name string must match exactly across steps 2, 3, and 4. The slash c
 
 See [Slash Command System — Adding a new preamble](../../features/slash_command_system.md) for full details and code examples.
 
+### Hardcoded vs User-Created Preambles
+
+There are two kinds of preambles and they follow different paths:
+
+| | Hardcoded | User-Created (Custom) |
+|---|---|---|
+| Defined in | `prompts.py` (module-level variable) | DB via `/get_prompts` API |
+| Appears in | "Default Prompts" optgroup (static HTML) | "Custom Prompts" optgroup (dynamically populated by `loadCustomPrompts()`) |
+| Applied in backend | `get_preamble()` in `Conversation.py` via direct `if` check | `get_preamble()` via `custom:` prefix handler |
+| Slash command | Added to `VISIBLE_PREAMBLES` | Auto-available as `custom:<name>` |
+
+`loadCustomPrompts()` in `interface.html` fetches user prompts from the server and adds them to the "Custom Prompts" optgroup. It maintains a `defaultPrompts` list to deduplicate — any prompt name that already exists as a static `<option>` in "Default Prompts" is skipped so it doesn't appear twice.
+
+**Consequence**: when adding a hardcoded preamble (the 4-step process above), you do **not** need to add its name to the `defaultPrompts` dedup list in `loadCustomPrompts()` — unless the same prompt name also exists in the user's custom prompts DB. For purely hardcoded prompts defined in `prompts.py`, no dedup entry is needed.
+
 ## Configurable Constants
 
 | Constant | Value | File | Description |
