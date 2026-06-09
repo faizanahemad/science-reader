@@ -135,6 +135,21 @@ class PKBConfig:
     # in the distiller (saves an LLM call per close match).
     distiller_detect_contradictions: bool = True
 
+    # Workstream B — vector index for embedding-search acceleration.
+    #   ann_enabled    : use the cached vector index fast path (default True).
+    #   ann_backend    : "flat" (numpy, exact, default) or "hnsw" (faiss,
+    #                    approximate; falls back to flat if faiss is missing).
+    #   ann_min_claims : only engage the index when the user has at least this
+    #                    many cached embeddings; below it the exact linear scan
+    #                    is already fast (keeps small corpora / eval identical).
+    #   ann_overfetch  : retrieve k * ann_overfetch candidates from the index
+    #                    before applying SQL filters, so post-filtering still
+    #                    yields k results.
+    ann_enabled: bool = True
+    ann_backend: str = "flat"
+    ann_min_claims: int = 200
+    ann_overfetch: int = 5
+
     # LLM settings
     llm_model: str = "google/gemini-3.1-flash-lite-preview"
     embedding_model: str = "openai/text-embedding-3-small"
@@ -200,6 +215,10 @@ class PKBConfig:
             'notify_expiry_within_days': self.notify_expiry_within_days,
             'combined_enrichment': self.combined_enrichment,
             'distiller_detect_contradictions': self.distiller_detect_contradictions,
+            'ann_enabled': self.ann_enabled,
+            'ann_backend': self.ann_backend,
+            'ann_min_claims': self.ann_min_claims,
+            'ann_overfetch': self.ann_overfetch,
             'llm_model': self.llm_model,
             'embedding_model': self.embedding_model,
             'llm_temperature': self.llm_temperature,
@@ -235,6 +254,7 @@ class PKBConfig:
             'sweep_interval_seconds', 'notify_expiry_within_days',
             'combined_enrichment',
             'distiller_detect_contradictions',
+            'ann_enabled', 'ann_backend', 'ann_min_claims', 'ann_overfetch',
             'llm_model', 'embedding_model', 'llm_temperature',
             'max_parallel_llm_calls', 'max_parallel_embedding_calls',
             'log_llm_calls', 'log_search_queries'
@@ -298,6 +318,10 @@ def load_config(
         'NOTIFY_EXPIRY_WITHIN_DAYS': ('notify_expiry_within_days', int),
         'COMBINED_ENRICHMENT': ('combined_enrichment', lambda x: x.lower() in ('true', '1', 'yes')),
         'DISTILLER_DETECT_CONTRADICTIONS': ('distiller_detect_contradictions', lambda x: x.lower() in ('true', '1', 'yes')),
+        'ANN_ENABLED': ('ann_enabled', lambda x: x.lower() in ('true', '1', 'yes')),
+        'ANN_BACKEND': ('ann_backend', str),
+        'ANN_MIN_CLAIMS': ('ann_min_claims', int),
+        'ANN_OVERFETCH': ('ann_overfetch', int),
         'CONSOLIDATION_SIMILARITY_THRESHOLD': ('consolidation_similarity_threshold', float),
         'ENTITY_DEDUP_THRESHOLD': ('entity_dedup_threshold', float),
         'DEFAULT_CONFIDENCE': ('default_confidence', float),

@@ -292,6 +292,18 @@ class EmbeddingSearchStrategy(SearchStrategy):
             return []
         time_logger.info(f"[EMBEDDING] Query embedding computed, shape={query_emb.shape if hasattr(query_emb, 'shape') else len(query_emb)}")
         
+        # Workstream B: vector-index fast path. Engages only above
+        # ann_min_claims, so small corpora (unit tests, the eval harness) keep
+        # the exact linear scan and their rankings are unchanged.
+        if getattr(self.config, "ann_enabled", True):
+            ann_results = self._ann_search(query_emb, k, filters)
+            if ann_results is not None:
+                logger.debug(
+                    f"Embedding search '{query}' returned {len(ann_results)} "
+                    f"results via vector index"
+                )
+                return ann_results
+
         # Get filtered claims
         candidates = self._get_filtered_claims(filters)
         time_logger.info(f"[EMBEDDING] Got {len(candidates)} candidate claims after filtering")
@@ -346,6 +358,87 @@ class EmbeddingSearchStrategy(SearchStrategy):
         rows = self.db.fetchall(sql, tuple(params))
         
         return [Claim.from_row(row) for row in rows]
+
+    def _ann_search(
+        self,
+        query_emb: np.ndarray,
+        k: int,
+        filters: SearchFilters
+    ) -> Optional[List[SearchResult]]:
+        """
+        Vector-index fast path (Workstream B).
+
+        Returns ranked results using the cached per-user vector index, or
+        ``None`` to signal the caller should fall back to the exhaustive linear
+        scan (index unavailable, too few claims, or no hits). Over-fetches
+        ``k * ann_overfetch`` candidates from the index and then re-applies the
+        SQL filters by loading only those claims, so all filter semantics
+        (status / domain / type / validity / user) are preserved exactly.
+        """
+        try:
+            from .ann_vector_index import get_index, faiss_available
+        except Exception:
+            return None
+
+        backend = getattr(self.config, "ann_backend", "flat")
+        if backend == "hnsw" and not faiss_available():
+            backend = "flat"
+
+        try:
+            index = get_index(self.db, self.store, filters.user_email, backend)
+        except Exception as e:
+            logger.warning(f"ANN index unavailable, falling back to linear scan: {e}")
+            return None
+
+        min_claims = getattr(self.config, "ann_min_claims", 200)
+        if index.size() < min_claims:
+            # Below this size the exact linear scan is already fast; staying on
+            # it keeps results identical to the pre-index behavior.
+            return None
+
+        overfetch = max(k * getattr(self.config, "ann_overfetch", 5), k)
+        hits = index.search(query_emb, overfetch)
+        if not hits:
+            return None
+
+        claims_by_id = self._load_claims_by_ids([cid for cid, _ in hits], filters)
+        results: List[SearchResult] = []
+        for claim_id, score in hits:
+            claim = claims_by_id.get(claim_id)
+            if claim is None:
+                continue  # filtered out by status/domain/validity/etc.
+            results.append(SearchResult.from_claim(
+                claim=claim,
+                score=float(score),
+                source=self.name(),
+                metadata={'similarity_type': 'cosine', 'index': index.backend},
+            ))
+            if len(results) >= k:
+                break
+        return results
+
+    def _load_claims_by_ids(
+        self,
+        claim_ids: List[str],
+        filters: SearchFilters
+    ) -> Dict[str, Claim]:
+        """
+        Load the given claims, applying ``filters`` so the vector-index fast
+        path honors the same constraints as the linear scan. Returns a
+        ``claim_id -> Claim`` map containing only rows that pass the filters.
+        """
+        if not claim_ids:
+            return {}
+        conditions, params = filters.to_sql_conditions()
+        where_clause = " AND ".join(conditions) if conditions else "1=1"
+        where_clause = where_clause.replace('c.', '')
+        placeholders = ",".join("?" for _ in claim_ids)
+        sql = (
+            f"SELECT * FROM claims WHERE claim_id IN ({placeholders}) "
+            f"AND ({where_clause})"
+        )
+        rows = self.db.fetchall(sql, tuple(claim_ids) + tuple(params))
+        return {row['claim_id']: Claim.from_row(row) for row in rows}
     
     def _cosine_similarity(
         self,
