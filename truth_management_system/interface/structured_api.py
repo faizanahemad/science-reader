@@ -132,6 +132,53 @@ class StructuredAPI:
         else:
             self.llm = None
 
+        # Lazily-initialized embedding cache store (see _get_embedding_store).
+        self._embedding_store = None
+
+    def _get_embedding_store(self):
+        """
+        Lazily construct and cache an EmbeddingStore for the claim embedding
+        cache. Returns None when embeddings or the embedding cache are disabled,
+        or when no API key is available.
+        """
+        if not (self.config.embedding_enabled and self.config.embedding_cache_enabled):
+            return None
+        if not self.keys.get("OPENROUTER_API_KEY"):
+            return None
+        if self._embedding_store is None:
+            from ..search.embedding_search import EmbeddingStore
+
+            self._embedding_store = EmbeddingStore(self.db, self.keys, self.config)
+        return self._embedding_store
+
+    def backfill_embeddings(self, context_domain: Optional[str] = None) -> Dict[str, int]:
+        """
+        Populate the embedding cache for existing active claims that are
+        missing a vector (or were embedded with a stale model).
+
+        Intended as a one-off / ops maintenance call after enabling the cache
+        or changing the embedding model. Uses EmbeddingStore.ensure_embeddings
+        which computes missing embeddings in parallel and stores them.
+
+        Args:
+            context_domain: Optional domain filter; when None, backfills all
+                active claims for the scoped user.
+
+        Returns:
+            Dict with 'total' active claims considered and 'embedded' count
+            resolved (cached + newly computed).
+        """
+        store = self._get_embedding_store()
+        if store is None:
+            return {"total": 0, "embedded": 0}
+
+        claims = self.claims.get_active(context_domain=context_domain)
+        if not claims:
+            return {"total": 0, "embedded": 0}
+
+        embeddings = store.ensure_embeddings(claims)
+        return {"total": len(claims), "embedded": len(embeddings)}
+
     def for_user(self, user_email: str) -> "StructuredAPI":
         """
         Create a new StructuredAPI instance scoped to a specific user.
@@ -223,11 +270,36 @@ class StructuredAPI:
 
                 # Check for similar claims
                 existing = self.claims.get_active(context_domain=context_domain)
-                similar = self.llm.check_similarity(statement, existing[:100])
+
+                # Cap the scan with a configurable limit (<= 0 means scan all).
+                scan_limit = self.config.conflict_scan_limit
+                if scan_limit and scan_limit > 0:
+                    existing = existing[:scan_limit]
+
+                # Reuse persisted embeddings for the existing claims instead of
+                # recomputing them on every add. ensure_embeddings fills the
+                # cache for any that are missing (or were built with a stale
+                # model) and returns a claim_id -> vector map.
+                cached_embeddings = None
+                store = self._get_embedding_store()
+                if store is not None and existing:
+                    try:
+                        cached_embeddings = store.ensure_embeddings(existing)
+                    except Exception as e:
+                        logger.warning(f"Embedding cache lookup failed: {e}")
+                        cached_embeddings = None
+
+                similar = self.llm.check_similarity(
+                    statement, existing, cached_embeddings=cached_embeddings
+                )
 
                 if similar:
+                    dup_mode = (self.config.reinforce_on_duplicate or "off").lower()
+                    first_duplicate = None
                     for claim, sim, relation in similar[:3]:
                         if relation == "duplicate":
+                            if first_duplicate is None:
+                                first_duplicate = (claim, sim)
                             warnings.append(
                                 f"Very similar claim exists: {claim.claim_id[:8]} ({sim:.2f})"
                             )
@@ -235,6 +307,29 @@ class StructuredAPI:
                             warnings.append(
                                 f"May contradict claim: {claim.claim_id[:8]} ({sim:.2f})"
                             )
+
+                    # H3 primary hook: an explicit restatement is the strongest
+                    # reinforcement signal. When enabled, reinforce the existing
+                    # near-duplicate instead of accumulating a redundant claim.
+                    # Gated off by default (reinforce_on_duplicate="off") so this
+                    # is opt-in and preserves today's create-anyway behavior.
+                    if first_duplicate is not None and dup_mode in (
+                        "reinforce",
+                        "reinforce+warn",
+                    ):
+                        dup_claim, dup_sim = first_duplicate
+                        reinforced = self.reinforce_claim(dup_claim.claim_id)
+                        if reinforced.success:
+                            reinforced.warnings = list(reinforced.warnings or []) + [
+                                f"Reinforced existing claim {dup_claim.claim_id[:8]} "
+                                f"(similarity {dup_sim:.2f}) instead of adding a duplicate"
+                            ]
+                            if dup_mode == "reinforce+warn":
+                                reinforced.warnings += warnings
+                            return reinforced
+                        # Reinforcement refused (e.g. contested/superseded per the
+                        # H4 safeguard): fall through to normal creation with the
+                        # similarity warnings already recorded.
 
             # Parse multi-type/domain arrays.  The frontend may send them as
             # JSON strings (e.g. '["fact","preference"]') or as Python lists.
@@ -292,6 +387,17 @@ class StructuredAPI:
 
             # Add to database
             claim = self.claims.add(claim, tags=tags, entities=entities)
+
+            # Populate the embedding cache for the new claim so future
+            # similarity checks and embedding search reuse it (best-effort).
+            store = self._get_embedding_store()
+            if store is not None:
+                try:
+                    store.compute_and_store(claim)
+                except Exception as e:
+                    logger.warning(
+                        f"Failed to cache embedding for {claim.claim_id}: {e}"
+                    )
 
             return ActionResult(
                 success=True,
@@ -351,6 +457,18 @@ class StructuredAPI:
             claim = self.claims.edit(claim_id, patch)
 
             if claim:
+                # If the statement changed, the cached embedding is stale —
+                # recompute it so the cache stays consistent (best-effort).
+                if "statement" in patch:
+                    store = self._get_embedding_store()
+                    if store is not None:
+                        try:
+                            store.compute_and_store(claim)
+                        except Exception as e:
+                            logger.warning(
+                                f"Failed to refresh embedding for {claim_id}: {e}"
+                            )
+
                 return ActionResult(
                     success=True,
                     action="edit",
@@ -960,8 +1078,19 @@ class StructuredAPI:
             # Update pinned status
             meta["pinned"] = pin
 
+            # Build the update. Pinning is an explicit "this matters" signal, so
+            # (H3, weakest hook) also reinforce the claim — but only on pin (not
+            # unpin) and never for contested/superseded claims (H4 safeguard).
+            patch = {"meta_json": json.dumps(meta)}
+            if pin and claim.status not in (
+                ClaimStatus.CONTESTED.value,
+                ClaimStatus.SUPERSEDED.value,
+            ):
+                rpatch, _ = self._build_reinforcement_patch(claim)
+                patch.update(rpatch)
+
             # Save the updated claim
-            updated_claim = self.claims.edit(claim_id, {"meta_json": json.dumps(meta)})
+            updated_claim = self.claims.edit(claim_id, patch)
 
             if updated_claim:
                 return ActionResult(
@@ -985,6 +1114,139 @@ class StructuredAPI:
             return ActionResult(
                 success=False,
                 action="pin",
+                object_type="claim",
+                object_id=claim_id,
+                errors=[str(e)],
+            )
+
+    def _build_reinforcement_patch(self, claim, strength: float = 1.0):
+        """
+        Build the column patch that reinforces a claim (Workstream H).
+
+        Shared by ``reinforce_claim`` and other reinforcement signals (e.g.
+        pinning) so the freshness/confidence math lives in one place. Does NOT
+        apply the H4 contested/superseded safeguard — callers decide whether to
+        skip reinforcement for those statuses.
+
+        Returns:
+            (patch, warnings) where ``patch`` is the dict of claim columns to
+            update and ``warnings`` notes side effects (e.g. dormant revive).
+        """
+        from datetime import datetime, timezone, timedelta
+        from ..utils import now_iso
+
+        patch: Dict[str, Any] = {
+            "last_reinforced_at": now_iso(),
+            "reinforcement_count": (claim.reinforcement_count or 0) + 1,
+        }
+
+        # Confidence: asymptotic approach to 1.0 with diminishing returns.
+        alpha = min(1.0, self.config.reinforce_alpha * max(0.0, float(strength)))
+        base_conf = (
+            claim.confidence
+            if claim.confidence is not None
+            else self.config.default_confidence
+        )
+        patch["confidence"] = round(base_conf + (1.0 - base_conf) * alpha, 6)
+
+        # Extend hard TTL (valid_to) for configured types that have one.
+        ttl_days = self.config.reinforce_ttl_days_by_type.get(claim.claim_type)
+        if ttl_days and claim.valid_to:
+            new_valid_to = datetime.now(timezone.utc) + timedelta(days=float(ttl_days))
+            patch["valid_to"] = new_valid_to.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+        # Revive a dormant claim.
+        warnings: List[str] = []
+        if claim.status == ClaimStatus.DORMANT.value:
+            patch["status"] = ClaimStatus.ACTIVE.value
+            warnings.append("Revived dormant claim to active")
+
+        return patch, warnings
+
+    def reinforce_claim(self, claim_id: str, strength: float = 1.0) -> ActionResult:
+        """
+        Reinforce a claim — the single "use it or lose it" state transition
+        (Workstream H). Re-affirming a claim keeps it fresh and ranking higher.
+
+        Effects (all in one update):
+        - ``last_reinforced_at = now`` (the clock recency/decay measure from).
+        - ``reinforcement_count += 1``.
+        - ``updated_at = now`` (set automatically by the CRUD layer).
+        - ``confidence`` nudged toward 1.0 asymptotically:
+          ``confidence + (1 - confidence) * (reinforce_alpha * strength)`` —
+          diminishing returns, never exceeds 1.0.
+        - Hard TTL extension: if ``reinforce_ttl_days_by_type[claim_type]`` is set
+          and the claim has a ``valid_to``, push ``valid_to`` to ``now + ttl``.
+        - Revive: a ``dormant`` claim flips back to ``active``.
+
+        Safeguard (H4): reinforcing a ``contested`` or ``superseded`` claim is
+        refused — that path should trigger conflict review, not a silent boost,
+        so we don't resurrect claims known to be false/replaced.
+
+        Args:
+            claim_id: ID of the claim to reinforce.
+            strength: Multiplier on ``reinforce_alpha`` (0..1 typical; e.g. an
+                explicit restatement = 1.0, an implicit retrieval hit < 1.0).
+
+        Returns:
+            ActionResult with the updated Claim, or failure if not found /
+            blocked by the safeguard.
+        """
+        try:
+            claim = self.claims.get(claim_id)
+            if not claim:
+                return ActionResult(
+                    success=False,
+                    action="reinforce",
+                    object_type="claim",
+                    object_id=claim_id,
+                    errors=["Claim not found"],
+                )
+
+            # H4 safeguard: do not silently boost a claim that is in conflict
+            # or has been replaced — surface it for review instead.
+            if claim.status in (
+                ClaimStatus.CONTESTED.value,
+                ClaimStatus.SUPERSEDED.value,
+            ):
+                return ActionResult(
+                    success=False,
+                    action="reinforce",
+                    object_type="claim",
+                    object_id=claim_id,
+                    data=claim,
+                    errors=[
+                        f"Cannot reinforce a {claim.status} claim; resolve the "
+                        f"conflict/supersession first"
+                    ],
+                )
+
+            patch, warnings = self._build_reinforcement_patch(claim, strength)
+
+            updated = self.claims.edit(claim_id, patch)
+            if not updated:
+                return ActionResult(
+                    success=False,
+                    action="reinforce",
+                    object_type="claim",
+                    object_id=claim_id,
+                    errors=["Failed to reinforce claim"],
+                )
+
+            return ActionResult(
+                success=True,
+                action="reinforce",
+                object_type="claim",
+                object_id=claim_id,
+                data=updated,
+                warnings=warnings,
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to reinforce claim: {e}")
+            return ActionResult(
+                success=False,
+                action="reinforce",
                 object_type="claim",
                 object_id=claim_id,
                 errors=[str(e)],

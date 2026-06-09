@@ -48,12 +48,57 @@ class PKBConfig:
     # Feature toggles
     fts_enabled: bool = True
     embedding_enabled: bool = True
+    # When True, claim embeddings are persisted at add/edit time and reused by
+    # the add-path similarity/conflict check instead of being recomputed per add.
+    embedding_cache_enabled: bool = True
     
     # Search defaults (from requirements)
     default_k: int = 20
     include_contested_by_default: bool = True
     validity_filter_default: bool = False  # Show everything unless filtered
-    
+    # Max number of existing active claims scanned for duplicate/conflict
+    # detection on add_claim. <= 0 means no limit (scan all). Replaces the
+    # former hardcoded cap of 100.
+    conflict_scan_limit: int = 500
+
+    # Ranking: post-fusion recency + confidence re-weight (Workstream C).
+    # Applied ONCE after RRF merge as:
+    #   final = rrf_score * (recency ** w_recency) * (confidence ** w_confidence)
+    # where recency = 0.5 ** (age_days / half_life). Defaults reproduce the
+    # current ranking EXACTLY: with w_recency = w_confidence = 0 both factors
+    # are 1.0, so order is unchanged. Tune the weights (e.g. via the eval
+    # harness) to enable recency/confidence-aware ranking.
+    recency_rerank_enabled: bool = True
+    w_recency: float = 0.0
+    w_confidence: float = 0.0
+    # Confidence assumed when a claim has no explicit confidence value.
+    default_confidence: float = 0.5
+    # Default half-life (days) for recency decay; per-type overrides below.
+    recency_half_life_days: float = 30.0
+    # Optional per-claim-type half-life overrides (e.g. {"fact": 3650,
+    # "observation": 7}). Falls back to recency_half_life_days when absent.
+    half_life_by_type: Dict[str, float] = field(default_factory=dict)
+    # Fresh claims keep recency floored at 1.0 for this many days (anti
+    # rich-get-richer); 0 disables the grace floor.
+    recency_grace_days: float = 0.0
+
+    # --- Reinforcement & decay (Workstream H) -------------------------------
+    # reinforce_claim() resets last_reinforced_at and nudges confidence toward
+    # 1.0: confidence += (1 - confidence) * reinforce_alpha (diminishing returns).
+    reinforce_alpha: float = 0.1
+    # On reinforcement, extend a claim's hard TTL (valid_to) by this many days
+    # per claim_type. Empty dict (default) = never extend TTL — inert.
+    reinforce_ttl_days_by_type: Dict[str, float] = field(default_factory=dict)
+    # How add_claim handles a near-duplicate (similarity > threshold):
+    #   "off"            -> current behavior (warn only; H3 wiring disabled)
+    #   "reinforce"      -> reinforce the existing claim, skip the duplicate
+    #   "reinforce_warn" -> reinforce AND surface a warning
+    # Default "off" keeps existing behavior until the H3 hook is enabled.
+    reinforce_on_duplicate: str = "off"
+    # Decay sweep (Workstream F2): freshness below this flips active->dormant.
+    # 0.0 (default) disables dormancy decay — inert.
+    dormancy_threshold: float = 0.0
+
     # LLM settings
     llm_model: str = "google/gemini-3.1-flash-lite-preview"
     embedding_model: str = "openai/text-embedding-3-small"
@@ -95,9 +140,22 @@ class PKBConfig:
             'db_path': self.db_path,
             'fts_enabled': self.fts_enabled,
             'embedding_enabled': self.embedding_enabled,
+            'embedding_cache_enabled': self.embedding_cache_enabled,
             'default_k': self.default_k,
             'include_contested_by_default': self.include_contested_by_default,
             'validity_filter_default': self.validity_filter_default,
+            'conflict_scan_limit': self.conflict_scan_limit,
+            'recency_rerank_enabled': self.recency_rerank_enabled,
+            'w_recency': self.w_recency,
+            'w_confidence': self.w_confidence,
+            'default_confidence': self.default_confidence,
+            'recency_half_life_days': self.recency_half_life_days,
+            'half_life_by_type': dict(self.half_life_by_type),
+            'recency_grace_days': self.recency_grace_days,
+            'reinforce_alpha': self.reinforce_alpha,
+            'reinforce_ttl_days_by_type': dict(self.reinforce_ttl_days_by_type),
+            'reinforce_on_duplicate': self.reinforce_on_duplicate,
+            'dormancy_threshold': self.dormancy_threshold,
             'llm_model': self.llm_model,
             'embedding_model': self.embedding_model,
             'llm_temperature': self.llm_temperature,
@@ -119,8 +177,14 @@ class PKBConfig:
             PKBConfig instance with provided values.
         """
         valid_keys = {
-            'db_path', 'fts_enabled', 'embedding_enabled', 'default_k',
-            'include_contested_by_default', 'validity_filter_default',
+            'db_path', 'fts_enabled', 'embedding_enabled', 'embedding_cache_enabled',
+            'default_k', 'include_contested_by_default', 'validity_filter_default',
+            'conflict_scan_limit',
+            'recency_rerank_enabled', 'w_recency', 'w_confidence',
+            'default_confidence', 'recency_half_life_days', 'half_life_by_type',
+            'recency_grace_days',
+            'reinforce_alpha', 'reinforce_ttl_days_by_type',
+            'reinforce_on_duplicate', 'dormancy_threshold',
             'llm_model', 'embedding_model', 'llm_temperature',
             'max_parallel_llm_calls', 'max_parallel_embedding_calls',
             'log_llm_calls', 'log_search_queries'
@@ -171,9 +235,20 @@ def load_config(
         'DB_PATH': ('db_path', str),
         'FTS_ENABLED': ('fts_enabled', lambda x: x.lower() in ('true', '1', 'yes')),
         'EMBEDDING_ENABLED': ('embedding_enabled', lambda x: x.lower() in ('true', '1', 'yes')),
+        'EMBEDDING_CACHE_ENABLED': ('embedding_cache_enabled', lambda x: x.lower() in ('true', '1', 'yes')),
         'DEFAULT_K': ('default_k', int),
         'INCLUDE_CONTESTED_BY_DEFAULT': ('include_contested_by_default', lambda x: x.lower() in ('true', '1', 'yes')),
         'VALIDITY_FILTER_DEFAULT': ('validity_filter_default', lambda x: x.lower() in ('true', '1', 'yes')),
+        'CONFLICT_SCAN_LIMIT': ('conflict_scan_limit', int),
+        'RECENCY_RERANK_ENABLED': ('recency_rerank_enabled', lambda x: x.lower() in ('true', '1', 'yes')),
+        'W_RECENCY': ('w_recency', float),
+        'W_CONFIDENCE': ('w_confidence', float),
+        'DEFAULT_CONFIDENCE': ('default_confidence', float),
+        'RECENCY_HALF_LIFE_DAYS': ('recency_half_life_days', float),
+        'RECENCY_GRACE_DAYS': ('recency_grace_days', float),
+        'REINFORCE_ALPHA': ('reinforce_alpha', float),
+        'REINFORCE_ON_DUPLICATE': ('reinforce_on_duplicate', str),
+        'DORMANCY_THRESHOLD': ('dormancy_threshold', float),
         'LLM_MODEL': ('llm_model', str),
         'EMBEDDING_MODEL': ('embedding_model', str),
         'LLM_TEMPERATURE': ('llm_temperature', float),

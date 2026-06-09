@@ -647,6 +647,8 @@ LIMIT ?
 - Good for semantic/conceptual queries
 - API cost for query embedding
 
+**Embedding cache reuse on the add path (2026-06-09):** `StructuredAPI.add_claim` now populates the `claim_embeddings` cache on insert (and refreshes it on edit when `statement` changes), and the duplicate/conflict check reuses those cached vectors instead of recomputing every existing claim's embedding per add. Specifically: `add_claim` calls `EmbeddingStore.ensure_embeddings(existing)` to build a `claim_id → vector` map and passes it to `LLMHelpers.check_similarity(..., cached_embeddings=...)`. The scan is capped by `config.conflict_scan_limit` (default 500; `<= 0` = all), replacing the former hardcoded `[:100]`. `get_embedding(claim_id, expected_model=...)` is **model-aware** — a cached vector built under a different `embedding_model` is treated as a miss and recomputed (handles embedding-model drift). Gated by `config.embedding_cache_enabled` (default True); all cache writes are best-effort. `StructuredAPI.backfill_embeddings()` populates the cache for existing claims. See `documentation/planning/plans/pkb_memory_system_improvements.plan.md` (Workstream A).
+
 **Key Components:**
 ```python
 class EmbeddingStore:
@@ -909,10 +911,126 @@ merge_results_rrf([fts_results, emb_results], k=10)
     ├── Sum scores across strategies
     └── Sort by combined score
     ↓
+apply_recency_confidence_rerank(merged, config)   # Workstream C; no-op at default weights
+    ↓
 Optional: LLM rerank top 50 → final top 10
     ↓
 Return List[SearchResult] → JSON → UI renders claim cards
 ```
+
+### Recency & Confidence Re-rank (Workstream C)
+
+`merge_results_rrf` fuses FTS + embedding ranks but is blind to *time* and
+*confidence*: an old and a new claim on the same topic tie. `apply_recency_confidence_rerank`
+(`search/base.py`) is a pure post-fusion step applied once after the RRF merge,
+inside `HybridSearchStrategy.search`:
+
+```
+recency = 0.5 ** (age_days / half_life)          # 1.0 fresh -> 0.5 at one half-life
+conf    = claim.confidence or default_confidence
+final   = rrf_score * (recency ** w_recency) * (conf ** w_confidence)
+```
+
+- **Default is an exact no-op.** With `w_recency = w_confidence = 0` (the
+  shipped defaults), both factors are `x ** 0 == 1.0`, so scores and order are
+  unchanged — existing behavior is preserved until the weights are tuned (plan C3).
+- **Age source:** reads `last_reinforced_at` when present (the column lands in
+  Workstream H), falling back to `updated_at` — so this re-rank works today and
+  upgrades automatically once H adds reinforcement tracking.
+- **Per-type half-life (C1a):** `half_life_by_type[claim_type]` overrides the
+  default `recency_half_life_days` (e.g. facts long, observations short).
+- **Pinned override (C1b):** a pinned claim (`meta_json.pinned`) keeps `recency = 1.0`.
+- **New-claim grace (C1b):** claims younger than `recency_grace_days` keep
+  `recency = 1.0` so fresh claims aren't buried by long-lived ones.
+- **Status (C2):** `expired`/`retracted`/`superseded` are already excluded
+  upstream by `SearchFilters` default statuses; explicit contested down-ranking
+  is not yet wired in.
+
+**Config (C3, all in `PKBConfig`):** `recency_rerank_enabled`, `w_recency`,
+`w_confidence`, `default_confidence`, `recency_half_life_days`,
+`half_life_by_type`, `recency_grace_days` — all sweepable via the eval harness
+(`EvalRunner(config=PKBConfig(w_recency=...))`).
+
+**Measured (eval harness, FTS-only, k=5):** at the default `w_recency = 0` the
+`recency` and `conflict` categories score MRR 0.500; enabling `w_recency = 1.0`
+(half-life 60d) lifts both to **1.000** while `lexical`/`temporal`/`semantic`
+and overall recall stay unchanged — i.e. the re-rank fixes newer-vs-older
+ordering without disturbing strong lexical matches. Unit-tested in
+`tests/test_recency_rerank.py` (zero-weight no-op, newer-promotion, pinned
+override, grace floor, per-type half-life, confidence weighting).
+
+### Reinforcement & Decay — Schema v8 (Workstream H)
+
+The recency re-rank above decays a claim by *age*, but age should reset when the
+user **re-affirms** a memory ("use it or lose it"). That requires a queryable,
+sortable timestamp — so it lives in indexed columns, not `meta_json`. **Schema
+v8** adds to `claims`:
+
+- `last_reinforced_at TEXT` — the clock recency/decay measure from (the C
+  re-rank reads this in preference to `updated_at`).
+- `reinforcement_count INTEGER NOT NULL DEFAULT 0`.
+- Index `idx_claims_last_reinforced` for the recency sort / future decay sweep.
+
+**Migration (`database.py:_migrate_v7_to_v8`):** `ALTER TABLE` adds both columns,
+backfills `last_reinforced_at = updated_at` for existing rows (so old claims get a
+sensible anchor), and creates the index. Because the base DDL runs *before*
+migrations via `executescript`, the index on the migration-added column is
+created **after** the always-run column-reconciliation block in
+`initialize_schema` (not in the base `INDEXES_DDL`) — this covers both fresh and
+upgraded databases. Verified on a copy of the real `storage/users/pkb.sqlite`
+(v6→v8, all 49 claims backfilled, count preserved, idempotent re-init).
+
+**`StructuredAPI.reinforce_claim(claim_id, strength=1.0)`** — the single
+state transition:
+
+```
+last_reinforced_at = now
+reinforcement_count += 1
+updated_at = now                                  # via the CRUD layer
+confidence += (1 - confidence) * (reinforce_alpha * strength)   # asymptotic → 1.0
+if reinforce_ttl_days_by_type[type] and valid_to: valid_to = now + ttl   # extend hard TTL
+if status == 'dormant': status = 'active'         # revive
+```
+
+- **Confidence vs. freshness are separate but linked:** confidence (belief it's
+  true) rises with diminishing returns and never reaches 1.0; freshness
+  (`last_reinforced_at`) is what ranking/decay act on. A claim can be
+  true-but-stale.
+- **H4 safeguard:** reinforcing a `contested` or `superseded` claim is *refused*
+  (returns an error) — that path should trigger conflict review, not silently
+  resurrect a claim known to be false/replaced.
+- **`ClaimStatus.DORMANT`** is added now (forward-compat); the Workstream F2
+  decay sweep will be the producer that flips inactive claims to `dormant`, and
+  `reinforce_claim` revives them.
+
+**Config (`PKBConfig`, all inert by default):** `reinforce_alpha=0.1`,
+`reinforce_ttl_days_by_type={}`, `reinforce_on_duplicate="off"`,
+`dormancy_threshold=0.0`.
+
+**H3 reinforcement signals (wired):** three surfaces now feed
+`last_reinforced_at`, strongest → weakest:
+
+1. **`add_claim` near-duplicate branch (primary).** When the similarity check
+   flags an existing `duplicate` and `reinforce_on_duplicate` is `"reinforce"` /
+   `"reinforce+warn"`, `add_claim` reinforces that existing claim and returns its
+   `ActionResult` (action `"reinforce"`) **instead of** creating a redundant
+   claim. Default `"off"` preserves today's warn-and-create behavior. If the
+   match is `contested`/`superseded`, the H4 safeguard refuses and `add_claim`
+   falls through to normal creation.
+2. **`ConversationDistiller` (user-confirmed).** A candidate that restates an
+   existing claim now becomes a `reinforce` proposal (carrying the matched
+   `existing_claim`) rather than being silently skipped; approving it calls
+   `reinforce_claim`. Shared logic lives in `StructuredAPI._build_reinforcement_patch`.
+3. **`pin_claim` (weakest).** Pinning is an explicit "this matters" signal, so
+   `pin=True` also reinforces (skipped on unpin and for contested/superseded).
+
+Unit-tested in `tests/test_reinforcement.py` (17: migration backfill, fresh-DB
+columns, count/timestamp/confidence transitions, strength scaling, dormant
+revive, contested/superseded refusal, TTL extension, the recency re-rank
+preferring `last_reinforced_at`, pin reinforcement, distiller reinforce
+proposal+execution, and the `add_claim` duplicate routing on/off). The
+**F2 dormancy sweep** (the producer that flips inactive claims to `dormant`,
+consuming the same `last_reinforced_at`) remains the open follow-up.
 
 ### Pattern 3: Memory Update from Chat
 
@@ -2423,6 +2541,45 @@ def test_llm_extraction(db):
     assert result.claim_type == "preference"
     assert "fitness" in result.tags or "workout" in result.tags
 ```
+
+### Retrieval Eval Harness
+
+**Location:** `truth_management_system/tests/eval/` (plan Workstream G, G1-task).
+
+Measures *retrieval quality* (not just correctness) so ranking changes (recency/decay/confidence) and an ANN index can be validated against a baseline instead of eyeballed.
+
+- `metrics.py` — `recall_at_k`, `precision_at_k`, `reciprocal_rank`, `mean_reciprocal_rank`, `aggregate_case_metrics` (pure functions over ID lists).
+- `dataset.py` + `seed_dataset.json` — a persona dataset (~46 keyed claims across all 7 domains, some carrying lifecycle state: `status`, `confidence`, relative `created_at/updated_at`, past `valid_to`) plus ~38 `query → expected` cases tagged with a `category`. Categories: `lexical` (shares words — FTS wins), `semantic` (paraphrase, no shared word-prefix — needs embeddings), `multi`/`temporal` (recall several), `recency` (expect the newer — needs Workstream C), `conflict` (contradictory active claims, expect the current — needs D/H), `hard_negative` (a distractor shares strong tokens — ranking signal), `scoped` (per-case `SearchFilters` — existing capability), `lifecycle` (superseded/expired excluded — existing). Cases may also carry `not_expected` and `filters`. Keys map to auto-generated `claim_id`s at seed time. `EvalRunner.seed()` applies the lifecycle overrides and runs the expiry sweep.
+- `runner.py` — `EvalRunner` seeds a throwaway PKB (its own temp SQLite, or a passed-in `db`), runs each query through `HybridSearchStrategy`, and computes per-case, aggregate, **and per-category** metrics: `recall@k`, `precision@k`, and `mrr` (`StrategyReport.by_category`). `evaluate()` scores multiple strategy configs (`fts`, and `embedding`/`hybrid` when an API key is available). CLI supports `--json` and `--verbose`; `run_eval.sh` is a portable wrapper. Full README at `truth_management_system/tests/eval/README.md`.
+
+**Why categories matter:** the per-category breakdown is what gives *clear signal*. On the seed set, network-free FTS scores recall@5=1.0 on `lexical`/`multi`/`scoped`/`temporal` but only ~0.10 on `semantic`, with MRR 0.500 on `recency` and `conflict` and low `precision` on `hard_negative` (0.38). Those gaps are exactly what embeddings/hybrid retrieval and Workstreams C (recency) and D/H (conflict) must close — and the harness now measures each directly instead of reporting one blended number. (Workstream C is implemented: enabling `w_recency` lifts `recency`/`conflict` MRR to 1.0 — see the Recency & Confidence Re-rank section.)
+
+**Run the bundled dataset (network-free, FTS):**
+```bash
+./truth_management_system/tests/eval/run_eval.sh --k 5        # portable wrapper
+# python -m truth_management_system.tests.eval.runner --k 5 [--json] [--verbose]
+# PKB eval report — dataset='pkb_seed_v3', claims=46, cases=38, k=5
+# [fts] strategies=['fts']
+#     overall       precision@5=0.537  recall@5=0.763  mrr=0.664
+#     lexical       precision@5=0.730  recall@5=1.000  mrr=1.000
+#     semantic      precision@5=0.050  recall@5=0.100  mrr=0.050
+#     recency       precision@5=0.500  recall@5=1.000  mrr=0.500
+#     conflict      precision@5=0.500  recall@5=1.000  mrr=0.500
+#     ... (also: multi, temporal, scoped, lifecycle, hard_negative)
+```
+
+**Programmatic sweep (for tuning C3 / H4 weights):**
+```python
+from truth_management_system.tests.eval import EvalRunner, load_dataset
+
+ds = load_dataset()
+with EvalRunner(keys={"OPENROUTER_API_KEY": "..."}) as r:
+    r.seed(ds)
+    report = r.evaluate(ds, k=10, strategy_sets={"fts": ["fts"], "hybrid": ["fts", "embedding"]})
+    print(report.format_report())
+```
+
+**Regression guard:** `tests/test_eval_harness.py` runs the FTS strategy over the seed set network-free and asserts (a) the `lexical` subset stays strong (`recall@5 ≥ 0.8`, `MRR ≥ 0.7`); (b) the lexical-vs-`semantic` recall gap stays visible (`≥ 0.4`) so the dataset can't silently regress to all-easy; (c) the existing-capability categories `scoped` (filters) and `lifecycle` (superseded/expired exclusion) keep high recall — a regression there is a real bug; plus category-coverage and precision-presence checks and metric unit tests. The room-to-grow categories (`semantic`/`recency`/`conflict`/`hard_negative`) are intentionally **not** floored. `EvalRunner(keys={})` guarantees offline FTS-only execution.
 
 ### Manual Testing Checklist
 

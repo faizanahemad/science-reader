@@ -273,12 +273,23 @@ Response:"""
                          matches: List[Tuple[CandidateClaim, Claim, str]]) -> List[ProposedAction]:
         """Determine actions for each candidate."""
         actions = []
-        matched_candidates = {m[0].statement for m in matches if m[2] == "duplicate"}
-        
+        # Map a duplicate candidate's statement -> the existing claim it
+        # duplicates, so we can reinforce that specific claim (H3).
+        duplicate_of: Dict[str, Claim] = {}
+        for cand, claim, rel in matches:
+            if rel == "duplicate" and cand.statement not in duplicate_of:
+                duplicate_of[cand.statement] = claim
+
         for candidate in candidates:
-            if candidate.statement in matched_candidates:
-                actions.append(ProposedAction(action="skip", candidate=candidate,
-                                             reason="Already exists in memory"))
+            existing = duplicate_of.get(candidate.statement)
+            if existing is not None:
+                # H3 distiller hook: an extracted restatement of an existing
+                # claim is a reinforcement signal, not a silent skip. Propose a
+                # user-confirmable "reinforce" action carrying the matched claim.
+                actions.append(ProposedAction(
+                    action="reinforce", candidate=candidate,
+                    existing_claim=existing, relation="duplicate",
+                    reason=f"Restates existing claim {existing.claim_id[:8]} — reinforce it"))
             else:
                 related = [(c, r) for c, cl, r in matches if c.statement == candidate.statement and r == "related"]
                 if related:
@@ -287,7 +298,7 @@ Response:"""
                 else:
                     actions.append(ProposedAction(action="add", candidate=candidate,
                                                  reason="New fact to remember"))
-        
+
         return [a for a in actions if a.action != "skip"]
     
     def _generate_confirmation_prompt(self, actions: List[ProposedAction]) -> str:
@@ -343,6 +354,9 @@ Response:"""
                 action.existing_claim.claim_id,
                 statement=action.candidate.statement
             )
+        elif action.action == "reinforce" and action.existing_claim:
+            # H3: user confirmed a restatement -> reinforce the existing claim.
+            return self.api.reinforce_claim(action.existing_claim.claim_id)
         elif action.action == "retract" and action.existing_claim:
             return self.api.delete_claim(action.existing_claim.claim_id)
         

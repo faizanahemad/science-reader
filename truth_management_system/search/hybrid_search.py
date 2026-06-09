@@ -11,7 +11,7 @@ import json
 import logging
 from typing import List, Dict, Optional
 
-from .base import SearchStrategy, SearchFilters, SearchResult, merge_results_rrf, dedupe_results
+from .base import SearchStrategy, SearchFilters, SearchResult, merge_results_rrf, dedupe_results, apply_recency_confidence_rerank
 from .fts_search import FTSSearchStrategy
 from .embedding_search import EmbeddingSearchStrategy
 from .rewrite_search import RewriteSearchStrategy
@@ -131,6 +131,11 @@ class HybridSearchStrategy:
         merged_k = llm_rerank_top_n if llm_rerank else k
         merged = merge_results_rrf(all_results, k=merged_k)
         time_logger.info(f"[HYBRID] Merged results: {len(merged)}")
+
+        # Post-fusion recency + confidence re-weight (Workstream C). No-op when
+        # w_recency == w_confidence == 0 (the default), so ranking is unchanged
+        # unless the weights are tuned.
+        merged = apply_recency_confidence_rerank(merged, self.config)
         
         # Optional LLM reranking
         if llm_rerank and len(merged) > k and "OPENROUTER_API_KEY" in self.keys:

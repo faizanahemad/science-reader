@@ -51,6 +51,7 @@ class ClaimStatus(str, Enum):
     RETRACTED = "retracted"  # Soft-deleted by user
     DRAFT = "draft"  # Not yet confirmed/finalized
     EXPIRED = "expired"  # Time-bound claim whose valid_to has passed
+    DORMANT = "dormant"  # Decayed from disuse (Workstream F/H); retrievable but down-ranked, revived on reinforcement
 
     @classmethod
     def default_search_statuses(cls) -> List[str]:

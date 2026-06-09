@@ -361,7 +361,11 @@ Response:"""
             return "observation"
 
     def check_similarity(
-        self, new_claim: str, existing_claims: List[Claim], threshold: float = 0.85
+        self,
+        new_claim: str,
+        existing_claims: List[Claim],
+        threshold: float = 0.85,
+        cached_embeddings: Optional[Dict[str, "np.ndarray"]] = None,
     ) -> List[Tuple[Claim, float, str]]:
         """
         Find similar existing claims.
@@ -372,6 +376,11 @@ Response:"""
             new_claim: Statement of new claim.
             existing_claims: Claims to compare against.
             threshold: Minimum similarity to include.
+            cached_embeddings: Optional map of claim_id -> embedding vector. When
+                provided, cached vectors are reused instead of recomputing each
+                existing claim's embedding (major cost saving on the add path).
+                Existing claims missing from the map fall back to on-the-fly
+                computation.
 
         Returns:
             List of (claim, similarity, relation) tuples.
@@ -389,10 +398,14 @@ Response:"""
         # Get embedding for new claim
         new_emb = get_query_embedding(new_claim, self.keys)
 
+        cached_embeddings = cached_embeddings or {}
+
         results = []
         for claim in existing_claims:
-            # Get embedding for existing claim
-            claim_emb = get_document_embedding(claim.statement, self.keys)
+            # Reuse a cached embedding when available; otherwise compute it.
+            claim_emb = cached_embeddings.get(claim.claim_id)
+            if claim_emb is None:
+                claim_emb = get_document_embedding(claim.statement, self.keys)
 
             # Compute cosine similarity
             dot = np.dot(new_emb, claim_emb)

@@ -12,9 +12,12 @@ Provides:
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional, Any
+import json
+from datetime import datetime, timezone
 
 from ..models import Claim
 from ..constants import ClaimStatus
+from ..utils import parse_iso_timestamp
 
 
 @dataclass
@@ -233,6 +236,112 @@ def merge_results_rrf(
         final.append(result)
     
     return final
+
+
+def _claim_age_days(claim: Claim, now: datetime) -> Optional[float]:
+    """
+    Age of a claim in days, measured from ``last_reinforced_at`` if present
+    (Workstream H schema column), else ``updated_at``. Returns None when no
+    usable timestamp is available (caller treats that as 'fresh', recency=1.0).
+    """
+    ts_raw = getattr(claim, "last_reinforced_at", None) or getattr(claim, "updated_at", None)
+    ts = parse_iso_timestamp(ts_raw) if ts_raw else None
+    if ts is None:
+        return None
+    if ts.tzinfo is None:
+        ts = ts.replace(tzinfo=timezone.utc)
+    delta = (now - ts).total_seconds() / 86400.0
+    return max(delta, 0.0)
+
+
+def _is_pinned(claim: Claim) -> bool:
+    """True when the claim's meta_json carries a truthy ``pinned`` flag."""
+    raw = getattr(claim, "meta_json", None)
+    if not raw:
+        return False
+    try:
+        meta = json.loads(raw) if isinstance(raw, str) else raw
+    except (ValueError, TypeError):
+        return False
+    return bool(isinstance(meta, dict) and meta.get("pinned"))
+
+
+def apply_recency_confidence_rerank(
+    results: List[SearchResult],
+    config: Any,
+    now: Optional[datetime] = None,
+) -> List[SearchResult]:
+    """
+    Post-fusion recency + confidence re-weight (Workstream C1).
+
+    Re-scores each already-RRF-merged result multiplicatively::
+
+        recency = 0.5 ** (age_days / half_life)        # 1.0 fresh -> 0.5 at one half-life
+        conf    = claim.confidence or default_confidence
+        score   = rrf_score * (recency ** w_recency) * (conf ** w_confidence)
+
+    and returns the results sorted by the new score (descending, stable).
+
+    Design notes:
+      - **Default no-op:** with ``w_recency == w_confidence == 0`` every factor
+        is ``x ** 0 == 1.0``, so scores and order are unchanged exactly — this
+        reproduces today's ranking (plan C3 requirement).
+      - ``age_days`` is read from ``last_reinforced_at`` when the column exists
+        (Workstream H), otherwise ``updated_at`` (so this lands before H).
+      - **Pinned override** (C1b): a pinned claim keeps ``recency = 1.0``.
+      - **New-claim grace** (C1b): claims younger than ``recency_grace_days``
+        keep ``recency = 1.0`` so fresh claims aren't buried by long-lived ones.
+      - **Per-type half-life** (C1a): ``half_life_by_type[claim_type]`` overrides
+        the default ``recency_half_life_days``.
+
+    Pure function: mutates only ``result.score`` / ``result.metadata`` on the
+    passed results (which are already throwaway merge outputs).
+    """
+    if not results:
+        return results
+    if not getattr(config, "recency_rerank_enabled", True):
+        return results
+
+    w_recency = float(getattr(config, "w_recency", 0.0) or 0.0)
+    w_confidence = float(getattr(config, "w_confidence", 0.0) or 0.0)
+    # Fast path: nothing to do, preserve order and scores exactly.
+    if w_recency == 0.0 and w_confidence == 0.0:
+        return results
+
+    now = now or datetime.now(timezone.utc)
+    default_half_life = float(getattr(config, "recency_half_life_days", 30.0) or 30.0)
+    half_life_by_type = getattr(config, "half_life_by_type", {}) or {}
+    default_conf = float(getattr(config, "default_confidence", 0.5) or 0.5)
+    grace_days = float(getattr(config, "recency_grace_days", 0.0) or 0.0)
+
+    for result in results:
+        claim = result.claim
+        # Recency factor.
+        recency = 1.0
+        if w_recency != 0.0:
+            age = _claim_age_days(claim, now)
+            if age is None or _is_pinned(claim) or (grace_days > 0 and age <= grace_days):
+                recency = 1.0
+            else:
+                half_life = float(half_life_by_type.get(claim.claim_type, default_half_life))
+                if half_life <= 0:
+                    recency = 1.0  # infinite half-life -> never decays
+                else:
+                    recency = 0.5 ** (age / half_life)
+        # Confidence factor.
+        conf = 1.0
+        if w_confidence != 0.0:
+            cval = getattr(claim, "confidence", None)
+            conf = float(cval) if cval is not None else default_conf
+            conf = max(conf, 1e-6)  # guard against 0 ** w collapsing everything
+
+        base_score = result.metadata.get("rrf_score", result.score)
+        result.score = base_score * (recency ** w_recency) * (conf ** w_confidence)
+        result.metadata["recency_factor"] = recency
+        result.metadata["confidence_factor"] = conf
+
+    results.sort(key=lambda r: r.score, reverse=True)
+    return results
 
 
 def dedupe_results(results: List[SearchResult]) -> List[SearchResult]:

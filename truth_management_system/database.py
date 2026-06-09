@@ -142,6 +142,8 @@ class PKBDatabase:
                     "context_domains": "TEXT",
                     "claim_number": "INTEGER",
                     "possible_questions": "TEXT",
+                    "last_reinforced_at": "TEXT",
+                    "reinforcement_count": "INTEGER NOT NULL DEFAULT 0",
                 }.items():
                     if col_name not in existing_columns:
                         conn.execute(
@@ -150,6 +152,18 @@ class PKBDatabase:
                         logger.info(f"Added missing {col_name} column to claims")
             except Exception as e:
                 logger.warning(f"Could not ensure claim columns: {e}")
+
+            # v8: the recency/decay index lives here (not in base DDL) because
+            # last_reinforced_at is migration-added — base DDL runs before
+            # migrations, so an upgrading v7 table would not yet have the column.
+            # By this point the column-reconciliation above guarantees it exists.
+            try:
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_claims_last_reinforced "
+                    "ON claims(last_reinforced_at)"
+                )
+            except Exception as e:
+                logger.warning(f"Could not ensure idx_claims_last_reinforced: {e}")
 
             # Ensure entities and tags have friendly_id column (v7)
             try:
@@ -236,6 +250,10 @@ class PKBDatabase:
         # Migration from v6 to v7: Add friendly_id to entities and tags, suffix contexts
         if from_version < 7 <= to_version:
             self._migrate_v6_to_v7(conn)
+
+        # Migration from v7 to v8: Add reinforcement tracking columns (Workstream H)
+        if from_version < 8 <= to_version:
+            self._migrate_v7_to_v8(conn)
 
     def _migrate_v1_to_v2(self, conn: sqlite3.Connection) -> None:
         """
@@ -721,6 +739,62 @@ class PKBDatabase:
         )
 
         logger.info("Migration to v7 complete")
+
+    def _migrate_v7_to_v8(self, conn: sqlite3.Connection) -> None:
+        """
+        Migrate from schema v7 to v8: Add reinforcement tracking (Workstream H).
+
+        Reinforcement state must be queryable/sortable for the recency re-rank
+        (Workstream C) and the decay sweep (Workstream F), so it lives in indexed
+        columns rather than meta_json.
+
+        Changes:
+        - Add ``last_reinforced_at TEXT`` to claims (the clock recency/decay
+          measure from; reset whenever a claim is re-affirmed).
+        - Add ``reinforcement_count INTEGER NOT NULL DEFAULT 0`` to claims.
+        - Backfill ``last_reinforced_at = updated_at`` for existing rows so a
+          never-reinforced claim still has a sensible recency anchor.
+        - Create ``idx_claims_last_reinforced`` for the decay sweep / recency sort.
+
+        Args:
+            conn: Active database connection.
+        """
+        logger.info(
+            "Migrating to v8: Adding last_reinforced_at + reinforcement_count to claims"
+        )
+
+        cursor = conn.execute("PRAGMA table_info(claims)")
+        claim_columns = [row[1] for row in cursor.fetchall()]
+
+        # 1. Add last_reinforced_at (nullable; backfilled below)
+        if "last_reinforced_at" not in claim_columns:
+            conn.execute("ALTER TABLE claims ADD COLUMN last_reinforced_at TEXT")
+            logger.info("Added last_reinforced_at column to claims")
+
+        # 2. Add reinforcement_count (NOT NULL DEFAULT 0 — SQLite backfills existing
+        #    rows with the default automatically)
+        if "reinforcement_count" not in claim_columns:
+            conn.execute(
+                "ALTER TABLE claims ADD COLUMN reinforcement_count INTEGER NOT NULL DEFAULT 0"
+            )
+            logger.info("Added reinforcement_count column to claims")
+
+        # 3. Backfill last_reinforced_at = updated_at for existing rows that
+        #    predate this column (so recency has an anchor for old claims).
+        updated = conn.execute(
+            "UPDATE claims SET last_reinforced_at = updated_at "
+            "WHERE last_reinforced_at IS NULL AND updated_at IS NOT NULL"
+        )
+        logger.info(
+            f"Backfilled last_reinforced_at from updated_at for {updated.rowcount} claims"
+        )
+
+        # 4. Index for the decay sweep / recency sort
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_claims_last_reinforced ON claims(last_reinforced_at)"
+        )
+
+        logger.info("Migration to v8 complete")
 
     def _ensure_catalog_seeded(self, conn: sqlite3.Connection) -> None:
         """

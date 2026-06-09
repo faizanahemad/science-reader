@@ -54,6 +54,8 @@ CLAIM_COLUMNS = [
     "meta_json",
     "retracted_at",
     "possible_questions",
+    "last_reinforced_at",
+    "reinforcement_count",
 ]
 
 NOTE_COLUMNS = [
@@ -174,6 +176,10 @@ class Claim:
     possible_questions: Optional[str] = (
         None  # JSON array of questions this claim answers
     )
+    last_reinforced_at: Optional[str] = (
+        None  # v8: clock recency/decay measure from; reset on reinforcement
+    )
+    reinforcement_count: int = 0  # v8: number of times this claim has been re-affirmed
 
     # Computed fields (not stored in DB)
     _embedding: Optional[Any] = field(default=None, repr=False, compare=False)

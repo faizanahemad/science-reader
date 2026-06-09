@@ -22,7 +22,7 @@ All tables use:
 """
 
 SCHEMA_VERSION = (
-    7  # v7: Added friendly_id to entities and tags for universal @references
+    8  # v8: Added last_reinforced_at + reinforcement_count to claims (Workstream H: reinforcement & decay)
 )
 
 
@@ -55,7 +55,9 @@ CREATE TABLE IF NOT EXISTS claims (
     valid_to TEXT,                      -- NULL means no end date
     meta_json TEXT,                     -- JSON: {keywords, source, visibility, llm}
     retracted_at TEXT,                  -- Soft delete timestamp
-    possible_questions TEXT             -- JSON array of questions this claim answers (v6)
+    possible_questions TEXT,            -- JSON array of questions this claim answers (v6)
+    last_reinforced_at TEXT,            -- v8: clock that recency/decay measure from; reset on reinforcement (backfilled = updated_at)
+    reinforcement_count INTEGER NOT NULL DEFAULT 0  -- v8: how many times this claim has been re-affirmed
 );
 
 -- =============================================================================
