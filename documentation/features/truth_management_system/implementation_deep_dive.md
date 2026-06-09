@@ -1288,6 +1288,59 @@ v10/audit-table presence, add/edit/delete audit rows, action filter + user
 scoping, export envelope shape, cross-user round-trip, merge idempotency,
 invalid-payload rejection, import audit row, and tag/link preservation).
 
+### Combined & Batched Enrichment (Workstream G2)
+
+`add_claim`'s auto-extract used to fire ~5-6 LLM calls per claim: `extract_single`
+ran four-to-five field extractors (tags, entities, SPO, type, keywords) and then
+a separate `generate_possible_questions` call. But `analyze_claim_statement`
+already does the whole job — claim_type, context_domain, tags, entities **and**
+possible_questions — in **one** combined prompt. G2 routes the add path through
+that single call and reuses its questions (no extra round-trip), so a typical
+interactive add drops from six LLM calls to one — cheaper *and* lower latency.
+The behavior is gated by `combined_enrichment` (default True); set it False to
+fall back to the legacy multi-call path. Only fields the caller didn't supply
+are filled, and the claim_type is only overridden when it came in as the generic
+`observation`.
+
+For bulk, `LLMHelpers.batch_analyze` fans `analyze_claim_statement` across the
+shared parallel executor (the same `map_parallel` used by `batch_extract_all`).
+`add_claims_bulk` pre-computes every statement's analysis in one parallel batch
+up front and injects each result into `add_claim` via the private `_analysis`
+kwarg, so N claims cost N concurrent combined calls instead of N×6 sequential
+ones; if batching errors it falls back to the per-claim path. The
+`auto_extract=False` path (unit tests and the eval harness) is untouched, so the
+retrieval baseline is unaffected. Unit-tested in `tests/test_batch_enrichment.py`
+(6, a fake LLM with per-method call counters): single combined call, question
+reuse, user-field precedence, the legacy-flag path, and single-batch bulk
+fan-out.
+
+### Distiller Contradiction → Supersede (Workstream D1 follow-up)
+
+D1 gave the PKB supersession links but left the distiller unable to *detect*
+contradictions — it only classified matches as duplicate/related by score, so a
+claim that *replaced* an existing one was saved as a parallel, conflicting claim.
+This follow-up closes that gap. `llm_helpers.detect_contradiction(new, existing)`
+is an **ungated** LLM check: unlike `_classify_relation` (which treats
+near-identical statements as duplicates and only probes for contradictions in a
+narrow similarity band), it asks directly whether the new statement updates the
+old on the same subject/attribute — catching the most common case, where the two
+are near-identical in surface form yet assert incompatible values ("I live in
+Mumbai" → "I live in Bengaluru").
+
+`ConversationDistiller._detect_contradictions` runs that check over the top
+matches (capped at 3 to bound cost, gated by `distiller_detect_contradictions`
+[default True] and LLM availability) and upgrades any hit to a `contradicts`
+relation. `_propose_actions` maps a contradiction to a user-confirmed
+`supersede` proposal, taking **priority** over the duplicate→reinforce path, and
+`_execute_action` runs an approved supersede via `add_claim(..., supersedes=old_id)`
+— reusing the D1 path that creates the `supersedes` claim_link and retires the
+old claim, with provenance threaded through like a normal add. Because it's a
+*proposal* requiring confirmation, it can't silently rewrite memory. Unit-tested
+in `tests/test_distiller_contradiction.py` (7): relation upgrade, the
+no-contradiction / config-disabled / no-LLM no-ops, the supersede proposal and
+its priority over duplicate, and end-to-end execution (old claim → `superseded`,
+new claim active, `supersedes` link present).
+
 ### Pattern 3: Memory Update from Chat
 
 ```
