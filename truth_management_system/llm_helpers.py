@@ -463,6 +463,59 @@ Result:"""
 
         return "related"
 
+    def detect_contradiction(
+        self, new_statement: str, existing_statement: str
+    ) -> bool:
+        """
+        Decide whether ``new_statement`` contradicts/replaces ``existing_statement``.
+
+        Unlike ``_classify_relation`` (which only checks for a contradiction in a
+        narrow embedding-similarity band, and treats very-high similarity as a
+        duplicate), this is an ungated, direct check used by the conversation
+        distiller to detect supersession — e.g. "I live in Mumbai" followed by
+        "I live in Bengaluru". Such pairs are often near-identical in surface
+        form (so similarity-gated checks miss them) yet assert incompatible
+        values for the same subject/attribute.
+
+        Args:
+            new_statement: The newly extracted claim.
+            existing_statement: An existing stored claim it may replace.
+
+        Returns:
+            True if the new claim updates/replaces the existing one.
+        """
+        prompt = f"""Does the NEW statement contradict or replace the EXISTING statement?
+
+EXISTING: "{existing_statement}"
+NEW: "{new_statement}"
+
+Answer true ONLY if both concern the SAME subject and the SAME attribute but
+assert different or incompatible values, so the NEW one updates/replaces the
+EXISTING one (e.g. a changed home city, job title, relationship status, or a
+reversed preference). Answer false if they are merely related, are about
+different things, or are fully consistent with each other.
+
+Return ONLY JSON: {{"contradicts": true/false, "reason": "brief explanation"}}
+
+Result:"""
+
+        try:
+            response = self._call_llm(prompt)
+            text = response.strip()
+            try:
+                result = json.loads(text)
+            except json.JSONDecodeError:
+                import re
+
+                m = re.search(r"\{.*\}", text, re.DOTALL)
+                if not m:
+                    return False
+                result = json.loads(m.group())
+            return bool(result.get("contradicts", False))
+        except Exception as e:
+            logger.error(f"Contradiction detection failed: {e}")
+            return False
+
     def batch_extract_all(
         self, statements: List[str], context_domain: str = "personal"
     ) -> List[ExtractionResult]:

@@ -282,7 +282,44 @@ Response:"""
             elif search_result.score > 0.7:
                 matches.append((claim, "related"))
         
+        # D1 follow-up: upgrade close matches that the new claim actually
+        # contradicts/replaces to a "contradicts" relation, so the planner can
+        # propose a supersede rather than a parallel conflicting claim.
+        matches = self._detect_contradictions(candidate, matches)
         return matches
+
+    def _detect_contradictions(self, candidate: "CandidateClaim",
+                               matches: List[Tuple[Claim, str]]) -> List[Tuple[Claim, str]]:
+        """
+        Re-classify close matches that the candidate contradicts/replaces.
+
+        For each matched existing claim (capped to the top few to bound LLM
+        cost), ask the LLM whether the candidate updates/replaces it; if so, mark
+        the relation as "contradicts". Gated by config
+        ``distiller_detect_contradictions`` and LLM availability — a no-op
+        otherwise, preserving the prior duplicate/related behavior.
+        """
+        if not matches:
+            return matches
+        if not getattr(self.config, "distiller_detect_contradictions", True):
+            return matches
+        llm = getattr(self.api, "llm", None)
+        if llm is None:
+            return matches
+
+        upgraded = []
+        # Only check the top matches (already similarity-ranked by search).
+        check_cap = 3
+        for idx, (claim, rel) in enumerate(matches):
+            if idx < check_cap:
+                try:
+                    if llm.detect_contradiction(candidate.statement, claim.statement):
+                        upgraded.append((claim, "contradicts"))
+                        continue
+                except Exception as e:
+                    logger.warning(f"Contradiction detection failed: {e}")
+            upgraded.append((claim, rel))
+        return upgraded
     
     def _propose_actions(self, candidates: List[CandidateClaim],
                          matches: List[Tuple[CandidateClaim, Claim, str]]) -> List[ProposedAction]:
@@ -291,13 +328,28 @@ Response:"""
         # Map a duplicate candidate's statement -> the existing claim it
         # duplicates, so we can reinforce that specific claim (H3).
         duplicate_of: Dict[str, Claim] = {}
+        # Map a contradicting candidate's statement -> the existing claim it
+        # replaces, so we can propose a supersede (D1 follow-up).
+        contradicts_of: Dict[str, Claim] = {}
         for cand, claim, rel in matches:
-            if rel == "duplicate" and cand.statement not in duplicate_of:
+            if rel == "contradicts" and cand.statement not in contradicts_of:
+                contradicts_of[cand.statement] = claim
+            elif rel == "duplicate" and cand.statement not in duplicate_of:
                 duplicate_of[cand.statement] = claim
 
         for candidate in candidates:
+            contradicted = contradicts_of.get(candidate.statement)
             existing = duplicate_of.get(candidate.statement)
-            if existing is not None:
+            if contradicted is not None:
+                # D1 follow-up: the new claim replaces a conflicting existing
+                # one. Propose a user-confirmed supersede: save the new claim and
+                # link it as superseding (retiring) the old one.
+                actions.append(ProposedAction(
+                    action="supersede", candidate=candidate,
+                    existing_claim=contradicted, relation="contradicts",
+                    reason=f"Updates/replaces existing claim {contradicted.claim_id[:8]} "
+                           f"(\"{contradicted.statement[:40]}\")"))
+            elif existing is not None:
                 # H3 distiller hook: an extracted restatement of an existing
                 # claim is a reinforcement signal, not a silent skip. Propose a
                 # user-confirmable "reinforce" action carrying the matched claim.
@@ -375,6 +427,27 @@ Response:"""
                 action.existing_claim.claim_id,
                 statement=action.candidate.statement
             )
+        elif action.action == "supersede" and action.existing_claim:
+            # D1 follow-up: save the new claim AND link it as superseding the
+            # contradicted existing claim (add_claim's `supersedes` handling
+            # creates the claim_link and retires the old claim).
+            kwargs = {
+                "statement": action.candidate.statement,
+                "claim_type": action.candidate.claim_type,
+                "context_domain": action.candidate.context_domain,
+                "auto_extract": True,
+                "tags": action.candidate.tags or [],
+                "supersedes": action.existing_claim.claim_id,
+            }
+            if action.candidate.valid_from:
+                kwargs["valid_from"] = action.candidate.valid_from
+            if action.candidate.valid_to:
+                kwargs["valid_to"] = action.candidate.valid_to
+            if getattr(self, "_source_conversation_id", None):
+                kwargs["source_conversation_id"] = self._source_conversation_id
+            if getattr(self, "_source_message_id", None):
+                kwargs["source_message_id"] = self._source_message_id
+            return self.api.add_claim(**kwargs)
         elif action.action == "reinforce" and action.existing_claim:
             # H3: user confirmed a restatement -> reinforce the existing claim.
             return self.api.reinforce_claim(action.existing_claim.claim_id)

@@ -127,6 +127,14 @@ class PKBConfig:
     # restore the legacy multi-call extraction path.
     combined_enrichment: bool = True
 
+    # D1 follow-up: when True (default), the conversation distiller checks
+    # whether an extracted claim contradicts/replaces a closely-matched existing
+    # claim and, if so, proposes a user-confirmed "supersede" action (link the
+    # new claim as superseding the old, then retire the old) instead of adding a
+    # parallel, conflicting claim. Set False to disable contradiction detection
+    # in the distiller (saves an LLM call per close match).
+    distiller_detect_contradictions: bool = True
+
     # LLM settings
     llm_model: str = "google/gemini-3.1-flash-lite-preview"
     embedding_model: str = "openai/text-embedding-3-small"
@@ -191,6 +199,7 @@ class PKBConfig:
             'sweep_interval_seconds': self.sweep_interval_seconds,
             'notify_expiry_within_days': self.notify_expiry_within_days,
             'combined_enrichment': self.combined_enrichment,
+            'distiller_detect_contradictions': self.distiller_detect_contradictions,
             'llm_model': self.llm_model,
             'embedding_model': self.embedding_model,
             'llm_temperature': self.llm_temperature,
@@ -225,6 +234,7 @@ class PKBConfig:
             'dormancy_exempt_types',
             'sweep_interval_seconds', 'notify_expiry_within_days',
             'combined_enrichment',
+            'distiller_detect_contradictions',
             'llm_model', 'embedding_model', 'llm_temperature',
             'max_parallel_llm_calls', 'max_parallel_embedding_calls',
             'log_llm_calls', 'log_search_queries'
@@ -287,6 +297,7 @@ def load_config(
         'SWEEP_INTERVAL_SECONDS': ('sweep_interval_seconds', int),
         'NOTIFY_EXPIRY_WITHIN_DAYS': ('notify_expiry_within_days', int),
         'COMBINED_ENRICHMENT': ('combined_enrichment', lambda x: x.lower() in ('true', '1', 'yes')),
+        'DISTILLER_DETECT_CONTRADICTIONS': ('distiller_detect_contradictions', lambda x: x.lower() in ('true', '1', 'yes')),
         'CONSOLIDATION_SIMILARITY_THRESHOLD': ('consolidation_similarity_threshold', float),
         'ENTITY_DEDUP_THRESHOLD': ('entity_dedup_threshold', float),
         'DEFAULT_CONFIDENCE': ('default_confidence', float),
