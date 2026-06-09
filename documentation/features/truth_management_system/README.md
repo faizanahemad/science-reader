@@ -149,6 +149,15 @@ Design plan for extending @references to all PKB object types:
 **I want to understand data flows:**
 → See [implementation_deep_dive.md - Data Flow Patterns](./implementation_deep_dive.md#data-flow-patterns)
 
+**I want to understand contexts (groups) and how @context references resolve:**
+→ See [implementation_deep_dive.md - Contexts (Groups): Hierarchy & Resolution](./implementation_deep_dive.md#contexts-groups-hierarchy--resolution)
+
+**I want to understand the auto-parsing / intelligence (enrichment, conflicts, auto-save, models):**
+→ See [implementation_deep_dive.md - Intelligence Layer](./implementation_deep_dive.md#intelligence-layer-auto-parsing-connections--conflict-detection)
+
+**I want to understand the tool surfaces (MCP vs LLM tools vs REST, Propose Memory):**
+→ See [implementation_deep_dive.md - PKB Tool Surfaces](./implementation_deep_dive.md#pkb-tool-surfaces-mcp-vs-llm-tool-calling-vs-rest)
+
 **I want to integrate with the chat system:**
 → Read [implementation_deep_dive.md - Pattern B: Conversation.py Integration](./implementation_deep_dive.md#pattern-b-conversationpy-integration)
 
@@ -229,6 +238,24 @@ When the PKB NL agent or main LLM is uncertain about a user's memory request, it
 ### Default-Enabled Tools
 `DEFAULT_ENABLED_TOOLS` in `code_common/tools.py` defines tools that are always enabled when tool use is on: `["ask_clarification", "pkb_nl_command"]`. The `pkb_nl_command` tool allows the main LLM to invoke the PKB NL agent directly during conversation.
 
+### MCP Tool Surface
+The PKB is also exposed over MCP (Model Context Protocol) via `mcp_server/pkb.py`, served over streamable-HTTP with JWT auth (each tool takes `user_email`, resolved from the token). The registered tool set is **tiered** via the `MCP_TOOL_TIER` environment variable (`baseline` default, or `full`):
+
+**Baseline tier (8 tools, always registered):**
+- `pkb_search` — hybrid search (FTS + embedding); params `query`, `k`, `strategy`
+- `pkb_get_claim` — retrieve a single claim by ID
+- `pkb_resolve_reference` — resolve an `@friendly_id` to its full object(s)
+- `pkb_get_pinned_claims` — high-priority pinned claims
+- `pkb_add_claim` — add a fact/preference/decision/etc.
+- `pkb_edit_claim` — edit an existing claim
+- `pkb_delete_claim` — delete a claim by ID
+- `pkb_nl_command` — run a natural-language PKB operation through the NL agent
+
+**Full tier (`MCP_TOOL_TIER=full`, +7 tools):**
+- `pkb_get_claims_by_ids`, `pkb_autocomplete`, `pkb_resolve_context`, `pkb_pin_claim`, `pkb_list_contexts`, `pkb_list_entities`, `pkb_list_tags`
+
+**Relevant env vars:** `PKB_MCP_PORT` (default `8101`), `PKB_MCP_ENABLED`, `MCP_TOOL_TIER` (`baseline`/`full`), `MCP_RATE_LIMIT` (default `10` tool calls per token per minute). For server setup and the full multi-server MCP picture see `documentation/product/ops/mcp_server_setup.md`.
+
 ### Auto-Save Facts (`auto_pkb_extract`)
 After every chat message (except `/pkb`/`/memory` commands), the frontend fires a 3-second-delayed call to `PKBManager.checkMemoryUpdates()` which POSTs to `POST /pkb/propose_updates`. The backend runs `ConversationDistiller.extract_and_propose()` using a cheap LLM to detect memorable facts in the user message, then returns proposed actions. If any are found, `showBulkProposalModal()` shows the `#memory-proposal-modal` for the user to review, edit, and approve before anything is saved.
 
@@ -255,12 +282,14 @@ truth_management_system/
 ├── llm_helpers.py           # LLM extraction utilities
 ├── crud/                    # Data access layer
 │   ├── base.py
+│   ├── catalog.py           # TypeCatalogCRUD, DomainCatalogCRUD (dynamic types/domains)
 │   ├── claims.py
-│   ├── notes.py
-│   ├── entities.py
-│   ├── tags.py
 │   ├── conflicts.py
-│   └── links.py
+│   ├── contexts.py          # Context (group) CRUD + recursive claim resolution
+│   ├── entities.py
+│   ├── links.py
+│   ├── notes.py
+│   └── tags.py
 ├── search/                  # Search strategies
 │   ├── base.py
 │   ├── fts_search.py
@@ -280,12 +309,12 @@ truth_management_system/
 
 ### Integration Points
 ```
-endpoints/pkb.py                        # Flask REST API (includes /pkb/delete_claim, /pkb/nl_command)
+endpoints/pkb.py                        # Flask REST API (delete = DELETE /pkb/claims/<id>; NL = POST /pkb/nl_command)
 Conversation.py                         # Chat integration + PKBNLConversationAgent dispatch
 agents/pkb_nl_conversation_agent.py     # Conversation-compatible NL agent for /pkb and /memory commands
 agents/pkb_nl_conversation_agent.impl.md # Agent implementation docs
 code_common/tools.py                    # LLM tool definitions (pkb_nl_command, pkb_delete_claim, pkb_propose_memory)
-mcp_server/pkb.py                       # MCP tools (pkb_nl_command, pkb_delete_claim)
+mcp_server/pkb.py                       # MCP tools — 8 baseline + 7 full-tier (see "MCP Tool Surface" below)
 interface/pkb-manager.js                # Frontend API
 interface/tool-call-manager.js          # pkb_propose_memory modal UI
 interface/interface.html                # UI components (tool selector with 3 new PKB tools)
@@ -459,4 +488,4 @@ logging.getLogger("truth_management_system").setLevel(logging.DEBUG)
 
 ---
 
-**Last Updated:** 2026-03-11
+**Last Updated:** 2026-06-09

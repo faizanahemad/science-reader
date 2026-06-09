@@ -46,7 +46,7 @@ PKB v0 is a SQLite-backed personal knowledge base designed for integration with 
 - `PKBNLConversationAgent` (`agents/pkb_nl_conversation_agent.py`): Conversation-compatible agent for `/pkb` and `/memory` commands, with `tool_response_waiter` for interactive modal support, SSE event yielding, and `_add_confirmed_claims()`. Now uses `_run_nl_agent_streaming()` and `PKBNLAgent.process_streaming()` instead of `_run_nl_agent()`/`process()`. `__call__` iterates streaming events and yields formatted text per action in real-time.
 - `expired` claim status in `constants.py`, `expire_stale_claims()` in `utils.py`, triggered in `database.py` `get_database()` and `structured_api.py` search
 - `valid_to` mandatory for `task` and `reminder` claim types in `StructuredAPI.add_claim()` and `endpoints/pkb.py`
-- `pkb_delete_claim` tool/MCP/endpoint: `DELETE /pkb/claims/<id>/delete`, LLM tool in `tools.py`, MCP tool in `mcp_server/pkb.py`
+- `pkb_delete_claim` tool/MCP/endpoint: `DELETE /pkb/claims/<id>`, LLM tool in `tools.py`, MCP tool in `mcp_server/pkb.py`
 - `pkb_nl_command` tool/MCP/endpoint: `POST /pkb/nl_command`, LLM tool in `tools.py`, MCP tool in `mcp_server/pkb.py`
 - `pkb_propose_memory` interactive tool in `tools.py` (`is_interactive=True`), modal UI in `tool-call-manager.js`
 - `NLCommandResult` gained `needs_user_input` and `proposed_claims` fields

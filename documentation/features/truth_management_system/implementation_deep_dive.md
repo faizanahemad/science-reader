@@ -18,6 +18,9 @@
 3. [Data Flow Patterns](#data-flow-patterns)
 4. [Integration Patterns](#integration-patterns)
 5. [API Surface](#api-surface)
+5a. [Contexts (Groups): Hierarchy & Resolution](#contexts-groups-hierarchy--resolution)
+5b. [Intelligence Layer: Auto-Parsing, Connections & Conflict Detection](#intelligence-layer-auto-parsing-connections--conflict-detection)
+5c. [PKB Tool Surfaces (MCP vs LLM Tool-Calling vs REST)](#pkb-tool-surfaces-mcp-vs-llm-tool-calling-vs-rest)
 6. [Frontend Architecture](#frontend-architecture)
 7. [Multi-User Implementation](#multi-user-implementation)
 8. [Memory Attachment System](#memory-attachment-system)
@@ -1282,6 +1285,115 @@ POST   /pkb/relevant_context              Get formatted context for LLM
 
 ---
 
+## Contexts (Groups): Hierarchy & Resolution
+
+Contexts are named, hierarchical groupings of claims (`truth_management_system/crud/contexts.py`). They are the PKB's primary user-driven organizing structure and one of the `@reference` types.
+
+**Data model:**
+- A context has `context_id`, `name`, `friendly_id` (suffixed `_context`), optional `description`, optional `parent_context_id`, `domain`, and `user_email`.
+- Claims link to contexts many-to-many via the `context_claims` join table.
+- Contexts form a **tree** via `parent_context_id` (a claim can belong to many contexts; a context has at most one parent).
+
+**Hierarchy traversal (recursive CTEs):**
+- `get_descendants(context_id)` walks the tree downward with a `WITH RECURSIVE` CTE (children → grandchildren → …).
+- `resolve_claims(context_id, statuses, max_depth=10)` is the **core resolution method** used when a user references `@context_friendly_id` in chat. It builds the full sub-tree of context IDs (recursive CTE, depth-capped at 10), joins through `context_claims` to `claims`, filters by status (default active + contested), de-duplicates by `claim_id`, and returns them newest-first. So referencing a parent context pulls in claims from every nested sub-context.
+
+**Cycle safety:** `_validate_no_cycle(context_id, parent_id)` runs before any parent assignment — it rejects self-parenting and walks the ancestor chain to ensure the proposed parent doesn't already descend from the context (raising `ValueError` on a detected cycle). `max_depth` on resolution is a second guard against runaway recursion.
+
+**UI:** the **Contexts tab** (`#pkb-contexts-pane`) lets users create a context (name, friendly-id, description), list contexts with claim counts (`get_with_claim_count()`), expand a context to see its linked claims (`loadContextClaimsPanel`), and attach/detach claims (`addClaimToContext` / `removeClaimFromContext` → `POST/DELETE /pkb/contexts/<id>/claims`). The Add/Edit Memory modal (`#pkb-claim-edit-modal`) also offers a multi-select to assign a claim to contexts at creation/edit time.
+
+**REST:** `GET/POST /pkb/contexts`, `GET/PUT/DELETE /pkb/contexts/<id>`, `POST /pkb/contexts/<id>/claims`, `DELETE /pkb/contexts/<id>/claims/<claim_id>`, `GET /pkb/contexts/<id>/resolve`.
+
+---
+
+## Intelligence Layer: Auto-Parsing, Connections & Conflict Detection
+
+The PKB turns a free-text statement into a richly-linked, searchable memory through an LLM enrichment pipeline plus cross-claim graph links. The LLM helpers live in `truth_management_system/llm_helpers.py` (`LLMHelpers`); enrichment is orchestrated by `StructuredAPI.add_claim()` (`auto_extract=True` by default).
+
+### 1. Auto-parsing on add (`StructuredAPI.add_claim`, `auto_extract=True`)
+When a claim is added with auto-extract on and an LLM configured:
+- **`extract_single()` / `analyze_claim_statement()`** — a (mostly) single-call analysis that extracts **claim_type** (fact, preference, decision, task, reminder, habit, memory, observation), **context_domain** (personal, health, work, relationships, learning, life_ops, finance), **tags** (3–5 reusable lowercase tags), and **entities** (people/orgs/places/topics/projects/systems with a `type`). User-provided values win; extracted values fill the gaps. A generic `observation` type is upgraded to the inferred type. `analyze_claim_statement()` is the shared path behind both the modal **Auto-fill** button (cheap/fast model) and text ingestion (stronger model).
+- **`generate_possible_questions()`** — generates 2–4 **self-sufficient** questions the claim could answer (each must embed the claim's specific entities so it is searchable standalone). Stored in `possible_questions`, indexed into FTS — this is the "QnA-style" retrieval boost that lets a user's natural question match a stored fact.
+- **`extract_spo()`** — extracts a subject–predicate–object triple for structured relations.
+
+### 2. Connections across types (the graph)
+A claim becomes a node connected to other object types:
+- **Entities** (`claim_entities` join) — extracted people/places/orgs/topics are upserted and linked; `@entity_fid` resolves to *all* claims linked to that entity.
+- **Tags** (`claim_tags` join, hierarchical) — `@tag_fid` resolves recursively to claims tagged with the tag *and all descendant tags* (recursive CTE).
+- **Contexts** (`context_claims` join, hierarchical) — see the Contexts section above.
+- **Domains** — `@domain_name_domain` resolves to all claims in a domain via query-time filtering.
+
+All four are reachable through the unified `@reference` resolver `StructuredAPI.resolve_reference()`, which uses the friendly-id **type suffix** (`_context` / `_entity` / `_tag` / `_domain`, none = claim) to route directly to the right object type, with legacy fallbacks for unsuffixed references.
+
+### 3. Similarity, duplicates & conflict detection
+On add, `check_similarity(new_statement, existing_claims, threshold=0.85)` embeds the new claim (via `code_common.call_llm` embeddings) and computes cosine similarity against existing active claims in the same domain:
+- **> 0.95 → `duplicate`** (warns the user a near-identical claim exists).
+- **> 0.85 → LLM contradiction check** (`_classify_relation` asks the LLM "do these contradict?"; returns `contradicts` or `related`).
+- Contradictions can be promoted into a **ConflictSet** (`crud/conflicts.py`: `create` / `add_member` / `resolve` / `ignore`), surfaced in the **Conflicts tab** for the user to resolve. This is the "truth management" part — the system actively notices when a new memory clashes with an old one instead of silently storing both.
+
+### 4. Auto-capture from conversation (distillation, `auto_pkb_extract`)
+This is what the **"Auto-save facts"** checkbox (`#settings-auto_pkb_extract`, default ON) controls. When enabled, after each chat turn the frontend (`common-chat.js`) fires a 3-second-delayed `PKBManager.checkMemoryUpdates()` → `POST /pkb/propose_updates`. When the box is OFF, that call is skipped entirely (no request, no modal). `/pkb` and `/memory` commands also skip it to avoid duplicate proposals.
+
+Backend: `interface/conversation_distillation.py` (`ConversationDistiller.extract_and_propose()`) uses the PKB's configured LLM (`config.llm_model`, default `google/gemini-3.1-flash-lite-preview`, temperature 0.0) to scan the conversation summary + latest user message for memorable facts (`_extract_claims_from_turn`). An `extraction_mode` of `relaxed` (default) or `aggressive` tunes how eagerly it proposes. Each candidate is matched against existing memories (`_find_existing_matches`, reusing the embedding-similarity machinery from §3) and returned as a `MemoryUpdatePlan` of proposed **add / edit / skip** actions. **Nothing is persisted** until the user approves in the bulk proposal modal `#memory-proposal-modal` (`showBulkProposalModal` → `collectApprovedProposals` → `POST /pkb/execute_updates` → `execute_plan`).
+
+### 5. Temporal intelligence (auto-expiry)
+`task`/`reminder` claims require `valid_to`. `expire_stale_claims()` (run at DB init and lazily during search) flips claims whose `valid_to` is in the past to the `expired` status, which is excluded from search by default — so time-bound memories age out automatically without user cleanup.
+
+### 6. Bulk / text ingestion
+`interface/text_ingestion.py` and `add_claims_bulk()` apply the same per-claim enrichment (optionally) across many statements in parallel (`batch_extract_all`), used by the **Bulk Add** and **Import Text** tabs.
+
+### 7. Models used (the intelligence runs on cheap LLMs + embeddings)
+| Pipeline | Model | Where |
+|---|---|---|
+| Per-claim enrichment (`extract_single`, `generate_possible_questions`, `extract_spo`) | `config.llm_model` (default `google/gemini-3.1-flash-lite-preview`) | `StructuredAPI.add_claim` |
+| Modal **Auto-fill** button (`analyze_claim_statement`) | `CHEAP_LLM[0]` (falls back to `config.llm_model`) | `POST /pkb/analyze_statement` |
+| Conversation distillation (auto-save) | `config.llm_model`, temp 0.0 | `ConversationDistiller` |
+| `pkb_nl_command` / `/pkb` NL agent | `pkb_nl_model` override → else `CHEAP_LLM[0]` | `PKBNLAgent` |
+| Text ingestion enrichment | stronger/expensive model | `text_ingestion.py` |
+| Similarity / duplicate / contradiction | embeddings (`get_query_embedding`/`get_document_embedding`) + an LLM yes/no contradiction check | `LLMHelpers.check_similarity` / `_classify_relation` |
+| Embeddings | `config.embedding_model` | search + similarity |
+
+The design deliberately uses **cheap, fast models** (Gemini Flash Lite / `CHEAP_LLM`) for the high-frequency enrichment and auto-save paths, reserving stronger models for explicit bulk text ingestion.
+
+---
+
+## PKB Tool Surfaces (MCP vs LLM Tool-Calling vs REST)
+
+The PKB is exposed through **three** programmatic surfaces plus auto-save. Do not confuse them:
+
+### A. MCP tools — `mcp_server/pkb.py` (external clients)
+Streamable-HTTP + JWT, port 8101, tiered by `MCP_TOOL_TIER` (8 baseline / 15 full). See the README "MCP Tool Surface" for the full list. MCP does **not** include `pkb_propose_memory` (it is UI-interactive); MCP writes go through `pkb_add_claim` / `pkb_nl_command`.
+
+### B. In-app LLM tool-calling tools — `code_common/tools.py`
+`tools.py` registers ~16 PKB tools (mirroring the MCP surface: `pkb_search`, `pkb_get_claim`, `pkb_resolve_reference`, `pkb_get_pinned_claims`, `pkb_add_claim`, `pkb_edit_claim`, `pkb_get_claims_by_ids`, `pkb_autocomplete`, `pkb_resolve_context`, `pkb_delete_claim`, `pkb_pin_claim`, `pkb_nl_command`, `pkb_propose_memory`, `pkb_list_contexts`, `pkb_list_entities`, `pkb_list_tags`). **Only 3 are user-selectable** in the chat tool selector (`interface.html` optgroup "Knowledge Base (PKB)"):
+
+| UI option | Tool | Interactive | Notes |
+|---|---|---|---|
+| 🗣️ NL Command | `pkb_nl_command` | no | Default-selected; also in `DEFAULT_ENABLED_TOOLS`. Runs `PKBNLAgent` agentic loop; description steers it to high-recall search. |
+| Delete Claim | `pkb_delete_claim` | no | Delete a claim by id. |
+| 📝 Propose Memory | `pkb_propose_memory` | **yes** | Shows an editable review modal before saving (see below). |
+
+The remaining ~13 are registered for tool-calling but not surfaced in the selector — typically invoked indirectly (e.g. by the NL agent).
+
+### C. REST — `endpoints/pkb.py` (`/pkb/*`), used by the web UI.
+
+### How `pkb_propose_memory` works (interactive, two-path)
+`pkb_propose_memory` is `is_interactive=True` — its handler executes **no logic**; it returns `ToolCallResult(needs_user_input=True, ui_schema=args)` to pause the agentic loop for user confirmation. Input schema: a `claims` array (each `text`, `claim_type` ∈ {fact, preference, event, task, reminder, goal, note}, `valid_from`, `valid_to` [required for task/reminder], `tags`, `entities`, `context`) plus a `message` explaining why review is needed.
+
+Two paths surface the **same** modal:
+1. **Main LLM path:** the LLM calls `pkb_propose_memory` directly → `needs_user_input` → SSE `tool_input_request` event.
+2. **`/pkb` NL-agent path:** `handle_pkb_nl_command` runs `PKBNLAgent`; if `result.needs_user_input and result.proposed_claims`, it re-labels the result as `tool_name="pkb_propose_memory"` with `ui_schema={claims, message}` → same event.
+
+Frontend (`interface/tool-call-manager.js`): `handleToolInputRequest()` renders the **`#tool-call-modal`** ("Review Proposed Memories") via `_renderMemoryProposalForm(claims)` — editable cards with a remove button. **Submit** → `_collectMemoryProposalResponse()` → `submitToolResponse()`; the backend's `tool_response_waiter` resumes the loop and saves the confirmed claims. **Skip** → `{ skipped: true }`.
+
+### Two different "proposal" modals — don't conflate
+| Modal | Trigger | Purpose |
+|---|---|---|
+| `#memory-proposal-modal` | Auto-save (`auto_pkb_extract` → `checkMemoryUpdates` → `/pkb/propose_updates`) | Review bulk facts distilled from the conversation |
+| `#tool-call-modal` | `pkb_propose_memory` tool (main LLM or `/pkb` agent) | Review claims the LLM/agent explicitly proposes during tool use |
+
+---
+
 ## Frontend Architecture
 
 ### JavaScript Module: pkb-manager.js
@@ -1339,17 +1451,18 @@ var PKBManager = (function() {
 
 ### HTML Structure (interface.html)
 
-**PKB Modal** (lines 539-823):
+**PKB Modal** (`#pkb-modal`, interface.html line ~843; tab bar `#pkb-tabs`):
 ```html
 <div class="modal" id="pkb-modal">
   <div class="modal-body">
-    <ul class="nav nav-tabs">
-      <li><a href="#pkb-claims-pane">Claims</a></li>
-      <li><a href="#pkb-entities-pane">Entities</a></li>
-      <li><a href="#pkb-tags-pane">Tags</a></li>
-      <li><a href="#pkb-conflicts-pane">Conflicts</a></li>
-      <li><a href="#pkb-bulk-pane">Bulk Add</a></li>
-      <li><a href="#pkb-import-pane">Import Text</a></li>
+    <ul class="nav nav-tabs" id="pkb-tabs">
+      <li><a href="#pkb-claims-pane">Claims</a></li>      <!-- search, filters, paginated list, Add Memory -->
+      <li><a href="#pkb-entities-pane">Entities</a></li>  <!-- create + expandable linked-claim panels -->
+      <li><a href="#pkb-tags-pane">Tags</a></li>          <!-- create + expandable linked-claim panels -->
+      <li><a href="#pkb-conflicts-pane">Conflicts</a></li><!-- list + resolve contradictory claims -->
+      <li><a href="#pkb-bulk-pane">Bulk Add</a></li>      <!-- multi-row add with progress bar -->
+      <li><a href="#pkb-import-pane">Import Text</a></li> <!-- paste text, LLM analyze, ingest -->
+      <li><a href="#pkb-contexts-pane">Contexts</a></li>  <!-- create context, expand, attach/detach claims -->
     </ul>
     
     <div class="tab-content">
@@ -1380,7 +1493,7 @@ var PKBManager = (function() {
 </div>
 ```
 
-**Memory Proposal Modal** (lines 888-950):
+**Memory Proposal Modal** (`#memory-proposal-modal`, interface.html line ~1327):
 ```html
 <div class="modal" id="memory-proposal-modal">
   <div class="modal-body">

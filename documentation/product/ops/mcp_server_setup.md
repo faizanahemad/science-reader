@@ -14,7 +14,7 @@ The science-reader process (`python server.py`) starts the Flask web app **and**
 python server.py
   ├── Flask web app (port 5000)
   ├── Web Search MCP    (port 8100)  — mcp_server/mcp_app.py
-  ├── PKB MCP           (port 8101)  — mcp_server/pkb.py
+  ├── PKB MCP           (port 8101)  — mcp_server/pkb.py            [8 or 15 tools, see MCP_TOOL_TIER]
   ├── Documents MCP     (port 8102)  — mcp_server/docs.py          [4 or 9 tools, see MCP_TOOL_TIER]
   ├── Artefacts MCP     (port 8103)  — mcp_server/artefacts.py
   ├── Conversation MCP  (port 8104)  — mcp_server/conversation.py
@@ -326,7 +326,9 @@ Repeat for each server (ports 8101-8106) with appropriate names.
 | `jina_read_page` | Read a URL via Jina Reader (fast, markdown) | `url` |
 | `read_link` | Read any URL — pages, PDFs, images, YouTube | `url`, `context`, `detailed` |
 
-### PKB — Personal Knowledge Base (port 8101) — 6 tools
+### PKB — Personal Knowledge Base (port 8101) — 8 or 15 tools (see `MCP_TOOL_TIER`)
+
+**Baseline tier (default, 8 tools):**
 
 | Tool | Description | Key params |
 |------|-------------|------------|
@@ -336,6 +338,20 @@ Repeat for each server (ports 8101-8106) with appropriate names.
 | `pkb_get_pinned_claims` | Get high-priority pinned claims | `limit` |
 | `pkb_add_claim` | Add a new fact/preference/decision to PKB | `statement`, `claim_type`, `context_domain` |
 | `pkb_edit_claim` | Edit an existing claim | `claim_id`, `statement`, `tags` |
+| `pkb_delete_claim` | Delete a claim by ID | `claim_id` |
+| `pkb_nl_command` | Run a natural-language PKB operation via the NL agent | `command`, `model` |
+
+**Full tier (`MCP_TOOL_TIER=full`, +7 tools):**
+
+| Tool | Description | Key params |
+|------|-------------|------------|
+| `pkb_get_claims_by_ids` | Batch-retrieve claims by ID list | `claim_ids` |
+| `pkb_autocomplete` | Autocomplete `@references` by prefix | `prefix`, `limit` |
+| `pkb_resolve_context` | Resolve a context to its claims | `context_id` |
+| `pkb_pin_claim` | Pin/unpin a claim | `claim_id`, `pin` |
+| `pkb_list_contexts` | List the user's contexts | — |
+| `pkb_list_entities` | List the user's entities | — |
+| `pkb_list_tags` | List the user's tags | — |
 
 ### Documents (port 8102) — 4 or 9 tools (see `MCP_TOOL_TIER`)
 

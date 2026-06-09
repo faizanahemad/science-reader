@@ -9,7 +9,7 @@ Environment variables:
     PKB_MCP_PORT: Port (default 8101).
     MCP_JWT_SECRET: Required. HS256 secret for bearer-token verification.
     MCP_RATE_LIMIT: Max tool calls per token per minute (default 10).
-    MCP_TOOL_TIER: "baseline" (default, 6 tools) or "full" (10 tools).
+    MCP_TOOL_TIER: "baseline" (default, 8 tools) or "full" (15 tools).
 """
 
 from __future__ import annotations
