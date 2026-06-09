@@ -453,6 +453,7 @@ class StructuredAPI:
                     else:
                         warnings.extend(sres.errors or [])
 
+            self._record_audit("add", "claim", claim.claim_id)
             return ActionResult(
                 success=True,
                 action="add",
@@ -523,6 +524,9 @@ class StructuredAPI:
                                 f"Failed to refresh embedding for {claim_id}: {e}"
                             )
 
+                self._record_audit(
+                    "edit", "claim", claim_id, detail={"fields": list(patch.keys())}
+                )
                 return ActionResult(
                     success=True,
                     action="edit",
@@ -564,6 +568,7 @@ class StructuredAPI:
             claim = self.claims.delete(claim_id, mode)
 
             if claim:
+                self._record_audit("delete", "claim", claim_id, detail={"mode": mode})
                 return ActionResult(
                     success=True,
                     action="delete",
@@ -1480,6 +1485,83 @@ class StructuredAPI:
             logger.error(f"Failed to build lifecycle notifications: {e}")
             return ActionResult(
                 success=False, action="list", object_type="claim", errors=[str(e)],
+            )
+
+    def _record_audit(self, action, object_type, object_id, detail=None):
+        """Best-effort append to the audit log (Workstream G3). Never raises."""
+        try:
+            from ..portability import record_audit
+
+            record_audit(
+                self.db, self.user_email, action, object_type, object_id, detail
+            )
+        except Exception as e:  # pragma: no cover - logging only
+            logger.warning(f"Audit hook failed: {e}")
+
+    def export_data(self) -> ActionResult:
+        """
+        Export this user's PKB as a JSON-serializable envelope (Workstream G3).
+
+        Includes claims, links, entities, tags, contexts and join rows; excludes
+        derived embeddings. See ``portability.export_user_data``.
+        """
+        try:
+            from ..portability import export_user_data
+
+            payload = export_user_data(self.db, self.user_email)
+            return ActionResult(
+                success=True, action="export", object_type="pkb", data=payload,
+            )
+        except Exception as e:
+            logger.error(f"Export failed: {e}")
+            return ActionResult(
+                success=False, action="export", object_type="pkb", errors=[str(e)],
+            )
+
+    def import_data(self, payload: Dict, mode: str = "merge") -> ActionResult:
+        """
+        Import an export envelope into this user's PKB (Workstream G3).
+
+        Rows are re-owned to this user; ``merge`` mode skips primary-key
+        collisions. See ``portability.import_user_data``.
+        """
+        try:
+            from ..portability import import_user_data
+
+            if not isinstance(payload, dict) or "data" not in payload:
+                return ActionResult(
+                    success=False, action="import", object_type="pkb",
+                    errors=["Invalid import payload: missing 'data'"],
+                )
+            counts = import_user_data(self.db, self.user_email, payload, mode)
+            self._record_audit("import", "pkb", None, detail=counts)
+            return ActionResult(
+                success=True, action="import", object_type="pkb", data=counts,
+            )
+        except Exception as e:
+            logger.error(f"Import failed: {e}")
+            return ActionResult(
+                success=False, action="import", object_type="pkb", errors=[str(e)],
+            )
+
+    def get_audit_log(
+        self, limit: int = 100, offset: int = 0, action: str = None
+    ) -> ActionResult:
+        """Return this user's audit-log entries, newest first (Workstream G3)."""
+        try:
+            from ..portability import get_audit_log
+
+            entries = get_audit_log(
+                self.db, self.user_email, limit=limit, offset=offset, action=action
+            )
+            return ActionResult(
+                success=True, action="list", object_type="audit",
+                data={"entries": entries, "count": len(entries)},
+            )
+        except Exception as e:
+            logger.error(f"Failed to read audit log: {e}")
+            return ActionResult(
+                success=False, action="list", object_type="audit", errors=[str(e)],
             )
 
     def supersede_claim(

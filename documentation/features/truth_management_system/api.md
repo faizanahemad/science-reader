@@ -947,6 +947,9 @@ All operations are automatically scoped to the authenticated user's data.
 | POST | `/pkb/entities/merge` | Merge entity into canonical one `{source_id, target_id}`, keeping aliases (D3) | 15/min |
 | POST | `/pkb/sweep` | Run lifecycle sweep now (hard-TTL expiry + soft-TTL dormancy) → `{expired, dormant}` (F1) | 6/min |
 | GET | `/pkb/notifications` | Soon-to-expire task/reminder + newly-dormant claims (query: within_days) (F4) | 30/min |
+| GET | `/pkb/export` | Export the user's PKB as a JSON envelope (claims/links/entities/tags/contexts; embeddings excluded) (G3) | 6/min |
+| POST | `/pkb/import` | Import an export envelope `{data, mode?}` (merge = INSERT OR IGNORE, re-owned to importer) (G3) | 6/min |
+| GET | `/pkb/audit` | Append-only audit log of add/edit/delete/import (query: limit, offset, action) (G3) | 30/min |
 
 **Plan Storage Note:** `/pkb/propose_updates` and `/pkb/ingest_text` store plans in server memory (`_memory_update_plans`, `_text_ingestion_plans`). Plans are lost on server restart. The frontend should execute plans promptly after receiving them.
 

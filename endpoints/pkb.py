@@ -892,6 +892,119 @@ def pkb_notifications_route():
         )
 
 
+@pkb_bp.route("/pkb/export", methods=["GET"])
+@limiter.limit("6 per minute")
+@login_required
+def pkb_export_route():
+    """Export the user's full PKB as a JSON envelope (Workstream G3)."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
+        result = api.export_data()
+        if result.success:
+            return jsonify(result.data)
+        return json_error(
+            "; ".join(result.errors) or "Export failed",
+            status=500, code="export_failed",
+        )
+    except Exception as e:
+        logger.error(f"Error in pkb_export: {e}")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
+
+
+@pkb_bp.route("/pkb/import", methods=["POST"])
+@limiter.limit("6 per minute")
+@login_required
+def pkb_import_route():
+    """Import a PKB export envelope into the user's PKB (Workstream G3).
+
+    Request body: the export envelope, optionally with `mode` (default merge).
+    """
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        body = request.get_json(silent=True) or {}
+        if "data" not in body:
+            return json_error(
+                "Request body must be an export envelope with a 'data' key",
+                status=400, code="invalid_payload",
+            )
+        mode = body.get("mode", "merge")
+
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
+        result = api.import_data(body, mode=mode)
+        if result.success:
+            return jsonify(result.data)
+        return json_error(
+            "; ".join(result.errors) or "Import failed",
+            status=400, code="import_failed",
+        )
+    except Exception as e:
+        logger.error(f"Error in pkb_import: {e}")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
+
+
+@pkb_bp.route("/pkb/audit", methods=["GET"])
+@limiter.limit("30 per minute")
+@login_required
+def pkb_audit_route():
+    """Return the user's append-only audit log, newest first (Workstream G3).
+
+    Query params: limit, offset, action (optional filter).
+    """
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
+        limit = request.args.get("limit", default=100, type=int)
+        offset = request.args.get("offset", default=0, type=int)
+        action = request.args.get("action", type=str)
+        result = api.get_audit_log(limit=limit, offset=offset, action=action)
+        if result.success:
+            return jsonify(result.data)
+        return json_error(
+            "; ".join(result.errors) or "Audit read failed",
+            status=500, code="audit_failed",
+        )
+    except Exception as e:
+        logger.error(f"Error in pkb_audit: {e}")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
+
+
 @pkb_bp.route("/pkb/claims/<claim_id>", methods=["PUT"])
 @limiter.limit("15 per minute")
 @login_required

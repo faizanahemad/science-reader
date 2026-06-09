@@ -259,6 +259,10 @@ class PKBDatabase:
         if from_version < 9 <= to_version:
             self._migrate_v8_to_v9(conn)
 
+        # Migration from v9 to v10: Add audit_log table (Workstream G3)
+        if from_version < 10 <= to_version:
+            self._migrate_v9_to_v10(conn)
+
     def _migrate_v1_to_v2(self, conn: sqlite3.Connection) -> None:
         """
         Migrate from schema v1 to v2: Add user_email column for multi-user support.
@@ -841,6 +845,42 @@ class PKBDatabase:
         )
 
         logger.info("Migration to v9 complete")
+
+    def _migrate_v9_to_v10(self, conn: sqlite3.Connection) -> None:
+        """
+        Migrate from schema v9 to v10: Add the ``audit_log`` table (Workstream
+        G3: append-only audit log of add/edit/delete operations).
+
+        Like the v9 ``claim_links`` migration, the base DDL already creates
+        ``audit_log`` (and its index) with ``IF NOT EXISTS`` on every
+        ``initialize_schema`` call, so this migration is defensive/idempotent —
+        it guarantees the table exists for databases whose recorded version is
+        being advanced to v10, independent of base-DDL ordering.
+
+        Args:
+            conn: Active database connection.
+        """
+        logger.info("Migrating to v10: Adding audit_log table (Workstream G3)")
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS audit_log (
+                audit_id TEXT PRIMARY KEY,
+                user_email TEXT,
+                action TEXT NOT NULL,
+                object_type TEXT,
+                object_id TEXT,
+                detail_json TEXT,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_audit_log_user "
+            "ON audit_log(user_email, created_at)"
+        )
+
+        logger.info("Migration to v10 complete")
 
     def _ensure_catalog_seeded(self, conn: sqlite3.Connection) -> None:
         """

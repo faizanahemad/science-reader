@@ -22,7 +22,8 @@ All tables use:
 """
 
 SCHEMA_VERSION = (
-    9  # v9: Added claim_links table (Workstream D1: supersession & typed claim-claim links)
+    10  # v10: Added audit_log table (Workstream G3: append-only audit log + export/import)
+    # 9: Added claim_links table (Workstream D1: supersession & typed claim-claim links)
     # 8: Added last_reinforced_at + reinforcement_count to claims (Workstream H: reinforcement & decay)
 )
 
@@ -236,6 +237,22 @@ CREATE TABLE IF NOT EXISTS context_domains_catalog (
 );
 
 -- =============================================================================
+-- Audit log: append-only record of add/edit/delete operations (v10, G3)
+-- Rows are only ever INSERTed and SELECTed — never updated or deleted — so the
+-- log is a tamper-evident history. detail_json carries operation specifics
+-- (e.g. changed fields on an edit).
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS audit_log (
+    audit_id TEXT PRIMARY KEY,
+    user_email TEXT,                    -- Owner email for multi-user support
+    action TEXT NOT NULL,               -- add|edit|delete|import (extensible)
+    object_type TEXT,                   -- claim|entity|tag|... 
+    object_id TEXT,                     -- ID of the affected object
+    detail_json TEXT,                   -- Optional JSON with operation specifics
+    created_at TEXT NOT NULL
+);
+
+-- =============================================================================
 -- Schema version tracking
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -292,6 +309,10 @@ CREATE INDEX IF NOT EXISTS idx_conflict_set_members_claim_id ON conflict_set_mem
 CREATE INDEX IF NOT EXISTS idx_claim_links_from ON claim_links(from_claim_id);
 CREATE INDEX IF NOT EXISTS idx_claim_links_to ON claim_links(to_claim_id);
 CREATE INDEX IF NOT EXISTS idx_claim_links_type ON claim_links(link_type);
+
+-- Audit-log index (v10, Workstream G3). Safe in base DDL: audit_log is a
+-- brand-new table created earlier in this same DDL script.
+CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log(user_email, created_at);
 
 -- v3 indexes for claims.friendly_id and contexts are created by the migration
 -- or by _ensure_v3_indexes() during initialization. They are NOT included here
@@ -418,6 +439,7 @@ def get_tables_list() -> list:
         "note_embeddings",
         "contexts",
         "context_claims",
+        "audit_log",
         "schema_version",
     ]
 

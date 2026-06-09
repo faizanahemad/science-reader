@@ -1238,6 +1238,56 @@ with `pinned`, manual-claim default, missing-claim error, the
 `source:conversation` tag, message-only-no-tag, and the distiller
 `MemoryUpdatePlan -> execute_plan -> add_claim` threading offline).
 
+### Portability & Audit Log — Schema v10 (Workstream G3)
+
+Two trust/ownership features that travel together: users should be able to take
+their memory with them, and to see *what changed when*.
+
+**Audit log.** A new `audit_log` table (v10) is an **append-only** history —
+the code only ever INSERTs and SELECTs, never UPDATEs or DELETEs, so it is
+tamper-evident. Columns: `(audit_id, user_email, action, object_type,
+object_id, detail_json, created_at)` with `idx_audit_log_user(user_email,
+created_at)`. `portability.record_audit(db, user_email, action, object_type,
+object_id, detail)` writes one row in its own transaction and is **best-effort**
+— wrapped so a logging failure can never break the user operation it records.
+`StructuredAPI._record_audit` is called from the success paths of `add_claim`
+(`add`), `edit_claim` (`edit`, `detail={"fields": [...]}`), `delete_claim`
+(`delete`, `detail={"mode": ...}`) and `import_data` (`import`, `detail`=counts).
+Reinforcement/supersession/consolidation mutate through the CRUD layer rather
+than `edit_claim`, so they don't emit `edit` rows — the log tracks the
+user-facing CRUD surface, not every internal status flip.
+
+**Export.** `portability.export_user_data(db, user_email)` builds a
+JSON-serializable envelope `{pkb_export_version, schema_version, exported_at,
+user_email, counts, data}`. `data` carries the user's owned rows (`entities`,
+`tags`, `contexts`, `claims`, `claim_links` — filtered by `user_email`) plus the
+join rows that connect them (`claim_entities`, `claim_tags`, `context_claims` —
+filtered by membership in the exported claim set). Embeddings are **excluded**:
+they're derived and large, and `backfill_embeddings()` rebuilds them. Rows are
+captured with `SELECT *` → `dict(row)`, so new schema columns ride along
+automatically.
+
+**Import.** `portability.import_user_data(db, user_email, payload, mode="merge")`
+inserts the envelope under the importing user. Two design choices make it
+robust: (1) owned rows are **re-stamped** with the importer's `user_email`, so an
+export can move between users; (2) the whole load runs in one transaction with
+`PRAGMA defer_foreign_keys=ON`, so self-referential (`parent_tag_id`,
+`parent_context_id`) and cross-table references resolve regardless of insert
+order and are verified atomically at commit. `merge` mode uses `INSERT OR
+IGNORE`, so primary-key collisions are skipped — re-importing the same envelope
+is a no-op and partial overlaps merge cleanly. Inserting into `claims` fires the
+existing FTS sync trigger, so search stays consistent without extra work.
+
+Surfaced as `StructuredAPI.export_data()` / `import_data(payload, mode)` /
+`get_audit_log(limit, offset, action)` (all returning `ActionResult`) and REST
+`GET /pkb/export`, `POST /pkb/import`, `GET /pkb/audit`. The v9→v10 migration
+(`_migrate_v9_to_v10`) mirrors the v9 pattern — defensive `CREATE TABLE IF NOT
+EXISTS`, verified on a copy of the real DB (v6→v10, 49 claims preserved,
+idempotent, original untouched). Unit-tested in `tests/test_portability.py` (9:
+v10/audit-table presence, add/edit/delete audit rows, action filter + user
+scoping, export envelope shape, cross-user round-trip, merge idempotency,
+invalid-payload rejection, import audit row, and tag/link preservation).
+
 ### Pattern 3: Memory Update from Chat
 
 ```
