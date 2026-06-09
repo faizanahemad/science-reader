@@ -72,6 +72,7 @@ class ClaimStatus(str, Enum):
             cls.SUPERSEDED.value,
             cls.DRAFT.value,
             cls.EXPIRED.value,
+            cls.DORMANT.value,  # decayed but kept retrievable / revivable (F2)
         ]
 
 

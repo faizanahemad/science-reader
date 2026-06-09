@@ -807,9 +807,11 @@ class StructuredAPI:
             ActionResult with list of SearchResult objects.
         """
         try:
-            # Lazy expiry: mark stale claims before searching
+            # Lazy lifecycle sweep: hard-TTL expiry + soft-TTL dormancy decay
+            # (Workstream F2) before searching. Decay is inert unless
+            # config.dormancy_threshold > 0.
             from ..utils import maybe_expire_claims
-            maybe_expire_claims(self.db, self.user_email)
+            maybe_expire_claims(self.db, self.user_email, self.config)
             # Build filters (include user_email for multi-user support)
             search_filters = SearchFilters(
                 include_contested=include_contested, user_email=self.user_email
@@ -1249,6 +1251,38 @@ class StructuredAPI:
                 action="reinforce",
                 object_type="claim",
                 object_id=claim_id,
+                errors=[str(e)],
+            )
+
+    def run_decay_sweep(self) -> ActionResult:
+        """
+        Run the soft-TTL dormancy decay sweep now (Workstream F2).
+
+        Flips ``active`` claims whose freshness has fallen below
+        ``config.dormancy_threshold`` to ``dormant`` (see
+        ``utils.decay_dormant_claims``). Intended for a scheduled background job
+        (F1) or manual/admin invocation; normal search also runs it lazily.
+        Inert unless ``dormancy_threshold > 0``.
+
+        Returns:
+            ActionResult whose ``data`` is ``{"dormant_count": N}``.
+        """
+        try:
+            from ..utils import decay_dormant_claims
+
+            count = decay_dormant_claims(self.db, self.config, self.user_email)
+            return ActionResult(
+                success=True,
+                action="decay",
+                object_type="claim",
+                data={"dormant_count": count},
+            )
+        except Exception as e:
+            logger.error(f"Decay sweep failed: {e}")
+            return ActionResult(
+                success=False,
+                action="decay",
+                object_type="claim",
                 errors=[str(e)],
             )
 

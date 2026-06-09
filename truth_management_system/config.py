@@ -19,7 +19,7 @@ Configuration can be loaded from:
 import os
 import json
 from dataclasses import dataclass, field
-from typing import Dict, Optional, Any
+from typing import Dict, List, Optional, Any
 
 
 @dataclass
@@ -98,6 +98,9 @@ class PKBConfig:
     # Decay sweep (Workstream F2): freshness below this flips active->dormant.
     # 0.0 (default) disables dormancy decay — inert.
     dormancy_threshold: float = 0.0
+    # Claim types that never decay to dormant even when dormancy is enabled
+    # (e.g. ["fact", "identity"]). Empty (default) = every type is decayable.
+    dormancy_exempt_types: List[str] = field(default_factory=list)
 
     # LLM settings
     llm_model: str = "google/gemini-3.1-flash-lite-preview"
@@ -156,6 +159,7 @@ class PKBConfig:
             'reinforce_ttl_days_by_type': dict(self.reinforce_ttl_days_by_type),
             'reinforce_on_duplicate': self.reinforce_on_duplicate,
             'dormancy_threshold': self.dormancy_threshold,
+            'dormancy_exempt_types': list(self.dormancy_exempt_types),
             'llm_model': self.llm_model,
             'embedding_model': self.embedding_model,
             'llm_temperature': self.llm_temperature,
@@ -185,6 +189,7 @@ class PKBConfig:
             'recency_grace_days',
             'reinforce_alpha', 'reinforce_ttl_days_by_type',
             'reinforce_on_duplicate', 'dormancy_threshold',
+            'dormancy_exempt_types',
             'llm_model', 'embedding_model', 'llm_temperature',
             'max_parallel_llm_calls', 'max_parallel_embedding_calls',
             'log_llm_calls', 'log_search_queries'

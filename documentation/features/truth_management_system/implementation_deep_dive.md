@@ -1028,9 +1028,33 @@ Unit-tested in `tests/test_reinforcement.py` (17: migration backfill, fresh-DB
 columns, count/timestamp/confidence transitions, strength scaling, dormant
 revive, contested/superseded refusal, TTL extension, the recency re-rank
 preferring `last_reinforced_at`, pin reinforcement, distiller reinforce
-proposal+execution, and the `add_claim` duplicate routing on/off). The
-**F2 dormancy sweep** (the producer that flips inactive claims to `dormant`,
-consuming the same `last_reinforced_at`) remains the open follow-up.
+proposal+execution, and the `add_claim` duplicate routing on/off).
+
+### Soft-TTL Decay Sweep (Workstream F2)
+
+The producer side of the same `last_reinforced_at` clock (one timestamp, two
+consumers — C ranks on it, F2 sweeps on it). `utils.decay_dormant_claims(db,
+config, user_email=None, now=None)` flips `active` claims to **`dormant`** when
+their freshness `0.5 ** (age_days / half_life)` falls below
+`config.dormancy_threshold`, where `age_days` is measured from
+`last_reinforced_at` (falling back to `updated_at`) and `half_life` reuses C's
+`recency_half_life_days` / `half_life_by_type` (so dormancy and ranking decay
+agree). It skips pinned claims, `config.dormancy_exempt_types`, and any type
+whose half-life is non-positive. **Inert by default:** `dormancy_threshold == 0`
+short-circuits the sweep because `0.5 ** x` is always > 0.
+
+Dormant is a soft state, not a delete: `ClaimStatus.default_search_statuses()`
+omits `dormant` (so normal search won't surface it) but `all_visible_statuses()`
+**includes** it (still browsable/revivable), and `reinforce_claim` flips it back
+to `active`. The sweep runs (a) lazily before search via
+`maybe_expire_claims(db, user_email, config)` — now alongside the hard-TTL
+`expire_stale_claims` under the same `EXPIRY_CHECK_INTERVAL` guard — and (b)
+on-demand via `StructuredAPI.run_decay_sweep()` (the entry point a scheduled F1
+job would call). Config knob: `dormancy_exempt_types: List[str]` (default `[]` =
+all types decayable). Unit-tested in `tests/test_decay.py` (9: inert default,
+stale→dormant, fresh survives, `last_reinforced_at` clock, pinned/exempt/per-type
+half-life skips, reinforce-revives-decayed, the API entry point, and the F3
+default-search-vs-visible status split).
 
 ### Pattern 3: Memory Update from Chat
 

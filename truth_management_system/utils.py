@@ -191,16 +191,124 @@ def expire_stale_claims(db, user_email: Optional[str] = None) -> int:
     return count
 
 
-def maybe_expire_claims(db, user_email: Optional[str] = None) -> None:
+def decay_dormant_claims(db, config, user_email: Optional[str] = None,
+                         now: Optional[datetime] = None) -> int:
     """
-    Conditionally run expire_stale_claims with a time-based guard.
+    Soft-TTL decay sweep (Workstream F2): flip stale ``active`` claims to
+    ``dormant``.
 
-    Only runs the expiry check if EXPIRY_CHECK_INTERVAL seconds have
-    passed since the last check for this user_email.
+    A claim's freshness is ``0.5 ** (age_days / half_life)`` where ``age_days``
+    is measured from ``last_reinforced_at`` (falling back to ``updated_at``) —
+    the same recency clock the Workstream C ranking re-rank reads (one
+    timestamp, two consumers). When freshness drops below
+    ``config.dormancy_threshold`` the claim goes ``dormant``.
+
+    Dormant claims are **not** deleted: they are excluded from default search
+    (``ClaimStatus.default_search_statuses`` omits ``dormant``) but stay visible
+    and retrievable, and reinforcing one revives it to ``active``
+    (``StructuredAPI.reinforce_claim``).
+
+    Skips pinned claims, exempt types (``config.dormancy_exempt_types``), and any
+    claim whose half-life is non-positive. Inert by default:
+    ``dormancy_threshold == 0`` short-circuits because ``0.5 ** x`` is always
+    positive, so no claim can fall below 0.
+
+    Args:
+        db: PKBDatabase instance with a ``transaction()`` context manager.
+        config: PKBConfig providing ``dormancy_threshold``,
+            ``recency_half_life_days``, ``half_life_by_type``, and
+            ``dormancy_exempt_types``.
+        user_email: Optional user scope. If None, sweeps across all users.
+        now: Optional reference time (defaults to ``datetime.now(timezone.utc)``).
+
+    Returns:
+        Number of claims flipped to dormant.
+    """
+    threshold = float(getattr(config, "dormancy_threshold", 0.0) or 0.0)
+    if threshold <= 0.0:
+        return 0  # inert: freshness = 0.5 ** age is always > 0
+
+    now_dt = now or datetime.now(timezone.utc)
+    default_hl = float(getattr(config, "recency_half_life_days", 30.0) or 30.0)
+    hl_by_type = getattr(config, "half_life_by_type", {}) or {}
+    exempt = set(getattr(config, "dormancy_exempt_types", []) or [])
+
+    sql = (
+        "SELECT claim_id, claim_type, last_reinforced_at, updated_at, meta_json "
+        "FROM claims WHERE status = ?"
+    )
+    params: list = ["active"]
+    if user_email:
+        sql += " AND user_email = ?"
+        params.append(user_email)
+
+    to_dormant: List[str] = []
+    try:
+        with db.transaction() as conn:
+            rows = conn.execute(sql, tuple(params)).fetchall()
+            for row in rows:
+                claim_id, claim_type, last_reinforced_at, updated_at, meta_json = (
+                    row[0], row[1], row[2], row[3], row[4]
+                )
+                if claim_type in exempt:
+                    continue
+                if get_meta_value(meta_json, "pinned", False):
+                    continue
+
+                anchor = last_reinforced_at or updated_at
+                anchor_dt = parse_iso_timestamp(anchor) if anchor else None
+                if anchor_dt is None:
+                    continue
+
+                half_life = float(hl_by_type.get(claim_type, default_hl) or 0.0)
+                if half_life <= 0.0:
+                    continue
+
+                age_days = (now_dt - anchor_dt).total_seconds() / 86400.0
+                freshness = 0.5 ** (age_days / half_life)
+                if freshness < threshold:
+                    to_dormant.append(claim_id)
+
+            if to_dormant:
+                stamp = now_iso()
+                # Chunk to stay under SQLite's bound-variable limit.
+                for i in range(0, len(to_dormant), 400):
+                    batch = to_dormant[i:i + 400]
+                    placeholders = ",".join("?" for _ in batch)
+                    conn.execute(
+                        f"UPDATE claims SET status = 'dormant', updated_at = ? "
+                        f"WHERE claim_id IN ({placeholders})",
+                        (stamp, *batch),
+                    )
+    except Exception:
+        logger.exception(
+            "Failed to decay dormant claims for user=%s", user_email or "all"
+        )
+        return 0
+
+    count = len(to_dormant)
+    if count > 0:
+        logger.info(
+            "Marked %d claims dormant for user=%s", count, user_email or "all"
+        )
+    return count
+
+
+def maybe_expire_claims(db, user_email: Optional[str] = None, config=None) -> None:
+    """
+    Conditionally run the lifecycle sweep with a time-based guard.
+
+    Runs the hard-TTL expiry (``expire_stale_claims``) and, when a ``config`` is
+    supplied, the soft-TTL dormancy decay (``decay_dormant_claims``, Workstream
+    F2) — but only if ``EXPIRY_CHECK_INTERVAL`` seconds have passed since the
+    last check for this ``user_email``.
 
     Args:
         db: PKBDatabase instance.
         user_email: Optional user scope.
+        config: Optional PKBConfig. Required to run the dormancy decay pass;
+            without it only hard-TTL expiry runs (decay is inert by default
+            anyway when ``dormancy_threshold == 0``).
     """
     now = _time.time()
     key = user_email or "__global__"
@@ -208,6 +316,8 @@ def maybe_expire_claims(db, user_email: Optional[str] = None) -> None:
         return
     _last_expiry_check[key] = now
     expire_stale_claims(db, user_email)
+    if config is not None:
+        decay_dormant_claims(db, config, user_email)
 
 # =============================================================================
 # JSON Validation and Manipulation
