@@ -571,9 +571,10 @@ const DoubtManager = {
         // Clear input
         input.val('');
         
-        // Scroll to bottom
-        const messagesContainer = $('#doubt-chat-messages');
-        messagesContainer.scrollTop(messagesContainer[0].scrollHeight);
+        // Intentionally do NOT scroll to the bottom here. New cards are appended
+        // below the current view, so leaving the scroll position alone lets the
+        // user keep reading whatever they were reading while the answer streams
+        // in below.
         
         // Determine parent doubt ID for follow-ups
         // In a chat conversation, each new question should be a child of the last question
