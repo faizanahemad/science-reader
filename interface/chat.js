@@ -617,7 +617,7 @@ function loadSettingsIntoModal() {
     setModalFromState(state);
     // Refresh select pickers after loading values
     if (typeof $.fn.selectpicker !== 'undefined') {
-        $('#settings-preamble-selector, #settings-main-model-selector, #settings-tool-selector').selectpicker('refresh');
+        $('#settings-preamble-selector, #settings-doubt-preamble-selector, #settings-main-model-selector, #settings-tool-selector').selectpicker('refresh');
     }
 }
 
@@ -645,6 +645,7 @@ function buildSettingsStateFromControlsOrDefaults() {
         history: $('#historySelector').length ? $('#historySelector').val() : ($('#settings-historySelector').val() || '2'),
         reward: $('#rewardLevelSelector').length ? $('#rewardLevelSelector').val() : ($('#settings-rewardLevelSelector').val() || '0'),
         preamble_options: $('#preamble-selector').length ? $('#preamble-selector').val() : (getDefaultPreambleForTab(currentTab)),
+        doubt_preamble_options: [],
         main_model: $('#main-model-selector').length ? $('#main-model-selector').val() : (getDefaultModelForTab(currentTab)),
         field: $('#field-selector').length ? $('#field-selector').val() : (getDefaultAgentForTab(currentTab)),
         permanentText: $('#permanentText').length ? $('#permanentText').val() : ($('#settings-permanentText').val() || ''),
@@ -689,6 +690,7 @@ function setModalFromState(state) {
     populateCustomPromptsInDOM();
     
     $('#settings-preamble-selector').val(preambleOptions);
+    $('#settings-doubt-preamble-selector').val(state.doubt_preamble_options || []);
     $('#settings-main-model-selector').val(state.main_model || []);
     $('#settings-field-selector').val(state.field || 'None');
     $('#settings-permanentText').val(state.permanentText || '');
@@ -787,7 +789,7 @@ function collectSettingsFromModal() {
     // This fixes a bug where deselected options (like "Filler") would remain
     // in the saved state because SelectPicker hadn't synced to the <select> element
     if (typeof $.fn.selectpicker !== 'undefined') {
-        $('#settings-preamble-selector, #settings-main-model-selector, #settings-tool-selector').selectpicker('refresh');
+        $('#settings-preamble-selector, #settings-doubt-preamble-selector, #settings-main-model-selector, #settings-tool-selector').selectpicker('refresh');
     }
     
     return {
@@ -807,6 +809,7 @@ function collectSettingsFromModal() {
         history: $('#settings-historySelector').val() || '2',
         reward: $('#settings-rewardLevelSelector').val() || '0',
         preamble_options: getSelectPickerValue('#settings-preamble-selector', []),
+        doubt_preamble_options: getSelectPickerValue('#settings-doubt-preamble-selector', []),
         main_model: getSelectPickerValue('#settings-main-model-selector', []),
         field: $('#settings-field-selector').val() || 'None',
         permanentText: $('#settings-permanentText').val() || '',
@@ -1398,6 +1401,7 @@ function computeDefaultStateForTab(tab) {
         enable_tool_use: true,
         enabled_tools: ['ask_clarification'],
         preamble_options: getDefaultPreambleForTab(tab),
+        doubt_preamble_options: [],
         main_model: getDefaultModelForTab(tab),
         field: getDefaultAgentForTab(tab),
         permanentText: '',

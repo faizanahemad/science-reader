@@ -2207,6 +2207,24 @@
                                     </div>
                                     <div class="col-md-4">
                                         <div class="form-group">
+                                            <label for="settings-doubt-preamble-selector" class="form-label"><strong>Doubt Preamble</strong></label>
+                                            <div style="border: 1px solid #ccc; padding: 8px; border-radius: 12px;">
+                                                <select class="form-control" id="settings-doubt-preamble-selector" multiple data-live-search="true">
+                                                    <option value="">None</option>
+                                                    <option>Wife Prompt</option>
+                                                    <option>Short</option>
+                                                    <option>Deep Learn</option>
+                                                    <option>Software and ML Learning</option>
+                                                    <option>Senior Engineer Summary</option>
+                                                    <option>Senior Engineer Mental Models</option>
+                                                    <option>Argumentative</option>
+                                                    <option>No AI</option>
+                                                </select>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <div class="form-group">
                                             <label for="settings-main-model-selector" class="form-label"><strong>Main Model</strong></label>
                                             <div style="border: 1px solid #ccc; padding: 8px; border-radius: 12px;">
                                                 <select class="form-control" id="settings-main-model-selector" multiple>
@@ -5268,6 +5286,7 @@ greet("World");</code></pre>
                     // Filter out default prompts that are already in the default group
                     const defaultPrompts = [
                         'No Links', 'Wife Prompt', 'Debug LLM', 'Short', 
+                        
                         // 'Google GL', 'Google Behavioral Interview', 
                         'Software and ML Learning', 'Deep Learn',
                         // 'Short Coding Interview', 'No Code', 

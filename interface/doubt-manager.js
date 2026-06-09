@@ -614,7 +614,7 @@ const DoubtManager = {
             reward_level: rewardLevel,
             selected_text: this.selectedText || '',
             with_context: this.withContext || false,
-            preamble_options: (window.chatSettingsState && window.chatSettingsState.preamble_options) || []
+            preamble_options: (window.chatSettingsState && window.chatSettingsState.doubt_preamble_options) || []
         };
         
         if (parentDoubtId) {
