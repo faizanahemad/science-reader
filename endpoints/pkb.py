@@ -614,6 +614,37 @@ def pkb_get_claim_route(claim_id: str):
         )
 
 
+@pkb_bp.route("/pkb/claims/<claim_id>/provenance", methods=["GET"])
+@limiter.limit("30 per minute")
+@login_required
+def pkb_get_claim_provenance_route(claim_id: str):
+    """Provenance for a claim — "why do I know this?" (Workstream E1)."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
+
+        result = api.get_claim_provenance(claim_id)
+        if result.success:
+            return jsonify({"provenance": result.data})
+
+        return json_error("Claim not found", status=404, code="claim_not_found")
+    except Exception as e:
+        logger.error(f"Error in pkb_get_claim_provenance: {e}")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
+
+
 @pkb_bp.route("/pkb/claims/<claim_id>", methods=["PUT"])
 @limiter.limit("15 per minute")
 @login_required
@@ -1448,7 +1479,8 @@ def pkb_propose_updates_route():
         if extraction_mode not in ("relaxed", "aggressive"):
             extraction_mode = "relaxed"
         recent_turns = data.get("recent_turns", [])  # [{"user": ..., "assistant": ...}, ...]
-        conversation_id = data.get("conversation_id")  # Optional; used for logging and future context linking
+        conversation_id = data.get("conversation_id")  # Optional; provenance (E1) + future context linking
+        message_id = data.get("message_id")  # Optional; provenance (E1) — the originating message
 
         if not user_message:
             return json_error(
@@ -1468,6 +1500,8 @@ def pkb_propose_updates_route():
             user_message=user_message,
             assistant_message=assistant_message or "",
             recent_turns=recent_turns,
+            source_conversation_id=conversation_id,
+            source_message_id=message_id,
         )
 
         if not plan or len(plan.candidates) == 0:

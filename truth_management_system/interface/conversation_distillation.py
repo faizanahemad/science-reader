@@ -48,6 +48,10 @@ class MemoryUpdatePlan:
     proposed_actions: List[ProposedAction] = field(default_factory=list)
     user_prompt: str = ""
     requires_user_confirmation: bool = True
+    # Provenance (E1): the conversation/message this plan was distilled from,
+    # threaded into add_claim so saved claims can answer "why do I know this?".
+    source_conversation_id: Optional[str] = None
+    source_message_id: Optional[str] = None
 
 
 @dataclass
@@ -79,10 +83,14 @@ class ConversationDistiller:
     
     def extract_and_propose(self, conversation_summary: str, user_message: str,
                             assistant_message: str,
-                            recent_turns: list = None) -> MemoryUpdatePlan:
+                            recent_turns: list = None,
+                            source_conversation_id: str = None,
+                            source_message_id: str = None) -> MemoryUpdatePlan:
         """
         Extract claims from the current user utterance and propose memory updates.
         recent_turns: list of {"user": str, "assistant": str} dicts, most-recent last.
+        source_conversation_id / source_message_id: provenance (E1) recorded on
+        any claims saved from this plan, so they can answer "why do I know this?".
         """
         candidates = self._extract_claims_from_turn(
             conversation_summary, user_message, assistant_message,
@@ -102,7 +110,9 @@ class ConversationDistiller:
         
         return MemoryUpdatePlan(candidates=candidates, existing_matches=matches,
                                proposed_actions=proposed_actions, user_prompt=user_prompt,
-                               requires_user_confirmation=len(proposed_actions) > 0)
+                               requires_user_confirmation=len(proposed_actions) > 0,
+                               source_conversation_id=source_conversation_id,
+                               source_message_id=source_message_id)
     
     def execute_plan(self, plan: MemoryUpdatePlan, user_response: str,
                      approved_indices: List[int] = None) -> DistillationResult:
@@ -113,6 +123,11 @@ class ConversationDistiller:
         if approved_indices is None:
             approved_indices = self._parse_approval_response(user_response, len(plan.proposed_actions))
         
+        # E1: make the plan's provenance available to _execute_action so saved
+        # claims record their originating conversation/message.
+        self._source_conversation_id = getattr(plan, "source_conversation_id", None)
+        self._source_message_id = getattr(plan, "source_message_id", None)
+
         results = []
         for i in approved_indices:
             if 0 <= i < len(plan.proposed_actions):
@@ -348,6 +363,12 @@ Response:"""
                 kwargs["valid_from"] = action.candidate.valid_from
             if action.candidate.valid_to:
                 kwargs["valid_to"] = action.candidate.valid_to
+            # E1/E2: stamp provenance so the saved claim can answer
+            # "why do I know this?" and is tagged source:conversation.
+            if getattr(self, "_source_conversation_id", None):
+                kwargs["source_conversation_id"] = self._source_conversation_id
+            if getattr(self, "_source_message_id", None):
+                kwargs["source_message_id"] = self._source_message_id
             return self.api.add_claim(**kwargs)
         elif action.action == "update" and action.existing_claim:
             return self.api.edit_claim(

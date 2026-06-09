@@ -100,8 +100,10 @@ Sequenced so early work de-risks later work. Each task is independently shippabl
 
 ### Workstream E — Provenance (G5)
 
-- **E1. Source linking.** On auto-distilled claims, store `source_conversation_id` + `source_message_id` (reuse cross-conversation reference infra; see `documentation/features/cross_conversation_references/`). Surface "why do I know this?" in the claim card.
-- **E2. Distillation tagging.** Already tags `create-simple`; extend with a `source:conversation` provenance tag.
+> **Status (2026-06-10): E1 + E2 DONE.** Provenance is stored in `meta_json` under a `source` object (`{type, conversation_id, message_id, distilled}`) — no schema migration, matching the `pinned`/text-ingestion conventions. `add_claim` accepts `source_conversation_id`/`source_message_id`/`source_type` (kwargs), merges them into `meta_json` (preserving existing keys), and appends a `source:conversation` tag (E2) when a conversation id is present. The `ConversationDistiller` threads provenance end-to-end: `MemoryUpdatePlan` carries the ids, `extract_and_propose` accepts them (the `/pkb/distill` route passes request `conversation_id` + optional `message_id`), and `execute_plan`→`_execute_action` forwards them to `add_claim`. Read path: `StructuredAPI.get_claim_provenance(claim_id)` → `{claim_id, source_type, conversation_id, message_id, distilled, created_at}` (`source_type` = `"manual"` when unsourced), exposed at `GET /pkb/claims/<id>/provenance` for the claim card's "why do I know this?". Tests: `tests/test_provenance.py` (7).
+
+- **E1. Source linking. ✅ DONE 2026-06-10.** On auto-distilled claims, store `source_conversation_id` + `source_message_id` (reuse cross-conversation reference infra; see `documentation/features/cross_conversation_references/`). Surface "why do I know this?" in the claim card.
+- **E2. Distillation tagging. ✅ DONE 2026-06-10.** Already tags `create-simple`; extend with a `source:conversation` provenance tag.
 
 ### Workstream F — Lifecycle (G6)
 
@@ -161,7 +163,7 @@ Today `expire_stale_claims()` (`utils.py:154`) is a **hard TTL only**: it flips 
 1. **M1 (foundation): ✅ COMPLETE 2026-06-09.** A1 + A2 (embedding cache) + G1-task (eval harness) all done. Unlocks everything else and immediately cuts add-claim cost; B and C are now measurable against the harness.
 2. **M2 (scale):** B1–B4 (ANN index) + A3 (remove 100 cap).
 3. **M3 (relevance):** **C1–C3 ranking re-rank DONE 2026-06-09** (config-gated, default-off). **H1 (schema v8) + H2 (`reinforce_claim`) + H3 (signal wire-ups) DONE 2026-06-09** — the re-rank reads the real `last_reinforced_at`, and `add_claim`/distiller/pin now update it in production flows. Next: re-validate the recency sweep against the M1 harness once reinforcement has populated `last_reinforced_at` divergent from `updated_at`.
-4. **M4 (truth depth):** **D1 (supersession) DONE 2026-06-09** + **C2 (contested down-ranking) DONE**; E1 (provenance) next. **F2 dormancy decay + F3 status DONE 2026-06-09** (the second consumer of `last_reinforced_at`).
+4. **M4 (truth depth):** **D1 (supersession) DONE 2026-06-09** + **C2 (contested down-ranking) DONE** + **E1/E2 (provenance) DONE 2026-06-10**. **F2 dormancy decay + F3 status DONE 2026-06-09** (the second consumer of `last_reinforced_at`).
 5. **M5 (lifecycle & polish):** F1 (move the ready dormancy/expiry sweep to a periodic background job) + F4 (notifications), D2/D3, G2-task, G3-task, H4 safeguards.
 
 ---

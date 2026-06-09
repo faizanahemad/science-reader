@@ -1111,6 +1111,44 @@ and guards, idempotent link, `add_claim(supersedes=)`, conflict-resolution link
 recording, superseded-excluded-from-active-set, and the no-reinforce-superseded
 bridge).
 
+### Provenance — "Why do I know this?" (Workstream E1/E2)
+
+Auto-distilled claims should be traceable back to the conversation that produced
+them. E1/E2 record that provenance **in `meta_json`** (no schema migration) under
+a `source` object, matching the existing `pinned` and text-ingestion `source`
+conventions:
+
+```json
+{"source": {"type": "chat_distillation", "conversation_id": "...",
+            "message_id": "...", "distilled": true}}
+```
+
+- **`add_claim` provenance params (E1):** `source_conversation_id`,
+  `source_message_id`, `source_type` (via `**kwargs`). When any is present,
+  `add_claim` merges the `source` object into `meta_json` (preserving existing
+  keys like `pinned`) before creating the claim.
+- **Provenance tag (E2):** when a `source_conversation_id` is present,
+  `add_claim` also appends a `source:conversation` tag so distilled claims are
+  filterable. A message id alone (no conversation) records provenance but adds
+  no tag.
+- **Distiller threading:** `MemoryUpdatePlan` carries
+  `source_conversation_id`/`source_message_id`; `extract_and_propose` accepts
+  them (the `/pkb/distill` route passes the request's `conversation_id` +
+  optional `message_id`), and they ride on the persisted plan to execute time —
+  `execute_plan` stashes them and the add branch of `_execute_action` forwards
+  them to `add_claim`. So a claim saved from chat is automatically stamped with
+  its origin, with no extra UI step.
+- **Read path (E1):** `StructuredAPI.get_claim_provenance(claim_id)` parses
+  `meta_json.source` and returns `{claim_id, source_type, conversation_id,
+  message_id, distilled, created_at}` — `source_type` defaults to `"manual"` for
+  hand-entered claims. Exposed at `GET /pkb/claims/<id>/provenance` for the claim
+  card's "why do I know this?" affordance.
+
+Unit-tested in `tests/test_provenance.py` (7: provenance recording, meta merge
+with `pinned`, manual-claim default, missing-claim error, the
+`source:conversation` tag, message-only-no-tag, and the distiller
+`MemoryUpdatePlan -> execute_plan -> add_claim` threading offline).
+
 ### Pattern 3: Memory Update from Chat
 
 ```

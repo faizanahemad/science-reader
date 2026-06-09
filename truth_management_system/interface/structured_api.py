@@ -373,6 +373,40 @@ class StructuredAPI:
                 except Exception as e:
                     logger.warning(f"Failed to auto-generate questions: {e}")
 
+            # Provenance (Workstream E1/E2): when a caller (e.g. the conversation
+            # distiller) supplies the originating conversation/message, record it
+            # in meta_json under `source` so the claim can answer "why do I know
+            # this?", and tag it `source:conversation`. Stored in meta_json (not
+            # a column) to match the existing `pinned` / text-ingestion source
+            # conventions and avoid a schema migration.
+            source_conversation_id = kwargs.get("source_conversation_id")
+            source_message_id = kwargs.get("source_message_id")
+            source_type = kwargs.get("source_type")
+            if source_conversation_id or source_message_id or source_type:
+                import json as _pjson
+                _meta = {}
+                if meta_json:
+                    try:
+                        _meta = _pjson.loads(meta_json)
+                    except (ValueError, TypeError):
+                        _meta = {}
+                source_obj = {"type": source_type or "chat_distillation"}
+                if source_conversation_id:
+                    source_obj["conversation_id"] = source_conversation_id
+                if source_message_id:
+                    source_obj["message_id"] = source_message_id
+                if source_conversation_id or source_message_id:
+                    source_obj["distilled"] = True
+                # Preserve any existing string-form source as the type.
+                existing_source = _meta.get("source")
+                if isinstance(existing_source, str):
+                    source_obj["type"] = existing_source
+                _meta["source"] = source_obj
+                meta_json = _pjson.dumps(_meta)
+                # E2: provenance tag so distilled claims are filterable.
+                if source_conversation_id and "source:conversation" not in tags:
+                    tags = list(tags) + ["source:conversation"]
+
             # Create claim (user_email is applied by ClaimCRUD if set)
             claim = Claim.create(
                 statement=statement,
@@ -1422,6 +1456,61 @@ class StructuredAPI:
             return ActionResult(
                 success=False, action="supersede", object_type="claim",
                 object_id=old_claim_id, errors=[str(e)],
+            )
+
+    def get_claim_provenance(self, claim_id: str) -> ActionResult:
+        """
+        Return where a claim came from — "why do I know this?" (Workstream E1).
+
+        Reads the ``source`` object recorded in ``meta_json`` (set on distilled
+        claims via ``add_claim``'s ``source_*`` params). For a chat-distilled
+        claim this includes ``conversation_id`` / ``message_id`` so the UI can
+        link back to the originating turn.
+
+        Returns:
+            ActionResult with ``data`` = {
+              "claim_id", "source_type", "conversation_id", "message_id",
+              "distilled", "created_at"
+            }. ``source_type`` is "manual" when no provenance was recorded.
+        """
+        try:
+            claim = self.claims.get(claim_id)
+            if claim is None:
+                return ActionResult(
+                    success=False, action="get", object_type="claim",
+                    object_id=claim_id, errors=[f"Claim {claim_id} not found"],
+                )
+
+            source = {}
+            if claim.meta_json:
+                import json as _json
+                try:
+                    meta = _json.loads(claim.meta_json)
+                    raw = meta.get("source")
+                    if isinstance(raw, dict):
+                        source = raw
+                    elif isinstance(raw, str):
+                        source = {"type": raw}
+                except (ValueError, TypeError):
+                    pass
+
+            return ActionResult(
+                success=True, action="get", object_type="claim",
+                object_id=claim_id,
+                data={
+                    "claim_id": claim_id,
+                    "source_type": source.get("type", "manual"),
+                    "conversation_id": source.get("conversation_id"),
+                    "message_id": source.get("message_id"),
+                    "distilled": bool(source.get("distilled", False)),
+                    "created_at": claim.created_at,
+                },
+            )
+        except Exception as e:
+            logger.error(f"Failed to get claim provenance: {e}")
+            return ActionResult(
+                success=False, action="get", object_type="claim",
+                object_id=claim_id, errors=[str(e)],
             )
 
     def get_pinned_claims(self, limit: int = 50) -> ActionResult:
