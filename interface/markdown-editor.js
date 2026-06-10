@@ -17,6 +17,27 @@ var MarkdownEditorManager = (function() {
     'use strict';
     
     // Private state
+    // -----------------------------------------------------------------------
+    // Per-modal state registry (v2 — supports multiple modal instances).
+    // The legacy '#message-edit-modal' continues to use the module-level
+    // vars below (zero breaking changes). Any other modalId gets an isolated
+    // state bucket here.
+    // -----------------------------------------------------------------------
+    var _modalStates = {};
+
+    function _getModalState(modalId) {
+        if (!_modalStates[modalId]) {
+            _modalStates[modalId] = {
+                currentText: '',
+                initialText: '',
+                editors: { codemirror: null, easymde: null, wysiwyg: null },
+                currentEditorType: 'codemirror-preview',
+                hasEditorBeenInitialized: false,
+            };
+        }
+        return _modalStates[modalId];
+    }
+
     var currentEditorType = 'codemirror-preview'; // Default
     var editors = {
         codemirror: null,
@@ -649,8 +670,93 @@ var MarkdownEditorManager = (function() {
      * @param {string} text - The markdown content to edit
      * @param {function} onSave - Callback function when save is clicked, receives new text
      */
-    function openEditor(text, onSave) {
+    function openEditor(text, onSave, options) {
         init(); // Ensure initialized
+        
+        var opts = options || {};
+        var modalId = opts.modalId || 'message-edit-modal';
+        var titleText = opts.title || 'Edit Message';
+        var saveLabel = opts.saveLabel || 'Save';
+
+        // ---------------------------------------------------------------
+        // Non-default modals: use isolated per-modal state
+        // ---------------------------------------------------------------
+        if (modalId !== 'message-edit-modal') {
+            var st = _getModalState(modalId);
+            st.currentText = text || '';
+            st.initialText = st.currentText;
+            st.hasEditorBeenInitialized = false;
+
+            // Update title/save label in the target modal
+            $('#' + modalId + ' .modal-title').text(titleText);
+            $('#' + modalId + ' [data-save-btn]').text(saveLabel);
+
+            // Preload existing editor instances
+            try {
+                if (st.currentEditorType === 'codemirror-preview' && st.editors.codemirror) {
+                    st.editors.codemirror.setValue(st.currentText);
+                }
+            } catch (e) {}
+
+            var prefix = modalId + '-';
+            var savedType = localStorage.getItem(prefix + 'editor-type');
+            if (savedType) {
+                st.currentEditorType = savedType;
+                $('#' + prefix + 'editor-type').val(savedType);
+            }
+
+            $('#' + modalId).off('shown.bs.modal.editorInit');
+            $('#' + modalId + ' [data-save-btn]').off('click.editorSave');
+
+            var capturedOnSave = onSave;
+            var capturedModalId = modalId;
+            var capturedPrefix = prefix;
+
+            $('#' + modalId).one('shown.bs.modal.editorInit', function() {
+                var s = _getModalState(capturedModalId);
+                // Initialize CodeMirror inline for this modal
+                var container = document.getElementById(capturedPrefix + 'codemirror-container');
+                if (container && !s.editors.codemirror) {
+                    var textarea = document.createElement('textarea');
+                    container.appendChild(textarea);
+                    s.editors.codemirror = CodeMirror.fromTextArea(textarea, {
+                        mode: 'markdown',
+                        lineNumbers: false,
+                        lineWrapping: true,
+                        theme: 'default',
+                    });
+                    s.editors.codemirror.setSize('100%', '400px');
+                }
+                if (s.editors.codemirror) {
+                    s.editors.codemirror.setValue(s.currentText);
+                    setTimeout(function() { s.editors.codemirror.refresh(); }, 50);
+                }
+                s.hasEditorBeenInitialized = true;
+            });
+
+            $('#' + modalId + ' [data-save-btn]').on('click.editorSave', function() {
+                var s = _getModalState(capturedModalId);
+                var newText = s.editors.codemirror ? s.editors.codemirror.getValue() : s.currentText;
+                $('#' + capturedModalId + ' [data-save-btn]').off('click.editorSave');
+                $('#' + capturedModalId).modal('hide');
+                // Null out editors on hide (release CodeMirror memory, keep state key)
+                $('#' + capturedModalId).one('hidden.bs.modal', function() {
+                    var s2 = _getModalState(capturedModalId);
+                    s2.editors.codemirror = null;
+                    s2.hasEditorBeenInitialized = false;
+                });
+                if (typeof capturedOnSave === 'function') { capturedOnSave(newText); }
+            });
+
+            // Show modal AFTER handlers are bound to avoid race
+            $('#' + modalId).modal('show');
+
+            return;
+        }
+
+        // ---------------------------------------------------------------
+        // Default modal: legacy module-level state (unchanged behavior)
+        // ---------------------------------------------------------------
         
         // Store the text to edit
         currentText = text || '';
@@ -753,10 +859,61 @@ var MarkdownEditorManager = (function() {
         }
     }
     
+    /**
+     * Open an inline editor inside a container element (non-modal).
+     * Each container gets its own state bucket in _modalStates.
+     *
+     * @param {string} containerId - ID of the container element.
+     * @param {string} text        - Initial markdown content.
+     * @param {Object} [opts]      - Options: height (string, default '300px').
+     */
+    function openInline(containerId, text, opts) {
+        var height = (opts && opts.height) || '300px';
+        var container = document.getElementById(containerId);
+        if (!container) {
+            console.warn('openInline: container not found:', containerId);
+            return;
+        }
+        var st = _getModalState(containerId);
+        st.currentText = text || '';
+
+        if (!st.editors.codemirror) {
+            container.innerHTML = '';
+            var textarea = document.createElement('textarea');
+            container.appendChild(textarea);
+            st.editors.codemirror = CodeMirror.fromTextArea(textarea, {
+                mode: 'markdown',
+                lineNumbers: false,
+                lineWrapping: true,
+                theme: 'default',
+            });
+            st.editors.codemirror.setSize('100%', height);
+        }
+        st.editors.codemirror.setValue(st.currentText);
+        setTimeout(function() { st.editors.codemirror.refresh(); }, 50);
+    }
+
+    /**
+     * Get the current value from an inline or modal editor.
+     * @param {string} [modalOrContainerId] - Defaults to 'message-edit-modal'.
+     */
+    function getValueFor(modalOrContainerId) {
+        if (!modalOrContainerId || modalOrContainerId === 'message-edit-modal') {
+            return getValue();
+        }
+        var st = _modalStates[modalOrContainerId];
+        if (st && st.editors && st.editors.codemirror) {
+            return st.editors.codemirror.getValue();
+        }
+        return '';
+    }
+
     // Public API
     return {
         init: init,
         openEditor: openEditor,
+        openInline: openInline,
+        getValueFor: getValueFor,
         getValue: getValue,
         setValue: setValue,
         switchEditorType: switchEditorType,

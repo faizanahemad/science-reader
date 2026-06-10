@@ -52,12 +52,14 @@ class PKBNLConversationAgent(Agent):
         user_email: str = "",
         detail_level: int = 1,
         timeout: int = 60,
+        overview_manager=None,
     ):
         super().__init__(keys)
         self.model_name = model_name
         self.user_email = user_email
         self.detail_level = detail_level
         self.timeout = timeout
+        self.overview_manager = overview_manager
 
         # Set by Conversation.reply before __call__ — the raw NL command text
         # from checkboxes["pkb_nl_command"], e.g. "add a reminder to buy gift on July 20th"
@@ -309,7 +311,7 @@ class PKBNLConversationAgent(Agent):
             }
             return
 
-        agent = PKBNLAgent(api=api, keys=self.keys, model=self.model_name)
+        agent = PKBNLAgent(api=api, keys=self.keys, model=self.model_name, overview_manager=self.overview_manager)
 
         # Build the command text with conversation context if available
         if conversation_context:
