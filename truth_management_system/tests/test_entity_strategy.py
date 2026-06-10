@@ -172,3 +172,35 @@ def test_cold_cache_claims_sort_after_scored():
     results = strat.search("Acme", filters=SearchFilters())
     assert results[0].claim.claim_id == scored.claim_id
     assert cold.claim_id in [r.claim.claim_id for r in results]
+
+
+def test_resolved_entities_capped_to_max():
+    """Resolution is bounded by entity_strategy_max_entities (anti-flooding)."""
+    config, db, claims, entities = _env()
+    config.entity_strategy_max_entities = 3
+    names = ["Alpha", "Bravo", "Charlie", "Delta", "Echo"]
+    for n in names:
+        e = _entity(entities, n)
+        c = _claim(claims, f"{n} shipped something")
+        link_claim_entity(db, c.claim_id, e.entity_id, "subject")
+
+    strat = EntitySearchStrategy(db, {}, config)
+    ids = strat._resolve_entity_ids("ignored", SearchFilters(), surface_forms=names)
+    assert len(ids) == 3
+
+
+def test_resolve_accepts_explicit_surface_forms():
+    """A caller (e.g. the rewrite LLM) can supply names the regex would miss."""
+    config, db, claims, entities = _env()
+    globex = _entity(entities, "Globex")
+    c = _claim(claims, "a lowercase mention of globex contract")
+    link_claim_entity(db, c.claim_id, globex.entity_id, "subject")
+
+    strat = EntitySearchStrategy(db, {}, config)
+    # All-lowercase query: the capitalized-span heuristic finds nothing.
+    assert strat._resolve_entity_ids("globex contract terms", SearchFilters()) == []
+    # Explicit surface forms resolve it.
+    ids = strat._resolve_entity_ids(
+        "globex contract terms", SearchFilters(), surface_forms=["Globex"]
+    )
+    assert globex.entity_id in ids

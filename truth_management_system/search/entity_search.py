@@ -140,29 +140,62 @@ class EntitySearchStrategy(SearchStrategy):
     # ------------------------------------------------------------------ #
     # Entity resolution
     # ------------------------------------------------------------------ #
-    def _resolve_entity_ids(self, query: str, filters: SearchFilters) -> List[str]:
-        forms = self._extract_surface_forms(query)
+    def _resolve_entity_ids(
+        self,
+        query: str,
+        filters: SearchFilters,
+        surface_forms: Optional[List[str]] = None,
+    ) -> List[str]:
+        """
+        Resolve up to ``entity_strategy_max_entities`` entity ids.
+
+        ``surface_forms`` lets a caller (e.g. the rewrite strategy) supply
+        higher-quality names from its LLM call instead of the regex heuristic;
+        when None they are extracted from ``query``. Resolution preserves
+        first-seen order and is capped to bound candidate-claim fan-out
+        (anti-flooding).
+        """
+        forms = surface_forms if surface_forms is not None else self._extract_surface_forms(query)
+        forms = [f.strip() for f in forms if f and f.strip()]
         if not forms:
             return []
-        ids = set()
+
+        max_entities = max(1, int(getattr(self.config, "entity_strategy_max_entities", 5)))
+        ordered: List[str] = []
+        seen = set()
+
+        def _add(eids: List[str]) -> None:
+            for eid in eids:
+                if eid not in seen:
+                    seen.add(eid)
+                    ordered.append(eid)
+
         for form in forms:
-            ids.update(self._match_by_name(form, filters.user_email))
+            _add(self._match_by_name(form, filters.user_email))
+            if len(ordered) >= max_entities:
+                return ordered[:max_entities]
+
         if getattr(self.config, "entity_alias_match", True):
-            ids.update(self._match_by_alias(forms, filters.user_email))
-        return list(ids)
+            _add(self._match_by_alias(forms, filters.user_email))
+        return ordered[:max_entities]
 
     @staticmethod
     def _extract_surface_forms(query: str) -> List[str]:
-        forms = set()
+        """Extract candidate entity names in first-seen order (deduped, case-insensitive)."""
+        forms: List[str] = []
+        seen = set()
+
+        def _add(span: Optional[str]) -> None:
+            span = (span or "").strip()
+            if len(span) >= 2 and span.lower() not in seen:
+                seen.add(span.lower())
+                forms.append(span)
+
         for m in _QUOTED.finditer(query):
-            span = (m.group(1) or m.group(2) or "").strip()
-            if span:
-                forms.add(span)
+            _add(m.group(1) or m.group(2))
         for m in _CAP_SPAN.finditer(query):
-            span = m.group(0).strip()
-            if span:
-                forms.add(span)
-        return [f for f in forms if len(f) >= 2]
+            _add(m.group(0))
+        return forms
 
     def _match_by_name(self, form: str, user_email: Optional[str]) -> List[str]:
         if user_email:
