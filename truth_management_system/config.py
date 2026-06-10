@@ -212,6 +212,19 @@ class PKBConfig:
     entity_strategy_max_entities: int = 5   # cap resolved entities per query (anti-flooding)
     entity_alias_match: bool = True         # also resolve via meta_json.aliases (W6)
 
+    # Retrieval ranking — rewrite/entity unification.
+    # When rewrite_is_query_source is True (and an API key is present and
+    # 'rewrite' is in the active strategy set), the hybrid orchestrator makes ONE
+    # rewrite LLM call up front and shares its output: the rewrite strategy reuses
+    # the precomputed metadata (no second LLM call) and — when
+    # entity_use_rewrite_entities is set — the entity strategy resolves the
+    # LLM-named entities (and ranks against the rewrite's embedding_query) instead
+    # of its regex heuristic. Both default on but are INERT without a key / when
+    # 'rewrite' is not active: the entity strategy then falls back to regex
+    # extraction and the rewrite strategy self-calls, i.e. current behavior.
+    rewrite_is_query_source: bool = True
+    entity_use_rewrite_entities: bool = True
+
     # Parallelization
     max_parallel_llm_calls: int = 8
     max_parallel_embedding_calls: int = 16
@@ -290,6 +303,8 @@ class PKBConfig:
             'entity_strategy_top_n': self.entity_strategy_top_n,
             'entity_strategy_max_entities': self.entity_strategy_max_entities,
             'entity_alias_match': self.entity_alias_match,
+            'rewrite_is_query_source': self.rewrite_is_query_source,
+            'entity_use_rewrite_entities': self.entity_use_rewrite_entities,
             'log_llm_calls': self.log_llm_calls,
             'log_search_queries': self.log_search_queries,
         }
@@ -328,6 +343,7 @@ class PKBConfig:
             'rrf_strategy_weights',
             'fts_use_focused_query',
             'entity_strategy_enabled', 'entity_strategy_top_n', 'entity_strategy_max_entities', 'entity_alias_match',
+            'rewrite_is_query_source', 'entity_use_rewrite_entities',
             'log_llm_calls', 'log_search_queries'
         }
         filtered = {k: v for k, v in data.items() if k in valid_keys}
@@ -415,6 +431,8 @@ def load_config(
         'ENTITY_STRATEGY_TOP_N': ('entity_strategy_top_n', int),
         'ENTITY_STRATEGY_MAX_ENTITIES': ('entity_strategy_max_entities', int),
         'ENTITY_ALIAS_MATCH': ('entity_alias_match', lambda x: x.lower() in ('true', '1', 'yes')),
+        'REWRITE_IS_QUERY_SOURCE': ('rewrite_is_query_source', lambda x: x.lower() in ('true', '1', 'yes')),
+        'ENTITY_USE_REWRITE_ENTITIES': ('entity_use_rewrite_entities', lambda x: x.lower() in ('true', '1', 'yes')),
         'LOG_LLM_CALLS': ('log_llm_calls', lambda x: x.lower() in ('true', '1', 'yes')),
         'LOG_SEARCH_QUERIES': ('log_search_queries', lambda x: x.lower() in ('true', '1', 'yes')),
     }
