@@ -11,6 +11,7 @@
 
 ## Table of Contents
 
+0. [Retrieval Ranking Improvements (W-A/W-B/W-C)](#retrieval-ranking-improvements-w-a--w-b--w-c) — weighted RRF, query scoping, entity retrieval
 0a. [v0.6 Addendum](#v06-addendum) — **Latest: claim numbers, QnA, unified search**
 0b. [v0.5+ Addendum](#v05-addendum) — Friendly IDs, contexts, autocomplete
 1. [Architecture Overview](#architecture-overview)
@@ -90,6 +91,88 @@ The `ClaimAnalysisResult` dataclass: `claim_type`, `context_domain`, `tags`, `en
 | `endpoints/pkb.py` | `POST /pkb/analyze_statement` route; ingest proposal serialization includes tags/questions/entities |
 | `interface/interface.html` | `#pkb-autofill-btn` button below statement textarea |
 | `interface/pkb-manager.js` | `autofillClaimFields()` function; click handler in `init()` |
+
+---
+
+## Retrieval Ranking Improvements (W-A / W-B / W-C)
+
+Three eval-gated improvements to hybrid retrieval ranking. Each defaults to the
+prior behavior (or is inert for queries that don't trigger it) and is gated by
+`PKBConfig`, so they can be rolled out and tuned independently.
+
+### W-A — Weighted RRF fusion
+
+`merge_results_rrf(result_lists, k, rrf_k, strategy_weights=None)` adds an
+optional per-strategy multiplier on each list's reciprocal-rank contribution:
+`score += weight[source] * 1/(rank + rrf_k)`. Weights are keyed by
+`SearchResult.source` (`"fts"`, `"embedding"`, `"rewrite"`, `"entity"`).
+`HybridSearchStrategy.search` passes `config.rrf_strategy_weights`; an empty dict
+(the default) makes every weight `1.0`, reproducing plain unweighted RRF
+exactly. Intended use after eval tuning: trust semantic/embedding above literal
+FTS, e.g. `{"fts": 0.6, "embedding": 1.0, "rewrite": 1.0, "entity": 0.8}`.
+`rrf_k` stays fixed at 60 during tuning.
+
+### W-B — Per-strategy query scoping
+
+Literal FTS no longer receives the summary-laden contextual query. `search` /
+`_execute_parallel` accept an optional `strategy_queries: Dict[str, str]` map;
+`_query_for(name)` returns the override for a strategy or falls back to the base
+`query` (so `None` is an exact no-op). `StructuredAPI.search` threads the map on
+the `hybrid` strategy only. `Conversation._get_pkb_context` sets
+`{"fts": <current message>}` when `config.fts_use_focused_query` is True
+(default), so FTS reflects *current* intent while embedding/rewrite keep the
+contextual `enhanced_query`. The STM `<stm_context>` prepend and the
+post-distillation `last_accessed_at` update are preserved untouched. Fallback
+when no LLM key: FTS uses the current message, never the summary.
+
+### W-C — Entity-linked retrieval strategy
+
+`EntitySearchStrategy` (`search/entity_search.py`, `source="entity"`)
+participates in RRF fusion as another ranked list:
+
+1. Extract capitalized / quoted surface forms from the query.
+2. Resolve to entities by exact (case-insensitive) name match, plus
+   `meta_json.aliases` (W6) when `entity_alias_match` is set. Exact matching
+   makes the loose extraction self-filtering.
+3. Pull linked claims via `EntityCRUD.resolve_claims`, which applies the status
+   filter (default active + contested) and user scope — so compaction-archived /
+   superseded / expired claims are **not** resurfaced through the entity path.
+4. Rank by cosine similarity to the query embedding (reusing the `EmbeddingStore`
+   cache); degrade to recency order when no query embedding is available.
+5. Return top-N (`entity_strategy_top_n`, default 5); `[]` when disabled, the
+   query is empty, or nothing resolves (RRF no-op).
+
+Registered in `HybridSearchStrategy` independent of the API key (it works
+offline, degrading to recency order) behind `entity_strategy_enabled`, and added
+to the default fusion set. RRF sums the reciprocal-rank scores of a claim found
+by both embedding and entity link (it rises to the top) and de-dupes by
+`claim_id` automatically.
+
+### Config fields
+
+| Field | Default | Workstream |
+|-------|---------|-----------|
+| `rrf_strategy_weights: Dict[str, float]` | `{}` (unweighted) | W-A |
+| `fts_use_focused_query: bool` | `True` | W-B |
+| `entity_strategy_enabled: bool` | `True` | W-C |
+| `entity_strategy_top_n: int` | `5` | W-C |
+| `entity_alias_match: bool` | `True` | W-C |
+
+All are wired through `to_dict` / `from_dict` / env (`PKB_*`;
+`PKB_RRF_STRATEGY_WEIGHTS` is JSON).
+
+### Eval & verification notes
+
+The offline harness (`tests/eval/`, no `OPENROUTER_API_KEY`) runs FTS-only, so it
+**cannot** measure W-A fusion or W-C cosine ranking; W-B's value lives in
+`_get_pkb_context` (summary pollution), which eval queries don't exercise. The
+harness was extended to seed entities + `claim_entities` links and added
+entity-mention cases plus an offline `[entity]` strategy set: offline the entity
+strategy alone scores recall@5 = 1.000 / mrr = 0.833 on the entity category
+(returns nothing for non-entity queries; in production it is fused via RRF).
+Fusion-level and cosine tuning require a keyed run of `run_eval.sh`. Unit tests:
+`tests/test_weighted_rrf.py`, `tests/test_query_scoping.py`,
+`tests/test_entity_strategy.py`.
 
 ---
 

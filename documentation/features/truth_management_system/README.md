@@ -110,7 +110,8 @@ In-depth technical documentation including:
 > - Full server startup and state initialization: `AppState`, blueprint registration, lazy DB init, plan storage lifecycle, ephemeral vs persistent state table
 > - `_get_pkb_context()` priority/deduplication logic with full code walkthrough (5 priority levels, seen_ids deduplication, search-query enrichment with conversation summary)
 > - Two-stage LLM injection: distillation → verbatim re-injection of referenced claims (why and how)
-> - Retrieval eval harness: category definitions (`lexical`, `semantic`, `recency`, `conflict`, `hard_negative`, `scoped`, `lifecycle`), FTS baseline numbers, regression guards in `test_eval_harness.py`
+> - Retrieval eval harness: category definitions (`lexical`, `semantic`, `recency`, `conflict`, `hard_negative`, `scoped`, `lifecycle`, `entity`), FTS baseline numbers, regression guards in `test_eval_harness.py`
+> - Retrieval ranking improvements (W-A/W-B/W-C): weighted RRF fusion (`rrf_strategy_weights`), per-strategy query scoping (`fts_use_focused_query`), and the entity-linked retrieval strategy (`search/entity_search.py`, `entity_strategy_*`)
 > - All development patterns: step-by-step guides for adding a new endpoint, CRUD operation, or search strategy
 
 ---
@@ -261,7 +262,8 @@ Multiple search approaches available:
 - **Embedding**: Semantic similarity via cosine distance
 - **Rewrite** (overview-informed): SUPERFAST_LLM rewrites query into optimized FTS keywords + embedding query, informed by PKB overview Key Areas for domain-aware expansion. Runs both FTS and embedding internally, merges via RRF.
 - **MapReduce**: LLM scores candidates
-- **Hybrid** (default): Combines `[fts, embedding, rewrite]` in parallel with RRF merging + recency/confidence re-ranking (`w_recency=0.15`, `w_confidence=0.1`)
+- **Entity** (W-C): resolves named entities in the query (exact name + `meta_json.aliases`) and surfaces their status-filtered linked claims, cosine-ranked (degrades to recency order offline)
+- **Hybrid** (default): Combines `[fts, embedding, rewrite, entity]` in parallel with RRF merging (optional per-strategy weights via `rrf_strategy_weights`, W-A) + recency/confidence re-ranking (`w_recency=0.15`, `w_confidence=0.1`). Per-strategy query scoping (W-B, `fts_use_focused_query`) routes the focused current message to FTS.
 
 ### Memory Attachment
 Ways to force specific memories into LLM context:

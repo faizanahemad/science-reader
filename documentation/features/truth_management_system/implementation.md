@@ -157,6 +157,7 @@ truth_management_system/
 │   ├── ann_vector_index.py  # VectorIndex: flat(numpy)/hnsw(faiss) backends, per-user cache (Workstream B)
 │   ├── rewrite_search.py    # RewriteSearchStrategy: LLM rewrites query → FTS
 │   ├── mapreduce_search.py  # MapReduceSearchStrategy: LLM scores candidates
+│   ├── entity_search.py     # EntitySearchStrategy: entity-linked retrieval (W-C)
 │   ├── hybrid_search.py     # HybridSearchStrategy: parallel + RRF + optional rerank
 │   └── notes_search.py      # NotesSearchStrategy: FTS + embedding for notes
 │
@@ -298,6 +299,12 @@ ann_enabled: bool = True
 ann_backend: str = "flat"               # flat (numpy, exact) | hnsw (faiss)
 ann_min_claims: int = 200
 ann_overfetch: int = 5
+# Retrieval ranking (W-A/W-B/W-C)
+rrf_strategy_weights: Dict[str, float] = {}   # W-A: per-strategy RRF multipliers; {} = unweighted (current behavior)
+fts_use_focused_query: bool = True             # W-B: route focused current message to FTS, contextual query to embedding
+entity_strategy_enabled: bool = True           # W-C: enable entity-linked retrieval strategy
+entity_strategy_top_n: int = 5                 # W-C: max entity-linked claims fed into RRF
+entity_alias_match: bool = True                # W-C: also resolve entities via meta_json.aliases (W6)
 # Provenance / dedup (provenance & cleanup plan)
 inferred_confidence_cap: float = 0.4    # confidence ceiling for inferred claims
 inferred_rerank_penalty: float = 0.1    # score ×(1-penalty) for inferred in re-rank
@@ -654,7 +661,7 @@ def name(self) -> str
 ```
 
 **Utility Functions:**
-- `merge_results_rrf(result_lists, k, rrf_k)` → RRF-merged results
+- `merge_results_rrf(result_lists, k, rrf_k, strategy_weights=None)` → RRF-merged results. `strategy_weights` (W-A) maps a `SearchResult.source` to a multiplier on its reciprocal-rank contribution; `None`/`{}` ⇒ all weights 1.0 ⇒ plain unweighted RRF.
 - `dedupe_results(results)` → Deduplicated by claim_id
 - `apply_tag_filter(db, claim_ids, tag_ids)` → Filter by tags
 - `apply_entity_filter(db, claim_ids, entity_ids)` → Filter by entities
@@ -754,21 +761,39 @@ LLM scores/filters candidate claims.
 3. Parse scores (0-10) from LLM response
 4. Sort by score, return top-k
 
+#### `search/entity_search.py` - `EntitySearchStrategy` (W-C)
+
+Entity-linked retrieval: surfaces claims attached to entities named in the query as another ranked list for RRF fusion. Works without an API key (degrades to recency ordering).
+
+| Method | Signature | Purpose |
+|--------|-----------|---------|
+| `search` | `(query, k, filters)` → List[SearchResult] | Entity-linked results (`source="entity"`) |
+| `name` | `()` → "entity" | Strategy identifier |
+
+**Process:**
+1. Extract candidate surface forms from the query (capitalized / quoted spans).
+2. Resolve to entities by exact (case-insensitive) name match, plus `meta_json.aliases` when `entity_alias_match` is set. Exact matching makes the loose extraction self-filtering.
+3. Pull linked claims via `EntityCRUD.resolve_claims`, which applies the status filter (default active + contested) and user scope — so compaction-archived / superseded / expired claims are **not** resurfaced through the entity path.
+4. Rank by cosine similarity to the query embedding using the `EmbeddingStore` cache; degrade to recency order when no query embedding is available (no key / embeddings disabled / cold cache).
+5. Return top-N (`entity_strategy_top_n`, default 5). Returns `[]` when disabled, the query is empty, or no entity resolves (RRF no-op).
+
 #### `search/hybrid_search.py` - `HybridSearchStrategy`
 
 Orchestrates multiple strategies with parallel execution.
 
 | Method | Signature | Purpose |
 |--------|-----------|---------|
-| `search` | `(query, strategy_names, k, filters, llm_rerank)` | Hybrid search |
+| `search` | `(query, strategy_names, k, filters, llm_rerank, strategy_queries)` | Hybrid search; `strategy_queries` (W-B) routes per-strategy queries (e.g. focused message → FTS) |
 | `search_simple` | `(query, k, filters)` | Default: FTS + embedding |
 | `search_with_rerank` | `(query, k, filters)` | Hybrid + LLM rerank |
 | `search_all_strategies` | `(query, k, filters)` | Use all strategies |
 | `get_available_strategies` | `()` → List[str] | List available strategies |
 
+**Default strategy set:** `fts` + (when an API key is present) `embedding`, `rewrite`, and (when `entity_strategy_enabled`) `entity`.
+
 **Algorithm:**
-1. Execute selected strategies in parallel
-2. Merge results using Reciprocal Rank Fusion (RRF)
+1. Execute selected strategies in parallel (each may receive its own `strategy_queries` override — W-B).
+2. Merge results using Reciprocal Rank Fusion (RRF), applying `config.rrf_strategy_weights` per strategy (W-A; `{}` = unweighted).
 3. Optionally apply LLM reranking to top-N
 4. Return final top-k results
 
