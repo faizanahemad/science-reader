@@ -3036,6 +3036,35 @@ var PKBManager = (function() {
     }
 
     /**
+     * Load suggested clusters into the Maintenance tab section.
+     */
+    function loadClusters() {
+        $.get('/pkb/claims/clusters', function(resp) {
+            var clusters = resp.clusters || [];
+            var $section = $('#pkb-clusters-section');
+            var $list = $('#pkb-clusters-list');
+            var $count = $('#pkb-clusters-count');
+
+            if (!clusters.length) { $section.hide(); return; }
+
+            $section.show();
+            $count.text(clusters.length);
+
+            var html = clusters.map(function(cl, i) {
+                var stmts = Object.values(cl.statements || {}).map(function(s) {
+                    return '<li class="small">' + $('<span>').text(s).html() + '</li>';
+                }).join('');
+                return '<div class="border-bottom py-2">' +
+                    '<strong class="small">Cluster ' + (i+1) + '</strong> <span class="badge badge-light">' + cl.claim_ids.length + ' claims</span>' +
+                    ' <span class="badge badge-secondary">sim: ' + (cl.max_similarity || 0).toFixed(2) + '</span>' +
+                    '<ul class="mb-0 pl-3">' + stmts + '</ul>' +
+                '</div>';
+            }).join('');
+            $list.html(html);
+        }).fail(function() { $('#pkb-clusters-section').hide(); });
+    }
+
+    /**
      * Load fading (dormant) claims into the Maintenance tab section.
      */
     function loadFadingClaims() {
@@ -3225,6 +3254,7 @@ var PKBManager = (function() {
         $(document).on('shown.bs.tab', '#pkb-maintenance-tab', function() {
             loadRecentlyArchived();
             loadFadingClaims();
+            loadClusters();
             // Health dashboard
             $.get('/pkb/health', function(resp) {
                 var $dash = $('#pkb-health-dashboard');

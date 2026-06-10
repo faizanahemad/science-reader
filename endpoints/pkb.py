@@ -4023,3 +4023,31 @@ def pkb_bulk_action():
     except Exception as e:
         logger.error(f"Error in pkb_bulk_action: {e}")
         return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+
+
+@pkb_bp.route("/pkb/claims/clusters", methods=["GET"])
+@limiter.limit("10 per minute")
+@login_required
+def pkb_auto_clusters():
+    """Suggest semantic clusters (related claims grouped at a lower similarity threshold)."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+
+        threshold = request.args.get("threshold", 0.75, type=float)
+        limit = request.args.get("limit", 20, type=int)
+        result = api.find_consolidation_candidates(threshold=threshold, limit=limit, use_llm=False)
+        if result.success:
+            return jsonify({"clusters": result.data or []})
+        return json_error("; ".join(result.errors) or "Clustering failed", status=500, code="cluster_failed")
+    except Exception as e:
+        logger.error(f"Error in pkb_auto_clusters: {e}")
+        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")

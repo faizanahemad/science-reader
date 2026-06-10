@@ -736,6 +736,27 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
                 logger.exception("pkb_health_stats error: %s", exc)
                 return json.dumps({"error": f"pkb_health_stats failed: {exc}"})
 
+        # Tool: pkb_auto_clusters — find semantic clusters at lower threshold
+        @mcp.tool()
+        def pkb_auto_clusters(user_email: str, threshold: float = 0.75) -> str:
+            """Find groups of semantically related claims (auto-clustering).
+
+            Uses a lower similarity threshold than dedup to surface claims
+            that could be organized into contexts or merged.
+
+            Args:
+                user_email: Email of the PKB owner.
+                threshold: Similarity threshold (default 0.75, range 0.5-0.95).
+            """
+            try:
+                api = _get_pkb_api()
+                user_api = api.for_user(user_email)
+                result = user_api.find_consolidation_candidates(threshold=threshold, use_llm=False)
+                return _serialize_action_result(result)
+            except Exception as exc:
+                logger.exception("pkb_auto_clusters error: %s", exc)
+                return json.dumps({"error": f"pkb_auto_clusters failed: {exc}"})
+
         # -------------------------------------------------------------
         # Tool 8: pkb_get_claims_by_ids — batch retrieve claims
         # -------------------------------------------------------------

@@ -1314,6 +1314,18 @@
                 <div id="pkb-cleanup-report" style="overflow-y:auto; max-height:55vh;">
                   <p class="text-muted">Click <strong>Analyze</strong> to scan for maintenance opportunities. Nothing is changed until you choose to apply.</p>
                 </div>
+                <!-- Suggested Clusters (auto-clustering) -->
+                <div id="pkb-clusters-section" class="mt-3" style="display:none;">
+                  <div class="card border-info">
+                    <div class="card-header bg-info text-white py-2 d-flex justify-content-between align-items-center" style="cursor:pointer;" data-toggle="collapse" data-target="#pkb-clusters-collapse">
+                      <span><i class="bi bi-diagram-3"></i> Suggested Clusters <span id="pkb-clusters-count" class="badge badge-light ml-1">0</span></span>
+                      <i class="bi bi-chevron-down"></i>
+                    </div>
+                    <div class="collapse" id="pkb-clusters-collapse">
+                      <div class="card-body p-2" id="pkb-clusters-list" style="max-height:30vh;overflow-y:auto;"></div>
+                    </div>
+                  </div>
+                </div>
                 <!-- Fading Memories (dormant claims) -->
                 <div id="pkb-fading-section" class="mt-3" style="display:none;">
                   <div class="card border-warning">
