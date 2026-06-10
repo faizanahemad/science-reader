@@ -717,6 +717,25 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
                 logger.exception("pkb_reinforce_claim error: %s", exc)
                 return json.dumps({"error": f"pkb_reinforce_claim failed: {exc}"})
 
+        # Tool: pkb_health_stats — aggregate health dashboard
+        @mcp.tool()
+        def pkb_health_stats(user_email: str) -> str:
+            """Get aggregate health statistics for the knowledge base.
+
+            Returns counts by status, claim type, and domain.
+
+            Args:
+                user_email: Email of the PKB owner.
+            """
+            try:
+                api = _get_pkb_api()
+                user_api = api.for_user(user_email)
+                result = user_api.get_health_stats()
+                return _serialize_action_result(result)
+            except Exception as exc:
+                logger.exception("pkb_health_stats error: %s", exc)
+                return json.dumps({"error": f"pkb_health_stats failed: {exc}"})
+
         # -------------------------------------------------------------
         # Tool 8: pkb_get_claims_by_ids — batch retrieve claims
         # -------------------------------------------------------------

@@ -3954,3 +3954,29 @@ def pkb_list_feedback():
     except Exception as e:
         logger.error(f"Error in pkb_list_feedback: {e}")
         return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+
+
+@pkb_bp.route("/pkb/health", methods=["GET"])
+@limiter.limit("20 per minute")
+@login_required
+def pkb_health_stats():
+    """Aggregate health stats for the PKB dashboard."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+
+        result = api.get_health_stats()
+        if result.success:
+            return jsonify(result.data)
+        return json_error("Failed", status=500, code="health_failed")
+    except Exception as e:
+        logger.error(f"Error in pkb_health_stats: {e}")
+        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")

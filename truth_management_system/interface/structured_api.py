@@ -3889,3 +3889,45 @@ class StructuredAPI:
             (self.user_email,),
         )
         return {r["claim_id"] for r in rows}
+
+    # -----------------------------------------------------------------
+    # Health Dashboard Stats
+    # -----------------------------------------------------------------
+
+    def get_health_stats(self) -> ActionResult:
+        """Aggregate stats for the PKB health dashboard."""
+        try:
+            user_filter = "user_email = ?" if self.user_email else "user_email IS NULL"
+            params = (self.user_email,) if self.user_email else ()
+
+            # Total counts by status
+            status_rows = self.db.fetchall(
+                f"SELECT status, COUNT(*) as cnt FROM claims WHERE {user_filter} GROUP BY status",
+                params,
+            )
+            by_status = {r["status"]: r["cnt"] for r in status_rows}
+
+            # Counts by claim_type
+            type_rows = self.db.fetchall(
+                f"SELECT claim_type, COUNT(*) as cnt FROM claims WHERE {user_filter} AND status = 'active' GROUP BY claim_type",
+                params,
+            )
+            by_type = {r["claim_type"]: r["cnt"] for r in type_rows}
+
+            # Counts by domain
+            domain_rows = self.db.fetchall(
+                f"SELECT context_domain, COUNT(*) as cnt FROM claims WHERE {user_filter} AND status = 'active' GROUP BY context_domain",
+                params,
+            )
+            by_domain = {r["context_domain"]: r["cnt"] for r in domain_rows}
+
+            total = sum(by_status.values())
+            return ActionResult(success=True, action="stats", object_type="health",
+                              data={
+                                  "total_claims": total,
+                                  "by_status": by_status,
+                                  "by_type": by_type,
+                                  "by_domain": by_domain,
+                              })
+        except Exception as e:
+            return ActionResult(success=False, action="stats", object_type="health", errors=[str(e)])

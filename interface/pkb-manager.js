@@ -3205,6 +3205,18 @@ var PKBManager = (function() {
         $(document).on('shown.bs.tab', '#pkb-maintenance-tab', function() {
             loadRecentlyArchived();
             loadFadingClaims();
+            // Health dashboard
+            $.get('/pkb/health', function(resp) {
+                var $dash = $('#pkb-health-dashboard');
+                var active = (resp.by_status || {}).active || 0;
+                var dormant = (resp.by_status || {}).dormant || 0;
+                var total = resp.total_claims || 0;
+                var domains = Object.keys(resp.by_domain || {}).length;
+                $('#pkb-health-stats').text(
+                    total + ' claims (' + active + ' active, ' + dormant + ' dormant) · ' + domains + ' domains'
+                );
+                $dash.show();
+            });
         });
 
         // Memory Cleanup (Maintenance tab, W11)
