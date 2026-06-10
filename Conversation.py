@@ -529,6 +529,7 @@ class Conversation:
         referenced_friendly_ids: list = None,
         users_dir: str = None,
         conversation_loader=None,
+        pkb_scope: str = "",
     ) -> str:
         """
         Retrieve relevant claims from PKB for the current query.
@@ -817,9 +818,17 @@ class Conversation:
                 if getattr(config, "fts_use_focused_query", False) and (query or "").strip():
                     _strategy_queries = {"fts": query, "entity": query}
 
+                # Build scope filters from user's pkb_scope setting
+                _scope_filters = None
+                if pkb_scope:
+                    _domains = [d.strip() for d in pkb_scope.split(",") if d.strip()]
+                    if _domains:
+                        _scope_filters = {"context_domains": _domains}
+
                 result = api.search(
                     enhanced_query, strategy="hybrid", k=remaining_slots + 5,
                     strategy_queries=_strategy_queries,
+                    filters=_scope_filters,
                 )  # Get extra for dedup
 
                 time_logger.info(
@@ -7836,6 +7845,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 referenced_friendly_ids=referenced_friendly_ids,
                 users_dir=users_dir,
                 conversation_loader=conversation_loader,
+                pkb_scope=checkboxes.get("pkb_scope", ""),
             )
             yield {
                 "text": "",

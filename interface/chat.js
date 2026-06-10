@@ -637,6 +637,7 @@ function buildSettingsStateFromControlsOrDefaults() {
         enable_planner: $('#enable_planner').length ? $('#enable_planner').is(':checked') : ($('#settings-enable_planner').is(':checked') || false),
         use_pkb: $('#settings-use_pkb').length ? $('#settings-use_pkb').is(':checked') : true,
         pkb_extraction_mode: $('#settings-pkb-extraction-mode').length ? ($('#settings-pkb-extraction-mode').val() || 'relaxed') : 'relaxed',
+        pkb_scope: $('#settings-pkb-scope').length ? $('#settings-pkb-scope').val().trim() : '',
         auto_pkb_extract: $('#settings-auto_pkb_extract').length ? $('#settings-auto_pkb_extract').is(':checked') : true,
         auto_doubts_enabled: $('#settings-auto_doubts_enabled').length ? $('#settings-auto_doubts_enabled').is(':checked') : true,
         enable_custom_context_menu: defaultEnableCustomContextMenu,
@@ -670,6 +671,7 @@ function setModalFromState(state) {
     $('#settings-enable_planner').prop('checked', !!state.enable_planner);
     $('#settings-use_pkb').prop('checked', state.use_pkb !== false);
     $('#settings-pkb-extraction-mode').val(state.pkb_extraction_mode || 'relaxed');
+    $('#settings-pkb-scope').val(state.pkb_scope || '');
     $('#settings-auto_pkb_extract').prop('checked', state.auto_pkb_extract !== false);
     $('#settings-auto_doubts_enabled').prop('checked', state.auto_doubts_enabled !== false);
     $('#settings-enable_custom_context_menu').prop(
@@ -801,6 +803,7 @@ function collectSettingsFromModal() {
         enable_planner: $('#settings-enable_planner').is(':checked'),
         use_pkb: $('#settings-use_pkb').is(':checked'),
         pkb_extraction_mode: $('#settings-pkb-extraction-mode').val() || 'relaxed',
+        pkb_scope: $('#settings-pkb-scope').val() ? $('#settings-pkb-scope').val().trim() : '',
         auto_pkb_extract: $('#settings-auto_pkb_extract').is(':checked'),
         auto_doubts_enabled: $('#settings-auto_doubts_enabled').is(':checked'),
         enable_custom_context_menu: $('#settings-enable_custom_context_menu').is(':checked'),
