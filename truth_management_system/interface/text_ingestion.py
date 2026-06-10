@@ -804,7 +804,8 @@ Response:"""
                 tags=tags,
                 entities=entities,
                 auto_extract=False,
-                meta_json=json.dumps({"source": "text_ingestion"}),
+                source_type="text_ingestion",
+                derivation="extracted",
                 possible_questions=pq_json,
             )
         elif proposal.action == "edit" and proposal.existing_claim:

@@ -29,6 +29,11 @@ class CandidateClaim:
     valid_from: Optional[str] = None
     valid_to: Optional[str] = None
     tags: List[str] = field(default_factory=list)
+    # W2: epistemic basis labeled by the extraction LLM.
+    #   stated    -- user said it ~verbatim
+    #   extracted -- rephrased from the user's own words (same content)
+    #   inferred  -- a conclusion the user never explicitly stated
+    derivation: str = "extracted"
 
 @dataclass
 class ProposedAction:
@@ -196,11 +201,16 @@ Only extract facts FROM THE CURRENT USER MESSAGE -- not from prior turns or cont
 Valid claim_type values: fact, preference, decision, task, reminder, habit, memory, observation
 Valid context_domain values: personal, health, work, relationships, learning, life_ops, finance
 
+For each claim, also include a "derivation" field describing its epistemic basis:
+- "stated": the user explicitly said this, ~verbatim.
+- "extracted": rephrased/normalized from the user's own words (same meaning, no new conclusion).
+- "inferred": a conclusion you drew that the user did NOT explicitly state (e.g. generalizing "I ran 5k today" + "I cycle daily" into "User is health-conscious"). Use sparingly.
+
 IMPORTANT: Return ONLY a valid JSON array with NO additional text before or after.
 For task/reminder types, include a "valid_to" field with the deadline in YYYY-MM-DD format if mentioned.
 Include a "tags" array with relevant short keyword tags.
 Example format:
-[{"statement": "User prefers dark roast coffee", "claim_type": "preference", "context_domain": "personal", "confidence": 0.85, "tags": ["coffee"]}, {"statement": "User needs to submit report by Friday", "claim_type": "task", "context_domain": "work", "confidence": 0.9, "valid_to": "2025-07-18", "tags": ["report", "deadline"]}]
+[{"statement": "User prefers dark roast coffee", "claim_type": "preference", "context_domain": "personal", "confidence": 0.85, "derivation": "stated", "tags": ["coffee"]}, {"statement": "User needs to submit report by Friday", "claim_type": "task", "context_domain": "work", "confidence": 0.9, "valid_to": "2025-07-18", "derivation": "stated", "tags": ["report", "deadline"]}]
 
 If nothing at all is worth remembering from the current message, return exactly: []
 
@@ -226,11 +236,16 @@ Rules:
 Valid claim_type values: fact, preference, decision, task, reminder, habit, memory, observation
 Valid context_domain values: personal, health, work, relationships, learning, life_ops, finance
 
+For each claim, also include a "derivation" field describing its epistemic basis:
+- "stated": the user explicitly said this, ~verbatim.
+- "extracted": rephrased/normalized from the user's own words (same meaning, no new conclusion).
+- "inferred": a conclusion you drew that the user did NOT explicitly state (e.g. generalizing "I ran 5k today" + "I cycle daily" into "User is health-conscious"). Use sparingly.
+
 IMPORTANT: Return ONLY a valid JSON array with NO additional text before or after.
 For task/reminder types, include a "valid_to" field with the deadline in YYYY-MM-DD format if mentioned.
 Include a "tags" array with relevant short keyword tags.
 Example format:
-[{"statement": "User is vegetarian", "claim_type": "fact", "context_domain": "health", "confidence": 0.9, "tags": ["diet"]}, {"statement": "User has dentist appointment next Monday", "claim_type": "reminder", "context_domain": "health", "confidence": 0.9, "valid_to": "2025-07-21", "tags": ["dentist", "appointment"]}]
+[{"statement": "User is vegetarian", "claim_type": "fact", "context_domain": "health", "confidence": 0.9, "derivation": "stated", "tags": ["diet"]}, {"statement": "User has dentist appointment next Monday", "claim_type": "reminder", "context_domain": "health", "confidence": 0.9, "valid_to": "2025-07-21", "derivation": "stated", "tags": ["dentist", "appointment"]}]
 
 If no clear personal facts to remember from the current message, return exactly: []
 
@@ -253,6 +268,10 @@ Response:"""
                 candidates = []
                 for item in parsed:
                     if isinstance(item, dict) and item.get('statement'):
+                        from ..constants import Derivation
+                        _deriv = item.get('derivation')
+                        if not Derivation.is_valid(_deriv or ''):
+                            _deriv = Derivation.EXTRACTED.value
                         candidates.append(CandidateClaim(
                             statement=item.get('statement'),
                             claim_type=item.get('claim_type', 'fact'),
@@ -261,6 +280,7 @@ Response:"""
                             valid_from=item.get('valid_from'),
                             valid_to=item.get('valid_to'),
                             tags=item.get('tags', []) if isinstance(item.get('tags'), list) else [],
+                            derivation=_deriv,
                         ))
                 return candidates
             return []
@@ -410,6 +430,8 @@ Response:"""
                 "context_domain": action.candidate.context_domain,
                 "auto_extract": True,
                 "tags": action.candidate.tags or [],
+                "channel": "chat",
+                "derivation": getattr(action.candidate, "derivation", "extracted"),
             }
             if action.candidate.valid_from:
                 kwargs["valid_from"] = action.candidate.valid_from
@@ -438,6 +460,8 @@ Response:"""
                 "auto_extract": True,
                 "tags": action.candidate.tags or [],
                 "supersedes": action.existing_claim.claim_id,
+                "channel": "chat",
+                "derivation": getattr(action.candidate, "derivation", "extracted"),
             }
             if action.candidate.valid_from:
                 kwargs["valid_from"] = action.candidate.valid_from
