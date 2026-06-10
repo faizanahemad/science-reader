@@ -239,3 +239,173 @@ This is the part to get right. Summary: **nothing breaks; migration is optional.
 | `interface/structured_api.py` | `backfill_entities()` (+ optional REST) following backfill_* pattern |
 | `tests/` | plumbing, no-double-call integration, backfill, restart/config |
 | `docs/` | README + implementation.md + deep-dive + config |
+
+---
+
+# Appendix: Cold-Start Implementation Notes (read this first if you have no context)
+
+This appendix makes the plan executable by a session with **zero prior context**.
+All paths are relative to the repo root
+(`/Users/ahemf/Documents/Backup_2025/Research/chatgpt-iterative`, macOS).
+
+## A. Environment & how to verify
+
+- **Conda env (required for Python):**
+  `source "$(conda info --base)/etc/profile.d/conda.sh"; conda activate science-reader`
+- **Run tests:** `python -m pytest truth_management_system/tests/ -q`
+  - Single file: `python -m pytest truth_management_system/tests/test_entity_strategy.py -q`
+  - **Test-noise filter** (pipe stderr/stdout through this; these warnings are expected):
+    `grep -vE "RuntimeWarning|sys.modules|get_openai_embedding|call_llm|Unauthorized|WARNING|INFO|SwigPy|swigvarlink|DeprecationWarning"`
+- **Compile check:** `python -m py_compile <file>`. JS (if touched): `node --check <file>`.
+- **Eval harness:** `truth_management_system/tests/eval/` (`run_eval.sh`, `runner.py`,
+  `dataset.py`, `metrics.py`, `seed_dataset.json`).
+  - Offline (no `OPENROUTER_API_KEY`) = **FTS-only**; it CANNOT measure rewrite
+    fusion, embedding cosine, or LLM-entity resolution. The unification MUST be
+    eval-gated on a **keyed** run.
+  - Run offline: `python -m truth_management_system.tests.eval.runner --k 5`.
+  - `EvalClaim` already has an optional `entities: List[str]` field; `runner.seed()`
+    creates+links them (role "subject"); `compare()` includes an `entity` strategy
+    set. Add new cases to `seed_dataset.json`.
+- macOS has **no `timeout`** command. Use `git -P` for all git (no pager).
+- Regression guards live in `tests/test_eval_harness.py` (category floors); they are
+  category-specific (lexical/semantic) so new `entity` cases won't trip them.
+
+## B. Commit discipline (standing constraints — do not deviate)
+
+- **Do NOT `git push`.** Commit each logical unit separately.
+- **Stage by path** (`git add <path>`), **never `git add .`**.
+- **First action:** `git -P status` and `git -P diff <target files>`. Other sessions
+  may have **uncommitted parallel work** in the same files. If a target file has
+  changes you did not make, do NOT sweep them into your commit — either ask, or
+  reconstruct a "HEAD + your hunks only" copy and `git apply --cached` it.
+- Conventional Commit messages; one workstream per commit.
+
+## C. Exact current signatures (as of plan authoring; re-grep to confirm)
+
+```python
+# truth_management_system/search/hybrid_search.py
+def search(self, query, strategy_names=None, k=20, filters=None,
+           llm_rerank=False, llm_rerank_top_n=50, strategy_queries=None)   # ~L89
+def _execute_parallel(self, query, strategy_names, k, filters, strategy_queries=None)  # ~L166
+#   contains nested `_query_for(name)`: returns strategy_queries[name] or query  (mirror this for strategy_context)
+#   __init__ registers self.strategies["fts"|"embedding"|"rewrite"|"mapreduce"|"entity"]  (~L75-87)
+#   default set when strategy_names is None: ["fts", ("embedding"?), ("rewrite"?), ("entity"?)]  (~L110-120)
+
+# truth_management_system/search/rewrite_search.py
+def search(self, query, k=20, filters=None)                       # ~L90  -> add precomputed_metadata=None
+def search_with_metadata(self, query, k=20, filters=None)         # ~L145 -> returns (results, RewriteMetadata)
+def _rewrite_query(self, query) -> Tuple[str, RewriteMetadata]    # ~L185 (the SINGLE LLM call)
+def set_overview_context(self, overview_context)                  # ~L83
+# RewriteMetadata fields: original_query, rewritten_query (=fts), embedding_query,
+#   extracted_keywords, extracted_tags, extracted_entities, llm_model
+
+# truth_management_system/search/entity_search.py
+def search(self, query, k=20, filters=None)                       # ~L76
+def _resolve_entity_ids(self, query, filters, surface_forms=None) # ~L143  (REUSE HOOK already present)
+def _query_embedding(self, query) -> Optional[np.ndarray]         # ~L271
+
+# truth_management_system/search/base.py
+def merge_results_rrf(result_lists, k=60, rrf_k=60, strategy_weights=None)  # ~L191  (W-A; keyed on result.source)
+
+# truth_management_system/crud/entities.py
+def get_or_create(self, name, entity_type, meta_json=None) -> Tuple[Entity, bool]  # ~L149
+def resolve_claims(self, entity_id, statuses=None, limit=50) -> List[Claim]        # ~L338 (honors status + user scope)
+
+# truth_management_system/crud/links.py
+def link_claim_entity(db, claim_id, entity_id, role) -> bool      # ~L182
+
+# truth_management_system/llm_helpers.py
+def extract_entities(self, statement) -> List[Dict[str, str]]     # ~L179  -> dicts with keys: type, name, role
+
+# truth_management_system/interface/structured_api.py
+def backfill_embeddings(self, context_domain=None) -> Dict[str, int]  # ~L160 (PATTERN to mirror for backfill_entities)
+#   uses self.claims.get_active(context_domain=...) ; user scope via self.user_email
+```
+
+## D. Integration points & ownership
+
+- **Single rewrite call lives in `HybridSearchStrategy.search`** (NOT in
+  `_get_pkb_context`). Reason: `Conversation._get_pkb_context` already calls
+  `api.search_strategy.set_overview_context(_ov_snippet)` (Conversation.py ~L805)
+  **before** `api.search(...)` (~L828). So by the time `hybrid.search` runs, the
+  rewrite strategy already has overview context. Compute `RewriteMetadata` once at
+  the top of `hybrid.search` (when key present and `rewrite` in active set), then:
+  - feed `metadata` into the `rewrite` strategy via the new `precomputed_metadata`
+    param so it does NOT call the LLM again;
+  - put `metadata.extracted_entities` and `metadata.embedding_query` into a new
+    `strategy_context: Dict[str, Any]` and thread it exactly like `strategy_queries`
+    (`hybrid.search` → `_execute_parallel` → each `strategy.search`).
+- **`strategy_context` plumbing** mirrors the committed W-B `strategy_queries`
+  pattern (`_query_for`). Entity reads `strategy_context.get("entity_surface_forms")`
+  → passes as `surface_forms`; reads `strategy_context.get("query_embedding")` →
+  reuses for cosine instead of calling `get_query_embedding`.
+- **W-B already routes** `{"fts": <current message>, "entity": <current message>}`
+  in `_get_pkb_context` (~L817-819). The unification may additionally route the
+  rewrite's `fts_query`→FTS and `embedding_query`→embedding (optional; gate with
+  `rewrite_is_query_source`).
+
+## E. Edge cases / fallbacks (must all be no-ops, tested)
+
+- No key / rewrite not registered / `rewrite` not in active set → `strategy_context`
+  empty → entity uses **regex** extraction + its own embedding (today's behavior).
+- `precomputed_metadata=None` → rewrite calls the LLM itself (today's behavior).
+- `strategy_context` missing keys → each strategy uses its current path.
+- `rrf_strategy_weights={}` → unweighted fusion (today). Flags default to inert.
+
+## F. Config wiring pattern (4 edits per field, in config.py)
+
+1. dataclass field with default (group under the "Retrieval ranking" comment);
+2. entry in `to_dict`;
+3. add the key to the `valid_keys` set in `from_dict`;
+4. entry in `env_mapping` (UPPER_SNAKE, `PKB_`-less key in the map; bools via
+   `lambda x: x.lower() in ('true','1','yes')`, ints via `int`, dicts via JSON).
+New flags: `entity_use_rewrite_entities: bool = True`,
+`rewrite_is_query_source: bool = True`. Add a config round-trip + env test.
+
+## G. Backfill specifics (task `backfill-entities`)
+
+- Mirror `backfill_embeddings`: `def backfill_entities(self, context_domain=None,
+  dry_run=False) -> Dict[str,int]`. Use `self.claims.get_active(context_domain=...)`,
+  filter to claims with **no** `claim_entities` row, then per claim:
+  `LLMHelper.extract_entities(stmt)` → for each `{type,name,role}`:
+  `EntityCRUD(db, user_email=self.user_email).get_or_create(name, type)` →
+  `link_claim_entity(db, claim_id, entity.entity_id, role)`.
+- Idempotent (skip already-linked), batched, `dry_run` returns counts without
+  writing, user-scoped, respect status (active only). Return
+  `{"scanned":N, "linked":M, "skipped":K}`. It costs LLM calls → ops/off-peak,
+  NOT on the request path, NOT required for correctness.
+
+## H. Test setup notes
+
+- In-memory DB for tests REQUIRES: `db = PKBDatabase(config); db.connect();
+  db.initialize_schema()` (config `db_path=":memory:"`). Just `PKBDatabase(config)`
+  is not enough.
+- **Assert "exactly one rewrite LLM call"** by monkeypatching
+  `code_common.call_llm.call_llm` (or the rewrite's import site) with a counter and
+  asserting it's called once across a hybrid search that includes both rewrite and
+  entity. Also assert entity claims appear in the fused output and are de-duped.
+- Reuse existing helpers in `tests/test_entity_strategy.py` (`_env`, `_claim`,
+  `_entity`) and `tests/test_weighted_rrf.py` / `tests/test_query_scoping.py` as
+  templates.
+
+## I. Known pre-existing redundancy (out of scope, do not "fix" silently)
+
+With a key, the keyed hybrid path runs base `embedding` AND `rewrite` (which also
+does embedding internally) — two embedding passes. This predates this plan. The
+unification removes only the *entity* strategy's extra embedding call (by reusing
+the query vector). Collapsing base-embedding vs rewrite-embedding is a separate
+future simplification; do not bundle it here.
+
+## J. Per-task acceptance criteria (quick gates)
+
+- `context-mechanism` + `rewrite-precomputed-metadata`: behavior-neutral; all
+  existing tests still pass; new unit tests prove threading + LLM-call skip.
+- `single-call-coordination`: integration test shows **one** rewrite LLM call and
+  entity claims fused via a single top-level RRF; offline path unchanged.
+- `entity-consume-rewrite-entities` + `reuse-query-embedding`: entity resolves an
+  entity the regex misses (e.g. lowercase name) when fed LLM names; no extra
+  `get_query_embedding` call when a vector is supplied.
+- `config-flags`: round-trip + env test; flags off ⇒ byte-for-byte today's behavior.
+- `eval`: keyed run shows precision@5/mrr improve-or-hold, recall@5 no regression.
+- `backfill-entities`: idempotency + dry-run + user-scope + status tests pass.
+- `docs` + `rollback`: docs updated; flags-off + weights-`{}` verified inert.
