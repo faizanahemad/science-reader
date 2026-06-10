@@ -153,8 +153,10 @@ class PKBConfig:
     # Provenance (two-axis): inferred claims are trusted less.
     #   inferred_confidence_cap  : ceiling applied to a claim's confidence when
     #       its derivation is "inferred" (a conclusion the user never stated).
-    #   inferred_rerank_penalty  : score subtracted from inferred claims during
-    #       the recency/confidence re-rank (0.0 = ranking unchanged).
+    #   inferred_rerank_penalty  : fraction by which an inferred claim's score
+    #       is reduced in the recency/confidence re-rank (0.0 = no-op,
+    #       0.1 = multiply score by 0.9). Active even when w_recency/w_confidence
+    #       are 0, so inferred claims sink unless the penalty is set to 0.0.
     inferred_confidence_cap: float = 0.4
     inferred_rerank_penalty: float = 0.1
 

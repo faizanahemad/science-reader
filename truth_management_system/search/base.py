@@ -16,7 +16,7 @@ import json
 from datetime import datetime, timezone
 
 from ..models import Claim
-from ..constants import ClaimStatus
+from ..constants import ClaimStatus, Derivation
 from ..utils import parse_iso_timestamp
 
 
@@ -307,8 +307,13 @@ def apply_recency_confidence_rerank(
     # Contested down-ranking (C2): multiplier applied to contested claims.
     # 1.0 (default) = no-op.
     contested_penalty = float(getattr(config, "contested_penalty", 1.0) or 1.0)
+    # Inferred down-ranking (W3): claims the system inferred (the user never
+    # explicitly stated) are trusted less. ``inferred_rerank_penalty`` is the
+    # fraction by which their score is reduced (0.0 = no-op, 0.1 = ×0.9).
+    inferred_penalty = float(getattr(config, "inferred_rerank_penalty", 0.0) or 0.0)
     # Fast path: nothing to do, preserve order and scores exactly.
-    if w_recency == 0.0 and w_confidence == 0.0 and contested_penalty == 1.0:
+    if w_recency == 0.0 and w_confidence == 0.0 and contested_penalty == 1.0 \
+            and inferred_penalty == 0.0:
         return results
 
     now = now or datetime.now(timezone.utc)
@@ -344,10 +349,20 @@ def apply_recency_confidence_rerank(
         if contested_penalty != 1.0 and \
                 getattr(claim, "status", None) == ClaimStatus.CONTESTED.value:
             penalty = contested_penalty
-        result.score = base_score * (recency ** w_recency) * (conf ** w_confidence) * penalty
+        # Inferred down-ranking (W3): reduce claims with derivation=inferred.
+        inferred_factor = 1.0
+        if inferred_penalty != 0.0:
+            from ..utils import get_provenance
+            if get_provenance(getattr(claim, "meta_json", None)).get(
+                "derivation"
+            ) == Derivation.INFERRED.value:
+                inferred_factor = max(0.0, 1.0 - inferred_penalty)
+        result.score = base_score * (recency ** w_recency) * (conf ** w_confidence) \
+            * penalty * inferred_factor
         result.metadata["recency_factor"] = recency
         result.metadata["confidence_factor"] = conf
         result.metadata["contested_factor"] = penalty
+        result.metadata["inferred_factor"] = inferred_factor
 
     results.sort(key=lambda r: r.score, reverse=True)
     return results
