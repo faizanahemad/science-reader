@@ -4498,13 +4498,13 @@ def handle_pkb_propose_extraction(args: dict, context: ToolContext) -> ToolCallR
             user_message=text,
             assistant_message="",
         )
-        if plan is None:
+        if not plan.candidates:
             return ToolCallResult(
                 tool_id="", tool_name="pkb_propose_extraction",
                 result=json.dumps({"proposals": [], "count": 0}),
             )
         proposals = []
-        for c in (plan.new_claims or []):
+        for c in plan.candidates:
             proposals.append({
                 "statement": c.statement,
                 "claim_type": c.claim_type,

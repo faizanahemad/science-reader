@@ -558,10 +558,10 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
                 user_message=text,
                 assistant_message="",
             )
-            if plan is None:
+            if not plan.candidates:
                 return json.dumps({"proposals": [], "count": 0})
             proposals = []
-            for c in (plan.new_claims or []):
+            for c in plan.candidates:
                 proposals.append({
                     "statement": c.statement,
                     "claim_type": c.claim_type,

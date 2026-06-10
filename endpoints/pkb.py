@@ -3982,7 +3982,7 @@ def pkb_health_stats():
         return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
 
 
-@pkb_bp.route("/pkb/claims/bulk", methods=["POST"])
+@pkb_bp.route("/pkb/claims/bulk_action", methods=["POST"])
 @limiter.limit("10 per minute")
 @login_required
 def pkb_bulk_action():
@@ -4010,11 +4010,16 @@ def pkb_bulk_action():
         for cid in claim_ids:
             try:
                 if action == "archive":
-                    api.update_claim(cid, status="archived")
+                    api.edit_claim(cid, status="archived")
                 elif action == "tag":
                     tag_name = data.get("tag", "")
                     if tag_name:
-                        api.add_tag_to_claim(cid, tag_name)
+                        # Create tag if needed, then link
+                        tag_result = api.add_tag(tag_name)
+                        if tag_result.success and tag_result.data:
+                            tag_id = tag_result.data.get("tag_id") or tag_result.data.get("id")
+                            if tag_id:
+                                api.link_tag_to_claim(cid, tag_id)
                 results["succeeded"] += 1
             except Exception:
                 results["failed"] += 1

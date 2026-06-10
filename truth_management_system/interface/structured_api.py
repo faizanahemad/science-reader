@@ -3859,8 +3859,8 @@ class StructuredAPI:
         import uuid
         from ..utils import now_iso
         feedback_id = str(uuid.uuid4())
-        with self.db.transaction():
-            self.db.execute(
+        with self.db.transaction() as conn:
+            conn.execute(
                 "INSERT OR IGNORE INTO claim_feedback (feedback_id, claim_id, user_email, feedback_type, context, created_at) VALUES (?, ?, ?, 'negative', ?, ?)",
                 (feedback_id, claim_id, self.user_email, context, now_iso()),
             )

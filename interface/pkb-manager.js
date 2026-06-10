@@ -3274,7 +3274,7 @@ var PKBManager = (function() {
             var selected = $('.pkb-claim-select:checked');
             var $bar = $('#pkb-bulk-action-bar');
             if (selected.length > 0) {
-                $bar.css('display', 'flex').show();
+                $bar.css('display', 'flex');
                 $('#pkb-bulk-count').text(selected.length);
             } else {
                 $bar.hide();
@@ -3287,7 +3287,7 @@ var PKBManager = (function() {
         $(document).on('click', '#pkb-bulk-archive', function() {
             var ids = $('.pkb-claim-select:checked').map(function() { return $(this).data('claim-id'); }).get();
             if (!ids.length) return;
-            $.ajax({url: '/pkb/claims/bulk', method: 'POST', contentType: 'application/json', data: JSON.stringify({claim_ids: ids, action: 'archive'})})
+            $.ajax({url: '/pkb/claims/bulk_action', method: 'POST', contentType: 'application/json', data: JSON.stringify({claim_ids: ids, action: 'archive'})})
                 .done(function(resp) { showToast('Archived ' + resp.succeeded + ' claims', 'success'); loadClaims(); $('#pkb-bulk-action-bar').hide(); })
                 .fail(function() { showToast('Bulk archive failed', 'danger'); });
         });
@@ -3296,7 +3296,7 @@ var PKBManager = (function() {
             if (!ids.length) return;
             var tag = prompt('Tag name to add:');
             if (!tag) return;
-            $.ajax({url: '/pkb/claims/bulk', method: 'POST', contentType: 'application/json', data: JSON.stringify({claim_ids: ids, action: 'tag', tag: tag})})
+            $.ajax({url: '/pkb/claims/bulk_action', method: 'POST', contentType: 'application/json', data: JSON.stringify({claim_ids: ids, action: 'tag', tag: tag})})
                 .done(function(resp) { showToast('Tagged ' + resp.succeeded + ' claims', 'success'); loadClaims(); $('#pkb-bulk-action-bar').hide(); })
                 .fail(function() { showToast('Bulk tag failed', 'danger'); });
         });
@@ -3306,7 +3306,7 @@ var PKBManager = (function() {
             var name = prompt('Context name for these ' + ids.length + ' claims:');
             if (!name) return;
             $.ajax({url: '/pkb/contexts', method: 'POST', contentType: 'application/json', data: JSON.stringify({name: name, claim_ids: ids})})
-                .done(function() { showToast('Context "' + name + '" created with ' + ids.length + ' claims', 'success'); $('.pkb-claim-select').prop('checked', false); $('#pkb-bulk-action-bar').hide(); })
+                .done(function() { showToast('Context created with ' + ids.length + ' claims', 'success'); $('.pkb-claim-select').prop('checked', false); $('#pkb-bulk-action-bar').hide(); })
                 .fail(function() { showToast('Create context failed', 'danger'); });
         });
 
