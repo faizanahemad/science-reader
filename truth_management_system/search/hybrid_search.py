@@ -127,9 +127,15 @@ class HybridSearchStrategy:
         all_results = self._execute_parallel(query, active_strategies, k * 2, filters)
         time_logger.info(f"[HYBRID] Strategy results: {[(name, len(r)) for name, r in zip(active_strategies, all_results)]}")
         
-        # Merge using RRF
+        # Merge using RRF. Per-strategy weights (W-A) let us trust some
+        # strategies more than others (e.g. embedding > fts); an empty mapping
+        # (the default) reproduces plain unweighted RRF exactly.
         merged_k = llm_rerank_top_n if llm_rerank else k
-        merged = merge_results_rrf(all_results, k=merged_k)
+        merged = merge_results_rrf(
+            all_results,
+            k=merged_k,
+            strategy_weights=getattr(self.config, "rrf_strategy_weights", None),
+        )
         time_logger.info(f"[HYBRID] Merged results: {len(merged)}")
 
         # Post-fusion recency + confidence re-weight (Workstream C). No-op when

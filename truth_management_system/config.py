@@ -190,6 +190,12 @@ class PKBConfig:
     compaction_stale_days: int = 90
     compaction_confidence_threshold: float = 0.5
 
+    # Retrieval ranking — weighted RRF fusion (W-A).
+    # Maps a strategy source name ('fts', 'embedding', 'rewrite', 'entity') to a
+    # multiplier on its reciprocal-rank contribution. Empty dict => every weight
+    # is 1.0 => identical to plain (unweighted) RRF. Tune via the eval harness.
+    rrf_strategy_weights: Dict[str, float] = field(default_factory=dict)
+
     # Parallelization
     max_parallel_llm_calls: int = 8
     max_parallel_embedding_calls: int = 16
@@ -262,6 +268,7 @@ class PKBConfig:
             'llm_temperature': self.llm_temperature,
             'max_parallel_llm_calls': self.max_parallel_llm_calls,
             'max_parallel_embedding_calls': self.max_parallel_embedding_calls,
+            'rrf_strategy_weights': dict(self.rrf_strategy_weights),
             'log_llm_calls': self.log_llm_calls,
             'log_search_queries': self.log_search_queries,
         }
@@ -297,6 +304,7 @@ class PKBConfig:
             'inferred_confidence_cap', 'inferred_rerank_penalty',
             'llm_model', 'embedding_model', 'llm_temperature',
             'max_parallel_llm_calls', 'max_parallel_embedding_calls',
+            'rrf_strategy_weights',
             'log_llm_calls', 'log_search_queries'
         }
         filtered = {k: v for k, v in data.items() if k in valid_keys}
@@ -378,6 +386,7 @@ def load_config(
         'LLM_TEMPERATURE': ('llm_temperature', float),
         'MAX_PARALLEL_LLM_CALLS': ('max_parallel_llm_calls', int),
         'MAX_PARALLEL_EMBEDDING_CALLS': ('max_parallel_embedding_calls', int),
+        'RRF_STRATEGY_WEIGHTS': ('rrf_strategy_weights', lambda x: {str(k): float(v) for k, v in json.loads(x).items()}),
         'LOG_LLM_CALLS': ('log_llm_calls', lambda x: x.lower() in ('true', '1', 'yes')),
         'LOG_SEARCH_QUERIES': ('log_search_queries', lambda x: x.lower() in ('true', '1', 'yes')),
     }

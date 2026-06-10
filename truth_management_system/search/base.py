@@ -191,7 +191,8 @@ class SearchStrategy(ABC):
 def merge_results_rrf(
     result_lists: List[List[SearchResult]],
     k: int = 60,
-    rrf_k: int = 60
+    rrf_k: int = 60,
+    strategy_weights: Optional[Dict[str, float]] = None
 ) -> List[SearchResult]:
     """
     Merge results from multiple strategies using Reciprocal Rank Fusion.
@@ -199,23 +200,29 @@ def merge_results_rrf(
     RRF is a robust rank aggregation method that doesn't require
     score normalization across different strategies.
     
-    Formula: score = sum(1 / (rank + k)) for each list
+    Formula: score = sum(weight[source] / (rank + k)) for each list
     
     Args:
         result_lists: List of result lists from different strategies.
         k: Number of final results to return.
         rrf_k: RRF constant (default: 60, as per original paper).
+        strategy_weights: Optional per-strategy multipliers keyed by
+            ``SearchResult.source`` (e.g. ``{"fts": 0.6, "embedding": 1.0}``).
+            Any source absent from the mapping (or ``None``/empty mapping)
+            uses weight 1.0, which reproduces plain unweighted RRF exactly.
         
     Returns:
         Merged and re-ranked list of SearchResults.
     """
+    weights = strategy_weights or {}
     # Track: claim_id -> (best_result, total_score, sources)
     scores: Dict[str, tuple] = {}
     
     for results in result_lists:
         for rank, result in enumerate(results):
             cid = result.claim.claim_id
-            rrf_score = 1.0 / (rank + rrf_k)
+            weight = weights.get(result.source, 1.0)
+            rrf_score = weight * (1.0 / (rank + rrf_k))
             
             if cid in scores:
                 _, total, sources = scores[cid]
