@@ -4018,4 +4018,91 @@ Full details: `short_term_memory.md`
 
 ---
 
+## PKB UX Improvements (v1.0)
+
+Comprehensive set of 21 improvements across capture, organization, retrieval, interaction, maintenance, and transparency. All capabilities are independently usable via REST API, LLM Tool Calling, and MCP (for external AI editors like Claude Code, Cursor, ChatGPT).
+
+### Design Principle
+
+The PKB module works as a **universal memory backend** for any AI assistant. Every new capability is exposed on 3 surfaces:
+1. **REST API** — standard HTTP endpoints in `endpoints/pkb.py`
+2. **LLM Tool Calling** — `@register_tool(category="pkb")` in `code_common/tools.py`
+3. **MCP** — `@mcp.tool()` in `mcp_server/pkb.py` (baseline + full tiers)
+
+### MCP Tool Tier System
+
+- **Baseline** = operations external AI needs in normal conversation (feedback, STM, summarize, reinforce, extract)
+- **Full** = administrative/maintenance operations (stats, fading, clusters, bulk, demote)
+
+### Batch 0 — API Parity Foundation
+
+Registered existing STM and extraction operations as MCP + LLM tools:
+- `pkb_get_stm`, `pkb_promote_stm`, `pkb_dismiss_stm` (baseline tier)
+- `pkb_propose_extraction` (baseline tier)
+- `pkb_recent_promotions`, `pkb_demote_claim` (full tier)
+
+### Batch 1 — Capture & Visibility
+
+1. **STM Capture Toast**: Added `stm_stored`/`stm_reinforced` counts to `propose_updates` response; frontend shows info toast.
+2. **STM in Audit Details**: `<stm_context>` XML parsing in `_format_pkb_audit_details`; items get `source='stm'`, type 'STM' badge.
+3. **STM Promotion Visibility**: "Recently Promoted" collapsible section in PKB modal (Maintenance tab) with demote buttons.
+4. **Undo Cleanup Actions**: "Recently Archived" section with one-click restore.
+5. **Import Button**: Visible "Import" button in settings bar opens PKB modal directly to Import tab.
+6. **Save to Memory Extraction**: "Save to Memory" context menu rewired to call `propose_updates` with `extraction_mode='aggressive'` (multi-claim LLM extraction) instead of single manual add.
+
+### Batch 2 — Organization & Retrieval
+
+7. **Dedup at Proposal**: `_propose_actions` passes related claim (0.7-0.9 similarity match) as `existing_claim` on 'add' actions. Frontend shows yellow "⚠️ Similar existing" warning.
+8. **Why-Tooltip on Proposals**: Added `reason` field to `CandidateClaim` dataclass. Both extraction prompts ask LLM for a brief source quote (max 15 words). Displayed inline next to action badges.
+9. **Retrieval Scoping**: Text input `#settings-pkb-scope` in chat settings (comma-separated domain names). Passed through `_get_pkb_context` → `api.search(filters={context_domains: [...]})`.
+10. **Fading Memories Section**: `GET /pkb/claims/fading` + `POST /pkb/claims/<id>/reinforce`; MCP/LLM tools; warning-bordered card in Maintenance tab with reinforce buttons.
+11. **Proactive Cleanup Nudge**: On PKB modal open, checks `GET /pkb/notifications` and shows red badge on Maintenance tab.
+12. **NL Search Rich Results**: NL agent `_tool_search` returns enriched fields: `friendly_id`, `confidence`, `tags`, `created_at`, `reinforcement_count`.
+
+### Batch 3 — Intelligence & Maintenance
+
+13. **PKB Summarize Command**: `summarize_knowledge` action in NL agent dispatch. Uses `overview_manager.get_key_areas_snippet()` with tag-list fallback. MCP tool `pkb_summarize` (baseline), LLM tool.
+14. **Negative Feedback Retrieval**: New `claim_feedback` table in schema. `add_claim_feedback()`, `get_claim_feedback()`, `get_negative_claim_ids()` methods. Search applies 50% score penalty to claims with negative feedback. REST + MCP + LLM tool.
+15. **Health Dashboard**: `get_health_stats()` — aggregate SQL counts by status, type, domain. `GET /pkb/health`. MCP tool (full tier). Frontend: health summary bar at top of Maintenance tab.
+16. **Dedup Highlight Matching**: `highlightDiff(newText, oldText)` utility — word-level diff wrapping unique words in `<mark>` tags. Applied to existing-statement displays in proposal cards.
+
+### Batch 4 — Bulk & Clustering
+
+17. **Bulk Organization**: Checkboxes on claim cards + floating action bar (Archive/Tag/Group/Clear). `POST /pkb/claims/bulk` endpoint.
+18. **Create Context from Selection**: "Group" button in bulk bar prompts for context name, calls `POST /pkb/contexts` with selected `claim_ids`.
+19. **Auto-Clustering Suggestions**: `GET /pkb/claims/clusters` at threshold 0.75 (lower than dedup). MCP tool `pkb_auto_clusters` (full tier). "Suggested Clusters" info-card in Maintenance tab.
+
+### Schema Changes
+
+```sql
+CREATE TABLE IF NOT EXISTS claim_feedback (
+    feedback_id TEXT PRIMARY KEY,
+    claim_id TEXT NOT NULL,
+    user_email TEXT,
+    feedback_type TEXT NOT NULL DEFAULT 'negative',
+    context TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (claim_id) REFERENCES claims(claim_id)
+);
+```
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `Conversation.py` | STM audit parsing, retrieval scoping (`pkb_scope` param) |
+| `code_common/tools.py` | 10 new LLM tools (PKB category) |
+| `endpoints/pkb.py` | 8 new REST endpoints |
+| `interface/chat.js` | `pkb_scope` settings collection + restoration |
+| `interface/common.js` | Save-to-Memory rewire |
+| `interface/interface.html` | Bulk action bar, health dashboard, fading/clusters/archived sections, scope input, import button |
+| `interface/pkb-manager.js` | loadFadingClaims, loadClusters, loadRecentlyArchived, highlightDiff, bulk handlers, reinforce handler, proposeFromText, notification badge |
+| `mcp_server/pkb.py` | 12 new MCP tools (6 baseline + 6 full tier) |
+| `truth_management_system/interface/conversation_distillation.py` | `reason` field in CandidateClaim, dedup match passing |
+| `truth_management_system/interface/nl_agent.py` | `summarize_knowledge` action, enriched search results, indentation fixes |
+| `truth_management_system/interface/structured_api.py` | `get_health_stats()`, feedback methods, negative feedback penalty in search, archived/restore |
+| `truth_management_system/schema.py` | `claim_feedback` table |
+
+---
+
 **End of Implementation Deep Dive**

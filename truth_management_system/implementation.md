@@ -1480,3 +1480,77 @@ time_logger.info(f"[EMBEDDING] Got {len(candidates)} candidate claims")
 - `[FTS]` - Full-text search operations
 - `[EMBEDDING]` - Embedding search operations  
 - `[HYBRID]` - Hybrid search orchestration
+
+
+---
+
+## UX Improvements Layer (v1.0)
+
+The v1.0 UX layer adds 21 features across capture, organization, retrieval, maintenance, and external AI integration. Every capability is exposed on REST + LLM Tool + MCP surfaces.
+
+### Architecture Pattern
+
+```
+External AI Editor (Claude Code, Cursor, ChatGPT)
+    ↓ MCP protocol
+mcp_server/pkb.py  →  structured_api.py  →  database/search
+    ↑                      ↑
+code_common/tools.py      endpoints/pkb.py
+(LLM tool calling)        (REST API)
+    ↑                      ↑
+Conversation.py           interface/pkb-manager.js
+(in-chat integration)     (browser UI)
+```
+
+### Key New Components
+
+| Component | Purpose |
+|-----------|---------|
+| `claim_feedback` table | Stores negative feedback; enables retrieval penalty |
+| `get_health_stats()` | Aggregate SQL for health dashboard |
+| `highlightDiff()` (JS) | Word-level diff for dedup visualization |
+| `loadFadingClaims()` (JS) | Maintenance tab: dormant claims |
+| `loadClusters()` (JS) | Maintenance tab: semantic clusters |
+| `pkb_scope` setting | Domain scoping for retrieval |
+| `reason` field on `CandidateClaim` | LLM-generated extraction justification |
+
+### MCP Tool Registration Pattern
+
+```python
+# Baseline tier — always available
+@mcp.tool()
+def pkb_summarize(user_email: str) -> str:
+    """Docstring becomes the tool description."""
+    api = _get_pkb_api()
+    user_api = api.for_user(user_email)
+    result = user_api.some_method()
+    return _serialize_action_result(result)
+
+# Full tier — inside `if is_full:` block
+```
+
+### Retrieval Scoping Flow
+
+```
+chat.js collects pkb_scope from #settings-pkb-scope input
+  → checkboxes.pkb_scope in message payload
+    → Conversation._get_pkb_context(pkb_scope=...)
+      → parses comma-separated domains
+        → api.search(filters={"context_domains": [...]})
+          → SearchFilters.context_domains applied in SQL
+```
+
+### Negative Feedback Penalty
+
+Applied in `structured_api.search()` after results return:
+1. `get_negative_claim_ids()` → set of claim_ids with any negative feedback
+2. For each result, if `claim_id in neg_ids`: `score *= 0.5`
+3. Re-sort by score
+
+### Bulk Operations
+
+The `POST /pkb/claims/bulk` endpoint iterates claim_ids and applies:
+- `action="archive"` → `api.update_claim(cid, status="archived")`
+- `action="tag"` → `api.add_tag_to_claim(cid, tag_name)`
+
+Frontend uses checkboxes on claim cards (`pkb-claim-select`) with a floating action bar.

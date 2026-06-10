@@ -664,7 +664,7 @@ location /ws/terminal {
 - Expired claims are excluded from search results by default (same as retracted).
 - The `GET /pkb/claims/{id}` endpoint returns claim status (`active`, `retracted`, or `expired`) in the response.
 
-**NL Agent & `/pkb` Slash Commands (v0.9)**
+**NL Agent & `/pkb` Slash Commands (v1.0)**
 - `/pkb <text>` and `/memory <text>` slash commands route to `PKBNLConversationAgent` inside `Conversation.reply()`, bypassing the normal LLM path.
 - The agent delegates to `PKBNLAgent` (`truth_management_system/interface/nl_agent.py`), a tool-based NL processor with actions: `add`, `search`, `delete`, `edit`, `ask_clarification`.
 - Uses short conversation history + summary for context. Streams responses directly to the user.

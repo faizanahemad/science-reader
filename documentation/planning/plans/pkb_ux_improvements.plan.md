@@ -4,64 +4,64 @@ overview: "A comprehensive set of UX improvements to the PKB system covering all
 todos:
   - id: stm-mcp-tools
     content: "Register existing STM endpoints (get, promote, dismiss) as MCP + LLM tools — currently REST-only"
-    status: pending
+    status: done
   - id: save-to-memory-extraction
     content: "Make 'Save to Memory' button and text-selection context menu run the extraction pipeline (propose_updates style) instead of opening modal with raw text"
-    status: pending
+    status: done
   - id: dedup-at-proposal
     content: "Show 'Similar existing memory' warning on proposal cards by running fuzzy match against existing claims during propose_updates"
-    status: pending
+    status: done
   - id: import-button-pkb-modal
     content: "Add visible 'Import' button/tab in PKB modal for text/document bulk ingestion"
-    status: pending
+    status: done
   - id: stm-capture-toast
     content: "Show subtle non-blocking toast when STM items are silently captured (e.g. '2 context items remembered')"
-    status: pending
+    status: done
   - id: bulk-organization
     content: "Add multi-select checkboxes to claims list + bulk actions toolbar (Add to Context, Tag, Change Type, Delete)"
-    status: pending
+    status: done
   - id: create-context-from-selection
     content: "Allow creating a new context from selected claims (multi-select → 'Create Context' action)"
-    status: pending
+    status: done
   - id: auto-clustering-suggestions
     content: "Periodic/on-demand clustering: identify untagged/ungrouped claims that share entities/topics, suggest grouping"
-    status: pending
+    status: done
   - id: negative-feedback-retrieval
     content: "Add thumbs-down on retrieved memories in PKB Retrieval Details; store as contextual negative signal for rerank tuning"
-    status: pending
+    status: done
   - id: stm-in-audit-details
     content: "Make STM items visible in the PKB Retrieval Details collapsible section with distinct 'STM' badge"
-    status: pending
+    status: done
   - id: retrieval-scoping
     content: "Add domain/context/entity/tag scoping filter in chat settings to restrict PKB retrieval to a subset"
-    status: pending
+    status: done
   - id: nl-search-rich-results
     content: "Enhance NL agent search results to show confidence, provenance badge, last-accessed age, and friendly ID"
-    status: pending
+    status: done
   - id: pkb-summarize-command
     content: "Add '/pkb summarize <topic>' NL command — collects related claims via search and generates a synthesis"
-    status: pending
+    status: done
   - id: proactive-cleanup-nudge
     content: "Background job runs cleanup analysis after N new claims or X days since last cleanup; shows badge/notification when results available"
-    status: pending
+    status: done
   - id: fading-memories-section
     content: "Show 'Fading Memories' in Maintenance tab — claims approaching staleness with Reinforce/Dismiss buttons; stale claims excluded from retrieval"
-    status: pending
+    status: done
   - id: dedup-highlight-matching
     content: "In dedup suggestion UI, highlight the overlapping/matching text between candidate duplicates"
-    status: pending
+    status: done
   - id: undo-cleanup-actions
     content: "Add 'Recently Archived' list in Maintenance with one-click restore (unarchive)"
-    status: pending
+    status: done
   - id: pkb-health-dashboard
     content: "Stats section in PKB modal: claim counts by provenance/type/status, claims this month, top entities, STM active count, last cleanup date"
-    status: pending
+    status: done
   - id: why-tooltip-proposals
     content: "Show 'Why?' tooltip on auto-extract proposal cards — displays the conversation snippet that triggered extraction"
-    status: pending
+    status: done
   - id: stm-promotion-visibility
     content: "Toast on STM→LTM promotion with statement preview; 'Recently Promoted' section in STM UI; one-click revert (demote back to STM or delete)"
-    status: pending
+    status: done
 ---
 
 # PKB UX Improvements Plan

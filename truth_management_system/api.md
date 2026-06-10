@@ -1039,8 +1039,73 @@ Use `@memory:claim_id` or `@mem:claim_id` in messages. Auto-parsed and included 
 
 | Version | Features |
 |---------|----------|
+| **v1.0** | UX Improvements: MCP/LLM tool parity (STM, extraction, summarize, feedback), retrieval scoping, fading memories, negative feedback penalty, health dashboard, auto-clustering, bulk organization, context-from-selection, dedup highlighting, cleanup nudge, reason field in extraction |
 | **v0.4.1** | Bug fixes: Fixed database path mismatch between server.py and Conversation.py; Fixed numpy array truthiness check in embedding search; Added time_logger for guaranteed log visibility in search modules |
 | **v0.4.0** | Deliberate Memory Attachment: global/conversation pinning, "Use Now", @memory refs, priority merging |
 | **v0.3.0** | Bulk operations: `add_claims_bulk()`, `TextIngestionDistiller`, text ingestion endpoints, enhanced approval modal |
 | **v0.2.0** | Multi-user (`user_email` scoping), schema migration v1→v2, Flask REST API, `pkb-manager.js`, Conversation.py integration |
 | **v0.1.0** | Initial: SQLite/WAL, FTS5, embedding search, hybrid RRF, LLM extraction, text orchestration, conversation distillation |
+
+---
+
+## New Endpoints (v1.0 — UX Improvements)
+
+### Fading Memories & Reinforcement
+
+```
+GET  /pkb/claims/fading          → {fading: [{claim_id, statement, claim_type, updated_at}]}
+POST /pkb/claims/<id>/reinforce  → {reinforced: true, claim_id}
+```
+
+### Negative Feedback
+
+```
+POST /pkb/claims/<id>/feedback   body: {context: "why unhelpful"}  → {feedback_id, claim_id}
+GET  /pkb/feedback               ?claim_id=<optional>  → {feedback: [{feedback_id, claim_id, context, created_at}]}
+```
+
+### Health Dashboard
+
+```
+GET  /pkb/health  → {total_claims, by_status: {active: N, dormant: N, ...}, by_type: {...}, by_domain: {...}}
+```
+
+### Auto-Clustering
+
+```
+GET  /pkb/claims/clusters  ?threshold=0.75&limit=20  → {clusters: [{claim_ids, statements, suggested_keep_id, max_similarity}]}
+```
+
+### Bulk Operations
+
+```
+POST /pkb/claims/bulk  body: {claim_ids: [...], action: "archive"|"tag", tag: "optional"}  → {succeeded: N, failed: N}
+```
+
+### MCP Tools (v1.0 additions)
+
+**Baseline tier** (available in all modes):
+- `pkb_get_stm` — get pending short-term memory items
+- `pkb_promote_stm` — promote STM item to long-term claim
+- `pkb_dismiss_stm` — dismiss/expire an STM item
+- `pkb_propose_extraction` — extract claims from text
+- `pkb_summarize` — get overview summary of knowledge base
+- `pkb_negative_feedback` — record negative feedback on a claim
+
+**Full tier** (administrative):
+- `pkb_recent_promotions` — list recently promoted STM items
+- `pkb_demote_claim` — reverse a STM promotion
+- `pkb_fading_claims` — list dormant claims needing attention
+- `pkb_reinforce_claim` — reinforce/revive a dormant claim
+- `pkb_health_stats` — aggregate health statistics
+- `pkb_auto_clusters` — find semantic clusters at lower threshold
+
+### LLM Tools (v1.0 additions)
+
+Same tools as MCP, registered via `@register_tool(category="pkb")` in `code_common/tools.py`:
+`pkb_get_stm`, `pkb_promote_stm`, `pkb_dismiss_stm`, `pkb_propose_extraction`, `pkb_summarize`, `pkb_negative_feedback`, `pkb_recent_promotions`, `pkb_demote_claim`, `pkb_fading_claims`, `pkb_reinforce_claim`
+
+### NL Agent Actions (v1.0 additions)
+
+- `summarize_knowledge` — returns overview/key areas of the knowledge base
+- Search results now include: `friendly_id`, `confidence`, `tags`, `created_at`, `reinforcement_count`
