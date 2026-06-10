@@ -3270,6 +3270,15 @@ var PKBManager = (function() {
                 .done(function(resp) { showToast('Tagged ' + resp.succeeded + ' claims', 'success'); loadClaims(); $('#pkb-bulk-action-bar').hide(); })
                 .fail(function() { showToast('Bulk tag failed', 'danger'); });
         });
+        $(document).on('click', '#pkb-bulk-context', function() {
+            var ids = $('.pkb-claim-select:checked').map(function() { return $(this).data('claim-id'); }).get();
+            if (!ids.length) return;
+            var name = prompt('Context name for these ' + ids.length + ' claims:');
+            if (!name) return;
+            $.ajax({url: '/pkb/contexts', method: 'POST', contentType: 'application/json', data: JSON.stringify({name: name, claim_ids: ids})})
+                .done(function() { showToast('Context "' + name + '" created with ' + ids.length + ' claims', 'success'); $('.pkb-claim-select').prop('checked', false); $('#pkb-bulk-action-bar').hide(); })
+                .fail(function() { showToast('Create context failed', 'danger'); });
+        });
 
         // Memory Cleanup (Maintenance tab, W11)
         $(document).on('click', '#pkb-cleanup-analyze-btn', function() {
