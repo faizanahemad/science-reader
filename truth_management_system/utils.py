@@ -427,6 +427,122 @@ def get_meta_value(meta_json: Optional[str], key: str, default: Any = None) -> A
 
 
 # =============================================================================
+# Provenance (two-axis: channel + derivation)
+# =============================================================================
+
+
+def set_provenance(
+    meta: Dict[str, Any],
+    channel: Optional[str] = None,
+    derivation: Optional[str] = None,
+    legacy_type: Optional[str] = None,
+    conversation_id: Optional[str] = None,
+    message_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    Set/merge the two-axis provenance on a parsed meta dict, in place.
+
+    Stores everything under ``meta["source"]`` (a dict):
+      - ``channel``    : normalized ProvenanceChannel (manual|chat|ingest|import)
+      - ``derivation`` : Derivation (stated|extracted|inferred)
+      - ``type``       : legacy free-form source value, preserved for backward
+                         compatibility (e.g. "chat_distillation", "manual")
+      - ``conversation_id`` / ``message_id`` / ``distilled`` : optional E1/E2
+
+    Existing keys are preserved unless explicitly overridden. Returns ``meta``.
+    """
+    from .constants import ProvenanceChannel, Derivation
+
+    src = meta.get("source")
+    # Promote a legacy string source ("manual"/"chat_distillation"/...) to a dict.
+    if isinstance(src, str):
+        src = {"channel": ProvenanceChannel.normalize(src), "type": src}
+    elif not isinstance(src, dict):
+        src = {}
+
+    if channel is not None:
+        src["channel"] = ProvenanceChannel.normalize(channel)
+    elif "channel" not in src:
+        # Derive a channel from any legacy ``type`` value, else default manual.
+        src["channel"] = ProvenanceChannel.normalize(src.get("type"))
+
+    # Legacy free-form type (kept distinct from the normalized channel).
+    if legacy_type is not None:
+        src["type"] = legacy_type
+    elif "type" not in src:
+        src["type"] = src["channel"]
+
+    if derivation is not None and Derivation.is_valid(derivation):
+        src["derivation"] = derivation
+    elif "derivation" not in src:
+        src["derivation"] = Derivation.default()
+
+    if conversation_id:
+        src["conversation_id"] = conversation_id
+    if message_id:
+        src["message_id"] = message_id
+    if conversation_id or message_id:
+        src["distilled"] = True
+
+    meta["source"] = src
+    return meta
+
+
+def get_provenance(meta_json: Optional[str]) -> Dict[str, str]:
+    """
+    Read the two-axis provenance from a meta_json string (or dict).
+
+    Returns ``{"channel": ..., "derivation": ...}`` with sensible defaults,
+    tolerating the legacy string-form ``source`` and missing keys.
+    """
+    from .constants import ProvenanceChannel, Derivation
+
+    data = meta_json if isinstance(meta_json, dict) else parse_meta_json(meta_json)
+    src = data.get("source")
+    if isinstance(src, str):
+        return {
+            "channel": ProvenanceChannel.normalize(src),
+            "derivation": Derivation.default(),
+        }
+    if not isinstance(src, dict):
+        return {
+            "channel": ProvenanceChannel.MANUAL.value,
+            "derivation": Derivation.default(),
+        }
+    channel = src.get("channel") or ProvenanceChannel.normalize(src.get("type"))
+    derivation = src.get("derivation")
+    if not Derivation.is_valid(derivation or ""):
+        derivation = Derivation.default()
+    return {"channel": channel, "derivation": derivation}
+
+
+def infer_legacy_provenance(meta_json: Optional[str]) -> Dict[str, str]:
+    """
+    Backfill helper: infer (channel, derivation) for a pre-provenance claim
+    from its existing ``meta_json.source`` value.
+
+    - channel  : normalized from the legacy source type (default manual)
+    - derivation: ``stated`` if the legacy source is manual, else ``extracted``
+      (machine-derived claims were rephrased, not user-inferred conclusions).
+    """
+    from .constants import ProvenanceChannel, Derivation
+
+    data = parse_meta_json(meta_json)
+    src = data.get("source")
+    legacy_type = src if isinstance(src, str) else (src or {}).get("type") if isinstance(src, dict) else None
+    channel = ProvenanceChannel.normalize(legacy_type)
+    derivation = (
+        Derivation.STATED.value
+        if channel == ProvenanceChannel.MANUAL.value
+        else Derivation.EXTRACTED.value
+    )
+    return {"channel": channel, "derivation": derivation}
+
+
+
+
+
+# =============================================================================
 # Parallel Execution
 # =============================================================================
 
@@ -847,6 +963,15 @@ def generate_friendly_id(
             )
             candidate = f"{base_id}_{suffix}"
             break
+
+    # Guard: exact-match reservations — these IDs are used as pseudo-claims
+    # by the system and must never be assigned to a real claim row.
+    RESERVED_EXACT = {"pkb_overview"}
+    if candidate in RESERVED_EXACT:
+        suffix = "".join(
+            random.choices(string.ascii_lowercase + string.digits, k=suffix_len)
+        )
+        candidate = f"{base_id}_{suffix}"
 
     return candidate
 

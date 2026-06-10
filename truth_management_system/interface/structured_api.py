@@ -182,6 +182,48 @@ class StructuredAPI:
         embeddings = store.ensure_embeddings(claims)
         return {"total": len(claims), "embedded": len(embeddings)}
 
+    def backfill_provenance(self) -> Dict[str, int]:
+        """
+        Backfill two-axis provenance (channel + derivation) on existing claims
+        that predate the provenance feature (Workstream W1).
+
+        Idempotent: only claims whose ``meta_json.source`` lacks a ``derivation``
+        are touched. Derivation/channel are inferred from the legacy source via
+        ``utils.infer_legacy_provenance`` (manual→stated, else extracted). Writes
+        meta_json directly (no embedding recompute, no audit noise).
+
+        Returns dict with ``total`` claims scanned and ``updated`` count.
+        """
+        import json as _pjson
+        from ..utils import parse_meta_json, set_provenance, infer_legacy_provenance
+
+        rows = self.db.fetchall(
+            "SELECT claim_id, meta_json FROM claims WHERE "
+            "(user_email = ? OR (? IS NULL AND user_email IS NULL))",
+            (self.user_email, self.user_email),
+        )
+        total = len(rows)
+        updated = 0
+        with self.db.transaction() as conn:
+            for row in rows:
+                meta = parse_meta_json(row["meta_json"])
+                src = meta.get("source")
+                if isinstance(src, dict) and src.get("derivation"):
+                    continue  # already has provenance
+                inferred = infer_legacy_provenance(row["meta_json"])
+                set_provenance(
+                    meta,
+                    channel=inferred["channel"],
+                    derivation=inferred["derivation"],
+                )
+                conn.execute(
+                    "UPDATE claims SET meta_json = ? WHERE claim_id = ?",
+                    (_pjson.dumps(meta), row["claim_id"]),
+                )
+                updated += 1
+        logger.info(f"Provenance backfill: {updated}/{total} claims updated")
+        return {"total": total, "updated": updated}
+
     def for_user(self, user_email: str) -> "StructuredAPI":
         """
         Create a new StructuredAPI instance scoped to a specific user.
@@ -411,33 +453,73 @@ class StructuredAPI:
             # this?", and tag it `source:conversation`. Stored in meta_json (not
             # a column) to match the existing `pinned` / text-ingestion source
             # conventions and avoid a schema migration.
+            # Provenance (two-axis: channel + derivation). channel = where the
+            # claim entered (manual|chat|ingest|import); derivation = epistemic
+            # basis (stated|extracted|inferred). Always recorded under
+            # meta_json.source (no schema migration). E1/E2 conversation/message
+            # provenance is folded in when supplied by the distiller.
             source_conversation_id = kwargs.get("source_conversation_id")
             source_message_id = kwargs.get("source_message_id")
             source_type = kwargs.get("source_type")
-            if source_conversation_id or source_message_id or source_type:
-                import json as _pjson
-                _meta = {}
-                if meta_json:
-                    try:
-                        _meta = _pjson.loads(meta_json)
-                    except (ValueError, TypeError):
-                        _meta = {}
-                source_obj = {"type": source_type or "chat_distillation"}
-                if source_conversation_id:
-                    source_obj["conversation_id"] = source_conversation_id
-                if source_message_id:
-                    source_obj["message_id"] = source_message_id
-                if source_conversation_id or source_message_id:
-                    source_obj["distilled"] = True
-                # Preserve any existing string-form source as the type.
-                existing_source = _meta.get("source")
-                if isinstance(existing_source, str):
-                    source_obj["type"] = existing_source
-                _meta["source"] = source_obj
-                meta_json = _pjson.dumps(_meta)
-                # E2: provenance tag so distilled claims are filterable.
-                if source_conversation_id and "source:conversation" not in tags:
-                    tags = list(tags) + ["source:conversation"]
+            channel = kwargs.get("channel") or source_type
+            derivation = kwargs.get("derivation")
+
+            from ..constants import ProvenanceChannel, Derivation
+            from ..utils import set_provenance as _set_prov
+
+            # Default channel: chat when distilled, else manual.
+            if not channel:
+                channel = (
+                    ProvenanceChannel.CHAT.value
+                    if (source_conversation_id or source_message_id)
+                    else ProvenanceChannel.MANUAL.value
+                )
+            norm_channel = ProvenanceChannel.normalize(channel)
+            # Default derivation: stated for manual, extracted otherwise.
+            if not Derivation.is_valid(derivation or ""):
+                derivation = (
+                    Derivation.STATED.value
+                    if norm_channel == ProvenanceChannel.MANUAL.value
+                    else Derivation.EXTRACTED.value
+                )
+
+            # Legacy free-form `type` (kept for backward compatibility): an
+            # explicit source_type wins; distilled-without-type stays the
+            # historical "chat_distillation"; otherwise mirror the channel.
+            if source_type:
+                legacy_type = source_type
+            elif source_conversation_id or source_message_id:
+                legacy_type = "chat_distillation"
+            else:
+                legacy_type = norm_channel
+
+            import json as _pjson
+            _meta = {}
+            if meta_json:
+                try:
+                    _meta = _pjson.loads(meta_json)
+                except (ValueError, TypeError):
+                    _meta = {}
+            _set_prov(
+                _meta,
+                channel=norm_channel,
+                derivation=derivation,
+                legacy_type=legacy_type,
+                conversation_id=source_conversation_id,
+                message_id=source_message_id,
+            )
+            meta_json = _pjson.dumps(_meta)
+            # E2: provenance tag so distilled claims are filterable.
+            if source_conversation_id and "source:conversation" not in tags:
+                tags = list(tags) + ["source:conversation"]
+
+            # Inferred claims are trusted less: cap their confidence.
+            if derivation == Derivation.INFERRED.value:
+                _cap = getattr(self.config, "inferred_confidence_cap", 0.4)
+                _base = confidence if confidence is not None else getattr(
+                    self.config, "default_confidence", 0.5
+                )
+                confidence = min(_base, _cap)
 
             # Create claim (user_email is applied by ClaimCRUD if set)
             claim = Claim.create(
@@ -2214,6 +2296,50 @@ class StructuredAPI:
         """
         try:
             import re as _re
+
+            # =================================================================
+            # SPECIAL CASE: pkb_overview pseudo-reference
+            # Returns the full overview content wrapped as a mock claim-like
+            # object so it reaches the main LLM verbatim (source="referenced").
+            # =================================================================
+            if reference_id == "pkb_overview":
+                try:
+                    from .overview_manager import PKBOverviewManager
+                    manager = PKBOverviewManager(self.db, self.keys, self.config)
+                    result = manager.get_overview(self.user_email)
+
+                    from ..models import Claim
+                    from ..utils import generate_uuid, now_iso
+                    mock_claim = Claim(
+                        claim_id=generate_uuid(),
+                        user_email=self.user_email,
+                        claim_type="overview",
+                        statement=result.content,
+                        context_domain="personal",
+                        created_at=now_iso(),
+                        updated_at=now_iso(),
+                        valid_from="1970-01-01T00:00:00Z",
+                    )
+                    return ActionResult(
+                        success=True,
+                        action="resolve",
+                        object_type="reference",
+                        object_id="pkb_overview",
+                        data={
+                            "type": "overview",
+                            "claims": [mock_claim],
+                            "source_id": "pkb_overview",
+                            "source_name": "PKB Memory Overview",
+                        },
+                    )
+                except Exception as e:
+                    logger.warning(f"[resolve_reference] pkb_overview lookup failed: {e}")
+                    return ActionResult(
+                        success=False,
+                        action="resolve",
+                        object_type="reference",
+                        errors=[f"Could not load PKB overview: {e}"],
+                    )
 
             # =================================================================
             # FAST PATH: Suffix-based routing (v0.7)

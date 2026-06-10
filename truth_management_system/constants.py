@@ -153,14 +153,74 @@ class MetaJsonKeys:
     """
 
     KEYWORDS = "keywords"  # List[str] - extracted keywords for search
-    SOURCE = "source"  # str - "manual"|"chat_distillation"|"import"
+    SOURCE = "source"  # Dict - {channel, derivation, type(legacy), conversation_id, message_id}
     VISIBILITY = "visibility"  # str - "default"|"restricted"|"shareable"
     LLM = "llm"  # Dict - {model, prompt_version, confidence_notes}
+    ORIGIN = "origin"  # str (entities/tags) - "auto"|"curated"
 
     # Source values
     SOURCE_MANUAL = "manual"
     SOURCE_CHAT_DISTILLATION = "chat_distillation"
     SOURCE_IMPORT = "import"
+
+    # Origin values (entities/tags)
+    ORIGIN_AUTO = "auto"        # created by LLM enrichment
+    ORIGIN_CURATED = "curated"  # created/edited by the user
+
+
+class ProvenanceChannel(str, Enum):
+    """
+    First provenance axis: *where* a claim entered the knowledge base.
+
+    Stored as ``meta_json.source.channel``. The legacy ``meta_json.source.type``
+    grab-bag values are normalized here (chat_distillation→chat,
+    text_ingestion→ingest, migration→import). ``referenced`` is NOT a channel —
+    it is a transient retrieval-time injection label and is never persisted.
+    """
+
+    MANUAL = "manual"  # user entered it directly (UI/API)
+    CHAT = "chat"      # distilled from a conversation turn
+    INGEST = "ingest"  # bulk text ingestion
+    IMPORT = "import"  # portability import / legacy migration
+
+    @classmethod
+    def normalize(cls, value: str) -> str:
+        """Map legacy/source-type strings onto the canonical channel set."""
+        if not value:
+            return cls.MANUAL.value
+        v = str(value).strip().lower()
+        mapping = {
+            "manual": cls.MANUAL.value,
+            "chat": cls.CHAT.value,
+            "chat_distillation": cls.CHAT.value,
+            "distillation": cls.CHAT.value,
+            "ingest": cls.INGEST.value,
+            "text_ingestion": cls.INGEST.value,
+            "import": cls.IMPORT.value,
+            "migration": cls.IMPORT.value,
+        }
+        return mapping.get(v, v)
+
+
+class Derivation(str, Enum):
+    """
+    Second provenance axis: the *epistemic basis* of a claim.
+
+    Stored as ``meta_json.source.derivation``. Orthogonal to channel and to
+    lifecycle ``status``.
+    """
+
+    STATED = "stated"        # user said/entered it ~verbatim
+    EXTRACTED = "extracted"  # rephrased from the user's own message (same content)
+    INFERRED = "inferred"    # a conclusion the user never explicitly stated
+
+    @classmethod
+    def default(cls) -> str:
+        return cls.STATED.value
+
+    @classmethod
+    def is_valid(cls, value: str) -> bool:
+        return value in (cls.STATED.value, cls.EXTRACTED.value, cls.INFERRED.value)
 
     # Visibility values
     VISIBILITY_DEFAULT = "default"

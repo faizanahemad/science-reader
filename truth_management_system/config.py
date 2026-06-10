@@ -150,11 +150,25 @@ class PKBConfig:
     ann_min_claims: int = 200
     ann_overfetch: int = 5
 
+    # Provenance (two-axis): inferred claims are trusted less.
+    #   inferred_confidence_cap  : ceiling applied to a claim's confidence when
+    #       its derivation is "inferred" (a conclusion the user never stated).
+    #   inferred_rerank_penalty  : score subtracted from inferred claims during
+    #       the recency/confidence re-rank (0.0 = ranking unchanged).
+    inferred_confidence_cap: float = 0.4
+    inferred_rerank_penalty: float = 0.1
+
     # LLM settings
     llm_model: str = "google/gemini-3.1-flash-lite-preview"
     embedding_model: str = "openai/text-embedding-3-small"
     llm_temperature: float = 0.0  # Deterministic for extraction
-    
+
+    # PKB Memory Overview — config-gated Key Areas snippet injection into
+    # _get_pkb_context(). When True, a condensed ~100-word Key Areas section
+    # from the overview is appended to the auto-retrieved PKB context on every
+    # chat turn. Default off: the snippet may be stale and adds token cost.
+    overview_snippet_in_context: bool = False
+
     # Parallelization
     max_parallel_llm_calls: int = 8
     max_parallel_embedding_calls: int = 16
@@ -219,6 +233,8 @@ class PKBConfig:
             'ann_backend': self.ann_backend,
             'ann_min_claims': self.ann_min_claims,
             'ann_overfetch': self.ann_overfetch,
+            'inferred_confidence_cap': self.inferred_confidence_cap,
+            'inferred_rerank_penalty': self.inferred_rerank_penalty,
             'llm_model': self.llm_model,
             'embedding_model': self.embedding_model,
             'llm_temperature': self.llm_temperature,
@@ -255,6 +271,7 @@ class PKBConfig:
             'combined_enrichment',
             'distiller_detect_contradictions',
             'ann_enabled', 'ann_backend', 'ann_min_claims', 'ann_overfetch',
+            'inferred_confidence_cap', 'inferred_rerank_penalty',
             'llm_model', 'embedding_model', 'llm_temperature',
             'max_parallel_llm_calls', 'max_parallel_embedding_calls',
             'log_llm_calls', 'log_search_queries'
@@ -322,6 +339,8 @@ def load_config(
         'ANN_BACKEND': ('ann_backend', str),
         'ANN_MIN_CLAIMS': ('ann_min_claims', int),
         'ANN_OVERFETCH': ('ann_overfetch', int),
+        'INFERRED_CONFIDENCE_CAP': ('inferred_confidence_cap', float),
+        'INFERRED_RERANK_PENALTY': ('inferred_rerank_penalty', float),
         'CONSOLIDATION_SIMILARITY_THRESHOLD': ('consolidation_similarity_threshold', float),
         'ENTITY_DEDUP_THRESHOLD': ('entity_dedup_threshold', float),
         'DEFAULT_CONFIDENCE': ('default_confidence', float),
