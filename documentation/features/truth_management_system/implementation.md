@@ -133,6 +133,7 @@ truth_management_system/
 │   ├── base.py              # SearchStrategy ABC, SearchFilters (with user_email)
 │   ├── fts_search.py        # FTSSearchStrategy: BM25 via SQLite FTS5
 │   ├── embedding_search.py  # EmbeddingSearchStrategy + EmbeddingStore
+│   ├── ann_vector_index.py  # VectorIndex: flat(numpy)/hnsw(faiss) backends, per-user cache (Workstream B)
 │   ├── rewrite_search.py    # RewriteSearchStrategy: LLM rewrites query → FTS
 │   ├── mapreduce_search.py  # MapReduceSearchStrategy: LLM scores candidates
 │   ├── hybrid_search.py     # HybridSearchStrategy: parallel + RRF + optional rerank
@@ -610,13 +611,26 @@ Cosine similarity over vector embeddings.
 | Method | Purpose |
 |--------|---------|
 | `search(query, k, filters)` | Semantic search via cosine similarity |
+| `_ann_search(query_emb, k, filters)` | Vector-index fast path (Workstream B); returns `None` to fall back to the linear scan |
+| `_load_claims_by_ids(ids, filters)` | Load index hits with the full SQL filters re-applied |
 | `name()` | Returns "embedding" |
 
 **Algorithm:**
 1. Get query embedding via `get_query_embedding()`
-2. Get/compute embeddings for candidate claims
-3. Compute cosine similarity: `dot(q, d) / (||q|| * ||d||)`
+2. **Vector-index fast path** (if `ann_enabled` and the user has ≥ `ann_min_claims` cached embeddings): score against the per-user `VectorIndex` (see below), over-fetch `k * ann_overfetch`, then re-apply filters via `_load_claims_by_ids`
+3. Otherwise (linear fallback): get/compute embeddings for candidate claims and compute cosine similarity `dot(q, d) / (||q|| * ||d||)`
 4. Sort by similarity, return top-k
+
+#### `search/ann_vector_index.py` - `VectorIndex`
+
+Accelerates embedding search (Workstream B). `flat` backend (default) scores all
+of a user's embeddings with one vectorized numpy matmul — **exact** (same
+ranking as the linear scan), no new dependency, ~13× faster than the Python loop
+at 50k vectors. `hnsw` backend (optional, faiss) gives approximate sub-linear
+search and falls back to `flat` when faiss is absent. Indexes build lazily from
+the `claim_embeddings` cache, are cached per-user in-process, and rebuild on a
+staleness signature `(COUNT(*), MAX(created_at))`. Config: `ann_enabled`,
+`ann_backend`, `ann_min_claims`, `ann_overfetch`. See the deep-dive for details.
 
 **Important: Numpy Array Truthiness**
 
