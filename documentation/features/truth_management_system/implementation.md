@@ -14,7 +14,7 @@ PKB v0 is a SQLite-backed personal knowledge base designed for integration with 
 - **Conversation.py integration**: Async PKB context retrieval for LLM prompts
 - **Frontend module**: `pkb-manager.js` for UI operations
 - **Memory update workflow**: Propose → Approve → Execute pattern for chat distillation
-- **Schema migration**: Automatic v1→v2→v3→v4→v5→v6 upgrade for existing databases
+- **Schema migration**: Automatic v1→v2→…→v10 upgrade for existing databases (latest: v7 friendly_ids on entities/tags, v8 reinforcement columns, v9 `claim_links`, v10 `audit_log`)
 - **Legacy data migration**: Script to import from `UserDetails` table
 - **Bulk operations**: Batch claim addition and text ingestion with AI analysis
 - **Deliberate memory attachment**: Global pinning, conversation pinning, "Use Now", and @memory references
@@ -40,6 +40,16 @@ PKB v0 is a SQLite-backed personal knowledge base designed for integration with 
 - **MCP/LLM-tools/REST parity** (v0.9): `pkb_delete_claim` and `pkb_nl_command` on all 3 surfaces
 - **`pkb_propose_memory` interactive tool** (v0.9): Modal with editable memory cards for uncertain NL operations
 - **`DEFAULT_ENABLED_TOOLS`** (v0.9): `["ask_clarification", "pkb_nl_command"]` — tools always enabled when tool use is on
+
+**Memory-System Improvements (`pkb_memory_system_improvements` plan — all workstreams A–H complete):**
+- **Embedding cache** (A): `embedding_cache_enabled` reuses stored vectors instead of recomputing on every search; `conflict_scan_limit` (default 500, `<=0` = all) replaces the old hardcoded 100-claim conflict scan.
+- **Vector index** (B): `search/ann_vector_index.py` — `flat` (exact numpy, default) / `hnsw` (faiss, optional) backends, per-user cache + staleness rebuild, linear fallback. Config: `ann_enabled`/`ann_backend`/`ann_min_claims`/`ann_overfetch`.
+- **Recency / confidence re-rank** (C): post-retrieval re-rank blending recency + confidence with a contested penalty. Config: `recency_rerank_enabled`, `w_recency`, `w_confidence`, `recency_half_life_days`, `recency_grace_days`, `contested_penalty`.
+- **Truth depth** (D): supersession chains via `claim_links` (v9); consolidation + entity resolution (`consolidation_similarity_threshold`, `entity_dedup_threshold`); distiller proposes a user-confirmed **supersede** on contradiction (`distiller_detect_contradictions`).
+- **Provenance** (E): `meta_json.source` provenance surfaced as "why do I know this?".
+- **Lifecycle** (F): soft-TTL dormancy decay (`dormancy_threshold`), scheduled sweep (`sweep_interval_seconds`), expiry notifications (`notify_expiry_within_days`).
+- **Cost & quality** (G): eval harness; combined single-call enrichment + parallel batch enrichment (`combined_enrichment`); export/import + append-only `audit_log` (v10).
+- **Reinforcement & decay** (H): `last_reinforced_at` + `reinforcement_count` (v8); `reinforce_claim()` with a contested/superseded conflict-review guard; `reinforce_alpha`, `reinforce_on_duplicate`.
 
 **Recent Updates (v0.9):**
 - NL Agent (`truth_management_system/interface/nl_agent.py`): 488+ line agentic processor with LLM tool calling, conversation context support, temporal extraction, type-filtered search, and `ask_clarification` action for interactive proposals. `process_streaming()` generator yields event dicts: `llm_call_start`, `thinking`, `action_start`, `action_result`, `parse_error`, `unknown_action`, `final_response`, `ask_clarification`, `timeout`, `error`, `max_iterations`. Backward compatible: `process()` unchanged, `process_streaming()` is additive.
@@ -111,9 +121,10 @@ truth_management_system/
 ├── config.py                # PKBConfig dataclass and load/save functions
 ├── utils.py                 # UUID generation, timestamps, JSON helpers, ParallelExecutor
 ├── models.py                # Dataclasses: Claim, Note, Entity, Tag, ConflictSet (all with user_email)
-├── schema.py                # SQLite DDL v6 with possible_questions, claim_number, catalog tables
-├── database.py              # PKBDatabase connection manager with schema migration (v1→v2→v3→v4→v5→v6)
-├── llm_helpers.py           # LLM-powered extraction (tags, entities, SPO, similarity, possible questions)
+├── schema.py                # SQLite DDL v10: + reinforcement cols (v8), claim_links (v9), audit_log (v10)
+├── database.py              # PKBDatabase connection manager with schema migration (v1→…→v10)
+├── llm_helpers.py           # LLM extraction (tags, entities, SPO, similarity, questions); combined analyze_claim_statement + batch_analyze + detect_contradiction
+├── portability.py           # G3: export_user_data/import_user_data + record_audit/get_audit_log
 ├── migrate_user_details.py  # Migration script: UserDetails → PKB claims
 │
 ├── crud/                    # Data access layer (all support user_email filtering)
@@ -249,7 +260,35 @@ embedding_enabled: bool = True
 default_k: int = 20
 include_contested_by_default: bool = True
 validity_filter_default: bool = False
-llm_model: str = "openai/gpt-4o-mini"
+embedding_cache_enabled: bool = True   # A: reuse cached vectors
+conflict_scan_limit: int = 500         # A3: max claims scanned for conflicts (<=0 = all)
+# C — recency/confidence re-rank
+recency_rerank_enabled: bool = True
+w_recency: float = 0.0                  # 0 = scoring unchanged from raw retrieval
+w_confidence: float = 0.0
+recency_half_life_days: float = 30.0
+recency_grace_days: float = 0.0         # C1b new-claim grace floor
+contested_penalty: float = 1.0
+# D — consolidation / entity resolution / distiller
+consolidation_similarity_threshold: float = 0.95
+entity_dedup_threshold: float = 0.85
+distiller_detect_contradictions: bool = True
+# F — lifecycle
+dormancy_threshold: float = 0.0
+sweep_interval_seconds: int = 0         # 0 = sweep disabled
+notify_expiry_within_days: int = 7
+# G — enrichment
+combined_enrichment: bool = True        # single combined analyze_claim_statement call
+# H — reinforcement
+reinforce_alpha: float = 0.1
+reinforce_on_duplicate: str = "off"
+default_confidence: float = 0.5
+# B — vector index
+ann_enabled: bool = True
+ann_backend: str = "flat"               # flat (numpy, exact) | hnsw (faiss)
+ann_min_claims: int = 200
+ann_overfetch: int = 5
+llm_model: str = "google/gemini-3.1-flash-lite-preview"
 embedding_model: str = "openai/text-embedding-3-small"
 llm_temperature: float = 0.0
 max_parallel_llm_calls: int = 8
@@ -325,22 +364,28 @@ user_email: Optional[str]        # Owner email for multi-user (v2)
 
 ### 5. `schema.py`
 
-SQLite DDL definitions. **Schema version: 2** (multi-user support).
+SQLite DDL definitions. **Schema version: 10** (audit log + export/import).
 
 **Tables Created:**
 | Table | Purpose | Key Columns |
 |-------|---------|-------------|
-| `claims` | Atomic memory units | claim_id, claim_type, statement, status, **user_email** |
+| `claims` | Atomic memory units | claim_id, claim_type, statement, status, **user_email**, **last_reinforced_at** (v8), **reinforcement_count** (v8) |
 | `notes` | Narrative content | note_id, title, body, **user_email** |
-| `entities` | People/places/topics | entity_id, entity_type, name, **user_email** (UNIQUE per user) |
-| `tags` | Hierarchical labels | tag_id, name, parent_tag_id, **user_email** (UNIQUE per user) |
+| `entities` | People/places/topics | entity_id, entity_type, name, friendly_id (v7), **user_email** (UNIQUE per user) |
+| `tags` | Hierarchical labels | tag_id, name, parent_tag_id, friendly_id (v7), **user_email** (UNIQUE per user) |
 | `claim_tags` | M:N claim-tag links | claim_id, tag_id |
 | `claim_entities` | M:N claim-entity links | claim_id, entity_id, role |
 | `conflict_sets` | Contradiction groups | conflict_set_id, status, **user_email** |
 | `conflict_set_members` | Conflict membership | conflict_set_id, claim_id |
-| `claim_embeddings` | Vector cache | claim_id, embedding (BLOB), model_name |
+| `claim_links` | Typed claim-claim links (v9) | from_claim_id, to_claim_id, link_type (supersedes/…) |
+| `claim_embeddings` | Vector cache | claim_id, embedding (BLOB), model_name, created_at |
 | `note_embeddings` | Vector cache for notes | note_id, embedding (BLOB) |
-| `claims_fts` | FTS5 virtual table | statement, predicate, context_domain |
+| `contexts` | Hierarchical groups (v5) | context_id, name, friendly_id, parent, **user_email** |
+| `context_claims` | M:N context-claim links | context_id, claim_id |
+| `claim_types_catalog` | User-extensible claim types | name, **user_email** |
+| `context_domains_catalog` | User-extensible domains | name, **user_email** |
+| `audit_log` | Append-only audit trail (v10) | audit_id, action (add/edit/delete/import), object_type, object_id, detail_json, **user_email** |
+| `claims_fts` | FTS5 virtual table | statement, predicate, context_domain, possible_questions |
 | `notes_fts` | FTS5 virtual table | title, body, context_domain |
 | `schema_version` | Migration tracking | version, applied_at |
 
@@ -359,7 +404,7 @@ SQLite DDL definitions. **Schema version: 2** (multi-user support).
 - `get_all_ddl(include_triggers)` → Complete DDL string
 - `get_tables_list()` → List of table names
 - `get_fts_tables_list()` → List of FTS table names
-- `SCHEMA_VERSION` → Current version (2)
+- `SCHEMA_VERSION` → Current version (10)
 
 ---
 
@@ -377,6 +422,11 @@ SQLite connection management with automatic schema migration.
 | `get_schema_version` | `() → Optional[int]` | Get current schema version |
 | `_run_migrations` | `(conn, from_v, to_v)` | Run schema migrations |
 | `_migrate_v1_to_v2` | `(conn)` | Add user_email columns/indexes |
+| `_migrate_v2_to_v3 … _v5_to_v6` | `(conn)` | Catalogs, friendly IDs, contexts, claim_number, possible_questions |
+| `_migrate_v6_to_v7` | `(conn)` | friendly_id on entities/tags (universal @references) |
+| `_migrate_v7_to_v8` | `(conn)` | Add `last_reinforced_at` + `reinforcement_count` to claims (H) |
+| `_migrate_v8_to_v9` | `(conn)` | Add `claim_links` table (D1 supersession/typed links) |
+| `_migrate_v9_to_v10` | `(conn)` | Add `audit_log` table + index (G3) |
 | `transaction` | `() → ContextManager` | Atomic transaction context |
 | `execute` | `(sql, params)` → Cursor | Execute SQL |
 | `fetchone` | `(sql, params)` → Row | Execute and fetch one |
@@ -385,10 +435,9 @@ SQLite connection management with automatic schema migration.
 | `close` | `()` | Close connection |
 | `vacuum` | `()` | Reclaim space |
 
-**Schema Migration (v1 → v2):**
-- Adds `user_email TEXT` column to: claims, notes, entities, tags, conflict_sets
-- Creates user_email indexes for all tables
-- Called automatically during `initialize_schema()` if upgrading
+**Schema Migration (v1 → v10):**
+- v2 adds `user_email` columns + indexes; v3–v6 add catalogs, friendly IDs, contexts, `claim_number`, `possible_questions`; v7 adds entity/tag friendly_ids; v8 adds `last_reinforced_at`/`reinforcement_count`; v9 adds `claim_links`; v10 adds `audit_log`
+- Migrations run forward from the stored version, each in a transaction; called automatically during `initialize_schema()`. Verified idempotent on a copy of the production DB (v6→v10, claims preserved).
 
 **Factory Functions:**
 - `get_database(config, auto_init=True)` → Initialized PKBDatabase (runs migrations)
@@ -411,6 +460,11 @@ LLM-powered extraction via `code_common/call_llm.py`.
 | `check_similarity` | `(new_claim, existing_claims, threshold)` → `List[Tuple]` | Find similar claims |
 | `batch_extract_all` | `(statements, context_domain)` → `List[ExtractionResult]` | Parallel extraction |
 | `extract_single` | `(statement, context_domain)` → `ExtractionResult` | Single extraction |
+| `analyze_claim_statement` | `(statement, model=None)` → `ClaimAnalysisResult` | **G2:** one combined LLM call extracting all fields (tags/entities/SPO/type/keywords/questions) — replaces ~6 calls |
+| `batch_analyze` | `(statements, model=None)` → `List[ClaimAnalysisResult]` | **G2:** fan `analyze_claim_statement` across the parallel executor (bulk/background enrichment) |
+| `detect_contradiction` | `(new_statement, existing_statement)` → `bool` | **D1 follow-up:** ungated LLM check used by the distiller to propose a supersede |
+
+**`ClaimAnalysisResult` Dataclass (G2 combined call):** tags, entities, spo, claim_type, keywords, and `possible_questions` — the single-call superset of `ExtractionResult` plus questions.
 
 **`ExtractionResult` Dataclass:**
 ```python
@@ -420,6 +474,21 @@ spo: Dict[str, Optional[str]]   # {subject, predicate, object}
 claim_type: str
 keywords: List[str]
 ```
+
+---
+
+### 7b. `portability.py` (Workstream G3)
+
+Export/import and append-only audit log. Module-level helpers (used by `StructuredAPI.export_data`/`import_data`/`get_audit_log` and the REST routes).
+
+| Function | Signature | Purpose |
+|----------|-----------|---------|
+| `export_user_data` | `(db, user_email)` → Dict | JSON envelope of the user's claims/links/entities/tags/contexts (embeddings excluded) |
+| `import_user_data` | `(db, user_email, payload, mode="merge")` → Dict | Merge with INSERT OR IGNORE, re-owns rows to the importer, `PRAGMA defer_foreign_keys=ON` |
+| `record_audit` | `(db, user_email, action, object_type, object_id, detail)` | Append an `audit_log` row (add/edit/delete/import) |
+| `get_audit_log` | `(db, user_email, limit, offset, action)` → List | Read audit entries, newest first |
+
+**REST surface:** `GET /pkb/export`, `POST /pkb/import`, `GET /pkb/audit` (see `api.md`). Audit hooks fire on add/edit/delete/import.
 
 ---
 
@@ -602,10 +671,12 @@ Cosine similarity over vector embeddings.
 **`EmbeddingStore` Class:**
 | Method | Purpose |
 |--------|---------|
-| `get_embedding(claim_id)` | Get cached embedding |
+| `get_embedding(claim_id, expected_model)` | Get cached embedding |
 | `store_embedding(claim_id, embedding, model)` | Cache embedding |
-| `get_or_compute(claim_id, statement)` | Get/compute embedding |
-| `batch_get_or_compute(claims)` | Parallel batch operation |
+| `compute_and_store(claim)` | Compute (via `get_document_embedding`) and cache |
+| `ensure_embeddings(claims)` | Return `{claim_id: vector}`, computing any missing |
+| `get_all_embeddings(filters)` | All cached vectors for filtered claims (index source) |
+| `delete_embedding(claim_id)` | Drop a cached vector (on hard delete) |
 
 **`EmbeddingSearchStrategy` Class:**
 | Method | Purpose |
@@ -744,6 +815,10 @@ user_api = shared_api.for_user("user@example.com")
 | Conflicts | `create_conflict_set(claim_ids)` | Create conflict (user-scoped) |
 | Conflicts | `resolve_conflict_set(set_id, notes, winning_id)` | Resolve |
 | Conflicts | `get_open_conflicts()` | List open conflicts (user-scoped) |
+| Reinforce | `reinforce_claim(claim_id, strength=1.0)` | **H:** reset `last_reinforced_at`, bump `reinforcement_count`; returns a conflict-review failure for contested/superseded claims (no silent boost) |
+| Portability | `export_data()` → ActionResult | **G3:** export the user's PKB as a JSON envelope (claims/links/entities/tags/contexts; embeddings excluded) |
+| Portability | `import_data(payload, mode="merge")` → ActionResult | **G3:** import an envelope (merge = INSERT OR IGNORE, re-owned to importer) |
+| Audit | `get_audit_log(limit=100, offset=0, action=None)` → ActionResult | **G3:** append-only audit entries, newest first (add/edit/delete/import hooks) |
 
 #### `interface/text_orchestration.py` - `TextOrchestrator`
 
@@ -826,6 +901,8 @@ class DistillationResult:
 3. Determine relationship (duplicate, update, conflict, new)
 4. Generate user confirmation prompt
 5. Execute approved actions
+
+**Contradiction → Supersede (D1 follow-up):** when `distiller_detect_contradictions` is on, the top existing matches are run through `llm_helpers.detect_contradiction`; a confirmed contradiction upgrades the relation to `contradicts` and `_propose_actions` proposes a **supersede** (priority over duplicate→reinforce), executed via `add_claim(..., supersedes=old_id)` so the old claim becomes `superseded` and a `claim_links` edge is recorded.
 
 #### `interface/text_ingestion.py` - `TextIngestionDistiller`
 
@@ -1479,28 +1556,30 @@ Conversation.py (_get_pkb_context):
 
 ---
 
-## Database Schema (v6)
+## Database Schema (v10)
 
 | Table | Key Columns | Relationships | Version |
 |-------|-------------|---------------|---------|
-| **claims** | claim_id (PK), claim_number, friendly_id, claim_type, claim_types, statement, possible_questions, context_domain, context_domains, status, meta_json, user_email | → claim_embeddings (1:N), claim_tags (M:N), claim_entities (M:N), context_claims (M:N) | v1+ |
+| **claims** | claim_id (PK), claim_number, friendly_id, claim_type, claim_types, statement, possible_questions, context_domain, context_domains, status, meta_json, user_email, last_reinforced_at (v8), reinforcement_count (v8) | → claim_embeddings (1:N), claim_tags (M:N), claim_entities (M:N), context_claims (M:N), claim_links (M:N) | v1+ |
 | **notes** | note_id (PK), title, body, context_domain, user_email | → note_embeddings (1:N) | v1+ |
-| **entities** | entity_id (PK), entity_type, name, user_email, UNIQUE(user,type,name) | ← claim_entities (M:1) | v1+ |
-| **tags** | tag_id (PK), name, parent_tag_id (self-ref), user_email, UNIQUE(user,name,parent) | ← claim_tags (M:1) | v1+ |
+| **entities** | entity_id (PK), entity_type, name, friendly_id (v7), user_email, UNIQUE(user,type,name) | ← claim_entities (M:1) | v1+ |
+| **tags** | tag_id (PK), name, parent_tag_id (self-ref), friendly_id (v7), user_email, UNIQUE(user,name,parent) | ← claim_tags (M:1) | v1+ |
 | **conflict_sets** | conflict_set_id (PK), status, resolution_notes, user_email | → conflict_set_members | v1+ |
+| **claim_links** | from_claim_id (FK), to_claim_id (FK), link_type (supersedes/…), user_email | claim↔claim (supersession & typed links) | v9+ |
 | **contexts** | context_id (PK), friendly_id, name, description, parent_context_id (self-ref), user_email | → context_claims (M:N) | v3+ |
 | **context_claims** | context_id (PK,FK), claim_id (PK,FK) | Junction table | v3+ |
 | **claim_types_catalog** | type_name (PK), user_email (PK), display_name, description | System + user-defined types | v4+ |
 | **context_domains_catalog** | domain_name (PK), user_email (PK), display_name, description | System + user-defined domains | v4+ |
-| **claim_embeddings** | claim_id (PK,FK), embedding (BLOB), model_name | | v1+ |
+| **claim_embeddings** | claim_id (PK,FK), embedding (BLOB), model_name, created_at | | v1+ |
 | **note_embeddings** | note_id (PK,FK), embedding (BLOB), model_name | | v1+ |
+| **audit_log** | audit_id (PK), action, object_type, object_id, detail_json, created_at, user_email | Append-only trail | v10+ |
 | **claims_fts** | FTS5: statement, predicate, object_text, subject_text, context_domain, friendly_id, possible_questions | | v6+ |
 | **notes_fts** | FTS5: title, body, context_domain | | v1+ |
-| **schema_version** | version (PK), applied_at — Current: 6 | | v1+ |
+| **schema_version** | version (PK), applied_at — Current: 10 | | v1+ |
 
-**Schema Migration Path:** v1 → v2 (user_email) → v3 (friendly_id, contexts) → v4 (catalog tables) → v5 (claim_number) → v6 (possible_questions)
+**Schema Migration Path:** v1 → v2 (user_email) → v3 (friendly_id, contexts) → v4 (catalog tables) → v5 (claim_number) → v6 (possible_questions) → v7 (entity/tag friendly_ids) → v8 (reinforcement cols) → v9 (claim_links) → v10 (audit_log)
 
-**Key Indexes:** idx_claims_user_email, idx_claims_user_status, idx_claims_friendly_id, idx_claims_user_friendly_id, idx_contexts_user_email, idx_contexts_friendly_id, idx_context_claims_claim_id
+**Key Indexes:** idx_claims_user_email, idx_claims_user_status, idx_claims_friendly_id, idx_claims_user_friendly_id, idx_contexts_user_email, idx_contexts_friendly_id, idx_context_claims_claim_id, idx_audit_log_user
 
 ---
 
