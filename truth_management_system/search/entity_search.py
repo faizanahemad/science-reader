@@ -200,7 +200,11 @@ class EntitySearchStrategy(SearchStrategy):
                 meta = json.loads(row["meta_json"] or "{}")
             except (ValueError, TypeError):
                 continue
+            if not isinstance(meta, dict):
+                continue
             aliases = meta.get("aliases") or []
+            if not isinstance(aliases, list):
+                continue
             if any(isinstance(a, str) and a.lower() in lowered for a in aliases):
                 matched.append(row["entity_id"])
         return matched

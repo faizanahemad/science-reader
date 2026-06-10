@@ -129,3 +129,46 @@ def test_disabled_flag_is_noop():
 
     strat = EntitySearchStrategy(db, {}, config)
     assert strat.search("Acme", filters=SearchFilters()) == []
+
+
+def test_cosine_ranking_orders_by_similarity():
+    """When a query embedding is available, results sort by cosine similarity."""
+    import numpy as np
+
+    config, db, claims, entities = _env()
+    acme = _entity(entities, "Acme")
+    near = _claim(claims, "Acme near match")
+    far = _claim(claims, "Acme far match")
+    link_claim_entity(db, near.claim_id, acme.entity_id, "subject")
+    link_claim_entity(db, far.claim_id, acme.entity_id, "subject")
+
+    strat = EntitySearchStrategy(db, {"OPENROUTER_API_KEY": "x"}, config)
+    # Cache deterministic embeddings; query vector is closest to `near`.
+    strat.store.store_embedding(near.claim_id, np.array([1.0, 0.0], dtype=np.float32))
+    strat.store.store_embedding(far.claim_id, np.array([0.0, 1.0], dtype=np.float32))
+    strat._query_embedding = lambda q: np.array([0.9, 0.1], dtype=np.float32)
+
+    results = strat.search("Acme", filters=SearchFilters())
+    assert [r.claim.claim_id for r in results] == [near.claim_id, far.claim_id]
+    assert results[0].score > results[1].score
+
+
+def test_cold_cache_claims_sort_after_scored():
+    """Claims lacking a cached embedding rank after cosine-scored ones."""
+    import numpy as np
+
+    config, db, claims, entities = _env()
+    acme = _entity(entities, "Acme")
+    scored = _claim(claims, "Acme scored claim")
+    cold = _claim(claims, "Acme cold claim")
+    link_claim_entity(db, scored.claim_id, acme.entity_id, "subject")
+    link_claim_entity(db, cold.claim_id, acme.entity_id, "subject")
+
+    strat = EntitySearchStrategy(db, {"OPENROUTER_API_KEY": "x"}, config)
+    strat.store.store_embedding(scored.claim_id, np.array([1.0, 0.0], dtype=np.float32))
+    # `cold` has no cached embedding.
+    strat._query_embedding = lambda q: np.array([1.0, 0.0], dtype=np.float32)
+
+    results = strat.search("Acme", filters=SearchFilters())
+    assert results[0].claim.claim_id == scored.claim_id
+    assert cold.claim_id in [r.claim.claim_id for r in results]

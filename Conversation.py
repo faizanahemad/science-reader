@@ -807,13 +807,15 @@ class Conversation:
 
                 # W-B: scope literal FTS to the *focused* current message so the
                 # (potentially summary-laden) enhanced_query stops polluting
-                # literal matching. Embedding/rewrite keep the contextual
-                # enhanced_query, which legitimately benefits from context.
-                # No-op when there is no separate summary (focused == enhanced)
-                # or when the flag is disabled.
+                # literal matching. The entity strategy (W-C) is routed the same
+                # focused query so it resolves entities from the *current
+                # message* (per plan), not from past-topic summary text.
+                # Embedding/rewrite keep the contextual enhanced_query, which
+                # legitimately benefits from context. No-op when there is no
+                # separate summary (focused == enhanced) or the flag is off.
                 _strategy_queries = None
                 if getattr(config, "fts_use_focused_query", False) and (query or "").strip():
-                    _strategy_queries = {"fts": query}
+                    _strategy_queries = {"fts": query, "entity": query}
 
                 result = api.search(
                     enhanced_query, strategy="hybrid", k=remaining_slots + 5,
