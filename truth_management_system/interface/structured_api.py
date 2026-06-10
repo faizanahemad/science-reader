@@ -224,6 +224,53 @@ class StructuredAPI:
         logger.info(f"Provenance backfill: {updated}/{total} claims updated")
         return {"total": total, "updated": updated}
 
+    @staticmethod
+    def _with_curated_origin(meta_json: Optional[str]) -> str:
+        """
+        Stamp ``meta_json.origin = "curated"`` for user-created entities/tags
+        (W5). Preserves any other meta keys and an existing explicit origin.
+        """
+        import json as _pjson
+        from ..utils import parse_meta_json
+        from ..constants import MetaJsonKeys
+
+        meta = parse_meta_json(meta_json)
+        meta.setdefault(MetaJsonKeys.ORIGIN, MetaJsonKeys.ORIGIN_CURATED)
+        return _pjson.dumps(meta)
+
+    def backfill_origin(self) -> Dict[str, int]:
+        """
+        Backfill ``meta_json.origin`` for existing entities and tags that
+        predate the auto/curated distinction (W5). Idempotent: only rows lacking
+        an ``origin`` are touched, and they are marked ``curated`` (history is
+        treated as user-trusted). Returns counts per object type.
+        """
+        import json as _pjson
+        from ..utils import parse_meta_json
+        from ..constants import MetaJsonKeys
+
+        out = {"entities": 0, "tags": 0}
+        with self.db.transaction() as conn:
+            for table, id_col, key in (
+                ("entities", "entity_id", "entities"),
+                ("tags", "tag_id", "tags"),
+            ):
+                rows = self.db.fetchall(
+                    f"SELECT {id_col}, meta_json FROM {table}"
+                )
+                for row in rows:
+                    meta = parse_meta_json(row["meta_json"])
+                    if meta.get(MetaJsonKeys.ORIGIN):
+                        continue
+                    meta[MetaJsonKeys.ORIGIN] = MetaJsonKeys.ORIGIN_CURATED
+                    conn.execute(
+                        f"UPDATE {table} SET meta_json = ? WHERE {id_col} = ?",
+                        (_pjson.dumps(meta), row[id_col]),
+                    )
+                    out[key] += 1
+        logger.info(f"Origin backfill: {out}")
+        return out
+
     def for_user(self, user_email: str) -> "StructuredAPI":
         """
         Create a new StructuredAPI instance scoped to a specific user.
@@ -1097,6 +1144,7 @@ class StructuredAPI:
     ) -> ActionResult:
         """Add a new entity."""
         try:
+            meta_json = self._with_curated_origin(meta_json)
             entity = Entity.create(
                 name=name, entity_type=entity_type, meta_json=meta_json
             )
@@ -1124,6 +1172,7 @@ class StructuredAPI:
     ) -> ActionResult:
         """Add a new tag."""
         try:
+            meta_json = self._with_curated_origin(meta_json)
             tag = Tag.create(
                 name=name, parent_tag_id=parent_tag_id, meta_json=meta_json
             )

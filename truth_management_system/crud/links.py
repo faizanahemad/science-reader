@@ -15,11 +15,13 @@ These functions operate on the claim_tags and claim_entities join tables.
 """
 
 import logging
+import json
 from typing import List, Dict, Tuple, Optional
 
 from ..database import PKBDatabase
 from ..models import Tag, Entity
 from ..utils import generate_uuid, now_iso
+from ..constants import MetaJsonKeys
 
 logger = logging.getLogger(__name__)
 
@@ -365,12 +367,13 @@ def get_or_create_tag_by_name(
     if row:
         return row['tag_id']
     
-    # Create new tag
+    # Create new tag (auto-created during enrichment -> origin "auto").
     tag_id = generate_uuid()
     now = now_iso()
+    _meta = json.dumps({MetaJsonKeys.ORIGIN: MetaJsonKeys.ORIGIN_AUTO})
     db.execute(
-        "INSERT INTO tags (tag_id, name, parent_tag_id, meta_json, created_at, updated_at) VALUES (?, ?, ?, NULL, ?, ?)",
-        (tag_id, tag_name, parent_tag_id, now, now)
+        "INSERT INTO tags (tag_id, name, parent_tag_id, meta_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (tag_id, tag_name, parent_tag_id, _meta, now, now)
     )
     db.connect().commit()
     
@@ -401,12 +404,13 @@ def get_or_create_entity_by_name(
     if row:
         return row['entity_id']
     
-    # Create new entity
+    # Create new entity (auto-created during enrichment -> origin "auto").
     entity_id = generate_uuid()
     now = now_iso()
+    _meta = json.dumps({MetaJsonKeys.ORIGIN: MetaJsonKeys.ORIGIN_AUTO})
     db.execute(
-        "INSERT INTO entities (entity_id, entity_type, name, meta_json, created_at, updated_at) VALUES (?, ?, ?, NULL, ?, ?)",
-        (entity_id, entity_type, entity_name, now, now)
+        "INSERT INTO entities (entity_id, entity_type, name, meta_json, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+        (entity_id, entity_type, entity_name, _meta, now, now)
     )
     db.connect().commit()
     
