@@ -4591,6 +4591,49 @@ def handle_pkb_demote_claim(args: dict, context: ToolContext) -> ToolCallResult:
         )
 
 
+@register_tool(
+    name="pkb_fading_claims",
+    parameters={"type": "object", "properties": {}, "required": []},
+    category="pkb",
+    description="List claims that have gone dormant (fading memories) and may need reinforcement or cleanup.",
+)
+def handle_pkb_fading_claims(args: dict, context: ToolContext) -> ToolCallResult:
+    try:
+        api = _get_pkb_user_api(context.user_email)
+        result = api.get_lifecycle_notifications()
+        fading = result.data.get("newly_dormant", []) if result.success else []
+        return ToolCallResult(
+            tool_id="", tool_name="pkb_fading_claims",
+            result=json.dumps({"fading": fading}),
+        )
+    except Exception as exc:
+        return ToolCallResult(
+            tool_id="", tool_name="pkb_fading_claims",
+            error=f"pkb_fading_claims failed: {exc}",
+        )
+
+
+@register_tool(
+    name="pkb_reinforce_claim",
+    parameters={"type": "object", "properties": {"claim_id": {"type": "string", "description": "UUID of the claim to reinforce"}}, "required": ["claim_id"]},
+    category="pkb",
+    description="Reinforce a claim — resets its decay timer and revives it if dormant.",
+)
+def handle_pkb_reinforce_claim(args: dict, context: ToolContext) -> ToolCallResult:
+    try:
+        api = _get_pkb_user_api(context.user_email)
+        result = api.reinforce_claim(args["claim_id"])
+        return ToolCallResult(
+            tool_id="", tool_name="pkb_reinforce_claim",
+            result=json.dumps({"reinforced": result.success, "claim_id": args["claim_id"]}),
+        )
+    except Exception as exc:
+        return ToolCallResult(
+            tool_id="", tool_name="pkb_reinforce_claim",
+            error=f"pkb_reinforce_claim failed: {exc}",
+        )
+
+
 # ---------------------------------------------------------------------------
 # Image Generation Tool (category: general)
 # ---------------------------------------------------------------------------

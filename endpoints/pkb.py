@@ -3844,3 +3844,59 @@ def pkb_restore_claim(claim_id):
     except Exception as e:
         logger.error(f"Error in pkb_restore_claim: {e}")
         return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+
+
+@pkb_bp.route("/pkb/claims/fading", methods=["GET"])
+@limiter.limit("20 per minute")
+@login_required
+def pkb_fading_claims():
+    """List dormant/fading claims that may need reinforcement or cleanup."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+
+        result = api.get_lifecycle_notifications()
+        if result.success:
+            return jsonify({"fading": result.data.get("newly_dormant", [])})
+        return json_error("Failed", status=500, code="fading_list_failed")
+    except Exception as e:
+        logger.error(f"Error in pkb_fading_claims: {e}")
+        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+
+
+@pkb_bp.route("/pkb/claims/<claim_id>/reinforce", methods=["POST"])
+@limiter.limit("30 per minute")
+@login_required
+def pkb_reinforce_claim(claim_id):
+    """Reinforce a claim — resets decay timer, revives if dormant."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+
+        result = api.reinforce_claim(claim_id)
+        if result.success:
+            return jsonify({"reinforced": True, "claim_id": claim_id})
+        return json_error(
+            "; ".join(result.errors) or "Reinforce failed",
+            status=404 if "not found" in str(result.errors).lower() else 400,
+            code="reinforce_failed",
+        )
+    except Exception as e:
+        logger.error(f"Error in pkb_reinforce_claim: {e}")
+        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")

@@ -622,6 +622,48 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
                 logger.exception("pkb_demote_claim error: %s", exc)
                 return json.dumps({"error": f"pkb_demote_claim failed: {exc}"})
 
+        # Tool: pkb_fading_claims — list dormant claims needing attention
+        @mcp.tool()
+        def pkb_fading_claims(user_email: str) -> str:
+            """List claims that have gone dormant (fading memories).
+
+            These are claims that haven't been used recently and may need
+            reinforcement or cleanup.
+
+            Args:
+                user_email: Email of the PKB owner.
+            """
+            try:
+                api = _get_pkb_api()
+                user_api = api.for_user(user_email)
+                result = user_api.get_lifecycle_notifications()
+                if result.success:
+                    return json.dumps({"fading": result.data.get("newly_dormant", [])})
+                return json.dumps({"error": "; ".join(result.errors)})
+            except Exception as exc:
+                logger.exception("pkb_fading_claims error: %s", exc)
+                return json.dumps({"error": f"pkb_fading_claims failed: {exc}"})
+
+        # Tool: pkb_reinforce_claim — reinforce/revive a claim
+        @mcp.tool()
+        def pkb_reinforce_claim(user_email: str, claim_id: str) -> str:
+            """Reinforce a claim — resets its decay timer and revives it if dormant.
+
+            Use this to keep important memories alive when they're fading.
+
+            Args:
+                user_email: Email of the PKB owner.
+                claim_id: UUID of the claim to reinforce.
+            """
+            try:
+                api = _get_pkb_api()
+                user_api = api.for_user(user_email)
+                result = user_api.reinforce_claim(claim_id)
+                return _serialize_action_result(result)
+            except Exception as exc:
+                logger.exception("pkb_reinforce_claim error: %s", exc)
+                return json.dumps({"error": f"pkb_reinforce_claim failed: {exc}"})
+
         # -------------------------------------------------------------
         # Tool 8: pkb_get_claims_by_ids — batch retrieve claims
         # -------------------------------------------------------------

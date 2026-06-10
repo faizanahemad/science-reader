@@ -1479,6 +1479,21 @@ var PKBManager = (function() {
     function openPKBModal() {
         loadClaims();
         $('#pkb-modal').modal('show');
+        // Proactive cleanup nudge — check notifications
+        $.get('/pkb/notifications', function(resp) {
+            var counts = (resp && resp.counts) || {};
+            var total = (counts.soon_to_expire || 0) + (counts.newly_dormant || 0);
+            var $badge = $('#pkb-notification-badge');
+            if (total > 0) {
+                if (!$badge.length) {
+                    $('#pkb-maintenance-tab').append(' <span id="pkb-notification-badge" class="badge badge-danger">' + total + '</span>');
+                } else {
+                    $badge.text(total).show();
+                }
+            } else if ($badge.length) {
+                $badge.hide();
+            }
+        });
     }
     
     /**
@@ -3001,6 +3016,35 @@ var PKBManager = (function() {
     }
 
     /**
+     * Load fading (dormant) claims into the Maintenance tab section.
+     */
+    function loadFadingClaims() {
+        $.get('/pkb/claims/fading', function(resp) {
+            var fading = resp.fading || [];
+            var $section = $('#pkb-fading-section');
+            var $list = $('#pkb-fading-list');
+            var $count = $('#pkb-fading-count');
+
+            if (!fading.length) { $section.hide(); return; }
+
+            $section.show();
+            $count.text(fading.length);
+
+            var html = fading.map(function(c) {
+                return '<div class="d-flex justify-content-between align-items-start border-bottom py-1">' +
+                    '<div class="flex-grow-1 mr-2">' +
+                        '<small>' + $('<span>').text(c.statement).html() + '</small>' +
+                        '<div><span class="badge badge-warning">' + (c.claim_type || '') + '</span> ' +
+                        '<span class="badge badge-light">' + (c.context_domain || '') + '</span></div>' +
+                    '</div>' +
+                    '<button class="btn btn-outline-success btn-xs pkb-reinforce-claim" data-id="' + c.claim_id + '" title="Reinforce — keep this memory alive"><i class="bi bi-arrow-up-circle"></i></button>' +
+                '</div>';
+            }).join('');
+            $list.html(html);
+        }).fail(function() { $('#pkb-fading-section').hide(); });
+    }
+
+    /**
      * Load recently archived claims into the Maintenance tab section.
      */
     function loadRecentlyArchived() {
@@ -3148,9 +3192,19 @@ var PKBManager = (function() {
             }).fail(function() { showToast('Restore failed', 'danger'); });
         });
 
-        // Load archived claims when maintenance tab is shown
+        // Reinforce fading claim
+        $(document).on('click', '.pkb-reinforce-claim', function() {
+            var id = $(this).data('id');
+            $.post('/pkb/claims/' + id + '/reinforce', function() {
+                showToast('Memory reinforced', 'success');
+                loadFadingClaims();
+            }).fail(function() { showToast('Reinforce failed', 'danger'); });
+        });
+
+        // Load archived + fading claims when maintenance tab is shown
         $(document).on('shown.bs.tab', '#pkb-maintenance-tab', function() {
             loadRecentlyArchived();
+            loadFadingClaims();
         });
 
         // Memory Cleanup (Maintenance tab, W11)
