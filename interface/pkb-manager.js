@@ -2582,6 +2582,11 @@ var PKBManager = (function() {
         
         if (proposal.action === 'add') {
             actionBadge = '<span class="badge badge-success"><i class="bi bi-plus-circle"></i> New</span>';
+            if (proposal.existing_statement) {
+                existingInfo = '<div class="small text-warning mt-1">' +
+                    '<i class="bi bi-exclamation-triangle"></i> <strong>Similar existing:</strong> ' + escapeHtml(proposal.existing_statement) +
+                '</div>';
+            }
         } else if (proposal.action === 'edit') {
             actionBadge = '<span class="badge badge-warning"><i class="bi bi-pencil"></i> Update</span>';
             if (proposal.existing_statement) {
@@ -2592,6 +2597,20 @@ var PKBManager = (function() {
         } else if (proposal.action === 'skip') {
             actionBadge = '<span class="badge badge-secondary"><i class="bi bi-dash-circle"></i> Skip</span>';
             checked = '';
+        } else if (proposal.action === 'reinforce') {
+            actionBadge = '<span class="badge badge-info"><i class="bi bi-arrow-repeat"></i> Reinforce</span>';
+            if (proposal.existing_statement) {
+                existingInfo = '<div class="small text-muted mt-1">' +
+                    '<strong>Reinforces:</strong> ' + escapeHtml(proposal.existing_statement) +
+                '</div>';
+            }
+        } else if (proposal.action === 'supersede') {
+            actionBadge = '<span class="badge badge-danger"><i class="bi bi-arrow-up-right"></i> Supersede</span>';
+            if (proposal.existing_statement) {
+                existingInfo = '<div class="small text-muted mt-1">' +
+                    '<strong>Replaces:</strong> ' + escapeHtml(proposal.existing_statement) +
+                '</div>';
+            }
         }
         
         var similarityInfo = '';

@@ -2120,6 +2120,7 @@ def pkb_propose_updates_route():
                 "valid_from": candidate.valid_from,
                 "valid_to": candidate.valid_to,
                 "tags": candidate.tags or [],
+                "reason": getattr(candidate, 'reason', None) or (pa.reason if pa else ""),
             }
             if pa and pa.existing_claim:
                 action["existing_claim_id"] = pa.existing_claim.claim_id

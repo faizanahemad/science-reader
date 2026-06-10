@@ -34,6 +34,8 @@ class CandidateClaim:
     #   extracted -- rephrased from the user's own words (same content)
     #   inferred  -- a conclusion the user never explicitly stated
     derivation: str = "extracted"
+    # UX: brief quote/paraphrase of what user said that triggered extraction
+    reason: Optional[str] = None
 
 
 @dataclass
@@ -243,8 +245,9 @@ For each claim, also include a "derivation" field describing its epistemic basis
 IMPORTANT: Return ONLY a valid JSON array with NO additional text before or after.
 For task/reminder types, include a "valid_to" field with the deadline in YYYY-MM-DD format if mentioned.
 Include a "tags" array with relevant short keyword tags.
+Include a "reason" field — a brief quote or paraphrase (max 15 words) of what the user said that led to this claim.
 Example format:
-[{"statement": "User prefers dark roast coffee", "claim_type": "preference", "context_domain": "personal", "confidence": 0.85, "derivation": "stated", "tags": ["coffee"]}, {"statement": "User needs to submit report by Friday", "claim_type": "task", "context_domain": "work", "confidence": 0.9, "valid_to": "2025-07-18", "derivation": "stated", "tags": ["report", "deadline"]}]
+[{"statement": "User prefers dark roast coffee", "claim_type": "preference", "context_domain": "personal", "confidence": 0.85, "derivation": "stated", "tags": ["coffee"], "reason": "said 'I only drink dark roast'"}, {"statement": "User needs to submit report by Friday", "claim_type": "task", "context_domain": "work", "confidence": 0.9, "valid_to": "2025-07-18", "derivation": "stated", "tags": ["report", "deadline"], "reason": "mentioned Friday deadline for report"}]
 
 If nothing at all is worth remembering from the current message, return exactly: []
 
@@ -278,8 +281,9 @@ For each claim, also include a "derivation" field describing its epistemic basis
 IMPORTANT: Return ONLY a valid JSON array with NO additional text before or after.
 For task/reminder types, include a "valid_to" field with the deadline in YYYY-MM-DD format if mentioned.
 Include a "tags" array with relevant short keyword tags.
+Include a "reason" field — a brief quote or paraphrase (max 15 words) of what the user said that led to this claim.
 Example format:
-[{"statement": "User is vegetarian", "claim_type": "fact", "context_domain": "health", "confidence": 0.9, "derivation": "stated", "tags": ["diet"]}, {"statement": "User has dentist appointment next Monday", "claim_type": "reminder", "context_domain": "health", "confidence": 0.9, "valid_to": "2025-07-21", "derivation": "stated", "tags": ["dentist", "appointment"]}]
+[{"statement": "User is vegetarian", "claim_type": "fact", "context_domain": "health", "confidence": 0.9, "derivation": "stated", "tags": ["diet"], "reason": "said 'I'm vegetarian'"}, {"statement": "User has dentist appointment next Monday", "claim_type": "reminder", "context_domain": "health", "confidence": 0.9, "valid_to": "2025-07-21", "derivation": "stated", "tags": ["dentist", "appointment"], "reason": "mentioned dentist on Monday"}]
 
 If no clear personal facts to remember from the current message, return exactly: []
 
@@ -315,6 +319,7 @@ Response:"""
                             valid_to=item.get('valid_to'),
                             tags=item.get('tags', []) if isinstance(item.get('tags'), list) else [],
                             derivation=_deriv,
+                            reason=item.get('reason'),
                         ))
                 return candidates
             return []
@@ -514,9 +519,10 @@ Response:"""
                     existing_claim=existing, relation="duplicate",
                     reason=f"Restates existing claim {existing.claim_id[:8]} — reinforce it"))
             else:
-                related = [(c, r) for c, cl, r in matches if c.statement == candidate.statement and r == "related"]
+                related = [(cl, r) for c, cl, r in matches if c.statement == candidate.statement and r == "related"]
                 if related:
                     actions.append(ProposedAction(action="add", candidate=candidate,
+                                                 existing_claim=related[0][0], relation="related",
                                                  reason="New but related to existing claims"))
                 else:
                     actions.append(ProposedAction(action="add", candidate=candidate,
