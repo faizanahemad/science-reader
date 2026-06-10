@@ -771,7 +771,7 @@ Entity-linked retrieval: surfaces claims attached to entities named in the query
 | `name` | `()` → "entity" | Strategy identifier |
 
 **Process:**
-1. Extract candidate surface forms from the query (capitalized / quoted spans).
+1. Extract candidate surface forms from the query (capitalized / quoted spans). In chat retrieval, W-B routes the *focused current message* to this strategy (see `strategy_queries`), so entities resolve from current intent rather than summary text.
 2. Resolve to entities by exact (case-insensitive) name match, plus `meta_json.aliases` when `entity_alias_match` is set. Exact matching makes the loose extraction self-filtering.
 3. Pull linked claims via `EntityCRUD.resolve_claims`, which applies the status filter (default active + contested) and user scope — so compaction-archived / superseded / expired claims are **not** resurfaced through the entity path.
 4. Rank by cosine similarity to the query embedding using the `EmbeddingStore` cache; degrade to recency order when no query embedding is available (no key / embeddings disabled / cold cache).
@@ -783,7 +783,7 @@ Orchestrates multiple strategies with parallel execution.
 
 | Method | Signature | Purpose |
 |--------|-----------|---------|
-| `search` | `(query, strategy_names, k, filters, llm_rerank, strategy_queries)` | Hybrid search; `strategy_queries` (W-B) routes per-strategy queries (e.g. focused message → FTS) |
+| `search` | `(query, strategy_names, k, filters, llm_rerank, strategy_queries)` | Hybrid search; `strategy_queries` (W-B) routes per-strategy queries (e.g. focused current message → FTS and entity strategies, contextual query → embedding/rewrite) |
 | `search_simple` | `(query, k, filters)` | Default: FTS + embedding |
 | `search_with_rerank` | `(query, k, filters)` | Hybrid + LLM rerank |
 | `search_all_strategies` | `(query, k, filters)` | Use all strategies |

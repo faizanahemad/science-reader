@@ -263,7 +263,7 @@ Multiple search approaches available:
 - **Rewrite** (overview-informed): SUPERFAST_LLM rewrites query into optimized FTS keywords + embedding query, informed by PKB overview Key Areas for domain-aware expansion. Runs both FTS and embedding internally, merges via RRF.
 - **MapReduce**: LLM scores candidates
 - **Entity** (W-C): resolves named entities in the query (exact name + `meta_json.aliases`) and surfaces their status-filtered linked claims, cosine-ranked (degrades to recency order offline)
-- **Hybrid** (default): Combines `[fts, embedding, rewrite, entity]` in parallel with RRF merging (optional per-strategy weights via `rrf_strategy_weights`, W-A) + recency/confidence re-ranking (`w_recency=0.15`, `w_confidence=0.1`). Per-strategy query scoping (W-B, `fts_use_focused_query`) routes the focused current message to FTS.
+- **Hybrid** (default): Combines `[fts, embedding, rewrite, entity]` in parallel with RRF merging (optional per-strategy weights via `rrf_strategy_weights`, W-A) + recency/confidence re-ranking (`w_recency=0.15`, `w_confidence=0.1`). Per-strategy query scoping (W-B, `fts_use_focused_query`) routes the focused current message to the FTS and entity strategies, while embedding/rewrite keep the contextual query.
 
 ### Memory Attachment
 Ways to force specific memories into LLM context:

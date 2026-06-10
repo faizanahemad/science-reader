@@ -119,9 +119,11 @@ Literal FTS no longer receives the summary-laden contextual query. `search` /
 `_query_for(name)` returns the override for a strategy or falls back to the base
 `query` (so `None` is an exact no-op). `StructuredAPI.search` threads the map on
 the `hybrid` strategy only. `Conversation._get_pkb_context` sets
-`{"fts": <current message>}` when `config.fts_use_focused_query` is True
-(default), so FTS reflects *current* intent while embedding/rewrite keep the
-contextual `enhanced_query`. The STM `<stm_context>` prepend and the
+`{"fts": <current message>, "entity": <current message>}` when
+`config.fts_use_focused_query` is True (default), so FTS reflects *current*
+intent and the entity strategy resolves entities from the current message (not
+past-topic summary text), while embedding/rewrite keep the contextual
+`enhanced_query`. The STM `<stm_context>` prepend and the
 post-distillation `last_accessed_at` update are preserved untouched. Fallback
 when no LLM key: FTS uses the current message, never the summary.
 
