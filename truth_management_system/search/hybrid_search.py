@@ -16,6 +16,7 @@ from .fts_search import FTSSearchStrategy
 from .embedding_search import EmbeddingSearchStrategy
 from .rewrite_search import RewriteSearchStrategy
 from .mapreduce_search import MapReduceSearchStrategy
+from .entity_search import EntitySearchStrategy
 from ..database import PKBDatabase
 from ..config import PKBConfig
 from ..utils import get_parallel_executor
@@ -78,6 +79,12 @@ class HybridSearchStrategy:
                 self.strategies["embedding"] = EmbeddingSearchStrategy(db, keys, config)
             self.strategies["rewrite"] = RewriteSearchStrategy(db, keys, config)
             self.strategies["mapreduce"] = MapReduceSearchStrategy(db, keys, config)
+
+        # W-C: entity-linked retrieval. Works without an API key (it degrades to
+        # recency ordering when no query embedding is available), so it is
+        # registered independent of the key gate, behind its config flag.
+        if getattr(config, "entity_strategy_enabled", True):
+            self.strategies["entity"] = EntitySearchStrategy(db, keys, config)
     
     def search(
         self,
@@ -108,6 +115,8 @@ class HybridSearchStrategy:
             strategy_names = ["fts"]
             if "embedding" in self.strategies:
                 strategy_names.append("embedding")
+            if "entity" in self.strategies:
+                strategy_names.append("entity")
         
         filters = filters or SearchFilters()
         time_logger.info(f"[HYBRID] Search called: query_len={len(query)}, strategies={strategy_names}, k={k}, user_email={filters.user_email}")

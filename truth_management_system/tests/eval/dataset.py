@@ -33,6 +33,8 @@ class EvalClaim:
         expiry sweep marks the claim 'expired'.
       - ``pinned``: stored in meta_json (Workstream C/H pin override).
       - ``meta``: extra meta_json keys.
+      - ``entities``: names of entities to create and link to this claim
+        (role 'subject'); enables the entity-linked retrieval cases (W-C).
     """
     key: str
     statement: str
@@ -45,6 +47,7 @@ class EvalClaim:
     valid_to: Optional[str] = None
     pinned: bool = False
     meta: Optional[dict] = None
+    entities: Optional[List[str]] = None
 
 
 @dataclass
@@ -120,6 +123,7 @@ def load_dataset(path: Optional[str] = None) -> EvalDataset:
             valid_to=c.get("valid_to"),
             pinned=c.get("pinned", False),
             meta=c.get("meta"),
+            entities=c.get("entities"),
         )
         for c in raw.get("claims", [])
     ]

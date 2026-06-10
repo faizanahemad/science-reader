@@ -200,6 +200,16 @@ class EvalRunner:
             crud.add(claim)
             self._key_to_id[ec.key] = claim.claim_id
 
+            # Entity-linked retrieval (W-C): create/link declared entities.
+            if ec.entities:
+                from ...crud.entities import EntityCRUD
+                from ...crud.links import link_claim_entity
+                from ...constants import EntityType
+                ent_crud = EntityCRUD(self.db)
+                for ename in ec.entities:
+                    ent, _ = ent_crud.get_or_create(ename, EntityType.ORG.value)
+                    link_claim_entity(self.db, claim.claim_id, ent.entity_id, "subject")
+
         if apply_expiry:
             try:
                 from ...utils import expire_stale_claims
@@ -302,6 +312,10 @@ class EvalRunner:
         available = set(HybridSearchStrategy(self.db, self.keys, self.config).get_available_strategies())
         if strategy_sets is None:
             strategy_sets = {"fts": ["fts"]}
+            if "entity" in available:
+                # Entity-linked retrieval runs offline (no key needed); it
+                # degrades to recency order without embeddings.
+                strategy_sets["entity"] = ["entity"]
             if "embedding" in available:
                 strategy_sets["embedding"] = ["embedding"]
                 strategy_sets["hybrid"] = ["fts", "embedding"]

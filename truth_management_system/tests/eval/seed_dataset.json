@@ -2,6 +2,9 @@
   "name": "pkb_seed_v3",
   "description": "Persona retrieval eval set with lifecycle-bearing claims and hard cases. Categories: lexical (FTS should win), semantic (paraphrase, no shared word-prefix — needs embeddings), multi (several targets), temporal (two dated claims on a topic, recall both), recency (expect the NEWER only — ordering signal, needs Workstream C), conflict (contradictory active claims, expect the current one — needs conflict/supersession D/H), hard_negative (a tempting distractor shares strong tokens — ranking/precision signal), scoped (per-case SearchFilters — existing capability), lifecycle (superseded/expired must be excluded — existing status+expiry). Relative timestamps like '-400d' resolve to now-delta at seed time; a past valid_to + the runner's expiry sweep marks a claim 'expired'. Semantic/recency/conflict cases are expected to score LOW under network-free FTS — that headroom is the point. Replace/augment with real anonymized queries over time (plan Workstream G).",
   "claims": [
+    {"key": "acme_contract", "statement": "We signed a multi-year support contract with Acme Corp", "claim_type": "fact", "context_domain": "work", "entities": ["Acme Corp"]},
+    {"key": "acme_invoice", "statement": "Acme Corp sends invoices on the first of each month", "claim_type": "fact", "context_domain": "work", "entities": ["Acme Corp"]},
+    {"key": "globex_review", "statement": "The quarterly business review with Globex is set for next Thursday", "claim_type": "fact", "context_domain": "work", "entities": ["Globex"]},
     {"key": "gym_morning", "statement": "I go to the gym every morning at 6am", "claim_type": "habit", "context_domain": "health"},
     {"key": "vegetarian", "statement": "I am a vegetarian and do not eat meat", "claim_type": "fact", "context_domain": "health", "created_at": "-250d", "updated_at": "-250d"},
     {"key": "peanut_allergy", "statement": "I am allergic to peanuts", "claim_type": "fact", "context_domain": "health"},
@@ -50,6 +53,9 @@
     {"key": "son_soccer", "statement": "My son plays soccer on Saturdays", "claim_type": "fact", "context_domain": "relationships"}
   ],
   "cases": [
+    {"query": "What do we know about Acme Corp?", "expected": ["acme_contract", "acme_invoice"], "category": "entity", "notes": "entity-linked retrieval: both Acme claims should surface"},
+    {"query": "Globex", "expected": ["globex_review"], "category": "entity"},
+    {"query": "Acme Corp invoices", "expected": ["acme_invoice"], "category": "entity", "not_expected": ["globex_review"]},
     {"query": "gym every morning", "expected": ["gym_morning"], "category": "lexical"},
     {"query": "allergic to peanuts", "expected": ["peanut_allergy"], "category": "lexical"},
     {"query": "learn Python", "expected": ["learn_python"], "category": "lexical"},

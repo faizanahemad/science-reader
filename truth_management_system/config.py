@@ -202,6 +202,15 @@ class PKBConfig:
     # query, so past-topic summary text stops polluting literal matches.
     fts_use_focused_query: bool = True
 
+    # Retrieval ranking — entity-linked retrieval strategy (W-C).
+    # When enabled, an EntitySearchStrategy resolves named entities in the
+    # query, pulls their linked claims (status-filtered) and contributes them
+    # as another ranked list to RRF fusion. Returns nothing when no entity
+    # resolves, so it is inert for entity-free queries.
+    entity_strategy_enabled: bool = True
+    entity_strategy_top_n: int = 5          # max entity-linked claims fed into RRF
+    entity_alias_match: bool = True         # also resolve via meta_json.aliases (W6)
+
     # Parallelization
     max_parallel_llm_calls: int = 8
     max_parallel_embedding_calls: int = 16
@@ -276,6 +285,9 @@ class PKBConfig:
             'max_parallel_embedding_calls': self.max_parallel_embedding_calls,
             'rrf_strategy_weights': dict(self.rrf_strategy_weights),
             'fts_use_focused_query': self.fts_use_focused_query,
+            'entity_strategy_enabled': self.entity_strategy_enabled,
+            'entity_strategy_top_n': self.entity_strategy_top_n,
+            'entity_alias_match': self.entity_alias_match,
             'log_llm_calls': self.log_llm_calls,
             'log_search_queries': self.log_search_queries,
         }
@@ -313,6 +325,7 @@ class PKBConfig:
             'max_parallel_llm_calls', 'max_parallel_embedding_calls',
             'rrf_strategy_weights',
             'fts_use_focused_query',
+            'entity_strategy_enabled', 'entity_strategy_top_n', 'entity_alias_match',
             'log_llm_calls', 'log_search_queries'
         }
         filtered = {k: v for k, v in data.items() if k in valid_keys}
@@ -396,6 +409,9 @@ def load_config(
         'MAX_PARALLEL_EMBEDDING_CALLS': ('max_parallel_embedding_calls', int),
         'RRF_STRATEGY_WEIGHTS': ('rrf_strategy_weights', lambda x: {str(k): float(v) for k, v in json.loads(x).items()}),
         'FTS_USE_FOCUSED_QUERY': ('fts_use_focused_query', lambda x: x.lower() in ('true', '1', 'yes')),
+        'ENTITY_STRATEGY_ENABLED': ('entity_strategy_enabled', lambda x: x.lower() in ('true', '1', 'yes')),
+        'ENTITY_STRATEGY_TOP_N': ('entity_strategy_top_n', int),
+        'ENTITY_ALIAS_MATCH': ('entity_alias_match', lambda x: x.lower() in ('true', '1', 'yes')),
         'LOG_LLM_CALLS': ('log_llm_calls', lambda x: x.lower() in ('true', '1', 'yes')),
         'LOG_SEARCH_QUERIES': ('log_search_queries', lambda x: x.lower() in ('true', '1', 'yes')),
     }
