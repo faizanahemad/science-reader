@@ -2,7 +2,7 @@
 
 **Two-axis claim provenance, auto/curated origin for entities & tags, tag merge, LLM-assisted dedup, a one-shot Memory Cleanup orchestrator, lifecycle-change notifications, reconfirmation upgrade, and audit coverage.**
 
-Implements the `pkb_provenance_and_cleanup` plan (workstreams W1–W10). Backend + REST are complete; the UI (W11) consumes the REST surface below.
+Implements the `pkb_provenance_and_cleanup` plan (workstreams W1–W11). Backend, REST and UI are complete.
 
 ## Motivation
 
@@ -55,6 +55,14 @@ When an add/extract supersedes an existing claim, the change is surfaced so the 
 
 Merges and provenance changes are now audited via the append-only `audit_log`: `consolidate_claims` (action `merge`), `merge_entities` / `merge_tags` (action `merge`, detail `merged_from`+aliases), and the reinforce derivation upgrade (action `derivation_change`). Read via `GET /pkb/audit`.
 
+## UI (W11)
+
+In `interface/interface.html` + `interface/pkb-manager.js` (consumes the REST surface; no new backend):
+- **Provenance badge** on each claim card — `derivation` (stated=green / extracted=blue / inferred=amber) with a `channel` tooltip (`renderProvenanceBadge`).
+- **Origin badge** (auto/curated) on entity and tag cards (`renderOriginBadge`).
+- **Maintenance tab** (PKB modal Tab 9) — the Memory Cleanup home: an **Analyze** button (non-destructive) renders the sweep counts + duplicate claim/entity/tag clusters (with an "LLM✓" marker when LLM verification is on), and **Apply suggested** merges them. An **LLM verify** checkbox maps to `use_llm`. Backed by `runMemoryCleanup` / `renderCleanupReport`.
+- **Lifecycle toast** (`showLifecycleChanges`) when an add supersedes earlier memories; the add-claim REST response returns `lifecycle_changes`.
+
 ## Configuration
 
 | Flag | Default | Purpose |
@@ -88,5 +96,7 @@ Merges and provenance changes are now audited via the append-only `audit_log`: `
 - `truth_management_system/interface/structured_api.py` — provenance wiring, `backfill_provenance`/`backfill_origin`, `_with_curated_origin`, `find_tag_duplicates`/`merge_tags`, `_verify_dedup_clusters`, `run_memory_cleanup`, lifecycle_changes, audit hooks, `reinforce_claim(upgrade_derivation)`
 - `truth_management_system/interface/conversation_distillation.py` — derivation labeling, lifecycle_changes aggregation
 - `truth_management_system/interface/text_ingestion.py` — ingest channel/derivation
-- `endpoints/pkb.py` — `/pkb/tags/duplicates`, `/pkb/tags/merge`, `/pkb/cleanup`
+- `endpoints/pkb.py` — `/pkb/tags/duplicates`, `/pkb/tags/merge`, `/pkb/cleanup`; add-claim response returns `lifecycle_changes`
+- `interface/interface.html` — Maintenance tab (Tab 9) with Analyze/Apply + LLM-verify
+- `interface/pkb-manager.js` — provenance/origin badges, `runMemoryCleanup`/`renderCleanupReport`, lifecycle toast
 - Tests: `test_provenance_axes.py`, `test_provenance_distiller.py`, `test_inferred_rerank.py`, `test_reconfirmation_upgrade.py`, `test_origin.py`, `test_tag_merge.py`, `test_dedup_llm_verify.py`, `test_lifecycle_notification.py`, `test_memory_cleanup.py`, `test_audit_coverage.py`

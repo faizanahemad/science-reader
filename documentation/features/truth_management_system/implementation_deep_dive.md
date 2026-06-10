@@ -1398,6 +1398,60 @@ which is why `flat` is the default. Tests: `tests/test_vector_index.py` (11) —
 no-faiss fallback, cache hit + staleness rebuild, per-user scoping, the
 filter-preserving claim load, and the engage/decline threshold.
 
+### Two-Axis Provenance, Origin & Memory Cleanup (Provenance & Cleanup plan)
+
+**Why two axes.** A single `source` string conflated *where* a claim entered
+with *how it was derived*. Splitting them into **channel**
+(`manual|chat|ingest|import`) and **derivation** (`stated|extracted|inferred`)
+lets retrieval and UI treat "the user told me" differently from "I concluded
+this." Both live in `meta_json.source` (no migration); the legacy `type` is kept
+for back-compat. `ProvenanceChannel.normalize` folds legacy values
+(`chat_distillation→chat`, `text_ingestion→ingest`, `migration→import`);
+`referenced` is *not* a channel — it is a transient retrieval-time injection
+label and never persisted. `add_claim` always stamps both axes
+(`utils.set_provenance`), defaulting manual→stated, distilled→chat/extracted.
+
+**Trust mechanics for `inferred`.** An inferred claim is a conclusion the user
+never stated, so it is trusted less in two independent ways: its confidence is
+capped at `inferred_confidence_cap` (0.4) *at add time*, and it is multiplied by
+`(1 − inferred_rerank_penalty)` in `apply_recency_confidence_rerank`. The penalty
+is active even when the recency/confidence weights are 0, so the rerank's fast
+no-op path now also requires `inferred_penalty == 0`. Corpora without inferred
+claims are unaffected — the eval baseline is unchanged. The distiller's
+extraction LLM labels each candidate; an explicit restatement later
+*reconfirms* it: `reinforce_claim(upgrade_derivation=True)` promotes
+`inferred→stated` and the confidence nudge lifts it past the cap (the distiller's
+duplicate→reinforce path passes the flag).
+
+**Origin (entities/tags).** Index objects are not propositional, so they carry a
+one-bit `meta_json.origin` (`auto` from enrichment via the `get_or_create_*`
+link helpers, `curated` from the facade `add_*`). It is a cleanup/trust signal
+only and deliberately does **not** gate dedup.
+
+**Dedup & merge.** Cheap prefilters (embedding cosine for claims, token-subset
+name similarity for entities/tags) propose clusters; an optional LLM pass
+(`judge_duplicates`, gated by `dedup_llm_verify`/`use_llm`) confirms each cluster
+and suggests a canonical form before a merge is offered. `TagCRUD.merge` is the
+non-lossy tag counterpart to entity merge: it re-points `claim_tags`, re-parents
+the source's children to the target, and lifts the target out from under the
+source first to avoid a self-cycle.
+
+**Memory Cleanup orchestrator.** `run_memory_cleanup(apply=False)` is the single
+entry point: it always runs the *safe* maintenance (lifecycle sweep + best-effort
+overview refresh) and gathers dedup proposals; with `apply=True` it merges each
+cluster by its suggested keeper. Two-phase by design — nothing destructive
+happens until the user clicks Apply — mirroring the propose→execute pattern.
+Surfaced at `POST /pkb/cleanup` and the UI Maintenance tab.
+
+**Lifecycle notification & audit.** When an add supersedes an existing claim the
+change is reported in `ActionResult.metadata["lifecycle_changes"]` (aggregated
+onto `DistillationResult.lifecycle_changes` and toasted in the UI). Merges and
+derivation upgrades are written to the append-only `audit_log` (`merge` /
+`derivation_change`). Tests: `test_provenance_axes`, `test_provenance_distiller`,
+`test_inferred_rerank`, `test_reconfirmation_upgrade`, `test_origin`,
+`test_tag_merge`, `test_dedup_llm_verify`, `test_lifecycle_notification`,
+`test_memory_cleanup`, `test_audit_coverage`.
+
 ### Pattern 3: Memory Update from Chat
 
 ```

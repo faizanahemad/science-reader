@@ -51,6 +51,16 @@ PKB v0 is a SQLite-backed personal knowledge base designed for integration with 
 - **Cost & quality** (G): eval harness; combined single-call enrichment + parallel batch enrichment (`combined_enrichment`); export/import + append-only `audit_log` (v10).
 - **Reinforcement & decay** (H): `last_reinforced_at` + `reinforcement_count` (v8); `reinforce_claim()` with a contested/superseded conflict-review guard; `reinforce_alpha`, `reinforce_on_duplicate`.
 
+**Provenance, Origin & Cleanup (`pkb_provenance_and_cleanup` plan — W1–W11 complete; all in `meta_json`, no schema migration):**
+- **Two-axis claim provenance:** `meta_json.source.channel` (`manual|chat|ingest|import`) + `meta_json.source.derivation` (`stated|extracted|inferred`). `constants.ProvenanceChannel`/`Derivation`; `utils.set_provenance`/`get_provenance`/`infer_legacy_provenance`. Inferred claims are confidence-capped (`inferred_confidence_cap`) and down-ranked (`inferred_rerank_penalty`); the distiller LLM labels each candidate; reconfirmation upgrades `inferred→stated` (`reinforce_claim(upgrade_derivation=True)`).
+- **auto vs curated origin** for entities/tags (`meta_json.origin`): `auto` from enrichment, `curated` from the user; does **not** gate dedup.
+- **Tag merge:** `TagCRUD.merge` + `find_tag_duplicates`/`merge_tags` (non-lossy, parallels entity merge).
+- **LLM-assisted dedup:** `llm_helpers.judge_duplicates`; `use_llm`/`dedup_llm_verify` on the three `find_*` dedup methods.
+- **Memory Cleanup orchestrator:** `run_memory_cleanup(apply=False)` (sweep + overview refresh + dedup proposals; apply merges suggested keepers) → `POST /pkb/cleanup`; UI Maintenance tab.
+- **Lifecycle-change notification:** `ActionResult.metadata["lifecycle_changes"]` + `DistillationResult.lifecycle_changes` + UI toast.
+- **Audit coverage:** merges (`merge`) and derivation upgrades (`derivation_change`) write to `audit_log`.
+- See [pkb_provenance_and_cleanup.md](./pkb_provenance_and_cleanup.md).
+
 **Recent Updates (v0.9):**
 - NL Agent (`truth_management_system/interface/nl_agent.py`): 488+ line agentic processor with LLM tool calling, conversation context support, temporal extraction, type-filtered search, and `ask_clarification` action for interactive proposals. `process_streaming()` generator yields event dicts: `llm_call_start`, `thinking`, `action_start`, `action_result`, `parse_error`, `unknown_action`, `final_response`, `ask_clarification`, `timeout`, `error`, `max_iterations`. Backward compatible: `process()` unchanged, `process_streaming()` is additive.
 - `PKBNLConversationAgent` (`agents/pkb_nl_conversation_agent.py`): Conversation-compatible agent for `/pkb` and `/memory` commands, with `tool_response_waiter` for interactive modal support, SSE event yielding, and `_add_confirmed_claims()`. Now uses `_run_nl_agent_streaming()` and `PKBNLAgent.process_streaming()` instead of `_run_nl_agent()`/`process()`. `__call__` iterates streaming events and yields formatted text per action in real-time.
@@ -288,6 +298,10 @@ ann_enabled: bool = True
 ann_backend: str = "flat"               # flat (numpy, exact) | hnsw (faiss)
 ann_min_claims: int = 200
 ann_overfetch: int = 5
+# Provenance / dedup (provenance & cleanup plan)
+inferred_confidence_cap: float = 0.4    # confidence ceiling for inferred claims
+inferred_rerank_penalty: float = 0.1    # score ×(1-penalty) for inferred in re-rank
+dedup_llm_verify: bool = False          # LLM verification pass over dedup clusters
 llm_model: str = "google/gemini-3.1-flash-lite-preview"
 embedding_model: str = "openai/text-embedding-3-small"
 llm_temperature: float = 0.0
@@ -463,6 +477,7 @@ LLM-powered extraction via `code_common/call_llm.py`.
 | `analyze_claim_statement` | `(statement, model=None)` → `ClaimAnalysisResult` | **G2:** one combined LLM call extracting all fields (tags/entities/SPO/type/keywords/questions) — replaces ~6 calls |
 | `batch_analyze` | `(statements, model=None)` → `List[ClaimAnalysisResult]` | **G2:** fan `analyze_claim_statement` across the parallel executor (bulk/background enrichment) |
 | `detect_contradiction` | `(new_statement, existing_statement)` → `bool` | **D1 follow-up:** ungated LLM check used by the distiller to propose a supersede |
+| `judge_duplicates` | `(items, kind)` → `{duplicate, canonical, reason}` | **W7:** verify a candidate dedup cluster is a true duplicate (fail-safe False) |
 
 **`ClaimAnalysisResult` Dataclass (G2 combined call):** tags, entities, spo, claim_type, keywords, and `possible_questions` — the single-call superset of `ExtractionResult` plus questions.
 
@@ -819,6 +834,11 @@ user_api = shared_api.for_user("user@example.com")
 | Portability | `export_data()` → ActionResult | **G3:** export the user's PKB as a JSON envelope (claims/links/entities/tags/contexts; embeddings excluded) |
 | Portability | `import_data(payload, mode="merge")` → ActionResult | **G3:** import an envelope (merge = INSERT OR IGNORE, re-owned to importer) |
 | Audit | `get_audit_log(limit=100, offset=0, action=None)` → ActionResult | **G3:** append-only audit entries, newest first (add/edit/delete/import hooks) |
+| Reinforce | `reinforce_claim(claim_id, strength=1.0, upgrade_derivation=False)` | **W4:** `upgrade_derivation` promotes an inferred claim to stated on explicit restatement |
+| Dedup | `find_tag_duplicates(threshold=None, use_llm=None)` / `merge_tags(source_id, target_id)` | **W6:** tag dedup + non-lossy merge (re-points links, re-parents children) |
+| Dedup | `find_consolidation_candidates`/`find_entity_duplicates`/`find_tag_duplicates` gain `use_llm` | **W7:** optional LLM verification (`judge_duplicates`) of clusters |
+| Cleanup | `run_memory_cleanup(apply=False, use_llm=None)` → ActionResult | **W9:** sweep + overview refresh + dedup proposals; `apply` merges suggested keepers |
+| Maint | `backfill_provenance()` / `backfill_origin()` | Idempotent ops backfills for legacy claims/entities/tags |
 
 #### `interface/text_orchestration.py` - `TextOrchestrator`
 
@@ -1052,6 +1072,9 @@ def clear_conversation_pinned_claims(conversation_id: str):
 | `/pkb/tags` | GET | List tags | For dropdown/autocomplete |
 | `/pkb/tags` | POST | Create tag | `{name, parent_tag_id?}` |
 | `/pkb/tags/<id>/claims` | GET | Claims linked to tag | For tag expandable cards |
+| `/pkb/tags/duplicates` | GET | Tag name-variant clusters | Dedup review (W6) |
+| `/pkb/tags/merge` | POST | Merge tag `{source_id, target_id}` | Non-lossy (W6) |
+| `/pkb/cleanup` | POST | Memory Cleanup `{apply?, use_llm?}` | Sweep + overview + dedup proposals (W9) |
 | `/pkb/claims/<id>/tags` | GET | Tags linked to claim | For edit modal |
 | `/pkb/claims/<id>/tags` | POST | Link tag to claim | `{tag_id}` |
 | `/pkb/claims/<id>/tags/<tid>` | DELETE | Unlink tag from claim | |
@@ -1443,6 +1466,7 @@ The PKB modal includes tabs for different operations.
 | **Bulk Add** | `#pkb-bulk-pane` | Row-wise multi-claim entry (v0.3) |
 | **Import Text** | `#pkb-import-pane` | AI-powered text parsing (v0.3) |
 | Search | `#pkb-search-pane` | Search claims |
+| **Maintenance** | `#pkb-maintenance-pane` | Memory Cleanup: Analyze/Apply dedup + sweep + overview refresh (W11). Claim cards show provenance badges; entity/tag cards show auto/curated origin badges. |
 
 **Bulk Add Tab (`#pkb-bulk-pane`):**
 - Container `#pkb-bulk-rows-container` for dynamically added rows

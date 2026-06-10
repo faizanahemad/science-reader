@@ -239,6 +239,7 @@ Atomic memory units representing facts, preferences, decisions, tasks, etc. Each
 - Status (active, contested, historical, expired, etc.)
 - Temporal validity (valid_from, valid_to) — **mandatory for task and reminder types**
 - Metadata (tags, entities, confidence)
+- **Provenance** (two axes in `meta_json.source`): **channel** (`manual|chat|ingest|import`) + **derivation** (`stated|extracted|inferred`). Inferred claims are confidence-capped and down-ranked; an explicit restatement upgrades `inferred→stated`. See [pkb_provenance_and_cleanup.md](./pkb_provenance_and_cleanup.md).
 
 ### Contexts (Groups)
 Hierarchical grouping of claims for organization:

@@ -1,6 +1,6 @@
 # PKB Provenance, Origin & Memory Cleanup — Implementation Plan
 
-Status: in progress. Builds on `pkb_memory_system_improvements.plan.md` (workstreams A–H, all complete) and the `pkb_memory_overview` feature. Each unit is a discrete commit, staged by path, verified (`py_compile` + tests in conda env `science-reader`) before commit. Never pushed.
+Status: COMPLETE (W1-W12). Backend + REST + UI shipped; UI not browser-verified in this env. Builds on `pkb_memory_system_improvements.plan.md` (workstreams A–H, all complete) and the `pkb_memory_overview` feature. Each unit is a discrete commit, staged by path, verified (`py_compile` + tests in conda env `science-reader`) before commit. Never pushed.
 
 ## Goals (decisions locked with user 2026-06-10)
 
@@ -36,59 +36,59 @@ Status: in progress. Builds on `pkb_memory_system_improvements.plan.md` (workstr
 ## Workstreams & tasks
 
 ### W1 — Claim provenance two-axis (backend foundation)
-- [ ] W1.1 `utils.py`: helpers `set_provenance(meta, channel, derivation)` / `get_provenance(meta)`; constants for channels + `Derivation` enum in `constants.py`. Define inferred confidence cap (`config.inferred_confidence_cap`, default e.g. 0.5) and downrank weight (`config.inferred_rerank_penalty`).
-- [ ] W1.2 `structured_api.add_claim`: accept `derivation`/`channel` (via kwargs), normalize channel vocab (migration→import), default manual=stated; seed lower confidence when derivation=inferred and no explicit confidence; write both axes into `meta_json.source`.
-- [ ] W1.3 Backfill helper (idempotent) inferring derivation/channel for legacy claims; expose as ops method (not auto-run on every init).
-- [ ] W1.4 Tests.
+- [x] W1.1 `utils.py`: helpers `set_provenance(meta, channel, derivation)` / `get_provenance(meta)`; constants for channels + `Derivation` enum in `constants.py`. Define inferred confidence cap (`config.inferred_confidence_cap`, default e.g. 0.5) and downrank weight (`config.inferred_rerank_penalty`).
+- [x] W1.2 `structured_api.add_claim`: accept `derivation`/`channel` (via kwargs), normalize channel vocab (migration→import), default manual=stated; seed lower confidence when derivation=inferred and no explicit confidence; write both axes into `meta_json.source`.
+- [x] W1.3 Backfill helper (idempotent) inferring derivation/channel for legacy claims; expose as ops method (not auto-run on every init).
+- [x] W1.4 Tests.
 
 ### W2 — Distiller / ingestion derivation labeling
-- [ ] W2.1 `llm_helpers`: extend the distiller/ingestion extraction prompt to label each candidate `stated|extracted|inferred`; add field to `CandidateClaim` / `IngestCandidate`.
-- [ ] W2.2 Thread derivation through `_propose_actions` → `add_claim`. Manual UI path stays `stated`.
-- [ ] W2.3 Tests.
+- [x] W2.1 `llm_helpers`: extend the distiller/ingestion extraction prompt to label each candidate `stated|extracted|inferred`; add field to `CandidateClaim` / `IngestCandidate`.
+- [x] W2.2 Thread derivation through `_propose_actions` → `add_claim`. Manual UI path stays `stated`.
+- [x] W2.3 Tests.
 
 ### W3 — Retrieval downrank for inferred
-- [ ] W3.1 Recency/confidence re-rank: subtract `inferred_rerank_penalty` for `derivation=inferred`. Default keeps behavior near-unchanged unless configured.
-- [ ] W3.2 Eval baseline unchanged on the 49-claim set (no inferred claims there); tests.
+- [x] W3.1 Recency/confidence re-rank: subtract `inferred_rerank_penalty` for `derivation=inferred`. Default keeps behavior near-unchanged unless configured.
+- [x] W3.2 Eval baseline unchanged on the 49-claim set (no inferred claims there); tests.
 
 ### W4 — Reconfirmation upgrade (inferred → stated)
-- [ ] W4.1 `reinforce_claim` (and the distiller duplicate→reinforce path): when the triggering input is a user statement and the claim is `inferred`, upgrade derivation to `stated` and lift the confidence cap.
-- [ ] W4.2 Tests.
+- [x] W4.1 `reinforce_claim` (and the distiller duplicate→reinforce path): when the triggering input is a user statement and the claim is `inferred`, upgrade derivation to `stated` and lift the confidence cap.
+- [x] W4.2 Tests.
 
 ### W5 — auto vs curated origin (entities & tags)
-- [ ] W5.1 Set `meta_json.origin="auto"` on enrichment-created entities/tags; `"curated"` on manual create/rename/edit; promotion on edit; merge target stays curated.
-- [ ] W5.2 Backfill existing → curated (idempotent ops method).
-- [ ] W5.3 Tests.
+- [x] W5.1 Set `meta_json.origin="auto"` on enrichment-created entities/tags; `"curated"` on manual create/rename/edit; promotion on edit; merge target stays curated.
+- [x] W5.2 Backfill existing → curated (idempotent ops method).
+- [x] W5.3 Tests.
 
 ### W6 — Tag merge
-- [ ] W6.1 `TagCRUD.merge(source_id, target_id)`: re-point `claim_tags` (INSERT OR IGNORE), re-parent children, delete source. `find_tag_duplicates` (name sim). Facade `merge_tags`/`find_tag_duplicates`.
-- [ ] W6.2 REST `GET /pkb/tags/duplicates`, `POST /pkb/tags/merge`.
-- [ ] W6.3 Tests.
+- [x] W6.1 `TagCRUD.merge(source_id, target_id)`: re-point `claim_tags` (INSERT OR IGNORE), re-parent children, delete source. `find_tag_duplicates` (name sim). Facade `merge_tags`/`find_tag_duplicates`.
+- [x] W6.2 REST `GET /pkb/tags/duplicates`, `POST /pkb/tags/merge`.
+- [x] W6.3 Tests.
 
 ### W7 — LLM-assisted overlap judging
-- [ ] W7.1 `llm_helpers.judge_duplicates(items)` verification pass; integrate as optional `use_llm` step in `find_consolidation_candidates` and `find_entity_duplicates`/`find_tag_duplicates` (cheap prefilter → LLM confirm + canonical suggestion). Config `dedup_llm_verify` (default off/on TBD).
-- [ ] W7.2 Tests (mock LLM).
+- [x] W7.1 `llm_helpers.judge_duplicates(items)` verification pass; integrate as optional `use_llm` step in `find_consolidation_candidates` and `find_entity_duplicates`/`find_tag_duplicates` (cheap prefilter → LLM confirm + canonical suggestion). Config `dedup_llm_verify` (default off/on TBD).
+- [x] W7.2 Tests (mock LLM).
 
 ### W8 — Lifecycle-change notification
-- [ ] W8.1 When add/extract sets an existing claim `contested`/`superseded`, collect the affected claims and surface them: `ActionResult.data["lifecycle_changes"]`, distiller proposal summary text, and UI toast.
-- [ ] W8.2 Tests.
+- [x] W8.1 When add/extract sets an existing claim `contested`/`superseded`, collect the affected claims and surface them: `ActionResult.data["lifecycle_changes"]`, distiller proposal summary text, and UI toast.
+- [x] W8.2 Tests.
 
 ### W9 — Memory Cleanup orchestrator
-- [ ] W9.1 Facade `run_memory_cleanup(apply=False)`: phase 1 analyze (gather claim/entity/tag dedup proposals + run safe sweeps + overview refresh) → report; `apply=True` executes confirmed merges. REST `POST /pkb/cleanup` (+ `/pkb/cleanup/apply`).
-- [ ] W9.2 Tests.
+- [x] W9.1 Facade `run_memory_cleanup(apply=False)`: phase 1 analyze (gather claim/entity/tag dedup proposals + run safe sweeps + overview refresh) → report; `apply=True` executes confirmed merges. REST `POST /pkb/cleanup` (+ `/pkb/cleanup/apply`).
+- [x] W9.2 Tests.
 
 ### W10 — Audit coverage
-- [ ] W10.1 `record_audit` hooks in `consolidate_claims`, `merge_entities`, `merge_tags`, and derivation/origin changes.
-- [ ] W10.2 Tests.
+- [x] W10.1 `record_audit` hooks in `consolidate_claims`, `merge_entities`, `merge_tags`, and derivation/origin changes.
+- [x] W10.2 Tests.
 
 ### W11 — UI
-- [ ] W11.1 Provenance badge + derivation/channel filter on Claims tab; inferred styled distinctly.
-- [ ] W11.2 auto/curated indicator on Entities/Tags tabs + "review auto-created" filter.
-- [ ] W11.3 Tag-merge UI (mirror entity merge); duplicate review.
-- [ ] W11.4 "Memory Cleanup" button + report/confirm modal.
-- [ ] W11.5 Lifecycle-change toast wiring.
+- [x] W11.1 Provenance badge + derivation/channel filter on Claims tab; inferred styled distinctly.
+- [x] W11.2 auto/curated indicator on Entities/Tags tabs + "review auto-created" filter.
+- [x] W11.3 Tag-merge UI (mirror entity merge); duplicate review.
+- [x] W11.4 "Memory Cleanup" button + report/confirm modal.
+- [x] W11.5 Lifecycle-change toast wiring.
 
 ### W12 — Docs
-- [ ] W12.1 Update `pkb_memory_overview.md` (or new section), `implementation.md`, `implementation_deep_dive.md`, `api.md`, README.
+- [x] W12.1 Update `pkb_memory_overview.md` (or new section), `implementation.md`, `implementation_deep_dive.md`, `api.md`, README.
 
 ## Open / deferred
 - LLM verify default (on vs off) — start OFF, enable after eval.
