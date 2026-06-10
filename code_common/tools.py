@@ -4557,6 +4557,27 @@ def handle_pkb_summarize(args: dict, context: ToolContext) -> ToolCallResult:
 
 
 @register_tool(
+    name="pkb_negative_feedback",
+    parameters={"type": "object", "properties": {"claim_id": {"type": "string", "description": "UUID of the claim"}, "context": {"type": "string", "description": "Why it wasn't helpful"}}, "required": ["claim_id"]},
+    category="pkb",
+    description="Record negative feedback on a claim that was not relevant or helpful in this context.",
+)
+def handle_pkb_negative_feedback(args: dict, context: ToolContext) -> ToolCallResult:
+    try:
+        api = _get_pkb_user_api(context.user_email)
+        result = api.add_claim_feedback(args["claim_id"], context=args.get("context", ""))
+        return ToolCallResult(
+            tool_id="", tool_name="pkb_negative_feedback",
+            result=json.dumps({"recorded": result.success}),
+        )
+    except Exception as exc:
+        return ToolCallResult(
+            tool_id="", tool_name="pkb_negative_feedback",
+            error=f"pkb_negative_feedback failed: {exc}",
+        )
+
+
+@register_tool(
     name="pkb_recent_promotions",
     description=(
         "List STM items recently promoted to long-term claims. "

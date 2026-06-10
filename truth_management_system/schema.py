@@ -297,6 +297,16 @@ CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY,
     applied_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS claim_feedback (
+    feedback_id TEXT PRIMARY KEY,
+    claim_id TEXT NOT NULL,
+    user_email TEXT,
+    feedback_type TEXT NOT NULL DEFAULT 'negative',
+    context TEXT,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (claim_id) REFERENCES claims(claim_id)
+);
 """
 
 

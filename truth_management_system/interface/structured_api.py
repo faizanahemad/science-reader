@@ -1130,6 +1130,18 @@ class StructuredAPI:
                     query, k=k, filters=search_filters
                 )
 
+            # Apply negative feedback penalty — demote claims with prior negative feedback
+            try:
+                neg_ids = self.get_negative_claim_ids()
+                if neg_ids and results:
+                    for r in results:
+                        cid = getattr(r.claim, "claim_id", None) if hasattr(r, "claim") else None
+                        if cid and cid in neg_ids:
+                            r.score *= 0.5  # 50% penalty
+                    results.sort(key=lambda x: x.score, reverse=True)
+            except Exception:
+                pass  # Don't break search if feedback table missing
+
             return ActionResult(
                 success=True, action="search", object_type="claim", data=results
             )
@@ -3837,3 +3849,43 @@ class StructuredAPI:
             )
         return ActionResult(success=True, action="restore", object_type="claim",
                           data={"claim_id": claim_id})
+
+    # -----------------------------------------------------------------
+    # Negative Feedback (contextual retrieval penalty)
+    # -----------------------------------------------------------------
+
+    def add_claim_feedback(self, claim_id: str, context: str = "") -> ActionResult:
+        """Record negative feedback on a claim (e.g., 'not relevant here')."""
+        import uuid
+        from ..utils import now_iso
+        feedback_id = str(uuid.uuid4())
+        with self.db.transaction():
+            self.db.execute(
+                "INSERT OR IGNORE INTO claim_feedback (feedback_id, claim_id, user_email, feedback_type, context, created_at) VALUES (?, ?, ?, 'negative', ?, ?)",
+                (feedback_id, claim_id, self.user_email, context, now_iso()),
+            )
+        return ActionResult(success=True, action="create", object_type="feedback",
+                          data={"feedback_id": feedback_id, "claim_id": claim_id})
+
+    def get_claim_feedback(self, claim_id: str = None, limit: int = 50) -> ActionResult:
+        """List negative feedback entries, optionally filtered by claim_id."""
+        if claim_id:
+            rows = self.db.fetchall(
+                "SELECT feedback_id, claim_id, context, created_at FROM claim_feedback WHERE claim_id = ? AND user_email = ? ORDER BY created_at DESC LIMIT ?",
+                (claim_id, self.user_email, limit),
+            )
+        else:
+            rows = self.db.fetchall(
+                "SELECT feedback_id, claim_id, context, created_at FROM claim_feedback WHERE user_email = ? ORDER BY created_at DESC LIMIT ?",
+                (self.user_email, limit),
+            )
+        return ActionResult(success=True, action="list", object_type="feedback",
+                          data=[dict(r) for r in rows])
+
+    def get_negative_claim_ids(self) -> set:
+        """Return set of claim_ids with any negative feedback (for retrieval penalty)."""
+        rows = self.db.fetchall(
+            "SELECT DISTINCT claim_id FROM claim_feedback WHERE user_email = ?",
+            (self.user_email,),
+        )
+        return {r["claim_id"] for r in rows}

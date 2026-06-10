@@ -606,6 +606,27 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
             logger.exception("pkb_summarize error: %s", exc)
             return json.dumps({"error": f"pkb_summarize failed: {exc}"})
 
+    # Tool: pkb_negative_feedback — record that a retrieved claim was not helpful
+    @mcp.tool()
+    def pkb_negative_feedback(user_email: str, claim_id: str, context: str = "") -> str:
+        """Record negative feedback on a claim that was not relevant or helpful.
+
+        This penalizes the claim in future retrievals for similar contexts.
+
+        Args:
+            user_email: Email of the PKB owner.
+            claim_id: UUID of the claim to mark as unhelpful.
+            context: Optional description of why it wasn't helpful.
+        """
+        try:
+            api = _get_pkb_api()
+            user_api = api.for_user(user_email)
+            result = user_api.add_claim_feedback(claim_id, context=context)
+            return _serialize_action_result(result)
+        except Exception as exc:
+            logger.exception("pkb_negative_feedback error: %s", exc)
+            return json.dumps({"error": f"pkb_negative_feedback failed: {exc}"})
+
     if is_full:
         # -------------------------------------------------------------
         # Tool: pkb_recent_promotions — list recently promoted STM items

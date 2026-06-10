@@ -3900,3 +3900,57 @@ def pkb_reinforce_claim(claim_id):
     except Exception as e:
         logger.error(f"Error in pkb_reinforce_claim: {e}")
         return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+
+
+@pkb_bp.route("/pkb/claims/<claim_id>/feedback", methods=["POST"])
+@limiter.limit("30 per minute")
+@login_required
+def pkb_add_feedback(claim_id):
+    """Record negative feedback on a claim."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+
+        context = (request.json or {}).get("context", "")
+        result = api.add_claim_feedback(claim_id, context=context)
+        if result.success:
+            return jsonify(result.data)
+        return json_error("Failed", status=500, code="feedback_failed")
+    except Exception as e:
+        logger.error(f"Error in pkb_add_feedback: {e}")
+        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+
+
+@pkb_bp.route("/pkb/feedback", methods=["GET"])
+@limiter.limit("20 per minute")
+@login_required
+def pkb_list_feedback():
+    """List negative feedback entries."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+
+        claim_id = request.args.get("claim_id")
+        result = api.get_claim_feedback(claim_id=claim_id)
+        if result.success:
+            return jsonify({"feedback": result.data})
+        return json_error("Failed", status=500, code="feedback_list_failed")
+    except Exception as e:
+        logger.error(f"Error in pkb_list_feedback: {e}")
+        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
