@@ -1049,6 +1049,7 @@ class StructuredAPI:
         k: int = 20,
         filters: Optional[Dict] = None,
         include_contested: bool = True,
+        strategy_queries: Optional[Dict[str, str]] = None,
     ) -> ActionResult:
         """
         Search claims.
@@ -1062,6 +1063,10 @@ class StructuredAPI:
             k: Number of results.
             filters: Optional filter dict.
             include_contested: Include contested claims.
+            strategy_queries: Optional per-strategy query overrides (W-B), only
+                honored by the "hybrid" strategy. Maps a strategy name (e.g.
+                "fts") to the query it should receive; absent strategies use
+                ``query``. ``None`` => single-query behavior.
 
         Returns:
             ActionResult with list of SearchResult objects.
@@ -1105,7 +1110,8 @@ class StructuredAPI:
             # Execute search
             if strategy == "hybrid":
                 results = self.search_strategy.search(
-                    query, k=k, filters=search_filters
+                    query, k=k, filters=search_filters,
+                    strategy_queries=strategy_queries,
                 )
             elif strategy == "fts":
                 results = self.search_strategy.search(

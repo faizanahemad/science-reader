@@ -86,7 +86,8 @@ class HybridSearchStrategy:
         k: int = 20,
         filters: SearchFilters = None,
         llm_rerank: bool = False,
-        llm_rerank_top_n: int = 50
+        llm_rerank_top_n: int = 50,
+        strategy_queries: Dict[str, str] = None
     ) -> List[SearchResult]:
         """
         Execute hybrid search across multiple strategies.
@@ -124,7 +125,7 @@ class HybridSearchStrategy:
             return []
         
         # Execute strategies in parallel
-        all_results = self._execute_parallel(query, active_strategies, k * 2, filters)
+        all_results = self._execute_parallel(query, active_strategies, k * 2, filters, strategy_queries)
         time_logger.info(f"[HYBRID] Strategy results: {[(name, len(r)) for name, r in zip(active_strategies, all_results)]}")
         
         # Merge using RRF. Per-strategy weights (W-A) let us trust some
@@ -156,7 +157,8 @@ class HybridSearchStrategy:
         query: str,
         strategy_names: List[str],
         k: int,
-        filters: SearchFilters
+        filters: SearchFilters,
+        strategy_queries: Dict[str, str] = None
     ) -> List[List[SearchResult]]:
         """
         Execute multiple strategies in parallel.
@@ -166,20 +168,29 @@ class HybridSearchStrategy:
             strategy_names: Strategies to execute.
             k: Results per strategy.
             filters: Filters to apply.
+            strategy_queries: Optional per-strategy query overrides; a strategy
+                absent from the map uses ``query``. ``None`` => every strategy
+                uses ``query`` (unchanged behavior).
             
         Returns:
             List of result lists from each strategy.
         """
+        def _query_for(name: str) -> str:
+            if strategy_queries and name in strategy_queries:
+                return strategy_queries[name]
+            return query
+
         if len(strategy_names) == 1:
             # Single strategy, no parallelization needed
-            strategy = self.strategies[strategy_names[0]]
-            return [strategy.search(query, k, filters)]
+            name = strategy_names[0]
+            strategy = self.strategies[name]
+            return [strategy.search(_query_for(name), k, filters)]
         
         def run_strategy(name: str) -> List[SearchResult]:
             try:
                 time_logger.info(f"[HYBRID] Running strategy: {name}")
                 strategy = self.strategies[name]
-                results = strategy.search(query, k, filters)
+                results = strategy.search(_query_for(name), k, filters)
                 time_logger.info(f"[HYBRID] Strategy {name} returned {len(results)} results")
                 # Tag results with source
                 for r in results:

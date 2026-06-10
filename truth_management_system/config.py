@@ -196,6 +196,12 @@ class PKBConfig:
     # is 1.0 => identical to plain (unweighted) RRF. Tune via the eval harness.
     rrf_strategy_weights: Dict[str, float] = field(default_factory=dict)
 
+    # Retrieval ranking — per-strategy query scoping (W-B).
+    # When True, _get_pkb_context routes the focused current message to literal
+    # FTS while semantic/embedding search keeps the contextual (summary-laden)
+    # query, so past-topic summary text stops polluting literal matches.
+    fts_use_focused_query: bool = True
+
     # Parallelization
     max_parallel_llm_calls: int = 8
     max_parallel_embedding_calls: int = 16
@@ -269,6 +275,7 @@ class PKBConfig:
             'max_parallel_llm_calls': self.max_parallel_llm_calls,
             'max_parallel_embedding_calls': self.max_parallel_embedding_calls,
             'rrf_strategy_weights': dict(self.rrf_strategy_weights),
+            'fts_use_focused_query': self.fts_use_focused_query,
             'log_llm_calls': self.log_llm_calls,
             'log_search_queries': self.log_search_queries,
         }
@@ -305,6 +312,7 @@ class PKBConfig:
             'llm_model', 'embedding_model', 'llm_temperature',
             'max_parallel_llm_calls', 'max_parallel_embedding_calls',
             'rrf_strategy_weights',
+            'fts_use_focused_query',
             'log_llm_calls', 'log_search_queries'
         }
         filtered = {k: v for k, v in data.items() if k in valid_keys}
@@ -387,6 +395,7 @@ def load_config(
         'MAX_PARALLEL_LLM_CALLS': ('max_parallel_llm_calls', int),
         'MAX_PARALLEL_EMBEDDING_CALLS': ('max_parallel_embedding_calls', int),
         'RRF_STRATEGY_WEIGHTS': ('rrf_strategy_weights', lambda x: {str(k): float(v) for k, v in json.loads(x).items()}),
+        'FTS_USE_FOCUSED_QUERY': ('fts_use_focused_query', lambda x: x.lower() in ('true', '1', 'yes')),
         'LOG_LLM_CALLS': ('log_llm_calls', lambda x: x.lower() in ('true', '1', 'yes')),
         'LOG_SEARCH_QUERIES': ('log_search_queries', lambda x: x.lower() in ('true', '1', 'yes')),
     }

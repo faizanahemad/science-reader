@@ -805,8 +805,19 @@ class Conversation:
                 except Exception as _ov_e:
                     time_logger.debug(f"[PKB] overview context for rewrite unavailable: {_ov_e}")
 
+                # W-B: scope literal FTS to the *focused* current message so the
+                # (potentially summary-laden) enhanced_query stops polluting
+                # literal matching. Embedding/rewrite keep the contextual
+                # enhanced_query, which legitimately benefits from context.
+                # No-op when there is no separate summary (focused == enhanced)
+                # or when the flag is disabled.
+                _strategy_queries = None
+                if getattr(config, "fts_use_focused_query", False) and (query or "").strip():
+                    _strategy_queries = {"fts": query}
+
                 result = api.search(
-                    enhanced_query, strategy="hybrid", k=remaining_slots + 5
+                    enhanced_query, strategy="hybrid", k=remaining_slots + 5,
+                    strategy_queries=_strategy_queries,
                 )  # Get extra for dedup
 
                 time_logger.info(
