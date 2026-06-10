@@ -474,7 +474,11 @@ Response:"""
             return self.api.add_claim(**kwargs)
         elif action.action == "reinforce" and action.existing_claim:
             # H3: user confirmed a restatement -> reinforce the existing claim.
-            return self.api.reinforce_claim(action.existing_claim.claim_id)
+            # W4: an explicit restatement also upgrades an inferred claim to
+            # stated (the user has now confirmed the conclusion).
+            return self.api.reinforce_claim(
+                action.existing_claim.claim_id, upgrade_derivation=True
+            )
         elif action.action == "retract" and action.existing_claim:
             return self.api.delete_claim(action.existing_claim.claim_id)
         

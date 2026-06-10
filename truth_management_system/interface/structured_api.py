@@ -1384,7 +1384,9 @@ class StructuredAPI:
 
         return patch, warnings
 
-    def reinforce_claim(self, claim_id: str, strength: float = 1.0) -> ActionResult:
+    def reinforce_claim(
+        self, claim_id: str, strength: float = 1.0, upgrade_derivation: bool = False
+    ) -> ActionResult:
         """
         Reinforce a claim — the single "use it or lose it" state transition
         (Workstream H). Re-affirming a claim keeps it fresh and ranking higher.
@@ -1443,6 +1445,22 @@ class StructuredAPI:
                 )
 
             patch, warnings = self._build_reinforcement_patch(claim, strength)
+
+            # W4 reconfirmation upgrade: when the user explicitly restates an
+            # inferred claim, promote its derivation inferred -> stated (the
+            # user has now confirmed the conclusion) and lift the inferred
+            # confidence cap so it ranks like a stated claim.
+            if upgrade_derivation:
+                from ..utils import get_provenance, set_provenance, parse_meta_json
+                from ..constants import Derivation
+                import json as _pjson
+
+                if get_provenance(claim.meta_json).get("derivation") == \
+                        Derivation.INFERRED.value:
+                    _meta = parse_meta_json(claim.meta_json)
+                    set_provenance(_meta, derivation=Derivation.STATED.value)
+                    patch["meta_json"] = _pjson.dumps(_meta)
+                    warnings.append("Upgraded derivation inferred → stated")
 
             updated = self.claims.edit(claim_id, patch)
             if not updated:
