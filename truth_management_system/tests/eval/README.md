@@ -119,6 +119,41 @@ paired claims, so the metric reflects newer-vs-older *ordering* rather than
 FTS common-word noise. At the default `w_recency = 0` the re-rank is an exact
 no-op, so this baseline is stable for regression.
 
+## Gating the rewrite/entity unification (keyed)
+
+The single-rewrite-call unification (`rewrite_is_query_source` +
+`entity_use_rewrite_entities`, on by default) only engages with a key — the
+`hybrid` default set includes `rewrite` + `entity`, so one rewrite LLM call
+drives FTS/embedding/entity. To gate it:
+
+```bash
+export OPENROUTER_API_KEY=...        # the app LLM path is OpenRouter-only
+./truth_management_system/tests/eval/run_eval.sh --k 5 --verbose
+```
+
+Compare the `[hybrid]` block against `[fts]` and `[entity]`; precision@5 / mrr
+should improve or hold and recall@5 must not regress. To make the LLM-entity
+advantage visible (lowercase / paraphrased entity references the regex heuristic
+misses), add such cases under a new category (e.g. `entity_nl`) — the guard test
+only floors `lexical`, so a new category is safe.
+
+Then sweep the **W-A** per-source weights and ship only what helps:
+
+```python
+from truth_management_system.tests.eval.runner import EvalRunner
+from truth_management_system.tests.eval.dataset import load_dataset
+
+ds = load_dataset()
+for w in ({}, {"fts": 0.6, "embedding": 1.0, "rewrite": 1.0, "entity": 0.8}):
+    with EvalRunner(keys={"OPENROUTER_API_KEY": "..."}) as r:
+        r.config.rrf_strategy_weights = w
+        r.seed(ds)
+        print(w, r.run(ds, strategy_names=["fts", "embedding", "rewrite", "entity"], k=5).overall)
+```
+
+(`rrf_k` stays 60 during tuning.) See
+`documentation/planning/plans/pkb_rewrite_entity_unification.plan.md`.
+
 ## Files
 
 - `metrics.py` — `recall_at_k`, `precision_at_k`, `reciprocal_rank`, `mean_reciprocal_rank`, `aggregate_case_metrics`.

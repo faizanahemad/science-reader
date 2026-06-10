@@ -267,3 +267,15 @@ def test_backfill_entities_noop_without_llm():
     _claim(claims, "Acme shipped a product.")
     api = StructuredAPI(db, {}, config)  # no key => self.llm is None
     assert api.backfill_entities() == {"scanned": 0, "linked": 0, "links": 0, "skipped": 0}
+
+
+# --------------------------------------------------------------------------- #
+# backfill_entities CLI
+# --------------------------------------------------------------------------- #
+def test_cli_run_backfill_noop_without_key(tmp_path, monkeypatch):
+    """The CLI must make no changes and return zeros when no API key is set."""
+    monkeypatch.delenv("OPENROUTER_API_KEY", raising=False)
+    from truth_management_system.backfill_entities import run_backfill
+
+    res = run_backfill(pkb_db_path=str(tmp_path / "kb.sqlite"), dry_run=True)
+    assert res == {"scanned": 0, "linked": 0, "links": 0, "skipped": 0}
