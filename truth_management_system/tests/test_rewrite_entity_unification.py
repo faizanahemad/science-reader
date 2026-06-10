@@ -26,7 +26,7 @@ from truth_management_system.config import PKBConfig, load_config
 from truth_management_system.database import PKBDatabase
 from truth_management_system.crud.claims import ClaimCRUD
 from truth_management_system.crud.entities import EntityCRUD
-from truth_management_system.crud.links import link_claim_entity
+from truth_management_system.crud.links import link_claim_entity, get_claim_entities
 from truth_management_system.constants import EntityType
 from truth_management_system.models import Claim, Entity
 from truth_management_system.search.base import SearchFilters
@@ -216,3 +216,54 @@ def test_hybrid_context_built_when_enabled():
     assert ctx is not None
     assert isinstance(ctx["precomputed_rewrite_metadata"], RewriteMetadata)
     assert ctx["entity_surface_forms"] == ["Acme"]
+
+
+# --------------------------------------------------------------------------- #
+# Migration: backfill_entities
+# --------------------------------------------------------------------------- #
+def _fake_extract(statement):
+    if "Acme" in statement:
+        return [{"type": "org", "name": "Acme", "role": "subject"}]
+    return []
+
+
+def test_backfill_entities_dry_run_writes_nothing():
+    config, db, claims, entities = _env()
+    from truth_management_system.interface.structured_api import StructuredAPI
+
+    c1 = _claim(claims, "Acme shipped a product.")
+    c2 = _claim(claims, "No entities here.")
+    api = StructuredAPI(db, {}, config)
+    api.llm = types.SimpleNamespace(extract_entities=_fake_extract)
+
+    res = api.backfill_entities(dry_run=True)
+    assert res == {"scanned": 2, "linked": 1, "links": 1, "skipped": 1}
+    # No rows written.
+    assert get_claim_entities(db, c1.claim_id) == []
+
+
+def test_backfill_entities_applies_and_is_idempotent():
+    config, db, claims, entities = _env()
+    from truth_management_system.interface.structured_api import StructuredAPI
+
+    c1 = _claim(claims, "Acme shipped a product.")
+    c2 = _claim(claims, "No entities here.")
+    api = StructuredAPI(db, {}, config)
+    api.llm = types.SimpleNamespace(extract_entities=_fake_extract)
+
+    res = api.backfill_entities()
+    assert res["linked"] == 1 and res["links"] == 1
+    assert len(get_claim_entities(db, c1.claim_id)) == 1
+
+    # Re-run: c1 already linked (skipped pre-scan); c2 still yields no entities.
+    again = api.backfill_entities()
+    assert again["linked"] == 0
+
+
+def test_backfill_entities_noop_without_llm():
+    config, db, claims, entities = _env()
+    from truth_management_system.interface.structured_api import StructuredAPI
+
+    _claim(claims, "Acme shipped a product.")
+    api = StructuredAPI(db, {}, config)  # no key => self.llm is None
+    assert api.backfill_entities() == {"scanned": 0, "linked": 0, "links": 0, "skipped": 0}

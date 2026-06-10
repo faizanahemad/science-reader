@@ -274,6 +274,103 @@ class StructuredAPI:
         logger.info(f"Origin backfill: {out}")
         return out
 
+    def backfill_entities(
+        self,
+        context_domain: Optional[str] = None,
+        dry_run: bool = False,
+        limit: Optional[int] = None,
+    ) -> Dict[str, int]:
+        """
+        Link entities for existing active claims that have NO entity links yet
+        (claims that predate entity extraction, or were added with
+        ``auto_extract=False``). For each such claim, extract entities with the
+        LLM and link them, creating entities as needed.
+
+        Mirrors ``backfill_embeddings``/``backfill_provenance``/``backfill_origin``:
+        idempotent (claims that already have >=1 link are skipped), user-scoped
+        (via ``self.user_email``), and intended as a one-off / ops maintenance
+        call after enabling the entity retrieval strategy. It is NOT on the
+        retrieval hot path and NOT required for correctness — FTS/embedding still
+        retrieve unlinked claims; this only raises entity-path recall on the
+        pre-existing corpus.
+
+        Args:
+            context_domain: Optional domain filter; None => all active claims for
+                the scoped user.
+            dry_run: When True, count what WOULD be linked without writing any
+                rows (the LLM extraction still runs so the preview is accurate).
+            limit: Optional cap on claims processed this run. Resumable: re-run to
+                continue, since already-linked claims are skipped.
+
+        Returns:
+            Dict with 'scanned' (claims that needed processing), 'linked' (claims
+            that received >=1 new link), 'links' (total links created) and
+            'skipped' (needed processing but yielded no entities / errored).
+        """
+        empty = {"scanned": 0, "linked": 0, "links": 0, "skipped": 0}
+        if self.llm is None:
+            return dict(empty)
+
+        claims = self.claims.get_active(context_domain=context_domain)
+        if not claims:
+            return dict(empty)
+
+        scanned = linked = links = skipped = 0
+        for claim in claims:
+            if limit is not None and scanned >= limit:
+                break
+            # Idempotent: skip claims that already have any entity link.
+            if get_claim_entities(self.db, claim.claim_id):
+                continue
+            scanned += 1
+            try:
+                extracted = self.llm.extract_entities(claim.statement) or []
+            except Exception as e:
+                logger.warning(
+                    f"Entity backfill extract failed for {claim.claim_id[:8]}: {e}"
+                )
+                skipped += 1
+                continue
+            if not extracted:
+                skipped += 1
+                continue
+
+            claim_links = 0
+            for ent in extracted:
+                name = (ent.get("name") or "").strip()
+                if not name:
+                    continue
+                etype = (ent.get("type") or "other").strip() or "other"
+                role = (ent.get("role") or "mentioned").strip() or "mentioned"
+                if dry_run:
+                    claim_links += 1
+                    continue
+                try:
+                    entity, _ = self.entities.get_or_create(name, etype)
+                    if link_claim_entity(
+                        self.db, claim.claim_id, entity.entity_id, role
+                    ):
+                        claim_links += 1
+                except Exception as e:
+                    logger.warning(
+                        f"Entity backfill link failed for "
+                        f"{claim.claim_id[:8]}/{name}: {e}"
+                    )
+
+            if claim_links:
+                linked += 1
+                links += claim_links
+            else:
+                skipped += 1
+
+        result = {
+            "scanned": scanned, "linked": linked, "links": links, "skipped": skipped,
+        }
+        logger.info(
+            f"Entity backfill ({'dry-run' if dry_run else 'apply'}): {result}"
+        )
+        return result
+
     def for_user(self, user_email: str) -> "StructuredAPI":
         """
         Create a new StructuredAPI instance scoped to a specific user.
