@@ -1527,6 +1527,10 @@ class StructuredAPI:
                     set_provenance(_meta, derivation=Derivation.STATED.value)
                     patch["meta_json"] = _pjson.dumps(_meta)
                     warnings.append("Upgraded derivation inferred → stated")
+                    self._record_audit(
+                        "derivation_change", "claim", claim_id,
+                        {"from": "inferred", "to": "stated"},
+                    )
 
             updated = self.claims.edit(claim_id, patch)
             if not updated:
@@ -2133,6 +2137,9 @@ class StructuredAPI:
                 if res.success:
                     superseded.append(cid)
 
+            self._record_audit(
+                "merge", "claim", keep_id, {"superseded": superseded}
+            )
             return ActionResult(
                 success=True, action="update", object_type="claim",
                 object_id=keep_id,
@@ -2237,6 +2244,10 @@ class StructuredAPI:
                     success=False, action="merge", object_type="entity",
                     object_id=target_id, errors=["Merge failed"],
                 )
+            self._record_audit(
+                "merge", "entity", target_id,
+                {"merged_from": source_id, "aliases": tmeta["aliases"]},
+            )
             return ActionResult(
                 success=True, action="merge", object_type="entity",
                 object_id=target_id,
@@ -2334,6 +2345,10 @@ class StructuredAPI:
                     success=False, action="merge", object_type="tag",
                     object_id=target_id, errors=["Merge failed"],
                 )
+            self._record_audit(
+                "merge", "tag", target_id,
+                {"merged_from": source_id, "aliases": tmeta["aliases"]},
+            )
             return ActionResult(
                 success=True, action="merge", object_type="tag",
                 object_id=target_id,
