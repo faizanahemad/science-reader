@@ -9,7 +9,7 @@ HybridSearchStrategy combines multiple search strategies:
 
 import json
 import logging
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 
 from .base import SearchStrategy, SearchFilters, SearchResult, merge_results_rrf, dedupe_results, apply_recency_confidence_rerank
 from .fts_search import FTSSearchStrategy
@@ -94,7 +94,8 @@ class HybridSearchStrategy:
         filters: SearchFilters = None,
         llm_rerank: bool = False,
         llm_rerank_top_n: int = 50,
-        strategy_queries: Dict[str, str] = None
+        strategy_queries: Dict[str, str] = None,
+        strategy_context: Dict[str, Any] = None
     ) -> List[SearchResult]:
         """
         Execute hybrid search across multiple strategies.
@@ -134,9 +135,16 @@ class HybridSearchStrategy:
         if not active_strategies:
             time_logger.warning("[HYBRID] No valid strategies specified")
             return []
-        
+
+        # Rewrite/entity unification: make ONE rewrite LLM call up front and
+        # share its output with the rewrite + entity strategies (single source of
+        # query derivation). Inert unless enabled with a key and 'rewrite' active;
+        # callers may also pass a precomputed strategy_context to override.
+        if strategy_context is None:
+            strategy_context = self._build_strategy_context(query, active_strategies)
+
         # Execute strategies in parallel
-        all_results = self._execute_parallel(query, active_strategies, k * 2, filters, strategy_queries)
+        all_results = self._execute_parallel(query, active_strategies, k * 2, filters, strategy_queries, strategy_context)
         time_logger.info(f"[HYBRID] Strategy results: {[(name, len(r)) for name, r in zip(active_strategies, all_results)]}")
         
         # Merge using RRF. Per-strategy weights (W-A) let us trust some
@@ -169,7 +177,8 @@ class HybridSearchStrategy:
         strategy_names: List[str],
         k: int,
         filters: SearchFilters,
-        strategy_queries: Dict[str, str] = None
+        strategy_queries: Dict[str, str] = None,
+        strategy_context: Dict[str, Any] = None
     ) -> List[List[SearchResult]]:
         """
         Execute multiple strategies in parallel.
@@ -182,6 +191,11 @@ class HybridSearchStrategy:
             strategy_queries: Optional per-strategy query overrides; a strategy
                 absent from the map uses ``query``. ``None`` => every strategy
                 uses ``query`` (unchanged behavior).
+            strategy_context: Optional shared, precomputed inputs from the single
+                rewrite call — ``precomputed_rewrite_metadata`` (consumed by the
+                rewrite strategy to skip its LLM call), ``entity_surface_forms``
+                and ``entity_query_embedding`` (consumed by the entity strategy).
+                Absent keys => each strategy uses its own path (unchanged).
             
         Returns:
             List of result lists from each strategy.
@@ -191,17 +205,38 @@ class HybridSearchStrategy:
                 return strategy_queries[name]
             return query
 
+        ctx = strategy_context or {}
+
+        def _search(name: str, strategy, q: str) -> List[SearchResult]:
+            """Call strategy.search, passing shared-context kwargs only to the
+            enhanced strategies that accept them (keeps the base interface clean)."""
+            if name == "rewrite" and ctx.get("precomputed_rewrite_metadata") is not None:
+                return strategy.search(
+                    q, k, filters,
+                    precomputed_metadata=ctx["precomputed_rewrite_metadata"],
+                )
+            if name == "entity" and (
+                ctx.get("entity_surface_forms") is not None
+                or ctx.get("entity_query_embedding") is not None
+            ):
+                return strategy.search(
+                    q, k, filters,
+                    surface_forms=ctx.get("entity_surface_forms"),
+                    query_embedding=ctx.get("entity_query_embedding"),
+                )
+            return strategy.search(q, k, filters)
+
         if len(strategy_names) == 1:
             # Single strategy, no parallelization needed
             name = strategy_names[0]
             strategy = self.strategies[name]
-            return [strategy.search(_query_for(name), k, filters)]
+            return [_search(name, strategy, _query_for(name))]
         
         def run_strategy(name: str) -> List[SearchResult]:
             try:
                 time_logger.info(f"[HYBRID] Running strategy: {name}")
                 strategy = self.strategies[name]
-                results = strategy.search(_query_for(name), k, filters)
+                results = _search(name, strategy, _query_for(name))
                 time_logger.info(f"[HYBRID] Strategy {name} returned {len(results)} results")
                 # Tag results with source
                 for r in results:
@@ -219,7 +254,72 @@ class HybridSearchStrategy:
         )
         
         return results
-    
+
+    def _build_strategy_context(
+        self,
+        query: str,
+        active_strategies: List[str],
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Make ONE rewrite LLM call and package its output for sharing.
+
+        Returns a context dict with the precomputed RewriteMetadata (so the
+        rewrite strategy skips its own LLM call) and — when the entity strategy
+        is active and ``entity_use_rewrite_entities`` is set — the LLM-named
+        entities (and a reusable query vector of the rewrite's embedding_query)
+        for the entity strategy.
+
+        Returns ``None`` (the inert path) when disabled, no API key is present,
+        or 'rewrite' is not an active strategy — leaving every strategy on its
+        own path (current behavior). Never raises: any failure degrades to None.
+        """
+        if not getattr(self.config, "rewrite_is_query_source", True):
+            return None
+        if "rewrite" not in active_strategies or "rewrite" not in self.strategies:
+            return None
+        if not self.keys.get("OPENROUTER_API_KEY"):
+            return None
+
+        rewrite = self.strategies["rewrite"]
+        try:
+            # The single source-of-truth LLM call.
+            _, metadata = rewrite._rewrite_query(query)
+        except Exception as e:  # pragma: no cover - defensive
+            time_logger.warning(f"[HYBRID] rewrite metadata precompute failed: {e}")
+            return None
+
+        context: Dict[str, Any] = {"precomputed_rewrite_metadata": metadata}
+
+        # Feed the higher-quality LLM entities to the entity strategy (capped
+        # downstream by entity_strategy_max_entities). Only when entities were
+        # actually named, so entity-free queries add no extra work.
+        if (
+            "entity" in active_strategies
+            and getattr(self.config, "entity_use_rewrite_entities", True)
+            and getattr(metadata, "extracted_entities", None)
+        ):
+            context["entity_surface_forms"] = list(metadata.extracted_entities)
+            # Reuse one query vector (of the semantic embedding_query) for entity
+            # ranking instead of a separate raw-query embedding call. Best-effort.
+            emb = self._embed_query(getattr(metadata, "embedding_query", "") or query)
+            if emb is not None:
+                context["entity_query_embedding"] = emb
+
+        return context
+
+    def _embed_query(self, text: str):
+        """Best-effort query embedding for reuse; returns None on any failure."""
+        if not text or not self.keys.get("OPENROUTER_API_KEY"):
+            return None
+        if not getattr(self.config, "embedding_enabled", True):
+            return None
+        try:
+            from code_common.call_llm import get_query_embedding
+            emb = get_query_embedding(text, self.keys)
+            return emb if emb is not None else None
+        except Exception:  # pragma: no cover - defensive
+            return None
+
     def _llm_rerank(
         self,
         query: str,
