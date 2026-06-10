@@ -574,6 +574,38 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
             logger.exception("pkb_propose_extraction error: %s", exc)
             return json.dumps({"error": f"pkb_propose_extraction failed: {exc}"})
 
+    # Tool: pkb_summarize — get a summary/overview of the knowledge base
+    @mcp.tool()
+    def pkb_summarize(user_email: str) -> str:
+        """Get a summary overview of the user's knowledge base.
+
+        Returns key areas, topics, and basic statistics about what's stored.
+
+        Args:
+            user_email: Email of the PKB owner.
+        """
+        try:
+            api = _get_pkb_api()
+            user_api = api.for_user(user_email)
+            # Try overview manager first
+            summary = ""
+            try:
+                from truth_management_system.interface.overview_manager import PKBOverviewManager
+                om = PKBOverviewManager(user_api.db, user_api.keys, user_api.config)
+                snippet = om.get_key_areas_snippet(user_email)
+                if snippet:
+                    summary = snippet
+            except Exception:
+                pass
+            if not summary:
+                tags = user_api.tags.list(limit=50)
+                tag_names = [t.name for t in tags] if tags else []
+                summary = f"Tags ({len(tag_names)}): {', '.join(tag_names[:20])}"
+            return json.dumps({"summary": summary})
+        except Exception as exc:
+            logger.exception("pkb_summarize error: %s", exc)
+            return json.dumps({"error": f"pkb_summarize failed: {exc}"})
+
     if is_full:
         # -------------------------------------------------------------
         # Tool: pkb_recent_promotions — list recently promoted STM items

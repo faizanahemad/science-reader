@@ -4524,6 +4524,39 @@ def handle_pkb_propose_extraction(args: dict, context: ToolContext) -> ToolCallR
 
 
 @register_tool(
+    name="pkb_summarize",
+    parameters={"type": "object", "properties": {}, "required": []},
+    category="pkb",
+    description="Get a summary overview of the user's knowledge base — key areas, topics, and statistics.",
+)
+def handle_pkb_summarize(args: dict, context: ToolContext) -> ToolCallResult:
+    try:
+        api = _get_pkb_user_api(context.user_email)
+        summary = ""
+        try:
+            from truth_management_system.interface.overview_manager import PKBOverviewManager
+            om = PKBOverviewManager(api.db, api.keys, api.config)
+            snippet = om.get_key_areas_snippet(context.user_email)
+            if snippet:
+                summary = snippet
+        except Exception:
+            pass
+        if not summary:
+            tags = api.tags.list(limit=50)
+            tag_names = [t.name for t in tags] if tags else []
+            summary = f"Tags ({len(tag_names)}): {', '.join(tag_names[:20])}"
+        return ToolCallResult(
+            tool_id="", tool_name="pkb_summarize",
+            result=json.dumps({"summary": summary}),
+        )
+    except Exception as exc:
+        return ToolCallResult(
+            tool_id="", tool_name="pkb_summarize",
+            error=f"pkb_summarize failed: {exc}",
+        )
+
+
+@register_tool(
     name="pkb_recent_promotions",
     description=(
         "List STM items recently promoted to long-term claims. "

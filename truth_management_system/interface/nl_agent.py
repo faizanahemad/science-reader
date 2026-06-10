@@ -82,6 +82,7 @@ You MUST respond with ONLY a JSON object — no extra text, no markdown, no expl
 - **add_tag**: Create tag. Input: {{"name": str}}
 - **list_tags**: List all tags. Input: {{}}
 - **list_entities**: List all entities. Input: {{}}
+- **summarize_knowledge**: Get a summary/overview of the user's entire knowledge base (key areas, stats, topics). Input: {{}}
 
 ### Completion
 - **final_response**: Return your answer to the user. Input: {{"message": str}}
@@ -162,6 +163,7 @@ class PKBNLAgent:
             "add_tag": self._tool_add_tag,
             "list_tags": self._tool_list_tags,
             "list_entities": self._tool_list_entities,
+            "summarize_knowledge": self._tool_summarize,
         }
 
     # -----------------------------------------------------------------
@@ -320,6 +322,26 @@ class PKBNLAgent:
                 for e in entities
             ]
             return PKBToolResult(True, data=entity_list)
+        except Exception as e:
+            return PKBToolResult(False, error=str(e))
+
+    def _tool_summarize(self, params: dict) -> PKBToolResult:
+        """Return an overview of the user's knowledge base."""
+        try:
+            summary_parts = []
+            # Overview snippet from overview_manager
+            if self.overview_manager:
+                user_email = getattr(self.api, "user_email", None)
+                if user_email:
+                    snippet = self.overview_manager.get_key_areas_snippet(user_email)
+                    if snippet:
+                        summary_parts.append(snippet)
+            # Fallback: basic stats from tags/entities
+            if not summary_parts:
+                tags = self.api.tags.list(limit=50)
+                tag_names = [t.name for t in tags] if tags else []
+                summary_parts.append(f"Tags ({len(tag_names)}): {', '.join(tag_names[:20])}")
+            return PKBToolResult(True, data={"summary": "\n\n".join(summary_parts)})
         except Exception as e:
             return PKBToolResult(False, error=str(e))
 
