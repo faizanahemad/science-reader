@@ -110,11 +110,13 @@ class HybridSearchStrategy:
         Returns:
             List of SearchResult objects with combined scores.
         """
-        # Default to FTS + embedding if available
+        # Default to FTS + embedding + rewrite (combined mode)
         if strategy_names is None:
             strategy_names = ["fts"]
             if "embedding" in self.strategies:
                 strategy_names.append("embedding")
+            if "rewrite" in self.strategies:
+                strategy_names.append("rewrite")
             if "entity" in self.strategies:
                 strategy_names.append("entity")
         
@@ -366,3 +368,8 @@ Ranking:"""
     def get_available_strategies(self) -> List[str]:
         """Get list of available strategy names."""
         return list(self.strategies.keys())
+
+    def set_overview_context(self, overview_context: str):
+        """Pass overview context to the rewrite strategy for domain-aware expansion."""
+        if "rewrite" in self.strategies:
+            self.strategies["rewrite"].set_overview_context(overview_context)
