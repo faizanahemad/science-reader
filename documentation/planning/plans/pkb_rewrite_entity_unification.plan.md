@@ -39,6 +39,24 @@ todos:
 
 # PKB Rewrite/Entity Unification
 
+## Implementation status (landed)
+
+Implemented and committed (defaults inert; full TMS suite 287 passed / 44
+skipped / 0 fail; offline eval unchanged, confirming inert defaults):
+
+- `780ac27` — config flags `rewrite_is_query_source` + `entity_use_rewrite_entities`.
+- `2fce268` — rewrite `precomputed_metadata`; entity `surface_forms` + `query_embedding` (inert).
+- `1279144` — hybrid single rewrite call (`_build_strategy_context`) + `strategy_context` threading + `test_rewrite_entity_unification.py` (asserts exactly one rewrite LLM call).
+- `a62e346` — `StructuredAPI.backfill_entities` (idempotent, dry-run, user-scoped) + tests.
+- `bbd2409` — docs (README, implementation.md, implementation_deep_dive.md).
+
+**Remaining (follow-ups, need an API key):** the keyed `run_eval.sh` gate with
+entity-mention/paraphrase cases, and tuning `rrf_strategy_weights` (W-A) on that
+harness — both deferred because the offline harness is FTS-only and cannot
+measure the keyed unification path. Optional, lower priority: a tag-linked
+retrieval strategy (the rewrite already emits `tags`, currently unused) and a
+REST/CLI wrapper for `backfill_entities`.
+
 ## Motivation & Problem Statement
 
 The overview-aware `RewriteSearchStrategy` already makes a single `SUPERFAST_LLM`
