@@ -516,6 +516,65 @@ Result:"""
             logger.error(f"Contradiction detection failed: {e}")
             return False
 
+    def judge_duplicates(self, items: List[str], kind: str = "claim") -> Dict[str, Any]:
+        """
+        LLM verification pass for a candidate duplicate cluster (Workstream W7).
+
+        A cheap similarity prefilter (embedding cosine for claims, name
+        similarity for entities/tags) proposes the cluster; this confirms the
+        items truly refer to the same thing before a merge is offered, and
+        suggests a canonical form.
+
+        Args:
+            items: the cluster's surface strings (claim statements, or
+                entity/tag names).
+            kind: "claim" | "entity" | "tag" (tunes the wording only).
+
+        Returns:
+            ``{"duplicate": bool, "canonical": str, "reason": str}``. On any
+            error returns ``duplicate=False`` (fail safe: keep them separate).
+        """
+        if not items or len(items) < 2:
+            return {"duplicate": False, "canonical": "", "reason": "need >= 2 items"}
+
+        noun = {"claim": "claims", "entity": "entities", "tag": "tags"}.get(kind, "items")
+        listing = "\n".join(f"{i+1}. \"{s}\"" for i, s in enumerate(items))
+        prompt = f"""You are de-duplicating a personal knowledge base. Do ALL of
+the following {noun} refer to the same thing and convey the same information,
+so they could be safely merged into one?
+
+{listing}
+
+Answer true ONLY if they are genuine duplicates / variants of one another (same
+meaning, or one is a spelling/format variant of the other). Answer false if any
+of them is distinct, adds different information, or merely related.
+
+If they are duplicates, suggest the best single canonical form to keep.
+
+Return ONLY JSON: {{"duplicate": true/false, "canonical": "best form", "reason": "brief"}}
+
+Result:"""
+        try:
+            response = self._call_llm(prompt)
+            text = response.strip()
+            try:
+                result = json.loads(text)
+            except json.JSONDecodeError:
+                import re
+
+                m = re.search(r"\{.*\}", text, re.DOTALL)
+                if not m:
+                    return {"duplicate": False, "canonical": "", "reason": "unparseable"}
+                result = json.loads(m.group())
+            return {
+                "duplicate": bool(result.get("duplicate", False)),
+                "canonical": str(result.get("canonical", "") or ""),
+                "reason": str(result.get("reason", "") or ""),
+            }
+        except Exception as e:
+            logger.error(f"Duplicate judging failed: {e}")
+            return {"duplicate": False, "canonical": "", "reason": f"error: {e}"}
+
     def batch_extract_all(
         self, statements: List[str], context_domain: str = "personal"
     ) -> List[ExtractionResult]:

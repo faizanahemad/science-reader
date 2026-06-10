@@ -81,6 +81,10 @@ class PKBConfig:
     # D3 entity resolution: name-similarity threshold above which two entities
     # of the same type are proposed as variants of one canonical entity.
     entity_dedup_threshold: float = 0.85
+    # W7: when True, an LLM verification pass confirms each cheap-similarity
+    # dedup cluster (claims/entities/tags) is a true duplicate before it is
+    # proposed for merge. Off by default (the cheap prefilter stands alone).
+    dedup_llm_verify: bool = False
     # Confidence assumed when a claim has no explicit confidence value.
     default_confidence: float = 0.5
     # Default half-life (days) for recency decay; per-type overrides below.
@@ -218,6 +222,7 @@ class PKBConfig:
             'contested_penalty': self.contested_penalty,
             'consolidation_similarity_threshold': self.consolidation_similarity_threshold,
             'entity_dedup_threshold': self.entity_dedup_threshold,
+            'dedup_llm_verify': self.dedup_llm_verify,
             'default_confidence': self.default_confidence,
             'recency_half_life_days': self.recency_half_life_days,
             'half_life_by_type': dict(self.half_life_by_type),
@@ -264,6 +269,7 @@ class PKBConfig:
             'recency_rerank_enabled', 'w_recency', 'w_confidence',
             'contested_penalty',
             'consolidation_similarity_threshold', 'entity_dedup_threshold',
+            'dedup_llm_verify',
             'default_confidence', 'recency_half_life_days', 'half_life_by_type',
             'recency_grace_days',
             'reinforce_alpha', 'reinforce_ttl_days_by_type',
@@ -345,6 +351,7 @@ def load_config(
         'INFERRED_RERANK_PENALTY': ('inferred_rerank_penalty', float),
         'CONSOLIDATION_SIMILARITY_THRESHOLD': ('consolidation_similarity_threshold', float),
         'ENTITY_DEDUP_THRESHOLD': ('entity_dedup_threshold', float),
+        'DEDUP_LLM_VERIFY': ('dedup_llm_verify', lambda x: x.lower() in ('true', '1', 'yes')),
         'DEFAULT_CONFIDENCE': ('default_confidence', float),
         'RECENCY_HALF_LIFE_DAYS': ('recency_half_life_days', float),
         'RECENCY_GRACE_DAYS': ('recency_grace_days', float),

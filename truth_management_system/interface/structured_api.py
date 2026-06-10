@@ -1874,8 +1874,40 @@ class StructuredAPI:
             return (conf, c.created_at or "")
         return max(claims, key=key)
 
+    def _verify_dedup_clusters(
+        self, clusters: List[Dict], kind: str, use_llm: Optional[bool] = None
+    ) -> List[Dict]:
+        """
+        Optional W7 LLM verification pass over cheap-similarity dedup clusters.
+
+        When enabled (``use_llm`` or ``config.dedup_llm_verify``) and an LLM is
+        available, each cluster is confirmed via ``LLMHelpers.judge_duplicates``;
+        only clusters judged true duplicates survive, annotated with
+        ``llm_verified`` and an ``llm_canonical`` suggestion. When disabled the
+        clusters pass through unchanged (cheap prefilter stands alone).
+        """
+        if use_llm is None:
+            use_llm = getattr(self.config, "dedup_llm_verify", False)
+        if not use_llm or not self.llm or not clusters:
+            return clusters
+        verified = []
+        for cl in clusters:
+            items = (
+                list(cl.get("statements", {}).values())
+                if kind == "claim"
+                else list(cl.get("names", {}).values())
+            )
+            verdict = self.llm.judge_duplicates(items, kind=kind)
+            if verdict.get("duplicate"):
+                cl = dict(cl)
+                cl["llm_verified"] = True
+                if verdict.get("canonical"):
+                    cl["llm_canonical"] = verdict["canonical"]
+                verified.append(cl)
+        return verified
+
     def find_consolidation_candidates(
-        self, threshold: float = None, limit: int = 50
+        self, threshold: float = None, limit: int = 50, use_llm: bool = None
     ) -> ActionResult:
         """
         Cluster near-duplicate active claims via cached embeddings (Workstream D2).
@@ -1921,6 +1953,7 @@ class StructuredAPI:
                     "max_similarity": cl["max_similarity"],
                 })
 
+            out = self._verify_dedup_clusters(out, "claim", use_llm)
             return ActionResult(
                 success=True, action="list", object_type="claim", data=out,
             )
@@ -1999,7 +2032,7 @@ class StructuredAPI:
     # D3 — Canonical entity resolution: dedupe entity variants w/ aliases.
     # ----------------------------------------------------------------- #
     def find_entity_duplicates(
-        self, entity_type: str = None, threshold: float = None
+        self, entity_type: str = None, threshold: float = None, use_llm: bool = None
     ) -> ActionResult:
         """
         Detect entity name variants of the same type (Workstream D3).
@@ -2029,6 +2062,7 @@ class StructuredAPI:
                 out.extend(cluster_entity_variants(ents, threshold))
 
             out.sort(key=lambda c: c["max_similarity"], reverse=True)
+            out = self._verify_dedup_clusters(out, "entity", use_llm)
             return ActionResult(
                 success=True, action="list", object_type="entity", data=out,
             )
@@ -2103,7 +2137,7 @@ class StructuredAPI:
                 object_id=target_id, errors=[str(e)],
             )
 
-    def find_tag_duplicates(self, threshold: float = None) -> ActionResult:
+    def find_tag_duplicates(self, threshold: float = None, use_llm: bool = None) -> ActionResult:
         """
         Detect tag name variants proposed for merge (Workstream W6).
 
@@ -2124,6 +2158,7 @@ class StructuredAPI:
             from ..search.consolidation import cluster_tag_variants
             tags = self.tags.list(limit=2000, order_by="name")
             clusters = cluster_tag_variants(tags, threshold)
+            clusters = self._verify_dedup_clusters(clusters, "tag", use_llm)
             return ActionResult(
                 success=True, action="list", object_type="tag", data=clusters,
             )
