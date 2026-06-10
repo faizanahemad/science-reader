@@ -3980,3 +3980,46 @@ def pkb_health_stats():
     except Exception as e:
         logger.error(f"Error in pkb_health_stats: {e}")
         return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+
+
+@pkb_bp.route("/pkb/claims/bulk", methods=["POST"])
+@limiter.limit("10 per minute")
+@login_required
+def pkb_bulk_action():
+    """Perform bulk actions on multiple claims (archive, tag)."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+
+        data = request.json or {}
+        claim_ids = data.get("claim_ids", [])
+        action = data.get("action", "")
+
+        if not claim_ids or not action:
+            return json_error("claim_ids and action required", status=400, code="bad_request")
+
+        results = {"succeeded": 0, "failed": 0}
+        for cid in claim_ids:
+            try:
+                if action == "archive":
+                    api.update_claim(cid, status="archived")
+                elif action == "tag":
+                    tag_name = data.get("tag", "")
+                    if tag_name:
+                        api.add_tag_to_claim(cid, tag_name)
+                results["succeeded"] += 1
+            except Exception:
+                results["failed"] += 1
+
+        return jsonify(results)
+    except Exception as e:
+        logger.error(f"Error in pkb_bulk_action: {e}")
+        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")

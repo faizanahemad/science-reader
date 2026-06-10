@@ -623,6 +623,10 @@ var PKBManager = (function() {
         
         return '<div class="list-group-item ' + statusClass + '" data-claim-id="' + claim.claim_id + '" data-claim-number="' + (claim.claim_number || '') + '" data-friendly-id="' + (claim.friendly_id || '') + '">' +
             '<div class="d-flex w-100 justify-content-between align-items-start">' +
+                '<div class="custom-control custom-checkbox mr-2 mt-1">' +
+                    '<input type="checkbox" class="custom-control-input pkb-claim-select" id="sel-' + claim.claim_id + '" data-claim-id="' + claim.claim_id + '">' +
+                    '<label class="custom-control-label" for="sel-' + claim.claim_id + '"></label>' +
+                '</div>' +
                 '<div class="flex-grow-1">' +
                     '<p class="mb-1">' + escapeHtml(claim.statement) + '</p>' +
                     '<small class="text-muted">' +
@@ -3233,6 +3237,38 @@ var PKBManager = (function() {
                 );
                 $dash.show();
             });
+        });
+
+        // Bulk selection — show/hide action bar
+        $(document).on('change', '.pkb-claim-select', function() {
+            var selected = $('.pkb-claim-select:checked');
+            var $bar = $('#pkb-bulk-action-bar');
+            if (selected.length > 0) {
+                $bar.css('display', 'flex').show();
+                $('#pkb-bulk-count').text(selected.length);
+            } else {
+                $bar.hide();
+            }
+        });
+        $(document).on('click', '#pkb-bulk-deselect', function() {
+            $('.pkb-claim-select').prop('checked', false);
+            $('#pkb-bulk-action-bar').hide();
+        });
+        $(document).on('click', '#pkb-bulk-archive', function() {
+            var ids = $('.pkb-claim-select:checked').map(function() { return $(this).data('claim-id'); }).get();
+            if (!ids.length) return;
+            $.ajax({url: '/pkb/claims/bulk', method: 'POST', contentType: 'application/json', data: JSON.stringify({claim_ids: ids, action: 'archive'})})
+                .done(function(resp) { showToast('Archived ' + resp.succeeded + ' claims', 'success'); loadClaims(); $('#pkb-bulk-action-bar').hide(); })
+                .fail(function() { showToast('Bulk archive failed', 'danger'); });
+        });
+        $(document).on('click', '#pkb-bulk-tag', function() {
+            var ids = $('.pkb-claim-select:checked').map(function() { return $(this).data('claim-id'); }).get();
+            if (!ids.length) return;
+            var tag = prompt('Tag name to add:');
+            if (!tag) return;
+            $.ajax({url: '/pkb/claims/bulk', method: 'POST', contentType: 'application/json', data: JSON.stringify({claim_ids: ids, action: 'tag', tag: tag})})
+                .done(function(resp) { showToast('Tagged ' + resp.succeeded + ' claims', 'success'); loadClaims(); $('#pkb-bulk-action-bar').hide(); })
+                .fail(function() { showToast('Bulk tag failed', 'danger'); });
         });
 
         // Memory Cleanup (Maintenance tab, W11)
