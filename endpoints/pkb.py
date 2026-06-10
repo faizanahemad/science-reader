@@ -942,6 +942,49 @@ def pkb_tag_merge_route():
         )
 
 
+@pkb_bp.route("/pkb/cleanup", methods=["POST"])
+@limiter.limit("4 per minute")
+@login_required
+def pkb_cleanup_route():
+    """
+    Memory Cleanup orchestrator (Workstream W9).
+
+    Body (optional): {"apply": bool, "use_llm": bool}. With apply=false (default)
+    runs safe maintenance (sweep + overview refresh) and returns dedup proposals
+    for review. With apply=true also merges the suggested duplicate clusters.
+    """
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        data = request.get_json(silent=True) or {}
+        apply_changes = bool(data.get("apply", False))
+        use_llm = data.get("use_llm")
+
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
+
+        result = api.run_memory_cleanup(apply=apply_changes, use_llm=use_llm)
+        if result.success:
+            return jsonify(result.data)
+        return json_error(
+            "; ".join(result.errors) or "Memory cleanup failed",
+            status=400, code="cleanup_failed",
+        )
+    except Exception as e:
+        logger.error(f"Error in pkb_cleanup: {e}")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
+
+
 @pkb_bp.route("/pkb/sweep", methods=["POST"])
 @limiter.limit("6 per minute")
 @login_required

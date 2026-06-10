@@ -1614,6 +1614,105 @@ class StructuredAPI:
                 success=False, action="sweep", object_type="claim", errors=[str(e)],
             )
 
+    def run_memory_cleanup(
+        self, apply: bool = False, use_llm: bool = None
+    ) -> ActionResult:
+        """
+        One-shot Memory Cleanup orchestrator (Workstream W9).
+
+        Two phases in a single call:
+          * Always runs **safe** maintenance: the lifecycle sweep (hard-TTL
+            expiry + soft-TTL dormancy) and an overview refresh (best-effort).
+          * Gathers **dedup proposals** for claims, entities and tags (optionally
+            LLM-verified via ``use_llm`` / ``config.dedup_llm_verify``).
+
+        When ``apply`` is False (default) the proposals are returned for the user
+        to review — nothing destructive happens. When ``apply`` is True each
+        proposed cluster is merged using its suggested keeper (claims
+        consolidated, entity/tag duplicates merged), and the report records what
+        was applied. Merges are reversible (claims) / alias-preserving
+        (entities/tags).
+
+        Returns:
+            ActionResult whose ``data`` is a report dict::
+
+                {
+                  "swept": {"expired": N, "dormant": M},
+                  "overview_refreshed": bool,
+                  "claims": {"clusters": [...], "merged": [...]},
+                  "entities": {"clusters": [...], "merged": [...]},
+                  "tags": {"clusters": [...], "merged": [...]},
+                  "applied": bool,
+                }
+        """
+        report: Dict[str, Any] = {
+            "swept": {},
+            "overview_refreshed": False,
+            "claims": {"clusters": [], "merged": []},
+            "entities": {"clusters": [], "merged": []},
+            "tags": {"clusters": [], "merged": []},
+            "applied": bool(apply),
+        }
+        try:
+            # 1) Safe maintenance: lifecycle sweep.
+            sweep = self.run_lifecycle_sweep()
+            report["swept"] = sweep.data if sweep.success else {}
+
+            # 2) Safe maintenance: overview refresh (best-effort, non-fatal).
+            if self.keys:
+                try:
+                    from .overview_manager import PKBOverviewManager
+
+                    PKBOverviewManager(self.db, self.keys, self.config).generate_full(
+                        self.user_email
+                    )
+                    report["overview_refreshed"] = True
+                except Exception as e:
+                    logger.warning(f"Overview refresh skipped: {e}")
+
+            # 3) Dedup proposals (claims / entities / tags).
+            claim_clusters = self.find_consolidation_candidates(use_llm=use_llm)
+            entity_clusters = self.find_entity_duplicates(use_llm=use_llm)
+            tag_clusters = self.find_tag_duplicates(use_llm=use_llm)
+            report["claims"]["clusters"] = claim_clusters.data or []
+            report["entities"]["clusters"] = entity_clusters.data or []
+            report["tags"]["clusters"] = tag_clusters.data or []
+
+            # 4) Optionally apply the suggested merges.
+            if apply:
+                for cl in report["claims"]["clusters"]:
+                    res = self.consolidate_claims(
+                        cl.get("claim_ids", []), keep_id=cl.get("suggested_keep_id")
+                    )
+                    if res.success:
+                        report["claims"]["merged"].append(res.data)
+                for cl in report["entities"]["clusters"]:
+                    ids = cl.get("entity_ids", [])
+                    keep = cl.get("suggested_keep_id")
+                    for sid in ids:
+                        if sid != keep:
+                            r = self.merge_entities(sid, keep)
+                            if r.success:
+                                report["entities"]["merged"].append(r.data)
+                for cl in report["tags"]["clusters"]:
+                    ids = cl.get("tag_ids", [])
+                    keep = cl.get("suggested_keep_id")
+                    for sid in ids:
+                        if sid != keep:
+                            r = self.merge_tags(sid, keep)
+                            if r.success:
+                                report["tags"]["merged"].append(r.data)
+
+            return ActionResult(
+                success=True, action="cleanup", object_type="claim", data=report,
+            )
+        except Exception as e:
+            logger.error(f"Memory cleanup failed: {e}")
+            return ActionResult(
+                success=False, action="cleanup", object_type="claim",
+                data=report, errors=[str(e)],
+            )
+
     def get_lifecycle_notifications(
         self, within_days: int = None, limit: int = 50
     ) -> ActionResult:
