@@ -2590,6 +2590,22 @@ var PKBManager = (function() {
      * @param {number} index - Index in proposals array
      * @returns {string} HTML for the row
      */
+    /**
+     * Highlight words in `newText` that differ from `oldText` using simple word-level diff.
+     * Returns HTML with differing words wrapped in <mark>.
+     */
+    function highlightDiff(newText, oldText) {
+        if (!oldText || !newText) return escapeHtml(newText || '');
+        var newWords = newText.split(/\s+/);
+        var oldSet = new Set(oldText.toLowerCase().split(/\s+/));
+        return newWords.map(function(w) {
+            if (!oldSet.has(w.toLowerCase().replace(/[.,!?;:]/g, ''))) {
+                return '<mark>' + escapeHtml(w) + '</mark>';
+            }
+            return escapeHtml(w);
+        }).join(' ');
+    }
+
     function renderProposalRow(proposal, index) {
         var actionBadge = '';
         var checked = 'checked';
@@ -2599,14 +2615,14 @@ var PKBManager = (function() {
             actionBadge = '<span class="badge badge-success"><i class="bi bi-plus-circle"></i> New</span>';
             if (proposal.existing_statement) {
                 existingInfo = '<div class="small text-warning mt-1">' +
-                    '<i class="bi bi-exclamation-triangle"></i> <strong>Similar existing:</strong> ' + escapeHtml(proposal.existing_statement) +
+                    '<i class="bi bi-exclamation-triangle"></i> <strong>Similar existing:</strong> ' + highlightDiff(proposal.existing_statement, proposal.statement) +
                 '</div>';
             }
         } else if (proposal.action === 'edit') {
             actionBadge = '<span class="badge badge-warning"><i class="bi bi-pencil"></i> Update</span>';
             if (proposal.existing_statement) {
                 existingInfo = '<div class="small text-muted mt-1">' +
-                    '<strong>Existing:</strong> ' + escapeHtml(proposal.existing_statement) +
+                    '<strong>Existing:</strong> ' + highlightDiff(proposal.existing_statement, proposal.statement) +
                 '</div>';
             }
         } else if (proposal.action === 'skip') {
