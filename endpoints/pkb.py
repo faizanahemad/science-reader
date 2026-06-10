@@ -491,6 +491,9 @@ def pkb_add_claim_route():
                     "success": True,
                     "claim": serialize_claim(result.data),
                     "warnings": result.warnings,
+                    "lifecycle_changes": (result.metadata or {}).get(
+                        "lifecycle_changes", []
+                    ),
                 }
             )
 

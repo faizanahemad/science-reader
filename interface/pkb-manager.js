@@ -25,6 +25,10 @@ var PKBManager = (function() {
     var pendingMemoryAttachments = [];
     // Store claim details for display in pending indicator
     var pendingMemoryDetails = {};
+
+    // Overview tab state
+    var overviewLoaded = false;
+    var overviewRawContent = '';  // Unrendered markdown for editor
     
     // When set, the next saveClaim() will link the new claim to this entity
     var _pendingEntityLink = null;
@@ -628,6 +632,7 @@ var PKBManager = (function() {
                         '<span class="badge badge-outline-secondary">' + claim.context_domain + '</span>' +
                         contestedBadge +
                         pinnedBadge +
+                        renderProvenanceBadge(claim) +
                     '</small>' +
                 '</div>' +
                 '<div class="btn-group btn-group-sm">' +
@@ -751,6 +756,7 @@ var PKBManager = (function() {
                     '<i class="bi ' + icon + ' mr-2"></i>' +
                     '<strong>' + escapeHtml(entity.name) + '</strong> ' +
                     '<span class="badge badge-secondary">' + entity.entity_type + '</span>' +
+                    renderOriginBadge(entity) +
                 '</div>' +
                 '<div>' +
                     '<button class="btn btn-sm btn-outline-success pkb-entity-add-memory mr-1" data-entity-id="' + eid + '" data-entity-name="' + escapeHtml(entity.name) + '" title="Add memory to this entity">' +
@@ -1089,6 +1095,7 @@ var PKBManager = (function() {
                 '<div>' +
                     '<i class="bi bi-tag mr-2"></i>' +
                     '<strong>' + escapeHtml(tag.name) + '</strong>' +
+                    renderOriginBadge(tag) +
                 '</div>' +
                 '<i class="bi bi-chevron-down pkb-tag-chevron" data-tag-id="' + tid + '"></i>' +
             '</div>' +
@@ -1836,6 +1843,7 @@ var PKBManager = (function() {
                     _pendingEntityLink = null;
                     loadClaims();
                     showToast(msg, 'success');
+                    showLifecycleChanges(response.lifecycle_changes);
                     
                     // If saving from a proposal Edit button, mark the row as saved
                     if (_editingProposalIndex !== null) {
@@ -2068,7 +2076,130 @@ var PKBManager = (function() {
             $toast.alert('close');
         }, 3000);
     }
-    
+
+    // ===========================================================================
+    // Provenance / Origin badges + Memory Cleanup (W11)
+    // ===========================================================================
+
+    /** Safely parse a meta_json string (or pass through an object). */
+    function parseMeta(metaJson) {
+        if (!metaJson) return {};
+        if (typeof metaJson === 'object') return metaJson;
+        try { return JSON.parse(metaJson) || {}; } catch (e) { return {}; }
+    }
+
+    /**
+     * Provenance badge for a claim: derivation (stated/extracted/inferred) +
+     * channel, read from meta_json.source.
+     */
+    function renderProvenanceBadge(claim) {
+        var src = (parseMeta(claim.meta_json) || {}).source || {};
+        var deriv = src.derivation;
+        if (!deriv) return '';
+        var color = { stated: 'success', extracted: 'info', inferred: 'warning' }[deriv] || 'secondary';
+        var channel = src.channel || '';
+        var title = 'Derivation: ' + deriv + (channel ? ' \u00b7 Channel: ' + channel : '');
+        return '<span class="badge badge-' + color + ' ml-1" title="' + escapeHtml(title) + '">' + escapeHtml(deriv) + '</span>';
+    }
+
+    /** Origin badge (auto/curated) for an entity or tag, from meta_json.origin. */
+    function renderOriginBadge(obj) {
+        var origin = (parseMeta(obj.meta_json) || {}).origin;
+        if (!origin) return '';
+        var color = origin === 'curated' ? 'primary' : 'secondary';
+        var icon = origin === 'curated' ? 'bi-person-check' : 'bi-robot';
+        var title = origin === 'curated' ? 'Created/edited by you' : 'Auto-created during enrichment';
+        return '<span class="badge badge-' + color + ' ml-1" title="' + title + '"><i class="bi ' + icon + '"></i> ' + origin + '</span>';
+    }
+
+    /** Toast the user when an add/extract superseded earlier memories (W8). */
+    function showLifecycleChanges(changes) {
+        if (!changes || !changes.length) return;
+        var n = changes.length;
+        showToast('Heads up: this update superseded ' + n +
+            (n === 1 ? ' earlier memory.' : ' earlier memories.'), 'warning');
+    }
+
+    /**
+     * Run the Memory Cleanup orchestrator (W9). apply=false analyzes
+     * (non-destructive); apply=true merges the suggested duplicate clusters.
+     */
+    function runMemoryCleanup(apply) {
+        var useLlm = $('#pkb-cleanup-use-llm').is(':checked');
+        $('#pkb-cleanup-loading').show();
+        $('#pkb-cleanup-report').hide();
+        $('#pkb-cleanup-analyze-btn, #pkb-cleanup-apply-btn').prop('disabled', true);
+        $.ajax({
+            url: '/pkb/cleanup',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ apply: !!apply, use_llm: useLlm }),
+            dataType: 'json'
+        }).done(function(report) {
+            renderCleanupReport(report);
+            var hasProposals = report && (
+                (report.claims && report.claims.clusters && report.claims.clusters.length) ||
+                (report.entities && report.entities.clusters && report.entities.clusters.length) ||
+                (report.tags && report.tags.clusters && report.tags.clusters.length)
+            );
+            $('#pkb-cleanup-apply-btn').prop('disabled', !hasProposals || !!apply);
+            if (apply) {
+                showToast('Cleanup applied.', 'success');
+                loadClaims();
+            }
+        }).fail(function() {
+            $('#pkb-cleanup-report').html('<div class="alert alert-danger">Cleanup failed. Please try again.</div>');
+            showToast('Memory cleanup failed.', 'error');
+        }).always(function() {
+            $('#pkb-cleanup-loading').hide();
+            $('#pkb-cleanup-report').show();
+            $('#pkb-cleanup-analyze-btn').prop('disabled', false);
+        });
+    }
+
+    /** Render the cleanup report (sweep counts + dedup clusters). */
+    function renderCleanupReport(report) {
+        report = report || {};
+        var html = '';
+        var swept = report.swept || {};
+        html += '<div class="mb-2"><span class="badge badge-light mr-1">Expired: ' + (swept.expired || 0) + '</span>' +
+                '<span class="badge badge-light mr-1">Dormant: ' + (swept.dormant || 0) + '</span>' +
+                '<span class="badge badge-light">Overview: ' + (report.overview_refreshed ? 'refreshed' : 'unchanged') + '</span></div>';
+
+        function section(title, group, idKey, nameOf) {
+            var clusters = (group && group.clusters) || [];
+            var merged = (group && group.merged) || [];
+            var s = '<h6 class="mt-3">' + title + ' <span class="badge badge-secondary">' + clusters.length + '</span>';
+            if (merged.length) s += ' <span class="badge badge-success">merged ' + merged.length + '</span>';
+            s += '</h6>';
+            if (!clusters.length) { s += '<p class="text-muted small">No duplicates found.</p>'; return s; }
+            s += '<ul class="list-group mb-2">';
+            clusters.forEach(function(cl) {
+                var names = nameOf(cl);
+                var verified = cl.llm_verified ? ' <span class="badge badge-info">LLM\u2713</span>' : '';
+                s += '<li class="list-group-item py-2 small">' + escapeHtml(names.join('  \u2194  ')) + verified + '</li>';
+            });
+            s += '</ul>';
+            return s;
+        }
+
+        html += section('Duplicate claims', report.claims, 'claim_ids', function(cl) {
+            return Object.keys(cl.statements || {}).map(function(k) { return cl.statements[k]; });
+        });
+        html += section('Duplicate entities', report.entities, 'entity_ids', function(cl) {
+            return Object.keys(cl.names || {}).map(function(k) { return cl.names[k]; });
+        });
+        html += section('Duplicate tags', report.tags, 'tag_ids', function(cl) {
+            return Object.keys(cl.names || {}).map(function(k) { return cl.names[k]; });
+        });
+        if (report.applied) {
+            html += '<div class="alert alert-success py-1 px-2 small mt-2">Suggested merges were applied.</div>';
+        } else {
+            html += '<p class="text-muted small mt-2">Click <strong>Apply suggested</strong> to merge each cluster into its best canonical form.</p>';
+        }
+        $('#pkb-cleanup-report').html(html);
+    }
+
     // ===========================================================================
     // Bulk Add Functions
     // ===========================================================================
@@ -2768,6 +2899,17 @@ var PKBManager = (function() {
             } else if (target === '#pkb-bulk-pane') {
                 initBulkAddTab();
             }
+        });
+
+        // Initialize overview tab event handlers
+        initOverviewTab();
+
+        // Memory Cleanup (Maintenance tab, W11)
+        $(document).on('click', '#pkb-cleanup-analyze-btn', function() {
+            runMemoryCleanup(false);
+        });
+        $(document).on('click', '#pkb-cleanup-apply-btn', function() {
+            runMemoryCleanup(true);
         });
         
         // Memory proposal save button
@@ -3576,6 +3718,142 @@ var PKBManager = (function() {
     }
     
     // ===========================================================================
+    // Overview Tab (Tab 8)
+    // ===========================================================================
+
+    function loadOverview() {
+        $('#pkb-overview-loading').show();
+        $('#pkb-overview-content').hide();
+        $.ajax({
+            url: '/pkb/overview',
+            method: 'GET',
+            dataType: 'json'
+        }).done(function(data) {
+            overviewRawContent = data.content || '';
+            renderOverview(data.content || '');
+            if (data.is_stale) {
+                $('#pkb-overview-stale-warning').show();
+                showToast && showToast('Overview may need a regenerate — last auto-update failed.', 'warning');
+            } else {
+                $('#pkb-overview-stale-warning').hide();
+            }
+        }).fail(function() {
+            $('#pkb-overview-content').html('<p class="text-danger">Failed to load overview.</p>').show();
+        }).always(function() {
+            $('#pkb-overview-loading').hide();
+            $('#pkb-overview-content').show();
+        });
+    }
+
+    function renderOverview(content) {
+        var html = (typeof marked !== 'undefined') ? marked.parse(content) : content.replace(/\n/g, '<br>');
+        $('#pkb-overview-content').html(html);
+    }
+
+    function saveOverview(content) {
+        return $.ajax({
+            url: '/pkb/overview',
+            method: 'PUT',
+            contentType: 'application/json',
+            data: JSON.stringify({ content: content }),
+            dataType: 'json'
+        });
+    }
+
+    function regenerateOverview() {
+        var $btn = $('#pkb-overview-regenerate-btn');
+        var $scan = $('#pkb-overview-scan-btn');
+        $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Regenerating...');
+        $scan.prop('disabled', true);
+        _streamOverviewOp('/pkb/overview/regenerate', $btn, $scan, '<i class="bi bi-arrow-clockwise"></i> Regenerate');
+    }
+
+    function scanOverviewGaps() {
+        var $btn = $('#pkb-overview-scan-btn');
+        var $regen = $('#pkb-overview-regenerate-btn');
+        $btn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Scanning...');
+        $regen.prop('disabled', true);
+        _streamOverviewOp('/pkb/overview/scan', $btn, $regen, '<i class="bi bi-search"></i> Scan for gaps');
+    }
+
+    function _streamOverviewOp(url, $primaryBtn, $secondaryBtn, resetHtml) {
+        fetch(url, { method: 'POST' })
+            .then(function(response) {
+                var reader = response.body.getReader();
+                var decoder = new TextDecoder();
+                var buffer = '';
+                function read() {
+                    return reader.read().then(function(chunk) {
+                        if (chunk.done) return;
+                        buffer += decoder.decode(chunk.value, { stream: true });
+                        var lines = buffer.split('\n');
+                        buffer = lines.pop(); // keep incomplete line
+                        lines.forEach(function(line) {
+                            if (!line.trim()) return;
+                            try {
+                                var evt = JSON.parse(line);
+                                if (evt.type === 'progress') {
+                                    $primaryBtn.html('<span class="spinner-border spinner-border-sm"></span> ' + evt.message);
+                                } else if (evt.type === 'result') {
+                                    overviewRawContent = evt.content || '';
+                                    renderOverview(evt.content || '');
+                                    $('#pkb-overview-stale-warning').hide();
+                                    showToast && showToast('Overview updated', 'success');
+                                } else if (evt.type === 'error') {
+                                    showToast && showToast('Failed: ' + evt.message, 'danger');
+                                }
+                            } catch (e) {}
+                        });
+                        return read();
+                    });
+                }
+                return read();
+            })
+            .catch(function() {
+                showToast && showToast('Request failed', 'danger');
+            })
+            .finally(function() {
+                $primaryBtn.prop('disabled', false).html(resetHtml);
+                $secondaryBtn.prop('disabled', false);
+            });
+    }
+
+    function initOverviewTab() {
+        // Lazy load on first tab open
+        $('#pkb-overview-tab').on('shown.bs.tab', function() {
+            if (!overviewLoaded) {
+                overviewLoaded = true;
+            }
+            loadOverview();  // Always refresh to detect stale state
+        });
+
+        // Edit button
+        $(document).on('click', '#pkb-overview-edit-btn', function() {
+            if (typeof MarkdownEditorManager !== 'undefined') {
+                MarkdownEditorManager.openEditor(overviewRawContent, function(newContent) {
+                    saveOverview(newContent).done(function() {
+                        overviewRawContent = newContent;
+                        renderOverview(newContent);
+                        $('#pkb-overview-stale-warning').hide();
+                    }).fail(function() {
+                        showToast && showToast('Failed to save overview', 'danger');
+                    });
+                }, { modalId: 'pkb-overview-edit-modal', title: 'Edit Memory Overview', saveLabel: 'Save Overview' });
+            }
+        });
+
+        // Regenerate button
+        $(document).on('click', '#pkb-overview-regenerate-btn', function() {
+            regenerateOverview();
+        });
+
+        // Scan button
+        $(document).on('click', '#pkb-overview-scan-btn', function() {
+            scanOverviewGaps();
+        });
+    }
+
+    // ===========================================================================
     // Public API
     // ===========================================================================
     
@@ -3669,6 +3947,13 @@ var PKBManager = (function() {
         getClaimByFriendlyId: getClaimByFriendlyId,
         
         // Utility
-        showToast: showToast
+        showToast: showToast,
+
+        // Overview Tab (Tab 8)
+        loadOverview: loadOverview,
+        renderOverview: renderOverview,
+        saveOverview: saveOverview,
+        regenerateOverview: regenerateOverview,
+        scanOverviewGaps: scanOverviewGaps,
     };
 })();

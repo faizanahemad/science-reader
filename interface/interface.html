@@ -887,6 +887,16 @@
                   <i class="bi bi-folder"></i> Contexts
                 </a>
               </li>
+              <li class="nav-item">
+                <a class="nav-link" id="pkb-overview-tab" data-toggle="tab" href="#pkb-overview-pane" role="tab">
+                  <i class="bi bi-journal-text"></i> Overview
+                </a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link" id="pkb-maintenance-tab" data-toggle="tab" href="#pkb-maintenance-pane" role="tab">
+                  <i class="bi bi-tools"></i> Maintenance
+                </a>
+              </li>
             </ul>
             
             <!-- Tab Content -->
@@ -1207,7 +1217,64 @@
                   </div>
                 </div>
               </div>
-              
+
+              <!-- Overview Tab (Tab 8) -->
+              <div class="tab-pane fade" id="pkb-overview-pane" role="tabpanel">
+                <!-- Toolbar -->
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                  <div>
+                    <button class="btn btn-sm btn-outline-secondary mr-1" id="pkb-overview-regenerate-btn" title="Regenerate overview from scratch">
+                      <i class="bi bi-arrow-clockwise"></i> Regenerate
+                    </button>
+                    <button class="btn btn-sm btn-outline-secondary mr-1" id="pkb-overview-scan-btn" title="Scan for gaps in overview">
+                      <i class="bi bi-search"></i> Scan for gaps
+                    </button>
+                  </div>
+                  <button class="btn btn-sm btn-outline-primary" id="pkb-overview-edit-btn" title="Edit overview markdown">
+                    <i class="bi bi-pencil"></i> Edit
+                  </button>
+                </div>
+                <!-- Stale warning -->
+                <div id="pkb-overview-stale-warning" class="alert alert-warning py-1 px-2 small" style="display:none;">
+                  <i class="bi bi-exclamation-triangle mr-1"></i> Overview may be stale — last update failed.
+                </div>
+                <!-- Loading spinner -->
+                <div id="pkb-overview-loading" class="text-center py-4" style="display:none;">
+                  <div class="spinner-border text-secondary" role="status"></div>
+                  <p class="text-muted mt-2">Loading overview...</p>
+                </div>
+                <!-- Rendered markdown content -->
+                <div id="pkb-overview-content" class="pkb-overview-rendered" style="overflow-y:auto; max-height:55vh;"></div>
+              </div>
+
+              <!-- Maintenance Pane (Memory Cleanup, W11) -->
+              <div class="tab-pane fade" id="pkb-maintenance-pane" role="tabpanel">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                  <div class="text-muted small">
+                    Tidy your knowledge base: expire/decay stale memories, refresh the overview, and review duplicate claims, entities and tags.
+                  </div>
+                  <div>
+                    <div class="custom-control custom-checkbox d-inline-block mr-2" title="Use an LLM to confirm each duplicate cluster">
+                      <input type="checkbox" class="custom-control-input" id="pkb-cleanup-use-llm">
+                      <label class="custom-control-label small" for="pkb-cleanup-use-llm">LLM verify</label>
+                    </div>
+                    <button class="btn btn-sm btn-outline-primary" id="pkb-cleanup-analyze-btn" title="Run cleanup analysis (non-destructive)">
+                      <i class="bi bi-search"></i> Analyze
+                    </button>
+                    <button class="btn btn-sm btn-primary" id="pkb-cleanup-apply-btn" title="Apply all suggested merges" disabled>
+                      <i class="bi bi-magic"></i> Apply suggested
+                    </button>
+                  </div>
+                </div>
+                <div id="pkb-cleanup-loading" class="text-center py-4" style="display:none;">
+                  <div class="spinner-border text-secondary" role="status"></div>
+                  <p class="text-muted mt-2">Running cleanup…</p>
+                </div>
+                <div id="pkb-cleanup-report" style="overflow-y:auto; max-height:55vh;">
+                  <p class="text-muted">Click <strong>Analyze</strong> to scan for maintenance opportunities. Nothing is changed until you choose to apply.</p>
+                </div>
+              </div>
+
             </div>
           </div>
           <div class="modal-footer">
@@ -1447,11 +1514,32 @@
               Scroll position synced between tabs
             </span>
             <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
-            <button type="button" id="message-edit-text-save-button" class="btn btn-primary">Save</button>  
+            <button type="button" id="message-edit-text-save-button" data-save-btn class="btn btn-primary">Save</button>  
           </div>  
         </div>  
       </div>  
     </div>  
+
+    <!-- PKB Overview Edit Modal — isolated state via _modalStates['pkb-overview-edit-modal'] -->
+    <div class="modal fade" id="pkb-overview-edit-modal" tabindex="-1" aria-hidden="true">
+      <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Edit Memory Overview</h5>
+            <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+              <span aria-hidden="true">&times;</span>
+            </button>
+          </div>
+          <div class="modal-body p-0" style="height: 65vh;">
+            <div id="pkb-overview-edit-modal-codemirror-container" class="h-100"></div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-dismiss="modal">Cancel</button>
+            <button type="button" data-save-btn class="btn btn-primary">Save Overview</button>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- Artefacts Modal -->
     <div class="modal fade" id="artefacts-modal" tabindex="-1" aria-hidden="true">
