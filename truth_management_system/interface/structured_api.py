@@ -70,6 +70,9 @@ class ActionResult:
     data: Any = None
     warnings: List[str] = field(default_factory=list)
     errors: List[str] = field(default_factory=list)
+    # Optional structured side-channel (e.g. W8 lifecycle_changes: existing
+    # claims whose status changed as a side effect of this operation).
+    metadata: Dict[str, Any] = field(default_factory=dict)
 
 
 class StructuredAPI:
@@ -601,16 +604,28 @@ class StructuredAPI:
             # claim replaces existing one(s), `supersedes` carries the old
             # claim_id (or a list); link them and retire the old claim(s).
             supersedes = kwargs.get("supersedes")
+            lifecycle_changes: List[Dict[str, Any]] = []
             if supersedes:
                 old_ids = supersedes if isinstance(supersedes, list) else [supersedes]
                 for old_id in old_ids:
                     if not old_id:
                         continue
+                    old_before = self.claims.get(old_id)
                     sres = self.supersede_claim(claim.claim_id, old_id)
                     if sres.success:
                         warnings.append(
                             f"Superseded claim {str(old_id)[:8]}"
                         )
+                        # W8: surface the lifecycle change so the caller/UI can
+                        # tell the user this add retired an existing claim.
+                        lifecycle_changes.append({
+                            "claim_id": old_id,
+                            "statement": getattr(old_before, "statement", None),
+                            "old_status": getattr(old_before, "status", None),
+                            "new_status": ClaimStatus.SUPERSEDED.value,
+                            "change": "superseded",
+                            "by_claim_id": claim.claim_id,
+                        })
                     else:
                         warnings.extend(sres.errors or [])
 
@@ -622,6 +637,8 @@ class StructuredAPI:
                 object_id=claim.claim_id,
                 data=claim,
                 warnings=warnings,
+                metadata=({"lifecycle_changes": lifecycle_changes}
+                          if lifecycle_changes else {}),
             )
 
         except Exception as e:

@@ -65,6 +65,9 @@ class DistillationResult:
     plan: MemoryUpdatePlan
     executed: bool = False
     execution_results: List[ActionResult] = field(default_factory=list)
+    # W8: existing claims whose status changed (e.g. superseded) as a side
+    # effect of the executed actions — surfaced so the chat/UI can tell the user.
+    lifecycle_changes: List[dict] = field(default_factory=list)
 
 
 class ConversationDistiller:
@@ -138,8 +141,19 @@ class ConversationDistiller:
             if 0 <= i < len(plan.proposed_actions):
                 result = self._execute_action(plan.proposed_actions[i])
                 results.append(result)
-        
-        return DistillationResult(plan=plan, executed=True, execution_results=results)
+
+        # W8: aggregate any lifecycle changes (e.g. superseded claims) reported
+        # by the executed actions for the chat/UI to surface to the user.
+        lifecycle_changes = []
+        for r in results:
+            lifecycle_changes.extend(
+                (getattr(r, "metadata", None) or {}).get("lifecycle_changes", [])
+            )
+
+        return DistillationResult(
+            plan=plan, executed=True, execution_results=results,
+            lifecycle_changes=lifecycle_changes,
+        )
     
     def _extract_claims_from_turn(self, conversation_summary: str, user_message: str,
                                    assistant_message: str,
