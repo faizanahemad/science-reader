@@ -143,10 +143,11 @@ class PKBNLAgent:
     MAX_ITERATIONS = 5
     PROCESS_TIMEOUT = 30  # seconds
 
-    def __init__(self, api, keys: dict, model: str = None):
+    def __init__(self, api, keys: dict, model: str = None, overview_manager=None):
         self.api = api
         self.keys = keys
         self.model = model or "openai/gpt-4o-mini"
+        self.overview_manager = overview_manager
 
         # Simple dispatch table — maps action names to handler methods
         self._tools: Dict[str, Any] = {
@@ -187,11 +188,16 @@ class PKBNLAgent:
             claims.append(
                 {
                     "claim_id": claim_dict.get("claim_id", ""),
+                    "friendly_id": claim_dict.get("friendly_id", ""),
                     "statement": claim_dict.get("statement", ""),
                     "claim_type": claim_dict.get("claim_type", ""),
                     "context_domain": claim_dict.get("context_domain", ""),
+                    "confidence": claim_dict.get("confidence", ""),
                     "status": claim_dict.get("status", ""),
+                    "tags": claim_dict.get("tags", []),
                     "valid_to": claim_dict.get("valid_to", ""),
+                    "created_at": claim_dict.get("created_at", ""),
+                    "reinforcement_count": claim_dict.get("reinforcement_count", 0),
                     "score": round(getattr(sr, "score", 0.0), 3),
                 }
             )
@@ -419,6 +425,21 @@ class PKBNLAgent:
             current_year=today.year,
         )
 
+        # Inject KB map from overview if available — guides search queries
+        if self.overview_manager is not None:
+            try:
+                user_email = getattr(self.api, "user_email", None)
+                if user_email:
+                    kb_map = self.overview_manager.get_key_areas_snippet(user_email)
+                    if kb_map:
+                        system_prompt += (
+                            "\n\n## Knowledge Base Map\n"
+                            "Use this to guide your search queries — prefer terms that match "
+                            "the actual content described below.\n\n" + kb_map
+                        )
+            except Exception as _e:
+                logger.warning(f"[PKBNLAgent] overview KB map injection failed: {_e}")
+
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_text},
@@ -609,6 +630,21 @@ class PKBNLAgent:
             today_date=today.isoformat(),
             current_year=today.year,
         )
+
+        # Inject KB map from overview if available — guides search queries
+        if self.overview_manager is not None:
+            try:
+                user_email = getattr(self.api, "user_email", None)
+                if user_email:
+                    kb_map = self.overview_manager.get_key_areas_snippet(user_email)
+                    if kb_map:
+                        system_prompt += (
+                            "\n\n## Knowledge Base Map\n"
+                            "Use this to guide your search queries — prefer terms that match "
+                            "the actual content described below.\n\n" + kb_map
+                        )
+            except Exception as _e:
+                logger.warning(f"[PKBNLAgent] overview KB map injection failed: {_e}")
 
         messages = [
             {"role": "system", "content": system_prompt},
