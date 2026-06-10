@@ -49,13 +49,16 @@ skipped / 0 fail; offline eval unchanged, confirming inert defaults):
 - `1279144` — hybrid single rewrite call (`_build_strategy_context`) + `strategy_context` threading + `test_rewrite_entity_unification.py` (asserts exactly one rewrite LLM call).
 - `a62e346` — `StructuredAPI.backfill_entities` (idempotent, dry-run, user-scoped) + tests.
 - `bbd2409` — docs (README, implementation.md, implementation_deep_dive.md).
+- `a286cbd` — `backfill_entities` CLI (`python -m truth_management_system.backfill_entities`) + keyed-eval gating recipe in `tests/eval/README.md`.
 
 **Remaining (follow-ups, need an API key):** the keyed `run_eval.sh` gate with
 entity-mention/paraphrase cases, and tuning `rrf_strategy_weights` (W-A) on that
 harness — both deferred because the offline harness is FTS-only and cannot
-measure the keyed unification path. Optional, lower priority: a tag-linked
+measure the keyed unification path, and this environment has no
+`OPENROUTER_API_KEY` (the app LLM path is OpenRouter-only). Optional, lower
+priority and NOT started (would be scope creep on this plan): a tag-linked
 retrieval strategy (the rewrite already emits `tags`, currently unused) and a
-REST/CLI wrapper for `backfill_entities`.
+REST endpoint wrapping `backfill_entities` (the CLI exists).
 
 ## Motivation & Problem Statement
 
