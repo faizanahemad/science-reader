@@ -29,7 +29,8 @@ def _result(statement, derivation, score):
 
 
 def test_inferred_downranked_below_stated():
-    cfg = PKBConfig(db_path=":memory:")  # defaults: penalty 0.1, weights 0
+    # Pin recency/confidence weights to 0 to isolate the inferred penalty.
+    cfg = PKBConfig(db_path=":memory:", w_recency=0.0, w_confidence=0.0)  # penalty 0.1
     results = [
         _result("inferred one", "inferred", 0.10),
         _result("stated one", "stated", 0.095),
@@ -41,7 +42,10 @@ def test_inferred_downranked_below_stated():
 
 
 def test_penalty_zero_is_noop():
-    cfg = PKBConfig(db_path=":memory:", inferred_rerank_penalty=0.0)
+    cfg = PKBConfig(
+        db_path=":memory:", inferred_rerank_penalty=0.0,
+        w_recency=0.0, w_confidence=0.0,
+    )
     results = [
         _result("inferred one", "inferred", 0.10),
         _result("stated one", "stated", 0.095),
@@ -52,7 +56,9 @@ def test_penalty_zero_is_noop():
 
 
 def test_stated_not_penalized():
-    cfg = PKBConfig(db_path=":memory:")
+    # Pin recency/confidence weights to 0 so this isolates the inferred factor
+    # (independent of any default recency/confidence tuning).
+    cfg = PKBConfig(db_path=":memory:", w_recency=0.0, w_confidence=0.0)
     r = _result("stated", "stated", 0.10)
     out = apply_recency_confidence_rerank([r], cfg)
     assert out[0].score == pytest.approx(0.10)
