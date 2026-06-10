@@ -4350,6 +4350,248 @@ def handle_pkb_list_tags(args: dict, context: ToolContext) -> ToolCallResult:
 
 
 # ---------------------------------------------------------------------------
+# PKB STM Tools (category: pkb)
+# ---------------------------------------------------------------------------
+
+
+@register_tool(
+    name="pkb_get_stm",
+    description=(
+        "Get the user's active short-term memories (STM). "
+        "STM items are transient context captured during conversations that persist briefly "
+        "and get promoted to long-term claims if reinforced across conversations."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "limit": {"type": "integer", "description": "Max memories to return", "default": 50},
+        },
+        "required": [],
+    },
+    is_interactive=False,
+    category="pkb",
+)
+def handle_pkb_get_stm(args: dict, context: ToolContext) -> ToolCallResult:
+    """Get active short-term memories."""
+    limit = args.get("limit", 50)
+    try:
+        api = _get_pkb_api()
+        user_api = api.for_user(context.user_email)
+        result = user_api.get_active_short_term_memories(limit=limit)
+        return ToolCallResult(
+            tool_id="", tool_name="pkb_get_stm",
+            result=_truncate_result(_pkb_serialize_action_result(result)),
+        )
+    except Exception as exc:
+        return ToolCallResult(
+            tool_id="", tool_name="pkb_get_stm",
+            error=f"pkb_get_stm failed: {exc}",
+        )
+
+
+@register_tool(
+    name="pkb_promote_stm",
+    description=(
+        "Promote a short-term memory to a permanent long-term claim. "
+        "Use when context has proven valuable and should be retained permanently."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "memory_id": {"type": "string", "description": "UUID of the short-term memory to promote"},
+        },
+        "required": ["memory_id"],
+    },
+    is_interactive=False,
+    category="pkb",
+)
+def handle_pkb_promote_stm(args: dict, context: ToolContext) -> ToolCallResult:
+    """Promote an STM item to a long-term claim."""
+    memory_id = args.get("memory_id", "")
+    try:
+        api = _get_pkb_api()
+        user_api = api.for_user(context.user_email)
+        result = user_api.promote_short_term_memory(memory_id)
+        return ToolCallResult(
+            tool_id="", tool_name="pkb_promote_stm",
+            result=_truncate_result(_pkb_serialize_action_result(result)),
+        )
+    except Exception as exc:
+        return ToolCallResult(
+            tool_id="", tool_name="pkb_promote_stm",
+            error=f"pkb_promote_stm failed: {exc}",
+        )
+
+
+@register_tool(
+    name="pkb_dismiss_stm",
+    description=(
+        "Dismiss (delete) a short-term memory that is no longer relevant."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "memory_id": {"type": "string", "description": "UUID of the short-term memory to dismiss"},
+        },
+        "required": ["memory_id"],
+    },
+    is_interactive=False,
+    category="pkb",
+)
+def handle_pkb_dismiss_stm(args: dict, context: ToolContext) -> ToolCallResult:
+    """Dismiss a short-term memory."""
+    memory_id = args.get("memory_id", "")
+    try:
+        api = _get_pkb_api()
+        user_api = api.for_user(context.user_email)
+        result = user_api.delete_short_term_memory(memory_id)
+        return ToolCallResult(
+            tool_id="", tool_name="pkb_dismiss_stm",
+            result=_truncate_result(_pkb_serialize_action_result(result)),
+        )
+    except Exception as exc:
+        return ToolCallResult(
+            tool_id="", tool_name="pkb_dismiss_stm",
+            error=f"pkb_dismiss_stm failed: {exc}",
+        )
+
+
+@register_tool(
+    name="pkb_propose_extraction",
+    description=(
+        "Extract knowledge claims from arbitrary text. Runs the extraction pipeline "
+        "and returns proposed claims for review. Does NOT auto-commit — caller should "
+        "present proposals to the user or call pkb_add_claim for accepted ones. "
+        "Use to ingest info from documents, code comments, meeting notes, etc."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "text": {"type": "string", "description": "Text to extract claims from"},
+            "extraction_mode": {
+                "type": "string",
+                "description": "'relaxed' (default) or 'aggressive'",
+                "default": "relaxed",
+            },
+        },
+        "required": ["text"],
+    },
+    is_interactive=False,
+    category="pkb",
+)
+def handle_pkb_propose_extraction(args: dict, context: ToolContext) -> ToolCallResult:
+    """Extract proposed claims from text."""
+    text = args.get("text", "")
+    extraction_mode = args.get("extraction_mode", "relaxed")
+    if extraction_mode not in ("relaxed", "aggressive"):
+        extraction_mode = "relaxed"
+    try:
+        api = _get_pkb_api()
+        user_api = api.for_user(context.user_email)
+        from truth_management_system.interface.conversation_distillation import ConversationDistiller
+        distiller = ConversationDistiller(
+            user_api, user_api.keys, user_api.config,
+            extraction_mode=extraction_mode,
+        )
+        plan = distiller.extract_and_propose(
+            conversation_summary="",
+            user_message=text,
+            assistant_message="",
+        )
+        if plan is None:
+            return ToolCallResult(
+                tool_id="", tool_name="pkb_propose_extraction",
+                result=json.dumps({"proposals": [], "count": 0}),
+            )
+        proposals = []
+        for c in (plan.new_claims or []):
+            proposals.append({
+                "statement": c.statement,
+                "claim_type": c.claim_type,
+                "context_domain": c.context_domain,
+                "confidence": c.confidence,
+                "reason": getattr(c, "reason", None),
+            })
+        return ToolCallResult(
+            tool_id="", tool_name="pkb_propose_extraction",
+            result=_truncate_result(json.dumps({"proposals": proposals, "count": len(proposals)}, default=str)),
+        )
+    except Exception as exc:
+        return ToolCallResult(
+            tool_id="", tool_name="pkb_propose_extraction",
+            error=f"pkb_propose_extraction failed: {exc}",
+        )
+
+
+@register_tool(
+    name="pkb_recent_promotions",
+    description=(
+        "List STM items recently promoted to long-term claims. "
+        "Shows what context crossed the reinforcement threshold and became permanent."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "limit": {"type": "integer", "description": "Max results", "default": 10},
+        },
+        "required": [],
+    },
+    is_interactive=False,
+    category="pkb",
+)
+def handle_pkb_recent_promotions(args: dict, context: ToolContext) -> ToolCallResult:
+    """Get recently promoted STM items."""
+    limit = args.get("limit", 10)
+    try:
+        api = _get_pkb_api()
+        user_api = api.for_user(context.user_email)
+        result = user_api.get_recent_promotions(limit=limit)
+        return ToolCallResult(
+            tool_id="", tool_name="pkb_recent_promotions",
+            result=_truncate_result(_pkb_serialize_action_result(result)),
+        )
+    except Exception as exc:
+        return ToolCallResult(
+            tool_id="", tool_name="pkb_recent_promotions",
+            error=f"pkb_recent_promotions failed: {exc}",
+        )
+
+
+@register_tool(
+    name="pkb_demote_claim",
+    description=(
+        "Reverse a STM→claim promotion. Deletes the created claim "
+        "and resets the STM item to unpromoted state."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "memory_id": {"type": "string", "description": "UUID of the STM memory whose promotion to reverse"},
+        },
+        "required": ["memory_id"],
+    },
+    is_interactive=False,
+    category="pkb",
+)
+def handle_pkb_demote_claim(args: dict, context: ToolContext) -> ToolCallResult:
+    """Demote a promoted STM item."""
+    memory_id = args.get("memory_id", "")
+    try:
+        api = _get_pkb_api()
+        user_api = api.for_user(context.user_email)
+        result = user_api.demote_promoted_claim(memory_id)
+        return ToolCallResult(
+            tool_id="", tool_name="pkb_demote_claim",
+            result=_truncate_result(_pkb_serialize_action_result(result)),
+        )
+    except Exception as exc:
+        return ToolCallResult(
+            tool_id="", tool_name="pkb_demote_claim",
+            error=f"pkb_demote_claim failed: {exc}",
+        )
+
+
+# ---------------------------------------------------------------------------
 # Image Generation Tool (category: general)
 # ---------------------------------------------------------------------------
 

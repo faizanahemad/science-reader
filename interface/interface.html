@@ -918,6 +918,17 @@
                     </div>
                   </div>
                 </div>
+                <div id="pkb-stm-promoted-section" class="mb-3" style="display:none;">
+                  <div class="card border-success">
+                    <div class="card-header bg-success text-white py-2 d-flex justify-content-between align-items-center" style="cursor:pointer;" data-toggle="collapse" data-target="#pkb-stm-promoted-collapse">
+                      <span><i class="bi bi-arrow-up-circle"></i> Recently Promoted <span id="pkb-stm-promoted-count" class="badge badge-light ml-1">0</span></span>
+                      <i class="bi bi-chevron-down"></i>
+                    </div>
+                    <div class="collapse" id="pkb-stm-promoted-collapse">
+                      <div class="card-body p-2" id="pkb-stm-promoted-list"></div>
+                    </div>
+                  </div>
+                </div>
 
                 <!-- Search and Add -->
                 <div class="row mb-3">
@@ -1287,6 +1298,18 @@
                 </div>
                 <div id="pkb-cleanup-report" style="overflow-y:auto; max-height:55vh;">
                   <p class="text-muted">Click <strong>Analyze</strong> to scan for maintenance opportunities. Nothing is changed until you choose to apply.</p>
+                </div>
+                <!-- Recently Archived (undo cleanup) -->
+                <div id="pkb-archived-section" class="mt-3" style="display:none;">
+                  <div class="card border-secondary">
+                    <div class="card-header bg-secondary text-white py-2 d-flex justify-content-between align-items-center" style="cursor:pointer;" data-toggle="collapse" data-target="#pkb-archived-collapse">
+                      <span><i class="bi bi-archive"></i> Recently Archived <span id="pkb-archived-count" class="badge badge-light ml-1">0</span></span>
+                      <i class="bi bi-chevron-down"></i>
+                    </div>
+                    <div class="collapse" id="pkb-archived-collapse">
+                      <div class="card-body p-2" id="pkb-archived-list" style="max-height:30vh;overflow-y:auto;"></div>
+                    </div>
+                  </div>
                 </div>
               </div>
 
@@ -2828,6 +2851,11 @@
                                       <div class="col">
                                           <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-pkb-modal-open-button">
                                               <i class="bi bi-brain"></i> PKB
+                                          </button>
+                                      </div>
+                                      <div class="col">
+                                          <button class="btn btn-outline-info btn-sm rounded-pill w-100" id="settings-pkb-import-button" title="Import text/documents into PKB">
+                                              <i class="bi bi-box-arrow-in-down"></i> Import
                                           </button>
                                       </div>
                                       <div class="col d-none d-sm-block">

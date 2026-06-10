@@ -1447,6 +1447,13 @@ var PKBManager = (function() {
     function checkMemoryUpdates(conversationSummary, userMessage, assistantMessage, recentTurns) {
         proposeUpdates(conversationSummary, userMessage, assistantMessage, recentTurns)
             .done(function(response) {
+                // STM capture toast (non-blocking notification)
+                var stmCount = (response.stm_stored || 0) + (response.stm_reinforced || 0);
+                if (stmCount > 0) {
+                    var msg = stmCount === 1 ? '1 context item remembered' : stmCount + ' context items remembered';
+                    if (response.stm_reinforced > 0) msg += ' (' + response.stm_reinforced + ' reinforced)';
+                    showToast(msg, 'info');
+                }
                 if (response.has_updates && response.proposed_actions && response.proposed_actions.length > 0) {
                     currentPlanId = response.plan_id;
                     currentProposals = response.proposed_actions;
@@ -2915,12 +2922,107 @@ var PKBManager = (function() {
     }
 
     /**
+     * Load recently promoted STM items into the Recently Promoted section.
+     */
+    function loadRecentPromotions() {
+        $.get('/pkb/stm/recent_promotions', function(resp) {
+            var promotions = resp.promotions || [];
+            var $section = $('#pkb-stm-promoted-section');
+            var $list = $('#pkb-stm-promoted-list');
+            var $count = $('#pkb-stm-promoted-count');
+
+            if (!promotions.length) { $section.hide(); return; }
+
+            $section.show();
+            $count.text(promotions.length);
+
+            var html = promotions.map(function(p) {
+                return '<div class="d-flex justify-content-between align-items-start border-bottom py-1">' +
+                    '<div class="flex-grow-1 mr-2">' +
+                        '<small>' + $('<span>').text(p.statement).html() + '</small>' +
+                        '<div><span class="badge badge-success">promoted</span></div>' +
+                    '</div>' +
+                    '<button class="btn btn-outline-warning btn-xs pkb-stm-demote" data-id="' + p.memory_id + '" title="Demote (undo promotion)"><i class="bi bi-arrow-down-circle"></i></button>' +
+                '</div>';
+            }).join('');
+            $list.html(html);
+        }).fail(function() { $('#pkb-stm-promoted-section').hide(); });
+    }
+
+    /**
+     * Run extraction pipeline on arbitrary text and show proposal modal.
+     * Used by "Save to Memory" button on messages.
+     * @param {string} text - Text to extract claims from
+     */
+    function proposeFromText(text) {
+        if (!text || !text.trim()) return;
+        var truncated = text.substring(0, 4000);
+        showToast('Analyzing text for memories...', 'info');
+        $.ajax({
+            url: '/pkb/propose_updates',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                user_message: truncated,
+                assistant_message: '',
+                conversation_summary: '',
+                extraction_mode: 'aggressive'
+            }),
+            success: function(response) {
+                if (response.has_updates && response.proposed_actions && response.proposed_actions.length > 0) {
+                    currentPlanId = response.plan_id;
+                    currentProposals = response.proposed_actions;
+                    showBulkProposalModal(response.proposed_actions, 'conversation', response.plan_id, response.user_prompt);
+                } else {
+                    showToast('No extractable memories found', 'info');
+                }
+            },
+            error: function() { showToast('Extraction failed', 'danger'); }
+        });
+    }
+
+    /**
+     * Load recently archived claims into the Maintenance tab section.
+     */
+    function loadRecentlyArchived() {
+        $.get('/pkb/claims/archived', function(resp) {
+            var archived = resp.archived || [];
+            var $section = $('#pkb-archived-section');
+            var $list = $('#pkb-archived-list');
+            var $count = $('#pkb-archived-count');
+
+            if (!archived.length) { $section.hide(); return; }
+
+            $section.show();
+            $count.text(archived.length);
+
+            var html = archived.map(function(c) {
+                return '<div class="d-flex justify-content-between align-items-start border-bottom py-1">' +
+                    '<div class="flex-grow-1 mr-2">' +
+                        '<small>' + $('<span>').text(c.statement).html() + '</small>' +
+                        '<div><span class="badge badge-secondary">' + (c.claim_type || '') + '</span> ' +
+                        '<span class="badge badge-light">' + (c.context_domain || '') + '</span></div>' +
+                    '</div>' +
+                    '<button class="btn btn-outline-success btn-xs pkb-restore-claim" data-id="' + c.claim_id + '" title="Restore to active"><i class="bi bi-arrow-counterclockwise"></i></button>' +
+                '</div>';
+            }).join('');
+            $list.html(html);
+        }).fail(function() { $('#pkb-archived-section').hide(); });
+    }
+
+    /**
      * Initialize event handlers.
      */
     function init() {
         // PKB Modal button
         $(document).on('click', '#settings-pkb-modal-open-button', function() {
             openPKBModal();
+        });
+
+        // Import button — opens modal directly to Import tab
+        $(document).on('click', '#settings-pkb-import-button', function() {
+            openPKBModal();
+            setTimeout(function() { $('#pkb-import-tab').tab('show'); }, 100);
         });
         
         // Add claim button
@@ -3004,6 +3106,32 @@ var PKBManager = (function() {
         // Load STM when PKB modal opens
         $(document).on('shown.bs.modal', '#pkb-modal', function() {
             loadShortTermMemories();
+            loadRecentPromotions();
+        });
+
+        // Demote (undo promotion)
+        $(document).on('click', '.pkb-stm-demote', function() {
+            var id = $(this).data('id');
+            $.post('/pkb/stm/' + id + '/demote', function() {
+                showToast('Promotion reversed', 'info');
+                loadRecentPromotions();
+                loadClaims();
+            }).fail(function() { showToast('Demotion failed', 'danger'); });
+        });
+
+        // Restore archived claim
+        $(document).on('click', '.pkb-restore-claim', function() {
+            var id = $(this).data('id');
+            $.post('/pkb/claims/' + id + '/restore', function() {
+                showToast('Claim restored', 'success');
+                loadRecentlyArchived();
+                loadClaims();
+            }).fail(function() { showToast('Restore failed', 'danger'); });
+        });
+
+        // Load archived claims when maintenance tab is shown
+        $(document).on('shown.bs.tab', '#pkb-maintenance-tab', function() {
+            loadRecentlyArchived();
         });
 
         // Memory Cleanup (Maintenance tab, W11)
@@ -3997,6 +4125,7 @@ var PKBManager = (function() {
         openPKBModal: openPKBModal,
         openAddClaimModal: openAddClaimModal,
         openAddClaimModalWithText: openAddClaimModalWithText,
+        proposeFromText: proposeFromText,
         autofillClaimFields: autofillClaimFields,
         checkMemoryUpdates: checkMemoryUpdates,
 

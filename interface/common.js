@@ -1926,7 +1926,7 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
         
         voteDropdown.append($('<div class="dropdown-divider"></div>'), tocItem);
         
-        // Save to Memory - opens PKB add claim modal with message text pre-filled
+        // Save to Memory - runs extraction pipeline on message text
         var saveToMemoryItem = $('<a class="dropdown-item" href="#"><i class="bi bi-journal-plus mr-2"></i>Save to Memory</a>');
         saveToMemoryItem.click(function(e) {
             e.preventDefault();
@@ -1938,7 +1938,9 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
                     $dropdown.find('[data-toggle="dropdown"]').dropdown('hide');
                 }
             } catch (err) { /* ignore */ }
-            if (typeof PKBManager !== 'undefined' && PKBManager.openAddClaimModalWithText) {
+            if (typeof PKBManager !== 'undefined' && PKBManager.proposeFromText) {
+                PKBManager.proposeFromText(text);
+            } else if (typeof PKBManager !== 'undefined' && PKBManager.openAddClaimModalWithText) {
                 PKBManager.openAddClaimModalWithText(text);
             } else {
                 console.warn('PKBManager not available for Save to Memory');

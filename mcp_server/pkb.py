@@ -459,7 +459,169 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
     # Full-tier tools (only registered when MCP_TOOL_TIER == "full")
     # =================================================================
 
+    # -----------------------------------------------------------------
+    # STM tools (baseline) — available to all external editors
+    # -----------------------------------------------------------------
+
+    @mcp.tool()
+    def pkb_get_stm(user_email: str, limit: int = 50) -> str:
+        """Get the user's active short-term memories (STM).
+
+        STM items are transient context captured during conversations.
+        They persist for a limited time and get promoted to long-term
+        claims if reinforced across conversations.
+
+        Args:
+            user_email: Email of the PKB owner.
+            limit: Maximum memories to return (default 50).
+        """
+        try:
+            api = _get_pkb_api()
+            user_api = api.for_user(user_email)
+            result = user_api.get_active_short_term_memories(limit=limit)
+            return _serialize_action_result(result)
+        except Exception as exc:
+            logger.exception("pkb_get_stm error: %s", exc)
+            return json.dumps({"error": f"pkb_get_stm failed: {exc}"})
+
+    @mcp.tool()
+    def pkb_promote_stm(user_email: str, memory_id: str) -> str:
+        """Promote a short-term memory to a permanent long-term claim.
+
+        Use when a piece of context has proven valuable and should be
+        retained permanently in the knowledge base.
+
+        Args:
+            user_email: Email of the PKB owner.
+            memory_id: UUID of the short-term memory to promote.
+        """
+        try:
+            api = _get_pkb_api()
+            user_api = api.for_user(user_email)
+            result = user_api.promote_short_term_memory(memory_id)
+            return _serialize_action_result(result)
+        except Exception as exc:
+            logger.exception("pkb_promote_stm error: %s", exc)
+            return json.dumps({"error": f"pkb_promote_stm failed: {exc}"})
+
+    @mcp.tool()
+    def pkb_dismiss_stm(user_email: str, memory_id: str) -> str:
+        """Dismiss (delete) a short-term memory.
+
+        Use when a captured context item is no longer relevant or was
+        captured in error.
+
+        Args:
+            user_email: Email of the PKB owner.
+            memory_id: UUID of the short-term memory to dismiss.
+        """
+        try:
+            api = _get_pkb_api()
+            user_api = api.for_user(user_email)
+            result = user_api.delete_short_term_memory(memory_id)
+            return _serialize_action_result(result)
+        except Exception as exc:
+            logger.exception("pkb_dismiss_stm error: %s", exc)
+            return json.dumps({"error": f"pkb_dismiss_stm failed: {exc}"})
+
+    @mcp.tool()
+    def pkb_propose_extraction(
+        user_email: str,
+        text: str,
+        extraction_mode: str = "relaxed",
+    ) -> str:
+        """Extract knowledge claims from arbitrary text.
+
+        Runs the extraction pipeline on the provided text and returns
+        proposed claims for review. Does NOT auto-commit — the caller
+        should present proposals to the user or call pkb_add_claim for
+        each accepted proposal.
+
+        Use this to ingest information from documents, code comments,
+        README sections, meeting notes, or any text block.
+
+        Args:
+            user_email: Email of the PKB owner.
+            text: The text to extract claims from.
+            extraction_mode: 'relaxed' (default) or 'aggressive'.
+        """
+        try:
+            api = _get_pkb_api()
+            user_api = api.for_user(user_email)
+            from truth_management_system.interface.conversation_distillation import ConversationDistiller
+            distiller = ConversationDistiller(
+                user_api, user_api.keys, user_api.config,
+                extraction_mode=extraction_mode,
+            )
+            plan = distiller.extract_and_propose(
+                conversation_summary="",
+                user_message=text,
+                assistant_message="",
+            )
+            if plan is None:
+                return json.dumps({"proposals": [], "count": 0})
+            proposals = []
+            for c in (plan.new_claims or []):
+                proposals.append({
+                    "statement": c.statement,
+                    "claim_type": c.claim_type,
+                    "context_domain": c.context_domain,
+                    "confidence": c.confidence,
+                    "reason": getattr(c, "reason", None),
+                })
+            return json.dumps({"proposals": proposals, "count": len(proposals)}, default=str)
+        except Exception as exc:
+            logger.exception("pkb_propose_extraction error: %s", exc)
+            return json.dumps({"error": f"pkb_propose_extraction failed: {exc}"})
+
     if is_full:
+        # -------------------------------------------------------------
+        # Tool: pkb_recent_promotions — list recently promoted STM items
+        # -------------------------------------------------------------
+
+        @mcp.tool()
+        def pkb_recent_promotions(user_email: str, limit: int = 10) -> str:
+            """List STM items that were recently promoted to long-term claims.
+
+            Shows what context items crossed the reinforcement threshold
+            and became permanent memories. Useful for reviewing what the
+            system has learned.
+
+            Args:
+                user_email: Email of the PKB owner.
+                limit: Maximum results (default 10).
+            """
+            try:
+                api = _get_pkb_api()
+                user_api = api.for_user(user_email)
+                result = user_api.get_recent_promotions(limit=limit)
+                return _serialize_action_result(result)
+            except Exception as exc:
+                logger.exception("pkb_recent_promotions error: %s", exc)
+                return json.dumps({"error": f"pkb_recent_promotions failed: {exc}"})
+
+        # -------------------------------------------------------------
+        # Tool: pkb_demote_claim — reverse a STM promotion
+        # -------------------------------------------------------------
+
+        @mcp.tool()
+        def pkb_demote_claim(user_email: str, memory_id: str) -> str:
+            """Reverse a STM→claim promotion. Deletes the created claim
+            and resets the STM item to unpromoted state.
+
+            Args:
+                user_email: Email of the PKB owner.
+                memory_id: UUID of the STM memory whose promotion to reverse.
+            """
+            try:
+                api = _get_pkb_api()
+                user_api = api.for_user(user_email)
+                result = user_api.demote_promoted_claim(memory_id)
+                return _serialize_action_result(result)
+            except Exception as exc:
+                logger.exception("pkb_demote_claim error: %s", exc)
+                return json.dumps({"error": f"pkb_demote_claim failed: {exc}"})
+
         # -------------------------------------------------------------
         # Tool 8: pkb_get_claims_by_ids — batch retrieve claims
         # -------------------------------------------------------------

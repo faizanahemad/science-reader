@@ -2099,7 +2099,8 @@ def pkb_propose_updates_route():
 
         if not plan or len(plan.candidates) == 0:
             return jsonify(
-                {"has_updates": False, "proposed_actions": [], "user_prompt": None}
+                {"has_updates": False, "proposed_actions": [], "user_prompt": None,
+                 "stm_stored": stm_stored, "stm_reinforced": stm_reinforced}
             )
 
         plan_id = str(uuid.uuid4())
@@ -2131,6 +2132,8 @@ def pkb_propose_updates_route():
                 "plan_id": plan_id,
                 "proposed_actions": proposed_actions,
                 "user_prompt": plan.user_prompt,
+                "stm_stored": stm_stored,
+                "stm_reinforced": stm_reinforced,
             }
         )
     except Exception as e:
@@ -3725,4 +3728,118 @@ def pkb_stm_delete(memory_id):
         return json_error("Delete failed", status=400, code="stm_delete_failed")
     except Exception as e:
         logger.error(f"Error in pkb_stm_delete: {e}")
+        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+
+
+@pkb_bp.route("/pkb/stm/recent_promotions", methods=["GET"])
+@limiter.limit("30 per minute")
+@login_required
+def pkb_stm_recent_promotions():
+    """List recently promoted STM items."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+
+        limit = request.args.get("limit", 10, type=int)
+        result = api.get_recent_promotions(limit=limit)
+        if result.success:
+            return jsonify({"promotions": result.data})
+        return json_error("Failed to get recent promotions", status=500, code="stm_promotions_failed")
+    except Exception as e:
+        logger.error(f"Error in pkb_stm_recent_promotions: {e}")
+        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+
+
+@pkb_bp.route("/pkb/stm/<memory_id>/demote", methods=["POST"])
+@limiter.limit("10 per minute")
+@login_required
+def pkb_stm_demote(memory_id):
+    """Demote a promoted STM item — deletes the claim and clears the promotion link."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+
+        result = api.demote_promoted_claim(memory_id)
+        if result.success:
+            return jsonify(result.data)
+        return json_error(
+            "; ".join(result.errors) or "Demotion failed",
+            status=404 if "not found" in str(result.errors).lower() else 400,
+            code="stm_demote_failed",
+        )
+    except Exception as e:
+        logger.error(f"Error in pkb_stm_demote: {e}")
+        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+
+
+@pkb_bp.route("/pkb/claims/archived", methods=["GET"])
+@limiter.limit("30 per minute")
+@login_required
+def pkb_recently_archived():
+    """List recently archived claims for undo/restore."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+
+        limit = request.args.get("limit", 20, type=int)
+        result = api.get_recently_archived(limit=limit)
+        if result.success:
+            return jsonify({"archived": result.data})
+        return json_error("Failed", status=500, code="archived_list_failed")
+    except Exception as e:
+        logger.error(f"Error in pkb_recently_archived: {e}")
+        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+
+
+@pkb_bp.route("/pkb/claims/<claim_id>/restore", methods=["POST"])
+@limiter.limit("20 per minute")
+@login_required
+def pkb_restore_claim(claim_id):
+    """Restore an archived claim back to active status."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+
+        result = api.restore_archived_claim(claim_id)
+        if result.success:
+            return jsonify(result.data)
+        return json_error(
+            "; ".join(result.errors) or "Restore failed",
+            status=404 if "not found" in str(result.errors).lower() else 400,
+            code="restore_failed",
+        )
+    except Exception as e:
+        logger.error(f"Error in pkb_restore_claim: {e}")
         return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")

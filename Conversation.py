@@ -9073,7 +9073,27 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     "pinned": 0,
                     "conv_pinned": 0,
                     "auto": 0,
+                    "stm": 0,
                 }
+
+                # --- Parse STM items from <stm_context> block ---
+                stm_pattern = _re.compile(
+                    r"<stm_context>(.*?)</stm_context>", _re.DOTALL
+                )
+                stm_match = stm_pattern.search(raw)
+                if stm_match:
+                    stm_body = stm_match.group(1)
+                    for line in stm_body.strip().splitlines():
+                        line = line.strip()
+                        bullet_m = _re.match(r"^-\s*\[([^\]]*)\]\s*(.*)", line)
+                        if bullet_m:
+                            parsed_items.append({
+                                "source": "stm",
+                                "type": "STM",
+                                "ref": bullet_m.group(1),  # e.g. "2h ago"
+                                "content": bullet_m.group(2),
+                            })
+
                 for item in parsed_items:
                     src = item["source"]
                     if src in source_counts:

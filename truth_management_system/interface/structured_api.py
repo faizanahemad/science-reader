@@ -3761,3 +3761,79 @@ class StructuredAPI:
                 f"UPDATE claims SET last_accessed_at = ? WHERE claim_id IN ({placeholders})",
                 [now_iso()] + claim_ids,
             )
+
+    def get_recent_promotions(self, limit: int = 10) -> ActionResult:
+        """Get recently promoted STM items (those with promoted_to_claim_id set)."""
+        rows = self.db.fetchall(
+            """SELECT memory_id, statement, promoted_to_claim_id, created_at, meta_json
+               FROM pkb_short_term_memory
+               WHERE user_email = ? AND promoted_to_claim_id IS NOT NULL
+               ORDER BY last_accessed_at DESC
+               LIMIT ?""",
+            (self.user_email, limit),
+        )
+        results = []
+        for r in rows:
+            import json as _json
+            meta = _json.loads(r[4]) if r[4] else {}
+            results.append({
+                "memory_id": r[0],
+                "statement": r[1],
+                "promoted_to_claim_id": r[2],
+                "created_at": r[3],
+                "source_conversation_title": meta.get("source_conversation_title", ""),
+            })
+        return ActionResult(success=True, action="list", object_type="stm_promotions", data=results)
+
+    def demote_promoted_claim(self, memory_id: str) -> ActionResult:
+        """Reverse a promotion: delete the promoted claim and clear the STM link."""
+        row = self.db.fetchone(
+            "SELECT promoted_to_claim_id FROM pkb_short_term_memory WHERE memory_id = ? AND user_email = ?",
+            (memory_id, self.user_email),
+        )
+        if not row or not row[0]:
+            return ActionResult(success=False, action="demote", object_type="short_term_memory",
+                              errors=["Memory not found or not promoted"])
+        claim_id = row[0]
+        # Delete the promoted claim
+        self.delete_claim(claim_id)
+        # Clear the promotion link
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE pkb_short_term_memory SET promoted_to_claim_id = NULL WHERE memory_id = ?",
+                (memory_id,),
+            )
+        return ActionResult(success=True, action="demote", object_type="short_term_memory",
+                          data={"memory_id": memory_id, "deleted_claim_id": claim_id})
+
+    def get_recently_archived(self, limit: int = 20) -> ActionResult:
+        """Get recently archived claims (available for one-click restore)."""
+        rows = self.db.fetchall(
+            """SELECT claim_id, statement, claim_type, context_domain, updated_at
+               FROM claims
+               WHERE user_email = ? AND status = 'archived'
+               ORDER BY updated_at DESC
+               LIMIT ?""",
+            (self.user_email, limit),
+        )
+        results = [{"claim_id": r[0], "statement": r[1], "claim_type": r[2],
+                    "context_domain": r[3], "archived_at": r[4]} for r in rows]
+        return ActionResult(success=True, action="list", object_type="archived_claims", data=results)
+
+    def restore_archived_claim(self, claim_id: str) -> ActionResult:
+        """Restore an archived claim back to active status."""
+        from ..utils import now_iso
+        row = self.db.fetchone(
+            "SELECT claim_id FROM claims WHERE claim_id = ? AND user_email = ? AND status = 'archived'",
+            (claim_id, self.user_email),
+        )
+        if not row:
+            return ActionResult(success=False, action="restore", object_type="claim",
+                              errors=["Archived claim not found"])
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE claims SET status = 'active', updated_at = ? WHERE claim_id = ?",
+                (now_iso(), claim_id),
+            )
+        return ActionResult(success=True, action="restore", object_type="claim",
+                          data={"claim_id": claim_id})
