@@ -158,6 +158,37 @@ Design plan for extending @references to all PKB object types:
 
 ---
 
+### 🧭 [pkb_memory_overview.md](./pkb_memory_overview.md)
+**PKB Memory Overview — Auto-Maintained Knowledge Map**
+
+Per-user auto-maintained markdown summary of the entire knowledge base:
+- Lazy generation on first access (200-claim cap), uncapped on regenerate
+- Incremental updates via targeted edit ops on every write operation
+- Consolidation at 8k words, async non-blocking
+- `@pkb_overview` chat reference, config-gated Key Areas snippet for retrieval, NL agent KB map injection
+- UI Tab 8 with markdown editor, Regenerate, and Scan for Gaps buttons
+- Schema v11 (`pkb_overview` table), 4 REST endpoints, 27 unit tests
+
+**When to use:** Understanding how the overview works, debugging auto-updates, extending the feature.
+
+---
+
+### 🧬 [pkb_provenance_and_cleanup.md](./pkb_provenance_and_cleanup.md)
+
+**PKB Provenance, Origin & Memory Cleanup**
+
+Two-axis claim provenance and maintenance tooling:
+- **channel** (manual/chat/ingest/import) + **derivation** (stated/extracted/inferred) on every claim; inferred claims confidence-capped and down-ranked; reconfirmation upgrades inferred→stated
+- **auto vs curated** origin on entities/tags (cleanup signal; does not gate dedup)
+- **Tag merge** (non-lossy: re-points links, re-parents children) + LLM-assisted overlap judging
+- **Memory Cleanup** orchestrator: one call runs sweep + overview refresh + dedup proposals (analyze→apply)
+- Lifecycle-change notifications on supersede; audit coverage for merges/derivation changes
+- New REST: `/pkb/tags/duplicates`, `/pkb/tags/merge`, `/pkb/cleanup`; ~40 unit tests
+
+**When to use:** Understanding where memories come from, trust/ranking of inferred claims, de-duplication, and the cleanup workflow.
+
+---
+
 ## Quick Navigation
 
 ### By Use Case
@@ -491,6 +522,15 @@ See [PKB_V05_ENHANCEMENT_PLAN.md](./PKB_V05_ENHANCEMENT_PLAN.md) for v0.5+ desig
 - **Code Common Utilities:** `code_common/call_llm.md` - LLM calling patterns
 - **Server Documentation:** `endpoints_brief_details.md` - All API endpoints
 - **Testing:** `AGENTS.md` - Testing commands and strategies
+
+### Planning Docs
+
+- **[pkb_memory_overview.plan.md](../../planning/plans/pkb_memory_overview.plan.md)** — Design plan for the PKB Memory Overview feature (schema v10): per-user markdown overview document maintained by incremental LLM updates on each write op, consolidation at 8k words, full regeneration + gap-scan controls, Overview tab (Tab 8) in the PKB modal, and `MarkdownEditorManager` refactor into a reusable component. Includes full requirements, clarifications, storage design, update hook architecture, REST API, and testing plan.
+- **[PKB_V07_UNIVERSAL_REFERENCES.plan.md](../../planning/plans/PKB_V07_UNIVERSAL_REFERENCES.plan.md)** — v0.7 design for universal @references (entities, tags, domains with type suffixes).
+- **[pkb_enhancements_expiry_parity_nl_agent.plan.md](../../planning/plans/pkb_enhancements_expiry_parity_nl_agent.plan.md)** — v0.9 plan: expiry system, NL agent, API parity.
+- **[pkb_memory_system_improvements.plan.md](../../planning/plans/pkb_memory_system_improvements.plan.md)** — Embedding cache, recency re-rank, reinforcement, decay, supersession, provenance workstreams.
+- **[pkb_nl_tool_ui_enhancements.plan.md](../../planning/plans/pkb_nl_tool_ui_enhancements.plan.md)** — NL tool and UI enhancements plan.
+- **[pkb_external_access_ui_mcp_rest_auth.plan.md](../../planning/plans/pkb_external_access_ui_mcp_rest_auth.plan.md)** — External access via MCP, REST, and auth design.
 
 ---
 

@@ -945,6 +945,9 @@ All operations are automatically scoped to the authenticated user's data.
 | POST | `/pkb/consolidation/merge` | Merge a duplicate cluster `{claim_ids, keep_id?}` — keeper kept, rest superseded (D2) | 15/min |
 | GET | `/pkb/entities/duplicates` | Clusters of entity name variants proposed for merge (query: entity_type, threshold) (D3) | 10/min |
 | POST | `/pkb/entities/merge` | Merge entity into canonical one `{source_id, target_id}`, keeping aliases (D3) | 15/min |
+| GET | `/pkb/tags/duplicates` | Clusters of tag name variants proposed for merge (query: threshold) (W6) | 10/min |
+| POST | `/pkb/tags/merge` | Merge tag into canonical one `{source_id, target_id}` — re-points claim links, re-parents children, keeps aliases (W6) | 15/min |
+| POST | `/pkb/cleanup` | Memory Cleanup orchestrator `{apply?, use_llm?}` — runs sweep + overview refresh, returns dedup proposals; `apply:true` merges suggested clusters (W9) | 4/min |
 | POST | `/pkb/sweep` | Run lifecycle sweep now (hard-TTL expiry + soft-TTL dormancy) → `{expired, dormant}` (F1) | 6/min |
 | GET | `/pkb/notifications` | Soon-to-expire task/reminder + newly-dormant claims (query: within_days) (F4) | 30/min |
 | GET | `/pkb/export` | Export the user's PKB as a JSON envelope (claims/links/entities/tags/contexts; embeddings excluded) (G3) | 6/min |
