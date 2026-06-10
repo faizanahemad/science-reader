@@ -92,14 +92,23 @@ class RewriteSearchStrategy(SearchStrategy):
         query: str,
         k: int = 20,
         filters: SearchFilters = None,
+        precomputed_metadata: Optional[RewriteMetadata] = None,
     ) -> List[SearchResult]:
         """
         Rewrite query using LLM, then execute both FTS and embedding search,
         merge results via RRF.
+
+        ``precomputed_metadata`` lets the orchestrator supply a RewriteMetadata
+        it already computed (the single-LLM-call path) so this strategy skips
+        its own ``_rewrite_query`` LLM call. ``None`` => self-call (unchanged).
         """
         filters = filters or SearchFilters()
 
-        rewritten, metadata = self._rewrite_query(query)
+        if precomputed_metadata is not None:
+            metadata = precomputed_metadata
+            rewritten = metadata.rewritten_query
+        else:
+            rewritten, metadata = self._rewrite_query(query)
 
         if not rewritten:
             logger.warning(f"Rewrite failed for query: {query}")
@@ -147,11 +156,20 @@ class RewriteSearchStrategy(SearchStrategy):
         query: str,
         k: int = 20,
         filters: SearchFilters = None,
+        precomputed_metadata: Optional[RewriteMetadata] = None,
     ) -> Tuple[List[SearchResult], RewriteMetadata]:
-        """Execute rewrite search and return full metadata."""
+        """Execute rewrite search and return full metadata.
+
+        ``precomputed_metadata`` skips the internal ``_rewrite_query`` LLM call
+        (single-LLM-call path); ``None`` => self-call (unchanged).
+        """
         filters = filters or SearchFilters()
 
-        rewritten, metadata = self._rewrite_query(query)
+        if precomputed_metadata is not None:
+            metadata = precomputed_metadata
+            rewritten = metadata.rewritten_query
+        else:
+            rewritten, metadata = self._rewrite_query(query)
 
         if not rewritten:
             rewritten = query

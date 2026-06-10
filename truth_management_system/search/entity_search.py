@@ -78,10 +78,19 @@ class EntitySearchStrategy(SearchStrategy):
         query: str,
         k: int = 20,
         filters: SearchFilters = None,
+        surface_forms: Optional[List[str]] = None,
+        query_embedding: Optional[np.ndarray] = None,
     ) -> List[SearchResult]:
         """
         Resolve query entities, pull their status-filtered linked claims, rank
         by semantic fit, and return the top-N as ``source="entity"`` results.
+
+        ``surface_forms`` lets the orchestrator supply higher-quality entity
+        names from the rewrite LLM (instead of the regex heuristic);
+        ``query_embedding`` lets it supply an already-computed query vector
+        (e.g. of the rewrite's ``embedding_query``) so ranking does not make a
+        second embedding call. Both are best-effort: ``None`` => current
+        behavior (regex extraction / self-computed embedding).
 
         Returns an empty list (an RRF no-op) when the strategy is disabled, the
         query is empty, or no entity resolves — so entity-free queries are
@@ -93,7 +102,7 @@ class EntitySearchStrategy(SearchStrategy):
         if not query or not query.strip():
             return []
 
-        entity_ids = self._resolve_entity_ids(query, filters)
+        entity_ids = self._resolve_entity_ids(query, filters, surface_forms=surface_forms)
         if not entity_ids:
             return []
 
@@ -119,7 +128,7 @@ class EntitySearchStrategy(SearchStrategy):
         if not claims_by_id:
             return []
 
-        ranked = self._rank(query, list(claims_by_id.values()))
+        ranked = self._rank(query, list(claims_by_id.values()), query_emb=query_embedding)
         matched = sorted(entity_ids)
         results: List[SearchResult] = []
         for claim, score in ranked[:top_n]:
@@ -245,13 +254,22 @@ class EntitySearchStrategy(SearchStrategy):
     # ------------------------------------------------------------------ #
     # Ranking
     # ------------------------------------------------------------------ #
-    def _rank(self, query: str, candidates: List[Claim]) -> List[tuple]:
+    def _rank(
+        self,
+        query: str,
+        candidates: List[Claim],
+        query_emb: Optional[np.ndarray] = None,
+    ) -> List[tuple]:
         """
         Order candidates by cosine similarity to the query embedding when one is
         available; otherwise preserve the recency order from resolve_claims.
         Claims without a cached embedding sort after the scored ones.
+
+        ``query_emb`` may be supplied by the caller (orchestrator) to reuse an
+        already-computed query vector; when None it is computed from ``query``.
         """
-        query_emb = self._query_embedding(query)
+        if query_emb is None:
+            query_emb = self._query_embedding(query)
         if query_emb is None:
             return [(claim, 0.0) for claim in candidates]
 
