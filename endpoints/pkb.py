@@ -21,7 +21,7 @@ import uuid
 import warnings
 from typing import Any
 
-from flask import Blueprint, jsonify, request, session
+from flask import Blueprint, jsonify, request, session, Response
 
 from endpoints.auth import login_required
 from endpoints.responses import json_error
@@ -44,6 +44,8 @@ try:
         StructuredAPI,
         ConversationDistiller,
         get_database,
+        PKBOverviewManager,
+        OverviewUpdateEvent,
     )
     from truth_management_system.interface.text_ingestion import (  # type: ignore
         TextIngestionDistiller,
@@ -191,6 +193,40 @@ def start_pkb_background_jobs():
     except Exception as e:
         logger.warning(f"Failed to start PKB background jobs: {e}")
         return None
+
+
+def _safe_overview_update(manager, user_email: str, event) -> None:
+    """Inner async task — marks stale on failure, never raises."""
+    try:
+        manager.update_from_event(user_email, event)
+    except Exception as e:
+        logger.warning(f"[PKB Overview] async update failed for {user_email}: {e}")
+        try:
+            manager.mark_stale(user_email)
+        except Exception:
+            pass
+
+
+def _fire_overview_update(user_email: str, trigger: str, claims: list, link_metadata: dict = None) -> None:
+    """
+    Fire-and-forget async overview update after a successful write op.
+    Never blocks the write endpoint response. Swallows all errors.
+    """
+    if not PKB_AVAILABLE:
+        return
+    try:
+        from base import get_async_future
+        db, config = get_pkb_db()
+        keys = keyParser.get_api_keys()
+        manager = PKBOverviewManager(db, keys, config)
+        current = manager.get_raw_content(user_email) or ""
+        event = OverviewUpdateEvent(
+            trigger=trigger, claims=claims, current_content=current,
+            link_metadata=link_metadata,
+        )
+        get_async_future(_safe_overview_update, manager, user_email, event)
+    except Exception as e:
+        logger.warning(f"[PKB Overview] failed to fire overview update: {e}")
 
 
 def serialize_claim(claim):
@@ -449,6 +485,7 @@ def pkb_add_claim_route():
         )
 
         if result.success:
+            _fire_overview_update(email, "add", [result.data])
             return jsonify(
                 {
                     "success": True,
@@ -507,6 +544,10 @@ def pkb_add_claims_bulk_route():
         result = api.add_claims_bulk(
             claims=claims, auto_extract=auto_extract, stop_on_error=stop_on_error
         )
+        # Fire one consolidated overview update for all successfully added claims
+        added_claims = [r["claim"] for r in result.data.get("results", []) if r.get("success") and r.get("claim")]
+        if added_claims:
+            _fire_overview_update(email, "bulk", added_claims)
         return jsonify(
             {
                 "success": result.success,
@@ -825,6 +866,82 @@ def pkb_entity_merge_route():
         )
 
 
+@pkb_bp.route("/pkb/tags/duplicates", methods=["GET"])
+@limiter.limit("10 per minute")
+@login_required
+def pkb_tag_duplicates_route():
+    """Clusters of tag name variants proposed for merge (Workstream W6)."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
+
+        threshold = request.args.get("threshold", type=float)
+        result = api.find_tag_duplicates(threshold=threshold)
+        if result.success:
+            return jsonify({"clusters": result.data})
+        return json_error(
+            "; ".join(result.errors) or "Tag dedup failed",
+            status=400, code="tag_dedup_failed",
+        )
+    except Exception as e:
+        logger.error(f"Error in pkb_tag_duplicates: {e}")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
+
+
+@pkb_bp.route("/pkb/tags/merge", methods=["POST"])
+@limiter.limit("15 per minute")
+@login_required
+def pkb_tag_merge_route():
+    """Merge a duplicate tag into a canonical one (Workstream W6)."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        data = request.get_json() or {}
+        source_id = data.get("source_id")
+        target_id = data.get("target_id")
+        if not source_id or not target_id:
+            return json_error(
+                "source_id and target_id are required",
+                status=400, code="bad_request",
+            )
+
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
+
+        result = api.merge_tags(source_id, target_id)
+        if result.success:
+            return jsonify(result.data)
+        return json_error(
+            "; ".join(result.errors) or "Tag merge failed",
+            status=400, code="tag_merge_failed",
+        )
+    except Exception as e:
+        logger.error(f"Error in pkb_tag_merge: {e}")
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
+
+
 @pkb_bp.route("/pkb/sweep", methods=["POST"])
 @limiter.limit("6 per minute")
 @login_required
@@ -1051,6 +1168,7 @@ def pkb_update_claim_route(claim_id: str):
         result = api.edit_claim(claim_id, **patch)
 
         if result.success:
+            _fire_overview_update(email, "edit", [result.data])
             return jsonify({"success": True, "claim": serialize_claim(result.data)})
         return json_error("; ".join(result.errors), status=404, code="not_found")
     except Exception as e:
@@ -1080,6 +1198,7 @@ def pkb_delete_claim_route(claim_id: str):
 
         result = api.delete_claim(claim_id)
         if result.success:
+            _fire_overview_update(email, "delete", [result.data] if result.data else [])
             return jsonify({"success": True, "message": "Claim retracted successfully"})
         return json_error("; ".join(result.errors), status=404, code="not_found")
     except Exception as e:
@@ -1131,7 +1250,9 @@ def pkb_nl_command_route():
             )
 
         keys = keyParser({})
-        agent = PKBNLAgent(api=api, keys=keys, model=model)
+        db, config = get_pkb_db()
+        overview_manager = PKBOverviewManager(db, keys, config)
+        agent = PKBNLAgent(api=api, keys=keys, model=model, overview_manager=overview_manager)
         result = agent.process(command)
         return jsonify(result.to_dict())
     except Exception as e:
@@ -1698,6 +1819,13 @@ def pkb_link_tag_to_claim(claim_id):
 
         result = api.link_tag_to_claim(claim_id, tag_id)
         if result.success:
+            tag = api.tags.get(tag_id)
+            claim = api.claims.get(claim_id)
+            _fire_overview_update(email, "link", [], link_metadata={
+                "object_type": "tag",
+                "object_name": tag.name if tag else tag_id,
+                "claim_statement": claim.statement if claim else "",
+            })
             return jsonify({"success": True})
         return json_error("; ".join(result.errors), status=400, code="bad_request")
     except Exception as e:
@@ -1728,6 +1856,13 @@ def pkb_unlink_tag_from_claim(claim_id, tag_id):
 
         result = api.unlink_tag_from_claim(claim_id, tag_id)
         if result.success:
+            tag = api.tags.get(tag_id)
+            claim = api.claims.get(claim_id)
+            _fire_overview_update(email, "link", [], link_metadata={
+                "object_type": "tag",
+                "object_name": tag.name if tag else tag_id,
+                "claim_statement": claim.statement if claim else "",
+            })
             return jsonify({"success": True})
         return json_error("; ".join(result.errors), status=404, code="not_found")
     except Exception as e:
@@ -2062,6 +2197,18 @@ def pkb_execute_ingest_route():
 
         del _text_ingestion_plans[plan_id]
 
+        # One consolidated overview update for all successfully ingested claims
+        success_ids = [r["claim_id"] for r in results if r["success"] and r.get("claim_id")]
+        if success_ids:
+            ingested_claims = []
+            try:
+                res = api.get_claims_by_ids(success_ids)
+                if res.success:
+                    ingested_claims = [c for c in res.data if c]
+            except Exception:
+                pass
+            _fire_overview_update(email, "bulk", ingested_claims)
+
         return jsonify(
             {
                 "executed_count": result.added_count + result.edited_count,
@@ -2210,6 +2357,18 @@ def pkb_execute_updates_route():
                     added_count += 1
 
         del _memory_update_plans[plan_id]
+
+        # One consolidated overview update for all successfully modified claims
+        successful_claim_ids = [r["claim_id"] for r in results if r["success"] and r.get("claim_id")]
+        if successful_claim_ids:
+            successful_claims = []
+            try:
+                res = api.get_claims_by_ids(successful_claim_ids)
+                if res.success:
+                    successful_claims = [c for c in res.data if c]
+            except Exception:
+                pass
+            _fire_overview_update(email, "bulk", successful_claims)
 
         return jsonify(
             {
@@ -2668,6 +2827,12 @@ def pkb_add_claim_to_context(context_id):
 
         result = api.add_claim_to_context(context_id, claim.claim_id)
         if result.success:
+            ctx = api.contexts.get(context_id)
+            _fire_overview_update(email, "link", [], link_metadata={
+                "object_type": "context",
+                "object_name": ctx.name if ctx else context_id,
+                "claim_statement": claim.statement,
+            })
             return jsonify({"success": True, "claim_id": claim.claim_id})
         return json_error("; ".join(result.errors), status=400, code="bad_request")
     except Exception as e:
@@ -2699,6 +2864,13 @@ def pkb_remove_claim_from_context(context_id, claim_id):
 
         result = api.remove_claim_from_context(context_id, claim_id)
         if result.success:
+            claim = api.claims.get(claim_id)
+            ctx = api.contexts.get(context_id)
+            _fire_overview_update(email, "link", [], link_metadata={
+                "object_type": "context",
+                "object_name": ctx.name if ctx else context_id,
+                "claim_statement": claim.statement if claim else "",
+            })
             return jsonify({"success": True})
         return json_error("; ".join(result.errors), status=404, code="not_found")
     except Exception as e:
@@ -2856,6 +3028,13 @@ def pkb_link_entity_to_claim(claim_id):
 
         result = api.link_entity_to_claim(claim_id, entity_id, role)
         if result.success:
+            entity = api.entities.get(entity_id)
+            claim = api.claims.get(claim_id)
+            _fire_overview_update(email, "link", [], link_metadata={
+                "object_type": "entity",
+                "object_name": entity.name if entity else entity_id,
+                "claim_statement": claim.statement if claim else "",
+            })
             return jsonify({"success": True})
         return json_error("; ".join(result.errors), status=400, code="bad_request")
     except Exception as e:
@@ -2888,6 +3067,13 @@ def pkb_unlink_entity_from_claim(claim_id, entity_id):
         role = request.args.get("role")
         result = api.unlink_entity_from_claim(claim_id, entity_id, role)
         if result.success:
+            entity = api.entities.get(entity_id)
+            claim = api.claims.get(claim_id)
+            _fire_overview_update(email, "link", [], link_metadata={
+                "object_type": "entity",
+                "object_name": entity.name if entity else entity_id,
+                "claim_statement": claim.statement if claim else "",
+            })
             return jsonify({"success": True})
         return json_error("; ".join(result.errors), status=404, code="not_found")
     except Exception as e:
@@ -3148,3 +3334,211 @@ def pkb_add_domain_route():
         return json_error(
             f"An error occurred: {str(e)}", status=500, code="internal_error"
         )
+
+
+# =============================================================================
+# PKB Overview routes (PKB Memory Overview feature, schema v11)
+# =============================================================================
+
+@pkb_bp.route("/pkb/overview", methods=["GET"])
+@limiter.limit("60 per minute")
+@login_required
+def pkb_get_overview_route():
+    """Return the per-user PKB overview, generating it on first access."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        db, config = get_pkb_db()
+        keys = keyParser.get_api_keys()
+        manager = PKBOverviewManager(db, keys, config)
+        result = manager.get_overview(email)
+        return jsonify({
+            "content": result.content,
+            "stats": {
+                "claims": result.stats.claims,
+                "contexts": result.stats.contexts,
+                "entities": result.stats.entities,
+                "tags": result.stats.tags,
+            },
+            "is_stale": result.is_stale,
+            "last_updated": result.last_updated,
+            "topics": manager.get_topics(email),
+        })
+    except Exception as e:
+        logger.error(f"Error getting PKB overview: {e}")
+        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+
+
+@pkb_bp.route("/pkb/overview", methods=["PUT"])
+@limiter.limit("20 per minute")
+@login_required
+def pkb_put_overview_route():
+    """Manual save of overview content from the UI editor."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        data = request.get_json()
+        content = data.get("content", "")
+        db, config = get_pkb_db()
+        keys = keyParser.get_api_keys()
+        manager = PKBOverviewManager(db, keys, config)
+        manager.save(email, content)
+        return jsonify({"success": True})
+    except Exception as e:
+        logger.error(f"Error saving PKB overview: {e}")
+        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+
+
+@pkb_bp.route("/pkb/overview/regenerate", methods=["POST"])
+@limiter.limit("5 per minute")
+@login_required
+def pkb_regenerate_overview_route():
+    """Trigger full overview regeneration with streaming progress."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    import queue, threading
+    import json as _json
+    q = queue.Queue()
+
+    def worker():
+        try:
+            db, config = get_pkb_db()
+            keys = keyParser.get_api_keys()
+            manager = PKBOverviewManager(db, keys, config)
+
+            def cb(msg):
+                q.put(("progress", msg))
+
+            result = manager.generate_full(email, progress_cb=cb)
+            q.put(("result", result))
+        except Exception as e:
+            logger.error(f"Error regenerating PKB overview: {e}")
+            q.put(("error", str(e)))
+        finally:
+            q.put(("done", None))
+
+    def generate():
+        t = threading.Thread(target=worker, daemon=True)
+        t.start()
+        while True:
+            kind, val = q.get()
+            if kind == "done":
+                break
+            elif kind == "progress":
+                yield _json.dumps({"type": "progress", "message": val}) + "\n"
+            elif kind == "result":
+                yield _json.dumps({
+                    "type": "result",
+                    "content": val.content,
+                    "stats": {
+                        "claims": val.stats.claims,
+                        "contexts": val.stats.contexts,
+                        "entities": val.stats.entities,
+                        "tags": val.stats.tags,
+                    },
+                    "is_stale": val.is_stale,
+                    "last_updated": val.last_updated,
+                }) + "\n"
+            elif kind == "error":
+                yield _json.dumps({"type": "error", "message": val}) + "\n"
+
+    return Response(generate(), mimetype="application/x-ndjson")
+
+
+@pkb_bp.route("/pkb/overview/scan", methods=["POST"])
+@limiter.limit("5 per minute")
+@login_required
+def pkb_scan_overview_route():
+    """Trigger gap-scan of overview with streaming progress."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    import queue, threading
+    import json as _json
+    q = queue.Queue()
+
+    def worker():
+        try:
+            db, config = get_pkb_db()
+            keys = keyParser.get_api_keys()
+            manager = PKBOverviewManager(db, keys, config)
+
+            def cb(msg):
+                q.put(("progress", msg))
+
+            result = manager.scan_for_gaps(email, progress_cb=cb)
+            q.put(("result", result))
+        except Exception as e:
+            logger.error(f"Error scanning PKB overview: {e}")
+            q.put(("error", str(e)))
+        finally:
+            q.put(("done", None))
+
+    def generate():
+        t = threading.Thread(target=worker, daemon=True)
+        t.start()
+        while True:
+            kind, val = q.get()
+            if kind == "done":
+                break
+            elif kind == "progress":
+                yield _json.dumps({"type": "progress", "message": val}) + "\n"
+            elif kind == "result":
+                yield _json.dumps({
+                    "type": "result",
+                    "content": val.content,
+                    "stats": {
+                        "claims": val.stats.claims,
+                        "contexts": val.stats.contexts,
+                        "entities": val.stats.entities,
+                        "tags": val.stats.tags,
+                    },
+                    "is_stale": val.is_stale,
+                    "last_updated": val.last_updated,
+                }) + "\n"
+            elif kind == "error":
+                yield _json.dumps({"type": "error", "message": val}) + "\n"
+
+    return Response(generate(), mimetype="application/x-ndjson")
+
+
+@pkb_bp.route("/pkb/overview/topics", methods=["GET"])
+@limiter.limit("30 per minute")
+@login_required
+def pkb_get_overview_topics_route():
+    """Return structured topics extracted from the overview Key Areas section."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        db, config = get_pkb_db()
+        keys = keyParser.get_api_keys()
+        manager = PKBOverviewManager(db, keys, config)
+        topics = manager.get_topics(email)
+        return jsonify({"topics": topics})
+    except Exception as e:
+        logger.error(f"Error getting PKB overview topics: {e}")
+        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")

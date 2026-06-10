@@ -2103,6 +2103,102 @@ class StructuredAPI:
                 object_id=target_id, errors=[str(e)],
             )
 
+    def find_tag_duplicates(self, threshold: float = None) -> ActionResult:
+        """
+        Detect tag name variants proposed for merge (Workstream W6).
+
+        Clusters tags whose names are variants of one another using the same
+        string-similarity + token-subset rule as entity dedup. No LLM.
+
+        Args:
+            threshold: name-similarity cutoff (defaults to
+                ``config.entity_dedup_threshold``).
+
+        Returns:
+            ActionResult with ``data`` = list of
+            {tag_ids, names, suggested_keep_id, max_similarity}.
+        """
+        try:
+            if threshold is None:
+                threshold = self.config.entity_dedup_threshold
+            from ..search.consolidation import cluster_tag_variants
+            tags = self.tags.list(limit=2000, order_by="name")
+            clusters = cluster_tag_variants(tags, threshold)
+            return ActionResult(
+                success=True, action="list", object_type="tag", data=clusters,
+            )
+        except Exception as e:
+            logger.error(f"Failed to find tag duplicates: {e}")
+            return ActionResult(
+                success=False, action="list", object_type="tag", errors=[str(e)],
+            )
+
+    def merge_tags(self, source_id: str, target_id: str) -> ActionResult:
+        """
+        Merge a duplicate tag into a canonical one (Workstream W6).
+
+        Records the source's name in the target's ``meta_json.aliases``, then
+        re-points the source's claim links and re-parents its children to the
+        target before deleting it (via ``TagCRUD.merge``). The target keeps its
+        ``origin`` (a curated target stays curated).
+
+        Args:
+            source_id: tag to merge from (deleted).
+            target_id: canonical tag to keep.
+
+        Returns:
+            ActionResult with ``data`` = {"tag_id", "aliases", "merged_from"}.
+        """
+        try:
+            if source_id == target_id:
+                return ActionResult(
+                    success=False, action="merge", object_type="tag",
+                    object_id=target_id, errors=["Cannot merge a tag into itself"],
+                )
+            source = self.tags.get(source_id)
+            target = self.tags.get(target_id)
+            if source is None or target is None:
+                missing = source_id if source is None else target_id
+                return ActionResult(
+                    success=False, action="merge", object_type="tag",
+                    object_id=missing, errors=[f"Tag {missing} not found"],
+                )
+
+            from ..utils import parse_meta_json
+            import json as _json
+            aliases = set()
+            for tg in (target, source):
+                meta = parse_meta_json(tg.meta_json) or {}
+                aliases.update(meta.get("aliases", []) or [])
+            aliases.add(source.name)
+            aliases.discard(target.name)
+
+            tmeta = parse_meta_json(target.meta_json) or {}
+            tmeta["aliases"] = sorted(aliases)
+            self.tags.edit(target_id, {"meta_json": _json.dumps(tmeta)})
+
+            merged = self.tags.merge(source_id, target_id)
+            if merged is None:
+                return ActionResult(
+                    success=False, action="merge", object_type="tag",
+                    object_id=target_id, errors=["Merge failed"],
+                )
+            return ActionResult(
+                success=True, action="merge", object_type="tag",
+                object_id=target_id,
+                data={
+                    "tag_id": target_id,
+                    "aliases": tmeta["aliases"],
+                    "merged_from": source_id,
+                },
+            )
+        except Exception as e:
+            logger.error(f"Failed to merge tags: {e}")
+            return ActionResult(
+                success=False, action="merge", object_type="tag",
+                object_id=target_id, errors=[str(e)],
+            )
+
     def get_claim_provenance(self, claim_id: str) -> ActionResult:
         """
         Return where a claim came from — "why do I know this?" (Workstream E1).

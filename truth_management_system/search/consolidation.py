@@ -98,6 +98,63 @@ def cluster_near_duplicate_claims(
     return clusters
 
 
+def cluster_tag_variants(
+    tags: List,
+    threshold: float = 0.85,
+) -> List[Dict]:
+    """
+    Cluster tags whose names are variants of one another (Workstream W6).
+
+    Mirrors ``cluster_entity_variants`` but for tags (no type grouping). Uses
+    the same name-similarity (token-subset boosted ``SequenceMatcher``).
+
+    Args:
+        tags: list of Tag-like objects exposing ``tag_id`` and ``name``.
+        threshold: minimum name similarity for two tags to be linked.
+
+    Returns:
+        List of clusters (size >= 2), each
+        ``{"tag_ids": [...], "names": {id: name}, "suggested_keep_id": id,
+        "max_similarity": float}``. The suggested keeper is the longest name,
+        tie-broken alphabetically.
+    """
+    n = len(tags)
+    if n < 2:
+        return []
+
+    uf = _UnionFind(n)
+    max_pair = {}
+    for i in range(n):
+        for j in range(i + 1, n):
+            s = entity_name_similarity(tags[i].name, tags[j].name, threshold)
+            if s >= threshold:
+                uf.union(i, j)
+                max_pair[(i, j)] = s
+
+    clusters = []
+    for members in uf.groups():
+        if len(members) < 2:
+            continue
+        msim = 0.0
+        for ai, a in enumerate(members):
+            for b in members[ai + 1:]:
+                key = (a, b) if a < b else (b, a)
+                if key in max_pair:
+                    msim = max(msim, max_pair[key])
+        members_tags = [tags[m] for m in members]
+        keeper = max(members_tags, key=lambda t: (len((t.name or "")), t.name or ""))
+        clusters.append({
+            "tag_ids": [t.tag_id for t in members_tags],
+            "names": {t.tag_id: t.name for t in members_tags},
+            "suggested_keep_id": keeper.tag_id,
+            "max_similarity": round(msim, 4),
+        })
+
+    clusters.sort(key=lambda c: c["max_similarity"], reverse=True)
+    return clusters
+    return " ".join((s or "").lower().split())
+
+
 def _norm_name(s: str) -> str:
     return " ".join((s or "").lower().split())
 

@@ -157,6 +157,57 @@ class TagCRUD(BaseCRUD[Tag]):
 
         return True
 
+    def merge(self, source_id: str, target_id: str) -> Optional[Tag]:
+        """
+        Merge one tag into another (Workstream W6).
+
+        Non-lossy counterpart to ``delete``: all claim_tags links from the
+        source are re-pointed to the target (deduped via INSERT OR IGNORE),
+        the source's child tags are re-parented to the target, then the source
+        is deleted. If the target was itself a child of the source, the target
+        is re-parented to the source's parent first to avoid a self-cycle.
+
+        Args:
+            source_id: tag to merge from (deleted).
+            target_id: canonical tag to keep.
+
+        Returns:
+            The target tag, or None if either id is missing / they are equal.
+        """
+        if source_id == target_id:
+            return None
+        source = self.get(source_id)
+        target = self.get(target_id)
+        if not source or not target:
+            return None
+
+        with self.db.transaction() as conn:
+            # Re-point claim links to the target (collapse duplicates).
+            conn.execute(
+                "INSERT OR IGNORE INTO claim_tags (claim_id, tag_id) "
+                "SELECT claim_id, ? FROM claim_tags WHERE tag_id = ?",
+                (target_id, source_id),
+            )
+            conn.execute("DELETE FROM claim_tags WHERE tag_id = ?", (source_id,))
+
+            # If the target hangs off the source, lift it to the source's parent
+            # so re-parenting the source's children can't create a self-cycle.
+            if target.parent_tag_id == source_id:
+                conn.execute(
+                    "UPDATE tags SET parent_tag_id = ? WHERE tag_id = ?",
+                    (source.parent_tag_id, target_id),
+                )
+            # Re-parent the source's remaining children onto the target.
+            conn.execute(
+                "UPDATE tags SET parent_tag_id = ? WHERE parent_tag_id = ? AND tag_id != ?",
+                (target_id, source_id, target_id),
+            )
+            # Delete the source tag.
+            conn.execute("DELETE FROM tags WHERE tag_id = ?", (source_id,))
+            logger.info(f"Merged tag {source_id} into {target_id}")
+
+        return self.get(target_id)
+
     def _validate_no_cycle(self, tag_id: str, parent_id: str) -> None:
         """
         Validate that setting parent would not create a cycle.
