@@ -69,8 +69,8 @@ class PKBConfig:
     # are 1.0, so order is unchanged. Tune the weights (e.g. via the eval
     # harness) to enable recency/confidence-aware ranking.
     recency_rerank_enabled: bool = True
-    w_recency: float = 0.0
-    w_confidence: float = 0.0
+    w_recency: float = 0.15
+    w_confidence: float = 0.1
     # Contested down-ranking (C2): multiplier applied to a contested claim's
     # score in the re-rank. 1.0 (default) = no-op; e.g. 0.5 halves it so
     # in-conflict claims sink below uncontested ones.
@@ -174,6 +174,21 @@ class PKBConfig:
     # from the overview is appended to the auto-retrieved PKB context on every
     # chat turn. Default off: the snippet may be stale and adds token cost.
     overview_snippet_in_context: bool = False
+
+    # Short-term memory (cross-conversation)
+    stm_enabled: bool = True
+    stm_ttl_session_hours: float = 4.0
+    stm_ttl_day_hours: float = 24.0
+    stm_ttl_week_days: float = 7.0
+    stm_max_per_user: int = 50
+    stm_inject_limit: int = 10
+    stm_inject_max_words: int = 200
+    stm_reinforcement_threshold: float = 0.85
+    stm_promotion_threshold: int = 3
+
+    # Compaction
+    compaction_stale_days: int = 90
+    compaction_confidence_threshold: float = 0.5
 
     # Parallelization
     max_parallel_llm_calls: int = 8

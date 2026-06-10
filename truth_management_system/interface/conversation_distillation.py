@@ -35,6 +35,15 @@ class CandidateClaim:
     #   inferred  -- a conclusion the user never explicitly stated
     derivation: str = "extracted"
 
+
+@dataclass
+class ShortTermCandidate:
+    """A short-term memory candidate extracted from conversation."""
+    statement: str
+    importance: str = "medium"  # medium|high
+    ttl: str = "week"           # session|day|week
+    reasoning: str = ""
+
 @dataclass
 class ProposedAction:
     """A proposed action for user confirmation."""
@@ -57,6 +66,8 @@ class MemoryUpdatePlan:
     # threaded into add_claim so saved claims can answer "why do I know this?".
     source_conversation_id: Optional[str] = None
     source_message_id: Optional[str] = None
+    # Short-term memory candidates (stored silently, no user confirmation)
+    short_term_candidates: List[ShortTermCandidate] = field(default_factory=list)
 
 
 @dataclass
@@ -104,8 +115,16 @@ class ConversationDistiller:
             conversation_summary, user_message, assistant_message,
             recent_turns=recent_turns or [],
         )
+
+        # Extract short-term memories (cross-conversation context)
+        short_term_candidates = []
+        if self.config.stm_enabled:
+            short_term_candidates = self._extract_short_term_memories(
+                conversation_summary, user_message, assistant_message,
+                source_conversation_id=source_conversation_id,
+            )
         
-        if not candidates:
+        if not candidates and not short_term_candidates:
             return MemoryUpdatePlan(user_prompt="No memorable facts found.", requires_user_confirmation=False)
         
         matches = []
@@ -120,7 +139,8 @@ class ConversationDistiller:
                                proposed_actions=proposed_actions, user_prompt=user_prompt,
                                requires_user_confirmation=len(proposed_actions) > 0,
                                source_conversation_id=source_conversation_id,
-                               source_message_id=source_message_id)
+                               source_message_id=source_message_id,
+                               short_term_candidates=short_term_candidates)
     
     def execute_plan(self, plan: MemoryUpdatePlan, user_response: str,
                      approved_indices: List[int] = None) -> DistillationResult:
@@ -300,6 +320,108 @@ Response:"""
             return []
         except Exception as e:
             logger.error(f"Claim extraction failed: {e}")
+            return []
+
+    def _extract_short_term_memories(
+        self,
+        conversation_summary: str,
+        user_message: str,
+        assistant_message: str,
+        source_conversation_id: str = None,
+    ) -> List[ShortTermCandidate]:
+        """
+        Extract short-term cross-conversation context from the current turn.
+        Includes existing STM in the prompt so the LLM avoids duplicates.
+        """
+        try:
+            from code_common.call_llm import call_llm
+        except ImportError:
+            return []
+
+        # Fetch existing active short-term memories for dedup context
+        existing_stm_lines = ""
+        if self.config.stm_enabled:
+            result = self.api.get_active_short_term_memories(limit=self.config.stm_max_per_user)
+            if result.success and result.data:
+                lines = [f"- {m['statement']}" for m in result.data]
+                existing_stm_lines = "\n".join(lines)
+
+        existing_block = ""
+        if existing_stm_lines:
+            existing_block = f"""
+=== EXISTING SHORT-TERM MEMORIES (DO NOT duplicate these) ===
+{existing_stm_lines}
+"""
+
+        prompt = f"""You are a memory assistant that identifies EPHEMERAL cross-conversation context worth remembering briefly.
+
+=== CONVERSATION SUMMARY ===
+{conversation_summary or '(new conversation)'}
+
+=== CURRENT USER MESSAGE ===
+{user_message}
+
+=== ASSISTANT RESPONSE ===
+{assistant_message or '(none)'}
+{existing_block}
+Your task: identify SHORT-TERM context that would help in FUTURE conversations (not permanent facts).
+These are things like:
+- Active projects or tasks being worked on right now
+- Ongoing debugging sessions or problems being solved
+- Decisions being evaluated but not yet made
+- Temporary workflows or tools being set up
+- Multi-session work in progress
+
+Do NOT extract:
+- Permanent facts (diet, job, location) — those go to long-term memory
+- Trivial conversation mechanics ("user said thanks")
+- Things already in the existing short-term memories list above
+- Vague interests without active engagement
+
+For each item, judge:
+- importance: "medium" (one-off context) or "high" (active multi-session work)
+- ttl: "session" (4h, very transient), "day" (24h), or "week" (7d, ongoing project)
+
+Return a JSON array. If nothing qualifies, return [].
+Example: [{{"statement": "Working on React dashboard migration from class to hooks", "importance": "high", "ttl": "week", "reasoning": "Active project spanning multiple sessions"}}]
+
+Response:"""
+
+        try:
+            response = call_llm(self.keys, self.config.llm_model, prompt, temperature=0.0)
+            response_text = response.strip()
+            try:
+                parsed = json.loads(response_text)
+            except json.JSONDecodeError:
+                import re
+                array_match = re.search(r'\[.*\]', response_text, re.DOTALL)
+                if array_match:
+                    parsed = json.loads(array_match.group())
+                else:
+                    return []
+
+            if not isinstance(parsed, list):
+                return []
+
+            candidates = []
+            for item in parsed:
+                if not isinstance(item, dict) or not item.get('statement'):
+                    continue
+                importance = item.get('importance', 'medium')
+                if importance not in ('medium', 'high'):
+                    importance = 'medium'
+                ttl = item.get('ttl', 'week')
+                if ttl not in ('session', 'day', 'week'):
+                    ttl = 'week'
+                candidates.append(ShortTermCandidate(
+                    statement=item['statement'],
+                    importance=importance,
+                    ttl=ttl,
+                    reasoning=item.get('reasoning', ''),
+                ))
+            return candidates
+        except Exception as e:
+            logger.error(f"Short-term memory extraction failed: {e}")
             return []
     
     def _find_existing_matches(self, candidate: CandidateClaim) -> List[Tuple[Claim, str]]:

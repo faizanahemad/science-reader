@@ -240,17 +240,31 @@ def merge_results_rrf(
 
 def _claim_age_days(claim: Claim, now: datetime) -> Optional[float]:
     """
-    Age of a claim in days, measured from ``last_reinforced_at`` if present
-    (Workstream H schema column), else ``updated_at``. Returns None when no
-    usable timestamp is available (caller treats that as 'fresh', recency=1.0).
+    Age of a claim in days, measured from the most recent of
+    ``last_reinforced_at``, ``last_accessed_at``, or ``updated_at``.
+    Returns None when no usable timestamp is available (caller treats as fresh).
     """
-    ts_raw = getattr(claim, "last_reinforced_at", None) or getattr(claim, "updated_at", None)
-    ts = parse_iso_timestamp(ts_raw) if ts_raw else None
-    if ts is None:
+    candidates = [
+        getattr(claim, "last_reinforced_at", None),
+        getattr(claim, "last_accessed_at", None),
+        getattr(claim, "updated_at", None),
+    ]
+    # Pick the most recent non-None timestamp
+    best_ts = None
+    for raw in candidates:
+        if not raw:
+            continue
+        ts = parse_iso_timestamp(raw)
+        if ts is None:
+            continue
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        if best_ts is None or ts > best_ts:
+            best_ts = ts
+
+    if best_ts is None:
         return None
-    if ts.tzinfo is None:
-        ts = ts.replace(tzinfo=timezone.utc)
-    delta = (now - ts).total_seconds() / 86400.0
+    delta = (now - best_ts).total_seconds() / 86400.0
     return max(delta, 0.0)
 
 

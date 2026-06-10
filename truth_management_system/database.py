@@ -144,6 +144,7 @@ class PKBDatabase:
                     "possible_questions": "TEXT",
                     "last_reinforced_at": "TEXT",
                     "reinforcement_count": "INTEGER NOT NULL DEFAULT 0",
+                    "last_accessed_at": "TEXT",
                 }.items():
                     if col_name not in existing_columns:
                         conn.execute(
@@ -262,6 +263,14 @@ class PKBDatabase:
         # Migration from v9 to v10: Add audit_log table (Workstream G3)
         if from_version < 10 <= to_version:
             self._migrate_v9_to_v10(conn)
+
+        # Migration from v10 to v11: Add pkb_overview table (PKB Memory Overview)
+        if from_version < 11 <= to_version:
+            self._migrate_v10_to_v11(conn)
+
+        # Migration from v11 to v12: Add pkb_short_term_memory + last_accessed_at
+        if from_version < 12 <= to_version:
+            self._migrate_v11_to_v12(conn)
 
     def _migrate_v1_to_v2(self, conn: sqlite3.Connection) -> None:
         """
@@ -881,6 +890,76 @@ class PKBDatabase:
         )
 
         logger.info("Migration to v10 complete")
+
+    def _migrate_v10_to_v11(self, conn: sqlite3.Connection) -> None:
+        """
+        Migrate from schema v10 to v11: Add the ``pkb_overview`` table
+        (PKB Memory Overview feature).
+
+        The base DDL creates ``pkb_overview`` with ``IF NOT EXISTS`` on every
+        ``initialize_schema`` call, so this migration is defensive/idempotent.
+
+        Args:
+            conn: Active database connection.
+        """
+        logger.info("Migrating to v11: Adding pkb_overview table (PKB Memory Overview)")
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS pkb_overview (
+                user_email   TEXT PRIMARY KEY,
+                content      TEXT,
+                word_count   INTEGER,
+                last_updated TEXT,
+                is_stale     INTEGER DEFAULT 0,
+                topics_json  TEXT
+            )
+            """
+        )
+
+        # Add topics_json column for existing v11 tables that lack it
+        try:
+            conn.execute("ALTER TABLE pkb_overview ADD COLUMN topics_json TEXT")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        logger.info("Migration to v11 complete")
+
+    def _migrate_v11_to_v12(self, conn: sqlite3.Connection) -> None:
+        """
+        Migrate from schema v11 to v12: Add pkb_short_term_memory table and
+        last_accessed_at column on claims.
+        """
+        logger.info("Migrating to v12: Adding pkb_short_term_memory + last_accessed_at")
+
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pkb_short_term_memory (
+                memory_id TEXT PRIMARY KEY,
+                user_email TEXT NOT NULL,
+                conversation_id TEXT NOT NULL,
+                statement TEXT NOT NULL,
+                importance TEXT NOT NULL DEFAULT 'medium',
+                ttl_class TEXT NOT NULL DEFAULT 'week',
+                created_at TEXT NOT NULL,
+                expires_at TEXT NOT NULL,
+                last_accessed_at TEXT,
+                reinforcement_count INTEGER NOT NULL DEFAULT 0,
+                promoted_to_claim_id TEXT,
+                meta_json TEXT
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_stm_user_expires ON pkb_short_term_memory(user_email, expires_at)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_stm_user_recency ON pkb_short_term_memory(user_email, created_at DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_stm_conversation ON pkb_short_term_memory(conversation_id)")
+
+        # Add last_accessed_at to claims, backfill from updated_at
+        try:
+            conn.execute("ALTER TABLE claims ADD COLUMN last_accessed_at TEXT")
+            conn.execute("UPDATE claims SET last_accessed_at = updated_at")
+        except sqlite3.OperationalError:
+            pass  # Column already exists
+
+        logger.info("Migration to v12 complete")
 
     def _ensure_catalog_seeded(self, conn: sqlite3.Connection) -> None:
         """

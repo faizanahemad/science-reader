@@ -3917,4 +3917,20 @@ query_emb = get_query_embedding(query, model="openai/text-embedding-3-small")
 
 ---
 
+## Short-Term Cross-Conversation Memory (v12)
+
+A separate memory layer between within-conversation memory and permanent claims:
+
+- **Table:** `pkb_short_term_memory` with TTL-based auto-expiry (session/day/week)
+- **Extraction:** `_extract_short_term_memories()` in `conversation_distillation.py` — separate LLM call, includes existing STM for dedup
+- **Storage:** Silent (no user approval); reinforcement detection via `SequenceMatcher` against existing STM from different conversations
+- **Injection:** In `Conversation._get_pkb_context()` — `<stm_context>` block prepended to PKB claims, word-budgeted
+- **Promotion:** Auto at `reinforcement_count >= 3` AND `importance = "high"`; manual via `POST /pkb/stm/<id>/promote`
+- **Recency:** `_claim_age_days()` now uses `max(last_reinforced_at, last_accessed_at, updated_at)` — claims accessed for context are treated as fresher
+- **Compaction:** `run_memory_cleanup()` expires STM + identifies/archives stale long-term claims (>90d inactive, confidence < 0.5, not pinned)
+
+Full details: `short_term_memory.md`
+
+---
+
 **End of Implementation Deep Dive**

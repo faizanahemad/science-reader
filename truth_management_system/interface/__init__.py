@@ -32,6 +32,7 @@ from .text_ingestion import (
     IngestProposal,
     IngestExecutionResult,
 )
+from .overview_manager import PKBOverviewManager, OverviewResult, OverviewUpdateEvent, OverviewStats
 
 __all__ = [
     'StructuredAPI',
@@ -47,4 +48,8 @@ __all__ = [
     'IngestCandidate',
     'IngestProposal',
     'IngestExecutionResult',
+    'PKBOverviewManager',
+    'OverviewResult',
+    'OverviewUpdateEvent',
+    'OverviewStats',
 ]

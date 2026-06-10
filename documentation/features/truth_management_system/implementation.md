@@ -1601,7 +1601,7 @@ Conversation.py (_get_pkb_context):
 | **notes_fts** | FTS5: title, body, context_domain | | v1+ |
 | **schema_version** | version (PK), applied_at — Current: 10 | | v1+ |
 
-**Schema Migration Path:** v1 → v2 (user_email) → v3 (friendly_id, contexts) → v4 (catalog tables) → v5 (claim_number) → v6 (possible_questions) → v7 (entity/tag friendly_ids) → v8 (reinforcement cols) → v9 (claim_links) → v10 (audit_log)
+**Schema Migration Path:** v1 → v2 (user_email) → v3 (friendly_id, contexts) → v4 (catalog tables) → v5 (claim_number) → v6 (possible_questions) → v7 (entity/tag friendly_ids) → v8 (reinforcement cols) → v9 (claim_links) → v10 (audit_log) → v11 (overview) → v12 (pkb_short_term_memory table, last_accessed_at on claims)
 
 **Key Indexes:** idx_claims_user_email, idx_claims_user_status, idx_claims_friendly_id, idx_claims_user_friendly_id, idx_contexts_user_email, idx_contexts_friendly_id, idx_context_claims_claim_id, idx_audit_log_user
 

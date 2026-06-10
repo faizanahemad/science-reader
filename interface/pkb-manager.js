@@ -2166,6 +2166,26 @@ var PKBManager = (function() {
                 '<span class="badge badge-light mr-1">Dormant: ' + (swept.dormant || 0) + '</span>' +
                 '<span class="badge badge-light">Overview: ' + (report.overview_refreshed ? 'refreshed' : 'unchanged') + '</span></div>';
 
+        // Compaction section
+        var comp = report.compaction || {};
+        if (comp.stm_expired || (comp.stale_candidates && comp.stale_candidates.length) || (comp.archived && comp.archived.length)) {
+            html += '<div class="mb-2">';
+            if (comp.stm_expired) html += '<span class="badge badge-info mr-1">STM expired: ' + comp.stm_expired + '</span>';
+            if (comp.archived && comp.archived.length) {
+                html += '<span class="badge badge-success mr-1">Archived: ' + comp.archived.length + ' stale claims</span>';
+            } else if (comp.stale_candidates && comp.stale_candidates.length) {
+                html += '<span class="badge badge-warning mr-1">Stale claims: ' + comp.stale_candidates.length + ' (will archive on Apply)</span>';
+                html += '<ul class="list-group mt-1 mb-2">';
+                comp.stale_candidates.slice(0, 10).forEach(function(sc) {
+                    html += '<li class="list-group-item py-1 small">' + escapeHtml(sc.statement.substring(0, 80)) +
+                        ' <span class="text-muted">(conf: ' + (sc.confidence || '?') + ', last: ' + (sc.last_activity || 'never').substring(0, 10) + ')</span></li>';
+                });
+                if (comp.stale_candidates.length > 10) html += '<li class="list-group-item py-1 small text-muted">...and ' + (comp.stale_candidates.length - 10) + ' more</li>';
+                html += '</ul>';
+            }
+            html += '</div>';
+        }
+
         function section(title, group, idKey, nameOf) {
             var clusters = (group && group.clusters) || [];
             var merged = (group && group.merged) || [];
@@ -2833,6 +2853,67 @@ var PKBManager = (function() {
     // Initialization
     // ===========================================================================
     
+    // ===========================================================================
+    // Short-Term Memory UI
+    // ===========================================================================
+
+    function loadShortTermMemories() {
+        $.get('/pkb/stm', function(resp) {
+            var memories = resp.memories || [];
+            var $section = $('#pkb-stm-section');
+            var $list = $('#pkb-stm-list');
+            var $count = $('#pkb-stm-count');
+
+            if (!memories.length) {
+                $section.hide();
+                return;
+            }
+
+            $section.show();
+            $count.text(memories.length);
+
+            var now = new Date();
+            var html = memories.map(function(mem) {
+                // Calculate time remaining
+                var expires = new Date(mem.expires_at);
+                var remaining = expires - now;
+                var badge = '';
+                if (remaining <= 0) {
+                    badge = '<span class="badge badge-secondary">expired</span>';
+                } else if (remaining < 3600000) {
+                    badge = '<span class="badge badge-warning">' + Math.ceil(remaining / 60000) + 'm left</span>';
+                } else if (remaining < 86400000) {
+                    badge = '<span class="badge badge-info">' + Math.ceil(remaining / 3600000) + 'h left</span>';
+                } else {
+                    badge = '<span class="badge badge-info">' + Math.ceil(remaining / 86400000) + 'd left</span>';
+                }
+
+                var importanceBadge = mem.importance === 'high'
+                    ? '<span class="badge badge-danger ml-1">high</span>'
+                    : '<span class="badge badge-secondary ml-1">med</span>';
+
+                var reinforceBadge = mem.reinforcement_count > 0
+                    ? '<span class="badge badge-success ml-1">×' + mem.reinforcement_count + '</span>'
+                    : '';
+
+                return '<div class="d-flex justify-content-between align-items-start border-bottom py-1">' +
+                    '<div class="flex-grow-1 mr-2">' +
+                        '<small>' + $('<span>').text(mem.statement).html() + '</small>' +
+                        '<div>' + badge + importanceBadge + reinforceBadge + '</div>' +
+                    '</div>' +
+                    '<div class="btn-group btn-group-sm">' +
+                        '<button class="btn btn-outline-success btn-xs pkb-stm-promote" data-id="' + mem.memory_id + '" title="Promote to permanent"><i class="bi bi-arrow-up-circle"></i></button>' +
+                        '<button class="btn btn-outline-danger btn-xs pkb-stm-dismiss" data-id="' + mem.memory_id + '" title="Dismiss"><i class="bi bi-x-circle"></i></button>' +
+                    '</div>' +
+                '</div>';
+            }).join('');
+
+            $list.html(html);
+        }).fail(function() {
+            $('#pkb-stm-section').hide();
+        });
+    }
+
     /**
      * Initialize event handlers.
      */
@@ -2903,6 +2984,27 @@ var PKBManager = (function() {
 
         // Initialize overview tab event handlers
         initOverviewTab();
+
+        // Short-Term Memory handlers
+        $(document).on('click', '.pkb-stm-promote', function() {
+            var id = $(this).data('id');
+            $.post('/pkb/stm/' + id + '/promote', function() {
+                showToast('Memory promoted to permanent', 'success');
+                loadShortTermMemories();
+                loadClaims();
+            }).fail(function() { showToast('Promotion failed', 'danger'); });
+        });
+        $(document).on('click', '.pkb-stm-dismiss', function() {
+            var id = $(this).data('id');
+            $.ajax({ url: '/pkb/stm/' + id, method: 'DELETE', success: function() {
+                showToast('Memory dismissed', 'info');
+                loadShortTermMemories();
+            }, error: function() { showToast('Dismiss failed', 'danger'); }});
+        });
+        // Load STM when PKB modal opens
+        $(document).on('shown.bs.modal', '#pkb-modal', function() {
+            loadShortTermMemories();
+        });
 
         // Memory Cleanup (Maintenance tab, W11)
         $(document).on('click', '#pkb-cleanup-analyze-btn', function() {

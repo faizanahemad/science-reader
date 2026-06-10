@@ -2035,7 +2035,7 @@ def pkb_propose_updates_route():
                 "Failed to initialize PKB", status=500, code="pkb_init_failed"
             )
 
-        distiller = ConversationDistiller(api, keys, extraction_mode=extraction_mode)
+        distiller = ConversationDistiller(api, keys, api.config, extraction_mode=extraction_mode)
         plan = distiller.extract_and_propose(
             conversation_summary=conversation_summary,
             user_message=user_message,
@@ -2044,6 +2044,58 @@ def pkb_propose_updates_route():
             source_conversation_id=conversation_id,
             source_message_id=message_id,
         )
+
+        # Silently store short-term memories (no user approval needed)
+        stm_stored = 0
+        stm_reinforced = 0
+        if plan and plan.short_term_candidates:
+            # Get existing STM for cross-conversation reinforcement detection
+            existing_stm = []
+            existing_result = api.get_active_short_term_memories(limit=api.config.stm_max_per_user)
+            if existing_result.success and existing_result.data:
+                existing_stm = existing_result.data
+
+            for stc in plan.short_term_candidates:
+                # Check for similar existing STM from a DIFFERENT conversation
+                reinforced = False
+                if existing_stm and conversation_id:
+                    for mem in existing_stm:
+                        if mem.get("conversation_id") == conversation_id:
+                            continue  # Same conversation — skip
+                        # Simple word-overlap similarity check
+                        from difflib import SequenceMatcher
+                        ratio = SequenceMatcher(None, stc.statement.lower(), mem["statement"].lower()).ratio()
+                        if ratio >= api.config.stm_reinforcement_threshold:
+                            api.reinforce_short_term_memory(mem["memory_id"])
+                            stm_reinforced += 1
+                            reinforced = True
+                            break
+
+                if not reinforced:
+                    # Also skip if same conversation already has very similar STM
+                    skip = False
+                    if existing_stm and conversation_id:
+                        for mem in existing_stm:
+                            if mem.get("conversation_id") != conversation_id:
+                                continue
+                            from difflib import SequenceMatcher
+                            ratio = SequenceMatcher(None, stc.statement.lower(), mem["statement"].lower()).ratio()
+                            if ratio >= api.config.stm_reinforcement_threshold:
+                                skip = True
+                                break
+                    if not skip:
+                        result = api.add_short_term_memory(
+                            statement=stc.statement,
+                            conversation_id=conversation_id or "",
+                            importance=stc.importance,
+                            ttl_class=stc.ttl,
+                            meta_json={"reasoning": stc.reasoning,
+                                       "source_conversation_title": conversation_summary[:100] if conversation_summary else ""},
+                        )
+                        if result.success:
+                            stm_stored += 1
+            if stm_stored or stm_reinforced:
+                logger.info(f"STM for {email}: stored={stm_stored}, reinforced={stm_reinforced}")
 
         if not plan or len(plan.candidates) == 0:
             return jsonify(
@@ -3587,4 +3639,90 @@ def pkb_get_overview_topics_route():
         return jsonify({"topics": topics})
     except Exception as e:
         logger.error(f"Error getting PKB overview topics: {e}")
+        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Short-Term Memory (STM) Endpoints
+# ──────────────────────────────────────────────────────────────────────────────
+
+@pkb_bp.route("/pkb/stm", methods=["GET"])
+@limiter.limit("30 per minute")
+@login_required
+def pkb_stm_list():
+    """List active (non-expired) short-term memories for the current user."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+
+        result = api.get_active_short_term_memories(limit=api.config.stm_max_per_user)
+        if result.success:
+            return jsonify({"memories": result.data})
+        return json_error("Failed to get STM", status=500, code="stm_list_failed")
+    except Exception as e:
+        logger.error(f"Error in pkb_stm_list: {e}")
+        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+
+
+@pkb_bp.route("/pkb/stm/<memory_id>/promote", methods=["POST"])
+@limiter.limit("10 per minute")
+@login_required
+def pkb_stm_promote(memory_id):
+    """Manually promote a short-term memory to a long-term claim."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+
+        result = api.promote_short_term_memory(memory_id)
+        if result.success:
+            return jsonify(result.data)
+        return json_error(
+            "; ".join(result.errors) or "Promotion failed",
+            status=404 if "not found" in str(result.errors).lower() else 400,
+            code="stm_promote_failed",
+        )
+    except Exception as e:
+        logger.error(f"Error in pkb_stm_promote: {e}")
+        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+
+
+@pkb_bp.route("/pkb/stm/<memory_id>", methods=["DELETE"])
+@limiter.limit("20 per minute")
+@login_required
+def pkb_stm_delete(memory_id):
+    """Dismiss (delete) a short-term memory."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
+
+        result = api.delete_short_term_memory(memory_id)
+        if result.success:
+            return jsonify({"deleted": memory_id})
+        return json_error("Delete failed", status=400, code="stm_delete_failed")
+    except Exception as e:
+        logger.error(f"Error in pkb_stm_delete: {e}")
         return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")

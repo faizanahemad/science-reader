@@ -165,7 +165,7 @@ Per-user auto-maintained markdown summary of the entire knowledge base:
 - Lazy generation on first access (200-claim cap), uncapped on regenerate
 - Incremental updates via targeted edit ops on every write operation
 - Consolidation at 8k words, async non-blocking
-- `@pkb_overview` chat reference, config-gated Key Areas snippet for retrieval, NL agent KB map injection
+- `@pkb_overview` chat reference, config-gated Key Areas snippet for retrieval, NL agent KB map injection, overview-informed retrieval ranking (rewrite strategy + recency boost)
 - UI Tab 8 with markdown editor, Regenerate, and Scan for Gaps buttons
 - Schema v11 (`pkb_overview` table), 4 REST endpoints, 27 unit tests
 
@@ -259,9 +259,9 @@ All data is scoped by `user_email`. The system provides:
 Multiple search approaches available:
 - **FTS** (Full-Text Search): Fast, deterministic, BM25 ranking
 - **Embedding**: Semantic similarity via cosine distance
-- **Rewrite**: LLM rewrites query into keywords
+- **Rewrite** (overview-informed): SUPERFAST_LLM rewrites query into optimized FTS keywords + embedding query, informed by PKB overview Key Areas for domain-aware expansion. Runs both FTS and embedding internally, merges via RRF.
 - **MapReduce**: LLM scores candidates
-- **Hybrid**: Combines strategies with RRF merging
+- **Hybrid** (default): Combines `[fts, embedding, rewrite]` in parallel with RRF merging + recency/confidence re-ranking (`w_recency=0.15`, `w_confidence=0.1`)
 
 ### Memory Attachment
 Ways to force specific memories into LLM context:
@@ -532,6 +532,7 @@ See [PKB_V05_ENHANCEMENT_PLAN.md](./PKB_V05_ENHANCEMENT_PLAN.md) for v0.5+ desig
 - **[pkb_memory_system_improvements.plan.md](../../planning/plans/pkb_memory_system_improvements.plan.md)** — Embedding cache, recency re-rank, reinforcement, decay, supersession, provenance workstreams.
 - **[pkb_nl_tool_ui_enhancements.plan.md](../../planning/plans/pkb_nl_tool_ui_enhancements.plan.md)** — NL tool and UI enhancements plan.
 - **[pkb_external_access_ui_mcp_rest_auth.plan.md](../../planning/plans/pkb_external_access_ui_mcp_rest_auth.plan.md)** — External access via MCP, REST, and auth design.
+- **[short_term_memory_and_compaction.plan.md](../../planning/plans/short_term_memory_and_compaction.plan.md)** — Short-term cross-conversation memory & compaction (schema v12). Implemented: ephemeral memory table, dual-output extraction, auto-injection, reinforcement, promotion, compaction. See also: **[short_term_memory.md](./short_term_memory.md)**.
 
 ---
 

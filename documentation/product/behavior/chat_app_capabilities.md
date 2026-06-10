@@ -703,9 +703,31 @@ The backend resolver (`resolve_reference()`) uses suffix-based routing for fast 
 - Server injects conversation-pinned claim IDs from session state.
 - `Conversation.reply()` fetches claims via `_get_pkb_context()` in a background thread.
 - Each `@friendly_id` is resolved by `resolve_reference()` which routes by suffix to the correct resolver (claim, context, entity, tag, or domain).
+- `@pkb_overview` is a special reference that injects the full Memory Overview document verbatim (bypasses distillation).
+- Auto-retrieval uses hybrid search with 3 strategies in parallel: **FTS** (original keywords), **Embedding** (vector similarity), and **Rewrite** (SUPERFAST_LLM rewrites query informed by PKB overview Key Areas → runs both FTS + embedding on rewritten queries). All merged via Reciprocal Rank Fusion (RRF), then recency/confidence re-ranked (`w_recency=0.15`, `w_confidence=0.1`, half-life=30 days).
 - Full PKB context is sent to a cheap LLM for distillation (extracts relevant user prefs).
 - After distillation, explicitly `[REFERENCED]` claims are re-injected verbatim via `_extract_referenced_claims()` to ensure they reach the main LLM word-for-word.
 - The combined user_info_text (distilled prefs + referenced claims) is injected into the `permanent_instructions` slot of the chat prompt.
+
+**Memory Overview (v11)**
+- Auto-maintained markdown summary of the entire KB — one per user.
+- Generated lazily on first tab open or first write; updated incrementally on every write (add/edit/delete/bulk/link). Async, non-blocking.
+- Edit ops: `replace_section`, `append_to_section`, `insert_section`, `delete_from_section`, `no_change`. Applied structurally — only affected sections change.
+- Consolidation when over 8k words. Live stats line injected at read time.
+- UI Tab 8: rendered markdown + Regenerate, Scan for Gaps, and Edit buttons.
+- `@pkb_overview` reference injects full overview into chat context.
+- Config-gated Key Areas snippet (`overview_snippet_in_context`, default OFF) available for retrieval weighting.
+- NL agent receives Key Areas as `## Knowledge Base Map` in system prompt.
+- Schema v11: `pkb_overview` table. APIs: `GET/PUT /pkb/overview`, `POST /pkb/overview/regenerate`, `POST /pkb/overview/scan`.
+
+**Provenance, Origin & Cleanup**
+- **Two-axis claim provenance** (stored in `meta_json.source`, no schema change): **channel** (`manual|chat|ingest|import`) records *where* a claim entered; **derivation** (`stated|extracted|inferred`) records *how* it was obtained. Every add stamps both (`utils.set_provenance`); the distiller's LLM labels each candidate.
+- **Inferred claims are trusted less**: confidence is capped at `inferred_confidence_cap` (0.4) at add time and the rerank multiplies their score by `(1 − inferred_rerank_penalty)`. An explicit restatement *reconfirms* and upgrades `inferred→stated` (`reinforce_claim(upgrade_derivation=True)`).
+- **auto vs curated origin** for entities/tags (`meta_json.origin`): `auto` from enrichment, `curated` from the user. Trust/cleanup signal only — does not gate dedup.
+- **Dedup & merge**: cheap prefilters propose duplicate clusters for claims, entities and tags; an optional LLM pass (`judge_duplicates`, gated by `dedup_llm_verify`/`use_llm`) confirms each and picks a canonical. Tag merge (`POST /pkb/tags/merge`) mirrors entity merge (non-lossy).
+- **Memory Cleanup** orchestrator (`POST /pkb/cleanup`, `{apply?, use_llm?}`): one button that sweeps expired/dormant claims, refreshes the overview, and proposes dedup merges; two-phase (Analyze → Apply) so nothing destructive happens until confirmed.
+- **UI**: claim cards show a provenance badge (derivation + channel); entity/tag cards show an auto/curated origin badge; the **Maintenance tab** (PKB modal Tab 9) hosts Analyze/Apply; a toast fires when an add supersedes earlier memories.
+- See `features/truth_management_system/pkb_provenance_and_cleanup.md`.
 
 **Toggle**
 - Controlled by `checkboxes.use_pkb` (UI: "Use PKB Memory" checkbox, default enabled). When unchecked, PKB retrieval and user info distillation are skipped entirely.
@@ -727,7 +749,7 @@ The backend resolver (`resolve_reference()`) uses suffix-based routing for fast 
 
 **Persistence**
 - PKB uses a separate sqlite DB: `pkb.sqlite` under `users_dir`.
-- Schema v7 with: claims, contexts, context_claims (M:N), entities (with `friendly_id`), tags (with `friendly_id`), claim_entities, claim_tags, claims_fts (FTS5), claim_embeddings.
+- Schema v11 with: claims, contexts, context_claims (M:N), entities (with `friendly_id`), tags (with `friendly_id`), claim_entities, claim_tags, claims_fts (FTS5), claim_embeddings, audit_log (v10), pkb_overview (v11).
 - Entity and tag friendly_ids are auto-generated with type suffixes (`_entity`, `_tag`) and indexed.
 - Context friendly_ids have `_context` suffix (migrated from unsuffixed in v6→v7).
 - Domain references are computed at query time (no separate DB table).
@@ -1305,7 +1327,8 @@ The extension uses two categories of endpoints:
   - type-aware autocomplete across all PKB object types,
   - recursive resolution for contexts and tags (entire subtrees),
   - NL-based CRUD operations via `/pkb` and `/memory` slash commands with interactive proposals,
-  - auto-expiry for time-bound task/reminder claims.
+  - auto-expiry for time-bound task/reminder claims,
+  - short-term cross-conversation memory (ephemeral context with TTL-based expiry, auto-injection into new conversations, reinforcement-based promotion to long-term).
 
 ### Multi-agent orchestration
 - Switchable agents for:

@@ -37,7 +37,7 @@ def _result(key: str, rrf_score: float, *, days_ago: float = 0.0,
 
 def test_zero_weights_are_a_noop():
     """Default weights (0,0) must leave order AND scores untouched."""
-    cfg = PKBConfig()  # w_recency = w_confidence = 0
+    cfg = PKBConfig(w_recency=0, w_confidence=0)  # explicit zero = noop
     old = _result("old", 0.020, days_ago=400)
     new = _result("new", 0.016, days_ago=1)
     out = apply_recency_confidence_rerank([old, new], cfg, now=NOW)
@@ -110,7 +110,7 @@ def _contested(result: SearchResult) -> SearchResult:
 
 def test_contested_penalty_default_is_noop():
     """contested_penalty == 1.0 (default) must not change scores/order."""
-    cfg = PKBConfig()  # contested_penalty defaults to 1.0
+    cfg = PKBConfig(w_recency=0, w_confidence=0)  # isolate contested_penalty test
     a = _contested(_result("a", 0.020))
     b = _result("b", 0.016)
     out = apply_recency_confidence_rerank([a, b], cfg, now=NOW)
@@ -120,7 +120,7 @@ def test_contested_penalty_default_is_noop():
 
 def test_contested_penalty_buries_contested_claim():
     """A high-ranked contested claim sinks below an uncontested one."""
-    cfg = PKBConfig(contested_penalty=0.5)
+    cfg = PKBConfig(contested_penalty=0.5, w_recency=0, w_confidence=0)
     contested = _contested(_result("contested", 0.020))
     clean = _result("clean", 0.016)
     out = apply_recency_confidence_rerank([contested, clean], cfg, now=NOW)
@@ -132,7 +132,7 @@ def test_contested_penalty_buries_contested_claim():
 
 def test_contested_penalty_only_affects_contested():
     """Uncontested claims keep contested_factor == 1.0."""
-    cfg = PKBConfig(contested_penalty=0.1)
+    cfg = PKBConfig(contested_penalty=0.1, w_recency=0, w_confidence=0)
     clean = _result("clean", 0.020)
     out = apply_recency_confidence_rerank([clean], cfg, now=NOW)
     assert out[0].score == 0.020

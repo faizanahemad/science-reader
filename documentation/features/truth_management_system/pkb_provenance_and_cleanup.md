@@ -100,3 +100,23 @@ In `interface/interface.html` + `interface/pkb-manager.js` (consumes the REST su
 - `interface/interface.html` — Maintenance tab (Tab 9) with Analyze/Apply + LLM-verify
 - `interface/pkb-manager.js` — provenance/origin badges, `runMemoryCleanup`/`renderCleanupReport`, lifecycle toast
 - Tests: `test_provenance_axes.py`, `test_provenance_distiller.py`, `test_inferred_rerank.py`, `test_reconfirmation_upgrade.py`, `test_origin.py`, `test_tag_merge.py`, `test_dedup_llm_verify.py`, `test_lifecycle_notification.py`, `test_memory_cleanup.py`, `test_audit_coverage.py`
+
+## Compaction Extension (v12)
+
+`run_memory_cleanup` was extended in schema v12 to also:
+1. **Expire short-term memories** (from `pkb_short_term_memory` table) — hard delete past `expires_at`
+2. **Identify stale long-term claims** for archival — `last_accessed_at` > 90 days, confidence < 0.5, not pinned
+3. **Archive stale claims** on `apply=True` — sets `status = 'archived'`
+
+The cleanup report now includes a `compaction` key:
+```json
+{
+  "compaction": {
+    "stm_expired": 3,
+    "stale_candidates": [{"claim_id": "...", "statement": "...", "confidence": 0.3, "last_activity": "2025-01-01T..."}],
+    "archived": ["claim_id_1", "claim_id_2"]
+  }
+}
+```
+
+Full details: see `short_term_memory.md`.

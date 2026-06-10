@@ -118,6 +118,10 @@ from .interface import (
     IngestCandidate,
     IngestProposal,
     IngestExecutionResult,
+    PKBOverviewManager,
+    OverviewResult,
+    OverviewUpdateEvent,
+    OverviewStats,
 )
 
 # LLM helpers

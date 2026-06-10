@@ -188,6 +188,23 @@ def expire_stale_claims(db, user_email: Optional[str] = None) -> int:
 
     if count > 0:
         logger.info("Expired %d stale claims for user=%s", count, user_email or "all")
+
+    # Also sweep expired short-term memories (hard delete)
+    stm_sql = "DELETE FROM pkb_short_term_memory WHERE expires_at <= ?"
+    stm_params: list = [now_iso()]
+    if user_email:
+        stm_sql += " AND user_email = ?"
+        stm_params.append(user_email)
+    try:
+        with db.transaction() as conn:
+            stm_cursor = conn.execute(stm_sql, tuple(stm_params))
+            stm_count = stm_cursor.rowcount
+        if stm_count > 0:
+            logger.info("Deleted %d expired short-term memories for user=%s", stm_count, user_email or "all")
+    except Exception:
+        # Table may not exist yet (pre-v12 databases)
+        pass
+
     return count
 
 

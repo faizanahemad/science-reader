@@ -794,6 +794,17 @@ class Conversation:
                 time_logger.info(
                     f"[PKB] Running hybrid search with enhanced_query_len={len(enhanced_query)}, query='{enhanced_query[:100]}...'"
                 )
+
+                # Pass overview Key Areas to the rewrite strategy for domain-aware expansion
+                try:
+                    from truth_management_system.interface.overview_manager import PKBOverviewManager as _OvMgr
+                    _ov_mgr = _OvMgr(db, self.get_api_keys(), config)
+                    _ov_snippet = _ov_mgr.get_key_areas_snippet(user_email)
+                    if _ov_snippet:
+                        api.search_strategy.set_overview_context(_ov_snippet)
+                except Exception as _ov_e:
+                    time_logger.debug(f"[PKB] overview context for rewrite unavailable: {_ov_e}")
+
                 result = api.search(
                     enhanced_query, strategy="hybrid", k=remaining_slots + 5
                 )  # Get extra for dedup
@@ -839,6 +850,57 @@ class Conversation:
             time_logger.info(f"[PKB] Total claims collected: {len(all_claims)}")
             if not all_claims:
                 time_logger.info("[PKB] No claims found, returning empty string")
+                # Even with no claims, still inject short-term memories if available
+                pass
+
+            # --- Short-term memory injection (cross-conversation context) ---
+            stm_block = ""
+            if config and getattr(config, "stm_enabled", True):
+                try:
+                    stm_result = api.get_active_short_term_memories(
+                        limit=getattr(config, "stm_inject_limit", 10)
+                    )
+                    if stm_result.success and stm_result.data:
+                        from datetime import datetime, timezone
+                        now = datetime.now(timezone.utc)
+                        stm_lines = []
+                        memory_ids = []
+                        for mem in stm_result.data:
+                            # Calculate relative time
+                            try:
+                                created = datetime.fromisoformat(mem["created_at"].replace("Z", "+00:00"))
+                                delta = now - created
+                                if delta.days > 0:
+                                    ago = f"{delta.days}d ago"
+                                elif delta.seconds >= 3600:
+                                    ago = f"{delta.seconds // 3600}h ago"
+                                else:
+                                    ago = f"{delta.seconds // 60}m ago"
+                            except Exception:
+                                ago = ""
+                            stm_lines.append(f"- [{ago}] {mem['statement']}")
+                            memory_ids.append(mem["memory_id"])
+
+                        if stm_lines:
+                            # Enforce word budget
+                            max_words = getattr(config, "stm_inject_max_words", 200)
+                            final_lines = []
+                            word_count = 0
+                            for line in stm_lines:
+                                words = len(line.split())
+                                if word_count + words > max_words:
+                                    break
+                                final_lines.append(line)
+                                word_count += words
+
+                            stm_block = "<stm_context>\n## Recent context from your other conversations:\n" + "\n".join(final_lines) + "\n</stm_context>\n"
+                            # Touch accessed memories
+                            api.touch_short_term_memories(memory_ids[:len(final_lines)])
+                            time_logger.info(f"[PKB] Injected {len(final_lines)} short-term memories")
+                except Exception as stm_e:
+                    time_logger.debug(f"[PKB] STM injection failed: {stm_e}")
+
+            if not all_claims and not stm_block:
                 return ""
 
             # Format claims as XML-tagged items.
@@ -897,6 +959,24 @@ class Conversation:
                 context_lines.append(f"<pkb_item {attrs}>{statement_text}</pkb_item>")
 
             formatted_context = "\n".join(context_lines)
+
+            # Config-gated: append a condensed Key Areas snippet from the PKB overview.
+            # This gives the distillation LLM a map of which domains/topics exist, so it
+            # can better weight the retrieved claims. NOT source="referenced" — it goes
+            # through distillation, not verbatim re-injection.
+            try:
+                if config and getattr(config, "overview_snippet_in_context", False):
+                    from truth_management_system.interface.overview_manager import PKBOverviewManager as _OvMgr
+                    _ov_manager = _OvMgr(db, self.get_api_keys(), config)
+                    _snippet = _ov_manager.get_key_areas_snippet(user_email)
+                    if _snippet:
+                        context_lines.append(
+                            f'<pkb_item source="overview_summary" type="overview">{_snippet}</pkb_item>'
+                        )
+                        formatted_context = "\n".join(context_lines)
+            except Exception as _ov_e:
+                time_logger.warning(f"[PKB] overview snippet injection failed: {_ov_e}")
+
             time_logger.info(
                 f"[PKB] Returning formatted context with {len(context_lines)} claims, total_chars={len(formatted_context)}"
             )
@@ -905,7 +985,15 @@ class Conversation:
                 if len(formatted_context) > 500
                 else f"[PKB] Context: {formatted_context}"
             )
-            return formatted_context
+            # Update last_accessed_at for claims sent to LLM
+            try:
+                claim_ids_accessed = [c.claim_id for _, c in all_claims if hasattr(c, 'claim_id') and not str(getattr(c, 'claim_id', '')).startswith('conv_ref_')]
+                if claim_ids_accessed:
+                    api.touch_claims_accessed(claim_ids_accessed)
+            except Exception as _touch_e:
+                time_logger.debug(f"[PKB] Failed to update last_accessed_at: {_touch_e}")
+
+            return stm_block + formatted_context
 
         except Exception as e:
             time_logger.info(f"[PKB] Error retrieving PKB context: {e}", exc_info=True)
@@ -6431,12 +6519,21 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             )
         if field == "PKBNLConversationAgent":
             _user_email = kwargs.get("user_email", "")
+            _overview_manager = None
+            try:
+                if PKB_AVAILABLE:
+                    from truth_management_system.interface.overview_manager import PKBOverviewManager as _OvMgr
+                    _ov_db, _ov_config = get_pkb_database()
+                    _overview_manager = _OvMgr(_ov_db, self.get_api_keys(), _ov_config)
+            except Exception:
+                pass
             agent = PKBNLConversationAgent(
                 self.get_api_keys(),
                 model_name=model_name if isinstance(model_name, str) else model_name[0],
                 user_email=_user_email,
                 detail_level=kwargs.get("detail_level", 1),
                 timeout=60,
+                overview_manager=_overview_manager,
             )
         # Handle PPT answer mode - override agent selection if ppt_answer is enabled
         ppt_answer = kwargs.get("ppt_answer", False)

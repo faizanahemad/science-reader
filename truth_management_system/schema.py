@@ -22,7 +22,9 @@ All tables use:
 """
 
 SCHEMA_VERSION = (
-    10  # v10: Added audit_log table (Workstream G3: append-only audit log + export/import)
+    12  # v12: Added pkb_short_term_memory table + last_accessed_at on claims
+    # 11: Added pkb_overview table (PKB Memory Overview feature)
+    # 10: Added audit_log table (Workstream G3: append-only audit log + export/import)
     # 9: Added claim_links table (Workstream D1: supersession & typed claim-claim links)
     # 8: Added last_reinforced_at + reinforcement_count to claims (Workstream H: reinforcement & decay)
 )
@@ -59,7 +61,8 @@ CREATE TABLE IF NOT EXISTS claims (
     retracted_at TEXT,                  -- Soft delete timestamp
     possible_questions TEXT,            -- JSON array of questions this claim answers (v6)
     last_reinforced_at TEXT,            -- v8: clock that recency/decay measure from; reset on reinforcement (backfilled = updated_at)
-    reinforcement_count INTEGER NOT NULL DEFAULT 0  -- v8: how many times this claim has been re-affirmed
+    reinforcement_count INTEGER NOT NULL DEFAULT 0,  -- v8: how many times this claim has been re-affirmed
+    last_accessed_at TEXT                -- v12: updated when claim is retrieved for LLM context
 );
 
 -- =============================================================================
@@ -253,6 +256,41 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 
 -- =============================================================================
+-- PKB Overview: per-user derived markdown summary of the knowledge base (v11)
+-- Content is maintained incrementally by cheap LLM calls on each write op.
+-- The stats line stored in content is a template — live counts are injected
+-- at read time and never persisted. is_stale=1 means the last LLM update
+-- failed; a warning is shown in the Overview tab UI.
+-- NOT included in PKB data export (derived/regeneratable).
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS pkb_overview (
+    user_email   TEXT PRIMARY KEY,
+    content      TEXT,
+    word_count   INTEGER,
+    last_updated TEXT,
+    is_stale     INTEGER DEFAULT 0,
+    topics_json  TEXT
+);
+
+-- =============================================================================
+-- Short-Term Memory: Ephemeral cross-conversation context (v12)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS pkb_short_term_memory (
+    memory_id TEXT PRIMARY KEY,
+    user_email TEXT NOT NULL,
+    conversation_id TEXT NOT NULL,
+    statement TEXT NOT NULL,
+    importance TEXT NOT NULL DEFAULT 'medium',  -- medium|high (low = not stored)
+    ttl_class TEXT NOT NULL DEFAULT 'week',     -- session|day|week
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    last_accessed_at TEXT,
+    reinforcement_count INTEGER NOT NULL DEFAULT 0,
+    promoted_to_claim_id TEXT,                  -- NULL until promoted to long-term
+    meta_json TEXT                              -- {tags, entities, reasoning, source_conversation_title}
+);
+
+-- =============================================================================
 -- Schema version tracking
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -313,6 +351,11 @@ CREATE INDEX IF NOT EXISTS idx_claim_links_type ON claim_links(link_type);
 -- Audit-log index (v10, Workstream G3). Safe in base DDL: audit_log is a
 -- brand-new table created earlier in this same DDL script.
 CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log(user_email, created_at);
+
+-- Short-term memory indexes (v12)
+CREATE INDEX IF NOT EXISTS idx_stm_user_expires ON pkb_short_term_memory(user_email, expires_at);
+CREATE INDEX IF NOT EXISTS idx_stm_user_recency ON pkb_short_term_memory(user_email, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_stm_conversation ON pkb_short_term_memory(conversation_id);
 
 -- v3 indexes for claims.friendly_id and contexts are created by the migration
 -- or by _ensure_v3_indexes() during initialization. They are NOT included here
@@ -440,6 +483,8 @@ def get_tables_list() -> list:
         "contexts",
         "context_claims",
         "audit_log",
+        "pkb_overview",
+        "pkb_short_term_memory",
         "schema_version",
     ]
 

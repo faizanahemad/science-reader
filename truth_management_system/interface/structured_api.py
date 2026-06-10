@@ -1655,12 +1655,61 @@ class StructuredAPI:
             "claims": {"clusters": [], "merged": []},
             "entities": {"clusters": [], "merged": []},
             "tags": {"clusters": [], "merged": []},
+            "compaction": {"stm_expired": 0, "stale_candidates": [], "archived": []},
             "applied": bool(apply),
         }
         try:
-            # 1) Safe maintenance: lifecycle sweep.
+            # 1a) Expire short-term memories (before lifecycle sweep to capture count)
+            stm_expired = self.expire_short_term_memories()
+            report["compaction"]["stm_expired"] = stm_expired.data if stm_expired.success else 0
+
+            # 1b) Safe maintenance: lifecycle sweep.
             sweep = self.run_lifecycle_sweep()
             report["swept"] = sweep.data if sweep.success else {}
+
+            # 1c) Identify stale claims for archival suggestion
+            stale_days = getattr(self.config, "compaction_stale_days", 90)
+            confidence_threshold = getattr(self.config, "compaction_confidence_threshold", 0.5)
+            from ..utils import now_iso
+            from datetime import datetime, timedelta, timezone
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=stale_days)).isoformat()
+            stale_sql = """
+                SELECT claim_id, statement, confidence, last_accessed_at, updated_at, meta_json
+                FROM claims
+                WHERE user_email = ? AND status = 'active'
+                  AND confidence < ?
+                  AND COALESCE(last_accessed_at, updated_at) < ?
+            """
+            try:
+                with self.db.transaction() as conn:
+                    rows = conn.execute(stale_sql, (self.user_email, confidence_threshold, cutoff)).fetchall()
+                stale_candidates = []
+                for r in rows:
+                    is_pinned = False
+                    if r[5]:
+                        import json as _json
+                        try:
+                            meta = _json.loads(r[5]) if isinstance(r[5], str) else r[5]
+                            is_pinned = bool(isinstance(meta, dict) and meta.get("pinned"))
+                        except Exception:
+                            pass
+                    if not is_pinned:
+                        stale_candidates.append({
+                            "claim_id": r[0], "statement": r[1],
+                            "confidence": r[2], "last_activity": r[3] or r[4],
+                        })
+                report["compaction"]["stale_candidates"] = stale_candidates
+
+                if apply and stale_candidates:
+                    with self.db.transaction() as conn:
+                        for sc in stale_candidates:
+                            conn.execute(
+                                "UPDATE claims SET status = 'archived', updated_at = ? WHERE claim_id = ?",
+                                (now_iso(), sc["claim_id"]),
+                            )
+                    report["compaction"]["archived"] = [sc["claim_id"] for sc in stale_candidates]
+            except Exception as stale_e:
+                logger.debug(f"Stale claim detection failed: {stale_e}")
 
             # 2) Safe maintenance: overview refresh (best-effort, non-fatal).
             if self.keys:
@@ -3497,4 +3546,212 @@ class StructuredAPI:
             logger.error(f"Failed to get claim tags: {e}")
             return ActionResult(
                 success=False, action="get", object_type="claim_tag", errors=[str(e)]
+            )
+
+    # =========================================================================
+    # Short-Term Memory (Cross-Conversation)
+    # =========================================================================
+
+    def add_short_term_memory(
+        self,
+        statement: str,
+        conversation_id: str,
+        importance: str = "medium",
+        ttl_class: str = "week",
+        meta_json: Optional[Dict] = None,
+    ) -> ActionResult:
+        """Add a short-term memory. Returns the created memory dict."""
+        import uuid
+        from ..utils import now_iso
+        from datetime import datetime, timedelta, timezone
+
+        if importance not in ("medium", "high"):
+            return ActionResult(success=False, action="add", object_type="short_term_memory",
+                              errors=[f"Invalid importance: {importance}. Must be medium|high."])
+        if ttl_class not in ("session", "day", "week"):
+            return ActionResult(success=False, action="add", object_type="short_term_memory",
+                              errors=[f"Invalid ttl_class: {ttl_class}. Must be session|day|week."])
+
+        now = datetime.now(timezone.utc)
+        ttl_map = {
+            "session": timedelta(hours=self.config.stm_ttl_session_hours),
+            "day": timedelta(hours=self.config.stm_ttl_day_hours),
+            "week": timedelta(days=self.config.stm_ttl_week_days),
+        }
+        expires_at = now + ttl_map[ttl_class]
+        memory_id = str(uuid.uuid4())
+        now_str = now_iso()
+
+        import json
+        with self.db.transaction() as conn:
+            conn.execute(
+                """INSERT INTO pkb_short_term_memory
+                   (memory_id, user_email, conversation_id, statement, importance,
+                    ttl_class, created_at, expires_at, meta_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (memory_id, self.user_email, conversation_id, statement, importance,
+                 ttl_class, now_str, expires_at.isoformat(), json.dumps(meta_json) if meta_json else None),
+            )
+
+        memory = {
+            "memory_id": memory_id, "statement": statement, "importance": importance,
+            "ttl_class": ttl_class, "conversation_id": conversation_id,
+            "created_at": now_str, "expires_at": expires_at.isoformat(),
+            "reinforcement_count": 0, "meta_json": meta_json,
+        }
+        return ActionResult(success=True, action="add", object_type="short_term_memory", data=memory)
+
+    def get_active_short_term_memories(self, limit: Optional[int] = None) -> ActionResult:
+        """Get non-expired STM for current user, ordered by recency."""
+        from ..utils import now_iso
+        import json
+
+        lim = limit or self.config.stm_inject_limit
+        rows = self.db.fetchall(
+            """SELECT memory_id, conversation_id, statement, importance, ttl_class,
+                      created_at, expires_at, last_accessed_at, reinforcement_count,
+                      promoted_to_claim_id, meta_json
+               FROM pkb_short_term_memory
+               WHERE user_email = ? AND expires_at > ?
+               ORDER BY created_at DESC LIMIT ?""",
+            (self.user_email, now_iso(), lim),
+        )
+
+        memories = []
+        for r in rows:
+            memories.append({
+                "memory_id": r[0], "conversation_id": r[1], "statement": r[2],
+                "importance": r[3], "ttl_class": r[4], "created_at": r[5],
+                "expires_at": r[6], "last_accessed_at": r[7],
+                "reinforcement_count": r[8], "promoted_to_claim_id": r[9],
+                "meta_json": json.loads(r[10]) if r[10] else None,
+            })
+        return ActionResult(success=True, action="list", object_type="short_term_memory", data=memories)
+
+    def reinforce_short_term_memory(self, memory_id: str) -> ActionResult:
+        """Increment reinforcement_count and extend TTL. Auto-promotes if threshold met."""
+        from ..utils import now_iso
+        from datetime import datetime, timedelta, timezone
+
+        row = self.db.fetchone(
+            "SELECT reinforcement_count, importance, ttl_class, statement, meta_json FROM pkb_short_term_memory WHERE memory_id = ? AND user_email = ?",
+            (memory_id, self.user_email),
+        )
+        if not row:
+            return ActionResult(success=False, action="reinforce", object_type="short_term_memory",
+                              errors=["Memory not found"])
+
+        new_count = row[0] + 1
+        ttl_map = {
+            "session": timedelta(hours=self.config.stm_ttl_session_hours),
+            "day": timedelta(hours=self.config.stm_ttl_day_hours),
+            "week": timedelta(days=self.config.stm_ttl_week_days),
+        }
+        new_expires = (datetime.now(timezone.utc) + ttl_map[row[2]]).isoformat()
+
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE pkb_short_term_memory SET reinforcement_count = ?, expires_at = ? WHERE memory_id = ?",
+                (new_count, new_expires, memory_id),
+            )
+
+        # Auto-promote if threshold met
+        promoted_claim_id = None
+        if new_count >= self.config.stm_promotion_threshold and row[1] == "high":
+            result = self._promote_stm_to_claim(memory_id, row[3], row[4])
+            if result.success:
+                promoted_claim_id = result.data.get("claim_id") if isinstance(result.data, dict) else None
+
+        return ActionResult(success=True, action="reinforce", object_type="short_term_memory",
+                          data={"memory_id": memory_id, "reinforcement_count": new_count,
+                                "promoted_to_claim_id": promoted_claim_id})
+
+    def _promote_stm_to_claim(self, memory_id: str, statement: str, meta_json_str: Optional[str] = None) -> ActionResult:
+        """Promote a short-term memory to a long-term claim."""
+        import json
+        from ..utils import set_provenance
+
+        meta = json.loads(meta_json_str) if meta_json_str else {}
+        claim_meta = {
+            "source": {
+                "channel": "chat",
+                "derivation": "extracted",
+                "promoted_from_stm": memory_id,
+            }
+        }
+        if "source_conversation_title" in meta:
+            claim_meta["source"]["conversation_title"] = meta["source_conversation_title"]
+
+        result = self.add_claim(
+            statement=statement,
+            claim_type="observation",
+            context_domain="personal",
+            confidence=self.config.inferred_confidence_cap,
+            meta_json=claim_meta,
+        )
+        if result.success and result.data:
+            claim_id = result.data.claim_id if hasattr(result.data, 'claim_id') else result.data.get("claim_id")
+            with self.db.transaction() as conn:
+                conn.execute(
+                    "UPDATE pkb_short_term_memory SET promoted_to_claim_id = ? WHERE memory_id = ?",
+                    (claim_id, memory_id),
+                )
+            return ActionResult(success=True, action="promote", object_type="short_term_memory",
+                              data={"claim_id": claim_id, "memory_id": memory_id})
+        return result
+
+    def promote_short_term_memory(self, memory_id: str) -> ActionResult:
+        """Manually promote a short-term memory to long-term claim."""
+        row = self.db.fetchone(
+            "SELECT statement, meta_json FROM pkb_short_term_memory WHERE memory_id = ? AND user_email = ?",
+            (memory_id, self.user_email),
+        )
+        if not row:
+            return ActionResult(success=False, action="promote", object_type="short_term_memory",
+                              errors=["Memory not found"])
+        return self._promote_stm_to_claim(memory_id, row[0], row[1])
+
+    def delete_short_term_memory(self, memory_id: str) -> ActionResult:
+        """Delete (dismiss) a short-term memory."""
+        with self.db.transaction() as conn:
+            conn.execute(
+                "DELETE FROM pkb_short_term_memory WHERE memory_id = ? AND user_email = ?",
+                (memory_id, self.user_email),
+            )
+        return ActionResult(success=True, action="delete", object_type="short_term_memory",
+                          data={"memory_id": memory_id})
+
+    def expire_short_term_memories(self) -> ActionResult:
+        """Delete expired short-term memories. Returns count deleted."""
+        from ..utils import now_iso
+        with self.db.transaction() as conn:
+            cursor = conn.execute(
+                "DELETE FROM pkb_short_term_memory WHERE user_email = ? AND expires_at <= ?",
+                (self.user_email, now_iso()),
+            )
+            count = cursor.rowcount
+        return ActionResult(success=True, action="expire", object_type="short_term_memory", data=count)
+
+    def touch_short_term_memories(self, memory_ids: List[str]) -> None:
+        """Update last_accessed_at for injected memories."""
+        if not memory_ids:
+            return
+        from ..utils import now_iso
+        placeholders = ",".join("?" * len(memory_ids))
+        with self.db.transaction() as conn:
+            conn.execute(
+                f"UPDATE pkb_short_term_memory SET last_accessed_at = ? WHERE memory_id IN ({placeholders})",
+                [now_iso()] + memory_ids,
+            )
+
+    def touch_claims_accessed(self, claim_ids: List[str]) -> None:
+        """Update last_accessed_at for claims that were retrieved and sent to LLM."""
+        if not claim_ids:
+            return
+        from ..utils import now_iso
+        placeholders = ",".join("?" * len(claim_ids))
+        with self.db.transaction() as conn:
+            conn.execute(
+                f"UPDATE claims SET last_accessed_at = ? WHERE claim_id IN ({placeholders})",
+                [now_iso()] + claim_ids,
             )
