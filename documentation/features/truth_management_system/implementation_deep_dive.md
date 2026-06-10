@@ -150,6 +150,39 @@ to the default fusion set. RRF sums the reciprocal-rank scores of a claim found
 by both embedding and entity link (it rises to the top) and de-dupes by
 `claim_id` automatically.
 
+### Rewrite/entity unification — single LLM call, single RRF
+
+The overview-aware rewrite is the single source of query derivation. When
+`rewrite_is_query_source` is set, an API key is present, and `rewrite` is an
+active strategy, `HybridSearchStrategy._build_strategy_context` makes ONE
+`_rewrite_query` LLM call up front and packages its `RewriteMetadata` into a
+`strategy_context: Dict[str, Any]` threaded alongside `strategy_queries`:
+
+- the **rewrite** strategy receives `precomputed_metadata` and skips its own LLM
+  call (no double-call);
+- the **entity** strategy receives the LLM `entities` as `surface_forms` (when
+  `entity_use_rewrite_entities` is set) — resolving higher-quality names than the
+  regex heuristic, capped at `entity_strategy_max_entities` — plus a reusable
+  query vector of the rewrite's `embedding_query` for cosine ranking.
+
+`_execute_parallel` dispatches these reuse kwargs **only** to the rewrite/entity
+strategies (the base `SearchStrategy.search(query, k, filters)` interface is
+untouched). All four strategies remain distinct RRF sources, so W-A per-source
+weighting and the single top-level fusion are preserved — there is no
+fusion-of-fusions for the entity signal. The path is inert (current behavior)
+without a key, when `rewrite` is not active, or when the flags are off: the
+entity strategy falls back to regex extraction and the rewrite strategy
+self-calls. See `tests/test_rewrite_entity_unification.py` (asserts exactly one
+rewrite LLM call) and the plan
+`documentation/planning/plans/pkb_rewrite_entity_unification.plan.md`.
+
+**Corpus parity (migration).** No schema change — `claim_entities` already
+exists. Claims predating entity extraction simply have no links and are still
+retrieved by FTS/embedding/rewrite; the optional, idempotent
+`StructuredAPI.backfill_entities(dry_run=, limit=)` links entities for unlinked
+active claims (mirrors `backfill_embeddings`), raising entity-path recall on the
+existing corpus without being required for correctness.
+
 ### Config fields
 
 | Field | Default | Workstream |
@@ -159,6 +192,9 @@ by both embedding and entity link (it rises to the top) and de-dupes by
 | `entity_strategy_enabled: bool` | `True` | W-C |
 | `entity_strategy_top_n: int` | `5` | W-C |
 | `entity_alias_match: bool` | `True` | W-C |
+| `entity_strategy_max_entities: int` | `5` | W-C (anti-flooding cap) |
+| `rewrite_is_query_source: bool` | `True` | Unification (single rewrite call) |
+| `entity_use_rewrite_entities: bool` | `True` | Unification (entity uses LLM entities) |
 
 All are wired through `to_dict` / `from_dict` / env (`PKB_*`;
 `PKB_RRF_STRATEGY_WEIGHTS` is JSON).

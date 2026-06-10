@@ -305,6 +305,9 @@ fts_use_focused_query: bool = True             # W-B: route focused current mess
 entity_strategy_enabled: bool = True           # W-C: enable entity-linked retrieval strategy
 entity_strategy_top_n: int = 5                 # W-C: max entity-linked claims fed into RRF
 entity_alias_match: bool = True                # W-C: also resolve entities via meta_json.aliases (W6)
+# Rewrite/entity unification — single rewrite LLM call drives FTS+embedding+entity
+rewrite_is_query_source: bool = True           # one rewrite call feeds rewrite (precomputed metadata) + entity (surface forms); inert without an API key / when 'rewrite' inactive
+entity_use_rewrite_entities: bool = True       # entity strategy resolves the rewrite's LLM entities instead of the regex heuristic
 # Provenance / dedup (provenance & cleanup plan)
 inferred_confidence_cap: float = 0.4    # confidence ceiling for inferred claims
 inferred_rerank_penalty: float = 0.1    # score ×(1-penalty) for inferred in re-rank
@@ -743,13 +746,13 @@ This applies to all embedding-related code where numpy arrays might be checked.
 
 #### `search/rewrite_search.py` - `RewriteSearchStrategy`
 
-LLM rewrites natural language query → FTS keywords.
+LLM rewrites a natural-language query into optimized FTS keywords + an embedding query, then runs BOTH and merges via RRF. Overview-aware (`set_overview_context`).
 
 **Process:**
-1. Call LLM with prompt to extract search keywords
-2. Build FTS query from keywords
-3. Execute FTS search
-4. Return results with rewrite metadata
+1. One `SUPERFAST_LLM` call emits `{fts_query, embedding_query, keywords, tags, entities}` (`RewriteMetadata`). When the orchestrator supplies `precomputed_metadata` (the single-rewrite-call unification), this call is skipped.
+2. Run FTS on `fts_query` and embedding search on `embedding_query`.
+3. Merge the two via RRF; tag results `source="rewrite"`.
+4. `search_with_metadata` also returns the `RewriteMetadata` (entities/tags consumed by the orchestrator).
 
 #### `search/mapreduce_search.py` - `MapReduceSearchStrategy`
 
@@ -767,11 +770,11 @@ Entity-linked retrieval: surfaces claims attached to entities named in the query
 
 | Method | Signature | Purpose |
 |--------|-----------|---------|
-| `search` | `(query, k, filters)` → List[SearchResult] | Entity-linked results (`source="entity"`) |
+| `search` | `(query, k, filters, surface_forms=None, query_embedding=None)` → List[SearchResult] | Entity-linked results (`source="entity"`); the orchestrator may supply LLM `surface_forms` and a reusable `query_embedding` |
 | `name` | `()` → "entity" | Strategy identifier |
 
 **Process:**
-1. Extract candidate surface forms from the query (capitalized / quoted spans). In chat retrieval, W-B routes the *focused current message* to this strategy (see `strategy_queries`), so entities resolve from current intent rather than summary text.
+1. Resolve surface forms to entities. By default they are extracted from the query with a capitalized / quoted-span heuristic; when the rewrite/entity unification is active (`rewrite_is_query_source` + `entity_use_rewrite_entities`), the hybrid orchestrator instead supplies the rewrite LLM's `entities` as `surface_forms` (higher precision/recall; capped at `entity_strategy_max_entities`). In chat retrieval, W-B also routes the *focused current message* to this strategy (see `strategy_queries`).
 2. Resolve to entities by exact (case-insensitive) name match, plus `meta_json.aliases` when `entity_alias_match` is set. Exact matching makes the loose extraction self-filtering.
 3. Pull linked claims via `EntityCRUD.resolve_claims`, which applies the status filter (default active + contested) and user scope — so compaction-archived / superseded / expired claims are **not** resurfaced through the entity path.
 4. Rank by cosine similarity to the query embedding using the `EmbeddingStore` cache; degrade to recency order when no query embedding is available (no key / embeddings disabled / cold cache).
@@ -783,7 +786,7 @@ Orchestrates multiple strategies with parallel execution.
 
 | Method | Signature | Purpose |
 |--------|-----------|---------|
-| `search` | `(query, strategy_names, k, filters, llm_rerank, strategy_queries)` | Hybrid search; `strategy_queries` (W-B) routes per-strategy queries (e.g. focused current message → FTS and entity strategies, contextual query → embedding/rewrite) |
+| `search` | `(query, strategy_names, k, filters, llm_rerank, strategy_queries, strategy_context)` | Hybrid search; `strategy_queries` (W-B) routes per-strategy query text; `strategy_context` carries the single-rewrite-call output (precomputed metadata + entity surface forms/embedding) |
 | `search_simple` | `(query, k, filters)` | Default: FTS + embedding |
 | `search_with_rerank` | `(query, k, filters)` | Hybrid + LLM rerank |
 | `search_all_strategies` | `(query, k, filters)` | Use all strategies |
@@ -792,10 +795,11 @@ Orchestrates multiple strategies with parallel execution.
 **Default strategy set:** `fts` + (when an API key is present) `embedding`, `rewrite`, and (when `entity_strategy_enabled`) `entity`.
 
 **Algorithm:**
-1. Execute selected strategies in parallel (each may receive its own `strategy_queries` override — W-B).
-2. Merge results using Reciprocal Rank Fusion (RRF), applying `config.rrf_strategy_weights` per strategy (W-A; `{}` = unweighted).
-3. Optionally apply LLM reranking to top-N
-4. Return final top-k results
+1. **Rewrite/entity unification** (`_build_strategy_context`): when `rewrite_is_query_source` is set, an API key is present, and `rewrite` is active, make ONE rewrite LLM call up front and package its output as `strategy_context` — the rewrite strategy reuses the precomputed metadata (no second LLM call) and the entity strategy resolves the LLM `entities` (and ranks against the rewrite's `embedding_query`). Inert otherwise (each strategy keeps its own path).
+2. Execute selected strategies in parallel (each may receive its own `strategy_queries` text override — W-B; reuse kwargs from `strategy_context` are dispatched only to the rewrite/entity strategies).
+3. Merge results in a SINGLE top-level Reciprocal Rank Fusion (RRF), applying `config.rrf_strategy_weights` per `source` (W-A; `{}` = unweighted) — so `fts`/`embedding`/`rewrite`/`entity` stay distinct, weightable sources.
+4. Optionally apply LLM reranking to top-N
+5. Return final top-k results
 
 #### `search/notes_search.py` - `NotesSearchStrategy`
 
@@ -864,6 +868,7 @@ user_api = shared_api.for_user("user@example.com")
 | Dedup | `find_consolidation_candidates`/`find_entity_duplicates`/`find_tag_duplicates` gain `use_llm` | **W7:** optional LLM verification (`judge_duplicates`) of clusters |
 | Cleanup | `run_memory_cleanup(apply=False, use_llm=None)` → ActionResult | **W9:** sweep + overview refresh + dedup proposals; `apply` merges suggested keepers |
 | Maint | `backfill_provenance()` / `backfill_origin()` | Idempotent ops backfills for legacy claims/entities/tags |
+| Maint | `backfill_entities(context_domain=None, dry_run=False, limit=None)` | Idempotent, user-scoped entity-link backfill for active claims with no links (corpus parity for the entity strategy); off the hot path, not required for correctness |
 
 #### `interface/text_orchestration.py` - `TextOrchestrator`
 

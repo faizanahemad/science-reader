@@ -263,7 +263,7 @@ Multiple search approaches available:
 - **Rewrite** (overview-informed): SUPERFAST_LLM rewrites query into optimized FTS keywords + embedding query, informed by PKB overview Key Areas for domain-aware expansion. Runs both FTS and embedding internally, merges via RRF.
 - **MapReduce**: LLM scores candidates
 - **Entity** (W-C): resolves named entities in the query (exact name + `meta_json.aliases`) and surfaces their status-filtered linked claims, cosine-ranked (degrades to recency order offline)
-- **Hybrid** (default): Combines `[fts, embedding, rewrite, entity]` in parallel with RRF merging (optional per-strategy weights via `rrf_strategy_weights`, W-A) + recency/confidence re-ranking (`w_recency=0.15`, `w_confidence=0.1`). Per-strategy query scoping (W-B, `fts_use_focused_query`) routes the focused current message to the FTS and entity strategies, while embedding/rewrite keep the contextual query.
+- **Hybrid** (default): Combines `[fts, embedding, rewrite, entity]` in parallel with RRF merging (optional per-strategy weights via `rrf_strategy_weights`, W-A) + recency/confidence re-ranking (`w_recency=0.15`, `w_confidence=0.1`). Per-strategy query scoping (W-B, `fts_use_focused_query`) routes the focused current message to the FTS and entity strategies, while embedding/rewrite keep the contextual query. **Rewrite/entity unification** (`rewrite_is_query_source`, `entity_use_rewrite_entities`): when a key is present, ONE rewrite LLM call drives all four strategies — the rewrite reuses its own output, and the entity strategy resolves the rewrite's LLM entities instead of regex — fused in a single weighted RRF. Inert without a key (entity falls back to regex).
 
 ### Memory Attachment
 Ways to force specific memories into LLM context:
