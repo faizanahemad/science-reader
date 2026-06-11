@@ -62,6 +62,38 @@ def _get_pkb_api():
     return _pkb_api
 
 
+def _effective_email(supplied: str) -> str:
+    """Return the JWT-authenticated email for the current request.
+
+    The client-supplied ``user_email`` tool argument is **advisory only** and is
+    deliberately ignored for data scoping: ``JWTAuthMiddleware`` stores the
+    verified token identity in a thread-local
+    (``mcp_server.mcp_app._mcp_request_context.user_email``), and every tool MUST
+    scope PKB access to *that* identity. This prevents a holder of any valid
+    token from reading or modifying another user's PKB by passing a different
+    ``user_email`` (broken object-level authorization / IDOR).
+
+    Fails closed (raises ``PermissionError``) when no authenticated identity is
+    present on the request; the caller's ``try/except`` surfaces it as a JSON
+    error rather than silently trusting the supplied value.
+    """
+    from mcp_server.mcp_app import _mcp_request_context
+
+    trusted = getattr(_mcp_request_context, "user_email", None)
+    if not trusted or trusted == "unknown":
+        raise PermissionError(
+            "No authenticated identity on request; refusing to scope PKB access."
+        )
+    if supplied and supplied != trusted:
+        logger.warning(
+            "PKB MCP: ignoring client-supplied user_email %r; using token "
+            "identity %r",
+            supplied,
+            trusted,
+        )
+    return trusted
+
+
 # ---------------------------------------------------------------------------
 # Serialization helpers
 # ---------------------------------------------------------------------------
@@ -224,7 +256,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
         """
         try:
             api = _get_pkb_api()
-            user_api = api.for_user(user_email)
+            user_api = api.for_user(_effective_email(user_email))
             result = user_api.search(query=query, strategy=strategy, k=k)
             return _serialize_action_result(result)
         except Exception as exc:
@@ -248,7 +280,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
         """
         try:
             api = _get_pkb_api()
-            user_api = api.for_user(user_email)
+            user_api = api.for_user(_effective_email(user_email))
             result = user_api.get_claim(claim_id=claim_id)
             return _serialize_action_result(result)
         except Exception as exc:
@@ -273,7 +305,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
         """
         try:
             api = _get_pkb_api()
-            user_api = api.for_user(user_email)
+            user_api = api.for_user(_effective_email(user_email))
             # Strip leading @ if present
             ref = reference_id.lstrip("@")
             result = user_api.resolve_reference(reference_id=ref)
@@ -300,7 +332,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
         """
         try:
             api = _get_pkb_api()
-            user_api = api.for_user(user_email)
+            user_api = api.for_user(_effective_email(user_email))
             result = user_api.get_pinned_claims(limit=limit)
             return _serialize_action_result(result)
         except Exception as exc:
@@ -338,7 +370,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
         """
         try:
             api = _get_pkb_api()
-            user_api = api.for_user(user_email)
+            user_api = api.for_user(_effective_email(user_email))
             kwargs = dict(
                 statement=statement,
                 claim_type=claim_type,
@@ -380,7 +412,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
         """
         try:
             api = _get_pkb_api()
-            user_api = api.for_user(user_email)
+            user_api = api.for_user(_effective_email(user_email))
             patch: dict[str, Any] = {}
             if statement is not None:
                 patch["statement"] = statement
@@ -405,7 +437,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
             claim_id: UUID of the claim to delete.
         """
         try:
-            result = _get_pkb_api().for_user(user_email).delete_claim(claim_id=claim_id)
+            result = _get_pkb_api().for_user(_effective_email(user_email)).delete_claim(claim_id=claim_id)
             return _serialize_action_result(result)
         except Exception as exc:
             logger.exception("pkb_delete_claim error: %s", exc)
@@ -446,7 +478,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
             from truth_management_system.interface.nl_agent import PKBNLAgent
             from endpoints.utils import keyParser
 
-            api = _get_pkb_api().for_user(user_email)
+            api = _get_pkb_api().for_user(_effective_email(user_email))
             keys = keyParser({})
             agent = PKBNLAgent(api=api, keys=keys, model=model)
             result = agent.process(command)
@@ -477,7 +509,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
         """
         try:
             api = _get_pkb_api()
-            user_api = api.for_user(user_email)
+            user_api = api.for_user(_effective_email(user_email))
             result = user_api.get_active_short_term_memories(limit=limit)
             return _serialize_action_result(result)
         except Exception as exc:
@@ -497,7 +529,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
         """
         try:
             api = _get_pkb_api()
-            user_api = api.for_user(user_email)
+            user_api = api.for_user(_effective_email(user_email))
             result = user_api.promote_short_term_memory(memory_id)
             return _serialize_action_result(result)
         except Exception as exc:
@@ -517,7 +549,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
         """
         try:
             api = _get_pkb_api()
-            user_api = api.for_user(user_email)
+            user_api = api.for_user(_effective_email(user_email))
             result = user_api.delete_short_term_memory(memory_id)
             return _serialize_action_result(result)
         except Exception as exc:
@@ -547,7 +579,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
         """
         try:
             api = _get_pkb_api()
-            user_api = api.for_user(user_email)
+            user_api = api.for_user(_effective_email(user_email))
             from truth_management_system.interface.conversation_distillation import ConversationDistiller
             distiller = ConversationDistiller(
                 user_api, user_api.keys, user_api.config,
@@ -586,7 +618,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
         """
         try:
             api = _get_pkb_api()
-            user_api = api.for_user(user_email)
+            user_api = api.for_user(_effective_email(user_email))
             # Try overview manager first
             summary = ""
             try:
@@ -620,7 +652,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
         """
         try:
             api = _get_pkb_api()
-            user_api = api.for_user(user_email)
+            user_api = api.for_user(_effective_email(user_email))
             result = user_api.add_claim_feedback(claim_id, context=context)
             return _serialize_action_result(result)
         except Exception as exc:
@@ -646,7 +678,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
             """
             try:
                 api = _get_pkb_api()
-                user_api = api.for_user(user_email)
+                user_api = api.for_user(_effective_email(user_email))
                 result = user_api.get_recent_promotions(limit=limit)
                 return _serialize_action_result(result)
             except Exception as exc:
@@ -668,7 +700,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
             """
             try:
                 api = _get_pkb_api()
-                user_api = api.for_user(user_email)
+                user_api = api.for_user(_effective_email(user_email))
                 result = user_api.demote_promoted_claim(memory_id)
                 return _serialize_action_result(result)
             except Exception as exc:
@@ -688,7 +720,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
             """
             try:
                 api = _get_pkb_api()
-                user_api = api.for_user(user_email)
+                user_api = api.for_user(_effective_email(user_email))
                 result = user_api.get_lifecycle_notifications()
                 if result.success:
                     return json.dumps({"fading": result.data.get("newly_dormant", [])})
@@ -710,7 +742,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
             """
             try:
                 api = _get_pkb_api()
-                user_api = api.for_user(user_email)
+                user_api = api.for_user(_effective_email(user_email))
                 result = user_api.reinforce_claim(claim_id)
                 return _serialize_action_result(result)
             except Exception as exc:
@@ -729,7 +761,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
             """
             try:
                 api = _get_pkb_api()
-                user_api = api.for_user(user_email)
+                user_api = api.for_user(_effective_email(user_email))
                 result = user_api.get_health_stats()
                 return _serialize_action_result(result)
             except Exception as exc:
@@ -750,7 +782,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
             """
             try:
                 api = _get_pkb_api()
-                user_api = api.for_user(user_email)
+                user_api = api.for_user(_effective_email(user_email))
                 result = user_api.find_consolidation_candidates(threshold=threshold, use_llm=False)
                 return _serialize_action_result(result)
             except Exception as exc:
@@ -774,7 +806,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
             """
             try:
                 api = _get_pkb_api()
-                user_api = api.for_user(user_email)
+                user_api = api.for_user(_effective_email(user_email))
                 result = user_api.get_claims_by_ids(claim_ids=claim_ids)
                 return _serialize_action_result(result)
             except Exception as exc:
@@ -800,7 +832,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
             """
             try:
                 api = _get_pkb_api()
-                user_api = api.for_user(user_email)
+                user_api = api.for_user(_effective_email(user_email))
                 result = user_api.autocomplete(prefix=prefix, limit=limit)
                 return _serialize_action_result(result)
             except Exception as exc:
@@ -824,7 +856,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
             """
             try:
                 api = _get_pkb_api()
-                user_api = api.for_user(user_email)
+                user_api = api.for_user(_effective_email(user_email))
                 result = user_api.resolve_context(context_id=context_id)
                 return _serialize_action_result(result)
             except Exception as exc:
@@ -849,7 +881,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
             """
             try:
                 api = _get_pkb_api()
-                user_api = api.for_user(user_email)
+                user_api = api.for_user(_effective_email(user_email))
                 result = user_api.pin_claim(claim_id=claim_id, pin=pin)
                 return _serialize_action_result(result)
             except Exception as exc:
@@ -874,7 +906,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
             """
             try:
                 api = _get_pkb_api()
-                user_api = api.for_user(user_email)
+                user_api = api.for_user(_effective_email(user_email))
                 contexts_with_counts = user_api.contexts.get_with_claim_count(limit=200)
                 from endpoints.pkb import serialize_context
 
@@ -905,7 +937,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
             """
             try:
                 api = _get_pkb_api()
-                user_api = api.for_user(user_email)
+                user_api = api.for_user(_effective_email(user_email))
                 entities = user_api.entities.list(limit=200, order_by="name")
                 from endpoints.pkb import serialize_entity
 
@@ -932,7 +964,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
             """
             try:
                 api = _get_pkb_api()
-                user_api = api.for_user(user_email)
+                user_api = api.for_user(_effective_email(user_email))
                 tags = user_api.tags.list(limit=200, order_by="name")
                 from endpoints.pkb import serialize_tag
 
