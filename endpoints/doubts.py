@@ -652,3 +652,167 @@ def regenerate_doubt_route(doubt_id: str):
     except Exception as e:
         logger.error(f"Error regenerating doubt {doubt_id}: {e}")
         return json_error(str(e), status=500, code="internal_error")
+
+
+@doubts_bp.route("/summarize_doubt_thread/<doubt_id>", methods=["POST"])
+@limiter.limit("10 per minute")
+@login_required
+def summarize_doubt_thread_route(doubt_id: str):
+    """Summarize a doubt thread using senior_engineer_summary_prompt. Saves as new child doubt."""
+    from call_llm import CallLLm
+    from common import SUPERFAST_LLM
+    from prompts import senior_engineer_summary_prompt
+
+    email, _name, _loggedin = get_session_identity()
+    state, keys = get_state_and_keys()
+
+    try:
+        doubt_record = get_doubt(doubt_id=doubt_id, users_dir=state.users_dir, logger=logger)
+        if not doubt_record:
+            return json_error("Doubt not found", status=404, code="doubt_not_found")
+
+        conversation_id = doubt_record["conversation_id"]
+        message_id = doubt_record["message_id"]
+
+        if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
+            return json_error("Conversation not found", status=404, code="conversation_not_found")
+
+        conversation = attach_keys(state.conversation_cache[conversation_id], keys)
+
+        # Walk to root and collect full thread chronologically
+        history = get_doubt_history(doubt_id=doubt_id, users_dir=state.users_dir, logger=logger)
+        root_doubt = history[0] if history else doubt_record
+        # Also collect children from root downward
+        from database.doubts import get_doubt_children
+        full_thread = list(history)
+        # BFS to get all descendants from root
+        frontier = [root_doubt["doubt_id"]]
+        seen = {d["doubt_id"] for d in full_thread}
+        while frontier:
+            next_frontier = []
+            for fid in frontier:
+                children = get_doubt_children(doubt_id=fid, users_dir=state.users_dir, logger=logger)
+                for c in children:
+                    if c["doubt_id"] not in seen:
+                        full_thread.append(c)
+                        seen.add(c["doubt_id"])
+                        next_frontier.append(c["doubt_id"])
+            frontier = next_frontier
+        # Sort by created_at
+        full_thread.sort(key=lambda d: d["created_at"])
+        # Find the last doubt in thread to use as parent for summary
+        last_doubt_id = full_thread[-1]["doubt_id"] if full_thread else doubt_id
+
+        # Build context: conversation summary + doubt Q&A pairs
+        context_parts = []
+        running_summary = getattr(conversation, "running_summary", None)
+        if running_summary:
+            if isinstance(running_summary, list):
+                context_parts.append("# Conversation Background\n\n" + "\n".join(running_summary))
+            else:
+                context_parts.append(f"# Conversation Background\n\n{running_summary}")
+
+        context_parts.append("\n# Doubt Thread\n")
+        for d in full_thread:
+            context_parts.append(f"**Q:** {d['doubt_text']}\n**A:** {d['doubt_answer']}\n")
+
+        full_context = "\n".join(context_parts)
+
+        def generate_summary_stream():
+            accumulated = ""
+            try:
+                yield json.dumps({"text": "", "status": "Summarizing thread...", "type": "doubt_clearing"}) + "\n"
+
+                api_keys = conversation.get_api_keys()
+                summary_model = conversation.get_model_override("quick_action_model", SUPERFAST_LLM[0])
+                llm = CallLLm(api_keys, model_name=summary_model, use_gpt4=False, use_16k=False)
+
+                messages = [
+                    {"role": "system", "content": "You are a senior engineer summarizing a doubt/Q&A thread to extract key concepts, caveats, and mental models."},
+                    {"role": "user", "content": f"{full_context}\n\n{senior_engineer_summary_prompt}"},
+                ]
+
+                for chunk in llm.stream_chat(messages):
+                    if chunk:
+                        accumulated += chunk
+                        yield json.dumps({"text": chunk, "type": "doubt_clearing", "accumulated_text": accumulated}) + "\n"
+            finally:
+                new_doubt_id = None
+                if accumulated.strip():
+                    new_doubt_id = add_doubt(
+                        conversation_id=conversation_id,
+                        user_email=email,
+                        message_id=message_id,
+                        doubt_text="Thread Summary",
+                        doubt_answer=accumulated,
+                        parent_doubt_id=last_doubt_id,
+                        with_context=False,
+                        users_dir=state.users_dir,
+                        logger=logger,
+                    )
+                yield json.dumps({
+                    "text": "", "status": "Summary complete", "type": "doubt_clearing",
+                    "completed": True, "doubt_id": new_doubt_id, "accumulated_text": accumulated,
+                }) + "\n"
+
+        return Response(generate_summary_stream(), content_type="text/plain")
+    except Exception as e:
+        logger.error(f"Error summarizing doubt thread {doubt_id}: {e}")
+        return json_error(str(e), status=500, code="internal_error")
+
+
+@doubts_bp.route("/create_conversation_from_doubt_thread/<doubt_id>", methods=["POST"])
+@limiter.limit("10 per minute")
+@login_required
+def create_conversation_from_doubt_thread_route(doubt_id: str):
+    """Create a new conversation seeded with the doubt thread as initial context."""
+    from database.doubts import get_doubt_children
+
+    email, _name, _loggedin = get_session_identity()
+    state, keys = get_state_and_keys()
+
+    try:
+        doubt_record = get_doubt(doubt_id=doubt_id, users_dir=state.users_dir, logger=logger)
+        if not doubt_record:
+            return json_error("Doubt not found", status=404, code="doubt_not_found")
+
+        conversation_id = doubt_record["conversation_id"]
+        if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
+            return json_error("Conversation not found", status=404, code="conversation_not_found")
+
+        # Walk to root and collect full thread
+        history = get_doubt_history(doubt_id=doubt_id, users_dir=state.users_dir, logger=logger)
+        root_doubt = history[0] if history else doubt_record
+        full_thread = list(history)
+        frontier = [root_doubt["doubt_id"]]
+        seen = {d["doubt_id"] for d in full_thread}
+        while frontier:
+            next_frontier = []
+            for fid in frontier:
+                children = get_doubt_children(doubt_id=fid, users_dir=state.users_dir, logger=logger)
+                for c in children:
+                    if c["doubt_id"] not in seen:
+                        full_thread.append(c)
+                        seen.add(c["doubt_id"])
+                        next_frontier.append(c["doubt_id"])
+            frontier = next_frontier
+        full_thread.sort(key=lambda d: d["created_at"])
+
+        # Build seed text from doubt thread
+        seed_parts = ["# Context from Previous Doubt Thread\n"]
+        for d in full_thread:
+            seed_parts.append(f"**Q:** {d['doubt_text']}\n**A:** {d['doubt_answer']}\n")
+        seed_summary = "\n".join(seed_parts)
+
+        # Create new conversation using the same domain as the source
+        from endpoints.conversations import _create_conversation_simple
+        source_conversation = state.conversation_cache.get(conversation_id)
+        domain = source_conversation.domain if source_conversation else "chat"
+        new_conversation = _create_conversation_simple(domain)
+        new_conversation.running_summary = seed_summary
+
+        data = new_conversation.get_metadata()
+        return jsonify({"success": True, "conversation_id": new_conversation.conversation_id, "metadata": data})
+    except Exception as e:
+        logger.error(f"Error creating conversation from doubt thread {doubt_id}: {e}")
+        return json_error(str(e), status=500, code="internal_error")

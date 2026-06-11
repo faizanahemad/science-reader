@@ -375,6 +375,11 @@ const ContextMenuManager = {
                 // Open the doubt modal with conversation context
                 this.handleAskDoubt(true); // withContext = true
                 break;
+            
+            case 'continue-doubt-in-chat':
+                // Inject a doubt thread's content into the main chat as context
+                this.handleContinueDoubtInChat();
+                break;
                 
             case 'ask-temp':
                 // Open temporary chat modal
@@ -457,6 +462,68 @@ const ContextMenuManager = {
             this.showToast('Please right-click on a specific message to ask a doubt', 'info');
         } else {
             this.showToast('Unable to open doubt dialog. Please try again.', 'warning');
+        }
+    },
+    
+    /**
+     * Continue a doubt thread in main chat — fetches doubts for the message,
+     * shows a picker, and injects the selected thread into the main input.
+     */
+    handleContinueDoubtInChat: function() {
+        const self = this;
+        if (!this.currentConversationId || !this.currentMessageId) {
+            this.showToast('Please right-click on a specific message', 'info');
+            return;
+        }
+        // Fetch doubts for this message
+        fetch(`/get_doubts/${this.currentConversationId}/${this.currentMessageId}`)
+            .then(r => r.json())
+            .then(data => {
+                if (!data.success || !data.doubts || data.doubts.length === 0) {
+                    self.showToast('No doubts found for this message', 'info');
+                    return;
+                }
+                // If only 1 doubt thread, inject directly
+                if (data.doubts.length === 1) {
+                    self.injectDoubtThreadIntoChat(data.doubts[0]);
+                    return;
+                }
+                // Multiple: show a quick picker via prompt (simple approach)
+                const options = data.doubts.map((d, i) => `${i + 1}. ${d.doubt_text.substring(0, 60)}`).join('\n');
+                const choice = prompt(`Select a doubt thread to inject into main chat:\n\n${options}\n\nEnter number:`);
+                if (choice) {
+                    const idx = parseInt(choice) - 1;
+                    if (idx >= 0 && idx < data.doubts.length) {
+                        self.injectDoubtThreadIntoChat(data.doubts[idx]);
+                    }
+                }
+            })
+            .catch(() => self.showToast('Failed to fetch doubts', 'error'));
+    },
+    
+    /**
+     * Flatten a doubt tree and inject its Q&A content into the main chat input
+     */
+    injectDoubtThreadIntoChat: function(doubtTree) {
+        // Flatten the tree to get all Q&A pairs
+        const pairs = [];
+        function flatten(node) {
+            pairs.push({ q: node.doubt_text, a: node.doubt_answer });
+            if (node.children) node.children.forEach(flatten);
+        }
+        flatten(doubtTree);
+        
+        const contextBlock = pairs.map(p => `Q: ${p.q}\nA: ${p.a}`).join('\n\n');
+        const injection = `[Doubt Context]\n${contextBlock}\n[/Doubt Context]\n\n`;
+        
+        // Prepend to main chat input
+        const mainInput = $('#messageInput, #prompt-textarea').first();
+        if (mainInput.length) {
+            mainInput.val(injection + mainInput.val());
+            mainInput.focus();
+            this.showToast('Doubt thread injected into chat input', 'success');
+        } else {
+            this.showToast('Could not find chat input', 'warning');
         }
     },
     

@@ -1906,8 +1906,14 @@
                         <i class="bi bi-chat-dots"></i>&nbsp;💬 Doubt Conversation
                     </h5>
                     <span class="ml-auto d-flex align-items-center" style="gap: 4px;">
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="doubt-summarize-thread-btn" title="Summarize Thread">
+                            <i class="bi bi-journal-text"></i> Summarize
+                        </button>
                         <button type="button" class="btn btn-sm btn-outline-secondary" id="doubt-copy-thread-btn" title="Copy Thread as Markdown">
                             <i class="bi bi-clipboard"></i> Copy Thread
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="doubt-to-conversation-btn" title="Continue as new Conversation">
+                            <i class="bi bi-box-arrow-up-right"></i> New Chat
                         </button>
                     </span>
                     <button type="button" class="close" data-dismiss="modal" aria-label="Close" style="color: #aaa; font-size: 28px; font-weight: bold; line-height: 1;">
@@ -2067,6 +2073,7 @@
             <!-- Always visible items -->
             <li class="context-menu-item"><a href="#" data-action="ask-doubt"><i class="bi bi-question-circle"></i> Ask a Doubt</a></li>
             <li class="context-menu-item"><a href="#" data-action="ask-doubt-ctx"><i class="bi bi-question-circle-fill"></i> Ask a Doubt [with Ctx]</a></li>
+            <li class="context-menu-item"><a href="#" data-action="continue-doubt-in-chat"><i class="bi bi-box-arrow-up-right"></i> Continue doubt in main chat</a></li>
             <li class="context-menu-item"><a href="#" data-action="ask-temp"><i class="bi bi-chat-dots"></i> Ask Temporarily</a></li>
             <li class="context-menu-item"><a href="#" data-action="ask-temp-ctx"><i class="bi bi-chat-dots-fill"></i> Ask Temporarily [with Ctx]</a></li>
             <li class="context-menu-item"><a href="#" data-action="artefacts"><i class="bi bi-files"></i> Artefacts</a></li>

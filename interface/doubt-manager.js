@@ -600,6 +600,120 @@ const DoubtManager = {
             });
         });
         
+        // Summarize Thread button — calls summarize endpoint and streams into a new card
+        $('#doubt-summarize-thread-btn').off('click').on('click', function() {
+            if (!self.currentDoubtHistory || self.currentDoubtHistory.length === 0) {
+                if (typeof showToast === 'function') showToast('No thread to summarize', 'warning');
+                return;
+            }
+            const btn = $(this);
+            btn.prop('disabled', true);
+            
+            // Use the last doubt in history as the anchor
+            const lastDoubt = self.currentDoubtHistory[self.currentDoubtHistory.length - 1];
+            const doubtId = lastDoubt.doubt_id;
+            
+            // Append user card + empty assistant card
+            const messagesContainer = $('#doubt-chat-messages');
+            const userCard = self.createDoubtChatCard('Thread Summary', 'user', null);
+            messagesContainer.append(userCard);
+            const assistantCard = self.createDoubtChatCard('', 'assistant', null);
+            messagesContainer.append(assistantCard);
+            const cardBody = assistantCard.find('.card-body');
+            cardBody.html('<div class="text-center"><i class="bi bi-arrow-clockwise spin-animation"></i> Summarizing...</div>');
+            messagesContainer.scrollTop(messagesContainer[0].scrollHeight);
+            
+            fetch(`/summarize_doubt_thread/${doubtId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({})
+            }).then(response => {
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let accumulated = '';
+                cardBody.empty();
+                
+                function readChunk() {
+                    reader.read().then(({ done, value }) => {
+                        if (done) {
+                            btn.prop('disabled', false);
+                            if (typeof MathJax !== 'undefined' && MathJax.Hub) {
+                                MathJax.Hub.Queue(["Typeset", MathJax.Hub, cardBody[0]]);
+                            }
+                            return;
+                        }
+                        const text = decoder.decode(value, { stream: true });
+                        const lines = text.split('\n').filter(l => l.trim());
+                        for (const line of lines) {
+                            try {
+                                const data = JSON.parse(line);
+                                if (data.text) {
+                                    accumulated += data.text;
+                                    const rendered = (typeof marked !== 'undefined' && marked.parse) ? marked.parse(accumulated) : accumulated.replace(/\n/g, '<br>');
+                                    cardBody.html(rendered);
+                                    messagesContainer.scrollTop(messagesContainer[0].scrollHeight);
+                                }
+                                if (data.completed && data.doubt_id) {
+                                    // Update card data attributes
+                                    assistantCard.attr('data-doubt-id', data.doubt_id);
+                                    userCard.attr('data-doubt-id', data.doubt_id);
+                                    // Add to history
+                                    self.currentDoubtHistory.push({
+                                        doubt_id: data.doubt_id,
+                                        doubt_text: 'Thread Summary',
+                                        doubt_answer: accumulated,
+                                        parent_doubt_id: doubtId,
+                                        is_root_doubt: false,
+                                        bookmarked: false,
+                                        pinned: false,
+                                        show_hide: 'show',
+                                    });
+                                }
+                            } catch(e) {}
+                        }
+                        readChunk();
+                    });
+                }
+                readChunk();
+            }).catch(err => {
+                btn.prop('disabled', false);
+                cardBody.html('<p class="text-danger">Summarization failed</p>');
+            });
+        });
+        
+        // Continue as Conversation button — creates new conversation from doubt thread
+        $('#doubt-to-conversation-btn').off('click').on('click', function() {
+            if (!self.currentDoubtHistory || self.currentDoubtHistory.length === 0) {
+                if (typeof showToast === 'function') showToast('No thread to continue', 'warning');
+                return;
+            }
+            const btn = $(this);
+            btn.prop('disabled', true);
+            const doubtId = self.currentDoubtHistory[0].doubt_id;
+            
+            $.ajax({
+                url: `/create_conversation_from_doubt_thread/${doubtId}`,
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({}),
+                success: function(data) {
+                    btn.prop('disabled', false);
+                    if (data.success && data.conversation_id) {
+                        $('#doubt-chat-modal').modal('hide');
+                        // Navigate to the new conversation
+                        if (typeof ConversationManager !== 'undefined' && ConversationManager.loadConversation) {
+                            ConversationManager.loadConversation(data.conversation_id);
+                        }
+                        if (typeof showToast === 'function') showToast('New conversation created from doubt thread', 'success');
+                    }
+                },
+                error: function() {
+                    btn.prop('disabled', false);
+                    if (typeof showToast === 'function') showToast('Failed to create conversation', 'error');
+                }
+            });
+        });
+        
         // Send button click
         sendBtn.off('click').on('click', function() {
             self.sendDoubt();
