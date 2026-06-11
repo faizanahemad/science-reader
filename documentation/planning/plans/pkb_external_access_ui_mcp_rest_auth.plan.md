@@ -1,9 +1,27 @@
-# PKB / TMS External Access — Standalone UI, MCP, REST API, Auth & Agent Integration
+# PKB / TMS as a Standalone System — Extraction, Standalone UI, MCP, REST API, Auth & Agent Integration
 
 **Status:** Draft (revised)
 **Created:** 2026-06-09
-**Revised:** 2026-06-10; 2026-06-11 (sync with landed `backfill_entities` REST route + DB concurrency fix — see §1, §9, §12)
-**Scope:** Make the PKB usable *outside* the chat shell: a standalone `/memory/` web UI, an externally-reachable authenticated MCP server, a token-authenticated REST API, a dual-auth scheme, and integration recipes for Claude Code / other agentic systems. Internal memory-system improvements are covered separately in `pkb_memory_system_improvements.plan.md`, `pkb_ux_improvements.plan.md`, `pkb_retrieval_ranking.plan.md`, and `pkb_rewrite_entity_unification.plan.md` (the latter added the `backfill_entities` maintenance op now exposed over REST — see §1).
+**Revised:** 2026-06-10; 2026-06-11 (sync with landed `backfill_entities` REST route + DB concurrency fix — see §1, §9, §12); 2026-06-12 (**major re-scope** — PKB is now to become a standalone, separately-hostable system; added Workstream 0 extraction + explicit independence goals — see §0, §2, §3.0, §8)
+**Scope:** Turn the PKB/TMS into an **independent, separately-hostable system** that runs in three modes — (a) an importable Python **library**, (b) a self-contained **HTTP server with its own bundled UI**, and (c) a standalone **MCP server** — usable by *any* assistant or coding service (Claude Code, OpenCode, Cursor, scripts), **while preserving the existing in-chat-app integration unchanged**. This subsumes the original narrower scope (a `/memory/` page, external MCP, token REST API, dual-auth, agent recipes), which now becomes the set of *surfaces built inside the extracted package* rather than inside the chat app.
+
+Internal memory-system improvements are covered separately in `pkb_memory_system_improvements.plan.md`, `pkb_ux_improvements.plan.md`, `pkb_retrieval_ranking.plan.md`, and `pkb_rewrite_entity_unification.plan.md` (the latter added the `backfill_entities` maintenance op now exposed over REST — see §1).
+
+---
+
+## 0. Primary Objective & Guiding Goals (user-stated)
+
+> **The PKB should become a mostly-independent system that can be hosted separately and used with other assistants and coding services (e.g. Claude Code). It must be able to start as (1) an HTTP server — which also serves its own UI, (2) an MCP server, and (3) an import-enabled library. Building this MUST NOT break the current chat-app integration; the chat app continues to consume PKB as one of its hosts.**
+
+Everything in this plan is in service of that objective. The litmus test for "done": a developer can `pip install` (or vendor) the PKB package into a fresh environment with **no chat-app code present**, point it at a storage dir + an LLM provider + a JWT secret, and run any of:
+
+```bash
+python -m truth_management_system serve-http   # REST API + bundled web UI
+python -m truth_management_system serve-mcp    # MCP server for agents
+python -c "from truth_management_system import StructuredAPI; ..."   # library
+```
+
+…and the existing chat app, unchanged from a user's perspective, still embeds the same PKB as a library + mounted blueprint.
 
 ---
 
@@ -16,6 +34,18 @@ Today the PKB is reachable only from inside the logged-in chat app:
 - **nginx:** `documentation/planning/nginx_mcp_blocks.conf` has ready-to-paste location blocks for `/mcp/pkb/` → `localhost:8101` (and 7 other servers), but these are NOT deployed yet.
 
 Goal: a clean, authenticated "memory anywhere" surface — a bookmarkable UI at `https://assist-chat.site/memory/`, plus MCP and REST endpoints an external agent (Claude Code, OpenCode, scripts) can connect to with a per-user token.
+
+### Current coupling — why "host it separately" needs an extraction step (verified 2026-06-12)
+
+The dependency direction today is **favorable but not yet inverted**. Verified by import analysis:
+
+- **The PKB *core* (`truth_management_system/`) is already nearly self-contained.** Its only "upward" dependency on the chat app is `code_common.call_llm` (LLM calls, embeddings, keyword extraction), imported *lazily* in ~22 call sites across `llm_helpers.py`, `search/*`, and `interface/*`. It already exposes a library entrypoint — `StructuredAPI` (`truth_management_system/interface/structured_api.py`) — plus its own `PKBConfig`, DB layer (`get_database`), scheduler, and `truth_management_system_requirements.md`.
+- **`code_common/call_llm.py` itself** depends on chat-app top-level modules `loggers` (`getLoggers`) and `common` (lazy). This is the one hard seam to abstract.
+- **The REST layer `endpoints/pkb.py` is NOT independent** — it is a Flask blueprint wired into chat-app infra: `endpoints.auth` (`login_required`), `endpoints.responses` (`json_error`), `endpoints.session_utils` (`get_session_identity`), `endpoints.state` (`get_state().users_dir` for the DB path), `endpoints.utils` (`keyParser`), `extensions.limiter`, `base.get_async_future`, `common.CHEAP_LLM`.
+- **The MCP layer `mcp_server/pkb.py` rides on the REST layer** — it imports `from endpoints.pkb import get_pkb_db, serialize_context, serialize_entity, serialize_tag` and `endpoints.utils.keyParser`.
+- **The UI (`interface/pkb-manager.js`)** lives in the chat-app interface and depends on `interface/common.js` helpers + the chat shell.
+
+**Implication:** Today PKB is *embedded in* the chat app, not a system the chat app embeds. The original version of this plan added external surfaces but left every one of them inside `endpoints/` / `mcp_server/` / `interface/` — so "host PKB separately" was **not** achievable (you'd still need the whole chat app running). The re-scope (Workstream 0, §3.0) inverts this: move the surfaces *into the package*, abstract the LLM dependency behind an injected provider, and reduce the chat app to one host/adapter. Because the core only points "down" to `code_common`, this extraction can be done **without breaking chat integration**.
 
 ### Current surface area (post v1.0 UX improvements)
 
@@ -42,8 +72,16 @@ Goal: a clean, authenticated "memory anywhere" surface — a bookmarkable UI at 
 
 ## 2. Goals & Success Criteria
 
+**Foundational goals (G0\*) — standalone independence.** These are the user-stated objective (§0) and are *prerequisites* for the surface goals (G1–G6) being deliverable as a separately-hostable system. G1–G6 are now interpreted as "…built inside the extracted package."
+
 | # | Goal | Success criteria |
 |---|------|------------------|
+| **G0a** | **Library mode** | `import truth_management_system` / `from truth_management_system import StructuredAPI` works in an env with **no chat-app modules**, given only config + an LLM provider |
+| **G0b** | **HTTP server mode + own UI** | `python -m truth_management_system serve-http` starts a self-contained REST API **and serves its own bundled web UI**, with no dependency on `endpoints/`, `extensions`, `base`, `common`, or `interface/` |
+| **G0c** | **MCP server mode** | `python -m truth_management_system serve-mcp` starts the MCP server importing only the package's own API + auth (not `endpoints.pkb`) |
+| **G0d** | **Chat integration preserved** | The existing chat app embeds PKB as a library + mounted blueprint; in-chat modal, `@references`, slash commands, STM capture, proposals all behave exactly as before |
+| **G0e** | **LLM/embedding dependency injected** | PKB core depends on an `LLMProvider` interface, not directly on `code_common.call_llm` / `loggers` / `common`; the host supplies the implementation (chat app injects `code_common`, standalone supplies a default OpenAI/OpenRouter-backed provider) |
+| **G0f** | **Installable + pinned deps** | The package has its own `pyproject.toml`/requirements and a `__main__` CLI; standalone install pulls only PKB's real dependencies |
 | G1 | Standalone PKB UI | `https://assist-chat.site/memory/` renders the full PKB (all 9 tabs) as a first-class page, session-authenticated, no chat shell required |
 | G1b | Single source of truth | The standalone page and the in-chat modal render from one `pkb-manager.js` with an `init(container)` entry point; no forked markup |
 | G2 | Deep-linkable | `/memory/<friendly_id>` opens that claim/context directly |
@@ -54,13 +92,98 @@ Goal: a clean, authenticated "memory anywhere" surface — a bookmarkable UI at 
 
 ### Non-goals
 - Public/unauthenticated access.
-- A separate SPA framework — reuse existing jQuery/Bootstrap + `pkb-manager.js`.
+- A separate SPA framework — reuse existing jQuery/Bootstrap + `pkb-manager.js` (now vendored into the package's UI bundle).
 - OAuth client-credentials / third-party app authorization flows (future).
 - Mobile-specific responsive layout (future).
+- **Rewriting PKB core logic.** Workstream 0 is a *structural* extraction (move modules, invert one dependency via an injected provider, add entrypoints/packaging) — **not** a rewrite of search, storage, or claim logic. Behavior must be identical before/after.
+- **Splitting into a separate git repository (for now).** The package stays in this monorepo under `truth_management_system/`; "separately hostable" means *independently installable/runnable*, not necessarily a different repo. A repo split can follow once the import boundary is clean.
+
+---
+
+## 3.0 Workstream 0 — Extract PKB into a standalone, embeddable package (G0a–G0f)
+
+**This is the foundational workstream. It must land first** — WS1–WS5 are then built *inside* the package, and the chat app is reduced to a thin host. The guiding principle: **invert the dependency** so the chat app depends on the PKB package, never the reverse. Do it incrementally so the chat app keeps working after every step.
+
+### Design: layering after extraction
+
+```
+truth_management_system/                  (the standalone package)
+├── core/ (existing)        claims, entities, tags, search, storage, scheduler, config
+├── providers/              LLMProvider protocol + default impl  ◀── replaces direct code_common dep
+├── interface/structured_api.py   StructuredAPI  (library entrypoint, G0a)
+├── auth/                   JWT mint/verify + dual-auth + scopes  (moved from mcp_server/auth.py)
+├── http/                   self-contained Flask/ASGI app + blueprint (G0b)
+├── ui/                     vendored pkb-manager.js + memory.html + minimal utils (G0b)
+├── mcp/                    MCP server importing the package API (G0c)
+├── __main__.py             CLI: serve-http | serve-mcp  (G0b/G0c)
+└── pyproject.toml          packaging + pinned deps (G0f)
+
+chat app (host)             imports the package; mounts its blueprint; injects code_common LLM provider; keeps its own modal UI (G0d)
+```
+
+### T0.1 Define and inject an `LLMProvider` (G0e) — the critical seam
+
+**Problem:** the core calls `from code_common.call_llm import call_llm, get_query_embedding, get_document_embedding, getKeywordsFromText` lazily in ~22 sites; `code_common.call_llm` in turn imports `loggers` and `common`. This is the *only* hard upward dependency of the core.
+
+**Fix:**
+1. Define a minimal protocol in `truth_management_system/providers/base.py`, e.g.:
+   ```python
+   class LLMProvider(Protocol):
+       def call_llm(self, prompt, *, model=None, **kw) -> str: ...
+       def get_query_embedding(self, text) -> list[float]: ...
+       def get_document_embedding(self, text) -> list[float]: ...
+       def get_keywords(self, text) -> list[str]: ...
+   ```
+2. Carry a provider on `PKBConfig` (or `StructuredAPI`) — already the natural place (it holds `keys`/`config`).
+3. Replace the ~22 lazy `from code_common.call_llm import ...` sites with calls through `self._provider` (or a module-level `get_provider()` resolving from config). Mechanical but must be exhaustive — add a guard test (grep) like the M1 source-guard.
+4. Provide two implementations:
+   - `providers/codecommon_provider.py` — wraps `code_common.call_llm` (used by the chat app host; zero behavior change).
+   - `providers/default_provider.py` — a self-contained OpenAI/OpenRouter-backed impl (used in standalone mode; no `loggers`/`common`).
+5. The chat app injects the codecommon provider at startup; standalone `__main__` injects the default provider.
+
+**Risk control:** do this first and verify the full TMS test suite (302+) passes with the codecommon provider injected — proves zero behavior change before anything moves.
+
+### T0.2 Move auth into the package
+
+Move `mcp_server/auth.py` (JWT `generate_token`/`verify_jwt`, `JWTAuthMiddleware`) → `truth_management_system/auth/`. Add the dual-auth decorator + scope logic here (was WS3 T3.1, see §5). `mcp_server/auth.py` becomes a re-export shim for back-compat. No secret/algorithm change.
+
+### T0.3 Build a self-contained HTTP app inside the package (G0b)
+
+Create `truth_management_system/http/app.py` exposing `create_pkb_http_app(config, provider, jwt_secret)` that builds a Flask (or ASGI) app + the `/pkb/*` blueprint **using only the package's own API and auth** — not `endpoints.*`, `extensions`, `base`, `common`.
+- Port the route bodies from `endpoints/pkb.py` into a package blueprint. Replace: `get_state().users_dir` → `config.storage_dir`; `keyParser` → provider/config; `extensions.limiter` → an injectable limiter (default: a small in-package limiter); `base.get_async_future` → a package util or stdlib executor; `common.CHEAP_LLM` → provider.
+- The chat app's `endpoints/pkb.py` becomes a **thin adapter**: it builds the package blueprint with the chat app's session-auth + injected provider and registers it (so all existing `/pkb/*` URLs and behavior are preserved — G0d).
+- Bundle the UI here too (T0.4) so `serve-http` serves it.
+
+### T0.4 Vendor the UI into the package (G0b)
+
+Move/copy `interface/pkb-manager.js`, the new `memory.html` shell (WS1 T1.2), and the minimal helpers (`showToast`, `escapeHtml`, `debounce`) into `truth_management_system/ui/`. The package's HTTP app serves them at `/` (or `/ui/`). The chat app keeps its in-chat modal pointing at the same `pkb-manager.js` (now sourced from the package, or a build step copies it) so there is still **one canonical UI implementation** (G1b).
+
+### T0.5 Build the MCP server inside the package (G0c)
+
+Move `mcp_server/pkb.py` logic → `truth_management_system/mcp/server.py`, importing the package `StructuredAPI` + `auth` directly (drop `from endpoints.pkb import ...`; move `serialize_context/entity/tag` into the package). `mcp_server/pkb.py` becomes a thin shim that calls the package factory (preserves the existing 8-server MCP launcher + ports). The M1 `_effective_email` fix (already landed) moves with it.
+
+### T0.6 CLI entrypoint + packaging (G0b/G0c/G0f)
+
+Add `truth_management_system/__main__.py` with subcommands `serve-http`, `serve-mcp` (and `mint-token`), and a `pyproject.toml` declaring the package + **pinned** real dependencies (flask/starlette, mcp, openai, numpy, sqlite-backed deps, jwt, etc.). Standalone storage path + secret come from env/flags/`PKBConfig`.
+
+### T0.7 Storage & config independence
+
+`PKBConfig` already has `db_path`. Add a `storage_dir`/multi-user resolution that does not require `endpoints.state`. Decide single-user vs multi-user for standalone (see Open Questions §11) — default standalone to a configurable per-user dir keyed by the JWT email, mirroring chat-app behavior.
+
+### T0.8 Verification gates
+
+- TMS suite green after T0.1 (provider injection) — **before** any move.
+- After each move (auth/http/mcp/ui), chat app boots, `/pkb/*` behaves identically, in-chat modal works, MCP tools work.
+- New: a standalone smoke test that imports the package in an env with `endpoints`/`server`/`interface` *not importable* (e.g. `sys.modules` block or a venv) and runs library + `serve-http` + `serve-mcp` against a temp storage dir.
+
+### Sequencing within WS0
+T0.1 (provider) → T0.2 (auth) → T0.3 (http app) + T0.4 (ui) → T0.5 (mcp) → T0.6 (cli/packaging) → T0.7/T0.8. Each step keeps the chat app working.
 
 ---
 
 ## 3. Workstream 1 — Standalone `/memory/` UI (G1, G2)
+
+> **Re-scope note (2026-06-12):** Build this *inside the package* (`truth_management_system/ui/` + the package HTTP app from T0.3/T0.4). The chat app's `/memory` route and in-chat modal both consume the package's `pkb-manager.js`. The tasks below are unchanged in substance; only their home moves into the package.
 
 **Design principle:** one canonical PKB UI implementation, reused everywhere. The standalone `/memory/` page and the in-chat modal render from the **same** `pkb-manager.js`, so they stay in sync automatically.
 
@@ -138,6 +261,8 @@ For CSS/JS isolation, the in-chat modal *may* iframe `/memory/` (same-origin, se
 
 ## 4. Workstream 2 — Secure External MCP (G3)
 
+> **Re-scope note (2026-06-12):** The MCP server moves into the package (`truth_management_system/mcp/`, WS0 T0.5). T2.1 (below) already landed and its `_effective_email` fix travels with the move. T2.2–T2.5 still apply, now against the package's MCP factory.
+
 The MCP server exists and works. Two tasks: deploy externally via nginx, and fix the `user_email` security gap.
 
 ### T2.1 Fix `user_email` derivation (SECURITY — MUST DO FIRST) — ✅ DONE 2026-06-11
@@ -198,6 +323,8 @@ See §6 T4.1 — provide `/pkb/token` endpoint so users don't need CLI access.
 ---
 
 ## 5. Workstream 3 — Token-authenticated REST API (G4)
+
+> **Re-scope note (2026-06-12):** The dual-auth decorator (T3.1) moves into the package auth module (WS0 T0.2) and the routes into the package HTTP blueprint (WS0 T0.3). The chat app's `endpoints/pkb.py` becomes a thin adapter that mounts that blueprint with session-auth enabled, so the 83 existing `/pkb/*` URLs and their behavior are preserved (G0d). "Replace 83 `@login_required` decorators" (T3.2) is realized by the adapter choosing the auth mode, not by editing 83 sites in the chat app.
 
 **Problem:** All 83 `/pkb/*` routes require Flask session. External agents need bearer token access.
 
@@ -370,20 +497,26 @@ Cross-link from: `documentation/README.md`, `documentation/product/ops/mcp_serve
 
 | Milestone | Tasks | Dependency | Effort |
 |-----------|-------|------------|--------|
+| **M0 — Standalone extraction** ⭐ foundational | T0.1–T0.8 (provider injection, auth/http/mcp/ui move, CLI, packaging) | M1 (done) | Large — but incremental; each step keeps chat app green. **Unblocks true separate hosting (G0a–G0f).** |
 | **M1 — MCP security fix** ✅ DONE | T2.1 (user_email override) | None | Small — critical security fix (landed 2026-06-11) |
-| **M2 — Token issuance + dual auth** | T4.1, T3.1, T3.2, T3.3 | M1 | Medium — enables all external access |
-| **M3 — MCP external deployment** | T2.2, T2.3, T2.4 | M1, M2 | Small — nginx config + verification |
-| **M4 — Standalone UI** | T1.1, T1.2, T1.3, T1.4 | None (independent) | Medium — JS refactor + new page |
+| **M2 — Token issuance + dual auth** | T4.1, T3.1, T3.2, T3.3 | M0, M1 | Medium — enables all external access (built in package) |
+| **M3 — MCP external deployment** | T2.2, T2.3, T2.4 | M0, M2 | Small — nginx config + verification |
+| **M4 — Standalone UI** | T1.1, T1.2, T1.3, T1.4 | M0 | Medium — JS refactor + new page (vendored in package) |
 | **M5 — Token management UI** | T4.2, T4.3 | M2, M4 | Medium |
 | **M6 — Integration docs** | T5.1–T5.4 | M2, M3 | Small |
 
-**Recommended order:** M1 → M2 → M3 → M6 (external access fully working), then M4 → M5 (standalone UI) in parallel or after.
+**Recommended order:** **M1 ✅ → M0 (extraction, the new critical path)** → M2 → M3 → M6 (external + standalone access working), then M4 → M5 (UI) in parallel or after. The biggest change from the original plan: **M0 is now the backbone** — without it the other milestones produce a chat-app-bound feature, not a hostable system. Within M0, T0.1 (provider injection, verified against the full suite) is the safest first move and the highest-leverage de-risk.
 
 ---
 
 ## 9. Risks & Cross-Cutting Concerns
 
-- **`user_email` trust in MCP (critical) — ✅ RESOLVED 2026-06-11:** Tools now scope to the JWT identity via `_effective_email()` (T2.1), not the client-supplied argument, and fail closed without an authenticated identity. M1's hard prerequisite for external exposure (M3) is satisfied.
+- **Extraction regressions (WS0, highest risk):** Moving auth/http/mcp/ui and inverting the LLM dependency touches a lot of surface. Mitigation: do T0.1 (provider injection) first and prove the **full TMS suite (302+) is green with the codecommon provider injected before moving any file**; after each subsequent move, boot the chat app and confirm `/pkb/*`, the in-chat modal, and MCP tools are unchanged. Keep `mcp_server/auth.py`, `mcp_server/pkb.py`, and `endpoints/pkb.py` as thin back-compat shims so existing imports/URLs don't break (G0d).
+- **Incomplete LLM-dependency inversion (T0.1):** Missing even one `from code_common.call_llm import ...` site leaves the core coupled and breaks standalone mode. Mitigation: a source-guard test (like the M1 guard) asserting no direct `code_common.call_llm` import remains in `truth_management_system/` core paths once T0.1 is complete.
+- **Two divergent UI copies:** Vendoring `pkb-manager.js` into the package risks the chat app and package drifting. Mitigation: single source of truth — the package owns `pkb-manager.js`; the chat app references the package copy (symlink/build-copy), per G1b.
+- **Default LLM provider parity:** The standalone `default_provider` must match `code_common.call_llm` behavior (models, embedding dims, retry). Mitigation: keep the chat app on the codecommon provider; treat the default provider as best-effort and document supported models. Embedding-dimension mismatch would corrupt vector search — pin the embedding model in `PKBConfig`.
+- **Packaging dependency surface (G0f):** `code_common.call_llm` pulls heavy deps (openai, numpy, tiktoken, tenacity, more_itertools). The default provider must declare exactly its real deps so standalone install stays lean.
+- **`user_email` trust in MCP (critical) — ✅ RESOLVED 2026-06-11:** Tools now scope to the JWT identity via `_effective_email()` (T2.1), not the client-supplied argument, and fail closed without an authenticated identity. M1's hard prerequisite for external exposure (M3) is satisfied. (This logic moves with the MCP server into the package in T0.5.)
 - **Auth redirect vs 401:** Browser paths (session) redirect to `/login`; token paths must return JSON 401. The `pkb_auth_required` decorator handles this by checking auth type before responding.
 - **`pkb-manager.js` refactor risk (T1.1):** The IIFE pattern + 9 tabs + many event handlers make refactoring non-trivial. Gate all `.modal()` calls behind `isModal` flag. Test both surfaces.
 - **Shared CSS/JS deps:** `memory.html` needs a subset of what `interface.html` loads. Audit and extract minimal deps to avoid loading the entire chat UI.
@@ -395,6 +528,27 @@ Cross-link from: `documentation/README.md`, `documentation/product/ops/mcp_serve
 ---
 
 ## 10. Files Likely Touched
+
+**Workstream 0 — extraction (new package structure):**
+
+| File | Changes |
+|------|---------|
+| `truth_management_system/providers/base.py` (new) | `LLMProvider` protocol |
+| `truth_management_system/providers/codecommon_provider.py` (new) | Wraps `code_common.call_llm` (chat-app host injects this) |
+| `truth_management_system/providers/default_provider.py` (new) | Self-contained OpenAI/OpenRouter provider (standalone) |
+| `truth_management_system/llm_helpers.py`, `search/*.py`, `interface/*.py` | Replace ~22 direct `code_common.call_llm` imports with provider calls (T0.1) |
+| `truth_management_system/interface/structured_api.py` | Carry/resolve the provider; remains the library entrypoint (G0a) |
+| `truth_management_system/auth/` (new) | JWT + dual-auth + scopes (moved from `mcp_server/auth.py`) |
+| `truth_management_system/http/app.py` (new) | `create_pkb_http_app()` + `/pkb/*` blueprint, package-only deps (G0b) |
+| `truth_management_system/ui/` (new) | Vendored `pkb-manager.js`, `memory.html`, minimal utils (G0b/G1b) |
+| `truth_management_system/mcp/server.py` (new) | MCP server importing package API + auth (moved from `mcp_server/pkb.py`) |
+| `truth_management_system/__main__.py` (new) | CLI: `serve-http` / `serve-mcp` / `mint-token` (G0b/G0c) |
+| `truth_management_system/pyproject.toml` (new) | Packaging + pinned deps (G0f) |
+| `mcp_server/auth.py`, `mcp_server/pkb.py` | Reduced to back-compat shims re-exporting from the package |
+| `endpoints/pkb.py` | Reduced to a thin adapter that mounts the package blueprint with session auth (preserves all 83 URLs, G0d) |
+| `tests/` | Provider-inversion source guard; standalone smoke test (import with chat app absent); MCP/REST auth tests |
+
+**Workstreams 1–6 (built inside the package per re-scope notes):**
 
 | File | Changes |
 |------|---------|
@@ -420,7 +574,12 @@ Cross-link from: `documentation/README.md`, `documentation/product/ops/mcp_serve
 3. Should `/memory/` support PWA install (add to `manifest.json`)?
 4. For revocation phase 1, use SQLite table (per-user `token_version`) or the existing user JSON config?
 5. Should token-authenticated REST requests get the same rate limits as session requests, or stricter?
-6. When overriding `user_email` in MCP tools — log a warning when client-supplied value differs from JWT email, or silently override?
+6. When overriding `user_email` in MCP tools — log a warning when client-supplied value differs from JWT email, or silently override? **Resolved in M1: log a warning.**
+7. **(WS0)** Standalone HTTP framework: keep Flask (matches `endpoints/pkb.py`, easiest port) or go ASGI/Starlette (matches the MCP server, better async)? Default: **Flask for the REST app, reuse existing Starlette for MCP** — least porting risk.
+8. **(WS0)** Standalone multi-user vs single-user: should `serve-http` support many users (per-JWT-email storage dirs, like the chat app) or assume a single owner? Default proposal: multi-user keyed by JWT email, single-user as a config flag.
+9. **(WS0)** Default LLM provider: which models/embedding model does `default_provider` target, and how are keys supplied (env `OPENAI_API_KEY`/`OPENROUTER_API_KEY`)? Embedding model must be pinned to avoid vector-dim drift.
+10. **(WS0)** Package name on PyPI/internal index if ever published, and whether to split to a separate repo later (currently a non-goal).
+11. **(WS0)** Does the chat app reference the vendored `pkb-manager.js` via symlink, a build-copy step, or a served path from the package? Pick one to keep a single UI source of truth.
 
 ---
 
