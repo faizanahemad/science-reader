@@ -78,11 +78,18 @@ skipped / 0 fail; offline eval unchanged, confirming inert defaults):
 - `a286cbd` — `backfill_entities` CLI (`python -m truth_management_system.backfill_entities`) + keyed-eval gating recipe in `tests/eval/README.md`.
 
 **Remaining:** none required — the keyed gate passed and the default unweighted
-RRF ships as-is (see results above). Optional, NOT started (would be scope creep
-on this plan): a tag-linked retrieval strategy (the rewrite already emits `tags`,
-currently unused); a REST endpoint wrapping `backfill_entities` (the CLI exists).
-The embedding-store SQLite-concurrency bug noted above is now FIXED
-(`PKBDatabase` reentrant lock + `tests/test_db_concurrency.py`).
+RRF ships as-is (see results above). Follow-ups since LANDED:
+- Tag-linked retrieval strategy (W-D), consuming the rewrite's previously-unused
+  `extracted_tags`: `search/tag_search.py` (`TagSearchStrategy`), INERT by
+  default (`tag_strategy_enabled=False`), wired into hybrid behind the flag,
+  9 unit tests, and tag-bearing eval cases. **Offline gate** (fts vs fts+tag on
+  the 4 new `tag` cases): tag-category mrr **0.333 → 0.625**, recall@10
+  **0.167 → 0.750**; overall mrr 0.700 → 0.726, recall 0.726 → 0.778 (no
+  regression). Keyed gate (adds rewrite/embedding + the rewrite-path case)
+  pending an OpenRouter key. Ships OFF until the keyed gate confirms.
+- REST endpoint `POST /pkb/backfill_entities` wrapping `backfill_entities`.
+- The embedding-store SQLite-concurrency bug noted above is now FIXED
+  (`PKBDatabase` reentrant lock + `tests/test_db_concurrency.py`).
 
 ## Motivation & Problem Statement
 

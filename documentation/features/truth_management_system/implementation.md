@@ -158,6 +158,7 @@ truth_management_system/
 │   ├── rewrite_search.py    # RewriteSearchStrategy: LLM rewrites query → FTS
 │   ├── mapreduce_search.py  # MapReduceSearchStrategy: LLM scores candidates
 │   ├── entity_search.py     # EntitySearchStrategy: entity-linked retrieval (W-C)
+│   ├── tag_search.py        # TagSearchStrategy: tag-linked retrieval (W-D, inert by default)
 │   ├── hybrid_search.py     # HybridSearchStrategy: parallel + RRF + optional rerank
 │   └── notes_search.py      # NotesSearchStrategy: FTS + embedding for notes
 │
@@ -308,6 +309,12 @@ entity_alias_match: bool = True                # W-C: also resolve entities via 
 # Rewrite/entity unification — single rewrite LLM call drives FTS+embedding+entity
 rewrite_is_query_source: bool = True           # one rewrite call feeds rewrite (precomputed metadata) + entity (surface forms); inert without an API key / when 'rewrite' inactive
 entity_use_rewrite_entities: bool = True       # entity strategy resolves the rewrite's LLM entities instead of the regex heuristic
+# Tag-linked retrieval (W-D) — symmetric to entity; INERT by default (ships OFF)
+tag_strategy_enabled: bool = False             # W-D: register/enable the tag-linked retrieval strategy
+tag_strategy_top_n: int = 5                    # W-D: max tag-linked claims fed into RRF
+tag_strategy_max_tags: int = 5                 # W-D: cap resolved tags per query (anti-flooding)
+tag_strategy_max_depth: int = 10               # W-D: tag-hierarchy traversal depth
+tag_use_rewrite_tags: bool = True              # W-D: feed the rewrite LLM's tags to the strategy
 # Provenance / dedup (provenance & cleanup plan)
 inferred_confidence_cap: float = 0.4    # confidence ceiling for inferred claims
 inferred_rerank_penalty: float = 0.1    # score ×(1-penalty) for inferred in re-rank
@@ -780,6 +787,24 @@ Entity-linked retrieval: surfaces claims attached to entities named in the query
 4. Rank by cosine similarity to the query embedding using the `EmbeddingStore` cache; degrade to recency order when no query embedding is available (no key / embeddings disabled / cold cache).
 5. Return top-N (`entity_strategy_top_n`, default 5). Returns `[]` when disabled, the query is empty, or no entity resolves (RRF no-op).
 
+#### `search/tag_search.py` - `TagSearchStrategy` (W-D)
+
+Tag-linked retrieval: the symmetric counterpart of the entity strategy. Surfaces claims attached to *category tags* (health, work, family, ...) inferred from the query as another ranked list for RRF fusion. Consumes the rewrite LLM's `extracted_tags` (previously emitted but unused). **INERT by default** — gated on `tag_strategy_enabled` (default `False`), so it is not even registered until explicitly enabled and eval-gated; production ranking is unchanged. Works without an API key (degrades to recency ordering).
+
+| Method | Signature | Purpose |
+|--------|-----------|---------|
+| `search` | `(query, k, filters, tag_names=None, query_embedding=None)` → List[SearchResult] | Tag-linked results (`source="tag"`); the orchestrator may supply rewrite `tag_names` and a reusable `query_embedding` |
+| `name` | `()` → "tag" | Strategy identifier |
+
+**Process:**
+1. Resolve tag names. When `tag_use_rewrite_tags` is set and the single rewrite call ran, the orchestrator supplies the rewrite LLM's `tags` as `tag_names`; otherwise matching query word-tokens are used (self-filtering — non-tag tokens resolve to nothing). Capped at `tag_strategy_max_tags`.
+2. Resolve to tags by exact (case-insensitive) name match, user-scoped.
+3. Pull linked claims via `TagCRUD.resolve_claims`, which traverses the **tag hierarchy** (a parent tag also surfaces its descendants' claims) and applies the status filter (default active + contested) and user scope — so archived / superseded / expired claims are **not** resurfaced.
+4. Rank by cosine similarity to the query embedding (reusing the entity strategy's query vector when available); degrade to recency order when no embedding is available.
+5. Return top-N (`tag_strategy_top_n`, default 5). Returns `[]` when disabled, the query is empty, or no tag resolves (RRF no-op).
+
+**Eval (offline, fts vs fts+tag on the 4 `tag`-category cases):** tag-category mrr 0.333 → 0.625, recall@10 0.167 → 0.750; overall mrr 0.700 → 0.726 (no regression). Keyed gate (adds rewrite/embedding) pending; ships OFF until confirmed.
+
 #### `search/hybrid_search.py` - `HybridSearchStrategy`
 
 Orchestrates multiple strategies with parallel execution.
@@ -792,7 +817,7 @@ Orchestrates multiple strategies with parallel execution.
 | `search_all_strategies` | `(query, k, filters)` | Use all strategies |
 | `get_available_strategies` | `()` → List[str] | List available strategies |
 
-**Default strategy set:** `fts` + (when an API key is present) `embedding`, `rewrite`, and (when `entity_strategy_enabled`) `entity`.
+**Default strategy set:** `fts` + (when an API key is present) `embedding`, `rewrite`, and (when `entity_strategy_enabled`) `entity` — plus `tag` only when `tag_strategy_enabled` (off by default, so the tag source never runs in production until enabled).
 
 **Algorithm:**
 1. **Rewrite/entity unification** (`_build_strategy_context`): when `rewrite_is_query_source` is set, an API key is present, and `rewrite` is active, make ONE rewrite LLM call up front and package its output as `strategy_context` — the rewrite strategy reuses the precomputed metadata (no second LLM call) and the entity strategy resolves the LLM `entities` (and ranks against the rewrite's `embedding_query`). Inert otherwise (each strategy keeps its own path).
