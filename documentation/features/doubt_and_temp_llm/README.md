@@ -457,3 +457,39 @@ Added to `DoubtsClearing` table:
 | `endpoints/conversations.py` | `_AUTO_DOUBT_DISPATCH` dict, `auto_doubt_categories` validation, model override |
 | `database/doubts.py` | `update_doubt_pinned()`, `update_doubt_bookmarked()`, `update_doubt_answer()`, `get_all_doubts_for_user()` |
 | `database/connection.py` | `pinned` + `bookmarked` column migrations |
+
+
+### Feature: Progressive Disclosure (TL;DR / Explanation / Deep Dive)
+
+**Motivation:** Auto-doubt answers are long but users often only need the gist. Progressive disclosure structures answers into 3 collapsible tiers so users can skim the TL;DR and expand only what interests them.
+
+**LLM Output Format:**
+- System prompt appended with 3-section formatting instruction (skipped when "Short" preamble is active)
+- Markers: `<tldr>...</tldr>`, `<explanation>...</explanation>`, `<deep_dive>...</deep_dive>`
+- Applied to `clear_doubt()` in Conversation.py and all 8 long-answer auto-doubt functions via `_DOUBT_SECTION_FMT` constant
+
+**Frontend Rendering:**
+- `createDoubtChatCard` detects all 3 markers → renders as collapsible `<details class="section-details">` elements
+- TL;DR: always visible (no collapse), styled with blue left border
+- Explanation: `<details open>` by default for user doubts, uses persisted state
+- Deep Dive: `<details>` (closed by default), uses persisted state
+- During streaming: markers stripped from display text (`</?(?:tldr|explanation|deep_dive)>` regex), final re-render applies sections on completion
+- Fallback: if markers are missing or answer is too short, renders as plain markdown (no sections)
+
+**State Persistence:**
+- Reuses existing `SectionHiddenDetails` table with `doubt_{doubt_id}_explain` and `doubt_{doubt_id}_deep` keys
+- Toggle handler in `setupChatEventHandlers` calls `persistSectionState(conversationId, sectionHash, isHidden)`
+- `/get_doubts` response includes `section_states` dict (all `doubt_*` prefixed section states for the conversation)
+- `_sectionStates` stored on `DoubtManager` instance from API response
+
+**Defaults:**
+- Explanation: open (unless user previously collapsed it)
+- Deep Dive: closed (unless user previously opened it)
+- Card-level collapse (`ensureDoubtAnswerToggle`) is skipped when progressive disclosure sections are present
+
+**Key Files:**
+- `Conversation.py` ~L12730 — section format instruction in `clear_doubt()` system prompt
+- `endpoints/conversations.py` — `_DOUBT_SECTION_FMT` constant, appended to 8 auto-doubt system prompts
+- `endpoints/doubts.py` — `section_states` in `/get_doubts` response via `get_all_section_hidden_details`
+- `interface/doubt-manager.js` — section parsing in `createDoubtChatCard`, post-streaming re-render, toggle handler, marker stripping during streaming
+- `interface/interface.html` — `.doubt-progressive-disclosure` CSS styling

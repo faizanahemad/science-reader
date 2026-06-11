@@ -970,6 +970,7 @@ The `@pkb:claim_id` prefix is supported as a legacy alias alongside `@memory:` a
 - **Auto-doubt model override** — per-conversation `auto_doubt_model` setting.
 - **Global "My Doubts" modal** — cross-conversation searchable/filterable paginated view from sidebar.
 - **Separate doubt preamble** — `doubt_preamble_options` distinct from main chat preambles.
+- **Progressive disclosure** — Answers rendered as TL;DR (always visible) + Explanation (collapsible) + Deep Dive (collapsible, closed by default). Collapse state persisted via `SectionHiddenDetails` table. Markers stripped during streaming, applied on completion.
 
 ---
 

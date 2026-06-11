@@ -476,6 +476,7 @@ const DoubtManager = {
      * Create a chat card for doubt conversation
      */
     createDoubtChatCard: function(text, sender, doubtId, showHide) {
+        text = text || '';
         const isUser = sender === 'user';
         const senderClass = isUser ? 'user-doubt' : 'assistant-doubt';
         const senderText = isUser ? 'You' : 'Assistant';
@@ -575,7 +576,9 @@ const DoubtManager = {
 
         // Add the collapse (show/hide) toggle for long assistant answers, mirroring
         // the main-answer show/hide. Restores the persisted state (default expanded).
-        if (!isUser && text && text.length > 300) {
+        // Skip when progressive disclosure sections handle their own collapse.
+        const hasDisclosure = text.includes('<tldr>') && text.includes('<explanation>') && text.includes('<deep_dive>');
+        if (!isUser && text && text.length > 300 && !hasDisclosure) {
             this.ensureDoubtAnswerToggle(card, doubtId, showHide || 'show');
         }
 
@@ -1294,11 +1297,12 @@ const DoubtManager = {
                         }
                         
                         accumulatedText += processedText;
-                        // Render markdown if available
+                        // Render markdown if available — strip progressive disclosure markers during streaming
+                        const displayText = accumulatedText.replace(/<\/?(?:tldr|explanation|deep_dive)>/g, '');
                         if (typeof marked !== 'undefined' && marked.parse) {
-                            assistantBody.html(marked.parse(accumulatedText));
+                            assistantBody.html(marked.parse(displayText));
                         } else {
-                            assistantBody.html(accumulatedText.replace(/\n/g, '<br>'));
+                            assistantBody.html(displayText.replace(/\n/g, '<br>'));
                         }
                         if (typeof renderMermaidIn === 'function') renderMermaidIn(assistantBody);
                     }
@@ -1369,7 +1373,9 @@ const DoubtManager = {
 
                         // Inject the collapse (show/hide) toggle on the freshly-streamed
                         // answer (expanded). data-doubt-id is set so the toggle persists.
-                        if (accumulatedText.length > 300) {
+                        // Skip if progressive disclosure sections are present (they handle their own collapse).
+                        const hasProgressiveSections = accumulatedText.includes('<tldr>') && accumulatedText.includes('<explanation>') && accumulatedText.includes('<deep_dive>');
+                        if (accumulatedText.length > 300 && !hasProgressiveSections) {
                             setTimeout(function() {
                                 let toggleCard = storedCardId ? $('[data-card-id="' + storedCardId + '"]') : null;
                                 if (!toggleCard || !toggleCard.length) toggleCard = assistantCard;
