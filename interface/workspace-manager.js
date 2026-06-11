@@ -534,7 +534,6 @@ var WorkspaceManager = {
         if (savedColor !== 'all') {
             pinned = pinned.filter(function (c) { return c.flag === savedColor; });
         }
-        pinned = pinned.slice(0, 5);
 
         // Badge
         badge.text(pinned.length > 0 ? '(' + pinned.length + ')' : '');
