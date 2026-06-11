@@ -4,7 +4,7 @@
 **Created:** 2026-06-12
 **Scope:** Replace the current "every long-term claim requires user confirmation" behavior with a **tiered routing policy** that decides, per extracted candidate, whether to (A) **save silently with undo**, (B) **ask the user to confirm**, or (C) **skip silently**. The decision is computed from signals the pipeline *already* produces (confidence, dedup similarity, conflict relation, derivation, context domain, claim type, visibility). Covers product design, the UX at UI / REST / MCP levels, the implementation seam, config, rollout (inert-by-default, eval-gated), and evaluation.
 
-**Related plans:** `pkb_external_access_ui_mcp_rest_auth.plan.md` (standalone/MCP/REST surfaces — the policy must work across all of them), `pkb_retrieval_ranking.plan.md` (retrieval is downstream of what we persist), `pkb_rewrite_entity_unification.plan.md`.
+**Related plans:** `pkb_memory_autonomy_dial.plan.md` — the **umbrella** plan; this plan is the detailed design of its **Capture facet**, and the autonomy dial owns the per-user policy store + effective-config resolution that this plan also relies on. `pkb_external_access_ui_mcp_rest_auth.plan.md` (standalone/MCP/REST surfaces — the policy must work across all of them), `pkb_retrieval_ranking.plan.md` (retrieval is downstream of what we persist), `pkb_rewrite_entity_unification.plan.md`.
 
 **Non-goals:** Changing the *extraction* LLM/prompts; building a new sensitivity ML classifier (v1 derives sensitivity from existing enums); changing STM behavior (already silent).
 
