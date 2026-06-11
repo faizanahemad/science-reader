@@ -341,6 +341,7 @@ Model: `conversation.get_model_override("auto_doubt_model", "gemini-flash-3.5-no
 - `PKBExtractionHook` needs only `ctx.query_text` + `ctx.response_text` — fully independent
 - `AutoDoubtHook` needs `ctx.response_message_id` + conversation reference — fully independent of persistence
 - `PredictivePrefetchHook` runs last — uses conversation summary if available, degrades gracefully if not
+- **Thread safety:** `PKBDatabase` now uses a `threading.RLock` on its shared connection (commit `0fdaa15`), so multiple parallel POST_PERSIST hooks calling PKB methods concurrently are safe — no `SQLITE_MISUSE` risk
 
 ---
 
