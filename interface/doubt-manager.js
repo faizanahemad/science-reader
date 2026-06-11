@@ -323,6 +323,9 @@ const DoubtManager = {
         // Hide overview modal if it's open
         $('#doubts-overview-modal').modal('hide');
         
+        // Initialize inline controls: populate preamble from settings, reset length to Medium
+        this.initDoubtModalControls();
+        
         // Set up chat event handlers
         this.setupChatEventHandlers();
         
@@ -333,6 +336,29 @@ const DoubtManager = {
         setTimeout(() => {
             input.focus();
         }, 500);
+    },
+    
+    /**
+     * Initialize the inline doubt modal controls (length toggle + preamble selector)
+     */
+    initDoubtModalControls: function() {
+        // Set length to medium
+        $('.doubt-length-btn').removeClass('active');
+        $('.doubt-length-btn[data-length="medium"]').addClass('active');
+        
+        // Populate preamble selector from chatSettingsState
+        const selector = $('#doubt-modal-preamble-selector');
+        const currentOpts = (window.chatSettingsState && window.chatSettingsState.doubt_preamble_options) || [];
+        selector.val(currentOpts);
+        if (selector.hasClass('selectpicker')) {
+            selector.selectpicker('refresh');
+        }
+        
+        // Length toggle click handler
+        $('.doubt-length-btn').off('click').on('click', function() {
+            $('.doubt-length-btn').removeClass('active');
+            $(this).addClass('active');
+        });
     },
     
     /**
@@ -449,6 +475,9 @@ const DoubtManager = {
         // Bookmark button for assistant cards (only if doubtId exists - i.e. saved doubts)
         const bookmarkBtn = (!isUser && doubtId) ? `<button class="btn btn-sm p-1 doubt-bookmark-btn" data-doubt-id="${doubtId}" title="Bookmark"><i class="bi bi-bookmark"></i></button>` : '';
         
+        // Regenerate button for assistant cards
+        const regenBtn = (!isUser && doubtId) ? `<button class="btn btn-sm p-1 doubt-regen-btn" data-doubt-id="${doubtId}" title="Regenerate answer"><i class="bi bi-arrow-clockwise"></i></button>` : '';
+        
         // Render content based on sender type
         let renderedContent;
         if (isUser) {
@@ -470,6 +499,7 @@ const DoubtManager = {
                     <span class="doubt-card-sender">${senderText}</span>
                     <span class="doubt-card-actions d-flex align-items-center">
                         <button class="btn btn-sm p-1 scroll-to-bottom-btn doubt-scroll-bottom" title="Jump to the bottom of this message" style="display:none;">Bottom <i class="bi bi-arrow-down-short"></i></button>
+                        ${regenBtn}
                         ${bookmarkBtn}
                         <button class="doubt-copy-btn btn btn-sm p-1" title="Copy text"><i class="bi bi-clipboard"></i></button>
                         ${deleteBtn}
@@ -554,6 +584,22 @@ const DoubtManager = {
             DoubtManager.showDoubtsOverview(self.currentConversationId, self.currentMessageId);
         });
         
+        // Copy Thread button — copies entire thread as markdown
+        $('#doubt-copy-thread-btn').off('click').on('click', function() {
+            if (!self.currentDoubtHistory || self.currentDoubtHistory.length === 0) {
+                if (typeof showToast === 'function') showToast('No thread to copy', 'warning');
+                return;
+            }
+            const threadText = self.currentDoubtHistory.map(d =>
+                `## Q: ${d.doubt_text}\n\n${d.doubt_answer}\n\n---`
+            ).join('\n\n');
+            navigator.clipboard.writeText(threadText).then(() => {
+                if (typeof showToast === 'function') showToast('Thread copied to clipboard', 'success');
+            }).catch(() => {
+                if (typeof showToast === 'function') showToast('Failed to copy', 'error');
+            });
+        });
+        
         // Send button click
         sendBtn.off('click').on('click', function() {
             self.sendDoubt();
@@ -631,8 +677,99 @@ const DoubtManager = {
                 }
             });
         });
+
+        // Regenerate a doubt answer
+        $(document).off('click', '#doubt-chat-messages .doubt-regen-btn').on('click', '#doubt-chat-messages .doubt-regen-btn', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const btn = $(this);
+            const doubtId = btn.data('doubt-id');
+            const card = btn.closest('.doubt-conversation-card');
+            const cardBody = card.find('.card-body');
+            
+            // Check if it has children (warn user)
+            const hasChildren = self.currentDoubtHistory.some(d => d.parent_doubt_id === doubtId);
+            if (hasChildren) {
+                showToast('Note: Follow-up questions were based on the previous answer', 'warning');
+            }
+            
+            // Show spinner, disable button
+            btn.prop('disabled', true);
+            cardBody.html('<div class="text-center"><i class="bi bi-arrow-clockwise spin-animation"></i> Regenerating...</div>');
+            
+            // Get current preamble options from inline controls or settings
+            const preambleOpts = self.getActiveDoubtPreambleOptions();
+            
+            // Stream regeneration
+            fetch(`/regenerate_doubt/${doubtId}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ preamble_options: preambleOpts })
+            }).then(response => {
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let accumulated = '';
+                cardBody.empty();
+                
+                function readChunk() {
+                    reader.read().then(({ done, value }) => {
+                        if (done) {
+                            btn.prop('disabled', false);
+                            // Update in-memory history
+                            const histEntry = self.currentDoubtHistory.find(d => d.doubt_id === doubtId);
+                            if (histEntry) histEntry.doubt_answer = accumulated;
+                            // Re-render math
+                            if (typeof MathJax !== 'undefined' && MathJax.Hub) {
+                                MathJax.Hub.Queue(["Typeset", MathJax.Hub, cardBody[0]]);
+                            }
+                            return;
+                        }
+                        const text = decoder.decode(value, { stream: true });
+                        const lines = text.split('\n').filter(l => l.trim());
+                        for (const line of lines) {
+                            try {
+                                const data = JSON.parse(line);
+                                if (data.text) {
+                                    accumulated += data.text;
+                                    const rendered = (typeof marked !== 'undefined' && marked.parse) ? marked.parse(accumulated) : accumulated.replace(/\n/g, '<br>');
+                                    cardBody.html(rendered);
+                                }
+                            } catch(e) {}
+                        }
+                        readChunk();
+                    });
+                }
+                readChunk();
+            }).catch(err => {
+                btn.prop('disabled', false);
+                cardBody.html('<p class="text-danger">Regeneration failed</p>');
+                if (typeof showToast === 'function') showToast('Regeneration failed', 'error');
+            });
+        });
     },
     
+    /**
+     * Get active doubt preamble options from inline modal controls or settings fallback
+     */
+    getActiveDoubtPreambleOptions: function() {
+        // Read from inline modal preamble selector, fallback to settings
+        const inlineSelector = $('#doubt-modal-preamble-selector');
+        let opts = [];
+        if (inlineSelector.length && inlineSelector.val() && inlineSelector.val().length > 0) {
+            opts = [...inlineSelector.val()];
+        } else {
+            opts = [...((window.chatSettingsState && window.chatSettingsState.doubt_preamble_options) || [])];
+        }
+        
+        // Merge length toggle: Short/Long added to preamble list, Medium = neither
+        const activeLength = $('.doubt-length-btn.active').data('length');
+        opts = opts.filter(o => o !== 'Short' && o !== 'Long');
+        if (activeLength === 'short') opts.push('Short');
+        else if (activeLength === 'long') opts.push('Long');
+        
+        return opts;
+    },
+
     /**
      * Send a new doubt or follow-up
      */
@@ -704,7 +841,7 @@ const DoubtManager = {
             reward_level: rewardLevel,
             selected_text: this.selectedText || '',
             with_context: this.withContext || false,
-            preamble_options: (window.chatSettingsState && window.chatSettingsState.doubt_preamble_options) || []
+            preamble_options: this.getActiveDoubtPreambleOptions()
         };
         
         if (parentDoubtId) {

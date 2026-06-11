@@ -590,3 +590,65 @@ def bookmark_doubt_route(doubt_id: str):
     except Exception as e:
         logger.error(f"Error bookmarking doubt {doubt_id}: {e}")
         return json_error(str(e), status=500, code="internal_error")
+
+
+@doubts_bp.route("/regenerate_doubt/<doubt_id>", methods=["POST"])
+@limiter.limit("20 per minute")
+@login_required
+def regenerate_doubt_route(doubt_id: str):
+    """Re-run LLM for an existing doubt and update its answer in-place (streaming)."""
+    email, _name, _loggedin = get_session_identity()
+    state, keys = get_state_and_keys()
+
+    body = request.json if request.is_json and request.json else {}
+    preamble_options = body.get("preamble_options", []) or []
+
+    try:
+        doubt_record = get_doubt(doubt_id=doubt_id, users_dir=state.users_dir, logger=logger)
+        if not doubt_record:
+            return json_error("Doubt not found", status=404, code="doubt_not_found")
+
+        conversation_id = doubt_record["conversation_id"]
+        message_id = doubt_record["message_id"]
+        doubt_text = doubt_record["doubt_text"]
+        with_context = doubt_record["with_context"]
+
+        if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
+            return json_error("Conversation not found", status=404, code="conversation_not_found")
+
+        conversation = attach_keys(state.conversation_cache[conversation_id], keys)
+
+        # Build history from ancestors (exclude the doubt itself)
+        doubt_history = []
+        if doubt_record["parent_doubt_id"]:
+            doubt_history = get_doubt_history(
+                doubt_id=doubt_record["parent_doubt_id"],
+                users_dir=state.users_dir, logger=logger,
+            )
+
+        def generate_regen_stream():
+            accumulated = ""
+            try:
+                yield json.dumps({"text": "", "status": "Regenerating...", "type": "doubt_clearing"}) + "\n"
+
+                for chunk in conversation.clear_doubt(
+                    message_id, doubt_text, doubt_history, 0,
+                    selected_text="", with_context=with_context,
+                    preamble_options=preamble_options
+                ):
+                    if chunk:
+                        accumulated += chunk
+                        yield json.dumps({"text": chunk, "type": "doubt_clearing", "accumulated_text": accumulated}) + "\n"
+            finally:
+                if accumulated.strip():
+                    update_doubt_answer(doubt_id=doubt_id, doubt_answer=accumulated, users_dir=state.users_dir, logger=logger)
+
+                yield json.dumps({
+                    "text": "", "status": "Regeneration complete", "type": "doubt_clearing",
+                    "completed": True, "doubt_id": doubt_id, "accumulated_text": accumulated,
+                }) + "\n"
+
+        return Response(generate_regen_stream(), content_type="text/plain")
+    except Exception as e:
+        logger.error(f"Error regenerating doubt {doubt_id}: {e}")
+        return json_error(str(e), status=500, code="internal_error")

@@ -1823,6 +1823,8 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
             initialiseVoteBank(card, `${answer}`, contentId = null, activeDocId = ConversationManager.activeConversationId);
             // Reveal doubts button after delay (auto-takeaways may create a doubt async)
             setTimeout(function() { revealDoubtsButtons(ConversationManager.activeConversationId); }, 5000);
+            // Second poll with pulse animation + toast notification for auto-doubts
+            setTimeout(function() { revealDoubtsButtons(ConversationManager.activeConversationId, true); }, 25000);
             if (typeof normalizeMermaidBlocks === 'function') {
                 normalizeMermaidBlocks(document);
             }
@@ -2948,15 +2950,29 @@ function clearUrlofConversationId() {
 }
 
 
-function revealDoubtsButtons(conversationId) {
+function revealDoubtsButtons(conversationId, withPulse) {
     if (!conversationId) return;
     fetch('/get_messages_with_doubts/' + conversationId)
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (data.success && data.message_ids && data.message_ids.length > 0) {
+                var newlyRevealed = 0;
                 data.message_ids.forEach(function(mid) {
-                    $('.has-doubts-btn[message-id="' + mid + '"]').show();
+                    var btn = $('.has-doubts-btn[message-id="' + mid + '"]');
+                    if (btn.length && btn.is(':hidden')) {
+                        btn.show();
+                        if (withPulse) {
+                            btn.addClass('doubt-new-pulse');
+                            btn.one('animationend', function() { $(this).removeClass('doubt-new-pulse'); });
+                            newlyRevealed++;
+                        }
+                    } else {
+                        btn.show();
+                    }
                 });
+                if (withPulse && newlyRevealed > 0 && typeof showToast === 'function') {
+                    showToast('\u2728 Learning aids ready for your last reply', 'info');
+                }
             }
         })
         .catch(function() { /* silent */ });
