@@ -57,6 +57,8 @@ PKB eval report — dataset='pkb_seed_v3', claims=46, cases=38, k=5
 | `recency` | Expect the **newer** of two claims (ordering) | Workstream C (recency decay) | mrr 0.50 at default; **1.00 with `w_recency` on** |
 | `conflict` | Contradictory claims; expect the current one | Workstream C/D/H | mrr 0.50 at default; **1.00 with `w_recency` on** |
 | `semantic` | Paraphrase with no shared word-prefix | embeddings/hybrid | ~0 → room to grow |
+| `entity` | Claims linked to a named entity in the query | entity strategy (W-C) | low → entity strategy lifts it |
+| `tag` | Claims sharing a category tag, few/no shared query tokens | tag strategy (W-D, opt-in) | low → tag strategy lifts mrr/recall to ~1.0 (ships off; see plan) |
 
 The low categories are intentional headroom: they encode capabilities the plan
 will deliver (embeddings, recency ranking, conflict resolution), so improvements

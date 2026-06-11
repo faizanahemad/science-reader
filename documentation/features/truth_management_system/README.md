@@ -110,8 +110,8 @@ In-depth technical documentation including:
 > - Full server startup and state initialization: `AppState`, blueprint registration, lazy DB init, plan storage lifecycle, ephemeral vs persistent state table
 > - `_get_pkb_context()` priority/deduplication logic with full code walkthrough (5 priority levels, seen_ids deduplication, search-query enrichment with conversation summary)
 > - Two-stage LLM injection: distillation → verbatim re-injection of referenced claims (why and how)
-> - Retrieval eval harness: category definitions (`lexical`, `semantic`, `recency`, `conflict`, `hard_negative`, `scoped`, `lifecycle`, `entity`), FTS baseline numbers, regression guards in `test_eval_harness.py`
-> - Retrieval ranking improvements (W-A/W-B/W-C): weighted RRF fusion (`rrf_strategy_weights`), per-strategy query scoping (`fts_use_focused_query`), and the entity-linked retrieval strategy (`search/entity_search.py`, `entity_strategy_*`)
+> - Retrieval eval harness: category definitions (`lexical`, `semantic`, `recency`, `conflict`, `hard_negative`, `scoped`, `lifecycle`, `entity`, `tag`), FTS baseline numbers, regression guards in `test_eval_harness.py`
+> - Retrieval ranking improvements (W-A/W-B/W-C/W-D): weighted RRF fusion (`rrf_strategy_weights`), per-strategy query scoping (`fts_use_focused_query`), the entity-linked retrieval strategy (`search/entity_search.py`, `entity_strategy_*`), and the inert/opt-in tag-linked retrieval strategy (`search/tag_search.py`, `tag_strategy_*`, ships off pending query-conditional activation)
 > - All development patterns: step-by-step guides for adding a new endpoint, CRUD operation, or search strategy
 
 ---

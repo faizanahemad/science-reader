@@ -150,6 +150,34 @@ to the default fusion set. RRF sums the reciprocal-rank scores of a claim found
 by both embedding and entity link (it rises to the top) and de-dupes by
 `claim_id` automatically.
 
+### W-D — Tag-linked retrieval strategy (inert by default)
+
+`TagSearchStrategy` (`search/tag_search.py`, `source="tag"`) is the symmetric
+counterpart of W-C for *category* tags. It resolves the rewrite LLM's `tags` (or
+matching query tokens) to tag ids by exact name match, pulls linked claims via
+`TagCRUD.resolve_claims` — which traverses the **tag hierarchy** (a parent tag
+also surfaces its descendants' claims) and applies the same status + user
+filters — ranks them by cosine fit (reusing the entity strategy's query vector;
+recency fallback), and returns top-N (`tag_strategy_top_n`). Returns `[]` when
+disabled, the query is empty, or nothing resolves.
+
+It is **INERT by default** (`tag_strategy_enabled=False`): not even registered
+until enabled, so production ranking is unchanged. `tag_strategy_boost_only`
+(default `True`) makes it a pure booster — `HybridSearchStrategy._apply_tag_boost_only`
+drops, before RRF, any tag result not also returned by another active strategy
+(no-op when 'tag' is the only active strategy); `False` enables full
+orthogonal-recall introduction.
+
+**Why it ships off:** the keyed eval gate showed both modes lift the
+`tag`-category mrr/recall to ~1.0 (and overall recall@10), but **both** carry a
+consistent lexical/semantic mrr cost (~−0.03 overall). Boost-only does not fix
+it: the noisy tagged claim is *corroborated* by embedding, so the tag source's
+rank vote still demotes the exact lexical hit. The regression is from the tag
+source *voting* on queries where the rewrite emits an incidental tag, not from
+introduction. The path to shipping on is **query-conditional activation**
+(suppress the tag vote when a strong non-tag hit exists), validated on a larger,
+realistic tagged eval set.
+
 ### Rewrite/entity unification — single LLM call, single RRF
 
 The overview-aware rewrite is the single source of query derivation. When
@@ -195,6 +223,12 @@ existing corpus without being required for correctness.
 | `entity_strategy_max_entities: int` | `5` | W-C (anti-flooding cap) |
 | `rewrite_is_query_source: bool` | `True` | Unification (single rewrite call) |
 | `entity_use_rewrite_entities: bool` | `True` | Unification (entity uses LLM entities) |
+| `tag_strategy_enabled: bool` | `False` | W-D (inert by default — ships off) |
+| `tag_strategy_top_n: int` | `5` | W-D |
+| `tag_strategy_max_tags: int` | `5` | W-D (anti-flooding cap) |
+| `tag_strategy_max_depth: int` | `10` | W-D (tag-hierarchy depth) |
+| `tag_use_rewrite_tags: bool` | `True` | W-D (tag uses LLM tags) |
+| `tag_strategy_boost_only: bool` | `True` | W-D (corroborate-only; never introduce) |
 
 All are wired through `to_dict` / `from_dict` / env (`PKB_*`;
 `PKB_RRF_STRATEGY_WEIGHTS` is JSON).
