@@ -241,6 +241,15 @@ class PKBConfig:
     tag_strategy_max_tags: int = 5          # cap resolved tags per query (anti-flooding)
     tag_strategy_max_depth: int = 10        # tag-hierarchy traversal depth
     tag_use_rewrite_tags: bool = True       # feed rewrite LLM tags to the strategy
+    # Boost-only (corroboration) mode: when True, the tag source only re-ranks
+    # claims that ANOTHER active strategy also returned — it never *introduces* a
+    # tag-only claim. This is the safe default: it keeps the "found by tag AND
+    # embedding => rank higher" boost while avoiding the lexical-precision
+    # regression seen in full-introduce mode (where a category tag emitted on a
+    # lexical query injected an unrelated tagged claim above the exact hit). Set
+    # False for full orthogonal-recall introduction (higher tag recall, but it
+    # can dilute precision on non-category queries — eval-gate before enabling).
+    tag_strategy_boost_only: bool = True
 
     # Parallelization
     max_parallel_llm_calls: int = 8
@@ -327,6 +336,7 @@ class PKBConfig:
             'tag_strategy_max_tags': self.tag_strategy_max_tags,
             'tag_strategy_max_depth': self.tag_strategy_max_depth,
             'tag_use_rewrite_tags': self.tag_use_rewrite_tags,
+            'tag_strategy_boost_only': self.tag_strategy_boost_only,
             'log_llm_calls': self.log_llm_calls,
             'log_search_queries': self.log_search_queries,
         }
@@ -366,7 +376,7 @@ class PKBConfig:
             'fts_use_focused_query',
             'entity_strategy_enabled', 'entity_strategy_top_n', 'entity_strategy_max_entities', 'entity_alias_match',
             'rewrite_is_query_source', 'entity_use_rewrite_entities',
-            'tag_strategy_enabled', 'tag_strategy_top_n', 'tag_strategy_max_tags', 'tag_strategy_max_depth', 'tag_use_rewrite_tags',
+            'tag_strategy_enabled', 'tag_strategy_top_n', 'tag_strategy_max_tags', 'tag_strategy_max_depth', 'tag_use_rewrite_tags', 'tag_strategy_boost_only',
             'log_llm_calls', 'log_search_queries'
         }
         filtered = {k: v for k, v in data.items() if k in valid_keys}
@@ -461,6 +471,7 @@ def load_config(
         'TAG_STRATEGY_MAX_TAGS': ('tag_strategy_max_tags', int),
         'TAG_STRATEGY_MAX_DEPTH': ('tag_strategy_max_depth', int),
         'TAG_USE_REWRITE_TAGS': ('tag_use_rewrite_tags', lambda x: x.lower() in ('true', '1', 'yes')),
+        'TAG_STRATEGY_BOOST_ONLY': ('tag_strategy_boost_only', lambda x: x.lower() in ('true', '1', 'yes')),
         'LOG_LLM_CALLS': ('log_llm_calls', lambda x: x.lower() in ('true', '1', 'yes')),
         'LOG_SEARCH_QUERIES': ('log_search_queries', lambda x: x.lower() in ('true', '1', 'yes')),
     }

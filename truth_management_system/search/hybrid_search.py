@@ -156,6 +156,14 @@ class HybridSearchStrategy:
         # Execute strategies in parallel
         all_results = self._execute_parallel(query, active_strategies, k * 2, filters, strategy_queries, strategy_context)
         time_logger.info(f"[HYBRID] Strategy results: {[(name, len(r)) for name, r in zip(active_strategies, all_results)]}")
+
+        # W-D boost-only (corroboration): when enabled, the tag source only
+        # re-ranks claims that ANOTHER active strategy also returned — it never
+        # introduces a tag-only claim. This keeps the "found by tag AND embedding
+        # => rank higher" boost while preventing a category tag emitted on a
+        # non-category query from injecting unrelated tagged claims above the
+        # real hit. No-op unless 'tag' is one of several active strategies.
+        all_results = self._apply_tag_boost_only(active_strategies, all_results)
         
         # Merge using RRF. Per-strategy weights (W-A) let us trust some
         # strategies more than others (e.g. embedding > fts); an empty mapping
@@ -273,6 +281,46 @@ class HybridSearchStrategy:
         )
         
         return results
+
+    def _apply_tag_boost_only(
+        self,
+        active_strategies: List[str],
+        all_results: List[List[SearchResult]],
+    ) -> List[List[SearchResult]]:
+        """
+        Filter the tag strategy's results to claims another active strategy also
+        returned (corroboration), so the tag source boosts but never introduces.
+
+        No-op when ``tag_strategy_boost_only`` is off, when 'tag' is not active,
+        or when 'tag' is the only active strategy (nothing to corroborate
+        against). Mutates and returns ``all_results``.
+        """
+        if not getattr(self.config, "tag_strategy_boost_only", True):
+            return all_results
+        if "tag" not in active_strategies or len(active_strategies) < 2:
+            return all_results
+
+        tag_idx = active_strategies.index("tag")
+        corroborated = set()
+        for i, results in enumerate(all_results):
+            if i == tag_idx:
+                continue
+            for r in results:
+                cid = getattr(getattr(r, "claim", None), "claim_id", None)
+                if cid:
+                    corroborated.add(cid)
+
+        before = len(all_results[tag_idx])
+        all_results[tag_idx] = [
+            r for r in all_results[tag_idx]
+            if getattr(getattr(r, "claim", None), "claim_id", None) in corroborated
+        ]
+        dropped = before - len(all_results[tag_idx])
+        if dropped:
+            time_logger.info(
+                f"[HYBRID] tag boost-only dropped {dropped} tag-only result(s)"
+            )
+        return all_results
 
     def _build_strategy_context(
         self,

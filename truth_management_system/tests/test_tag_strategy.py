@@ -174,3 +174,48 @@ def test_cosine_ranking_orders_by_similarity():
     results = strat.search("health", filters=SearchFilters())
     assert [r.claim.claim_id for r in results] == [near.claim_id, far.claim_id]
     assert results[0].score > results[1].score
+
+
+# --------------------------------------------------------------------------- #
+# Boost-only (corroboration) filter — W-D safe default
+# --------------------------------------------------------------------------- #
+def _hybrid_and_results(config, db, claims):
+    from truth_management_system.search.hybrid_search import HybridSearchStrategy
+    from truth_management_system.search.base import SearchResult
+    corrob = _claim(claims, "a corroborated claim")
+    tag_only = _claim(claims, "a tag-only claim")
+    other = [SearchResult.from_claim(claim=corrob, score=0.9, source="embedding")]
+    tag = [
+        SearchResult.from_claim(claim=corrob, score=0.5, source="tag"),
+        SearchResult.from_claim(claim=tag_only, score=0.4, source="tag"),
+    ]
+    return HybridSearchStrategy(db, {}, config), corrob, tag_only, other, tag
+
+
+def test_boost_only_drops_tag_only_results():
+    """Default boost-only: a tag result not found by another strategy is dropped."""
+    config, db, claims, _tags = _env()
+    assert config.tag_strategy_boost_only is True
+    hybrid, corrob, tag_only, other, tag = _hybrid_and_results(config, db, claims)
+    out = hybrid._apply_tag_boost_only(["embedding", "tag"], [other, tag])
+    kept = [r.claim.claim_id for r in out[1]]
+    assert corrob.claim_id in kept       # corroborated by embedding -> boosted
+    assert tag_only.claim_id not in kept  # introduced-only -> dropped
+
+
+def test_boost_only_disabled_keeps_tag_only():
+    """With boost-only off, the tag source introduces tag-only claims."""
+    config, db, claims, _tags = _env()
+    config.tag_strategy_boost_only = False
+    hybrid, corrob, tag_only, other, tag = _hybrid_and_results(config, db, claims)
+    out = hybrid._apply_tag_boost_only(["embedding", "tag"], [other, tag])
+    kept = [r.claim.claim_id for r in out[1]]
+    assert corrob.claim_id in kept and tag_only.claim_id in kept
+
+
+def test_boost_only_single_strategy_is_noop():
+    """No corroboration source (tag alone) -> keep all (otherwise it'd nuke itself)."""
+    config, db, claims, _tags = _env()
+    hybrid, corrob, tag_only, _other, tag = _hybrid_and_results(config, db, claims)
+    out = hybrid._apply_tag_boost_only(["tag"], [tag])
+    assert len(out[0]) == 2
