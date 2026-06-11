@@ -16,6 +16,7 @@ from database.conversations import checkConversationExists
 from database.doubts import (
     add_doubt,
     delete_doubt,
+    get_all_doubts_for_user,
     get_doubt,
     get_doubt_history,
     get_doubts_for_message,
@@ -551,6 +552,29 @@ def get_messages_with_doubts_route(conversation_id: str):
         return jsonify({"success": True, "message_ids": message_ids})
     except Exception as e:
         logger.error(f"Error getting messages with doubts: {e}")
+        return json_error(str(e), status=500, code="internal_error")
+
+
+@doubts_bp.route("/get_all_doubts", methods=["GET"])
+@limiter.limit("60 per minute")
+@login_required
+def get_all_doubts_route():
+    """Get paginated root doubts across all conversations for the current user."""
+    email, _name, _loggedin = get_session_identity()
+    state = get_state()
+    try:
+        page = int(request.args.get("page", 1))
+        page_size = int(request.args.get("page_size", 20))
+        search = request.args.get("search", "").strip()
+        filter_type = request.args.get("filter", "all")
+        result = get_all_doubts_for_user(
+            user_email=email, page=page, page_size=page_size,
+            search=search, filter_type=filter_type,
+            users_dir=state.users_dir, logger=logger,
+        )
+        return jsonify({"success": True, **result})
+    except Exception as e:
+        logger.error(f"Error getting all doubts: {e}")
         return json_error(str(e), status=500, code="internal_error")
 
 

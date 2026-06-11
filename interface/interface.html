@@ -273,6 +273,7 @@
                                     <button id="add-new-chat" type="button" class="btn btn-sm sidebar-tool-btn" title="New Conversation"><i class="fa fa-file-o"></i></button>
                                     <button id="add-new-workspace" type="button" class="btn btn-sm sidebar-tool-btn" title="New Workspace"><i class="fa fa-folder-o"></i></button>
                                     <button id="search-conversations-btn" type="button" class="btn btn-sm sidebar-tool-btn" title="Search Conversations"><i class="fa fa-search"></i></button>
+                                    <button id="global-doubts-btn" type="button" class="btn btn-sm sidebar-tool-btn" title="My Doubts"><i class="bi bi-journal-bookmark"></i></button>
                                 </div>
                             </div>
                             
@@ -1889,6 +1890,31 @@
                     <button type="button" class="btn btn-secondary" data-dismiss="modal">
                         <i class="bi bi-x-circle"></i>&nbsp;Close
                     </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Global Doubts Modal (cross-conversation view) -->
+    <div id="global-doubts-modal" class="modal fade" tabindex="-1" aria-hidden="true" style="z-index: 1075;">
+        <div class="modal-dialog modal-xl" style="max-width: 90vw;">
+            <div class="modal-content" style="border-radius: 8px;">
+                <div class="modal-header">
+                    <h5 class="modal-title"><i class="bi bi-journal-bookmark"></i> My Doubts</h5>
+                    <button type="button" class="close" data-dismiss="modal"><span>&times;</span></button>
+                </div>
+                <div class="modal-body" style="max-height: 80vh; overflow-y: auto;">
+                    <div class="d-flex mb-3" style="gap:8px; flex-wrap:wrap;">
+                        <input type="text" id="global-doubts-search" class="form-control form-control-sm" placeholder="Search doubts..." style="max-width:300px;">
+                        <div class="btn-group btn-group-sm">
+                            <button class="btn btn-outline-secondary global-doubts-filter active" data-filter="all">All</button>
+                            <button class="btn btn-outline-secondary global-doubts-filter" data-filter="pinned">Pinned</button>
+                            <button class="btn btn-outline-secondary global-doubts-filter" data-filter="user">My Doubts</button>
+                            <button class="btn btn-outline-secondary global-doubts-filter" data-filter="auto">Auto</button>
+                        </div>
+                    </div>
+                    <div id="global-doubts-list"></div>
+                    <div id="global-doubts-pagination" class="d-flex justify-content-center mt-3"></div>
                 </div>
             </div>
         </div>

@@ -566,3 +566,75 @@ def update_doubt_answer(*, doubt_id: str, doubt_answer: str, users_dir: str | No
         raise
     finally:
         conn.close()
+
+
+def get_all_doubts_for_user(
+    *,
+    user_email: str,
+    page: int = 1,
+    page_size: int = 20,
+    search: str = "",
+    filter_type: str = "all",
+    users_dir: str | None = None,
+    logger: logging.Logger | None = None,
+) -> dict:
+    """
+    Get paginated root doubts across all conversations for a user.
+
+    Returns dict with keys: doubts (list), total (int), page (int), page_size (int).
+    """
+    log = logger or logging.getLogger(__name__)
+    users_dir_resolved = _resolve_users_dir(users_dir)
+    conn = create_connection(_db_path(users_dir=users_dir_resolved))
+    try:
+        cur = conn.cursor()
+        conditions = ["user_email = ?", "is_root_doubt = 1"]
+        params: list = [user_email]
+
+        if search:
+            conditions.append("(doubt_text LIKE ? OR doubt_answer LIKE ?)")
+            params.extend([f"%{search}%", f"%{search}%"])
+
+        if filter_type == "pinned":
+            conditions.append("pinned = 1")
+        elif filter_type == "user":
+            conditions.append("doubt_text NOT IN ('Auto takeaways', 'Maximize Learning and Perspectives', 'Challenge & Verify', 'Foundations & Practice', 'Answer Raised Questions')")
+        elif filter_type == "auto":
+            conditions.append("doubt_text IN ('Auto takeaways', 'Maximize Learning and Perspectives', 'Challenge & Verify', 'Foundations & Practice', 'Answer Raised Questions')")
+
+        where = " AND ".join(conditions)
+
+        # Count
+        cur.execute(f"SELECT COUNT(*) FROM DoubtsClearing WHERE {where}", params)
+        total = cur.fetchone()[0]
+
+        # Fetch page
+        offset = (page - 1) * page_size
+        cur.execute(
+            f"""SELECT doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer,
+                       parent_doubt_id, is_root_doubt, created_at, updated_at, show_hide, with_context,
+                       pinned, bookmarked
+                FROM DoubtsClearing WHERE {where}
+                ORDER BY pinned DESC, created_at DESC
+                LIMIT ? OFFSET ?""",
+            params + [page_size, offset],
+        )
+        rows = cur.fetchall()
+        doubts = [
+            {
+                "doubt_id": r[0], "conversation_id": r[1], "user_email": r[2],
+                "message_id": r[3], "doubt_text": r[4],
+                "doubt_answer": r[5][:200] if r[5] else "",
+                "parent_doubt_id": r[6], "is_root_doubt": bool(r[7]),
+                "created_at": r[8], "updated_at": r[9],
+                "show_hide": r[10] or "show", "with_context": bool(r[11]),
+                "pinned": bool(r[12]), "bookmarked": bool(r[13]),
+            }
+            for r in rows
+        ]
+        return {"doubts": doubts, "total": total, "page": page, "page_size": page_size}
+    except Exception as e:
+        log.error(f"Error getting all doubts for user: {e}")
+        raise
+    finally:
+        conn.close()

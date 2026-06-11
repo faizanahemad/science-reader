@@ -1467,10 +1467,140 @@ const DoubtManager = {
             console.error('Error deleting doubt:', error);
             showToast('Failed to delete doubt: ' + error.message, 'error');
         });
+    },
+    
+    // ========================
+    // Global Doubts Modal
+    // ========================
+    
+    globalDoubtsPage: 1,
+    globalDoubtsFilter: 'all',
+    globalDoubtsSearch: '',
+    
+    openGlobalDoubtsModal: function() {
+        this.globalDoubtsPage = 1;
+        this.globalDoubtsFilter = 'all';
+        this.globalDoubtsSearch = '';
+        $('#global-doubts-search').val('');
+        $('.global-doubts-filter').removeClass('active');
+        $('.global-doubts-filter[data-filter="all"]').addClass('active');
+        this.loadGlobalDoubts();
+        $('#global-doubts-modal').modal('show');
+    },
+    
+    loadGlobalDoubts: function() {
+        const self = this;
+        const params = new URLSearchParams({
+            page: this.globalDoubtsPage,
+            page_size: 20,
+            search: this.globalDoubtsSearch,
+            filter: this.globalDoubtsFilter,
+        });
+        $.get(`/get_all_doubts?${params.toString()}`, function(data) {
+            if (data.success) {
+                self.renderGlobalDoubtsList(data.doubts, data.total, data.page, data.page_size);
+            }
+        });
+    },
+    
+    renderGlobalDoubtsList: function(doubts, total, page, pageSize) {
+        const list = $('#global-doubts-list');
+        list.empty();
+        
+        if (doubts.length === 0) {
+            list.html('<p class="text-muted text-center">No doubts found.</p>');
+            $('#global-doubts-pagination').empty();
+            return;
+        }
+        
+        const AUTO_DOUBT_TEXTS = ["Auto takeaways", "Maximize Learning and Perspectives", "Challenge & Verify", "Foundations & Practice", "Answer Raised Questions"];
+        
+        doubts.forEach(d => {
+            const isAuto = AUTO_DOUBT_TEXTS.some(t => d.doubt_text.startsWith(t));
+            const badge = isAuto ? '<span class="badge badge-secondary ml-1">Auto</span>' : '';
+            const pinBadge = d.pinned ? '<i class="bi bi-pin-fill text-primary mr-1"></i>' : '';
+            const date = new Date(d.created_at).toLocaleDateString();
+            const answerPreview = d.doubt_answer ? d.doubt_answer.substring(0, 120) + '...' : '';
+            
+            list.append(`
+                <div class="card mb-2 global-doubt-card" data-doubt-id="${d.doubt_id}" data-conversation-id="${d.conversation_id}" style="cursor:pointer;">
+                    <div class="card-body py-2 px-3">
+                        <div class="d-flex justify-content-between">
+                            <strong>${pinBadge}${d.doubt_text.substring(0, 80)}${d.doubt_text.length > 80 ? '...' : ''} ${badge}</strong>
+                            <small class="text-muted">${date}</small>
+                        </div>
+                        <p class="mb-0 text-muted small">${answerPreview}</p>
+                    </div>
+                </div>
+            `);
+        });
+        
+        // Pagination
+        const totalPages = Math.ceil(total / pageSize);
+        const pag = $('#global-doubts-pagination');
+        pag.empty();
+        if (totalPages > 1) {
+            for (let i = 1; i <= Math.min(totalPages, 10); i++) {
+                pag.append(`<button class="btn btn-sm ${i === page ? 'btn-primary' : 'btn-outline-secondary'} mx-1 global-doubts-page-btn" data-page="${i}">${i}</button>`);
+            }
+        }
+    },
+    
+    setupGlobalDoubtsHandlers: function() {
+        const self = this;
+        
+        $('#global-doubts-btn').off('click').on('click', function() {
+            self.openGlobalDoubtsModal();
+        });
+        
+        // Search input with debounce
+        let searchTimeout;
+        $('#global-doubts-search').off('input').on('input', function() {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(function() {
+                self.globalDoubtsSearch = $('#global-doubts-search').val().trim();
+                self.globalDoubtsPage = 1;
+                self.loadGlobalDoubts();
+            }, 400);
+        });
+        
+        // Filter buttons
+        $(document).off('click', '.global-doubts-filter').on('click', '.global-doubts-filter', function() {
+            $('.global-doubts-filter').removeClass('active');
+            $(this).addClass('active');
+            self.globalDoubtsFilter = $(this).data('filter');
+            self.globalDoubtsPage = 1;
+            self.loadGlobalDoubts();
+        });
+        
+        // Pagination
+        $(document).off('click', '.global-doubts-page-btn').on('click', '.global-doubts-page-btn', function() {
+            self.globalDoubtsPage = parseInt($(this).data('page'));
+            self.loadGlobalDoubts();
+        });
+        
+        // Click doubt card → navigate to conversation and open doubt
+        $(document).off('click', '.global-doubt-card').on('click', '.global-doubt-card', function() {
+            const doubtId = $(this).data('doubt-id');
+            const conversationId = $(this).data('conversation-id');
+            $('#global-doubts-modal').modal('hide');
+            
+            if (typeof ConversationManager !== 'undefined' && ConversationManager.loadConversation) {
+                if (ConversationManager.activeConversationId === conversationId) {
+                    // Same conversation — just open the doubt
+                    self.openDoubtChat(doubtId);
+                } else {
+                    // Different conversation — load it, then open doubt after a delay
+                    ConversationManager.loadConversation(conversationId);
+                    setTimeout(function() { self.openDoubtChat(doubtId); }, 1500);
+                }
+            }
+        });
     }
 };
 
 // Initialize when document is ready
 $(document).ready(function() {
     console.log('DoubtManager initialized');
+    DoubtManager.setupGlobalDoubtsHandlers();
 }); 
