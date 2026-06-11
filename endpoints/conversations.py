@@ -352,6 +352,7 @@ def set_conversation_settings(conversation_id: str):
         "doc_model",
         "clarify_intent_model",
         "pkb_nl_model",
+        "auto_doubt_model",
     }
     catalog_models = set(_catalog_model_list())
     normalized_overrides = {}
@@ -431,12 +432,31 @@ def set_conversation_settings(conversation_id: str):
         validated_oc["opencode_model"] = oc_model
     else:
         validated_oc = None
+
+    # --- auto_doubt_categories (optional) ---
+    VALID_AUTO_DOUBT_CATEGORIES = {
+        "takeaways", "maximize_learning", "challenge_verify",
+        "foundations_practice", "answer_questions",
+    }
+    auto_doubt_categories = payload.get("auto_doubt_categories")
+    if auto_doubt_categories is not None:
+        if not isinstance(auto_doubt_categories, list):
+            return json_error(
+                "auto_doubt_categories must be a list",
+                status=400, code="invalid_settings",
+            )
+        auto_doubt_categories = [
+            c for c in auto_doubt_categories if c in VALID_AUTO_DOUBT_CATEGORIES
+        ]
+
     existing = conversation.get_conversation_settings()
     updated = dict(existing) if isinstance(existing, dict) else {}
     if has_model_overrides:
         updated["model_overrides"] = normalized_overrides
     if validated_oc is not None:
         updated["opencode_config"] = validated_oc
+    if auto_doubt_categories is not None:
+        updated["auto_doubt_categories"] = auto_doubt_categories
     conversation.set_conversation_settings(updated, overwrite=True)
     return jsonify({"conversation_id": conversation_id, "settings": updated})
 
@@ -1954,26 +1974,20 @@ def send_message(conversation_id: str):
                     message_id=captured_response_message_id,
                     answer_text=captured_answer_text,
                 )
-                get_async_future(
-                    _create_auto_takeaways_doubt_for_last_assistant_message,
-                    **_auto_doubt_kwargs,
-                )
-                get_async_future(
-                    _create_maximize_learning_doubt,
-                    **_auto_doubt_kwargs,
-                )
-                get_async_future(
-                    _create_challenge_and_verify_doubt,
-                    **_auto_doubt_kwargs,
-                )
-                get_async_future(
-                    _create_foundations_and_practice_doubt,
-                    **_auto_doubt_kwargs,
-                )
-                get_async_future(
-                    _create_answer_raised_questions_doubt,
-                    **_auto_doubt_kwargs,
-                )
+                # Category → function mapping for selective auto-doubts
+                _AUTO_DOUBT_DISPATCH = {
+                    "takeaways": _create_auto_takeaways_doubt_for_last_assistant_message,
+                    "maximize_learning": _create_maximize_learning_doubt,
+                    "challenge_verify": _create_challenge_and_verify_doubt,
+                    "foundations_practice": _create_foundations_and_practice_doubt,
+                    "answer_questions": _create_answer_raised_questions_doubt,
+                }
+                # Read per-conversation setting; None means all
+                _conv_settings = conversation.get_conversation_settings() or {}
+                _enabled_categories = _conv_settings.get("auto_doubt_categories")
+                for _cat, _func in _AUTO_DOUBT_DISPATCH.items():
+                    if _enabled_categories is None or _cat in _enabled_categories:
+                        get_async_future(_func, **_auto_doubt_kwargs)
         except Exception as e:
             logger.error(
                 f"[send_message] Failed to schedule auto-doubts: {e}", exc_info=True
@@ -2435,7 +2449,7 @@ Assistant answer:
 
         llm = CallLLm(
             conversation.get_api_keys(),
-            model_name=VERY_CHEAP_LLM[0],
+            model_name=conversation.get_model_override("auto_doubt_model", VERY_CHEAP_LLM[0]),
             use_gpt4=False,
             use_16k=False,
         )
@@ -2478,7 +2492,7 @@ Assistant answer:
             if not suggestions:
                 return
 
-            nq_model = "gemini-flash-3.5-non-reasoning"
+            nq_model = conversation.get_model_override("auto_doubt_model", "gemini-flash-3.5-non-reasoning")
             nq_llm = CallLLm(
                 conversation.get_api_keys(),
                 model_name=nq_model,
@@ -2697,7 +2711,7 @@ Assistant answer:
 
         llm = CallLLm(
             conversation.get_api_keys(),
-            model_name="gemini-flash-3.5-non-reasoning",
+            model_name=conversation.get_model_override("auto_doubt_model", "gemini-flash-3.5-non-reasoning"),
             use_gpt4=False,
             use_16k=False,
         )
@@ -2792,7 +2806,7 @@ def _create_challenge_and_verify_doubt(
 
         llm = CallLLm(
             conversation.get_api_keys(),
-            model_name="gemini-flash-3.5-non-reasoning",
+            model_name=conversation.get_model_override("auto_doubt_model", "gemini-flash-3.5-non-reasoning"),
             use_gpt4=False, use_16k=False,
         )
 
@@ -2923,7 +2937,7 @@ def _create_foundations_and_practice_doubt(
 
         llm = CallLLm(
             conversation.get_api_keys(),
-            model_name="gemini-flash-3.5-non-reasoning",
+            model_name=conversation.get_model_override("auto_doubt_model", "gemini-flash-3.5-non-reasoning"),
             use_gpt4=False, use_16k=False,
         )
 
@@ -3047,7 +3061,7 @@ def _create_answer_raised_questions_doubt(
 
         llm = CallLLm(
             conversation.get_api_keys(),
-            model_name="gemini-flash-3.5-non-reasoning",
+            model_name=conversation.get_model_override("auto_doubt_model", "gemini-flash-3.5-non-reasoning"),
             use_gpt4=False, use_16k=False,
         )
 
