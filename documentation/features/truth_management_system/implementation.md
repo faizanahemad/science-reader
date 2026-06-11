@@ -803,7 +803,7 @@ Tag-linked retrieval: the symmetric counterpart of the entity strategy. Surfaces
 4. Rank by cosine similarity to the query embedding (reusing the entity strategy's query vector when available); degrade to recency order when no embedding is available.
 5. Return top-N (`tag_strategy_top_n`, default 5). Returns `[]` when disabled, the query is empty, or no tag resolves (RRF no-op).
 
-**Eval (offline, fts vs fts+tag on the 4 `tag`-category cases):** tag-category mrr 0.333 → 0.625, recall@10 0.167 → 0.750; overall mrr 0.700 → 0.726 (no regression). Keyed gate (adds rewrite/embedding) pending; ships OFF until confirmed.
+**Eval (keyed gate, `hybrid_entity` vs `+tag`):** tag-category mrr 0.562 → 1.000, recall@10 0.417 → 1.000 — but a consistent lexical-precision cost (lexical mrr ~1.000 → 0.867) and overall mrr within run-to-run noise of baseline. A tag down-weight sweep did not recover lexical. **Decision: ships OFF (inert);** revisit with query-conditional activation (fire only for category-like queries / boost-only, not introduce) and a larger tagged eval set.
 
 #### `search/hybrid_search.py` - `HybridSearchStrategy`
 

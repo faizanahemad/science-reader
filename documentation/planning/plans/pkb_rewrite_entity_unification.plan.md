@@ -82,11 +82,24 @@ RRF ships as-is (see results above). Follow-ups since LANDED:
 - Tag-linked retrieval strategy (W-D), consuming the rewrite's previously-unused
   `extracted_tags`: `search/tag_search.py` (`TagSearchStrategy`), INERT by
   default (`tag_strategy_enabled=False`), wired into hybrid behind the flag,
-  9 unit tests, and tag-bearing eval cases. **Offline gate** (fts vs fts+tag on
-  the 4 new `tag` cases): tag-category mrr **0.333 → 0.625**, recall@10
-  **0.167 → 0.750**; overall mrr 0.700 → 0.726, recall 0.726 → 0.778 (no
-  regression). Keyed gate (adds rewrite/embedding + the rewrite-path case)
-  pending an OpenRouter key. Ships OFF until the keyed gate confirms.
+  9 unit tests, and tag-bearing eval cases.
+  - **Offline gate** (fts vs fts+tag on the 4 `tag` cases): tag-category mrr
+    0.333 → 0.625, recall@10 0.167 → 0.750; overall no regression.
+  - **Keyed gate** (`hybrid_entity` = fts+embedding+rewrite+entity vs
+    `hybrid_full` = +tag): tag-category mrr **0.562 → 1.000**, recall@10
+    **0.417 → 1.000** (overall recall@10 reaches 1.000). BUT a consistent
+    lexical-precision cost: lexical mrr ~1.000 → 0.867 (the rewrite sometimes
+    emits a category tag on a lexical query and the tag source injects a tagged
+    claim just above the exact hit). Overall mrr is within run-to-run noise of
+    baseline (~0.808–0.851 across runs; rewrite LLM is nondeterministic). A tag
+    down-weight sweep (`rrf_strategy_weights={'tag': 0.5..0.1}`) did NOT recover
+    lexical and reduced the tag win — weighting is not a useful lever.
+  - **Decision: ships OFF (stays inert).** Net overall is within noise and there
+    is a consistent lexical cost, so it is not flipped on globally on this small
+    synthetic set. Follow-up before shipping on: **query-conditional activation**
+    (fire the tag source only for category-like queries, or let it only *boost*
+    claims already found by another source rather than *introduce* new ones) and
+    a larger tagged eval set.
 - REST endpoint `POST /pkb/backfill_entities` wrapping `backfill_entities`.
 - The embedding-store SQLite-concurrency bug noted above is now FIXED
   (`PKBDatabase` reentrant lock + `tests/test_db_concurrency.py`).
