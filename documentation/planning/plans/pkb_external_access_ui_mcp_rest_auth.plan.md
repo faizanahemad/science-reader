@@ -2,8 +2,8 @@
 
 **Status:** Draft (revised)
 **Created:** 2026-06-09
-**Revised:** 2026-06-10
-**Scope:** Make the PKB usable *outside* the chat shell: a standalone `/memory/` web UI, an externally-reachable authenticated MCP server, a token-authenticated REST API, a dual-auth scheme, and integration recipes for Claude Code / other agentic systems. Internal memory-system improvements are covered separately in `pkb_memory_system_improvements.plan.md` and `pkb_ux_improvements.plan.md`.
+**Revised:** 2026-06-10; 2026-06-11 (sync with landed `backfill_entities` REST route + DB concurrency fix — see §1, §9, §12)
+**Scope:** Make the PKB usable *outside* the chat shell: a standalone `/memory/` web UI, an externally-reachable authenticated MCP server, a token-authenticated REST API, a dual-auth scheme, and integration recipes for Claude Code / other agentic systems. Internal memory-system improvements are covered separately in `pkb_memory_system_improvements.plan.md`, `pkb_ux_improvements.plan.md`, `pkb_retrieval_ranking.plan.md`, and `pkb_rewrite_entity_unification.plan.md` (the latter added the `backfill_entities` maintenance op now exposed over REST — see §1).
 
 ---
 
@@ -11,7 +11,7 @@
 
 Today the PKB is reachable only from inside the logged-in chat app:
 - **UI:** the PKB lives as Bootstrap modals (`#pkb-modal` with 9 tabs: Claims/Entities/Tags/Conflicts/Bulk/Import/Contexts/Overview/Maintenance, plus `#pkb-claim-edit-modal`, `#memory-proposal-modal`) inside `interface/interface.html`, driven by the `PKBManager` IIFE in `interface/pkb-manager.js`. There is no dedicated URL — no `memory.html`, no `/memory` route, no `init()` on PKBManager.
-- **REST:** `endpoints/pkb.py` exposes 82 routes under `/pkb/*`, all guarded by `@login_required` (Flask session via Google OAuth) — unusable by external programmatic clients. No bearer token auth exists anywhere in the REST layer. `endpoints/auth.py` only has `generate_remember_token`/`verify_remember_token` for session "remember me" — not suitable for API access.
+- **REST:** `endpoints/pkb.py` exposes 83 routes under `/pkb/*` (incl. the new `POST /pkb/backfill_entities` maintenance route added by the rewrite/entity unification work — `dry_run` defaults True, gated on `OPENROUTER_API_KEY`), all guarded by `@login_required` (Flask session via Google OAuth) — unusable by external programmatic clients. No bearer token auth exists anywhere in the REST layer. `endpoints/auth.py` only has `generate_remember_token`/`verify_remember_token` for session "remember me" — not suitable for API access.
 - **MCP:** `mcp_server/pkb.py` implements a JWT-authenticated streamable-HTTP MCP server (port 8101) with **27 tools** (19 baseline + 8 full tier). Auth handled by `mcp_server/auth.py` (HS256 JWT with `{email, scopes, iat, exp}`). **Security gap:** `user_email` is a client-supplied parameter in every tool — NOT derived from the JWT. The server trusts whatever email the client passes.
 - **nginx:** `documentation/planning/nginx_mcp_blocks.conf` has ready-to-paste location blocks for `/mcp/pkb/` → `localhost:8101` (and 7 other servers), but these are NOT deployed yet.
 
@@ -21,7 +21,7 @@ Goal: a clean, authenticated "memory anywhere" surface — a bookmarkable UI at 
 
 | Surface | Count | Auth |
 |---------|-------|------|
-| REST endpoints | 82 | Session only (`@login_required`) |
+| REST endpoints | 83 | Session only (`@login_required`) |
 | MCP tools | 27 (19 baseline + 8 full) | JWT header, but `user_email` is client-supplied |
 | LLM tools (in-chat) | 26 | Implicit (session user) |
 | NL agent actions | 14 | Implicit (session user) |
@@ -32,7 +32,7 @@ Goal: a clean, authenticated "memory anywhere" surface — a bookmarkable UI at 
 - `endpoints/static_routes.py` — `/interface` + `/interface/<path:path>` serve `interface/interface.html`; `/` redirects to `/interface`. Auth via `@login_required`.
 - `endpoints/auth.py` — `login_required` decorator (checks `session["email"]`/`["name"]`); `generate_remember_token`/`verify_remember_token` for remember-me only.
 - `endpoints/session_utils.py` — `get_session_identity()` → `(email, name, loggedin)`.
-- `endpoints/pkb.py` — all 82 `/pkb/*` routes (`@login_required` + `get_session_identity()`).
+- `endpoints/pkb.py` — all 83 `/pkb/*` routes (`@login_required` + `get_session_identity()`).
 - `mcp_server/pkb.py` — `create_pkb_mcp_app(jwt_secret, rate_limit)`; 27 tiered tools; `PKB_MCP_PORT=8101`.
 - `mcp_server/auth.py` — `generate_token(secret, email, days=365, scopes=["search"])` → HS256 JWT; `verify_jwt(token, secret)` → payload or None. `JWTAuthMiddleware` extracts bearer token. Stateless — no revocation.
 - `documentation/planning/nginx_mcp_blocks.conf` — ready location blocks for all 8 MCP servers.
@@ -180,7 +180,7 @@ See §6 T4.1 — provide `/pkb/token` endpoint so users don't need CLI access.
 
 ## 5. Workstream 3 — Token-authenticated REST API (G4)
 
-**Problem:** All 82 `/pkb/*` routes require Flask session. External agents need bearer token access.
+**Problem:** All 83 `/pkb/*` routes require Flask session. External agents need bearer token access.
 
 ### T3.1 Dual-auth decorator `pkb_auth_required`
 
@@ -225,14 +225,14 @@ def get_pkb_email():
 
 ### T3.2 Replace `@login_required` on `/pkb/*` routes
 
-Replace all 82 `@login_required` decorators in `endpoints/pkb.py` with `@pkb_auth_required`. Replace `get_session_identity()` email extraction with `get_pkb_email()`. This is a mechanical find-replace — the email resolution is the only thing that changes.
+Replace all 83 `@login_required` decorators in `endpoints/pkb.py` with `@pkb_auth_required`. Replace `get_session_identity()` email extraction with `get_pkb_email()`. This is a mechanical find-replace — the email resolution is the only thing that changes.
 
 ### T3.3 Scope enforcement
 
 Map JWT scopes to operations:
 - `read` — GET endpoints (search, list, export, resolve, autocomplete)
 - `write` — POST/PUT/DELETE endpoints (add, edit, delete, bulk, import)
-- `admin` — destructive operations (cleanup, sweep, bulk_action archive)
+- `admin` — destructive / maintenance operations (cleanup, sweep, bulk_action archive, `backfill_entities`)
 
 Add a `require_scope(scope)` decorator or check inside `pkb_auth_required`. Session-authenticated users get all scopes implicitly.
 
@@ -371,6 +371,7 @@ Cross-link from: `documentation/README.md`, `documentation/product/ops/mcp_serve
 - **Secret rotation:** Single `MCP_JWT_SECRET` for everything — rotation invalidates all tokens. Document the procedure + provide "Revoke All + regenerate" in UI.
 - **Rate limiting abuse:** External tokens widen attack surface. Per-token limits + audit log required.
 - **CORS:** Not needed for server-side agents (Claude Code, OpenCode). Only add if browser-based external clients are intended (future).
+- **Concurrent DB access (resolved):** Three external surfaces (standalone UI + MCP + REST) plus in-chat use mean the per-user SQLite connection is now hit from multiple threads at once. This was a latent `SQLITE_MISUSE` risk that external access would have amplified. **Resolved** — `PKBDatabase` now guards its shared connection with a re-entrant lock (`threading.RLock`, commit `0fdaa15`); reads/writes are serialized while network/LLM work stays outside the lock. No remaining action for this plan, but external load testing should confirm there is no lock-contention regression under concurrent token clients.
 
 ---
 
@@ -413,3 +414,5 @@ Cross-link from: `documentation/README.md`, `documentation/product/ops/mcp_serve
 | JWT vs opaque API keys | JWT — reuses existing `mcp_server/auth.py` infrastructure |
 | Iframe vs shared template for standalone UI | Shared template first; iframe only if CSS conflicts arise |
 | Route conflict: `/pkb/claims/bulk` | Resolved — new bulk action uses `/pkb/claims/bulk_action` |
+| REST surface count | Now 83 routes (added `POST /pkb/backfill_entities`, the rewrite/entity unification maintenance op; `dry_run` defaults True, needs `OPENROUTER_API_KEY`) — map it to the `admin` scope in T3.3 |
+| Concurrent external access vs single SQLite connection | Resolved — `PKBDatabase` guards its shared connection with a `threading.RLock` (commit `0fdaa15`), so parallel MCP/REST/UI callers are thread-safe; removes a blocker for external exposure |
