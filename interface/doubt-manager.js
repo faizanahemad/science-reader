@@ -66,6 +66,17 @@ const DoubtManager = {
         const content = $('#doubts-overview-content');
         content.empty();
         
+        // Sort: pinned first, then user-created, then auto-doubts (each group by date desc)
+        const AUTO_DOUBT_TEXTS = ["Auto takeaways", "Maximize Learning and Perspectives", "Challenge & Verify", "Foundations & Practice", "Answer Raised Questions"];
+        const isAuto = (d) => AUTO_DOUBT_TEXTS.some(t => d.doubt_text.startsWith(t));
+        doubts.sort((a, b) => {
+            const aPin = a.pinned ? 1 : 0, bPin = b.pinned ? 1 : 0;
+            if (aPin !== bPin) return bPin - aPin;
+            const aAuto = isAuto(a) ? 1 : 0, bAuto = isAuto(b) ? 1 : 0;
+            if (aAuto !== bAuto) return aAuto - bAuto;
+            return new Date(b.created_at) - new Date(a.created_at);
+        });
+        
         doubts.forEach(doubt => {
             const previewCard = this.createDoubtPreviewCard(doubt);
             content.append(previewCard);
@@ -89,17 +100,35 @@ const DoubtManager = {
         
         const createdDate = new Date(doubt.created_at).toLocaleDateString();
         
+        // Detect auto-doubts
+        const AUTO_DOUBT_TEXTS = ["Auto takeaways", "Maximize Learning and Perspectives", "Challenge & Verify", "Foundations & Practice", "Answer Raised Questions"];
+        const isAuto = AUTO_DOUBT_TEXTS.some(t => doubt.doubt_text.startsWith(t));
+        const autoBadge = isAuto ? '<span class="badge badge-secondary ml-1">Auto</span>' : '';
+        
+        // Pin state
+        const pinIcon = doubt.pinned ? 'bi-pin-fill' : 'bi-pin';
+        const pinnedClass = doubt.pinned ? 'doubt-pinned' : '';
+        
+        // Bookmark count from children
+        const bookmarkCount = (doubt.children || []).filter(c => c.bookmarked).length + (doubt.bookmarked ? 1 : 0);
+        const bookmarkBadge = bookmarkCount > 0 ? `<span class="badge badge-warning ml-1">${bookmarkCount} <i class="bi bi-bookmark-fill"></i></span>` : '';
+        
         const card = $(`
-            <div class="card doubt-preview-card" data-doubt-id="${doubt.doubt_id}">
+            <div class="card doubt-preview-card ${pinnedClass}" data-doubt-id="${doubt.doubt_id}">
                 <div class="card-header d-flex justify-content-between align-items-center">
-                    <span><strong>Doubt:</strong> ${createdDate}${childrenText}</span>
-                    <button class="doubt-delete-btn" data-doubt-id="${doubt.doubt_id}" title="Delete Doubt">
-                        <i class="bi bi-trash"></i>
-                    </button>
+                    <span><strong>Doubt:</strong> ${createdDate}${childrenText} ${autoBadge}${bookmarkBadge}</span>
+                    <span class="d-flex align-items-center">
+                        <button class="btn btn-sm p-1 doubt-pin-btn" data-doubt-id="${doubt.doubt_id}" data-pinned="${doubt.pinned ? '1' : '0'}" title="${doubt.pinned ? 'Unpin' : 'Pin'}">
+                            <i class="bi ${pinIcon}"></i>
+                        </button>
+                        <button class="doubt-delete-btn btn btn-sm p-1" data-doubt-id="${doubt.doubt_id}" title="Delete Doubt">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </span>
                 </div>
-                <div class="card-body">
+                <div class="card-body doubt-preview-body" style="cursor:pointer;">
                     <p class="mb-2"><strong>Q:</strong> ${truncatedDoubt}</p>
-                    <p class="mb-0 text-muted"><strong>A:</strong> ${truncatedAnswer}</p>
+                    <p class="mb-0 text-muted doubt-preview-answer" style="display:none;"><strong>A:</strong> ${truncatedAnswer}</p>
                 </div>
             </div>
         `);
@@ -115,13 +144,42 @@ const DoubtManager = {
         
         // Click on doubt preview card to open chat
         $(document).off('click', '.doubt-preview-card').on('click', '.doubt-preview-card', function(e) {
-            // Don't trigger if clicking delete button
-            if ($(e.target).closest('.doubt-delete-btn').length > 0) {
+            // Don't trigger if clicking delete button or pin button
+            if ($(e.target).closest('.doubt-delete-btn, .doubt-pin-btn').length > 0) {
                 return;
             }
             
             const doubtId = $(this).data('doubt-id');
             self.openDoubtChat(doubtId);
+        });
+        
+        // Toggle answer preview on body click
+        $(document).off('click', '.doubt-preview-body').on('click', '.doubt-preview-body', function(e) {
+            if ($(e.target).closest('.doubt-delete-btn, .doubt-pin-btn').length > 0) return;
+            $(this).find('.doubt-preview-answer').slideToggle(150);
+        });
+        
+        // Pin doubt button
+        $(document).off('click', '.doubt-pin-btn').on('click', '.doubt-pin-btn', function(e) {
+            e.stopPropagation();
+            const btn = $(this);
+            const doubtId = btn.data('doubt-id');
+            const currentlyPinned = btn.data('pinned') === 1 || btn.data('pinned') === '1';
+            const newPinned = !currentlyPinned;
+            
+            $.ajax({
+                url: `/pin_doubt/${doubtId}`,
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ pinned: newPinned }),
+                success: function() {
+                    // Refresh the overview
+                    self.showDoubtsOverview(self.currentConversationId, self.currentMessageId);
+                },
+                error: function() {
+                    if (typeof showToast === 'function') showToast('Failed to pin doubt', 'error');
+                }
+            });
         });
         
         // Delete doubt button
@@ -291,6 +349,10 @@ const DoubtManager = {
             
             // Add assistant answer message
             const assistantCard = this.createDoubtChatCard(doubt.doubt_answer, 'assistant', doubt.doubt_id, doubt.show_hide || 'show');
+            // Set bookmark icon state if bookmarked
+            if (doubt.bookmarked) {
+                assistantCard.find('.doubt-bookmark-btn i').removeClass('bi-bookmark').addClass('bi-bookmark-fill');
+            }
             messagesContainer.append(assistantCard);
         });
         
@@ -384,6 +446,9 @@ const DoubtManager = {
         // Always create delete button for user messages, even if doubtId is null initially
         const deleteBtn = isUser ? `<button class="doubt-delete-btn float-right" data-doubt-id="${doubtId || ''}" title="Delete Doubt"><i class="bi bi-trash"></i></button>` : '';
         
+        // Bookmark button for assistant cards (only if doubtId exists - i.e. saved doubts)
+        const bookmarkBtn = (!isUser && doubtId) ? `<button class="btn btn-sm p-1 doubt-bookmark-btn" data-doubt-id="${doubtId}" title="Bookmark"><i class="bi bi-bookmark"></i></button>` : '';
+        
         // Render content based on sender type
         let renderedContent;
         if (isUser) {
@@ -405,6 +470,7 @@ const DoubtManager = {
                     <span class="doubt-card-sender">${senderText}</span>
                     <span class="doubt-card-actions d-flex align-items-center">
                         <button class="btn btn-sm p-1 scroll-to-bottom-btn doubt-scroll-bottom" title="Jump to the bottom of this message" style="display:none;">Bottom <i class="bi bi-arrow-down-short"></i></button>
+                        ${bookmarkBtn}
                         <button class="doubt-copy-btn btn btn-sm p-1" title="Copy text"><i class="bi bi-clipboard"></i></button>
                         ${deleteBtn}
                     </span>
@@ -540,6 +606,30 @@ const DoubtManager = {
                     console.error('Failed to persist doubt show/hide:', err);
                 });
             }
+        });
+
+        // Bookmark a doubt answer
+        $(document).off('click', '#doubt-chat-messages .doubt-bookmark-btn').on('click', '#doubt-chat-messages .doubt-bookmark-btn', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const btn = $(this);
+            const doubtId = btn.data('doubt-id');
+            const icon = btn.find('i');
+            const currentlyBookmarked = icon.hasClass('bi-bookmark-fill');
+            const newBookmarked = !currentlyBookmarked;
+            
+            $.ajax({
+                url: `/bookmark_doubt/${doubtId}`,
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ bookmarked: newBookmarked }),
+                success: function() {
+                    icon.toggleClass('bi-bookmark bi-bookmark-fill');
+                },
+                error: function() {
+                    if (typeof showToast === 'function') showToast('Failed to bookmark', 'error');
+                }
+            });
         });
     },
     

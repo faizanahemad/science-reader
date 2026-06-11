@@ -20,6 +20,9 @@ from database.doubts import (
     get_doubt_history,
     get_doubts_for_message,
     get_message_ids_with_doubts,
+    update_doubt_answer,
+    update_doubt_bookmarked,
+    update_doubt_pinned,
     update_doubt_show_hide,
 )
 from endpoints.auth import login_required
@@ -548,4 +551,42 @@ def get_messages_with_doubts_route(conversation_id: str):
         return jsonify({"success": True, "message_ids": message_ids})
     except Exception as e:
         logger.error(f"Error getting messages with doubts: {e}")
+        return json_error(str(e), status=500, code="internal_error")
+
+
+@doubts_bp.route("/pin_doubt/<doubt_id>", methods=["POST"])
+@limiter.limit("60 per minute")
+@login_required
+def pin_doubt_route(doubt_id: str):
+    """Toggle the pinned state of a root doubt."""
+    email, _name, _loggedin = get_session_identity()
+    state = get_state()
+    try:
+        body = request.json if request.is_json and request.json else {}
+        pinned = bool(body.get("pinned", False))
+        updated = update_doubt_pinned(doubt_id=doubt_id, pinned=pinned, users_dir=state.users_dir, logger=logger)
+        if not updated:
+            return json_error("Doubt not found", status=404, code="doubt_not_found")
+        return jsonify({"success": True, "doubt_id": doubt_id, "pinned": pinned})
+    except Exception as e:
+        logger.error(f"Error pinning doubt {doubt_id}: {e}")
+        return json_error(str(e), status=500, code="internal_error")
+
+
+@doubts_bp.route("/bookmark_doubt/<doubt_id>", methods=["POST"])
+@limiter.limit("60 per minute")
+@login_required
+def bookmark_doubt_route(doubt_id: str):
+    """Toggle the bookmarked state of a doubt."""
+    email, _name, _loggedin = get_session_identity()
+    state = get_state()
+    try:
+        body = request.json if request.is_json and request.json else {}
+        bookmarked = bool(body.get("bookmarked", False))
+        updated = update_doubt_bookmarked(doubt_id=doubt_id, bookmarked=bookmarked, users_dir=state.users_dir, logger=logger)
+        if not updated:
+            return json_error("Doubt not found", status=404, code="doubt_not_found")
+        return jsonify({"success": True, "doubt_id": doubt_id, "bookmarked": bookmarked})
+    except Exception as e:
+        logger.error(f"Error bookmarking doubt {doubt_id}: {e}")
         return json_error(str(e), status=500, code="internal_error")

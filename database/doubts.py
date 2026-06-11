@@ -243,7 +243,8 @@ def get_doubt(*, doubt_id: str, users_dir: str | None = None, logger: logging.Lo
         cur.execute(
             """
             SELECT doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer,
-                   parent_doubt_id, is_root_doubt, created_at, updated_at, show_hide, with_context
+                   parent_doubt_id, is_root_doubt, created_at, updated_at, show_hide, with_context,
+                   pinned, bookmarked
             FROM DoubtsClearing
             WHERE doubt_id = ?
             """,
@@ -264,6 +265,8 @@ def get_doubt(*, doubt_id: str, users_dir: str | None = None, logger: logging.Lo
                 "updated_at": row[9],
                 "show_hide": row[10] or "show",
                 "with_context": bool(row[11]),
+                "pinned": bool(row[12]),
+                "bookmarked": bool(row[13]),
             }
         return None
     except Exception as e:
@@ -285,7 +288,8 @@ def get_doubt_children(*, doubt_id: str, users_dir: str | None = None, logger: l
         cur.execute(
             """
             SELECT doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer,
-                   parent_doubt_id, is_root_doubt, created_at, updated_at, show_hide, with_context
+                   parent_doubt_id, is_root_doubt, created_at, updated_at, show_hide, with_context,
+                   pinned, bookmarked
             FROM DoubtsClearing
             WHERE parent_doubt_id = ?
             ORDER BY created_at ASC
@@ -307,6 +311,8 @@ def get_doubt_children(*, doubt_id: str, users_dir: str | None = None, logger: l
                 "updated_at": row[9],
                 "show_hide": row[10] or "show",
                 "with_context": bool(row[11]),
+                "pinned": bool(row[12]),
+                "bookmarked": bool(row[13]),
             }
             for row in rows
         ]
@@ -364,10 +370,11 @@ def get_doubts_for_message(
             cur.execute(
                 """
                 SELECT doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer,
-                       parent_doubt_id, is_root_doubt, created_at, updated_at, show_hide, with_context
+                       parent_doubt_id, is_root_doubt, created_at, updated_at, show_hide, with_context,
+                       pinned, bookmarked
                 FROM DoubtsClearing
                 WHERE conversation_id = ? AND message_id = ? AND user_email = ? AND is_root_doubt = 1
-                ORDER BY created_at DESC
+                ORDER BY pinned DESC, created_at DESC
                 """,
                 (conversation_id, message_id, user_email),
             )
@@ -375,10 +382,11 @@ def get_doubts_for_message(
             cur.execute(
                 """
                 SELECT doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer,
-                       parent_doubt_id, is_root_doubt, created_at, updated_at, show_hide, with_context
+                       parent_doubt_id, is_root_doubt, created_at, updated_at, show_hide, with_context,
+                       pinned, bookmarked
                 FROM DoubtsClearing
                 WHERE conversation_id = ? AND message_id = ? AND is_root_doubt = 1
-                ORDER BY created_at DESC
+                ORDER BY pinned DESC, created_at DESC
                 """,
                 (conversation_id, message_id),
             )
@@ -398,6 +406,8 @@ def get_doubts_for_message(
                 "updated_at": row[9],
                 "show_hide": row[10] or "show",
                 "with_context": bool(row[11]),
+                "pinned": bool(row[12]),
+                "bookmarked": bool(row[13]),
             }
             for row in rows
         ]
@@ -430,7 +440,8 @@ def get_doubt_history(*, doubt_id: str, users_dir: str | None = None, logger: lo
             cur.execute(
                 """
                 SELECT doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer,
-                       parent_doubt_id, is_root_doubt, created_at, updated_at, show_hide, with_context
+                       parent_doubt_id, is_root_doubt, created_at, updated_at, show_hide, with_context,
+                       pinned, bookmarked
                 FROM DoubtsClearing
                 WHERE doubt_id = ?
                 """,
@@ -454,6 +465,8 @@ def get_doubt_history(*, doubt_id: str, users_dir: str | None = None, logger: lo
                     "updated_at": row[9],
                     "show_hide": row[10] or "show",
                     "with_context": bool(row[11]),
+                    "pinned": bool(row[12]),
+                    "bookmarked": bool(row[13]),
                 }
             )
             current_doubt_id = row[6]
@@ -488,5 +501,68 @@ def get_message_ids_with_doubts(
     except Exception as e:
         log.error(f"Error getting message_ids with doubts: {e}")
         return []
+    finally:
+        conn.close()
+
+
+def update_doubt_pinned(*, doubt_id: str, pinned: bool, users_dir: str | None = None, logger: logging.Logger | None = None) -> bool:
+    """Toggle the pinned state of a doubt."""
+    log = logger or logging.getLogger(__name__)
+    users_dir_resolved = _resolve_users_dir(users_dir)
+    conn = create_connection(_db_path(users_dir=users_dir_resolved))
+    try:
+        cur = conn.cursor()
+        now = datetime.now().isoformat()
+        cur.execute(
+            "UPDATE DoubtsClearing SET pinned = ?, updated_at = ? WHERE doubt_id = ?",
+            (int(pinned), now, doubt_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    except Exception as e:
+        log.error(f"Error updating doubt pinned: {e}")
+        raise
+    finally:
+        conn.close()
+
+
+def update_doubt_bookmarked(*, doubt_id: str, bookmarked: bool, users_dir: str | None = None, logger: logging.Logger | None = None) -> bool:
+    """Toggle the bookmarked state of a doubt."""
+    log = logger or logging.getLogger(__name__)
+    users_dir_resolved = _resolve_users_dir(users_dir)
+    conn = create_connection(_db_path(users_dir=users_dir_resolved))
+    try:
+        cur = conn.cursor()
+        now = datetime.now().isoformat()
+        cur.execute(
+            "UPDATE DoubtsClearing SET bookmarked = ?, updated_at = ? WHERE doubt_id = ?",
+            (int(bookmarked), now, doubt_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    except Exception as e:
+        log.error(f"Error updating doubt bookmarked: {e}")
+        raise
+    finally:
+        conn.close()
+
+
+def update_doubt_answer(*, doubt_id: str, doubt_answer: str, users_dir: str | None = None, logger: logging.Logger | None = None) -> bool:
+    """Update the answer text of an existing doubt (used by regeneration)."""
+    log = logger or logging.getLogger(__name__)
+    users_dir_resolved = _resolve_users_dir(users_dir)
+    conn = create_connection(_db_path(users_dir=users_dir_resolved))
+    try:
+        cur = conn.cursor()
+        now = datetime.now().isoformat()
+        cur.execute(
+            "UPDATE DoubtsClearing SET doubt_answer = ?, updated_at = ? WHERE doubt_id = ?",
+            (doubt_answer, now, doubt_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    except Exception as e:
+        log.error(f"Error updating doubt answer: {e}")
+        raise
     finally:
         conn.close()

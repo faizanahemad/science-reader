@@ -125,6 +125,8 @@ def create_tables(*, users_dir: str, logger: Optional[logging.Logger] = None) ->
                                     is_root_doubt boolean DEFAULT 1,
                                     show_hide text,
                                     with_context boolean DEFAULT 0,
+                                    pinned boolean DEFAULT 0,
+                                    bookmarked boolean DEFAULT 0,
                                     created_at text,
                                     updated_at text,
                                     FOREIGN KEY (parent_doubt_id) REFERENCES DoubtsClearing (doubt_id)
@@ -284,6 +286,20 @@ def create_tables(*, users_dir: str, logger: Optional[logging.Logger] = None) ->
     try:
         cur.execute("ALTER TABLE DoubtsClearing ADD COLUMN with_context boolean DEFAULT 0")
         log.info("Added with_context column to DoubtsClearing table")
+    except Exception:
+        pass
+
+    # Add pinned column if it doesn't exist (user can pin important root doubts).
+    try:
+        cur.execute("ALTER TABLE DoubtsClearing ADD COLUMN pinned boolean DEFAULT 0")
+        log.info("Added pinned column to DoubtsClearing table")
+    except Exception:
+        pass
+
+    # Add bookmarked column if it doesn't exist (user can bookmark specific answers within a thread).
+    try:
+        cur.execute("ALTER TABLE DoubtsClearing ADD COLUMN bookmarked boolean DEFAULT 0")
+        log.info("Added bookmarked column to DoubtsClearing table")
     except Exception:
         pass
 
