@@ -293,6 +293,30 @@
                                 </div>
                             </div>
 
+                            <div id="pinned-conversations-section" style="margin-top: 2px;">
+                                <div class="recent-section-header d-flex justify-content-between align-items-center"
+                                     id="pinned-section-toggle"
+                                     title="Toggle Pinned Conversations">
+                                    <span class="recent-section-title">
+                                        <i class="fa fa-chevron-down recent-chevron pinned-chevron"></i>
+                                        Pinned
+                                        <span class="recent-count-badge" id="pinned-count-badge"></span>
+                                    </span>
+                                    <select id="pinned-color-filter" class="pinned-color-select" title="Filter by color">
+                                        <option value="all">All</option>
+                                        <option value="red">🔴</option>
+                                        <option value="blue">🔵</option>
+                                        <option value="green">🟢</option>
+                                        <option value="yellow">🟡</option>
+                                        <option value="orange">🟠</option>
+                                        <option value="purple">🟣</option>
+                                    </select>
+                                </div>
+                                <div id="pinned-conversations-list">
+                                    <!-- Populated by WorkspaceManager.renderPinnedConversations() -->
+                                </div>
+                            </div>
+
                             <!-- jsTree Container -->
                             <div id="workspaces-container" style="margin-top: 4px;">
                                 <!-- jsTree will be initialised here -->

@@ -60,6 +60,33 @@ var WorkspaceManager = {
                 localStorage.setItem(self.getRecentSectionStorageKey(), String(self._recentSectionCollapsed));
             } catch (_e) {}
         });
+
+        // Pinned section collapse/expand toggle
+        $('#pinned-section-toggle').off('click').on('click', function (e) {
+            if ($(e.target).is('#pinned-color-filter')) return; // don't toggle when clicking dropdown
+            var list = $('#pinned-conversations-list');
+            var chevron = $(this).find('.pinned-chevron');
+
+            if (list.is(':visible')) {
+                list.slideUp(150);
+                chevron.addClass('collapsed');
+                self._pinnedSectionCollapsed = true;
+            } else {
+                list.slideDown(150);
+                chevron.removeClass('collapsed');
+                self._pinnedSectionCollapsed = false;
+            }
+
+            try {
+                localStorage.setItem(self.getPinnedSectionStorageKey(), String(self._pinnedSectionCollapsed));
+            } catch (_e) {}
+        });
+
+        // Pinned color filter
+        $('#pinned-color-filter').off('change').on('change', function () {
+            try { localStorage.setItem(self.getPinnedColorFilterKey(), $(this).val()); } catch (_e) {}
+            self.renderPinnedConversations();
+        });
     },
 
     // ---------------------------------------------------------------
@@ -304,6 +331,7 @@ var WorkspaceManager = {
         this.workspaces = workspacesMap;
         this.renderTree(convByWs);
         this.renderRecentConversations();
+        this.renderPinnedConversations();
     },
 
     // ---------------------------------------------------------------
@@ -471,6 +499,138 @@ var WorkspaceManager = {
         }
     },
 
+    // ---------------------------------------------------------------
+    // Pinned Conversations Section (flagged conversations)
+    // ---------------------------------------------------------------
+
+    getPinnedSectionStorageKey: function () {
+        var email = (typeof userDetails !== 'undefined' && userDetails.email) ? userDetails.email : 'unknown';
+        var domain = (typeof currentDomain !== 'undefined' && currentDomain['domain']) ? currentDomain['domain'] : 'unknown';
+        return 'pinnedSectionCollapsed:' + email + ':' + domain;
+    },
+
+    getPinnedColorFilterKey: function () {
+        var email = (typeof userDetails !== 'undefined' && userDetails.email) ? userDetails.email : 'unknown';
+        var domain = (typeof currentDomain !== 'undefined' && currentDomain['domain']) ? currentDomain['domain'] : 'unknown';
+        return 'pinnedColorFilter:' + email + ':' + domain;
+    },
+
+    renderPinnedConversations: function () {
+        var self = this;
+        var container = $('#pinned-conversations-list');
+        var badge = $('#pinned-count-badge');
+        var colorSelect = $('#pinned-color-filter');
+        container.empty();
+
+        // Restore saved color filter
+        var savedColor = 'all';
+        try { savedColor = localStorage.getItem(self.getPinnedColorFilterKey()) || 'all'; } catch (_e) {}
+        colorSelect.val(savedColor);
+
+        // Filter flagged conversations
+        var pinned = this.conversations.filter(function (c) {
+            return c.flag && c.flag !== 'none';
+        });
+        if (savedColor !== 'all') {
+            pinned = pinned.filter(function (c) { return c.flag === savedColor; });
+        }
+        pinned = pinned.slice(0, 5);
+
+        // Badge
+        badge.text(pinned.length > 0 ? '(' + pinned.length + ')' : '');
+
+        if (pinned.length === 0) {
+            container.append('<div class="recent-empty-message">No pinned conversations</div>');
+            // Restore collapse state
+            self._restorePinnedCollapseState();
+            return;
+        }
+
+        var activeConvId = (ConversationManager.getActiveConversation && ConversationManager.getActiveConversation()) || null;
+
+        pinned.forEach(function (conv) {
+            var title = conv.title ? conv.title.trim() : '(untitled)';
+            var isActive = activeConvId && String(activeConvId) === String(conv.conversation_id);
+            var flagClass = 'recent-flag-' + conv.flag;
+
+            var item = $('<div class="recent-conversation-item"></div>');
+            if (isActive) item.addClass('recent-active');
+            item.addClass(flagClass);
+            item.attr({
+                'data-conversation-id': conv.conversation_id,
+                'data-conversation-friendly-id': conv.conversation_friendly_id || '',
+                'data-flag': conv.flag || 'none',
+                'title': conv.title || ''
+            });
+            item.append('<i class="fa fa-thumb-tack recent-conv-icon"></i>');
+            item.append($('<span class="recent-conv-title"></span>').text(title));
+
+            item.on('click', function (e) {
+                if (e.which === 2 || e.metaKey || e.ctrlKey) return;
+                e.preventDefault();
+                e.stopPropagation();
+                var convId = $(this).data('conversation-id');
+                if (!convId) return;
+                var currentActive = ConversationManager.getActiveConversation();
+                if (currentActive && String(currentActive) === String(convId)) return;
+                ConversationManager.setActiveConversation(convId);
+            });
+
+            item.on('contextmenu', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                var convId = $(this).data('conversation-id');
+                if (!convId) return;
+                var fakeNode = {
+                    id: 'cv_' + convId,
+                    li_attr: {
+                        'data-conversation-id': convId,
+                        'data-conversation-friendly-id': $(this).data('conversation-friendly-id') || '',
+                        'data-flag': $(this).data('flag') || 'none'
+                    }
+                };
+                var items = self.buildConversationContextMenu(fakeNode);
+                var vakataItems = self._convertToVakataItems(items, fakeNode);
+                $.vakata.context.hide();
+                var sidebar = $('#chat-assistant-sidebar');
+                var sidebarRight = 0;
+                if (sidebar.length) {
+                    var sidebarOffset = sidebar.offset();
+                    sidebarRight = sidebarOffset.left + sidebar.outerWidth();
+                }
+                var menuX = Math.max(e.pageX, sidebarRight + 2);
+                var posEl = $('<span>').css({ position: 'absolute', left: menuX + 'px', top: e.pageY + 'px', width: '1px', height: '1px' });
+                $('body').append(posEl);
+                $.vakata.context.show(posEl, { x: menuX, y: e.pageY }, vakataItems);
+                setTimeout(function () { posEl.remove(); }, 200);
+            });
+
+            container.append(item);
+        });
+
+        self._restorePinnedCollapseState();
+    },
+
+    _restorePinnedCollapseState: function () {
+        var collapsed = false;
+        try { collapsed = localStorage.getItem(this.getPinnedSectionStorageKey()) === 'true'; } catch (_e) {}
+        this._pinnedSectionCollapsed = collapsed;
+        if (collapsed) {
+            $('#pinned-conversations-list').hide();
+            $('#pinned-section-toggle .pinned-chevron').addClass('collapsed');
+        } else {
+            $('#pinned-conversations-list').show();
+            $('#pinned-section-toggle .pinned-chevron').removeClass('collapsed');
+        }
+    },
+
+    highlightPinnedConversation: function (conversationId) {
+        $('#pinned-conversations-list .recent-conversation-item').removeClass('recent-active');
+        if (conversationId) {
+            $('#pinned-conversations-list .recent-conversation-item[data-conversation-id="' + conversationId + '"]').addClass('recent-active');
+        }
+    },
+
 
     // ---------------------------------------------------------------
     // Helpers
@@ -615,14 +775,20 @@ var WorkspaceManager = {
             },
             sort: function (a, b) {
                 // Folders (workspaces) first, then conversations.
-                // Within same type, preserve original order (by node text alphabetically as tiebreaker).
                 var nodeA = this.get_node(a);
                 var nodeB = this.get_node(b);
                 var typeA = (nodeA && nodeA.type === 'workspace') ? 0 : 1;
                 var typeB = (nodeB && nodeB.type === 'workspace') ? 0 : 1;
                 if (typeA !== typeB) return typeA - typeB;
-                // Same type — keep original data order (don't re-sort conversations alphabetically;
-                // they are already sorted by last_updated descending from the server).
+                // Flagged conversations float above unflagged.
+                if (typeA === 1) {
+                    var aFlag = nodeA && nodeA.li_attr && nodeA.li_attr['data-flag'];
+                    var bFlag = nodeB && nodeB.li_attr && nodeB.li_attr['data-flag'];
+                    var aPinned = aFlag && aFlag !== 'none' ? 1 : 0;
+                    var bPinned = bFlag && bFlag !== 'none' ? 1 : 0;
+                    if (aPinned !== bPinned) return bPinned - aPinned;
+                }
+                // Same type/flag — keep original data order (last_updated descending).
                 return 0;
             },
             plugins: ['types', 'wholerow', 'contextmenu', 'sort']
@@ -1256,8 +1422,9 @@ var WorkspaceManager = {
      *     workspaces.
      */
     highlightActiveConversation: function (conversationId, collapseOthers) {
-        // Always update Recent section highlight (pure DOM, no jsTree dependency)
+        // Always update Recent and Pinned section highlights (pure DOM, no jsTree dependency)
         this.highlightRecentConversation(conversationId);
+        this.highlightPinnedConversation(conversationId);
 
         if (!this._jsTreeReady) {
             this._pendingHighlight = conversationId;

@@ -396,6 +396,18 @@
 .recent-flag-orange { border-left: 3px solid #fd7e14; padding-left: 9px; }
 .recent-flag-purple { border-left: 3px solid #6f42c1; padding-left: 9px; }
 
+/* Pinned section color filter dropdown */
+.pinned-color-select {
+    font-size: 0.7rem;
+    padding: 0 4px;
+    border: 1px solid #444;
+    border-radius: 3px;
+    background: #2a2a2a;
+    color: #ccc;
+    cursor: pointer;
+    height: 20px;
+}
+
 /* Empty state */
 .recent-empty-message {
     font-size: 0.73rem;
