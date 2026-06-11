@@ -55,12 +55,24 @@ def _discover_conversations(conversation_folder: str) -> list[str]:
     return result
 
 
+def _is_valid_doc_entry(entry) -> bool:
+    """Return True if the entry tuple has a usable doc_storage string."""
+    return (
+        isinstance(entry, (tuple, list))
+        and len(entry) >= 2
+        and isinstance(entry[1], str)
+        and entry[1]
+    )
+
+
 def _migrate_one_conversation(conv_path: str, docs_folder: str) -> dict:
     """Migrate all docs in a single conversation to the canonical store.
 
-    Returns a stats dict: {migrated: int, skipped: int, failed: int, error: str|None}
+    Returns a stats dict: {migrated: int, skipped: int, failed: int,
+    orphaned: int, error: str|None}
     """
-    stats = {"migrated": 0, "skipped": 0, "failed": 0, "error": None, "path": conv_path}
+    stats = {"migrated": 0, "skipped": 0, "failed": 0, "orphaned": 0,
+             "error": None, "path": conv_path}
     try:
         from Conversation import Conversation
         conv = Conversation.load_local(conv_path)
@@ -75,14 +87,24 @@ def _migrate_one_conversation(conv_path: str, docs_folder: str) -> dict:
         uploaded_docs = conv.get_field("uploaded_documents_list") or []
         new_uploaded = []
         for entry in uploaded_docs:
+            if not _is_valid_doc_entry(entry):
+                stats["orphaned"] += 1
+                new_uploaded.append(entry)
+                continue
+
             doc_id = entry[0]
             doc_storage = entry[1]
             source_path = entry[2] if len(entry) > 2 else ""
 
             if _cd.is_canonical_path(docs_folder, doc_storage):
-                # Already canonical
                 new_uploaded.append(entry)
                 stats["skipped"] += 1
+                continue
+
+            # Source doesn't exist — orphan reference, skip it
+            if not os.path.isdir(doc_storage):
+                stats["orphaned"] += 1
+                new_uploaded.append(entry)
                 continue
 
             try:
@@ -111,6 +133,11 @@ def _migrate_one_conversation(conv_path: str, docs_folder: str) -> dict:
         msg_docs = conv.get_field("message_attached_documents_list") or []
         new_msg_docs = []
         for entry in msg_docs:
+            if not _is_valid_doc_entry(entry):
+                stats["orphaned"] += 1
+                new_msg_docs.append(entry)
+                continue
+
             doc_id = entry[0]
             doc_storage = entry[1]
             source_path = entry[2] if len(entry) > 2 else ""
@@ -118,6 +145,11 @@ def _migrate_one_conversation(conv_path: str, docs_folder: str) -> dict:
             if _cd.is_canonical_path(docs_folder, doc_storage):
                 new_msg_docs.append(entry)
                 stats["skipped"] += 1
+                continue
+
+            if not os.path.isdir(doc_storage):
+                stats["orphaned"] += 1
+                new_msg_docs.append(entry)
                 continue
 
             try:
@@ -202,6 +234,7 @@ def run_local_docs_migration(
     total_migrated = 0
     total_skipped = 0
     total_failed = 0
+    total_orphaned = 0
     completed = 0
     progress_interval = max(1, total // 10)  # log every ~10%
 
@@ -219,6 +252,7 @@ def run_local_docs_migration(
                 total_migrated += stats["migrated"]
                 total_skipped += stats["skipped"]
                 total_failed += stats["failed"]
+                total_orphaned += stats.get("orphaned", 0)
                 if stats["error"]:
                     _log.warning(
                         "Local docs migration: error in %s: %s",
@@ -235,23 +269,29 @@ def run_local_docs_migration(
                 elapsed = time.time() - start
                 _log.info(
                     "Local docs migration progress: %d/%d conversations (%.0f%%) "
-                    "| migrated=%d skipped=%d failed=%d | %.1fs elapsed",
+                    "| migrated=%d skipped=%d failed=%d orphaned=%d | %.1fs elapsed",
                     completed, total, 100 * completed / total,
-                    total_migrated, total_skipped, total_failed, elapsed,
+                    total_migrated, total_skipped, total_failed, total_orphaned, elapsed,
                 )
 
     elapsed = time.time() - start
     _log.info(
         "Local docs migration complete: %d conversation(s) processed in %.1fs. "
-        "migrated=%d, skipped=%d, failed=%d.",
-        total, elapsed, total_migrated, total_skipped, total_failed,
+        "migrated=%d, skipped=%d, failed=%d, orphaned=%d.",
+        total, elapsed, total_migrated, total_skipped, total_failed, total_orphaned,
     )
 
     if total_failed == 0:
         _write_sentinel(sentinel)
+        if total_orphaned > 0:
+            _log.info(
+                "Local docs migration: %d orphan reference(s) (missing source dir) — "
+                "these are stale entries, not actionable failures.",
+                total_orphaned,
+            )
     else:
         _log.warning(
-            "Local docs migration: %d failure(s) — sentinel NOT written. "
+            "Local docs migration: %d real failure(s) — sentinel NOT written. "
             "Migration will re-run on next startup.",
             total_failed,
         )
