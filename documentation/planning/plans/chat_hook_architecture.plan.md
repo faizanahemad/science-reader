@@ -17,7 +17,7 @@ The entire chat flow lives in `Conversation.reply()` (~13,768 lines total in `Co
 | Lock acquisition | Per-conversation file lock | Always | ~0ms (or 10s wait) |
 | Slash command routing | `/pkb`, `/image`, `/title`, `/temp`, `/enable_*` | Message starts with `/` | ~0ms |
 | Checkbox override parsing | `/enable_X`, `/disable_X` in message | Slash commands in text | ~0ms |
-| PKB context retrieval | Hybrid search (k=15), reference resolution, STM injection | `PKB_AVAILABLE + use_pkb=True` | ~200-500ms |
+| PKB context retrieval | Hybrid search (6 strategies: FTS, embedding, rewrite, entity, tag, mapreduce; RRF fusion; k=15), reference resolution, STM injection | `PKB_AVAILABLE + use_pkb=True` | ~200-500ms |
 | Prior context retrieval | 5 length variants of conversation history | Always (if persist) | ~50ms |
 | Prior context LLM-based | Semantic extraction of relevant history | Always | ~1-3s |
 | Auto-classifier + auto-agent | Classify intent, route to context finder | `auto_context` mode | ~2-5s |
@@ -71,7 +71,7 @@ The entire chat flow lives in `Conversation.reply()` (~13,768 lines total in `Co
 
 | Step | What it does | Trigger condition |
 |------|-------------|-------------------|
-| Auto-doubt threads (5) | Takeaways, maximize learning, challenge/verify, foundations, raised questions | `persist + auto_doubts_enabled` |
+| Auto-doubt threads (5) | Takeaways, maximize learning, challenge/verify, foundations, raised questions | `persist + auto_doubts_enabled` + per-conv `auto_doubt_categories` filter |
 
 **After streaming completes (client-side, `common-chat.js`):**
 
@@ -243,17 +243,27 @@ class HookResult:
 
 | Hook | Priority | Current location | Contributes |
 |------|----------|-----------------|-------------|
-| `PreviousMessagesHook` | 10 | `_get_previous_messages()` | `ctx.context_parts["previous_messages"]` |
+| `PreviousMessagesHook` | 10 | `retrieve_prior_context()` (line 3167) | `ctx.context_parts["previous_messages"]` |
 | `RunningSummaryHook` | 10 | `self.running_summary` property | `ctx.context_parts["running_summary"]` |
-| `PKBContextHook` | 20 | `_get_pkb_context()` | `ctx.context_parts["pkb"]`, `ctx.context_parts["stm"]` |
+| `PKBContextHook` | 20 | `_get_pkb_context()` (line 519) | `ctx.context_parts["pkb"]`, `ctx.context_parts["stm"]` |
 | `WebSearchHook` | 30 | `web_search_queue()` + Perplexity | `ctx.context_parts["web_search"]` |
 | `DocumentReadHook` | 30 | `get_multiple_answers()` | `ctx.context_parts["documents"]` |
 | `LinkReadHook` | 30 | `read_over_multiple_links()` | `ctx.context_parts["links"]` |
 | `UserMemoryHook` | 40 | User memory distillation | `ctx.context_parts["user_memory"]` |
-| `PriorContextLLMHook` | 40 | `retrieve_prior_context_llm_based()` | `ctx.context_parts["prior_context_deep"]` |
+| `PriorContextLLMHook` | 40 | `retrieve_prior_context_llm_based()` (line 3251) | `ctx.context_parts["prior_context_deep"]` |
 | `AutoContextHook` | 50 | Auto-classifier + auto-agent | Overrides `ctx.context_parts["previous_messages"]` |
 | `UserAskAnalysisHook` | 60 | TLDR/keywords/prior of user msg | `ctx.context_parts["user_ask_metadata"]` (stored, not in prompt) |
 | `RewardInitHook` | 90 | `_initiate_reward_evaluation()` | Stores future in `ctx` for POST_STREAM |
+
+**Note on PKBContextHook internals:** PKB retrieval now runs a multi-strategy hybrid search with RRF fusion. Active strategies include:
+- FTS (full-text search)
+- Embedding (semantic similarity)
+- Rewrite (LLM query rewrite → re-search)
+- Entity (named entity → linked claims)
+- Tag (category tag → linked claims, boost-only corroboration mode) — NEW, gated by `config.tag_strategy_enabled`
+- MapReduce (for long queries)
+
+The tag strategy (W-D, 2026-06-11) is currently **inert by default** (`tag_strategy_enabled=False`). When enabled, it operates in boost-only mode: tags only re-rank claims that another strategy also found — never introduces tag-only claims. This is transparent to the hook architecture; it's an internal implementation detail of `_get_pkb_context()`.
 
 ### PRE_PROMPT hooks (phase 2) — sequential
 
@@ -289,6 +299,8 @@ class HookResult:
 
 Today these are tangled inside `_persist_current_turn_inner` — a single 250-line method under one `FileLock` where a slow summary LLM call (up to 30s) blocks memory pad, search indexing, and everything else. As independent parallel hooks with timeouts, they become isolated: a slow summary doesn't delay memory pad or keyword extraction.
 
+The auto-doubt system was recently refactored (2026-06-11) to use a dispatch table with per-conversation category selection and model override — this is already structured like a hook and is the easiest candidate to extract.
+
 | Hook | Priority | Current location | Does | Timeout |
 |------|----------|-----------------|------|---------|
 | `MessagePersistenceHook` | 5 | Message storage in `_persist_current_turn_inner` | Saves user/assistant messages to disk (the only one needing FileLock) | 5000ms |
@@ -298,17 +310,36 @@ Today these are tangled inside `_persist_current_turn_inner` — a single 250-li
 | `CrossConvIndexHook` | 30 | `_cross_conv_index.index_new_messages()` | Cross-conversation search indexing | 3000ms |
 | `PKBExtractionHook` | 40 | Currently client-side (`checkMemoryUpdates`) | **Move server-side**: extract_and_propose → silent/proposal mode | 15000ms |
 | `NextQuestionHook` | 50 | `create_next_question_suggestions()` | LLM generates follow-up suggestions | 10000ms |
-| `AutoDoubtHook` | 60 | `_create_auto_takeaways_doubt_*` (5 threads) | Spawn doubt/analysis threads | 30000ms |
+| `AutoDoubtHook` | 60 | `endpoints/conversations.py` line 1977 (`_AUTO_DOUBT_DISPATCH`) | Dispatch selective auto-doubt categories with model override | 30000ms |
 | `KeywordExtractionHook` | 70 | Answer keyword extraction | Extract keywords from response | 5000ms |
 | `MessageHashHook` | 80 | `generate_message_short_hash()` | Generate reference hashes | 500ms |
 | `RAGQualityHook` | 85 | NEW | Score PKB context usage in response | 10000ms |
 | `ConversationAnalyticsHook` | 90 | NEW | Track conversation patterns, topic shifts | 5000ms |
 | `PredictivePrefetchHook` | 95 | NEW (Hermes-inspired) | Pre-warm next-turn PKB/context cache | 30000ms |
 
+**Auto-doubt dispatch (current implementation, ready for hook extraction):**
+```python
+# endpoints/conversations.py line 1977 — already a clean dispatch table
+_AUTO_DOUBT_DISPATCH = {
+    "takeaways": _create_auto_takeaways_doubt_for_last_assistant_message,
+    "maximize_learning": _create_maximize_learning_doubt,
+    "challenge_verify": _create_challenge_and_verify_doubt,
+    "foundations_practice": _create_foundations_and_practice_doubt,
+    "answer_questions": _create_answer_raised_questions_doubt,
+}
+_conv_settings = conversation.get_conversation_settings() or {}
+_enabled_categories = _conv_settings.get("auto_doubt_categories")  # None = all
+for _cat, _func in _AUTO_DOUBT_DISPATCH.items():
+    if _enabled_categories is None or _cat in _enabled_categories:
+        get_async_future(_func, **_auto_doubt_kwargs)
+```
+Model: `conversation.get_model_override("auto_doubt_model", "gemini-flash-3.5-non-reasoning")`
+
 **Key ordering constraints and independence:**
 - `MessagePersistenceHook` (priority 5) writes messages first — only hook needing the `FileLock`
 - `SummaryGenerationHook` and `MemoryPadUpdateHook` both need only `ctx.response_text` (already in HookContext) — fully parallel, no dependency on each other or on message persistence
 - `PKBExtractionHook` needs only `ctx.query_text` + `ctx.response_text` — fully independent
+- `AutoDoubtHook` needs `ctx.response_message_id` + conversation reference — fully independent of persistence
 - `PredictivePrefetchHook` runs last — uses conversation summary if available, degrades gracefully if not
 
 ---
@@ -429,6 +460,13 @@ Allow users to define lightweight hooks via settings:
 - Route complex queries to multi-step agent pipelines
 - Decide whether single-shot or tool-loop is needed
 - Select specialized agents based on query classification
+
+### Doubt-to-PKB Feedback Loop (POST_PERSIST, priority 65)
+
+Leverage the recently implemented doubt system (pin/star, summarization, bookmarks, regeneration, global view) to feed insights back into PKB:
+- When a doubt thread is summarized, check if the summary contains correctable facts → propose PKB edits
+- When a user pins a doubt, extract the underlying claim as a PKB candidate
+- When `create_conversation_from_doubt_thread` fires, link the new conversation's future extractions to the doubt's topic context
 
 ### Response Caching (PRE_PROMPT, priority 99)
 
@@ -697,6 +735,8 @@ Our architecture already does this correctly. The hook system formalizes it and 
 - **`pkb_external_access_ui_mcp_rest_auth.plan.md`** — PKB hooks are a subset of this plan. The external access plan focuses on exposing PKB; this plan focuses on how PKB plugs into the chat flow.
 - **`pkb_ux_improvements.plan.md`** — Completed; introduced STM, bulk operations, maintenance. These become hook inputs (STM in `PKBContextHook`).
 - **`pkb_memory_system_improvements.plan.md`** — Internal PKB improvements. Hook architecture doesn't change the PKB internals, just how the chat flow calls them.
+- **`doubt_system_enhancements.plan.md`** — Implemented (2026-06-11). Added pin/star, regeneration, summarization, doubt-to-chat injection, conversation seeding, selective categories, model override, global doubts view. The `AutoDoubtHook` wraps this — the dispatch table and category selection are already hook-shaped. New doubt features (summarize, regenerate, seed conversation) are user-initiated actions, not hooks.
+- **`pkb_rewrite_entity_unification.plan.md`** — Entity/tag unification. The tag-linked retrieval strategy (W-D, boost-only mode) is the first step. Affects `PKBContextHook` internals but not the hook interface.
 
 ---
 
@@ -721,6 +761,9 @@ Line     Method/Section
 ```
 
 File: `Conversation.py` — 13,768 lines total.
+File: `endpoints/conversations.py` — auto-doubt dispatch at line 1977.
+File: `endpoints/pkb.py` — 83 routes, 4,127 lines.
+File: `endpoints/doubts.py` — 13 routes (pin, bookmark, regenerate, summarize, create-conversation-from-thread, global view, etc.).
 
 ---
 
@@ -758,6 +801,12 @@ Endpoint-layer (in `endpoints/conversations.py`):
 | Key | Default | Controls |
 |-----|---------|----------|
 | `auto_doubts_enabled` | `True` | `AutoDoubtHook` (currently lives in endpoint, not Conversation) |
+
+Per-conversation settings (stored via `set_conversation_settings`, read from `get_conversation_settings()`):
+| Key | Default | Controls |
+|-----|---------|----------|
+| `auto_doubt_categories` | `None` (all 5) | Which doubt categories to generate: `takeaways`, `maximize_learning`, `challenge_verify`, `foundations_practice`, `answer_questions` |
+| `model_overrides.auto_doubt_model` | `"gemini-flash-3.5-non-reasoning"` | Model for all auto-doubt LLM calls |
 
 ---
 
