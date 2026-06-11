@@ -531,9 +531,6 @@ var WorkspaceManager = {
         var allFlagged = this.conversations.filter(function (c) {
             return c.flag && c.flag !== 'none';
         });
-        console.log('[Pinned] Total conversations:', this.conversations.length,
-                    '| Flagged:', allFlagged.length,
-                    '| Flags:', allFlagged.map(function(c) { return c.flag; }));
         var pinned = allFlagged;
         if (savedColor !== 'all') {
             pinned = pinned.filter(function (c) { return c.flag === savedColor; });
