@@ -86,20 +86,22 @@ RRF ships as-is (see results above). Follow-ups since LANDED:
   - **Offline gate** (fts vs fts+tag on the 4 `tag` cases): tag-category mrr
     0.333 → 0.625, recall@10 0.167 → 0.750; overall no regression.
   - **Keyed gate** (`hybrid_entity` = fts+embedding+rewrite+entity vs
-    `hybrid_full` = +tag): tag-category mrr **0.562 → 1.000**, recall@10
-    **0.417 → 1.000** (overall recall@10 reaches 1.000). BUT a consistent
-    lexical-precision cost: lexical mrr ~1.000 → 0.867 (the rewrite sometimes
-    emits a category tag on a lexical query and the tag source injects a tagged
-    claim just above the exact hit). Overall mrr is within run-to-run noise of
-    baseline (~0.808–0.851 across runs; rewrite LLM is nondeterministic). A tag
-    down-weight sweep (`rrf_strategy_weights={'tag': 0.5..0.1}`) did NOT recover
-    lexical and reduced the tag win — weighting is not a useful lever.
-  - **Decision: ships OFF (stays inert).** Net overall is within noise and there
-    is a consistent lexical cost, so it is not flipped on globally on this small
-    synthetic set. Follow-up before shipping on: **query-conditional activation**
-    (fire the tag source only for category-like queries, or let it only *boost*
-    claims already found by another source rather than *introduce* new ones) and
-    a larger tagged eval set.
+    `hybrid_full` = +tag): tag-category mrr **0.53 → 1.000**, recall@10
+    **→ 1.000** (overall recall@10 also up). BUT a consistent lexical mrr cost
+    (~1.000 → 0.867) plus a semantic dip, leaving overall mrr ~−0.03 vs baseline.
+  - **Boost-only mode** (`tag_strategy_boost_only`, default True — tag only
+    re-ranks claims another strategy also found, never introduces): added and
+    eval'd. It retains the full tag win but **does NOT remove** the lexical/
+    semantic cost — the noisy tagged claim is *corroborated* by embedding, so the
+    tag source's rank vote still demotes the exact lexical hit. The regression is
+    from the tag source *voting* on queries where the rewrite emits an incidental
+    tag, not from introduction. A tag down-weight sweep also did not help.
+  - **Decision: ships OFF (stays inert).** Both modes show a consistent overall
+    mrr regression on this small synthetic set, so it is not flipped on globally.
+    Boost-only is the safer mode for opt-in use. The real fix is
+    **query-conditional activation** — suppress the tag vote when a strong
+    non-tag hit exists (e.g. a confident FTS/entity match) — validated on a
+    larger, realistic tagged eval set. That is the next step before shipping on.
 - REST endpoint `POST /pkb/backfill_entities` wrapping `backfill_entities`.
 - The embedding-store SQLite-concurrency bug noted above is now FIXED
   (`PKBDatabase` reentrant lock + `tests/test_db_concurrency.py`).

@@ -315,6 +315,7 @@ tag_strategy_top_n: int = 5                    # W-D: max tag-linked claims fed 
 tag_strategy_max_tags: int = 5                 # W-D: cap resolved tags per query (anti-flooding)
 tag_strategy_max_depth: int = 10               # W-D: tag-hierarchy traversal depth
 tag_use_rewrite_tags: bool = True              # W-D: feed the rewrite LLM's tags to the strategy
+tag_strategy_boost_only: bool = True           # W-D: tag source only re-ranks claims another strategy also found (never introduces tag-only claims); safer mode
 # Provenance / dedup (provenance & cleanup plan)
 inferred_confidence_cap: float = 0.4    # confidence ceiling for inferred claims
 inferred_rerank_penalty: float = 0.1    # score ×(1-penalty) for inferred in re-rank
@@ -803,7 +804,9 @@ Tag-linked retrieval: the symmetric counterpart of the entity strategy. Surfaces
 4. Rank by cosine similarity to the query embedding (reusing the entity strategy's query vector when available); degrade to recency order when no embedding is available.
 5. Return top-N (`tag_strategy_top_n`, default 5). Returns `[]` when disabled, the query is empty, or no tag resolves (RRF no-op).
 
-**Eval (keyed gate, `hybrid_entity` vs `+tag`):** tag-category mrr 0.562 → 1.000, recall@10 0.417 → 1.000 — but a consistent lexical-precision cost (lexical mrr ~1.000 → 0.867) and overall mrr within run-to-run noise of baseline. A tag down-weight sweep did not recover lexical. **Decision: ships OFF (inert);** revisit with query-conditional activation (fire only for category-like queries / boost-only, not introduce) and a larger tagged eval set.
+**Modes:** `tag_strategy_boost_only` (default `True`) makes the tag source a pure *booster* — `HybridSearchStrategy._apply_tag_boost_only` drops any tag result whose `claim_id` was not also returned by another active strategy, before RRF (no-op when 'tag' is the only active strategy). Set `False` for full orthogonal-recall *introduction*.
+
+**Eval (keyed gate, baseline `hybrid_entity` vs `+tag` introduce vs `+tag` boost-only, 2 reps):** both `+tag` modes lift tag-category mrr ~0.53 → **1.000** and recall@10 → 1.000 (overall recall@10 also up), but **both** carry a consistent lexical mrr cost ~1.000 → 0.867 (and a semantic dip), leaving overall mrr ~−0.03 vs baseline. Boost-only does **not** remove this: the noisy tagged claim is *corroborated* by embedding, so the tag source's rank vote still demotes the exact lexical hit. The regression is from the tag source *voting* on queries where the rewrite emits an incidental tag, not from introduction. **Decision: ships OFF (inert);** boost-only is the safer mode for opt-in use. The real fix is **query-conditional activation** (suppress the tag vote when a strong non-tag hit exists) validated on a larger, realistic tagged eval set.
 
 #### `search/hybrid_search.py` - `HybridSearchStrategy`
 
