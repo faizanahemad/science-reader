@@ -5218,6 +5218,35 @@ greet("World");</code></pre>
     .doubt-conversation-card.doubt-answer-collapsed .doubt-answer-collapse-toggle-bottom {
         display: none !important;
     }
+
+    /* Progressive disclosure sections */
+    .doubt-progressive-disclosure .doubt-section-tldr {
+        margin-bottom: 0.75rem;
+        padding: 0.5rem 0.75rem;
+        background: #f0f7ff;
+        border-left: 3px solid #4a9eff;
+        border-radius: 3px;
+    }
+    .doubt-progressive-disclosure .doubt-section-tldr p { margin: 0; display: inline; }
+    .doubt-progressive-disclosure details.section-details {
+        margin-top: 0.5rem;
+        border: 1px solid #e9ecef;
+        border-radius: 4px;
+    }
+    .doubt-progressive-disclosure details.section-details > summary {
+        padding: 0.4rem 0.75rem;
+        cursor: pointer;
+        background: #f8f9fa;
+        border-radius: 4px;
+        user-select: none;
+    }
+    .doubt-progressive-disclosure details.section-details[open] > summary {
+        border-bottom: 1px solid #e9ecef;
+        border-radius: 4px 4px 0 0;
+    }
+    .doubt-progressive-disclosure .doubt-section-content {
+        padding: 0.75rem;
+    }
     
     #doubt-chat-input {
         border: 2px solid #e9ecef;

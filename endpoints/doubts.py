@@ -31,6 +31,7 @@ from endpoints.request_context import attach_keys, get_state_and_keys
 from endpoints.responses import json_error
 from endpoints.session_utils import get_session_identity
 from endpoints.state import get_state
+from database.sections import get_all_section_hidden_details
 from extensions import limiter
 from common import EXPENSIVE_LLM
 from Conversation import model_name_to_canonical_name
@@ -528,7 +529,14 @@ def get_doubts_for_message_route(conversation_id: str, message_id: str):
             logger=logger,
         )
 
-        return jsonify({"success": True, "doubts": doubts, "count": len(doubts)})
+        # Get section hidden states for doubt sections in this conversation
+        all_sections = get_all_section_hidden_details(
+            conversation_id=conversation_id, users_dir=state.users_dir, logger=logger
+        )
+        # Filter to only doubt_ prefixed sections
+        doubt_sections = {k: v["hidden"] for k, v in all_sections.items() if k.startswith("doubt_")}
+
+        return jsonify({"success": True, "doubts": doubts, "count": len(doubts), "section_states": doubt_sections})
     except Exception as e:
         logger.error(
             f"Error getting doubts for message {conversation_id}/{message_id}: {str(e)}"

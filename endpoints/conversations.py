@@ -2325,6 +2325,9 @@ def clarify_intent(conversation_id: str):
         return jsonify({"needs_clarification": False, "questions": []})
 
 
+_DOUBT_SECTION_FMT = "\n\nFormat your answer in exactly 3 sections using these markers:\n<tldr>One-sentence summary of the answer</tldr>\n<explanation>Clear explanation (2-4 paragraphs)</explanation>\n<deep_dive>Detailed examples, edge cases, connections, and nuances</deep_dive>"
+
+
 def _create_auto_takeaways_doubt_for_last_assistant_message(
     *,
     message: str,
@@ -2551,7 +2554,7 @@ Question to answer:
                     temperature=0.3,
                     stream=False,
                     max_tokens=1500,
-                    system="Answer thoroughly in markdown with depth, practical insight, and nuance. Explain the 'why' behind things. No preamble.",
+                    system="Answer thoroughly in markdown with depth, practical insight, and nuance. Explain the 'why' behind things. No preamble." + _DOUBT_SECTION_FMT,
                 )
 
             # Fire all LLM calls in parallel
@@ -2721,12 +2724,12 @@ Assistant answer:
             learning_future = executor.submit(
                 llm, learning_prompt, images=[], temperature=0.3, stream=False,
                 max_tokens=1500,
-                system="You identify and explain critical concepts that deepen understanding. Be precise and practical.",
+                system="You identify and explain critical concepts that deepen understanding. Be precise and practical." + _DOUBT_SECTION_FMT,
             )
             perspectives_future = executor.submit(
                 llm, perspectives_prompt, images=[], temperature=0.4, stream=False,
                 max_tokens=2000,
-                system="You inhabit multiple expert personas simultaneously. Each perspective is authentic — reflecting genuine concerns and priorities of that role, not generic platitudes. Surprise the reader with insights they wouldn't get from a single viewpoint.",
+                system="You inhabit multiple expert personas simultaneously. Each perspective is authentic — reflecting genuine concerns and priorities of that role, not generic platitudes. Surprise the reader with insights they wouldn't get from a single viewpoint." + _DOUBT_SECTION_FMT,
             )
 
             learning_content = learning_future.result()
@@ -2864,11 +2867,11 @@ Assistant answer:
         with ThreadPoolExecutor(max_workers=2) as executor:
             devils_future = executor.submit(
                 llm, devils_prompt, images=[], temperature=0.3, stream=False, max_tokens=1500,
-                system="You are a senior engineer and critical thinker. For every weakness you identify, explain the mechanism of failure and the intuition behind why it happens. Never be vague — always show the 'why' and trace the reasoning chain.",
+                system="You are a senior engineer and critical thinker. For every weakness you identify, explain the mechanism of failure and the intuition behind why it happens. Never be vague — always show the 'why' and trace the reasoning chain." + _DOUBT_SECTION_FMT,
             )
             mistakes_future = executor.submit(
                 llm, mistakes_prompt, images=[], temperature=0.3, stream=False, max_tokens=2000,
-                system="You are a principal engineer reviewing code and architecture for production readiness. You think in terms of failure modes at scale, cascading effects, and the gap between 'works on my machine' and 'works under load'. Trace each failure from root cause through propagation to visible symptom.",
+                system="You are a principal engineer reviewing code and architecture for production readiness. You think in terms of failure modes at scale, cascading effects, and the gap between 'works on my machine' and 'works under load'. Trace each failure from root cause through propagation to visible symptom." + _DOUBT_SECTION_FMT,
             )
 
             devils_answer = devils_future.result()
@@ -2989,11 +2992,11 @@ Assistant answer:
         with ThreadPoolExecutor(max_workers=2) as executor:
             prereq_future = executor.submit(
                 llm, prereq_prompt, images=[], temperature=0.3, stream=False, max_tokens=1500,
-                system="You identify knowledge prerequisites and explain them with depth and intuition. Build mental models, not just definitions.",
+                system="You identify knowledge prerequisites and explain them with depth and intuition. Build mental models, not just definitions." + _DOUBT_SECTION_FMT,
             )
             apply_future = executor.submit(
                 llm, apply_prompt, images=[], temperature=0.4, stream=False, max_tokens=1500,
-                system="You create insightful practice exercises that reveal whether someone truly understands a concept or just memorized it. Design for 'aha moments'.",
+                system="You create insightful practice exercises that reveal whether someone truly understands a concept or just memorized it. Design for 'aha moments'." + _DOUBT_SECTION_FMT,
             )
 
             prereq_answer = prereq_future.result()
@@ -3089,7 +3092,7 @@ Assistant response:
 """
         answers = llm(
             answer_prompt, images=[], temperature=0.3, stream=False, max_tokens=1500,
-            system="You answer thought-provoking questions thoroughly and clearly to help the user learn.",
+            system="You answer thought-provoking questions thoroughly and clearly to help the user learn." + _DOUBT_SECTION_FMT,
         )
         if not isinstance(answers, str) or not answers.strip():
             return

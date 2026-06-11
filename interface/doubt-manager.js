@@ -44,6 +44,7 @@ const DoubtManager = {
             loading.hide();
             
             if (data.success && data.doubts && data.doubts.length > 0) {
+                this._sectionStates = data.section_states || {};
                 this.renderDoubtsOverview(data.doubts);
             } else {
                 empty.show();
@@ -265,6 +266,7 @@ const DoubtManager = {
                     .then(response => response.json())
                     .then(treeData => {
                         if (treeData.success && treeData.doubts) {
+                            self._sectionStates = treeData.section_states || {};
                             // Find the root tree that contains our target doubt
                             function findInTree(node, id) {
                                 if (node.doubt_id === id) return true;
@@ -493,12 +495,39 @@ const DoubtManager = {
             // User messages are plain text - just convert line breaks
             renderedContent = text.replace(/\n/g, '<br>');
         } else {
-            // Assistant messages should be rendered as markdown
-            if (typeof marked !== 'undefined' && marked.parse) {
-                renderedContent = marked.parse(text);
+            // Check for progressive disclosure markers
+            const hasSections = text && text.includes('<tldr>') && text.includes('<explanation>') && text.includes('<deep_dive>');
+            if (hasSections) {
+                const tldr = (text.match(/<tldr>([\s\S]*?)<\/tldr>/) || [])[1] || '';
+                const explanation = (text.match(/<explanation>([\s\S]*?)<\/explanation>/) || [])[1] || '';
+                const deepDive = (text.match(/<deep_dive>([\s\S]*?)<\/deep_dive>/) || [])[1] || '';
+                const renderMd = (t) => (typeof marked !== 'undefined' && marked.parse) ? marked.parse(t.trim()) : t.replace(/\n/g, '<br>');
+                const explainHash = `doubt_${doubtId}_explain`;
+                const deepHash = `doubt_${doubtId}_deep`;
+                // Check saved section states
+                const sectionStates = this._sectionStates || {};
+                const explainHidden = sectionStates[explainHash];
+                const deepHidden = sectionStates[deepHash] !== false; // default hidden
+                renderedContent = `
+                    <div class="doubt-progressive-disclosure">
+                        <div class="doubt-section-tldr"><strong>TL;DR</strong> — ${renderMd(tldr)}</div>
+                        <details class="section-details doubt-section-explain" data-section-hash="${explainHash}" ${explainHidden === true ? '' : 'open'}>
+                            <summary><strong>Explanation</strong></summary>
+                            <div class="doubt-section-content">${renderMd(explanation)}</div>
+                        </details>
+                        <details class="section-details doubt-section-deep" data-section-hash="${deepHash}" ${deepHidden ? '' : 'open'}>
+                            <summary><strong>Deep Dive</strong></summary>
+                            <div class="doubt-section-content">${renderMd(deepDive)}</div>
+                        </details>
+                    </div>`;
             } else {
-                // Fallback if marked is not available
-                renderedContent = text.replace(/\n/g, '<br>');
+                // Assistant messages should be rendered as markdown
+                if (typeof marked !== 'undefined' && marked.parse) {
+                    renderedContent = marked.parse(text);
+                } else {
+                    // Fallback if marked is not available
+                    renderedContent = text.replace(/\n/g, '<br>');
+                }
             }
         }
         
@@ -586,6 +615,21 @@ const DoubtManager = {
         const self = this;
         const input = $('#doubt-chat-input');
         const sendBtn = $('#doubt-chat-send-btn');
+
+        // Section toggle persistence for progressive disclosure
+        $('#doubt-chat-messages').off('click.doubtSection').on('click.doubtSection', '.section-details > summary', function() {
+            const $section = $(this).closest('.section-details');
+            const sectionHash = $section.attr('data-section-hash');
+            if (!sectionHash) return;
+            setTimeout(function() {
+                const isHidden = !$section.prop('open');
+                self._sectionStates = self._sectionStates || {};
+                self._sectionStates[sectionHash] = isHidden;
+                if (self.currentConversationId && typeof persistSectionState === 'function') {
+                    persistSectionState(self.currentConversationId, sectionHash, isHidden);
+                }
+            }, 0);
+        });
 
         // Back button — close chat and reopen overview
         $('#doubt-chat-back-btn').off('click').on('click', function() {
@@ -1298,6 +1342,31 @@ const DoubtManager = {
                             MathJax.Hub.Queue(["Typeset", MathJax.Hub, assistantBody[0]]);
                         }
                         
+                        // Re-render with progressive disclosure sections if markers present
+                        if (accumulatedText.includes('<tldr>') && accumulatedText.includes('<explanation>') && accumulatedText.includes('<deep_dive>')) {
+                            const tldr = (accumulatedText.match(/<tldr>([\s\S]*?)<\/tldr>/) || [])[1] || '';
+                            const explanation = (accumulatedText.match(/<explanation>([\s\S]*?)<\/explanation>/) || [])[1] || '';
+                            const deepDive = (accumulatedText.match(/<deep_dive>([\s\S]*?)<\/deep_dive>/) || [])[1] || '';
+                            const renderMd = (t) => (typeof marked !== 'undefined' && marked.parse) ? marked.parse(t.trim()) : t.replace(/\n/g, '<br>');
+                            const explainHash = `doubt_${doubtId}_explain`;
+                            const deepHash = `doubt_${doubtId}_deep`;
+                            assistantBody.html(`
+                                <div class="doubt-progressive-disclosure">
+                                    <div class="doubt-section-tldr"><strong>TL;DR</strong> — ${renderMd(tldr)}</div>
+                                    <details class="section-details doubt-section-explain" data-section-hash="${explainHash}" open>
+                                        <summary><strong>Explanation</strong></summary>
+                                        <div class="doubt-section-content">${renderMd(explanation)}</div>
+                                    </details>
+                                    <details class="section-details doubt-section-deep" data-section-hash="${deepHash}">
+                                        <summary><strong>Deep Dive</strong></summary>
+                                        <div class="doubt-section-content">${renderMd(deepDive)}</div>
+                                    </details>
+                                </div>`);
+                            if (typeof MathJax !== 'undefined' && MathJax.Hub) {
+                                MathJax.Hub.Queue(["Typeset", MathJax.Hub, assistantBody[0]]);
+                            }
+                        }
+
                         // Inject the collapse (show/hide) toggle on the freshly-streamed
                         // answer (expanded). data-doubt-id is set so the toggle persists.
                         if (accumulatedText.length > 300) {
