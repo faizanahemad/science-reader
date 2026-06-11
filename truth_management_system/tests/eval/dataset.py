@@ -35,6 +35,8 @@ class EvalClaim:
       - ``meta``: extra meta_json keys.
       - ``entities``: names of entities to create and link to this claim
         (role 'subject'); enables the entity-linked retrieval cases (W-C).
+      - ``tags``: names of tags to create and link to this claim; enables the
+        tag-linked retrieval cases (W-D). Flat names (no hierarchy needed).
     """
     key: str
     statement: str
@@ -48,6 +50,7 @@ class EvalClaim:
     pinned: bool = False
     meta: Optional[dict] = None
     entities: Optional[List[str]] = None
+    tags: Optional[List[str]] = None
 
 
 @dataclass
@@ -124,6 +127,7 @@ def load_dataset(path: Optional[str] = None) -> EvalDataset:
             pinned=c.get("pinned", False),
             meta=c.get("meta"),
             entities=c.get("entities"),
+            tags=c.get("tags"),
         )
         for c in raw.get("claims", [])
     ]

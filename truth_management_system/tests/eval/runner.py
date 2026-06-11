@@ -210,6 +210,15 @@ class EvalRunner:
                     ent, _ = ent_crud.get_or_create(ename, EntityType.ORG.value)
                     link_claim_entity(self.db, claim.claim_id, ent.entity_id, "subject")
 
+            # Tag-linked retrieval (W-D): create/link declared tags.
+            if ec.tags:
+                from ...crud.tags import TagCRUD
+                from ...crud.links import link_claim_tag
+                tag_crud = TagCRUD(self.db)
+                for tname in ec.tags:
+                    tag, _ = tag_crud.get_or_create(tname)
+                    link_claim_tag(self.db, claim.claim_id, tag.tag_id)
+
         if apply_expiry:
             try:
                 from ...utils import expire_stale_claims
@@ -316,6 +325,10 @@ class EvalRunner:
                 # Entity-linked retrieval runs offline (no key needed); it
                 # degrades to recency order without embeddings.
                 strategy_sets["entity"] = ["entity"]
+            if "tag" in available:
+                # Tag-linked retrieval (W-D). Only registered when
+                # tag_strategy_enabled is set, so this is absent by default.
+                strategy_sets["tag"] = ["tag"]
             if "embedding" in available:
                 strategy_sets["embedding"] = ["embedding"]
                 strategy_sets["hybrid"] = ["fts", "embedding"]

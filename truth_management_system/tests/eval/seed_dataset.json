@@ -50,7 +50,16 @@
     {"key": "mom_birthday", "statement": "My mother's birthday is on March 15", "claim_type": "fact", "context_domain": "relationships"},
     {"key": "wife_anna", "statement": "My wife's name is Anna", "claim_type": "fact", "context_domain": "relationships"},
     {"key": "friend_sara_doctor", "statement": "My friend Sara is a doctor", "claim_type": "fact", "context_domain": "relationships"},
-    {"key": "son_soccer", "statement": "My son plays soccer on Saturdays", "claim_type": "fact", "context_domain": "relationships"}
+    {"key": "son_soccer", "statement": "My son plays soccer on Saturdays", "claim_type": "fact", "context_domain": "relationships"},
+    {"key": "fam_anniversary", "statement": "My anniversary with Anna is on June 14th", "claim_type": "fact", "context_domain": "relationships", "tags": ["family"]},
+    {"key": "fam_mom_birthday", "statement": "Mom turns seventy in early March", "claim_type": "fact", "context_domain": "relationships", "tags": ["family"]},
+    {"key": "fam_reunion", "statement": "We are planning a big get-together at the lake this summer", "claim_type": "fact", "context_domain": "relationships", "tags": ["family"]},
+    {"key": "trav_kyoto", "statement": "Booked flights to Kyoto for the spring", "claim_type": "fact", "context_domain": "personal", "tags": ["travel"]},
+    {"key": "trav_passport", "statement": "My passport expires next year", "claim_type": "fact", "context_domain": "personal", "tags": ["travel"]},
+    {"key": "trav_ryokan", "statement": "Reserved a traditional inn for three nights", "claim_type": "fact", "context_domain": "personal", "tags": ["travel"]},
+    {"key": "hl_standing_desk", "statement": "Switched to a standing desk to ease my lower back", "claim_type": "decision", "context_domain": "personal", "tags": ["health"]},
+    {"key": "hl_steps", "statement": "Trying to hit ten thousand steps daily", "claim_type": "habit", "context_domain": "personal", "tags": ["health"]},
+    {"key": "hl_water", "statement": "Carrying a large bottle to stay hydrated through the day", "claim_type": "habit", "context_domain": "personal", "tags": ["health"]}
   ],
   "cases": [
     {"query": "What do we know about Acme Corp?", "expected": ["acme_contract", "acme_invoice"], "category": "entity", "notes": "entity-linked retrieval: both Acme claims should surface"},
@@ -101,6 +110,10 @@
     {"query": "appointment", "expected": ["dentist_appt"], "category": "scoped", "filters": {"context_domains": ["life_ops"]}, "notes": "domain-scoped search"},
 
     {"query": "where do I work now", "expected": ["job_acme"], "not_expected": ["job_globex"], "category": "lifecycle", "notes": "superseded job_globex must be excluded by default status filter"},
-    {"query": "gym membership", "expected": ["gym_morning"], "not_expected": ["gym_trial"], "category": "lifecycle", "notes": "expired gym_trial (past valid_to) must be excluded after the expiry sweep"}
+    {"query": "gym membership", "expected": ["gym_morning"], "not_expected": ["gym_trial"], "category": "lifecycle", "notes": "expired gym_trial (past valid_to) must be excluded after the expiry sweep"},
+    {"query": "what is new with my family?", "expected": ["fam_anniversary", "fam_mom_birthday", "fam_reunion"], "category": "tag", "notes": "tag-linked: family-tagged claims share few/no query tokens; the tag source unifies them"},
+    {"query": "my upcoming travel plans", "expected": ["trav_kyoto", "trav_passport", "trav_ryokan"], "category": "tag", "notes": "tag-linked: 'travel' appears in none of the statements"},
+    {"query": "what have I done for my health lately?", "expected": ["hl_standing_desk", "hl_steps", "hl_water"], "category": "tag", "notes": "tag-linked: health-tagged lifestyle changes; 'health' is not in any statement"},
+    {"query": "am I taking better care of myself these days?", "expected": ["hl_standing_desk", "hl_steps", "hl_water"], "category": "tag", "notes": "tag-linked, rewrite-path: no 'health' token in the query — relies on the rewrite LLM emitting the health tag"}
   ]
 }
