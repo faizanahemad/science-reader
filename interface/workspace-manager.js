@@ -528,12 +528,23 @@ var WorkspaceManager = {
         colorSelect.val(savedColor);
 
         // Filter flagged conversations
-        var pinned = this.conversations.filter(function (c) {
+        var allFlagged = this.conversations.filter(function (c) {
             return c.flag && c.flag !== 'none';
         });
+        console.log('[Pinned] Total conversations:', this.conversations.length,
+                    '| Flagged:', allFlagged.length,
+                    '| Flags:', allFlagged.map(function(c) { return c.flag; }));
+        var pinned = allFlagged;
         if (savedColor !== 'all') {
             pinned = pinned.filter(function (c) { return c.flag === savedColor; });
         }
+        if (pinned.length === 0 && savedColor !== 'all') {
+            // Fallback: if color filter yields nothing, show all flagged
+            pinned = allFlagged;
+            colorSelect.val('all');
+            try { localStorage.setItem(self.getPinnedColorFilterKey(), 'all'); } catch (_e) {}
+        }
+        pinned = pinned.slice(0, 5);
 
         // Badge
         badge.text(pinned.length > 0 ? '(' + pinned.length + ')' : '');
