@@ -123,25 +123,54 @@ chat app (host)             imports the package; mounts its blueprint; injects c
 
 ### T0.1 Define and inject an `LLMProvider` (G0e) — the critical seam
 
-**Problem:** the core calls `from code_common.call_llm import call_llm, get_query_embedding, get_document_embedding, getKeywordsFromText` lazily in ~22 sites; `code_common.call_llm` in turn imports `loggers` and `common`. This is the *only* hard upward dependency of the core.
+**Verified coupling inventory (2026-06-12) — this is the *entire* upward dependency of the TMS core.** Import analysis shows the core imports **nothing** from `loggers`, `base`, `server`, `prompts`, `endpoints`, or `extensions`, and from `code_common` it uses **only** `call_llm`. The complete surface to decouple:
 
-**Fix:**
-1. Define a minimal protocol in `truth_management_system/providers/base.py`, e.g.:
+| # | Coupling | Symbols | Sites | Current hardness | Removal |
+|---|----------|---------|-------|------------------|---------|
+| C1 | `code_common.call_llm` | `call_llm` (12), `get_query_embedding` (5), `get_document_embedding` (3), `getKeywordsFromText` (2) | ~22 | Lazy (inside functions) | Inject `LLMProvider` |
+| C2 | `common` model lists | `CHEAP_LLM` (2), `SUPERFAST_LLM` (1) | 3 | Lazy | Promote to `PKBConfig` model fields |
+| C3 | `common.time_logger` | `time_logger` | 5 | **Already guarded** (`try/except ImportError → time_logger = logger`) | Inject a logger object |
+
+**Already clean — no work required (confirmed):**
+- **API keys:** injected as a `keys` dict param — `StructuredAPI(db, keys, config)` → `self.keys` → `call_llm(self.keys, model, prompt, …)`; `call_llm` reads only `keys["OPENROUTER_API_KEY"]`. No chat-app global. Standalone builds the same dict from env.
+- **Prompts:** fully self-contained inside TMS modules — zero imports from a main-repo prompts module.
+- **Other chat-app modules:** none imported by the core.
+
+So **C1 (the `LLMProvider`) is ~90% of the decoupling; C2 and C3 are trivial.**
+
+**Fix — four moves (all preserve behavior; chat app injects host objects, standalone supplies defaults):**
+
+1. **LLMProvider protocol (C1).** Define in `truth_management_system/providers/base.py`:
    ```python
    class LLMProvider(Protocol):
-       def call_llm(self, prompt, *, model=None, **kw) -> str: ...
-       def get_query_embedding(self, text) -> list[float]: ...
-       def get_document_embedding(self, text) -> list[float]: ...
-       def get_keywords(self, text) -> list[str]: ...
+       def call_llm(self, keys, model, prompt, **kw) -> str: ...   # mirror code_common.call_llm signature
+       def get_query_embedding(self, text, **kw) -> list[float]: ...
+       def get_document_embedding(self, text, **kw) -> list[float]: ...
+       def get_keywords(self, text, **kw) -> list[str]: ...
    ```
-2. Carry a provider on `PKBConfig` (or `StructuredAPI`) — already the natural place (it holds `keys`/`config`).
-3. Replace the ~22 lazy `from code_common.call_llm import ...` sites with calls through `self._provider` (or a module-level `get_provider()` resolving from config). Mechanical but must be exhaustive — add a guard test (grep) like the M1 source-guard.
-4. Provide two implementations:
-   - `providers/codecommon_provider.py` — wraps `code_common.call_llm` (used by the chat app host; zero behavior change).
-   - `providers/default_provider.py` — a self-contained OpenAI/OpenRouter-backed impl (used in standalone mode; no `loggers`/`common`).
-5. The chat app injects the codecommon provider at startup; standalone `__main__` injects the default provider.
+   Mirror the existing `code_common.call_llm` call signatures so the swap is 1:1. Carry the provider on `PKBConfig`/`StructuredAPI`. Two impls:
+   - `providers/codecommon_provider.py` — thin wrapper over `code_common.call_llm` (chat-app host; zero behavior change).
+   - `providers/default_provider.py` — self-contained OpenRouter/OpenAI impl (standalone; no `loggers`/`common`). Must match models + embedding dimensions (pin `embedding_model`).
+   Replace all ~22 `from code_common.call_llm import …` sites with calls through the injected provider. Exhaustive — add a source-guard test (like the M1 guard) asserting no `from code_common` import remains in core paths.
 
-**Risk control:** do this first and verify the full TMS test suite (302+) passes with the codecommon provider injected — proves zero behavior change before anything moves.
+2. **Logger injection (C3) — allow passing a logger object.** Let `PKBConfig`/`StructuredAPI` accept an optional `logger` (and `time_logger`); default to `logging.getLogger("truth_management_system")` when not supplied. Replace the 5 guarded `from common import time_logger` sites with the injected `time_logger` (fall back to the module logger if `None`, preserving today's behavior). The chat app passes its `common.time_logger` (keeps timing visibility); standalone gets stdlib logging. This removes the last `common` import path and gives hosts full control of logging.
+
+3. **Internalize model config (C2).** Add `PKBConfig` fields — e.g. `fast_llm_model: str` and `superfast_llm_model: str` (defaults mirroring today's first-choice models, e.g. `"anthropic/claude-haiku-4.5"` and `"inception/mercury-2"`) — and replace the 3 `CHEAP_LLM`/`SUPERFAST_LLM` borrow sites with config reads. The chat app may override these from its `common` lists at construction time if it wants identical selection; standalone uses the config defaults. (`PKBConfig` already has `llm_model`/`embedding_model`, so this just extends an existing pattern.)
+
+4. **Keys + prompts: nothing to do** — already injected / self-contained (see above). Standalone `__main__` builds `keys = {"OPENROUTER_API_KEY": os.environ["OPENROUTER_API_KEY"]}`.
+
+**Risk control:** land this whole step first and verify the **full TMS suite (302+) passes with the codecommon provider + host logger injected** — proves zero behavior change *before* any file is moved. Then add the source guards (no `code_common`, no `common` imports in core).
+
+### ✅ Full-decouple checklist (definition of done for C1–C3)
+
+The TMS core is fully decoupled when **all** of these hold:
+- [ ] `grep -rE "from (code_common|common|loggers|base|server|prompts|endpoints|extensions) " truth_management_system/` (excluding `providers/codecommon_provider.py` and tests) returns **nothing**.
+- [ ] All LLM/embedding/keyword calls route through the injected `LLMProvider`.
+- [ ] All timing/log calls route through the injected `logger`/`time_logger` (with a stdlib fallback).
+- [ ] All model names come from `PKBConfig` fields (no `CHEAP_LLM`/`SUPERFAST_LLM` imports).
+- [ ] API keys arrive only via the injected `keys` dict / provider (already true).
+- [ ] The package imports cleanly and the full suite passes in an environment where `code_common`, `common`, `loggers`, `base`, `server`, `endpoints`, `extensions`, and `interface` are **not importable** (standalone smoke test, T0.8).
+- [ ] The chat app, injecting the codecommon provider + its `time_logger` + (optionally) its model lists, behaves identically (G0d).
 
 ### T0.2 Move auth into the package
 
@@ -512,7 +541,7 @@ Cross-link from: `documentation/README.md`, `documentation/product/ops/mcp_serve
 ## 9. Risks & Cross-Cutting Concerns
 
 - **Extraction regressions (WS0, highest risk):** Moving auth/http/mcp/ui and inverting the LLM dependency touches a lot of surface. Mitigation: do T0.1 (provider injection) first and prove the **full TMS suite (302+) is green with the codecommon provider injected before moving any file**; after each subsequent move, boot the chat app and confirm `/pkb/*`, the in-chat modal, and MCP tools are unchanged. Keep `mcp_server/auth.py`, `mcp_server/pkb.py`, and `endpoints/pkb.py` as thin back-compat shims so existing imports/URLs don't break (G0d).
-- **Incomplete LLM-dependency inversion (T0.1):** Missing even one `from code_common.call_llm import ...` site leaves the core coupled and breaks standalone mode. Mitigation: a source-guard test (like the M1 guard) asserting no direct `code_common.call_llm` import remains in `truth_management_system/` core paths once T0.1 is complete.
+- **Incomplete dependency inversion (T0.1):** Missing even one `code_common.call_llm`, `common` model-list, or `common.time_logger` site leaves the core coupled and breaks standalone mode. Mitigation: the T0.1 source-guard test asserts that `grep -rE "from (code_common|common|loggers|base|server|prompts|endpoints|extensions) " truth_management_system/` (excluding the codecommon provider shim + tests) returns nothing — see the full-decouple checklist in §3.0 T0.1.
 - **Two divergent UI copies:** Vendoring `pkb-manager.js` into the package risks the chat app and package drifting. Mitigation: single source of truth — the package owns `pkb-manager.js`; the chat app references the package copy (symlink/build-copy), per G1b.
 - **Default LLM provider parity:** The standalone `default_provider` must match `code_common.call_llm` behavior (models, embedding dims, retry). Mitigation: keep the chat app on the codecommon provider; treat the default provider as best-effort and document supported models. Embedding-dimension mismatch would corrupt vector search — pin the embedding model in `PKBConfig`.
 - **Packaging dependency surface (G0f):** `code_common.call_llm` pulls heavy deps (openai, numpy, tiktoken, tenacity, more_itertools). The default provider must declare exactly its real deps so standalone install stays lean.
@@ -536,7 +565,8 @@ Cross-link from: `documentation/README.md`, `documentation/product/ops/mcp_serve
 | `truth_management_system/providers/base.py` (new) | `LLMProvider` protocol |
 | `truth_management_system/providers/codecommon_provider.py` (new) | Wraps `code_common.call_llm` (chat-app host injects this) |
 | `truth_management_system/providers/default_provider.py` (new) | Self-contained OpenAI/OpenRouter provider (standalone) |
-| `truth_management_system/llm_helpers.py`, `search/*.py`, `interface/*.py` | Replace ~22 direct `code_common.call_llm` imports with provider calls (T0.1) |
+| `truth_management_system/llm_helpers.py`, `search/*.py`, `interface/*.py` | C1: replace ~22 `code_common.call_llm` imports with provider calls; C3: replace 5 guarded `common.time_logger` imports with injected logger; C2: replace 3 `common.CHEAP_LLM`/`SUPERFAST_LLM` borrows with config reads (T0.1) |
+| `truth_management_system/config.py` | Add injected `logger`/`time_logger` + `fast_llm_model`/`superfast_llm_model` fields (T0.1 C2/C3) |
 | `truth_management_system/interface/structured_api.py` | Carry/resolve the provider; remains the library entrypoint (G0a) |
 | `truth_management_system/auth/` (new) | JWT + dual-auth + scopes (moved from `mcp_server/auth.py`) |
 | `truth_management_system/http/app.py` (new) | `create_pkb_http_app()` + `/pkb/*` blueprint, package-only deps (G0b) |
