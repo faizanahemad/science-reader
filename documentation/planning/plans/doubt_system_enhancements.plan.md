@@ -283,22 +283,276 @@ This is mostly a frontend change to `renderDoubtsOverview()` and `createDoubtPre
 
 ---
 
-## Implementation Order (Suggested)
+## Feature 8: "Ask About This Doubt" from Main Chat
 
-1. **Pin/star doubts** — foundational for sorting everywhere else
-2. **Threading UX improvement** — depends on pin field existing
-3. **Doubt answer regeneration** — self-contained, high user value
-4. **Doubt thread summarization** — builds on regeneration patterns
-5. **Doubt notification** — purely frontend, independent
-6. **Selective auto-doubts** — per-conversation settings
-7. **Cross-conversation doubt view** — largest scope, depends on pin/search infrastructure
+### Requirements
+- Context menu option on any message that has doubts: "Continue doubt in main chat"
+- Opens a sub-menu or modal listing the doubt threads for that message
+- User picks a thread → the doubt thread content is injected into the next main-chat reply as additional context
+- The main chat message is sent normally but the LLM sees the doubt Q&A as background
 
-## Schema Changes Summary
+### Why
+- Sometimes a doubt thread reveals something important that should feed back into the main conversation
+- Bridges the isolated doubt world back into the primary conversation flow
+
+### Implementation
+
+**Frontend** (`interface/context-menu-manager.js` + `interface/common-chat.js`):
+- New context menu item: "Continue doubt in main chat" (only shown if `.has-doubts-btn` is visible for that message)
+- Click: fetch `GET /get_doubts/<conversation_id>/<message_id>`, show a quick picker (dropdown or mini-modal) of root doubts (question preview)
+- On selection: flatten the selected thread's Q&A into text, inject into the `permanentText` field (or a one-time context injection field)
+- User then types their message normally; the injected doubt context rides along as part of `permanentText` for that turn
+- After send: clear the injected text from `permanentText` (one-shot injection)
+
+**Alternative simpler approach**: Instead of permanentText manipulation, prepend the doubt context to the user's message text as a `[Doubt Context]` block that the backend recognizes and moves into context position (similar to how `[Clarifications]` blocks work).
+
+**Backend**: No new endpoint needed — the existing `permanentText` mechanism or message preprocessing handles it.
+
+### Files Modified
+- `interface/context-menu-manager.js` — new menu item + handler
+- `interface/common-chat.js` — doubt-to-context injection logic
+
+---
+
+## Feature 9: Doubt Answer Length Control + Preamble Selector in Modal
+
+### Requirements
+- At the top of the doubt chat modal: a compact control bar with:
+  1. **Length toggle**: Short / Medium / Long buttons (pill group)
+  2. **Preamble selector**: same multi-select as the settings modal `#settings-doubt-preamble-selector`, but inline in the doubt modal for quick switching
+- These override the settings-modal values for the current doubt session
+- Length toggle maps to: Short → adds "Short" to preamble list; Long → adds "Long"; Medium → neither
+
+### Why
+- Auto-doubts are often too verbose; user wants quick "Short" mode
+- Switching preamble requires opening a separate settings modal — friction kills the flow
+- Inline controls let the user tune response style mid-conversation without leaving the doubt modal
+
+### Implementation
+
+**Frontend** (`interface/doubt-manager.js`):
+- Add a `.doubt-modal-controls` bar inside `#doubt-chat-modal .modal-body` above `#doubt-chat-messages`:
+  ```html
+  <div class="doubt-modal-controls d-flex align-items-center gap-2 mb-2">
+    <div class="btn-group btn-group-sm" role="group">
+      <button class="btn btn-outline-secondary doubt-length-btn" data-length="short">Short</button>
+      <button class="btn btn-outline-secondary doubt-length-btn active" data-length="medium">Medium</button>
+      <button class="btn btn-outline-secondary doubt-length-btn" data-length="long">Long</button>
+    </div>
+    <select class="form-control form-control-sm" id="doubt-modal-preamble-selector" multiple data-live-search="true" style="max-width: 200px;">
+      <!-- Same options as settings-doubt-preamble-selector -->
+    </select>
+  </div>
+  ```
+- On modal open (`openDoubtChatModal`): populate preamble selector from `chatSettingsState.doubt_preamble_options`, set length to "Medium"
+- `sendDoubt()`: read length + preamble from modal controls instead of (or merged with) `chatSettingsState`
+- Length logic: if "Short" active, ensure "Short" is in preamble list sent; if "Long", ensure "Long" is in list; if "Medium", remove both
+
+**Backend**: No changes — already accepts `preamble_options` which can include "Short"/"Long".
+
+### Files Modified
+- `interface/interface.html` — control bar HTML in doubt modal
+- `interface/doubt-manager.js` — read inline controls, merge with preamble list
+- CSS for `.doubt-modal-controls`
+
+---
+
+## Feature 10: Copy Entire Doubt Thread
+
+### Requirements
+- "📋 Copy Thread" button in the doubt chat modal header (beside Summarize)
+- Copies the entire Q&A thread as formatted markdown to clipboard
+- Format: `## Q: <question>\n\n<answer>\n\n---\n\n` for each pair
+
+### Why
+- Users want to paste doubt threads into notes, Quip docs, study materials, or share with others
+- Currently they'd have to copy each card individually
+
+### Implementation
+
+**Frontend** (`interface/doubt-manager.js`):
+- Add button in `#doubt-chat-modal .modal-header`: `<button id="doubt-copy-thread-btn" class="btn btn-sm btn-outline-secondary" title="Copy Thread"><i class="bi bi-clipboard"></i> Copy Thread</button>`
+- Click handler:
+  ```js
+  const threadText = this.currentDoubtHistory.map(d =>
+    `## Q: ${d.doubt_text}\n\n${d.doubt_answer}\n\n---`
+  ).join('\n\n');
+  navigator.clipboard.writeText(threadText);
+  showToast('Thread copied to clipboard', 'success');
+  ```
+- Uses `currentDoubtHistory` which already has the full thread loaded
+
+**Backend**: No changes needed.
+
+### Files Modified
+- `interface/doubt-manager.js` — copy button + handler
+- `interface/interface.html` — button HTML in modal header (if not added dynamically)
+
+---
+
+## Feature 11: Doubt Thread as Conversation Seed
+
+### Requirements
+- "💬 Continue as Conversation" button in the doubt chat modal header
+- Creates a new conversation pre-loaded with the doubt thread as initial context
+- The new conversation's first assistant message is a summary of the doubt thread
+- User is navigated to the new conversation
+
+### Why
+- Sometimes a doubt thread evolves into a topic that deserves full conversation treatment (with web search, tools, full history)
+- Avoids manually copy-pasting doubt content into a new chat
+
+### Implementation
+
+**Frontend** (`interface/doubt-manager.js`):
+- "Continue as Conversation" button in modal header
+- Click handler:
+  1. Build a seed text from the doubt thread: concatenate all Q&A pairs as a structured context block
+  2. Call `ConversationManager.createConversation()` (existing) — get new `conversation_id`
+  3. Close doubt modal
+  4. Navigate to new conversation
+  5. Set the message input to something like: "Continue from the doubt thread above. [thread context injected]"
+  6. Or better: use the `permanentText` field to inject the doubt thread as persistent context for the new conversation's first turn, then auto-send a starter message
+
+**Alternative approach — backend-driven**:
+- `POST /create_conversation_from_doubt/<doubt_id>` — new endpoint
+  - Creates conversation
+  - Injects doubt thread content as the conversation's initial `running_summary` or as a pre-seeded user+assistant message pair
+  - Returns new `conversation_id`
+- Frontend just calls this, then navigates
+
+**My recommendation**: Backend-driven approach is cleaner — the doubt thread content becomes part of the conversation's memory from the start, not just a one-shot permanentText injection.
+
+**Backend** (`endpoints/doubts.py` or `endpoints/conversations.py`):
+- `POST /create_conversation_from_doubt_thread/<doubt_id>`:
+  - Load doubt thread (walk to root, flatten chronologically)
+  - Create new conversation via existing `create_conversation()` helper
+  - Set `running_summary` to a formatted version of the doubt thread
+  - Add a synthetic first message pair: user="Continue exploring this topic" + assistant="Based on our previous discussion: [brief summary of thread]"
+  - Return `{ conversation_id, redirect_url }`
+
+### Files Modified
+- `endpoints/conversations.py` or `endpoints/doubts.py` — new endpoint
+- `interface/doubt-manager.js` — button + navigation logic
+
+---
+
+## Feature 12: Auto-Doubt Model Selection
+
+### Requirements
+- Per-conversation setting: which model to use for auto-doubt generation
+- Accessible via the existing model overrides UI (same pattern as `quick_action_model`, `clarify_intent_model`)
+- Key: `auto_doubt_model`
+- Default: `gemini-flash-3.5-non-reasoning` (current hardcoded value)
+
+### Why
+- Some users want higher quality auto-doubts (reasoning model for "Challenge & Verify")
+- Others want cheaper/faster models to reduce cost
+- The current hardcoded model can't be tuned per conversation
+
+### Implementation
+
+**Backend**:
+- Add `"auto_doubt_model"` to `allowed_keys` in `set_conversation_settings`
+- In each `_create_*_doubt` function: replace hardcoded model with:
+  ```python
+  auto_doubt_model = conversation.get_model_override("auto_doubt_model", "gemini-flash-3.5-non-reasoning")
+  ```
+- All 5 auto-doubt functions use this override
+
+**Frontend**:
+- In `#model-overrides-modal` (existing modal for per-conversation model overrides): add a dropdown `#settings-auto-doubt-model` with the same model options
+- Wire into `saveConversationModelOverrides()` / `loadConversationModelOverrides()` following existing pattern
+
+### Files Modified
+- `endpoints/conversations.py` — add to `allowed_keys`
+- `endpoints/conversations.py` — each `_create_*_doubt` function reads override
+- `interface/interface.html` — dropdown in model overrides modal
+- `interface/chat.js` — save/load wiring
+
+---
+
+## Feature 13: Doubt Thread Bookmarks
+
+### Requirements
+- Inside the doubt chat modal, user can bookmark specific doubt Q&A pairs within a long thread
+- Bookmarked doubts get a visual indicator (⭐ or 🔖 icon)
+- In the doubts overview modal, preview cards show "N bookmarks" badge
+- Clicking the badge (or a "Jump to bookmarks" action) opens the thread and scrolls to the first bookmarked item
+
+### Why
+- Long auto-doubt threads (Auto Takeaways with 4 children = 10 cards) have buried gems
+- Bookmarks let users mark "this specific answer was the key insight" for later retrieval
+- Complements pinning (which works at the thread level) with within-thread granularity
+
+### Implementation
+
+**DB**: Add `bookmarked boolean DEFAULT 0` column to `DoubtsClearing` (same migration pattern as `pinned`).
+
+**Backend**:
+- `POST /bookmark_doubt/<doubt_id>` — toggles `bookmarked`. Body: `{ "bookmarked": true|false }`
+- `database/doubts.py`: `update_doubt_bookmarked(doubt_id, bookmarked)` helper
+- All SELECT helpers: add `bookmarked` to select list and return dict
+
+**Frontend** (`interface/doubt-manager.js`):
+- `createDoubtChatCard()` for assistant cards: add bookmark icon button in `.doubt-card-actions`
+- Click handler: toggle, call `POST /bookmark_doubt/<doubt_id>`, update icon state
+- `createDoubtPreviewCard()`: if thread has any bookmarked children, show "N 🔖" badge
+- When opening a thread with bookmarks: after render, scroll to first bookmarked card (optional, could be a "Jump to bookmark" button instead)
+
+### Files Modified
+- `database/connection.py` — schema + migration
+- `database/doubts.py` — `update_doubt_bookmarked()`, SELECT updates
+- `endpoints/doubts.py` — new route
+- `interface/doubt-manager.js` — bookmark button + badge rendering
+
+---
+
+## Clarifications Added
+
+1. **Regeneration + children**: Regeneration is allowed on any doubt. If it has children, show a warning toast: "Follow-up questions were based on the previous answer." Children are preserved (not deleted).
+
+2. **Thread summarization parent**: Summary is appended as child of the chronologically last doubt in the flattened thread (regardless of tree branching).
+
+3. **Cross-conversation view — conversation titles**: Backend JOIN with conversation metadata to include `conversation_title` in the response. No extra frontend fetch needed.
+
+4. **Pin scope**: Pinning applies to root doubts only. The pin button appears on overview preview cards (which are always roots). Pinning a child would be meaningless since the overview only shows roots.
+
+5. **Selective auto-doubts default**: When `auto_doubt_categories` is absent (`None`), all 5 run. UI shows all checkboxes checked when the setting doesn't exist.
+
+---
+
+## Implementation Order (Revised)
+
+**Phase 1 — Foundations** (enable sorting and per-doubt metadata):
+1. Pin/star doubts (DB + endpoint + UI)
+2. Bookmarks (DB + endpoint + UI) — same migration batch
+3. Threading UX improvement (depends on pin/bookmark fields)
+
+**Phase 2 — Core UX** (biggest user-facing value):
+4. Doubt answer regeneration
+5. Doubt answer length control + inline preamble selector
+6. Copy entire doubt thread
+7. Doubt notification (pulse + toast)
+
+**Phase 3 — Knowledge tools** (thread-level operations):
+8. Doubt thread summarization
+9. "Ask about this doubt" from main chat
+10. Doubt thread as conversation seed
+
+**Phase 4 — Configuration & scale**:
+11. Selective auto-doubts (per-conversation)
+12. Auto-doubt model selection
+13. Cross-conversation doubt view (largest scope)
+
+## Schema Changes Summary (Revised)
 
 New columns on `DoubtsClearing` (all with ALTER TABLE migration + CREATE TABLE update):
 - `pinned boolean DEFAULT 0`
+- `bookmarked boolean DEFAULT 0`
 
-New conversation settings key:
-- `auto_doubt_categories` (list of strings, stored in JSON in conversation settings)
+New conversation settings keys:
+- `auto_doubt_categories` (list of strings)
+- `auto_doubt_model` (string, model name)
 
 No new tables required.
