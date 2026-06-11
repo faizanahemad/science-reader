@@ -59,6 +59,7 @@ Conversations are organized into **hierarchical workspaces** per user and domain
 - Expand/collapse state persisted to server.
 - Active conversation highlighted with auto-expand of parent workspaces.
 - **Recent Conversations section**: Collapsible "Recent" section above the workspace tree showing the 5 most recently updated conversations across all workspaces. One-click access to active conversations without navigating the workspace hierarchy. Right-click context menu reuses the same conversation menu as jsTree nodes (via fake node construction). Active conversation highlighted in both the Recent section and jsTree simultaneously. Collapse/expand state persisted to `localStorage` (scoped by user+domain). Pure front-end feature — no backend changes, data sourced from the existing `WorkspaceManager.conversations` array (already sorted by `last_updated` DESC).
+- **Pinned Conversations section**: Collapsible "Pinned" section below Recent, showing flagged conversations (top 5 most recent). Reuses the existing flag/color system — any conversation with a flag appears here. Color filter dropdown (All / 🔴🔵🟢🟡🟠🟣) narrows to a specific flag color; selection persisted in `localStorage`. Flagged conversations also float above unflagged within their jsTree workspace folder (sort comparator). Right-click context menu same as Recent/jsTree. No backend changes — uses existing `/set_flag` endpoint and `flag` field from conversation metadata.
 
 **API endpoints:**
 - `POST /create_workspace/<domain>/<name>` — optional `parent_workspace_id` in JSON body
