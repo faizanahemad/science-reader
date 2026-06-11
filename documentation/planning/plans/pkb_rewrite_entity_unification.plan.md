@@ -39,6 +39,33 @@ todos:
 
 # PKB Rewrite/Entity Unification
 
+**Keyed eval gate — PASSED** (k=5 on `pkb_seed_v3`, OpenRouter key, strategies
+serialized to dodge a pre-existing bulk-embedding SQLite concurrency bug — see
+caveat below; serialization does not change retrieval results):
+
+| set | overall mrr | recall@5 | semantic mrr | conflict mrr |
+|---|---|---|---|---|
+| `fts` (offline baseline) | 0.740 | 0.780 | 0.050 | 1.000 |
+| `embedding` | 0.953 | 1.000 | 0.875 | 0.333 |
+| `hybrid_base` = fts+embedding (prior default) | 0.872 | 1.000 | 0.473 | 1.000 |
+| **`hybrid_full`** = fts+embedding+rewrite+entity (unification) | **0.927** | 1.000 | **0.700** | 1.000 |
+
+The unification lifts overall mrr **+0.055 over the prior hybrid default**
+(+0.187 over FTS) and **semantic mrr +0.227** (0.473→0.700), with **no recall
+regression and no per-category mrr below 0.700** — it is the most uniformly
+robust config (embedding-only edges aggregate mrr but is brittle: conflict
+0.333). A W-A weight sweep (`{}`, `{fts:0.6,emb:1.0,rewrite:1.0,entity:0.8}`,
+`{fts:0.5,emb:1.0,rewrite:0.9,entity:1.0}`) moved overall mrr by <0.01 — RRF is
+rank-based, so **the default unweighted RRF ships as-is; no W-A tuning needed.**
+
+> Caveat (pre-existing, out of scope): bulk-embedding the whole seed at once
+> trips `SQLITE_MISUSE` because `EmbeddingStore.ensure_embeddings` reads/writes
+> the single shared sqlite connection from parallel worker threads. Production
+> embeds incrementally (one claim per request, request-scoped reads) so it does
+> not hit this. For bulk keyed eval, set `max_parallel_embedding_calls=1` +
+> `max_parallel_llm_calls=1`. A proper fix (per-thread connections or a write
+> lock in the embedding store) is a separate hygiene item.
+
 ## Implementation status (landed)
 
 Implemented and committed (defaults inert; full TMS suite 287 passed / 44
@@ -51,14 +78,11 @@ skipped / 0 fail; offline eval unchanged, confirming inert defaults):
 - `bbd2409` — docs (README, implementation.md, implementation_deep_dive.md).
 - `a286cbd` — `backfill_entities` CLI (`python -m truth_management_system.backfill_entities`) + keyed-eval gating recipe in `tests/eval/README.md`.
 
-**Remaining (follow-ups, need an API key):** the keyed `run_eval.sh` gate with
-entity-mention/paraphrase cases, and tuning `rrf_strategy_weights` (W-A) on that
-harness — both deferred because the offline harness is FTS-only and cannot
-measure the keyed unification path, and this environment has no
-`OPENROUTER_API_KEY` (the app LLM path is OpenRouter-only). Optional, lower
-priority and NOT started (would be scope creep on this plan): a tag-linked
-retrieval strategy (the rewrite already emits `tags`, currently unused) and a
-REST endpoint wrapping `backfill_entities` (the CLI exists).
+**Remaining:** none required — the keyed gate passed and the default unweighted
+RRF ships as-is (see results above). Optional, NOT started (would be scope creep
+on this plan): a tag-linked retrieval strategy (the rewrite already emits `tags`,
+currently unused); a REST endpoint wrapping `backfill_entities` (the CLI exists);
+and the separate embedding-store SQLite-concurrency hygiene fix noted above.
 
 ## Motivation & Problem Statement
 
