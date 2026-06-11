@@ -225,6 +225,23 @@ class PKBConfig:
     rewrite_is_query_source: bool = True
     entity_use_rewrite_entities: bool = True
 
+    # W-D (symmetric follow-up to the entity strategy, INERT by default):
+    # a TagSearchStrategy resolves the rewrite LLM's category tags (or matching
+    # query tokens) to tag_ids, pulls claims linked via claim_tags — traversing
+    # the tag hierarchy so a parent tag also matches its descendants' claims —
+    # ranks them by semantic fit, and contributes them as another ranked list to
+    # RRF fusion. It is OFF by default (tag_strategy_enabled=False) so production
+    # ranking is unchanged until enabled+eval-gated. Even when enabled it returns
+    # nothing when no tag resolves, so it is a no-op for tag-free queries. When
+    # tag_use_rewrite_tags is set (and the single rewrite call ran) the strategy
+    # resolves the LLM-suggested tags and ranks against the rewrite's
+    # embedding_query; otherwise it self-extracts matching tokens from the query.
+    tag_strategy_enabled: bool = False
+    tag_strategy_top_n: int = 5             # max tag-linked claims fed into RRF
+    tag_strategy_max_tags: int = 5          # cap resolved tags per query (anti-flooding)
+    tag_strategy_max_depth: int = 10        # tag-hierarchy traversal depth
+    tag_use_rewrite_tags: bool = True       # feed rewrite LLM tags to the strategy
+
     # Parallelization
     max_parallel_llm_calls: int = 8
     max_parallel_embedding_calls: int = 16
@@ -305,6 +322,11 @@ class PKBConfig:
             'entity_alias_match': self.entity_alias_match,
             'rewrite_is_query_source': self.rewrite_is_query_source,
             'entity_use_rewrite_entities': self.entity_use_rewrite_entities,
+            'tag_strategy_enabled': self.tag_strategy_enabled,
+            'tag_strategy_top_n': self.tag_strategy_top_n,
+            'tag_strategy_max_tags': self.tag_strategy_max_tags,
+            'tag_strategy_max_depth': self.tag_strategy_max_depth,
+            'tag_use_rewrite_tags': self.tag_use_rewrite_tags,
             'log_llm_calls': self.log_llm_calls,
             'log_search_queries': self.log_search_queries,
         }
@@ -344,6 +366,7 @@ class PKBConfig:
             'fts_use_focused_query',
             'entity_strategy_enabled', 'entity_strategy_top_n', 'entity_strategy_max_entities', 'entity_alias_match',
             'rewrite_is_query_source', 'entity_use_rewrite_entities',
+            'tag_strategy_enabled', 'tag_strategy_top_n', 'tag_strategy_max_tags', 'tag_strategy_max_depth', 'tag_use_rewrite_tags',
             'log_llm_calls', 'log_search_queries'
         }
         filtered = {k: v for k, v in data.items() if k in valid_keys}
@@ -433,6 +456,11 @@ def load_config(
         'ENTITY_ALIAS_MATCH': ('entity_alias_match', lambda x: x.lower() in ('true', '1', 'yes')),
         'REWRITE_IS_QUERY_SOURCE': ('rewrite_is_query_source', lambda x: x.lower() in ('true', '1', 'yes')),
         'ENTITY_USE_REWRITE_ENTITIES': ('entity_use_rewrite_entities', lambda x: x.lower() in ('true', '1', 'yes')),
+        'TAG_STRATEGY_ENABLED': ('tag_strategy_enabled', lambda x: x.lower() in ('true', '1', 'yes')),
+        'TAG_STRATEGY_TOP_N': ('tag_strategy_top_n', int),
+        'TAG_STRATEGY_MAX_TAGS': ('tag_strategy_max_tags', int),
+        'TAG_STRATEGY_MAX_DEPTH': ('tag_strategy_max_depth', int),
+        'TAG_USE_REWRITE_TAGS': ('tag_use_rewrite_tags', lambda x: x.lower() in ('true', '1', 'yes')),
         'LOG_LLM_CALLS': ('log_llm_calls', lambda x: x.lower() in ('true', '1', 'yes')),
         'LOG_SEARCH_QUERIES': ('log_search_queries', lambda x: x.lower() in ('true', '1', 'yes')),
     }

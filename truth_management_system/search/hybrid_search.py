@@ -17,6 +17,7 @@ from .embedding_search import EmbeddingSearchStrategy
 from .rewrite_search import RewriteSearchStrategy
 from .mapreduce_search import MapReduceSearchStrategy
 from .entity_search import EntitySearchStrategy
+from .tag_search import TagSearchStrategy
 from ..database import PKBDatabase
 from ..config import PKBConfig
 from ..utils import get_parallel_executor
@@ -85,6 +86,13 @@ class HybridSearchStrategy:
         # registered independent of the key gate, behind its config flag.
         if getattr(config, "entity_strategy_enabled", True):
             self.strategies["entity"] = EntitySearchStrategy(db, keys, config)
+
+        # W-D: tag-linked retrieval, symmetric to the entity strategy. INERT by
+        # default (tag_strategy_enabled=False) so it is not registered — and thus
+        # never runs — until explicitly enabled and eval-gated. Like the entity
+        # strategy it works without an API key (degrades to recency order).
+        if getattr(config, "tag_strategy_enabled", False):
+            self.strategies["tag"] = TagSearchStrategy(db, keys, config)
     
     def search(
         self,
@@ -120,6 +128,8 @@ class HybridSearchStrategy:
                 strategy_names.append("rewrite")
             if "entity" in self.strategies:
                 strategy_names.append("entity")
+            if "tag" in self.strategies:
+                strategy_names.append("tag")
         
         filters = filters or SearchFilters()
         time_logger.info(f"[HYBRID] Search called: query_len={len(query)}, strategies={strategy_names}, k={k}, user_email={filters.user_email}")
@@ -224,6 +234,15 @@ class HybridSearchStrategy:
                     surface_forms=ctx.get("entity_surface_forms"),
                     query_embedding=ctx.get("entity_query_embedding"),
                 )
+            if name == "tag" and (
+                ctx.get("tag_names") is not None
+                or ctx.get("tag_query_embedding") is not None
+            ):
+                return strategy.search(
+                    q, k, filters,
+                    tag_names=ctx.get("tag_names"),
+                    query_embedding=ctx.get("tag_query_embedding"),
+                )
             return strategy.search(q, k, filters)
 
         if len(strategy_names) == 1:
@@ -304,6 +323,24 @@ class HybridSearchStrategy:
             emb = self._embed_query(getattr(metadata, "embedding_query", "") or query)
             if emb is not None:
                 context["entity_query_embedding"] = emb
+
+        # W-D: feed the rewrite LLM's category tags to the tag strategy (capped
+        # downstream by tag_strategy_max_tags). Only when tags were actually
+        # suggested, so tag-free queries add no extra work. Reuse the entity
+        # strategy's query vector when it was already computed (one embed call).
+        if (
+            "tag" in active_strategies
+            and getattr(self.config, "tag_use_rewrite_tags", True)
+            and getattr(metadata, "extracted_tags", None)
+        ):
+            context["tag_names"] = list(metadata.extracted_tags)
+            tag_emb = context.get("entity_query_embedding")
+            if tag_emb is None:
+                tag_emb = self._embed_query(
+                    getattr(metadata, "embedding_query", "") or query
+                )
+            if tag_emb is not None:
+                context["tag_query_embedding"] = tag_emb
 
         return context
 
