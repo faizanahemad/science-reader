@@ -697,3 +697,134 @@ Our architecture already does this correctly. The hook system formalizes it and 
 - **`pkb_external_access_ui_mcp_rest_auth.plan.md`** — PKB hooks are a subset of this plan. The external access plan focuses on exposing PKB; this plan focuses on how PKB plugs into the chat flow.
 - **`pkb_ux_improvements.plan.md`** — Completed; introduced STM, bulk operations, maintenance. These become hook inputs (STM in `PKBContextHook`).
 - **`pkb_memory_system_improvements.plan.md`** — Internal PKB improvements. Hook architecture doesn't change the PKB internals, just how the chat flow calls them.
+
+---
+
+## Appendix A — Key Line Numbers in Conversation.py
+
+```
+Line     Method/Section
+----     --------------
+519      def _get_pkb_context(...)            → PKBContextHook
+1066     def add_to_memory_pad_from_response  → MemoryPadUpdateHook
+3167     def retrieve_prior_context(...)      → PreviousMessagesHook
+3251     def retrieve_prior_context_llm_based → PriorContextLLMHook
+3385     def create_next_question_suggestions → NextQuestionHook
+3591     def persist_current_turn(...)        → POST_PERSIST orchestrator
+3663     def _persist_current_turn_inner(...) → MessagePersistenceHook + SummaryGenerationHook
+6204     def get_preamble(...)                → PreambleAssemblyHook
+6728     def _get_enabled_tools(...)          → ToolConfigHook
+7056     def _run_tool_loop(...)              → Core LLM call (not a hook)
+7706     def reply(...)                       → Main entry point (the monolith to decompose)
+11117    def _process_stream_artifacts(...)   → STREAM_FILTER hooks (DrawIO, Mermaid, Code)
+11572    def _handle_image_generation(...)    → Routed via SlashCommandRouter
+```
+
+File: `Conversation.py` — 13,768 lines total.
+
+---
+
+## Appendix B — Checkbox Keys → Hook Mapping
+
+These are the `query["checkboxes"]` keys that control behavior in `reply()`:
+
+| Key | Default | Controls which hook |
+|-----|---------|---------------------|
+| `use_pkb` | `True` | `PKBContextHook.should_run()` |
+| `perform_web_search` | `False` | `WebSearchHook.should_run()` |
+| `googleScholar` | `False` | `WebSearchHook` (scholar mode) |
+| `enable_tool_use` | `True` | `ToolConfigHook` + tool loop path |
+| `enabled_tools` | `{}` | `ToolConfigHook` (category filter) |
+| `enable_previous_messages` | `True` | `PreviousMessagesHook.should_run()` |
+| `use_memory_pad` | `True` | `UserMemoryHook` (memory pad injection) |
+| `persist_or_not` | `True` | All POST_PERSIST hooks skip if False |
+| `field` | `""` | `AgentFieldRouter` + `PreambleAssemblyHook` |
+| `main_model` | `""` | `ModelSelectionHook` |
+| `opencode_enabled` | `False` | `OpenCodeRouter.should_run()` |
+| `reward_level` | `0` | `RewardInitHook` + `RewardOutputHook` |
+| `pkb_scope` | `""` | `PKBContextHook` (domain filter) |
+| `ensemble` | `False` | Ensemble mode (affects LLM call path) |
+| `code_execution` | `False` | `CodeExecutionFilter.should_run()` |
+| `preamble_options` | `[]` | `PreambleAssemblyHook` (modular sections) |
+| `stream_check_interval_chars` | `200` | STREAM_FILTER check frequency |
+| `agentic_search` | `False` | `AutoContextHook` |
+
+Client-side only (in `common-chat.js`, not passed to server):
+| Key | Default | Controls |
+|-----|---------|----------|
+| `auto_pkb_extract` | `True` | Client-side `checkMemoryUpdates` call (moves server-side as `PKBExtractionHook`) |
+
+Endpoint-layer (in `endpoints/conversations.py`):
+| Key | Default | Controls |
+|-----|---------|----------|
+| `auto_doubts_enabled` | `True` | `AutoDoubtHook` (currently lives in endpoint, not Conversation) |
+
+---
+
+## Appendix C — Existing Async Primitives
+
+File: `very_common.py` (also duplicated in `code_common/call_llm.py`)
+
+```python
+def get_async_future(fn, *args, **kwargs):
+    """Submit fn(*args, **kwargs) to a thread pool. Returns a Future."""
+    afn = make_async(fn, traceback.format_stack())
+    return afn(*args, **kwargs)
+
+def sleep_and_get_future_result(future, sleep_time=0.2, timeout=1000):
+    """Poll a Future with sleep. Raises TimeoutError after `timeout` seconds."""
+    start_time = time.time()
+    while not future.done():
+        time.sleep(sleep_time)
+        if time.time() - start_time > timeout:
+            raise TimeoutError(...)
+    return future.result()
+
+def wrap_in_future(s):
+    """Wrap a value in an already-resolved Future (for uniform interfaces)."""
+    future = Future()
+    future.set_result(s)
+    return future
+```
+
+The `HookPipeline` should wrap these — for parallel hooks, launch each via `get_async_future`, then collect results with timeout enforcement (replacing `sleep_and_get_future_result` with the hook's `timeout_ms`).
+
+---
+
+## Appendix D — The `@register_tool` Pattern (Model for `@register_hook`)
+
+File: `code_common/tools.py`, line 353
+
+```python
+TOOL_REGISTRY = ToolRegistry()  # Singleton
+
+@register_tool(
+    name="web_search",
+    description="Search the web for current information",
+    parameters={"type": "object", "properties": {...}, "required": [...]},
+    category="search",
+)
+def handle_web_search(args: dict, context: ToolContext) -> ToolCallResult:
+    ...
+```
+
+The decorator creates a `ToolDefinition` and registers it in the global `TOOL_REGISTRY`. The analogous hook pattern:
+
+```python
+HOOK_REGISTRY = HookRegistry()  # Singleton
+
+@register_hook(
+    phase=HookPhase.PRE_CONTEXT,
+    priority=20,
+    timeout_ms=3000,
+    async_parallel=True,
+)
+class PKBContextHook:
+    def should_run(self, ctx: HookContext) -> bool:
+        return PKB_AVAILABLE and ctx.query_dict.get("checkboxes", {}).get("use_pkb", True)
+
+    def execute(self, ctx: HookContext) -> HookResult:
+        ...
+```
+
+Key difference: tools are functions, hooks are classes (because they carry config/state). The registry pattern is the same.
