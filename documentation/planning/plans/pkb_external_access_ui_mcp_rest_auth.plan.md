@@ -140,11 +140,30 @@ For CSS/JS isolation, the in-chat modal *may* iframe `/memory/` (same-origin, se
 
 The MCP server exists and works. Two tasks: deploy externally via nginx, and fix the `user_email` security gap.
 
-### T2.1 Fix `user_email` derivation (SECURITY — MUST DO FIRST)
+### T2.1 Fix `user_email` derivation (SECURITY — MUST DO FIRST) — ✅ DONE 2026-06-11
 
-**Current state:** Every MCP tool takes `user_email` as an explicit parameter. The JWT middleware validates the token but does NOT enforce that the client-supplied `user_email` matches `token["email"]`. A malicious client with a valid token can access any user's PKB.
+**Status:** Landed. `mcp_server/pkb.py` now derives the effective email from the
+JWT, not the client argument.
 
-**Fix:** In `JWTAuthMiddleware` or a wrapper, after JWT validation:
+**Was:** Every MCP tool took `user_email` as an explicit parameter and called
+`api.for_user(user_email)` with the client-supplied value. The JWT middleware
+validated the token but did NOT enforce that `user_email` matched
+`token["email"]` — so a holder of any valid token could read/modify any user's
+PKB (broken object-level authorization / IDOR).
+
+**Fix (as implemented):** `JWTAuthMiddleware` already stashes the verified token
+identity in the `_mcp_request_context.user_email` thread-local (it was used only
+for history logging). Added `_effective_email(supplied)` in `mcp_server/pkb.py`
+which returns that trusted identity, **ignores** the client-supplied
+`user_email` (logging a warning on mismatch), and **fails closed**
+(`PermissionError`, surfaced as a JSON error by each tool's `try/except`) when no
+authenticated identity is present. All 27 `.for_user(user_email)` call sites now
+route through it. The `user_email` argument is kept in the tool signatures for
+schema/client hinting but is advisory only. Tests: `tests/test_mcp_pkb_auth.py`
+(6, incl. a source guard so a new tool cannot reintroduce the raw pattern).
+
+**Original fix sketch (for reference):** In `JWTAuthMiddleware` or a wrapper,
+after JWT validation:
 1. Store `request.state.authenticated_email = payload["email"]` (or equivalent for the MCP framework).
 2. In each tool function, **ignore** the `user_email` parameter and use the authenticated email from request state.
 3. Alternatively, remove `user_email` from tool signatures entirely and inject it from middleware. But this breaks the MCP tool schema for clients that expect to pass it. **Recommended approach:** keep `user_email` in signatures for documentation/client hinting, but override it server-side with the JWT email. Log a warning if they differ.
@@ -351,7 +370,7 @@ Cross-link from: `documentation/README.md`, `documentation/product/ops/mcp_serve
 
 | Milestone | Tasks | Dependency | Effort |
 |-----------|-------|------------|--------|
-| **M1 — MCP security fix** | T2.1 (user_email override) | None | Small — critical security fix |
+| **M1 — MCP security fix** ✅ DONE | T2.1 (user_email override) | None | Small — critical security fix (landed 2026-06-11) |
 | **M2 — Token issuance + dual auth** | T4.1, T3.1, T3.2, T3.3 | M1 | Medium — enables all external access |
 | **M3 — MCP external deployment** | T2.2, T2.3, T2.4 | M1, M2 | Small — nginx config + verification |
 | **M4 — Standalone UI** | T1.1, T1.2, T1.3, T1.4 | None (independent) | Medium — JS refactor + new page |
@@ -364,7 +383,7 @@ Cross-link from: `documentation/README.md`, `documentation/product/ops/mcp_serve
 
 ## 9. Risks & Cross-Cutting Concerns
 
-- **`user_email` trust in MCP (critical):** The plan MUST fix this before any external exposure. Currently any valid token holder can impersonate any user. M1 is a hard prerequisite for M3.
+- **`user_email` trust in MCP (critical) — ✅ RESOLVED 2026-06-11:** Tools now scope to the JWT identity via `_effective_email()` (T2.1), not the client-supplied argument, and fail closed without an authenticated identity. M1's hard prerequisite for external exposure (M3) is satisfied.
 - **Auth redirect vs 401:** Browser paths (session) redirect to `/login`; token paths must return JSON 401. The `pkb_auth_required` decorator handles this by checking auth type before responding.
 - **`pkb-manager.js` refactor risk (T1.1):** The IIFE pattern + 9 tabs + many event handlers make refactoring non-trivial. Gate all `.modal()` calls behind `isModal` flag. Test both surfaces.
 - **Shared CSS/JS deps:** `memory.html` needs a subset of what `interface.html` loads. Audit and extract minimal deps to avoid loading the entire chat UI.
