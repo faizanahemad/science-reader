@@ -350,28 +350,62 @@ const DoubtManager = {
     },
     
     /**
-     * Initialize the inline doubt modal controls (length toggle + preamble selector)
+     * Initialize the inline doubt modal controls (length toggle + preamble dropdown)
      */
     initDoubtModalControls: function() {
         // Set length to medium
         $('.doubt-length-btn').removeClass('active');
         $('.doubt-length-btn[data-length="medium"]').addClass('active');
         
-        // Populate preamble selector from chatSettingsState
-        const selector = $('#doubt-modal-preamble-selector');
+        // Pre-select preamble options from settings
         const currentOpts = (window.chatSettingsState && window.chatSettingsState.doubt_preamble_options) || [];
-        // Initialize bootstrap-select if not already done
-        if (!selector.hasClass('selectpicker') || !selector.next('.bootstrap-select').length) {
-            selector.selectpicker();
-        }
-        selector.val(currentOpts);
-        selector.selectpicker('refresh');
+        $('#doubt-preamble-dropdown-menu .doubt-preamble-option').each(function() {
+            const val = $(this).data('value');
+            if (currentOpts.includes(val)) {
+                $(this).addClass('active');
+            } else {
+                $(this).removeClass('active');
+            }
+        });
+        this._updatePreambleButtonLabel();
+        
+        // Preamble dropdown multi-select toggle
+        $('#doubt-preamble-dropdown-menu .doubt-preamble-option').off('click').on('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const val = $(this).data('value');
+            if (val === '') {
+                // "None" clears all
+                $('#doubt-preamble-dropdown-menu .doubt-preamble-option').removeClass('active');
+            } else {
+                // Remove "None" selection when picking a real option
+                $('#doubt-preamble-dropdown-menu .doubt-preamble-option[data-value=""]').removeClass('active');
+                $(this).toggleClass('active');
+            }
+            DoubtManager._updatePreambleButtonLabel();
+        });
         
         // Length toggle click handler
         $('.doubt-length-btn').off('click').on('click', function() {
             $('.doubt-length-btn').removeClass('active');
             $(this).addClass('active');
         });
+    },
+    
+    _updatePreambleButtonLabel: function() {
+        const selected = [];
+        $('#doubt-preamble-dropdown-menu .doubt-preamble-option.active').each(function() {
+            const val = $(this).data('value');
+            if (val) selected.push(val);
+        });
+        const btn = $('#doubt-preamble-dropdown-btn');
+        if (selected.length > 0) {
+            btn.attr('title', 'Preamble: ' + selected.join(', '));
+            btn.removeClass('btn-outline-secondary').addClass('btn-outline-primary');
+        } else {
+            btn.attr('title', 'Preamble');
+            btn.removeClass('btn-outline-primary').addClass('btn-outline-secondary');
+        }
     },
     
     /**
@@ -924,11 +958,14 @@ const DoubtManager = {
      * Get active doubt preamble options from inline modal controls or settings fallback
      */
     getActiveDoubtPreambleOptions: function() {
-        // Read from inline modal preamble selector, fallback to settings
-        const inlineSelector = $('#doubt-modal-preamble-selector');
+        // Read from dropdown menu active items, fallback to settings
         let opts = [];
-        if (inlineSelector.length && inlineSelector.val() && inlineSelector.val().length > 0) {
-            opts = [...inlineSelector.val()];
+        const activeItems = $('#doubt-preamble-dropdown-menu .doubt-preamble-option.active');
+        if (activeItems.length > 0) {
+            activeItems.each(function() {
+                const val = $(this).data('value');
+                if (val) opts.push(val);
+            });
         } else {
             opts = [...((window.chatSettingsState && window.chatSettingsState.doubt_preamble_options) || [])];
         }

@@ -12730,9 +12730,9 @@ Please provide your explanation or answer to the user's doubt in a clear, struct
             )
 
             base_system = "You are a helpful AI assistant specializing in clarifying doubts and explaining complex concepts clearly and thoroughly. When using markdown headings you can use only level 4 headers (`####`). Write with the intention to help the user learn and understand better and expand their Knowledge boundaries. Avoid using tables in doubt and LLM temp answers, and if necessary use tables with max 2 columns."
-            # Progressive disclosure: structured 3-section format
-            is_short = preamble_options and "Short" in preamble_options
-            if not is_short:
+            # Progressive disclosure: structured 3-section format (only for Long)
+            is_long = preamble_options and "Long" in preamble_options
+            if is_long:
                 base_system += "\n\nFormat your answer in exactly 3 sections using these markers:\n<tldr>One-sentence summary of the answer</tldr>\n<explanation>Clear explanation (2-4 paragraphs)</explanation>\n<deep_dive>Detailed examples, edge cases, connections, and nuances</deep_dive>"
             if preamble_options:
                 extra_preamble, _ = self.get_preamble(preamble_options, None)
