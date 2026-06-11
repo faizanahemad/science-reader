@@ -131,10 +131,10 @@ export OPENROUTER_API_KEY=...        # the app LLM path is OpenRouter-only
 ./truth_management_system/tests/eval/run_eval.sh --k 5 --verbose
 ```
 
-> Bulk keyed runs trip a pre-existing `SQLITE_MISUSE` because the embedding
-> store reads/writes one shared sqlite connection from parallel worker threads
-> (prod embeds incrementally and never hits it). For a stable run, construct the
-> `EvalRunner` with `PKBConfig(max_parallel_embedding_calls=1,
+> Note: an earlier shared-connection `SQLITE_MISUSE` under bulk parallel
+> embedding is now fixed (`PKBDatabase` reentrant lock), so keyed bulk runs work
+> with default parallelism. If you still want fully deterministic timing you can
+> construct the `EvalRunner` with `PKBConfig(max_parallel_embedding_calls=1,
 > max_parallel_llm_calls=1)` — serial execution does not change RRF results.
 
 Compare the `[hybrid]` block against `[fts]` and `[entity]`; precision@5 / mrr

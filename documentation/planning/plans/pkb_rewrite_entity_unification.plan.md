@@ -58,13 +58,12 @@ robust config (embedding-only edges aggregate mrr but is brittle: conflict
 `{fts:0.5,emb:1.0,rewrite:0.9,entity:1.0}`) moved overall mrr by <0.01 — RRF is
 rank-based, so **the default unweighted RRF ships as-is; no W-A tuning needed.**
 
-> Caveat (pre-existing, out of scope): bulk-embedding the whole seed at once
-> trips `SQLITE_MISUSE` because `EmbeddingStore.ensure_embeddings` reads/writes
-> the single shared sqlite connection from parallel worker threads. Production
-> embeds incrementally (one claim per request, request-scoped reads) so it does
-> not hit this. For bulk keyed eval, set `max_parallel_embedding_calls=1` +
-> `max_parallel_llm_calls=1`. A proper fix (per-thread connections or a write
-> lock in the embedding store) is a separate hygiene item.
+> Note (FIXED — commit follows this gate): bulk-embedding the whole seed at
+> once tripped `SQLITE_MISUSE` because `EmbeddingStore.ensure_embeddings`
+> read/wrote the single shared sqlite connection from parallel worker threads.
+> `PKBDatabase` now serializes all connection access with a reentrant lock
+> (network/LLM work stays parallel), so bulk keyed eval no longer needs the
+> `max_parallel_*=1` workaround. Covered by `tests/test_db_concurrency.py`.
 
 ## Implementation status (landed)
 
@@ -81,8 +80,9 @@ skipped / 0 fail; offline eval unchanged, confirming inert defaults):
 **Remaining:** none required — the keyed gate passed and the default unweighted
 RRF ships as-is (see results above). Optional, NOT started (would be scope creep
 on this plan): a tag-linked retrieval strategy (the rewrite already emits `tags`,
-currently unused); a REST endpoint wrapping `backfill_entities` (the CLI exists);
-and the separate embedding-store SQLite-concurrency hygiene fix noted above.
+currently unused); a REST endpoint wrapping `backfill_entities` (the CLI exists).
+The embedding-store SQLite-concurrency bug noted above is now FIXED
+(`PKBDatabase` reentrant lock + `tests/test_db_concurrency.py`).
 
 ## Motivation & Problem Statement
 

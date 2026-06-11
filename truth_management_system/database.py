@@ -18,6 +18,7 @@ Usage:
 import os
 import sqlite3
 import logging
+import threading
 from contextlib import contextmanager
 from typing import Optional, Generator
 
@@ -55,6 +56,16 @@ class PKBDatabase:
         self.db_path = config.expand_db_path()
         self._conn: Optional[sqlite3.Connection] = None
         self._initialized = False
+        # A single sqlite3.Connection is shared process-wide (check_same_thread=
+        # False). sqlite3 forbids *concurrent* use of one connection from
+        # multiple threads — interleaved statements raise SQLITE_MISUSE
+        # ("bad parameter or other API misuse"). This reentrant lock serializes
+        # all access to the connection so parallel callers (the embedding store's
+        # parallel compute_and_store, and concurrent hybrid-search strategies)
+        # are safe. It is reentrant so transaction() can hold it across nested
+        # execute() calls. Network/LLM work happens outside these methods, so it
+        # still runs in parallel — only the fast DB ops serialize.
+        self._lock = threading.RLock()
 
     def connect(self) -> sqlite3.Connection:
         """
@@ -67,33 +78,35 @@ class PKBDatabase:
             Active SQLite connection.
         """
         if self._conn is None:
-            # Ensure parent directory exists
-            db_dir = os.path.dirname(self.db_path)
-            if db_dir:
-                os.makedirs(db_dir, exist_ok=True)
+            with self._lock:
+                if self._conn is None:
+                    # Ensure parent directory exists
+                    db_dir = os.path.dirname(self.db_path)
+                    if db_dir:
+                        os.makedirs(db_dir, exist_ok=True)
 
-            # Connect with row factory for dict-like access
-            # Enable SQLite URI mode when db_path is a URI (e.g. file::memory:?cache=shared)
-            use_uri = bool(self.db_path.startswith("file:"))
-            self._conn = sqlite3.connect(
-                self.db_path,
-                check_same_thread=False,  # Allow multi-threaded access
-                timeout=30.0,  # Wait up to 30s for locks
-                uri=use_uri,
-            )
-            self._conn.row_factory = sqlite3.Row
+                    # Connect with row factory for dict-like access
+                    # Enable SQLite URI mode when db_path is a URI (e.g. file::memory:?cache=shared)
+                    use_uri = bool(self.db_path.startswith("file:"))
+                    self._conn = sqlite3.connect(
+                        self.db_path,
+                        check_same_thread=False,  # Allow multi-threaded access
+                        timeout=30.0,  # Wait up to 30s for locks
+                        uri=use_uri,
+                    )
+                    self._conn.row_factory = sqlite3.Row
 
-            # Enable WAL mode for better concurrent reads
-            self._conn.execute("PRAGMA journal_mode=WAL")
+                    # Enable WAL mode for better concurrent reads
+                    self._conn.execute("PRAGMA journal_mode=WAL")
 
-            # Enable foreign key constraints
-            self._conn.execute("PRAGMA foreign_keys=ON")
+                    # Enable foreign key constraints
+                    self._conn.execute("PRAGMA foreign_keys=ON")
 
-            # Optimize for single-user personal use
-            self._conn.execute("PRAGMA synchronous=NORMAL")
-            self._conn.execute("PRAGMA cache_size=-64000")  # 64MB cache
+                    # Optimize for single-user personal use
+                    self._conn.execute("PRAGMA synchronous=NORMAL")
+                    self._conn.execute("PRAGMA cache_size=-64000")  # 64MB cache
 
-            logger.info(f"Connected to database: {self.db_path}")
+                    logger.info(f"Connected to database: {self.db_path}")
 
         return self._conn
 
@@ -1144,12 +1157,13 @@ class PKBDatabase:
             Any exception from transaction body (after rollback).
         """
         conn = self.connect()
-        try:
-            yield conn
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
+        with self._lock:
+            try:
+                yield conn
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
 
     def execute(self, sql: str, params: tuple = ()) -> sqlite3.Cursor:
         """
@@ -1163,7 +1177,8 @@ class PKBDatabase:
             Cursor with results.
         """
         conn = self.connect()
-        return conn.execute(sql, params)
+        with self._lock:
+            return conn.execute(sql, params)
 
     def executemany(self, sql: str, params_list: list) -> sqlite3.Cursor:
         """
@@ -1177,7 +1192,8 @@ class PKBDatabase:
             Cursor with results.
         """
         conn = self.connect()
-        return conn.executemany(sql, params_list)
+        with self._lock:
+            return conn.executemany(sql, params_list)
 
     def fetchone(self, sql: str, params: tuple = ()) -> Optional[sqlite3.Row]:
         """
@@ -1190,8 +1206,9 @@ class PKBDatabase:
         Returns:
             Row or None if no results.
         """
-        cursor = self.execute(sql, params)
-        return cursor.fetchone()
+        with self._lock:
+            cursor = self.execute(sql, params)
+            return cursor.fetchone()
 
     def fetchall(self, sql: str, params: tuple = ()) -> list:
         """
@@ -1204,8 +1221,9 @@ class PKBDatabase:
         Returns:
             List of Row objects.
         """
-        cursor = self.execute(sql, params)
-        return cursor.fetchall()
+        with self._lock:
+            cursor = self.execute(sql, params)
+            return cursor.fetchall()
 
     def get_schema_version(self) -> Optional[int]:
         """
@@ -1257,7 +1275,8 @@ class PKBDatabase:
         Note: This locks the database and can be slow for large databases.
         """
         conn = self.connect()
-        conn.execute("VACUUM")
+        with self._lock:
+            conn.execute("VACUUM")
         logger.info("Database vacuumed")
 
     def __enter__(self) -> "PKBDatabase":
