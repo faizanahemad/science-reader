@@ -360,10 +360,12 @@ const DoubtManager = {
         // Populate preamble selector from chatSettingsState
         const selector = $('#doubt-modal-preamble-selector');
         const currentOpts = (window.chatSettingsState && window.chatSettingsState.doubt_preamble_options) || [];
-        selector.val(currentOpts);
-        if (selector.hasClass('selectpicker')) {
-            selector.selectpicker('refresh');
+        // Initialize bootstrap-select if not already done
+        if (!selector.hasClass('selectpicker') || !selector.next('.bootstrap-select').length) {
+            selector.selectpicker();
         }
+        selector.val(currentOpts);
+        selector.selectpicker('refresh');
         
         // Length toggle click handler
         $('.doubt-length-btn').off('click').on('click', function() {

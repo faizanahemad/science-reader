@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import logging
 
-from flask import Blueprint, Response, jsonify, request, session
+from flask import Blueprint, Response, jsonify, request, session, stream_with_context
 
 from database.conversations import checkConversationExists
 from database.doubts import (
@@ -204,7 +204,7 @@ def clear_doubt_route(conversation_id: str, message_id: str):
                     + "\n"
                 )
 
-        return Response(generate_doubt_clearing_stream(), content_type="text/plain")
+        return Response(stream_with_context(generate_doubt_clearing_stream()), content_type="text/plain")
     except Exception as e:
         logger.error(
             f"Error clearing doubt for {conversation_id}, message {message_id}: {str(e)}"
@@ -336,7 +336,7 @@ def temporary_llm_action_route():
                     + "\n"
                 )
 
-        return Response(generate_temporary_llm_stream(), content_type="text/plain")
+        return Response(stream_with_context(generate_temporary_llm_stream()), content_type="text/plain")
 
     except Exception as e:
         logger.error(f"Error in temporary LLM action: {str(e)}")
@@ -680,7 +680,7 @@ def regenerate_doubt_route(doubt_id: str):
                     "completed": True, "doubt_id": doubt_id, "accumulated_text": accumulated,
                 }) + "\n"
 
-        return Response(generate_regen_stream(), content_type="text/plain")
+        return Response(stream_with_context(generate_regen_stream()), content_type="text/plain")
     except Exception as e:
         logger.error(f"Error regenerating doubt {doubt_id}: {e}")
         return json_error(str(e), status=500, code="internal_error")
@@ -787,7 +787,7 @@ def summarize_doubt_thread_route(doubt_id: str):
                     "completed": True, "doubt_id": new_doubt_id, "accumulated_text": accumulated,
                 }) + "\n"
 
-        return Response(generate_summary_stream(), content_type="text/plain")
+        return Response(stream_with_context(generate_summary_stream()), content_type="text/plain")
     except Exception as e:
         logger.error(f"Error summarizing doubt thread {doubt_id}: {e}")
         return json_error(str(e), status=500, code="internal_error")

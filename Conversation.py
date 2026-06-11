@@ -6213,9 +6213,12 @@ Any other `/command` is passed through to OpenCode directly.
         # (search_messages, list_messages, read_message, etc.) which require conversation_id.
         preamble = f"Current conversation ID: {self.conversation_id}\n"
         plot_prefix = f"plot-{prefix}-"
-        from flask import request as flask_request
-
-        render_prefix = f"{flask_request.url_root.rstrip('/')}/get_conversation_output_docs/{COMMON_SALT_STRING}/{self.conversation_id}"
+        try:
+            from flask import request as flask_request
+            render_prefix = f"{flask_request.url_root.rstrip('/')}/get_conversation_output_docs/{COMMON_SALT_STRING}/{self.conversation_id}"
+        except RuntimeError:
+            # Called outside a Flask request context (e.g. background thread).
+            render_prefix = f"/get_conversation_output_docs/{COMMON_SALT_STRING}/{self.conversation_id}"
         agent = None
         if "no format" in preamble_options:
             # remove "md format" and "better formatting" from preamble options

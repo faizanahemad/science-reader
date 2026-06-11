@@ -1933,13 +1933,13 @@
                     </h5>
                     <span class="ml-auto d-flex align-items-center" style="gap: 4px;">
                         <button type="button" class="btn btn-sm btn-outline-secondary" id="doubt-summarize-thread-btn" title="Summarize Thread">
-                            <i class="bi bi-journal-text"></i> Summarize
+                            <i class="bi bi-journal-text"></i><span class="doubt-header-btn-label"> Summarize</span>
                         </button>
                         <button type="button" class="btn btn-sm btn-outline-secondary" id="doubt-copy-thread-btn" title="Copy Thread as Markdown">
-                            <i class="bi bi-clipboard"></i> Copy Thread
+                            <i class="bi bi-clipboard"></i><span class="doubt-header-btn-label"> Copy Thread</span>
                         </button>
                         <button type="button" class="btn btn-sm btn-outline-secondary" id="doubt-to-conversation-btn" title="Continue as new Conversation">
-                            <i class="bi bi-box-arrow-up-right"></i> New Chat
+                            <i class="bi bi-box-arrow-up-right"></i><span class="doubt-header-btn-label"> New Chat</span>
                         </button>
                     </span>
                     <button type="button" class="close" data-dismiss="modal" aria-label="Close" style="color: #aaa; font-size: 28px; font-weight: bold; line-height: 1;">
@@ -1953,7 +1953,7 @@
                             <button class="btn btn-outline-secondary doubt-length-btn active" data-length="medium">Medium</button>
                             <button class="btn btn-outline-secondary doubt-length-btn" data-length="long">Long</button>
                         </div>
-                        <select class="form-control form-control-sm" id="doubt-modal-preamble-selector" multiple data-live-search="true" style="max-width: 220px; height: 28px;">
+                        <select class="selectpicker form-control-sm" id="doubt-modal-preamble-selector" multiple data-live-search="true" data-width="220px" data-style="btn-outline-secondary btn-sm" title="Preamble (none)">
                             <option value="">None</option>
                             <option>Wife Prompt</option>
                             <option>Short</option>
@@ -5067,6 +5067,57 @@ greet("World");</code></pre>
     #doubt-chat-modal .modal-dialog,
     #temp-llm-modal .modal-dialog {
         margin: 0.5vh auto;
+    }
+
+    /* Mobile: keep the doubt modal header visible when the keyboard opens */
+    @media (max-width: 767.98px) {
+        #doubt-chat-modal .modal-dialog {
+            margin: 0;
+            max-width: 100vw;
+            width: 100vw;
+        }
+        #doubt-chat-modal .modal-content {
+            display: flex;
+            flex-direction: column;
+            max-height: 100dvh;   /* dvh shrinks when the soft keyboard appears */
+            max-height: 100vh;    /* fallback for browsers without dvh */
+            border-radius: 0;
+        }
+        #doubt-chat-modal .modal-header {
+            flex-shrink: 0;       /* never let the header compress or scroll away */
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            background: #fff;
+        }
+        #doubt-chat-modal .modal-body {
+            flex: 1;
+            min-height: 0;        /* allow shrinking inside the flex column */
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        #doubt-chat-modal .doubt-modal-controls {
+            flex-shrink: 0;
+        }
+        /* Replace the fixed 90vh height with flex growth so it fills remaining space */
+        #doubt-chat-container {
+            height: auto !important;
+            flex: 1;
+            min-height: 0;
+        }
+        /* Keep the input area at the bottom, never pushed off screen */
+        #doubt-chat-input-area {
+            flex-shrink: 0;
+        }
+        /* Shrink the action buttons in the header on small screens, icons only */
+        #doubt-chat-modal .modal-header .btn {
+            font-size: 0.75rem;
+            padding: 0.2rem 0.4rem;
+        }
+        #doubt-chat-modal .modal-header .doubt-header-btn-label {
+            display: none;
+        }
     }
     
     .doubt-preview-card {
