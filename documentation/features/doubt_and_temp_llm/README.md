@@ -316,3 +316,144 @@ Within each doubt function, sub-prompts also run in parallel:
 | `interface/interface.html` | Checkbox (`#settings-auto_doubts_enabled`) |
 | `interface/chat.js` | Settings state wiring |
 | `interface/common.js` `getOptions()` | Includes `auto_doubts_enabled` in checkboxes payload |
+
+
+---
+
+## 3. Doubt System Enhancements (2026-06)
+
+The following features extend the base doubt clearing system with richer UX, knowledge management, and configurability.
+
+### New Schema Columns
+
+Added to `DoubtsClearing` table:
+- `with_context` (boolean, DEFAULT 0) — preserves whether the doubt was created with conversation context
+- `pinned` (boolean, DEFAULT 0) — user can pin important root doubts for priority sorting
+- `bookmarked` (boolean, DEFAULT 0) — user can bookmark specific answers within a thread
+
+### New Endpoints
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/pin_doubt/<doubt_id>` | POST | Toggle pinned state. Body: `{ "pinned": bool }` |
+| `/bookmark_doubt/<doubt_id>` | POST | Toggle bookmarked state. Body: `{ "bookmarked": bool }` |
+| `/regenerate_doubt/<doubt_id>` | POST | Re-run LLM, stream new answer, update in-place. Body: `{ "preamble_options": [...] }` |
+| `/summarize_doubt_thread/<doubt_id>` | POST | Summarize thread using `senior_engineer_summary_prompt`. Saves as new child doubt. |
+| `/create_conversation_from_doubt_thread/<doubt_id>` | POST | Create new conversation seeded with doubt thread as `running_summary`. |
+| `/get_all_doubts` | GET | Paginated cross-conversation doubts. Params: `page`, `page_size`, `search`, `filter` (all/pinned/user/auto). |
+
+### Feature: Pin/Star Doubts
+
+- Pin button (📌) on each preview card in the doubts overview modal
+- Pinned doubts sort first, then user-created, then auto-doubts
+- Visual: blue left border + light blue background on pinned cards
+- Auto-doubt cards get a "Auto" badge for visual distinction
+
+### Feature: Bookmarks
+
+- Bookmark button (🔖) on assistant answer cards in the doubt chat modal
+- Bookmarked state persisted per-doubt
+- Overview cards show bookmark count badge when children are bookmarked
+
+### Feature: Doubt Answer Regeneration
+
+- ↻ button in the header of each assistant doubt answer card
+- Streams new answer in-place (reuses `clear_doubt` with same parameters)
+- Updates `doubt_answer` in DB without creating a new record
+- Warning toast if the doubt has children (follow-ups based on old answer)
+
+### Feature: Inline Length/Preamble Controls
+
+- Control bar at top of doubt chat modal with:
+  - Length toggle: Short / Medium / Long (pill buttons)
+  - Preamble selector: same options as settings modal doubt preamble
+- Length maps to preamble: Short adds "Short", Long adds "Long", Medium = neither
+- Overrides the settings modal values for the current session
+
+### Feature: Copy Thread
+
+- "Copy Thread" button in doubt chat modal header
+- Copies entire Q&A thread as formatted markdown (`## Q: / answer / ---`)
+- Uses `navigator.clipboard` API
+
+### Feature: Doubt Thread Summarization
+
+- "Summarize" button in doubt chat modal header
+- Calls `/summarize_doubt_thread/<doubt_id>` which:
+  - Collects full thread via BFS from all ancestors
+  - Builds context from `running_summary` + doubt Q&A pairs only (NOT raw chat messages)
+  - Uses `senior_engineer_summary_prompt` from `prompts.py`
+  - Streams response and saves as new child doubt with `doubt_text = "Thread Summary"`
+
+### Feature: "Continue Doubt in Main Chat"
+
+- Context menu item: "Continue doubt in main chat"
+- Fetches doubts for the message, shows picker if multiple threads
+- Injects selected thread's Q&A as `[Doubt Context]...[/Doubt Context]` block into main chat input
+- One-shot injection: user types next message which includes the doubt context
+
+### Feature: Doubt Thread as Conversation Seed
+
+- "New Chat" button in doubt chat modal header
+- Calls `/create_conversation_from_doubt_thread/<doubt_id>` which:
+  - Creates new conversation with same domain as source
+  - Sets `running_summary` to formatted doubt thread content
+- Frontend navigates to the new conversation after creation
+
+### Feature: Doubt Notification (Pulse + Toast)
+
+- After assistant reply streaming completes, a 25s delayed poll checks for new doubts
+- Newly-revealed `.has-doubts-btn` buttons get a pulse animation (CSS `doubt-new-pulse`)
+- Toast notification: "✨ Learning aids ready for your last reply"
+- First reveal at 5s (no pulse), second poll at 25s (with pulse + toast)
+
+### Feature: Selective Auto-Doubts (Per-Conversation)
+
+- 5 category checkboxes below the "Auto-doubts" checkbox in settings:
+  - takeaways, maximize_learning, challenge_verify, foundations_practice, answer_questions
+- Saved via `PUT /set_conversation_settings` as `auto_doubt_categories` list
+- Backend dispatch loop only runs categories present in the list (None = all)
+- Show/hide with auto-doubts checkbox toggle
+
+### Feature: Auto-Doubt Model Override
+
+- Per-conversation model override: `auto_doubt_model`
+- Dropdown in Model Overrides modal
+- All 5 auto-doubt functions use `conversation.get_model_override("auto_doubt_model", "gemini-flash-3.5-non-reasoning")`
+- Default: `gemini-flash-3.5-non-reasoning` (unchanged behavior)
+
+### Feature: Global "My Doubts" Modal (Cross-Conversation)
+
+- Entry point: sidebar toolbar button (journal-bookmark icon)
+- Full-screen modal showing all root doubts across all conversations
+- Search bar: free-text search across `doubt_text` and `doubt_answer`
+- Filter pills: All / Pinned / My Doubts / Auto
+- Pagination (20 per page)
+- Click navigates to source conversation and opens the doubt thread
+- Auto-doubt detection uses LIKE prefix matching for robustness
+
+### Feature: Doubt Preambles
+
+- Separate preamble selector for doubts in settings modal (`#settings-doubt-preamble-selector`)
+- Safe preambles: None, Wife Prompt, Short, Deep Learn, Software and ML Learning, Senior Engineer Summary, Senior Engineer Mental Models, Argumentative, No AI
+- Sent as `preamble_options` in `/clear_doubt` and `/regenerate_doubt` requests
+- Backend calls `self.get_preamble(preamble_options, None)` and appends to system prompt
+
+### Feature: Threading UX Improvements
+
+- Overview modal sorts: pinned first → user-created → auto-doubts (each by date desc)
+- Preview cards: collapsible answer (click body to toggle), visual hierarchy
+- Separate visual treatment for pinned (blue border) and auto (badge) cards
+
+### Key Files (Updated)
+
+| File | New Additions |
+|---|---|
+| `interface/doubt-manager.js` | Pin/bookmark handlers, regen streaming, summarize, copy thread, global doubts modal, inline controls |
+| `interface/context-menu-manager.js` | "Continue doubt in main chat" handler + doubt picker |
+| `interface/common-chat.js` | `revealDoubtsButtons(conversationId, withPulse)` — pulse + toast notification |
+| `interface/chat.js` | Auto-doubt category checkboxes, model override save/load |
+| `endpoints/doubts.py` | 6 new routes: pin, bookmark, regenerate, summarize, get_all, create_from_thread |
+| `endpoints/conversations.py` | `_AUTO_DOUBT_DISPATCH` dict, `auto_doubt_categories` validation, model override |
+| `database/doubts.py` | `update_doubt_pinned()`, `update_doubt_bookmarked()`, `update_doubt_answer()`, `get_all_doubts_for_user()` |
+| `database/connection.py` | `pinned` + `bookmarked` column migrations |

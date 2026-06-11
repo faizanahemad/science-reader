@@ -946,9 +946,30 @@ The `@pkb:claim_id` prefix is supported as a legacy alias alongside `@memory:` a
 - `GET /get_doubts/<conversation_id>/<message_id>`
 - `DELETE /delete_doubt/<doubt_id>`
 - `POST /cancel_doubt_clearing/<conversation_id>` (conversation cancellation helpers)
+- `POST /pin_doubt/<doubt_id>` — toggle pinned state
+- `POST /bookmark_doubt/<doubt_id>` — toggle bookmarked state
+- `POST /regenerate_doubt/<doubt_id>` — re-run LLM, stream, update in-place
+- `POST /summarize_doubt_thread/<doubt_id>` — summarize thread, save as child
+- `POST /create_conversation_from_doubt_thread/<doubt_id>` — seed new conversation
+- `GET /get_all_doubts?page=&page_size=&search=&filter=` — cross-conversation paginated view
 
 **Persistence**
-- `users.db` table: `DoubtsClearing`
+- `users.db` table: `DoubtsClearing` (columns: doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer, parent_doubt_id, is_root_doubt, show_hide, with_context, pinned, bookmarked, created_at, updated_at)
+- Conversation settings keys: `auto_doubt_categories` (list), model_overrides.`auto_doubt_model` (string)
+
+**Enhanced features (2026-06)**
+- **Pin/star** — pin important root doubts; pinned sort first in overview. Bookmark specific answers within threads.
+- **Regeneration** — ↻ button re-runs LLM and updates answer in-place (streamed).
+- **Thread summarization** — uses `senior_engineer_summary_prompt` on the Q&A thread, saves as child doubt.
+- **Inline length/preamble controls** — Short/Medium/Long toggle + preamble selector at top of doubt chat modal.
+- **Copy Thread** — copies full thread as markdown to clipboard.
+- **"Continue doubt in main chat"** — context menu injects doubt thread as `[Doubt Context]` block into main input.
+- **Conversation seed** — "New Chat" button creates conversation with doubt thread as initial `running_summary`.
+- **Notification** — pulse animation + toast after 25s when auto-doubts finish.
+- **Selective auto-doubts** — per-conversation category checkboxes saved in conversation settings.
+- **Auto-doubt model override** — per-conversation `auto_doubt_model` setting.
+- **Global "My Doubts" modal** — cross-conversation searchable/filterable paginated view from sidebar.
+- **Separate doubt preamble** — `doubt_preamble_options` distinct from main chat preambles.
 
 ---
 

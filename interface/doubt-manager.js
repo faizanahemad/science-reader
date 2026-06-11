@@ -258,11 +258,20 @@ const DoubtManager = {
                 const conversationId = data.doubt.conversation_id;
                 const messageId = data.doubt.message_id;
                 
+                // If this is a non-root doubt, we need to find its root to filter the tree
+                const targetDoubtId = data.doubt.doubt_id;
+                
                 return fetch(`/get_doubts/${conversationId}/${messageId}`)
                     .then(response => response.json())
                     .then(treeData => {
                         if (treeData.success && treeData.doubts) {
-                            treeData.doubts = treeData.doubts.filter(doubt => doubt.doubt_id === data.doubt.doubt_id);
+                            // Find the root tree that contains our target doubt
+                            function findInTree(node, id) {
+                                if (node.doubt_id === id) return true;
+                                return (node.children || []).some(c => findInTree(c, id));
+                            }
+                            const matchingRoot = treeData.doubts.find(root => findInTree(root, targetDoubtId));
+                            treeData.doubts = matchingRoot ? [matchingRoot] : treeData.doubts.filter(d => d.doubt_id === targetDoubtId);
                             // Flatten the tree and sort by created_at
                             const allDoubts = self.flattenDoubtTree(treeData.doubts);
                             allDoubts.sort((a, b) => new Date(a.created_at) - new Date(b.created_at));

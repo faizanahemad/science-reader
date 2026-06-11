@@ -598,9 +598,9 @@ def get_all_doubts_for_user(
         if filter_type == "pinned":
             conditions.append("pinned = 1")
         elif filter_type == "user":
-            conditions.append("doubt_text NOT IN ('Auto takeaways', 'Maximize Learning and Perspectives', 'Challenge & Verify', 'Foundations & Practice', 'Answer Raised Questions')")
+            conditions.append("doubt_text NOT LIKE 'Auto takeaways%' AND doubt_text NOT LIKE 'Maximize Learning%' AND doubt_text NOT LIKE 'Challenge & Verify%' AND doubt_text NOT LIKE 'Foundations & Practice%' AND doubt_text NOT LIKE 'Answer Raised Questions%'")
         elif filter_type == "auto":
-            conditions.append("doubt_text IN ('Auto takeaways', 'Maximize Learning and Perspectives', 'Challenge & Verify', 'Foundations & Practice', 'Answer Raised Questions')")
+            conditions.append("(doubt_text LIKE 'Auto takeaways%' OR doubt_text LIKE 'Maximize Learning%' OR doubt_text LIKE 'Challenge & Verify%' OR doubt_text LIKE 'Foundations & Practice%' OR doubt_text LIKE 'Answer Raised Questions%')")
 
         where = " AND ".join(conditions)
 

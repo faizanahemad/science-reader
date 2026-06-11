@@ -709,8 +709,8 @@ def summarize_doubt_thread_route(doubt_id: str):
         # Also collect children from root downward
         from database.doubts import get_doubt_children
         full_thread = list(history)
-        # BFS to get all descendants from root
-        frontier = [root_doubt["doubt_id"]]
+        # BFS to get all descendants from all nodes in the thread (not just root)
+        frontier = [d["doubt_id"] for d in full_thread]
         seen = {d["doubt_id"] for d in full_thread}
         while frontier:
             next_frontier = []
@@ -808,7 +808,7 @@ def create_conversation_from_doubt_thread_route(doubt_id: str):
         history = get_doubt_history(doubt_id=doubt_id, users_dir=state.users_dir, logger=logger)
         root_doubt = history[0] if history else doubt_record
         full_thread = list(history)
-        frontier = [root_doubt["doubt_id"]]
+        frontier = [d["doubt_id"] for d in full_thread]
         seen = {d["doubt_id"] for d in full_thread}
         while frontier:
             next_frontier = []
@@ -830,7 +830,8 @@ def create_conversation_from_doubt_thread_route(doubt_id: str):
 
         # Create new conversation using the same domain as the source
         from endpoints.conversations import _create_conversation_simple
-        source_conversation = state.conversation_cache.get(conversation_id)
+        # Ensure conversation is loaded into cache so we can access its domain
+        source_conversation = attach_keys(state.conversation_cache[conversation_id], keys)
         domain = source_conversation.domain if source_conversation else "chat"
         new_conversation = _create_conversation_simple(domain)
         new_conversation.running_summary = seed_summary
