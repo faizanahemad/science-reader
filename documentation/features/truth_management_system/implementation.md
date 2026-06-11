@@ -868,7 +868,7 @@ user_api = shared_api.for_user("user@example.com")
 | Dedup | `find_consolidation_candidates`/`find_entity_duplicates`/`find_tag_duplicates` gain `use_llm` | **W7:** optional LLM verification (`judge_duplicates`) of clusters |
 | Cleanup | `run_memory_cleanup(apply=False, use_llm=None)` → ActionResult | **W9:** sweep + overview refresh + dedup proposals; `apply` merges suggested keepers |
 | Maint | `backfill_provenance()` / `backfill_origin()` | Idempotent ops backfills for legacy claims/entities/tags |
-| Maint | `backfill_entities(context_domain=None, dry_run=False, limit=None)` | Idempotent, user-scoped entity-link backfill for active claims with no links (corpus parity for the entity strategy); off the hot path, not required for correctness. CLI: `python -m truth_management_system.backfill_entities [--user EMAIL] [--dry-run] [--limit N]` |
+| Maint | `backfill_entities(context_domain=None, dry_run=False, limit=None)` | Idempotent, user-scoped entity-link backfill for active claims with no links (corpus parity for the entity strategy); off the hot path, not required for correctness. CLI: `python -m truth_management_system.backfill_entities [--user EMAIL] [--dry-run] [--limit N]`. REST: `POST /pkb/backfill_entities` (login-scoped; body `{context_domain?, dry_run=true, limit?}`; needs OPENROUTER_API_KEY) |
 
 #### `interface/text_orchestration.py` - `TextOrchestrator`
 

@@ -654,6 +654,75 @@ def pkb_analyze_statement_route():
         )
 
 
+@pkb_bp.route("/pkb/backfill_entities", methods=["POST"])
+@limiter.limit("2 per minute")
+@login_required
+def pkb_backfill_entities_route():
+    """
+    Backfill entity links for the current user's existing claims.
+
+    Links entities for active claims that have no entity links yet (claims that
+    predate entity extraction or were added with auto_extract=False) — corpus
+    parity for the entity-linked retrieval strategy. Idempotent, user-scoped,
+    off the retrieval hot path, and NOT required for correctness.
+
+    Body (all optional):
+        context_domain: restrict to one domain (e.g. "work").
+        dry_run: preview without writing (default True for safety).
+        limit: cap claims processed this call. Large corpora should pass a limit
+            and call repeatedly (already-linked claims are skipped) or use the
+            CLI (`python -m truth_management_system.backfill_entities`), since
+            this runs synchronously and makes one LLM call per scanned claim.
+
+    Requires OPENROUTER_API_KEY (entity extraction is LLM-backed).
+    Returns {scanned, linked, links, skipped}.
+    """
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        data = request.get_json(silent=True) or {}
+        context_domain = data.get("context_domain")
+        dry_run = bool(data.get("dry_run", True))
+        limit = data.get("limit")
+        if limit is not None:
+            try:
+                limit = int(limit)
+            except (TypeError, ValueError):
+                return json_error(
+                    "limit must be an integer", status=400, code="bad_request"
+                )
+
+        keys = keyParser(session)
+        if not keys.get("OPENROUTER_API_KEY"):
+            return json_error(
+                "API key required for entity backfill",
+                status=400,
+                code="api_key_required",
+            )
+
+        api = get_pkb_api_for_user(email, keys)
+        if api is None:
+            return json_error(
+                "Failed to initialize PKB", status=500, code="pkb_init_failed"
+            )
+
+        result = api.backfill_entities(
+            context_domain=context_domain, dry_run=dry_run, limit=limit
+        )
+        return jsonify({"success": True, "dry_run": dry_run, **result})
+    except Exception as e:
+        logger.error(f"Error in pkb_backfill_entities: {e}")
+        traceback.print_exc()
+        return json_error(
+            f"An error occurred: {str(e)}", status=500, code="internal_error"
+        )
+
+
 @pkb_bp.route("/pkb/claims/<claim_id>", methods=["GET"])
 @limiter.limit("30 per minute")
 @login_required
