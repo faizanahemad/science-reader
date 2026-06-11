@@ -674,6 +674,10 @@ function setModalFromState(state) {
     $('#settings-pkb-scope').val(state.pkb_scope || '');
     $('#settings-auto_pkb_extract').prop('checked', state.auto_pkb_extract !== false);
     $('#settings-auto_doubts_enabled').prop('checked', state.auto_doubts_enabled !== false);
+    $('#auto-doubt-categories-group').toggle(state.auto_doubts_enabled !== false);
+    $('#settings-auto_doubts_enabled').off('change.catToggle').on('change.catToggle', function() {
+        $('#auto-doubt-categories-group').toggle($(this).is(':checked'));
+    });
     $('#settings-enable_custom_context_menu').prop(
         'checked',
         (state.enable_custom_context_menu !== undefined && state.enable_custom_context_menu !== null)
@@ -871,6 +875,14 @@ function loadConversationModelOverrides(conversationId) {
                 setModelOverrideValue('#settings-doc-model', overrides.doc_model || '', DEFAULT_MODEL_OVERRIDES.doc_model);
                 setModelOverrideValue('#settings-clarify-intent-model', overrides.clarify_intent_model || '', DEFAULT_MODEL_OVERRIDES.clarify_intent_model);
                 setModelOverrideValue('#settings-pkb-nl-model', overrides.pkb_nl_model || '', DEFAULT_MODEL_OVERRIDES.pkb_nl_model);
+                setModelOverrideValue('#settings-auto-doubt-model', overrides.auto_doubt_model || '', DEFAULT_MODEL_OVERRIDES.auto_doubt_model);
+                // Load auto_doubt_categories
+                var cats = settings.auto_doubt_categories;
+                if (cats && Array.isArray(cats)) {
+                    $('.auto-doubt-cat-cb').each(function() { $(this).prop('checked', cats.includes($(this).val())); });
+                } else {
+                    $('.auto-doubt-cat-cb').prop('checked', true);
+                }
                 $('#model-overrides-modal').modal('show');
             },
             error: function (xhr) {
@@ -888,18 +900,22 @@ function saveConversationModelOverrides(conversationId) {
         artefact_propose_edits_model: getModelOverrideValue('#settings-artefact-propose-model'),
         doc_model: getModelOverrideValue('#settings-doc-model'),
         clarify_intent_model: getModelOverrideValue('#settings-clarify-intent-model'),
-        pkb_nl_model: getModelOverrideValue('#settings-pkb-nl-model')
+        pkb_nl_model: getModelOverrideValue('#settings-pkb-nl-model'),
+        auto_doubt_model: getModelOverrideValue('#settings-auto-doubt-model')
     };
     Object.keys(overrides).forEach(function (key) {
         if (!overrides[key]) {
             delete overrides[key];
         }
     });
+    // Collect auto_doubt_categories
+    var auto_doubt_categories = [];
+    $('.auto-doubt-cat-cb:checked').each(function() { auto_doubt_categories.push($(this).val()); });
     $.ajax({
         url: '/set_conversation_settings/' + conversationId,
         type: 'PUT',
         contentType: 'application/json',
-        data: JSON.stringify({ model_overrides: overrides }),
+        data: JSON.stringify({ model_overrides: overrides, auto_doubt_categories: auto_doubt_categories }),
         success: function () {
             // Merge (don't replace) so we keep other cached settings such as
             // opencode_config — the backend now does a partial update too.
@@ -1067,7 +1083,8 @@ function populateModelOverrideOptions() {
         '#settings-artefact-propose-model',
         '#settings-doc-model',
         '#settings-clarify-intent-model',
-        '#settings-pkb-nl-model'
+        '#settings-pkb-nl-model',
+        '#settings-auto-doubt-model'
     ];
     selects.forEach(function (selector) {
         const $select = $(selector);

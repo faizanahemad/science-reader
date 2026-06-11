@@ -2640,6 +2640,13 @@
                                             <input class="form-check-input" id="settings-auto_doubts_enabled" type="checkbox" checked>
                                             <label class="form-check-label" for="settings-auto_doubts_enabled">Auto-doubts</label>
                                         </div>
+                                        <div id="auto-doubt-categories-group" class="ml-3 small" style="display:none;">
+                                            <div class="form-check"><input class="form-check-input auto-doubt-cat-cb" type="checkbox" value="takeaways" checked><label class="form-check-label">Takeaways</label></div>
+                                            <div class="form-check"><input class="form-check-input auto-doubt-cat-cb" type="checkbox" value="maximize_learning" checked><label class="form-check-label">Maximize Learning</label></div>
+                                            <div class="form-check"><input class="form-check-input auto-doubt-cat-cb" type="checkbox" value="challenge_verify" checked><label class="form-check-label">Challenge & Verify</label></div>
+                                            <div class="form-check"><input class="form-check-input auto-doubt-cat-cb" type="checkbox" value="foundations_practice" checked><label class="form-check-label">Foundations</label></div>
+                                            <div class="form-check"><input class="form-check-input auto-doubt-cat-cb" type="checkbox" value="answer_questions" checked><label class="form-check-label">Answer Questions</label></div>
+                                        </div>
                                     </div>
                                     <div class="col-md-3">
                                         <div class="form-check mb-2">
@@ -3219,6 +3226,13 @@ greet("World");</code></pre>
                         <label for="settings-pkb-nl-model" class="form-label"><strong>PKB NL Agent Model</strong></label>
                         <select class="form-control" id="settings-pkb-nl-model"></select>
                         <small class="form-text text-muted">Model used by the PKB NL agent when invoked as a tool by the main LLM. /pkb and /memory commands use the main model selected in chat.</small>
+                    </div>
+                    <hr>
+                    <h6 class="text-primary mb-3"><i class="bi bi-chat-left-text"></i> Auto-Doubts</h6>
+                    <div class="form-group">
+                        <label for="settings-auto-doubt-model" class="form-label"><strong>Auto-Doubt Model</strong></label>
+                        <select class="form-control" id="settings-auto-doubt-model"></select>
+                        <small class="form-text text-muted">Model used for generating auto-doubt threads (takeaways, challenges, etc.). Default: gemini-flash-3.5-non-reasoning.</small>
                     </div>
                 </div>
                 <div class="modal-footer">
