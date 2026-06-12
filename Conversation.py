@@ -2398,6 +2398,7 @@ Compact list of bullet points:
             new_memory = copy.deepcopy(memory)
             new_memory["title"] = f"Fork of: {memory.get('title', 'Untitled')}"
             new_memory["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            new_memory.pop("conversation_friendly_id", None)  # will be regenerated
             new_conversation.set_field("memory", new_memory)
 
         # Copy conversation settings
