@@ -2387,14 +2387,18 @@ Compact list of bullet points:
         uploaded_docs = self.get_field("uploaded_documents_list") or []
         new_conversation.set_field("uploaded_documents_list", uploaded_docs)
 
-        # Copy messages up to index (inclusive)
+        # Copy messages up to index (inclusive), reset visibility
+        import copy
         messages = self.get_field("messages") or []
-        new_conversation.set_field("messages", messages[: msg_index + 1])
+        forked_msgs = copy.deepcopy(messages[: msg_index + 1])
+        for msg in forked_msgs:
+            if isinstance(msg, dict):
+                msg["show_hide"] = "show"
+        new_conversation.set_field("messages", forked_msgs)
 
         # Copy memory (title, summary, settings) but update title
         memory = self.get_field("memory")
         if memory:
-            import copy
             new_memory = copy.deepcopy(memory)
             new_memory["title"] = f"Fork of: {memory.get('title', 'Untitled')}"
             new_memory["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
