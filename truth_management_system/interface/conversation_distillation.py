@@ -88,6 +88,10 @@ class MemoryUpdatePlan:
     source_message_id: Optional[str] = None
     # Short-term memory candidates (stored silently, no user confirmation)
     short_term_candidates: List[ShortTermCandidate] = field(default_factory=list)
+    # Tiered persistence: claims auto-saved (route=SAVE) without user confirmation
+    auto_saved: List[Any] = field(default_factory=list)
+    # Tiered persistence: claims skipped (route=SKIP) with reasons
+    skipped: List[Any] = field(default_factory=list)
 
 
 @dataclass
@@ -153,6 +157,41 @@ class ConversationDistiller:
             matches.extend([(candidate, claim, relation) for claim, relation in existing])
         
         proposed_actions = self._propose_actions(candidates, matches)
+
+        # ─── Tiered persistence routing (B2) ─────────────────────────────────
+        auto_saved = []
+        skipped = []
+        if self.config.tiered_persistence_enabled and getattr(self.api, 'policy', None):
+            from ..routing import route_candidate, Route
+            policy = self.api.policy
+            routed_actions = []
+            for pa in proposed_actions:
+                cand = pa.candidate
+                # Build match_result from the ProposedAction's relation
+                match_result = None
+                if pa.relation == "contradicts":
+                    match_result = {"relation": "conflict", "similarity_score": 0.0}
+                elif pa.relation == "duplicate":
+                    match_result = {"relation": "duplicate", "similarity_score": 0.95}
+                elif pa.relation == "related":
+                    match_result = {"relation": "related", "similarity_score": 0.0}
+                cand_dict = {
+                    "confidence": cand.confidence,
+                    "derivation": cand.derivation,
+                    "context_domain": cand.context_domain,
+                    "claim_type": cand.claim_type,
+                }
+                result = route_candidate(cand_dict, policy, match_result)
+                if result.route == Route.SAVE:
+                    # Auto-execute: save immediately
+                    exec_result = self._execute_single_action(pa, source_conversation_id, source_message_id)
+                    auto_saved.append({"action": pa, "result": exec_result, "reason": result.reason})
+                elif result.route == Route.SKIP:
+                    skipped.append({"action": pa, "reason": result.reason, "gate": result.gate})
+                else:
+                    routed_actions.append(pa)
+            proposed_actions = routed_actions
+
         user_prompt = self._generate_confirmation_prompt(proposed_actions)
         
         return MemoryUpdatePlan(candidates=candidates, existing_matches=matches,
@@ -160,7 +199,8 @@ class ConversationDistiller:
                                requires_user_confirmation=len(proposed_actions) > 0,
                                source_conversation_id=source_conversation_id,
                                source_message_id=source_message_id,
-                               short_term_candidates=short_term_candidates)
+                               short_term_candidates=short_term_candidates,
+                               auto_saved=auto_saved, skipped=skipped)
     
     def execute_plan(self, plan: MemoryUpdatePlan, user_response: str,
                      approved_indices: List[int] = None) -> DistillationResult:
@@ -604,6 +644,12 @@ Response:"""
         
         return indices
     
+    def _execute_single_action(self, action, source_conversation_id, source_message_id):
+        """Execute one ProposedAction with provenance (used by tiered auto-save)."""
+        self._source_conversation_id = source_conversation_id
+        self._source_message_id = source_message_id
+        return self._execute_action(action)
+
     def _execute_action(self, action: ProposedAction) -> ActionResult:
         """Execute a single proposed action."""
         if action.action == "add":
