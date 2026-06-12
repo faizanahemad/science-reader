@@ -108,6 +108,130 @@ def wait_for_tool_response(tool_id, timeout=60):
             _tool_response_data.pop(tool_id, None)
             return None
 
+
+# ---------------------------------------------------------------------------
+# Auto-archival throttle and helper
+# ---------------------------------------------------------------------------
+_last_auto_archive_run: float = 0
+
+
+def _run_auto_archival(conversations, grace_days: int, users_dir: str) -> list:
+    """Run auto-archival pass on active conversations. Returns list of auto-archived IDs."""
+    global _last_auto_archive_run
+    from database.pinned_messages import get_pinned_messages as db_get_pins
+    from database.similarity_cache import get_all_cached, upsert_cache
+    from utils.auto_archival import compute_staleness
+    from utils.text_similarity import tokenize, compute_title_summary_hash
+
+    now = datetime.now()
+    active_convs = [c for c in conversations if not c.archived and not c.stateless]
+    if not active_convs:
+        _last_auto_archive_run = time.time()
+        return []
+
+    # Fetch pinned message conversation IDs (batch)
+    pinned_conv_ids = set()
+    for c in active_convs:
+        try:
+            pins = db_get_pins(c.conversation_id, users_dir=users_dir)
+            if pins:
+                pinned_conv_ids.add(c.conversation_id)
+        except Exception:
+            pass
+
+    # Build metadata + message counts
+    conv_data = []
+    for c in active_convs:
+        try:
+            meta = c.get_metadata()
+            msg_count = len(c.get_message_list())
+            conv_data.append((c, meta, msg_count))
+        except Exception:
+            continue
+
+    # Time pre-filter: only score conversations past grace/2
+    candidates = []
+    for c, meta, msg_count in conv_data:
+        last_updated_str = meta.get("last_updated", "")
+        last_opened_str = meta.get("last_opened_at")
+        try:
+            lu = datetime.strptime(last_updated_str, "%Y-%m-%d %H:%M:%S") if last_updated_str else now
+        except ValueError:
+            lu = now
+        lo = now  # default for None (Q2: treat as opened today)
+        if last_opened_str:
+            try:
+                lo = datetime.strptime(last_opened_str, "%Y-%m-%d %H:%M:%S") if isinstance(last_opened_str, str) else last_opened_str
+            except (ValueError, TypeError):
+                lo = now
+        staleness_clock = max(lu, lo)
+        age_days = (now - staleness_clock).days
+        if age_days > grace_days / 2:
+            candidates.append((c, meta, msg_count))
+
+    # Cap at 50 candidates
+    candidates = candidates[:50]
+    if not candidates:
+        _last_auto_archive_run = time.time()
+        return []
+
+    # Build similarity cache
+    candidate_ids = [c.conversation_id for c, _, _ in candidates]
+    all_conv_ids = [c.conversation_id for c in active_convs]
+    cache_map = get_all_cached(all_conv_ids, users_dir=users_dir)
+
+    # Populate/update cache for candidates missing entries
+    for c, meta, _ in conv_data:
+        title = meta.get("title", "")
+        summary = meta.get("summary_till_now", "")
+        current_hash = compute_title_summary_hash(title, summary)
+        cached = cache_map.get(c.conversation_id)
+        if cached is None or cached.get("title_summary_hash") != current_hash:
+            tokens = tokenize(title + " " + (summary or "")[:200])
+            upsert_cache(c.conversation_id, current_hash, bm25_tokens=tokens, users_dir=users_dir)
+            cache_map[c.conversation_id] = {
+                "conversation_id": c.conversation_id,
+                "title_summary_hash": current_hash,
+                "bm25_tokens": tokens,
+                "embedding": cached.get("embedding") if cached else None,
+            }
+
+    # Build all_conv_tokens for superseded detection
+    all_conv_tokens = []
+    for c, meta, _ in conv_data:
+        cached = cache_map.get(c.conversation_id, {})
+        tokens = cached.get("bm25_tokens", [])
+        lu_str = meta.get("last_updated", "")
+        try:
+            lu = datetime.strptime(lu_str, "%Y-%m-%d %H:%M:%S") if lu_str else now
+        except ValueError:
+            lu = now
+        all_conv_tokens.append((c.conversation_id, tokens, lu, cached.get("embedding")))
+
+    # Score candidates
+    stale_results = []
+    for c, meta, msg_count in candidates:
+        is_stale, reason = compute_staleness(
+            meta, msg_count, all_conv_tokens, cache_map,
+            pinned_conv_ids, grace_days=grace_days, now=now
+        )
+        if is_stale:
+            stale_results.append((c, reason))
+
+    # Archive top 5 (Q1: max 5 per load)
+    archived_ids = []
+    for c, reason in stale_results[:5]:
+        c._archived = True
+        c._archive_source = "auto"
+        # Async save to avoid blocking
+        threading.Thread(target=c.save_local, daemon=True).start()
+        archived_ids.append(c.conversation_id)
+        logger.info("Auto-archived %s: %s", c.conversation_id, reason)
+
+    _last_auto_archive_run = time.time()
+    return archived_ids
+
+
 @conversations_bp.route(
     "/list_messages_by_conversation/<conversation_id>", methods=["GET"]
 )
@@ -1604,6 +1728,18 @@ def list_conversation_by_user(domain: str):
     )
 
     conversations = [c for c in conversations if c is not None and c.domain == domain and c.conversation_id not in deleted_temporary_ids]
+
+    # --- Auto-archival pass (throttled to once per hour) ---
+    auto_archived_ids = []
+    grace_days_param = request.args.get("auto_archive_grace_days", "90")
+    try:
+        grace_days = int(grace_days_param)
+    except (ValueError, TypeError):
+        grace_days = 90
+
+    if grace_days > 0 and (time.time() - _last_auto_archive_run) >= 3600:
+        auto_archived_ids = _run_auto_archival(conversations, grace_days, state.users_dir)
+
     include_archived = request.args.get("include_archived", "false").lower() == "true"
     if not include_archived:
         conversations = [c for c in conversations if not c.archived]
@@ -1700,6 +1836,7 @@ def list_conversation_by_user(domain: str):
     return jsonify({
         "conversations": sorted_metadata_reverse,
         "deleted_temporary_ids": deleted_temporary_ids,
+        "auto_archived_ids": auto_archived_ids,
     })
 
 
