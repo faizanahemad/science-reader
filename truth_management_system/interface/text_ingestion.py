@@ -275,14 +275,17 @@ class TextIngestionDistiller:
                         claim_id = getattr(exec_result, 'object_id', None)
                         if claim_id:
                             act_id = self.api.log_activity("auto_save", "capture", "claim", claim_id, source="text_ingestion")
-                            self.api.create_notification(
-                                priority="medium", category="auto_save",
-                                title=f"Auto-saved: {cand.statement[:80]}",
-                                body=cand.statement, object_type="claim", object_id=claim_id,
-                                activity_id=act_id, available_actions=["undo", "dismiss"],
-                                action_payload={"claim_id": claim_id, "statement": cand.statement},
-                                source="text_ingestion",
-                            )
+                            try:
+                                self.api.create_notification(
+                                    priority="medium", category="auto_save",
+                                    title=f"Auto-saved: {cand.statement[:80]}",
+                                    body=cand.statement, object_type="claim", object_id=claim_id,
+                                    activity_id=act_id, available_actions=["undo", "dismiss"],
+                                    action_payload={"claim_id": claim_id, "statement": cand.statement},
+                                    source="text_ingestion",
+                                )
+                            except Exception:
+                                pass  # Non-critical
                         logger.info("tiered:auto_save gate=%s conf=%.2f %s", result.gate, cand.confidence, cand.statement[:60])
                     except Exception as e:
                         logger.warning("tiered:auto_save failed, falling back to confirm: %s", e)
@@ -292,22 +295,25 @@ class TextIngestionDistiller:
                     logger.info("tiered:skip gate=%s conf=%.2f %s", result.gate, cand.confidence, cand.statement[:60])
                 else:
                     routed_proposals.append(proposal)
-                    self.api.create_notification(
-                        priority="high", category="confirm_required",
-                        title=f"Confirm: {cand.statement[:80]}",
-                        body=cand.statement, object_type="claim",
-                        action_required=True,
-                        available_actions=["approve", "reject", "dismiss"],
-                        action_payload={
-                            "proposed_action": proposal.action,
-                            "statement": cand.statement,
-                            "claim_type": cand.claim_type,
-                            "context_domain": cand.context_domain,
-                            "confidence": cand.confidence,
-                            "derivation": getattr(cand, 'derivation', 'extracted'),
-                        },
-                        source="text_ingestion",
-                    )
+                    try:
+                        self.api.create_notification(
+                            priority="high", category="confirm_required",
+                            title=f"Confirm: {cand.statement[:80]}",
+                            body=cand.statement, object_type="claim",
+                            action_required=True,
+                            available_actions=["approve", "reject", "dismiss"],
+                            action_payload={
+                                "proposed_action": proposal.action,
+                                "statement": cand.statement,
+                                "claim_type": cand.claim_type,
+                                "context_domain": cand.context_domain,
+                                "confidence": cand.confidence,
+                                "derivation": getattr(cand, 'derivation', 'extracted'),
+                            },
+                            source="text_ingestion",
+                        )
+                    except Exception:
+                        pass  # Non-critical
             proposals = routed_proposals
             # Structured telemetry: lane-mix counters
             logger.info("tiered:summary save=%d confirm=%d skip=%d total=%d",

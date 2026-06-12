@@ -1,6 +1,6 @@
 # PKB / TMS — Notification System
 
-**Status:** Draft
+**Status:** Implemented (cc633e0b)
 **Created:** 2026-06-12
 **Scope:** A persistent, queryable notification queue for TMS/PKB events that ensures auto-saves, confirm-lane items, conflicts, reminders, and other PKB state changes are never silently missed. Each notification carries enough state to execute or roll back the underlying action. Ships active (no feature flag — purely additive). Schema v14.
 
@@ -240,12 +240,14 @@ prune_low_priority(keep=500) -> int  # deletes oldest resolved low-priority beyo
 
 | Endpoint | Method | Purpose |
 |----------|--------|---------|
-| `/pkb/notifications` | GET | List (filters: priority, category, unresolved, unseen, limit, offset) |
-| `/pkb/notifications/count` | GET | Badge count (unseen + action_required, high/medium only) |
-| `/pkb/notifications/<id>/action` | POST | Take action: `{"action": "approve"}` |
-| `/pkb/notifications/bulk_action` | POST | `{"ids": [...], "action": "dismiss"}` |
-| `/pkb/notifications/mark_seen` | POST | `{"ids": [...]}` |
-| `/pkb/notifications/settings` | GET/PUT | Notification preferences |
+| `/pkb/memory/notifications` | GET | List (filters: priority, category, unresolved, unseen, limit, offset) |
+| `/pkb/memory/notifications/count` | GET | Badge count (unseen + action_required, high/medium only) |
+| `/pkb/memory/notifications/<id>/action` | POST | Take action: `{"action": "approve"}` |
+| `/pkb/memory/notifications/bulk_action` | POST | `{"ids": [...], "action": "dismiss"}` |
+| `/pkb/memory/notifications/mark_seen` | POST | `{"ids": [...]}` |
+| `/pkb/memory/notifications/settings` | GET/PUT | Notification preferences |
+
+Note: Routes use `/pkb/memory/notifications/*` prefix to avoid collision with existing `/pkb/notifications` lifecycle endpoint (Workstream F4: expire/dormant claims).
 
 ### 4.3 MCP Tools
 
@@ -313,6 +315,15 @@ When user clicks "approve" on a `confirm_required` notification:
 When user rejects a confirm-lane notification:
 1. `log_activity(action="user_reject", facet="capture", object_type="notification", object_id=notification_id)`
 2. Resolve notification with `action_taken='rejected'`
+
+### 6.5 Modal confirm resolves pending notification
+
+When user approves via the in-conversation memory-proposal-modal:
+1. Emit `low`/`claim_confirmed` notification for the approved item.
+2. Find and resolve any `confirm_required` notification with matching title (statement).
+3. Set `action_taken='approved_via_modal'`.
+
+This prevents dangling high-priority notifications when the user confirms via the modal instead of the notification panel.
 
 ---
 
