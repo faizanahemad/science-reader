@@ -4175,4 +4175,126 @@ CREATE TABLE IF NOT EXISTS claim_feedback (
 
 ---
 
+## Memory Autonomy Dial & Tiered Persistence (Phase A + Capture Facet)
+
+### Overview
+
+The Memory Autonomy Dial gives users a single 0–100 slider that controls how autonomous the memory system is. At 0 (Manual), every claim requires explicit confirmation. At 100 (Full), the system auto-saves almost everything with undo available. The Tiered Persistence system (the Capture facet) implements the routing logic that decides per-candidate whether to silently save, ask the user, or discard.
+
+**Status:** All code landed inert behind `tiered_persistence_enabled=False` and `default_autonomy=0`. Zero behavior change until eval-gated activation.
+
+### Architecture
+
+```
+User Autonomy (0-100)
+    ↓
+derive_policy(autonomy, overrides)     [autonomy.py — pure function]
+    ↓
+policy dict (14 keys across 4 facets)
+    ↓
+for_user(email)                         [structured_api.py — attaches api.policy]
+    ↓
+route_candidate(candidate, policy, match_result)  [routing.py — pure function]
+    ↓
+SAVE → auto-execute + log_activity("auto_save")
+CONFIRM → stays in proposed_actions (existing modal)
+SKIP → logged, discarded
+```
+
+### Band Table (5 Detents)
+
+| Level | Range | `capture_safe_stated_threshold` | Behavior |
+|-------|-------|---------------------------------|----------|
+| Manual | 0–12 | None (all confirm) | Every claim requires confirmation |
+| Assisted | 13–37 | 0.95 | Only near-certain stated facts auto-save |
+| Balanced | 38–62 | 0.85 | High-confidence stated/extracted auto-save |
+| Proactive | 63–87 | 0.75 | More permissive auto-save |
+| Full | 88–100 | 0.0 | Everything auto-saves unless conflict/high-stakes |
+
+### Confidence Calibration
+
+Extraction prompts (both relaxed and aggressive modes) now request multi-aspect scoring:
+- **4 aspects** (integer 1–10): explicitness, stability, clarity, usefulness
+- **Verbal label first** (e.g. "stated verbatim"), then numeric scores
+- **Anchored rubric:** 10=verbatim stated, 7=clearly implied, 4=inferred, 1=speculative
+- **Computation:** `confidence = mean(aspects) / 10` (backward-compatible with legacy float)
+- **Storage:** `CandidateClaim.confidence_aspects: Optional[Dict[str, int]]` for audit/tuning
+
+### Routing Decision Tree
+
+Source guard (hard safety floor): **conflicts can never auto-save** regardless of policy level.
+
+```
+route_candidate(candidate, policy, match_result):
+  if relation == "conflict":                      → CONFIRM  (always)
+  if derivation == "inferred" and !policy.auto:   → CONFIRM
+  if domain in {health, finance, relationships}:  → CONFIRM  (unless Full)
+  if claim_type in {decision, task, reminder}:    → CONFIRM
+  if relation == "duplicate" and sim ≥ 0.92:      → SKIP
+  if confidence < 0.45:                           → SKIP
+  if confidence ≥ threshold and stated/extracted
+     and safe_type and no conflict:               → SAVE
+  else:                                           → CONFIRM
+```
+
+### Activity Log & Undo
+
+- Every auto-save writes to `pkb_activity_log` with `action="auto_save"`.
+- 24h tombstone window: undo is available within `expires_at` (created_at + 24h).
+- `undo_activity(id)` reverses the action and marks `undone_at`.
+- Review surface: `GET /pkb/memory/recent_auto` returns recent auto-saves for user review.
+
+### MCP Provenance
+
+All external agent writes via MCP are tagged:
+- `channel = "mcp"` (new ProvenanceChannel enum value)
+- `derivation = "inferred"` by default (agent asserting on user's behalf is an inference)
+- Agents can override to `derivation = "stated"` if passing verbatim user words
+
+### Eval Gate
+
+Before enabling the feature flag:
+- **Primary metric:** wrong-auto-save rate < 3% (auto-saves user undoes / total auto-saves)
+- **Secondary:** friction reduction (% of candidates no longer requiring modal), recall lift
+- Computable from: activity log entries (auto_save vs undo events)
+
+### REST & MCP Endpoints
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/pkb/memory/policy` | GET | Read user's autonomy + effective policy |
+| `/pkb/memory/policy` | PUT | Update autonomy level + overrides |
+| `/pkb/memory/undo` | POST | Undo auto-saved claims by activity_ids |
+| `/pkb/memory/recent_auto` | GET | List recent auto-saves for review |
+| `pkb_get_policy` (MCP) | — | Read policy |
+| `pkb_undo_auto_saves` (MCP) | — | Undo auto-saves |
+
+### Files Modified
+
+| File | Changes |
+|------|---------|
+| `truth_management_system/autonomy.py` | NEW: derive_policy, band table |
+| `truth_management_system/routing.py` | NEW: route_candidate, RouteResult |
+| `truth_management_system/config.py` | `default_autonomy`, `tiered_persistence_enabled` |
+| `truth_management_system/schema.py` | v13: pkb_user_settings, pkb_activity_log |
+| `truth_management_system/database.py` | `_migrate_v12_to_v13` |
+| `truth_management_system/interface/structured_api.py` | for_user policy resolution, settings API, activity log API |
+| `truth_management_system/interface/conversation_distillation.py` | Confidence scoring, routing wiring, _compute_confidence |
+| `truth_management_system/interface/text_ingestion.py` | Mirror routing wiring |
+| `truth_management_system/constants.py` | ProvenanceChannel.MCP |
+| `endpoints/pkb.py` | 4 REST endpoints, auto_saved/skipped in response |
+| `mcp_server/pkb.py` | Provenance in pkb_add_claim, 2 new tools |
+
+### Test Coverage
+
+| Test file | Tests | Coverage |
+|-----------|-------|----------|
+| `test_pkb_autonomy_policy.py` | 42 | derive_policy exhaustive (all detents, overrides, edge cases) |
+| `test_pkb_routing.py` | 21 | All routing gates, source guard, policy interaction |
+| `test_pkb_user_settings.py` | 15 | Settings CRUD + for_user policy resolution |
+| `test_pkb_activity_log.py` | 11 | log/undo/get_recent + 24h window |
+| `test_pkb_stm_silent.py` | 8 | STM precedent verification + _compute_confidence |
+
+---
+
 **End of Implementation Deep Dive**

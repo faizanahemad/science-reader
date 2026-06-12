@@ -1599,6 +1599,84 @@ python -m truth_management_system.migrate_user_details --user alice@example.com
 
 ---
 
+### 16. `autonomy.py` — Memory Autonomy Dial
+
+Pure function module that converts a 0–100 autonomy integer into a per-facet policy dict.
+
+**Key exports:**
+- `derive_policy(autonomy: int, overrides: dict = None) -> dict` — maps autonomy level to a 5-detent band (Manual/Assisted/Balanced/Proactive/Full), then looks up per-facet thresholds from `_BAND_TABLE`.
+- `_BAND_TABLE` — 14 policy keys across 4 facets (capture, curation, lifecycle, enrichment).
+- `_DETENT_BOUNDS` — `[(0,12), (13,37), (38,62), (63,87), (88,100)]`.
+
+**Design:** Pure function — no DB, no I/O. GA default = 50 (Balanced); dev default = 0 (Manual/inert).
+
+**Files:** `truth_management_system/autonomy.py`, `tests/test_pkb_autonomy_policy.py` (42 tests)
+
+---
+
+### 17. `routing.py` — Tiered Persistence Routing
+
+Pure function that routes a candidate claim to SAVE/CONFIRM/SKIP.
+
+**Key exports:**
+- `route_candidate(candidate, policy, match_result) -> RouteResult` — decision tree, first-match-wins.
+- `RouteResult(route, reason, gate)` — auditable outcome.
+
+**Decision tree (first match wins):**
+1. **Hard escalations → CONFIRM:** conflict, inferred (unless Full), sensitive domain (unless Full), high-stakes types
+2. **Silent skip → SKIP:** exact duplicate (≥0.92), confidence < 0.45
+3. **Auto-save → SAVE:** confidence ≥ policy threshold, stated/extracted, safe type, no conflict
+4. **Fallback → CONFIRM**
+
+**Source guard:** Conflicts always CONFIRM regardless of policy level (hard safety floor).
+
+**Files:** `truth_management_system/routing.py`, `tests/test_pkb_routing.py` (21 tests)
+
+---
+
+### 18. Schema v13 — User Settings + Activity Log
+
+**`pkb_user_settings`** — per-user autonomy config (email PK, settings_json, timestamps).
+
+**`pkb_activity_log`** — auditable record of auto-saves for undo:
+- `activity_id` (UUID), `user_email`, `action`, `facet`, `object_type`, `object_id`, `source`, `undo_data_json`, `undone_at`, `expires_at`, `created_at`
+- 24h tombstone window for undo.
+
+**StructuredAPI methods:** `get_user_settings`/`set_user_settings`, `log_activity`, `undo_activity`, `get_recent_activity`.
+
+**Files:** `truth_management_system/schema.py` (v13), `database.py`, `structured_api.py`, `tests/test_pkb_user_settings.py` (15 tests), `tests/test_pkb_activity_log.py` (11 tests)
+
+---
+
+### 19. Tiered Persistence Wiring (behind `tiered_persistence_enabled=False`)
+
+**What it does (when enabled):** After `_propose_actions()` builds candidates, each is routed via `route_candidate`. SAVE items auto-execute immediately and record an activity log entry; SKIP items are logged and discarded; CONFIRM items stay in `proposed_actions` for the existing modal flow.
+
+**Config:** `PKBConfig.tiered_persistence_enabled: bool = False` — master switch. When off (default), behavior is identical to before.
+
+**Wiring points:**
+- `conversation_distillation.py` — `extract_and_propose()` routing block
+- `text_ingestion.py` — `ingest_and_propose()` routing block
+- Both include try/except → fallback to CONFIRM on error
+
+**REST surface (4 new endpoints):**
+- `GET /pkb/memory/policy` — user's autonomy level + effective policy
+- `PUT /pkb/memory/policy` — update autonomy + overrides
+- `POST /pkb/memory/undo` — undo auto-saved claims by activity_id
+- `GET /pkb/memory/recent_auto` — list recent auto-saves for review
+
+**MCP surface (2 new tools):**
+- `pkb_get_policy` — read autonomy + policy
+- `pkb_undo_auto_saves` — undo by activity_ids
+
+**Provenance:** All MCP writes now tagged `channel="mcp"`, `derivation="inferred"` by default (ProvenanceChannel.MCP enum added).
+
+**Confidence calibration:** Extraction prompts request 4-aspect integer scores (1–10): explicitness, stability, clarity, usefulness. Parser computes `confidence = mean(aspects)/10` with backward-compatible float fallback. `CandidateClaim.confidence_aspects` stores raw scores for audit.
+
+**Files modified:** `conversation_distillation.py`, `text_ingestion.py`, `config.py`, `constants.py`, `endpoints/pkb.py`, `mcp_server/pkb.py`
+
+---
+
 ## Data Flow Summary
 
 | Flow | Steps |

@@ -535,6 +535,8 @@ See [PKB_V05_ENHANCEMENT_PLAN.md](./PKB_V05_ENHANCEMENT_PLAN.md) for v0.5+ desig
 - **[pkb_nl_tool_ui_enhancements.plan.md](../../planning/plans/pkb_nl_tool_ui_enhancements.plan.md)** — NL tool and UI enhancements plan.
 - **[pkb_external_access_ui_mcp_rest_auth.plan.md](../../planning/plans/pkb_external_access_ui_mcp_rest_auth.plan.md)** — External access via MCP, REST, and auth design.
 - **[short_term_memory_and_compaction.plan.md](../../planning/plans/short_term_memory_and_compaction.plan.md)** — Short-term cross-conversation memory & compaction (schema v12). Implemented: ephemeral memory table, dual-output extraction, auto-injection, reinforcement, promotion, compaction. See also: **[short_term_memory.md](./short_term_memory.md)**.
+- **[pkb_memory_autonomy_dial.plan.md](../../planning/plans/pkb_memory_autonomy_dial.plan.md)** — Memory Autonomy Dial: umbrella plan for the 0–100 user-controlled autonomy slider. Covers the Capture, Curation, Lifecycle, and Enrichment facets. Phase A (foundation) implemented: per-user settings table, derive_policy pure function, for_user resolution, activity log + undo. Schema v13.
+- **[pkb_tiered_memory_persistence.plan.md](../../planning/plans/pkb_tiered_memory_persistence.plan.md)** — Tiered Memory Persistence (Capture facet): detailed design for route_candidate decision tree, confidence calibration (multi-aspect 1–10), REST/MCP endpoints, eval gate. Implemented inert behind `tiered_persistence_enabled=False`.
 
 ---
 
@@ -566,4 +568,4 @@ logging.getLogger("truth_management_system").setLevel(logging.DEBUG)
 
 ---
 
-**Last Updated:** 2026-06-09
+**Last Updated:** 2026-06-12

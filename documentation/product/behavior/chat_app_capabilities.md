@@ -780,6 +780,36 @@ The backend resolver (`resolve_reference()`) uses suffix-based routing for fast 
 **Differentiator**
 - This is a major capability gap vs "plain ChatGPT chat": it supports an internal, queryable memory store with explicit attachment, pinning, context grouping, entity and tag linking, domain namespacing, inline `@` references with type-aware autocomplete across all object types, recursive resolution (contexts and tags), QnA-style retrieval, NL-based CRUD operations via `/pkb` slash commands, auto-expiry for time-bound claims, and interactive memory proposals.
 
+#### Memory Autonomy Dial & Tiered Persistence (inert, behind flag)
+
+**What it does**
+- A 0–100 autonomy slider that controls how much the memory system does silently vs. asking the user. At 0 (Manual), every extracted fact requires confirmation via the existing modal. At 100 (Full), safe high-confidence facts auto-save silently with one-click undo.
+- Tiered routing: each extracted candidate is routed through a decision tree (conflict? → confirm; inferred? → confirm; sensitive domain? → confirm; duplicate? → skip; high-confidence stated fact? → auto-save; else → confirm).
+- All auto-saves are logged, reversible within 24h, and visible in a "Recently auto-saved" review surface.
+
+**Status:** Code complete, inert behind `tiered_persistence_enabled=False` and `default_autonomy=0`. Activation requires eval-gate (wrong-auto-save rate < 3%).
+
+**User-facing surfaces (when activated):**
+- Toast notification when memories are auto-saved (with undo link)
+- "Recently auto-saved" review list in PKB modal
+- Autonomy dial/slider in settings (presets: Conservative/Balanced/Proactive, or manual 0–100)
+- Per-item and bulk undo for auto-saved memories
+
+**API surface:**
+- `GET /pkb/memory/policy` — read current policy
+- `PUT /pkb/memory/policy` — update autonomy level
+- `POST /pkb/memory/undo` — undo auto-saves by activity_id
+- `GET /pkb/memory/recent_auto` — review list
+- MCP tools: `pkb_get_policy`, `pkb_undo_auto_saves`
+
+**MCP provenance:** External agent writes are tagged `channel="mcp"`, `derivation="inferred"` by default. Agents default to accept-all (autonomy 100) — safety comes from mandatory provenance + 24h reversibility, not from blocking.
+
+**Confidence calibration:** Extraction prompts score 4 aspects (explicitness, stability, clarity, usefulness) on a 1–10 anchored rubric; final confidence = mean/10.
+
+**Key files:** `truth_management_system/autonomy.py`, `routing.py`, `config.py` (tiered_persistence_enabled), `schema.py` (v13), `endpoints/pkb.py` (4 endpoints), `mcp_server/pkb.py` (2 tools)
+
+**Differentiator addendum:** No comparable chat system offers a user-tunable autonomy dial that smoothly transitions between full-manual and full-automatic memory with per-signal routing, auditable decisions, and reversible auto-saves.
+
 ---
 
 ### 6b) Cross-Conversation Message References
