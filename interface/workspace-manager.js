@@ -253,11 +253,30 @@ var WorkspaceManager = {
 
         combined.done(function (workspacesData, conversationsData) {
             var workspaces = workspacesData[0];
-            // Backend now returns {conversations: [...], deleted_temporary_ids: [...]}
+            // Backend now returns {conversations: [...], deleted_temporary_ids: [...], auto_archived_ids: [...]}
             var rawConvResponse = conversationsData[0];
             var conversations = Array.isArray(rawConvResponse) ? rawConvResponse : (rawConvResponse.conversations || []);
             var deletedTemporaryIds = (!Array.isArray(rawConvResponse) && rawConvResponse.deleted_temporary_ids) ? rawConvResponse.deleted_temporary_ids : [];
+            var autoArchivedIds = (!Array.isArray(rawConvResponse) && rawConvResponse.auto_archived_ids) ? rawConvResponse.auto_archived_ids : [];
             WorkspaceManager._processAndRenderData(workspaces, conversations);
+
+            // Show toast for auto-archived conversations
+            if (autoArchivedIds.length > 0 && typeof showToast === 'function') {
+                var msg = autoArchivedIds.length + ' conversation' + (autoArchivedIds.length > 1 ? 's' : '') + ' auto-archived';
+                showToast(msg + ' <button class="btn btn-sm btn-outline-light ml-2" id="undo-auto-archive">Undo</button>', 'info', 8000);
+                $(document).off('click', '#undo-auto-archive').on('click', '#undo-auto-archive', function () {
+                    var remaining = autoArchivedIds.length;
+                    autoArchivedIds.forEach(function (id) {
+                        $.post('/archive_conversation/' + id, function () {
+                            remaining--;
+                            if (remaining <= 0) {
+                                WorkspaceManager.loadConversationsWithWorkspaces(false);
+                                showToast('Auto-archive undone', 'success');
+                            }
+                        });
+                    });
+                });
+            }
 
             // Proactively clear localStorage if the stored conversation was deleted
             if (deletedTemporaryIds.length > 0) {
@@ -593,29 +612,41 @@ var WorkspaceManager = {
         if (!this._showArchived) { section.hide(); return; }
 
         var archived = this.conversations.filter(function (c) { return c.archived; });
+        var autoArchived = archived.filter(function (c) { return c.archive_source === 'auto'; });
+        var manualArchived = archived.filter(function (c) { return c.archive_source !== 'auto'; });
         $('#archived-count-badge').text(archived.length || '');
         if (archived.length === 0) { section.hide(); return; }
 
         section.show();
-        archived.forEach(function (conv) {
-            var item = $('<div class="recent-conversation-item archived-item"></div>')
-                .attr('data-conversation-id', conv.conversation_id)
-                .text(conv.title || 'Untitled')
-                .on('click', function () {
-                    ConversationManager.setActiveConversation(conv.conversation_id);
-                    self.highlightActiveConversation(conv.conversation_id);
-                })
-                .on('contextmenu', function (e) {
-                    e.preventDefault();
-                    var fakeNode = { id: 'cv_' + conv.conversation_id, li_attr: { 'data-conversation-friendly-id': conv.conversation_friendly_id || '' }, original: { archived: true } };
-                    var items = self.buildConversationContextMenu(fakeNode);
-                    self._showContextMenuAtPosition(e, items);
-                });
-            if (conv.flag && conv.flag !== 'none') {
-                item.css('border-left', '3px solid ' + conv.flag);
+
+        function renderArchiveGroup(items, label) {
+            if (items.length === 0) return;
+            if (autoArchived.length > 0 && manualArchived.length > 0) {
+                container.append($('<div class="archive-sub-header"></div>').text(label + ' (' + items.length + ')'));
             }
-            container.append(item);
-        });
+            items.forEach(function (conv) {
+                var item = $('<div class="recent-conversation-item archived-item"></div>')
+                    .attr('data-conversation-id', conv.conversation_id)
+                    .text(conv.title || 'Untitled')
+                    .on('click', function () {
+                        ConversationManager.setActiveConversation(conv.conversation_id);
+                        self.highlightActiveConversation(conv.conversation_id);
+                    })
+                    .on('contextmenu', function (e) {
+                        e.preventDefault();
+                        var fakeNode = { id: 'cv_' + conv.conversation_id, li_attr: { 'data-conversation-friendly-id': conv.conversation_friendly_id || '' }, original: { archived: true } };
+                        var items = self.buildConversationContextMenu(fakeNode);
+                        self._showContextMenuAtPosition(e, items);
+                    });
+                if (conv.flag && conv.flag !== 'none') {
+                    item.css('border-left', '3px solid ' + conv.flag);
+                }
+                container.append(item);
+            });
+        }
+
+        renderArchiveGroup(autoArchived, 'Auto-archived');
+        renderArchiveGroup(manualArchived, 'Archived');
     },
 
     renderTimeView: function () {

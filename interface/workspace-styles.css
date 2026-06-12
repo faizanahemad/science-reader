@@ -425,6 +425,13 @@
     opacity: 0.6;
     font-style: italic;
 }
+.archive-sub-header {
+    font-size: 0.75rem;
+    color: #888;
+    padding: 4px 8px 2px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
 
 /* Time view groups */
 .time-group-header {
