@@ -33,9 +33,9 @@ class TestSchemaAndMigration(unittest.TestCase):
         row = db.fetchone("SELECT name FROM sqlite_master WHERE type='table' AND name='pkb_overview'")
         self.assertIsNotNone(row, "pkb_overview table should exist in fresh DB")
 
-    def test_schema_version_is_12(self):
+    def test_schema_version_is_14(self):
         from truth_management_system.schema import SCHEMA_VERSION
-        self.assertEqual(SCHEMA_VERSION, 12)
+        self.assertEqual(SCHEMA_VERSION, 14)
 
     def test_audit_log_survives_migration(self):
         """audit_log (v10) must still exist in a v11 DB."""

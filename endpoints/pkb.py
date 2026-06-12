@@ -797,7 +797,8 @@ def pkb_consolidation_candidates_route():
         return json_error("User not logged in", status=401, code="unauthorized")
 
     try:
-        api = get_pkb_api_for_user(email)
+        keys = keyParser(session)
+        api = get_pkb_api_for_user(email, keys)
         if api is None:
             return json_error(
                 "Failed to initialize PKB", status=500, code="pkb_init_failed"
@@ -841,7 +842,8 @@ def pkb_consolidation_merge_route():
                 status=400, code="bad_request",
             )
 
-        api = get_pkb_api_for_user(email)
+        keys = keyParser(session)
+        api = get_pkb_api_for_user(email, keys)
         if api is None:
             return json_error(
                 "Failed to initialize PKB", status=500, code="pkb_init_failed"
@@ -874,7 +876,8 @@ def pkb_entity_duplicates_route():
         return json_error("User not logged in", status=401, code="unauthorized")
 
     try:
-        api = get_pkb_api_for_user(email)
+        keys = keyParser(session)
+        api = get_pkb_api_for_user(email, keys)
         if api is None:
             return json_error(
                 "Failed to initialize PKB", status=500, code="pkb_init_failed"
@@ -951,7 +954,8 @@ def pkb_tag_duplicates_route():
         return json_error("User not logged in", status=401, code="unauthorized")
 
     try:
-        api = get_pkb_api_for_user(email)
+        keys = keyParser(session)
+        api = get_pkb_api_for_user(email, keys)
         if api is None:
             return json_error(
                 "Failed to initialize PKB", status=500, code="pkb_init_failed"
@@ -1359,13 +1363,13 @@ def pkb_nl_command_route():
         from truth_management_system.interface.nl_agent import PKBNLAgent
         from endpoints.utils import keyParser
 
-        api = get_pkb_api_for_user(email)
+        keys = keyParser(session)
+        api = get_pkb_api_for_user(email, keys)
         if api is None:
             return json_error(
                 "Failed to initialize PKB", status=500, code="pkb_init_failed"
             )
 
-        keys = keyParser({})
         db, config = get_pkb_db()
         overview_manager = PKBOverviewManager(db, keys, config)
         agent = PKBNLAgent(api=api, keys=keys, model=model, overview_manager=overview_manager)
@@ -3805,7 +3809,8 @@ def pkb_stm_promote(memory_id):
         return json_error("User not logged in", status=401, code="unauthorized")
 
     try:
-        api = get_pkb_api_for_user(email)
+        keys = keyParser(session)
+        api = get_pkb_api_for_user(email, keys)
         if api is None:
             return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
 
@@ -4406,7 +4411,8 @@ def pkb_notifications_action(notification_id):
         action = data.get("action")
         if not action:
             return json_error("Missing 'action' field", status=400, code="bad_request")
-        api = get_pkb_api_for_user(email)
+        keys = keyParser(session)
+        api = get_pkb_api_for_user(email, keys)
         if api is None:
             return json_error("PKB not available", status=503, code="pkb_unavailable")
         result = api.resolve_notification(notification_id, action)
@@ -4432,7 +4438,8 @@ def pkb_notifications_bulk_action():
         action = data.get("action")
         if not ids or not action:
             return json_error("Missing 'ids' or 'action'", status=400, code="bad_request")
-        api = get_pkb_api_for_user(email)
+        keys = keyParser(session)
+        api = get_pkb_api_for_user(email, keys)
         if api is None:
             return json_error("PKB not available", status=503, code="pkb_unavailable")
         result = api.bulk_resolve(ids, action)
