@@ -32,10 +32,11 @@ These build on the existing infrastructure: conversation metadata, workspace-man
 - R2: The `/list_conversation_by_user/<domain>` endpoint excludes archived conversations unless `?include_archived=true` query param is passed.
 - R3: The sidebar has a toggle (eye icon or similar) that switches between "hide archived" (default) and "show archived" modes.
 - R4: When archived conversations are visible, they render with a dimmed/italic style to distinguish from active ones.
-- R5: The conversation context menu shows "Archive" for active conversations and "Unarchive" for archived ones.
+- R5: The conversation context menu shows "Archive" for active conversations. "Unarchive" is only shown when the "Show Archived" toggle is active.
 - R6: Archived conversations are excluded from Recent and Pinned sections.
 - R7: Archived conversations are still searchable via cross-conversation search (search doesn't filter by archive state).
 - R8: The archive toggle state is persisted in `localStorage` (per user+domain).
+- R9: When "Show Archived" is active, archived conversations appear in a separate "Archived" group at the bottom of the sidebar (not inline in their original workspace folder). This group is collapsible.
 
 ### Backend Changes
 
@@ -148,12 +149,14 @@ Add archive toggle button in sidebar toolbar (near the search button):
   - **This Quarter** — `last_updated` within last 90 days (excluding this month)
   - **Older** — everything else
 - R4: Each time group is a collapsible section (chevron toggle, same pattern as Recent).
-- R5: Conversations within each group are sorted by `last_updated` DESC.
+- R5: Conversations within each group are sorted by `last_updated` DESC, with flagged conversations floating to the top of each group.
 - R6: Each conversation item uses the same rendering as Recent items (title, flag color border, click to open, right-click context menu).
 - R7: Recent and Pinned sections remain visible above the time groups (they're independent of the view toggle).
 - R8: The view toggle state is persisted in `localStorage` (per user+domain).
 - R9: When archived conversations are hidden, they're also excluded from Time View.
 - R10: No backend changes required — uses same data from `/list_conversation_by_user`.
+- R11: Active conversation is highlighted in Time View (same as workspace view).
+- R12: Switching from Time View back to Workspace View auto-expands and highlights the active conversation's workspace folder.
 
 ### Frontend Changes
 
@@ -262,14 +265,15 @@ renderTimeView: function () {
 
 ### Requirements
 
-- R1: Users can star/unstar individual messages within a conversation.
+- R1: Users can star/unstar individual **assistant** messages within a conversation.
 - R2: Starred messages are persisted in a new DB table.
-- R3: A "Pinned Messages" button in the conversation toolbar opens a panel/modal listing all starred messages for the current conversation.
-- R4: Starred messages display as rendered chat cards (same as main chat) in the panel, ordered by message position.
-- R5: Each message in the main chat view shows a star icon (☆ unfilled / ★ filled) in its action row.
+- R3: A "Starred Messages" button in the conversation toolbar opens a modal listing all starred messages for the current conversation.
+- R4: Starred messages in the modal show a ~200 char preview with a "Go to message" link (scrolls to it in main chat) and a "View full" button (opens the existing markdown viewer used by "Edit Message").
+- R5: Each assistant message in the main chat view shows a star icon (☆ unfilled / ★ filled) in its action row.
 - R6: Clicking the star toggles pin state via API.
-- R7: The pinned messages panel allows unstarring (star icon in panel) and clicking a message to scroll to it in the main chat.
-- R8: Max pinned messages per conversation: no hard limit (but UI should handle 20+ gracefully with scroll).
+- R7: The pinned messages modal allows unstarring and navigating to messages.
+- R8: Max pinned messages per conversation: no hard limit (UI scrolls).
+- R9: When a message is edited or regenerated, the pin is kept (message_id stays the same).
 
 ### Backend Changes
 
@@ -339,21 +343,22 @@ Add modal for pinned messages list:
 #### interface/common.js (or new pinned-messages.js)
 
 1. On conversation load (`setActiveConversation` flow): fetch `GET /get_pinned_messages/<conv_id>`, store IDs in `window.pinnedMessageIds = new Set([...])`
-2. In message rendering (`addMessage` / `renderMessages`): if message_id is in `pinnedMessageIds`, add `.message-pinned` class and fill star icon
-3. Star button click handler:
+2. In message rendering (`addMessage` / `renderMessages`): for **assistant** messages, if message_id is in `pinnedMessageIds`, add `.message-pinned` class and fill star icon
+3. Star button click handler (assistant cards only):
    - Call `POST /pin_message/<conv_id>/<msg_id>`
    - Toggle star fill + update `pinnedMessageIds` set
-4. Toolbar button click: open modal, fetch pinned IDs, render each pinned message as a card with:
-   - Rendered content (markdown)
-   - "Go to message" link (scrolls main chat)
+4. Toolbar button click: open modal, fetch pinned messages, render each as:
+   - ~200 char text preview (stripped markdown)
+   - "Go to message" link (scrolls main chat to that message)
+   - "View full" button (opens existing markdown viewer modal used by Edit Message)
    - Unstar button
 5. Badge count on toolbar button
 
 #### interface/common-chat.js
 
-Add star icon to the message action row (alongside copy, edit, regenerate):
+Add star icon to the **assistant** message action row (alongside copy, edit, regenerate):
 ```javascript
-// In the message card builder, add to action buttons:
+// In the assistant message card builder, add to action buttons:
 var starIcon = isPinned ? 'fa-star' : 'fa-star-o';
 var starBtn = '<button class="btn btn-sm msg-pin-btn" data-message-id="' + msgId + '" title="Star message"><i class="fa ' + starIcon + '"></i></button>';
 ```
@@ -391,11 +396,18 @@ var starBtn = '<button class="btn btn-sm msg-pin-btn" data-message-id="' + msgId
 |----------|--------|-----------|
 | Archive storage | Attribute on Conversation object | Consistent with `flag`, persisted via dill, no migration |
 | Archive API filtering | Query param on existing endpoint | No new list endpoint needed |
+| Archive toggle | Simple toggle, but "Unarchive" only visible when Show Archived is active | Prevents accidental unarchive |
+| Archived display | Separate "Archived" group at bottom (not inline in workspace folders) | Clear visual separation |
 | Time view data source | Same `this.conversations` array | No extra API call, already sorted |
 | Time view categories | 5 buckets (Today/Week/Month/Quarter/Older) | Covers natural lookup patterns |
+| Time view flagged sort | Flagged float to top within each time group | Consistent with workspace behavior |
+| Time view highlight | Active conversation highlighted | Same as workspace view |
+| Time→Workspace switch | Auto-expand and highlight in workspace tree | Consistent with Recent/Pinned behavior |
 | Message pin storage | New SQLite table (not on Conversation object) | Many-to-many, queryable, no pickle bloat |
-| Pinned messages display | Modal (not inline panel) | Avoids layout disruption in main chat area |
-| Star icon location | Message action row | Consistent with existing copy/edit/regen buttons |
+| Message pin on edit/regen | Keep pin on new version | Message ID stays same, pin persists |
+| Pinned messages display | Modal with ~200 char preview + "Go to message" link + full view via markdown viewer | Avoids layout disruption, handles long messages |
+| Pin eligibility | Assistant messages only | Those contain the actual answers |
+| Star icon location | Message action row (assistant cards only) | Consistent with existing copy/edit/regen buttons |
 
 ## Files Modified (estimated)
 
