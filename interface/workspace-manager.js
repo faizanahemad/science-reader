@@ -1261,6 +1261,24 @@ var WorkspaceManager = {
         return result;
     },
 
+    _showContextMenuAtPosition: function (e, items) {
+        var fakeNode = { id: 'temp' };
+        var vakataItems = this._convertToVakataItems(items, fakeNode);
+        $.vakata.context.hide();
+        var sidebar = $('#chat-assistant-sidebar');
+        var sidebarRight = 0;
+        if (sidebar.length) {
+            var sidebarOffset = sidebar.offset();
+            sidebarRight = sidebarOffset.left + sidebar.outerWidth();
+        }
+        var menuX = Math.max(e.pageX, sidebarRight + 2);
+        var menuY = e.pageY;
+        var posEl = $('<span>').css({ position: 'absolute', left: menuX + 'px', top: menuY + 'px', width: '1px', height: '1px' });
+        $('body').append(posEl);
+        $.vakata.context.show(posEl, { x: menuX, y: menuY }, vakataItems);
+        setTimeout(function () { posEl.remove(); }, 200);
+    },
+
     // ---------------------------------------------------------------
     // Context menu items (right-click AND triple-dot)
     // ---------------------------------------------------------------

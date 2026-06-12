@@ -1428,8 +1428,8 @@ def archive_conversation(conversation_id: str):
 
 
 @conversations_bp.route("/pin_message/<conversation_id>/<message_id>", methods=["POST"])
-@require_login
-@conversations_rate_limit
+@limiter.limit("100 per minute")
+@login_required
 def pin_message(conversation_id: str, message_id: str):
     email, _name, _loggedin = get_session_identity()
     state = get_state()
@@ -1453,7 +1453,7 @@ def pin_message(conversation_id: str, message_id: str):
     if conversation:
         for msg in conversation.conversation_history:
             if msg.get("message_id") == message_id:
-                preview = (msg.get("content") or "")[:200]
+                preview = (msg.get("text") or "")[:200]
                 break
 
     db_pin(conversation_id=conversation_id, message_id=message_id, user_email=email, preview=preview, users_dir=state.users_dir)
@@ -1461,8 +1461,8 @@ def pin_message(conversation_id: str, message_id: str):
 
 
 @conversations_bp.route("/get_pinned_messages/<conversation_id>", methods=["GET"])
-@require_login
-@conversations_rate_limit
+@limiter.limit("100 per minute")
+@login_required
 def get_pinned_messages(conversation_id: str):
     email, _name, _loggedin = get_session_identity()
     state = get_state()
