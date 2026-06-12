@@ -158,12 +158,12 @@ def _run_auto_archival(conversations, grace_days: int, users_dir: str) -> list:
             lu = datetime.strptime(last_updated_str, "%Y-%m-%d %H:%M:%S") if last_updated_str else now
         except ValueError:
             lu = now
-        lo = now  # default for None (Q2: treat as opened today)
+        lo = lu  # if last_opened_at unknown, fall back to last_updated
         if last_opened_str:
             try:
                 lo = datetime.strptime(last_opened_str, "%Y-%m-%d %H:%M:%S") if isinstance(last_opened_str, str) else last_opened_str
             except (ValueError, TypeError):
-                lo = now
+                lo = lu
         staleness_clock = max(lu, lo)
         age_days = (now - staleness_clock).days
         if age_days > grace_days / 4:
@@ -1693,12 +1693,12 @@ def auto_archive_all(domain: str):
             lu = datetime.strptime(lu_str, "%Y-%m-%d %H:%M:%S") if lu_str else now
         except ValueError:
             lu = now
-        lo = now if lo_str is None else lu  # conservative
+        lo = lu if lo_str is None else lu  # fall back to last_updated
         if lo_str:
             try:
                 lo = datetime.strptime(lo_str, "%Y-%m-%d %H:%M:%S") if isinstance(lo_str, str) else lo_str
             except (ValueError, TypeError):
-                lo = now
+                lo = lu
         age = (now - max(lu, lo)).days
         if age <= grace_days / 4:
             continue

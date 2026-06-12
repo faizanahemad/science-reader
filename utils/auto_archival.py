@@ -142,9 +142,10 @@ def compute_staleness(
     except ValueError:
         last_updated = now
 
-    # Q2: if last_opened_at is None, treat as "opened today"
+    # If last_opened_at is None (pre-existing conversation, never tracked),
+    # fall back to last_updated as best estimate of last activity
     if last_opened_str is None:
-        last_opened = now
+        last_opened = last_updated
     else:
         try:
             last_opened = datetime.strptime(last_opened_str, "%Y-%m-%d %H:%M:%S") if isinstance(last_opened_str, str) else last_opened_str
