@@ -422,7 +422,7 @@ var WorkspaceManager = {
         container.empty();
 
         var candidates = this.conversations.filter(function (c) {
-            return !c.archived && (c.access_count_7d || 0) > 0;
+            return !c.archived && (c.access_count_7d || 0) >= 2;
         });
         candidates.sort(function (a, b) { return (b.access_count_7d || 0) - (a.access_count_7d || 0); });
         var top = candidates.slice(0, this._mostAccessedQuota);
