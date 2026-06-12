@@ -2,7 +2,7 @@
 
 **Status:** Draft (revised)
 **Created:** 2026-06-09
-**Revised:** 2026-06-10; 2026-06-11 (sync with landed `backfill_entities` REST route + DB concurrency fix — see §1, §9, §12); 2026-06-12 (**major re-scope** — PKB is now to become a standalone, separately-hostable system; added Workstream 0 extraction + explicit independence goals — see §0, §2, §3.0, §8)
+**Revised:** 2026-06-10; 2026-06-11 (sync with landed `backfill_entities` REST route + DB concurrency fix — see §1, §9, §12); 2026-06-12 (**major re-scope** — PKB is now to become a standalone, separately-hostable system; added Workstream 0 extraction + explicit independence goals — see §0, §2, §3.0, §8); 2026-06-12b (sync surface counts, keyParser bug fix, maintenance UX overhaul, LLM smart consolidation, schema v14 — see §1, §9, §12)
 **Scope:** Turn the PKB/TMS into an **independent, separately-hostable system** that runs in three modes — (a) an importable Python **library**, (b) a self-contained **HTTP server with its own bundled UI**, and (c) a standalone **MCP server** — usable by *any* assistant or coding service (Claude Code, OpenCode, Cursor, scripts), **while preserving the existing in-chat-app integration unchanged**. This subsumes the original narrower scope (a `/memory/` page, external MCP, token REST API, dual-auth, agent recipes), which now becomes the set of *surfaces built inside the extracted package* rather than inside the chat app.
 
 Internal memory-system improvements are covered separately in `pkb_memory_system_improvements.plan.md`, `pkb_ux_improvements.plan.md`, `pkb_retrieval_ranking.plan.md`, and `pkb_rewrite_entity_unification.plan.md` (the latter added the `backfill_entities` maintenance op now exposed over REST — see §1).
@@ -51,11 +51,11 @@ The dependency direction today is **favorable but not yet inverted**. Verified b
 
 | Surface | Count | Auth |
 |---------|-------|------|
-| REST endpoints | 83 | Session only (`@login_required`) |
-| MCP tools | 27 (19 baseline + 8 full) | JWT header, but `user_email` is client-supplied |
+| REST endpoints | 94 | Session only (`@login_required`) |
+| MCP tools | 32 (22 baseline + 10 full) | JWT header, email from JWT (T2.1 landed) |
 | LLM tools (in-chat) | 26 | Implicit (session user) |
 | NL agent actions | 14 | Implicit (session user) |
-| structured_api methods | 82 | Called server-side with known email |
+| structured_api methods | 103 | Called server-side with known email |
 | UI tabs | 9 | Session |
 
 ### Key code references
@@ -132,7 +132,7 @@ chat app (host)             imports the package; mounts its blueprint; injects c
 | C3 | `common.time_logger` | `time_logger` | 5 | **Already guarded** (`try/except ImportError → time_logger = logger`) | Inject a logger object |
 
 **Already clean — no work required (confirmed):**
-- **API keys:** injected as a `keys` dict param — `StructuredAPI(db, keys, config)` → `self.keys` → `call_llm(self.keys, model, prompt, …)`; `call_llm` reads only `keys["OPENROUTER_API_KEY"]`. No chat-app global. Standalone builds the same dict from env.
+- **API keys:** injected as a `keys` dict param — `StructuredAPI(db, keys, config)` → `self.keys` → `call_llm(self.keys, model, prompt, …)`; `call_llm` reads only `keys["OPENROUTER_API_KEY"]`. No chat-app global. Standalone builds the same dict from env. **Note (2026-06-12):** A bug was found where 14 REST endpoints in `endpoints/pkb.py` failed to call `keyParser(session)` before constructing the API — causing embedding store and LLM operations to fail silently. All 94 endpoints are now fixed. The extraction must ensure the standalone HTTP layer replicates this key-passing pattern (env-var fallback → per-request session override).
 - **Prompts:** fully self-contained inside TMS modules — zero imports from a main-repo prompts module.
 - **Other chat-app modules:** none imported by the core.
 
@@ -285,6 +285,7 @@ For CSS/JS isolation, the in-chat modal *may* iframe `/memory/` (same-origin, se
 - The `pkb-manager.js` refactor (T1.1) must not regress the in-chat modal. Gate all modal calls with `if (isModal)`.
 - Audit `common.js` dependencies used by PKBManager — may need to extract a standalone utility bundle.
 - The 9-tab template is ~300 lines of HTML — embedding as a JS template string is feasible but consider a `<template id="pkb-template">` approach for maintainability.
+- **(2026-06-12):** The Maintenance tab is now significantly more complex than originally scoped — it has per-item checkboxes, selective apply with multiple endpoint calls (consolidation/merge, bulk_action, entities/merge, tags/merge), health dashboard, fading memories with reinforce, recently archived with restore, and LLM-assisted smart consolidation. The full-page layout will benefit this tab the most. See `pkb_maintenance_ux_polish.plan.md` for remaining UX gaps.
 
 ---
 
@@ -552,7 +553,7 @@ Cross-link from: `documentation/README.md`, `documentation/product/ops/mcp_serve
 
 ## 9. Risks & Cross-Cutting Concerns
 
-- **Extraction regressions (WS0, highest risk):** Moving auth/http/mcp/ui and inverting the LLM dependency touches a lot of surface. Mitigation: do T0.1 (provider injection) first and prove the **full TMS suite (302+) is green with the codecommon provider injected before moving any file**; after each subsequent move, boot the chat app and confirm `/pkb/*`, the in-chat modal, and MCP tools are unchanged. Keep `mcp_server/auth.py`, `mcp_server/pkb.py`, and `endpoints/pkb.py` as thin back-compat shims so existing imports/URLs don't break (G0d).
+- **Extraction regressions (WS0, highest risk):** Moving auth/http/mcp/ui and inverting the LLM dependency touches a lot of surface. Mitigation: do T0.1 (provider injection) first and prove the **full TMS suite (302+) is green with the codecommon provider injected before moving any file**; after each subsequent move, boot the chat app and confirm `/pkb/*`, the in-chat modal, and MCP tools are unchanged. Keep `mcp_server/auth.py`, `mcp_server/pkb.py`, and `endpoints/pkb.py` as thin back-compat shims so existing imports/URLs don't break (G0d). Note: schema is now v14; the `keyParser` pattern (function, not object) must be preserved or replaced with the provider's key-passing interface during extraction.
 - **Incomplete dependency inversion (T0.1):** Missing even one `code_common.call_llm`, `common` model-list, or `common.time_logger` site leaves the core coupled and breaks standalone mode. Mitigation: the T0.1 source-guard test asserts that `grep -rE "from (code_common|common|loggers|base|server|prompts|endpoints|extensions) " truth_management_system/` (excluding the codecommon provider shim + tests) returns nothing — see the full-decouple checklist in §3.0 T0.1.
 - **Two divergent UI copies:** Vendoring `pkb-manager.js` into the package risks the chat app and package drifting. Mitigation: single source of truth — the package owns `pkb-manager.js`; the chat app references the package copy (symlink/build-copy), per G1b.
 - **Default LLM provider parity:** The standalone `default_provider` must match `code_common.call_llm` behavior (models, embedding dims, retry). Mitigation: keep the chat app on the codecommon provider; treat the default provider as best-effort and document supported models. Embedding-dimension mismatch would corrupt vector search — pin the embedding model in `PKBConfig`.
@@ -629,10 +630,12 @@ Cross-link from: `documentation/README.md`, `documentation/product/ops/mcp_serve
 
 | Decision | Resolution |
 |----------|-----------|
-| 8 vs 15 MCP tools | Now 27 tools (19 baseline + 8 full) post v1.0 |
+| 8 vs 15 MCP tools | Now 32 tools (22 baseline + 10 full) post v1.0 + notifications |
 | 7-tab modal | Now 9 tabs (added Overview + Maintenance in v1.0) |
 | JWT vs opaque API keys | JWT — reuses existing `mcp_server/auth.py` infrastructure |
 | Iframe vs shared template for standalone UI | Shared template first; iframe only if CSS conflicts arise |
 | Route conflict: `/pkb/claims/bulk` | Resolved — new bulk action uses `/pkb/claims/bulk_action` |
-| REST surface count | Now 83 routes (added `POST /pkb/backfill_entities`, the rewrite/entity unification maintenance op; `dry_run` defaults True, needs `OPENROUTER_API_KEY`) — map it to the `admin` scope in T3.3 |
+| REST surface count | Now 94 routes (added notifications, cleanup, fading, archived, health, consolidation, smart-consolidate, restore, reinforce, backfill_entities) — maintenance ops map to `admin` scope in T3.3 |
 | Concurrent external access vs single SQLite connection | Resolved — `PKBDatabase` guards its shared connection with a `threading.RLock` (commit `0fdaa15`), so parallel MCP/REST/UI callers are thread-safe; removes a blocker for external exposure |
+| keyParser pattern for API keys | Resolved — `keyParser` in `endpoints/utils.py` is a **function** taking `session` dict, returning API keys dict (falls back to env vars). All 94 REST endpoints now correctly call `keyParser(session)` (bug fix 2026-06-12: 14 endpoints were missing keys, causing embedding store / LLM failures) |
+| Maintenance tab UX | Resolved — per-item checkboxes, selective apply, fading/archived always visible, LLM-assisted smart consolidation, status badges. Remaining polish tracked in `pkb_maintenance_ux_polish.plan.md` |
