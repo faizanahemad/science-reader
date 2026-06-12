@@ -285,6 +285,10 @@ class PKBDatabase:
         if from_version < 12 <= to_version:
             self._migrate_v11_to_v12(conn)
 
+        # Migration from v12 to v13: Add pkb_user_settings table (memory autonomy)
+        if from_version < 13 <= to_version:
+            self._migrate_v12_to_v13(conn)
+
     def _migrate_v1_to_v2(self, conn: sqlite3.Connection) -> None:
         """
         Migrate from schema v1 to v2: Add user_email column for multi-user support.
@@ -973,6 +977,19 @@ class PKBDatabase:
             pass  # Column already exists
 
         logger.info("Migration to v12 complete")
+
+    def _migrate_v12_to_v13(self, conn: sqlite3.Connection) -> None:
+        """Migrate from schema v12 to v13: Add pkb_user_settings table."""
+        logger.info("Migrating to v13: Adding pkb_user_settings")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pkb_user_settings (
+                email TEXT PRIMARY KEY,
+                memory_autonomy INTEGER NOT NULL DEFAULT 50,
+                facet_overrides TEXT,
+                updated_at TEXT NOT NULL
+            )
+        """)
+        logger.info("Migration to v13 complete")
 
     def _ensure_catalog_seeded(self, conn: sqlite3.Connection) -> None:
         """

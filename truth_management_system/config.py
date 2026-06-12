@@ -258,6 +258,10 @@ class PKBConfig:
     # Logging
     log_llm_calls: bool = True
     log_search_queries: bool = True
+
+    # Memory autonomy dial (Phase A: default for users without a settings row)
+    # During development this is 0 (inert); GA default is 50 (Balanced).
+    default_autonomy: int = 0
     
     def expand_db_path(self) -> str:
         """
@@ -339,6 +343,7 @@ class PKBConfig:
             'tag_strategy_boost_only': self.tag_strategy_boost_only,
             'log_llm_calls': self.log_llm_calls,
             'log_search_queries': self.log_search_queries,
+            'default_autonomy': self.default_autonomy,
         }
     
     @classmethod
@@ -377,7 +382,8 @@ class PKBConfig:
             'entity_strategy_enabled', 'entity_strategy_top_n', 'entity_strategy_max_entities', 'entity_alias_match',
             'rewrite_is_query_source', 'entity_use_rewrite_entities',
             'tag_strategy_enabled', 'tag_strategy_top_n', 'tag_strategy_max_tags', 'tag_strategy_max_depth', 'tag_use_rewrite_tags', 'tag_strategy_boost_only',
-            'log_llm_calls', 'log_search_queries'
+            'log_llm_calls', 'log_search_queries',
+            'default_autonomy'
         }
         filtered = {k: v for k, v in data.items() if k in valid_keys}
         return cls(**filtered)

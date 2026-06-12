@@ -389,6 +389,65 @@ class StructuredAPI:
         )
 
     # =========================================================================
+    # User Settings API (memory autonomy dial)
+    # =========================================================================
+
+    def get_user_settings(self, email: str = None) -> Dict:
+        """Get per-user memory autonomy settings.
+
+        Returns dict with memory_autonomy (int 0-100), facet_overrides (dict or None),
+        updated_at. If no row exists, returns defaults (autonomy from config).
+        """
+        email = email or self.user_email
+        if not email:
+            return {"memory_autonomy": getattr(self.config, "default_autonomy", 50),
+                    "facet_overrides": None, "updated_at": None}
+        conn = self.db.connect()
+        row = conn.execute(
+            "SELECT memory_autonomy, facet_overrides, updated_at FROM pkb_user_settings WHERE email = ?",
+            (email,)
+        ).fetchone()
+        if row is None:
+            return {"memory_autonomy": getattr(self.config, "default_autonomy", 50),
+                    "facet_overrides": None, "updated_at": None}
+        import json as _json
+        overrides = _json.loads(row[1]) if row[1] else None
+        return {"memory_autonomy": row[0], "facet_overrides": overrides, "updated_at": row[2]}
+
+    def set_user_settings(self, memory_autonomy: int, facet_overrides: Dict = None,
+                          email: str = None) -> Dict:
+        """Set per-user memory autonomy settings (upsert).
+
+        Args:
+            memory_autonomy: Integer 0-100 (clamped).
+            facet_overrides: Optional dict of per-facet overrides.
+            email: User email (defaults to self.user_email).
+
+        Returns:
+            The saved settings dict.
+        """
+        import json as _json
+        email = email or self.user_email
+        if not email:
+            raise ValueError("email required to set user settings")
+        memory_autonomy = max(0, min(100, int(memory_autonomy)))
+        overrides_json = _json.dumps(facet_overrides) if facet_overrides else None
+        from ..utils import now_iso
+        now = now_iso()
+        conn = self.db.connect()
+        conn.execute(
+            """INSERT INTO pkb_user_settings (email, memory_autonomy, facet_overrides, updated_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(email) DO UPDATE SET
+                   memory_autonomy = excluded.memory_autonomy,
+                   facet_overrides = excluded.facet_overrides,
+                   updated_at = excluded.updated_at""",
+            (email, memory_autonomy, overrides_json, now)
+        )
+        conn.commit()
+        return {"memory_autonomy": memory_autonomy, "facet_overrides": facet_overrides, "updated_at": now}
+
+    # =========================================================================
     # Claims API
     # =========================================================================
 

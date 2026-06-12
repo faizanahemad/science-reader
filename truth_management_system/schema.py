@@ -22,7 +22,8 @@ All tables use:
 """
 
 SCHEMA_VERSION = (
-    12  # v12: Added pkb_short_term_memory table + last_accessed_at on claims
+    13  # v13: Added pkb_user_settings table (memory autonomy dial per-user)
+    # 12: Added pkb_short_term_memory table + last_accessed_at on claims
     # 11: Added pkb_overview table (PKB Memory Overview feature)
     # 10: Added audit_log table (Workstream G3: append-only audit log + export/import)
     # 9: Added claim_links table (Workstream D1: supersession & typed claim-claim links)
@@ -307,6 +308,13 @@ CREATE TABLE IF NOT EXISTS claim_feedback (
     created_at TEXT NOT NULL,
     FOREIGN KEY (claim_id) REFERENCES claims(claim_id)
 );
+
+CREATE TABLE IF NOT EXISTS pkb_user_settings (
+    email TEXT PRIMARY KEY,
+    memory_autonomy INTEGER NOT NULL DEFAULT 50,
+    facet_overrides TEXT,
+    updated_at TEXT NOT NULL
+);
 """
 
 
@@ -495,6 +503,7 @@ def get_tables_list() -> list:
         "audit_log",
         "pkb_overview",
         "pkb_short_term_memory",
+        "pkb_user_settings",
         "schema_version",
     ]
 
