@@ -572,18 +572,32 @@ class StructuredAPI:
 
         return {"restored": "unknown_action"}
 
-    def get_recent_activity(self, limit: int = 50) -> list:
-        """Get recent activity log entries for the current user."""
+    def get_recent_activity(self, limit: int = 50, action_type: str = None) -> list:
+        """Get recent activity log entries for the current user.
+
+        Args:
+            limit: Max entries to return.
+            action_type: Optional filter (e.g. 'auto_save').
+        """
         import json as _json
         email = self.user_email or "__system__"
         conn = self.db.connect()
-        rows = conn.execute(
-            """SELECT activity_id, action, facet, object_type, object_id, source,
-                      undone_at, expires_at, created_at
-               FROM pkb_activity_log WHERE user_email = ?
-               ORDER BY created_at DESC LIMIT ?""",
-            (email, limit)
-        ).fetchall()
+        if action_type:
+            rows = conn.execute(
+                """SELECT activity_id, action, facet, object_type, object_id, source,
+                          undone_at, expires_at, created_at
+                   FROM pkb_activity_log WHERE user_email = ? AND action = ?
+                   ORDER BY created_at DESC LIMIT ?""",
+                (email, action_type, limit)
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """SELECT activity_id, action, facet, object_type, object_id, source,
+                          undone_at, expires_at, created_at
+                   FROM pkb_activity_log WHERE user_email = ?
+                   ORDER BY created_at DESC LIMIT ?""",
+                (email, limit)
+            ).fetchall()
         return [
             {"activity_id": r[0], "action": r[1], "facet": r[2], "object_type": r[3],
              "object_id": r[4], "source": r[5], "undone_at": r[6], "expires_at": r[7],

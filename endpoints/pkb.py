@@ -4125,3 +4125,141 @@ def pkb_auto_clusters():
     except Exception as e:
         logger.error(f"Error in pkb_auto_clusters: {e}")
         return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+
+
+# ─── Tiered Persistence REST Endpoints (B4) ───────────────────────────────────
+
+@pkb_bp.route("/pkb/memory/policy", methods=["GET"])
+@limiter.limit("30 per minute")
+@login_required
+def pkb_memory_policy_get():
+    """Get current user's autonomy policy (dial level + effective policy)."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error("PKB not available", status=503, code="pkb_unavailable")
+        settings = api.get_user_settings(email)
+        return jsonify({
+            "autonomy": settings.get("autonomy", api.config.default_autonomy),
+            "overrides": settings.get("overrides", {}),
+            "policy": api.policy,
+        })
+    except Exception as e:
+        logger.error(f"Error in pkb_memory_policy_get: {e}")
+        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+
+
+@pkb_bp.route("/pkb/memory/policy", methods=["PUT"])
+@limiter.limit("10 per minute")
+@login_required
+def pkb_memory_policy_put():
+    """Update user's autonomy level and/or per-facet overrides."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        data = request.get_json(force=True)
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+        settings = {}
+        if "autonomy" in data:
+            val = int(data["autonomy"])
+            if not (0 <= val <= 100):
+                return json_error("autonomy must be 0-100", status=400, code="invalid_param")
+            settings["autonomy"] = val
+        if "overrides" in data:
+            settings["overrides"] = data["overrides"]
+
+        result = api.set_user_settings(email, settings)
+        if not result.success:
+            return json_error("; ".join(result.errors), status=500, code="settings_failed")
+
+        # Re-resolve policy after update
+        api_fresh = get_pkb_api_for_user(email)
+        return jsonify({
+            "autonomy": settings.get("autonomy", api.config.default_autonomy),
+            "overrides": settings.get("overrides", {}),
+            "policy": api_fresh.policy if api_fresh else None,
+        })
+    except Exception as e:
+        logger.error(f"Error in pkb_memory_policy_put: {e}")
+        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+
+
+@pkb_bp.route("/pkb/memory/undo", methods=["POST"])
+@limiter.limit("20 per minute")
+@login_required
+def pkb_memory_undo():
+    """Undo auto-saved claims (retract within 24h tombstone window).
+
+    Body: { "activity_ids": ["id1", ...] }
+    """
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        data = request.get_json(force=True)
+        activity_ids = data.get("activity_ids", [])
+        if not activity_ids:
+            return json_error("activity_ids required", status=400, code="invalid_param")
+
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+        results = []
+        for aid in activity_ids:
+            r = api.undo_activity(aid)
+            results.append({"activity_id": aid, "success": r.success, "errors": r.errors})
+
+        return jsonify({"results": results})
+    except Exception as e:
+        logger.error(f"Error in pkb_memory_undo: {e}")
+        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+
+
+@pkb_bp.route("/pkb/memory/recent_auto", methods=["GET"])
+@limiter.limit("30 per minute")
+@login_required
+def pkb_memory_recent_auto():
+    """List recently auto-saved claims (activity log entries with action_type='auto_save').
+
+    Query params: days (default 7), limit (default 50).
+    """
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        days = int(request.args.get("days", 7))
+        limit = int(request.args.get("limit", 50))
+
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+        result = api.get_recent_activity(limit=limit, action_type="auto_save")
+        return jsonify({"recent_auto": result or []})
+    except Exception as e:
+        logger.error(f"Error in pkb_memory_recent_auto: {e}")
+        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
