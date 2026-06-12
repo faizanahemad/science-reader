@@ -2777,8 +2777,10 @@ var ChatManager = {
                 success: function (data) {
                     showToast('Forked conversation', 'success');
                     if (data.conversation_id) {
-                        ConversationManager.setActiveConversation(data.conversation_id);
-                        WorkspaceManager.loadConversationsWithWorkspaces(false);
+                        WorkspaceManager.loadConversationsWithWorkspaces(false).done(function () {
+                            ConversationManager.setActiveConversation(data.conversation_id);
+                            WorkspaceManager.highlightActiveConversation(data.conversation_id);
+                        });
                     }
                 },
                 error: function () { showToast('Fork failed', 'error'); }
