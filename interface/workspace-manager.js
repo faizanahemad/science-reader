@@ -27,6 +27,7 @@ var WorkspaceManager = {
     _showArchived: false,
     _timeViewActive: false,
     _previousConvId: null,  // the conversation user just left (for "back" dot)
+    _currentConvId: null,   // tracks current active conversation internally
 
     get defaultWorkspaceId() {
         var email = (typeof userDetails !== 'undefined' && userDetails.email) ? userDetails.email : 'unknown';
@@ -1719,11 +1720,10 @@ var WorkspaceManager = {
      */
     highlightActiveConversation: function (conversationId, collapseOthers) {
         // Track previous conversation and update "last active" dot
-        var prevId = this._previousConvId;
-        var currentActive = ConversationManager.activeConversationId || null;
-        if (currentActive && String(currentActive) !== String(conversationId)) {
-            this._previousConvId = String(currentActive);
+        if (this._currentConvId && String(this._currentConvId) !== String(conversationId)) {
+            this._previousConvId = String(this._currentConvId);
         }
+        this._currentConvId = String(conversationId);
         // Move the dot: remove old, add to previous conversation
         $('.last-active-dot').remove();
         if (this._previousConvId) {

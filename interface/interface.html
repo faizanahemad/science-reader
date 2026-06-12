@@ -2465,11 +2465,18 @@
                 </div>
                 <div class="modal-body" style="max-height: 88vh; overflow-y: auto;">
                     <div id="settings-content">
+                        <div id="settings-accordion">
 
-                        <!-- Model and Agent Selection Section -->
-                        <div class="row mb-4">
-                            <div class="col-12">
-                                <h6 class="text-primary mb-3"><i class="fa fa-robot"></i> Model & Agent Selection</h6>
+                        <!-- ═══ ACCORDION 1: Frequently Used (open by default) ═══ -->
+                        <div class="settings-accordion-card">
+                            <div class="settings-accordion-header" data-toggle="collapse" data-target="#settings-acc-frequent" aria-expanded="true">
+                                <i class="fa fa-star"></i> Frequently Used
+                                <i class="fa fa-chevron-down settings-acc-chevron"></i>
+                            </div>
+                            <div id="settings-acc-frequent" class="collapse show" data-parent="#settings-accordion">
+                                <div class="settings-accordion-body">
+
+                                <!-- Model & Agent Selection -->
                                 <div class="row">
                                     <div class="col-md-4">
                                         <div class="form-group">
@@ -2479,34 +2486,21 @@
                                                     <optgroup label="Default Prompts" id="default-prompts-group">
                                                         <option>No Links</option>
                                                         <option selected>Wife Prompt</option>
-                                                        <!-- <option>Google GL</option> -->
-                                                        <!-- <option>Google Behavioral Interview</option> -->
-                                                        
                                                         <option>Short</option>
                                                         <option>Deep Learn</option>
                                                         <option>Software and ML Learning</option>
                                                         <option>Senior Engineer Summary</option>
                                                         <option>Senior Engineer Mental Models</option>
-                                                        
-                                                        
                                                         <option>ML Design Answer Short</option>
-                                                        
                                                         <option>Argumentative</option>
-                                                        <!-- <option>Blackmail</option> -->
-                                                        <!-- <option>More Related Coding Questions</option> -->
-                                                        
                                                         <option>Diagram</option>
                                                         <option>Easy Copy</option>
                                                         <option>Creative</option>
-                                                        
                                                         <option hidden>Manager Assist Short</option>
                                                         <option hidden>Manager to Manager Framework</option>
                                                         <option hidden>Short Coding Interview</option>
                                                         <option hidden>No Code</option>
                                                         <option>No AI</option>
-                                                        
-                                                        
-                                                        
                                                         <option>Relationship</option>
                                                         <option>Dating Maverick</option>
                                                         <option hidden>Manager Assist</option>
@@ -2543,7 +2537,6 @@
                                             <div style="border: 1px solid #ccc; padding: 8px; border-radius: 12px;">
                                                 <select class="form-control" id="settings-main-model-selector" multiple>
                                                     <optgroup label="Newer Models">
-                                                        
                                                         <option selected>openai/gpt-5.5</option>
                                                         <option>google/gemini-pro-latest</option>
                                                         <option>anthropic/claude-opus-latest</option>
@@ -2577,7 +2570,7 @@
                                                         <option hidden>x-ai/grok-4</option>
                                                         <option hidden>openai/gpt-5.1-chat</option>
                                                         <option hidden>Qwen3-Coder-Plus</option>
-                                                        <option hidden>openai/chatgpt-4o-latest</option> 
+                                                        <option hidden>openai/chatgpt-4o-latest</option>
                                                         <option hidden>gpt-5</option>
                                                         <option hidden>Sonnet 4</option>
                                                         <option hidden>Gemini-2.5-pro</option>
@@ -2587,7 +2580,6 @@
                                                         <option hidden>o3-deep-research</option>
                                                         <option hidden>x-ai/grok-3-beta</option>
                                                         <option hidden>x-ai/grok-3</option>
-                                                        
                                                         <option>sao10k/l3.3-euryale-70b</option>
                                                         <option hidden>thedrummer/anubis-pro-105b-v1</option>
                                                         <option>nousresearch/hermes-3-llama-3.1-405b</option>
@@ -2595,7 +2587,6 @@
                                                         <option>perplexity/sonar-pro</option>
                                                         <option hidden>perplexity/sonar-deep-research</option>
                                                     </optgroup>
-                                                    
                                                     <optgroup hidden label="Fast Models">
                                                         <option hidden>google/gemini-2.5-flash</option>
                                                         <option hidden>google/gemini-2.5-flash-lite</option>
@@ -2660,78 +2651,109 @@
                                         </div>
                                     </div>
                                 </div>
+                                <!-- History (moved from Advanced) + frequently used toggles -->
+                                <div class="row mt-2">
+                                    <div class="col-md-3 col-6">
+                                        <div class="form-group">
+                                            <label for="settings-historySelector" class="form-label"><strong>History</strong></label>
+                                            <select id="settings-historySelector" class="form-control form-control-sm">
+                                                <option value="-1">∅</option>
+                                                <option value="0">0</option>
+                                                <option value="1">1</option>
+                                                <option value="2">2</option>
+                                                <option value="3">3</option>
+                                                <option value="4">4</option>
+                                                <option value="5">5</option>
+                                                <option value="6">6</option>
+                                                <option value="7">7</option>
+                                                <option value="8">8</option>
+                                                <option value="9">9</option>
+                                                <option value="10">10</option>
+                                                <option value="infinite">∞</option>
+                                                <option value="auto-light">Auto Light</option>
+                                                <option value="auto-medium" selected>Auto Medium</option>
+                                                <option value="auto-deep">Auto Deep</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3 col-6 d-flex align-items-center">
+                                        <div class="form-check">
+                                            <input class="form-check-input" id="settings-use_memory_pad" type="checkbox">
+                                            <label class="form-check-label" for="settings-use_memory_pad">Use Memory Pad</label>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3 col-6 d-flex align-items-center">
+                                        <div class="form-check">
+                                            <input class="form-check-input" id="settings-enable_custom_context_menu" type="checkbox">
+                                            <label class="form-check-label" for="settings-enable_custom_context_menu">LLM Right-Click Menu</label>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3 col-6 d-flex align-items-center">
+                                        <div class="form-check">
+                                            <input class="form-check-input" id="settings-persist_or_not" type="checkbox" checked>
+                                            <label class="form-check-label" for="settings-persist_or_not">Persist</label>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                </div>
                             </div>
                         </div>
 
+                        <!-- ═══ ACCORDION 2: Behavior & Memory ═══ -->
+                        <div class="settings-accordion-card">
+                            <div class="settings-accordion-header" data-toggle="collapse" data-target="#settings-acc-behavior" aria-expanded="false">
+                                <i class="fa fa-sliders-h"></i> Behavior & Memory
+                                <i class="fa fa-chevron-down settings-acc-chevron"></i>
+                            </div>
+                            <div id="settings-acc-behavior" class="collapse" data-parent="#settings-accordion">
+                                <div class="settings-accordion-body">
 
-                        <!-- Basic Options Section -->
-                        <div class="row mb-4">
-                            <div class="col-12">
-                                <h6 class="text-primary mb-3"><i class="fa fa-check-square"></i> Basic Options</h6>
+                                <!-- Hidden legacy checkboxes (preserve IDs) -->
+                                <div style="display:none;">
+                                    <input class="form-check-input" id="settings-perform-web-search-checkbox" type="checkbox">
+                                    <input class="form-check-input" id="settings-search-exact" type="checkbox">
+                                    <input class="form-check-input" id="settings-ppt-answer" type="checkbox">
+                                    <input class="form-check-input" id="settings-render-slides-inline" type="checkbox" checked>
+                                    <input class="form-check-input" id="settings-only-slides" type="checkbox">
+                                    <input class="form-check-input" id="settings-enable_planner" type="checkbox">
+                                    <select id="settings-rewardLevelSelector" class="form-control form-control-sm">
+                                        <option value="-3">-3</option><option value="-2">-2</option><option value="-1">-1</option>
+                                        <option value="0" selected>φ</option><option value="1">1</option><option value="2">2</option><option value="3">3</option>
+                                    </select>
+                                </div>
+
+                                <!-- Toggles row -->
                                 <div class="row">
-                                    <div class="col-md-3" style="display:none;">
-                                        <div class="form-check mb-2">
-                                            <input class="form-check-input" id="settings-perform-web-search-checkbox" type="checkbox">
-                                            <label class="form-check-label" for="settings-perform-web-search-checkbox">Search</label>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-3" style="display:none;">
-                                        <div class="form-check mb-2">
-                                            <input class="form-check-input" id="settings-search-exact" type="checkbox">
-                                            <label class="form-check-label" for="settings-search-exact">Search Exact</label>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-3">
+                                    <div class="col-md-3 col-6">
                                         <div class="form-check mb-2">
                                             <input class="form-check-input" id="settings-auto_clarify" type="checkbox">
                                             <label class="form-check-label" for="settings-auto_clarify">Auto Clarify</label>
                                         </div>
                                     </div>
-                                    <div class="col-md-3">
-                                        <div class="form-check mb-2">
-                                            <input class="form-check-input" id="settings-persist_or_not" type="checkbox" checked>
-                                            <label class="form-check-label" for="settings-persist_or_not">Persist</label>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-3" style="display:none;">
-                                        <div class="form-check mb-2">
-                                            <input class="form-check-input" id="settings-ppt-answer" type="checkbox">
-                                            <label class="form-check-label" for="settings-ppt-answer">PPT Answer</label>
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="row">
-                                    <div class="col-md-3">
-                                        <div class="form-check mb-2">
-                                            <input class="form-check-input" id="settings-use_memory_pad" type="checkbox">
-                                            <label class="form-check-label" for="settings-use_memory_pad">Use Memory Pad</label>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-3">
-                                        <div class="form-check mb-2">
-                                            <input class="form-check-input" id="settings-enable_custom_context_menu" type="checkbox">
-                                            <label class="form-check-label" for="settings-enable_custom_context_menu">LLM Right-Click Menu</label>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-3" style="display:none;">
-                                        <div class="form-check mb-2">
-                                            <input class="form-check-input" id="settings-render-slides-inline" type="checkbox" checked>
-                                            <label class="form-check-label" for="settings-render-slides-inline">Render Slides Inline</label>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-3" style="display:none;">
-                                        <div class="form-check mb-2">
-                                            <input class="form-check-input" id="settings-only-slides" type="checkbox">
-                                            <label class="form-check-label" for="settings-only-slides">Only Slides</label>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-3">
+                                    <div class="col-md-3 col-6">
                                         <div class="form-check mb-2">
                                             <input class="form-check-input" id="settings-render-close-to-source" type="checkbox">
                                             <label class="form-check-label" for="settings-render-close-to-source">Render Close</label>
                                         </div>
                                     </div>
-                                    <div class="col-md-3">
+                                    <div class="col-md-3 col-6">
+                                        <div class="form-check mb-2">
+                                            <input class="form-check-input" id="settings-compact_nav" type="checkbox">
+                                            <label class="form-check-label" for="settings-compact_nav">Compact Nav</label>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-3 col-6">
+                                        <div class="form-check mb-2">
+                                            <input class="form-check-input" id="settings-default_temp_chat" type="checkbox">
+                                            <label class="form-check-label" for="settings-default_temp_chat">Default Temp Chat</label>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- PKB & Memory -->
+                                <div class="row mt-1">
+                                    <div class="col-md-3 col-6">
                                         <div class="form-check mb-2">
                                             <input class="form-check-input" id="settings-use_pkb" type="checkbox" checked>
                                             <label class="form-check-label" for="settings-use_pkb">Use PKB Memory</label>
@@ -2740,7 +2762,7 @@
                                             <input type="text" class="form-control form-control-sm" id="settings-pkb-scope" placeholder="Scope: domain1, domain2..." title="Comma-separated domains to scope retrieval (blank = all)">
                                         </div>
                                     </div>
-                                    <div class="col-md-3">
+                                    <div class="col-md-3 col-6">
                                         <div class="form-group mb-2">
                                             <label class="small mb-1" for="settings-pkb-extraction-mode">Memory extraction</label>
                                             <select class="form-control form-control-sm" id="settings-pkb-extraction-mode">
@@ -2749,13 +2771,13 @@
                                             </select>
                                         </div>
                                     </div>
-                                    <div class="col-md-3">
+                                    <div class="col-md-3 col-6">
                                         <div class="form-check mb-2">
                                             <input class="form-check-input" id="settings-auto_pkb_extract" type="checkbox" checked>
                                             <label class="form-check-label" for="settings-auto_pkb_extract">Auto-save facts</label>
                                         </div>
                                     </div>
-                                    <div class="col-md-3">
+                                    <div class="col-md-3 col-6">
                                         <div class="form-check mb-2">
                                             <input class="form-check-input" id="settings-auto_doubts_enabled" type="checkbox" checked>
                                             <label class="form-check-label" for="settings-auto_doubts_enabled">Auto-doubts</label>
@@ -2768,7 +2790,11 @@
                                             <div class="form-check"><input class="form-check-input auto-doubt-cat-cb" type="checkbox" value="answer_questions" checked><label class="form-check-label">Answer Questions</label></div>
                                         </div>
                                     </div>
-                                    <div class="col-md-3">
+                                </div>
+
+                                <!-- Tools & Advanced -->
+                                <div class="row mt-1">
+                                    <div class="col-md-3 col-6">
                                         <div class="form-check mb-2">
                                             <input class="form-check-input" id="settings-enable_opencode" type="checkbox">
                                             <label class="form-check-label" for="settings-enable_opencode">
@@ -2776,37 +2802,32 @@
                                             </label>
                                         </div>
                                     </div>
-                                    <div class="col-md-3">
-                                        <div class="form-check mb-2" style="display:none;">
-                                            <input class="form-check-input" id="settings-enable_planner" type="checkbox">
-                                            <label class="form-check-label" for="settings-enable_planner">Planner</label>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-3">
+                                    <div class="col-md-3 col-6">
                                         <div class="form-check mb-2">
                                             <input class="form-check-input" id="settings-enable_tool_use" type="checkbox" checked>
                                             <label class="form-check-label" for="settings-enable_tool_use">Enable Tools</label>
                                         </div>
                                     </div>
-                                    <div class="col-md-3">
-                                        <div class="form-check mb-2">
-                                            <input class="form-check-input" id="settings-compact_nav" type="checkbox">
-                                            <label class="form-check-label" for="settings-compact_nav">Compact Nav</label>
+                                    <div class="col-md-3 col-6">
+                                        <div class="form-group">
+                                            <label for="settings-depthSelector" class="form-label"><strong>Depth</strong></label>
+                                            <select id="settings-depthSelector" class="form-control form-control-sm">
+                                                <option value="1">1</option>
+                                                <option value="2" selected>2</option>
+                                                <option value="3">3</option>
+                                                <option value="4">4</option>
+                                            </select>
                                         </div>
                                     </div>
-                                    <div class="col-md-3">
-                                        <div class="form-check mb-2">
-                                            <input class="form-check-input" id="settings-default_temp_chat" type="checkbox">
-                                            <label class="form-check-label" for="settings-default_temp_chat">Default Temp Chat</label>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-3">
-                                        <div class="form-group mb-2">
+                                    <div class="col-md-3 col-6">
+                                        <div class="form-group">
                                             <label class="small mb-1" for="settings-recent-conversations-count">Recent Conversations</label>
                                             <input type="number" class="form-control form-control-sm" id="settings-recent-conversations-count" min="1" max="50" step="1" value="10" title="How many recent conversations to show in the left sidebar">
                                         </div>
                                     </div>
                                 </div>
+
+                                <!-- Tool selector -->
                                 <div id="tool-use-options" class="mt-2">
                                     <label class="small text-muted mb-1 d-block">Select which tools the LLM can use:</label>
                                     <div style="border: 1px solid #ccc; padding: 8px; border-radius: 12px;">
@@ -2954,177 +2975,67 @@
                                     $('<style id="tool-group-header-style">').text(
                                         'li.dropdown-header { cursor: pointer !important; pointer-events: auto !important; user-select: none; }' +
                                         'li.dropdown-header:hover { background-color: #cfe2ff !important; border-radius: 4px; }' +
-                                        'li.dropdown-header span.text::after { content: " \25be"; font-size: 0.75em; color: #6c757d; }' +
+                                        'li.dropdown-header span.text::after { content: " \\25be"; font-size: 0.75em; color: #6c757d; }' +
                                         '#tool-use-options .bootstrap-select .inner { padding-bottom: 60px !important; }'
                                     ).appendTo('head');
                                 });
                                 </script>
-                            </div>
-                        </div>
 
-                        <!-- Advanced Settings Section -->
-                        <div class="row mb-4">
-                            <div class="col-12">
-                                <h6 class="text-primary mb-3"><i class="fa fa-sliders-h"></i> Advanced Settings</h6>
-                                <div class="row">
-                                    <div class="col-md-4">
-                                        <div class="form-group">
-                                            <label for="settings-depthSelector" class="form-label"><strong>Depth Level</strong></label>
-                                            <div style="border: 1px solid #ccc; padding: 8px; border-radius: 12px; display: inline-flex; align-items: center; width: 100%;">
-                                                <select id="settings-depthSelector" class="form-control form-control-sm" style="width: 100%; border: none;">
-                                                    <option value="1">1</option>
-                                                    <option value="2" selected>2</option>
-                                                    <option value="3">3</option>
-                                                    <option value="4">4</option>
-                                                </select>
+                                <!-- Permanent Instructions -->
+                                <div class="mt-2">
+                                    <div class="form-group mb-0">
+                                        <label for="settings-permanentText" class="form-label"><strong>Permanent Instructions</strong></label>
+                                        <textarea id="settings-permanentText" class="form-control" rows="2" placeholder="Enter permanent instructions that will be included with every message..."></textarea>
+                                    </div>
+                                </div>
+
+                                <!-- Hidden sections: Search & Links, Workflows, Scripts -->
+                                <div style="display: none;">
+                                    <div class="row mt-2">
+                                        <div class="col-md-6">
+                                            <div class="form-group">
+                                                <label for="settings-linkInput" class="form-label"><strong>Links to Visit</strong></label>
+                                                <textarea id="settings-linkInput" class="form-control" rows="3" placeholder="Links to visit, each in a new line"></textarea>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <div class="form-group">
+                                                <label for="settings-searchInput" class="form-label"><strong>Search Phrases</strong></label>
+                                                <textarea id="settings-searchInput" class="form-control" rows="3" placeholder="Search phrases, each in a new line"></textarea>
                                             </div>
                                         </div>
                                     </div>
-                                    <div class="col-md-4">
-                                        <div class="form-group">
-                                            <label for="settings-historySelector" class="form-label"><strong>History</strong></label>
-                                            <div style="border: 1px solid #ccc; padding: 8px; border-radius: 12px; display: inline-flex; align-items: center; width: 100%;">
-                                                <select id="settings-historySelector" class="form-control form-control-sm" style="width: 100%; border: none;">
-                                                    <option value="-1">∅</option>
-                                                    <option value="0">0</option>
-                                                    <option value="1">1</option>
-                                                    <option value="2">2</option>
-                                                    <option value="3">3</option>
-                                                    <option value="4">4</option>
-                                                    <option value="5">5</option>
-                                                    <option value="6">6</option>
-                                                    <option value="7">7</option>
-                                                    <option value="8">8</option>
-                                                    <option value="9">9</option>
-                                                    <option value="10">10</option>
-                                                    <option value="infinite">∞</option>
-                                                    <option value="auto-light">Auto Light</option>
-                                                    <option value="auto-medium" selected>Auto Medium</option>
-                                                    <option value="auto-deep">Auto Deep</option>
-                                                </select>
-                                            </div>
+                                    <div id="settings-workflows-section" class="row mb-4">
+                                        <div class="col-12">
+                                            <h6 class="text-primary mb-3"><i class="fa fa-list-ol"></i> Workflows</h6>
+                                            <div id="workflow-list"></div>
+                                            <button class="btn btn-sm btn-primary mt-2" id="workflow-create-btn"><i class="fa fa-plus"></i> New Workflow</button>
                                         </div>
                                     </div>
-                                    <div class="col-md-4" style="display:none;">
-                                        <div class="form-group">
-                                            <label for="settings-rewardLevelSelector" class="form-label"><strong>Reward Level</strong></label>
-                                            <div style="border: 1px solid #ccc; padding: 8px; border-radius: 12px; display: inline-flex; align-items: center; width: 100%;">
-                                                <select id="settings-rewardLevelSelector" class="form-control form-control-sm" style="width: 100%; border: none;">
-                                                    <option value="-3">-3</option>
-                                                    <option value="-2">-2</option>
-                                                    <option value="-1">-1</option>
-                                                    <option value="0" selected>φ</option>
-                                                    <option value="1">1</option>
-                                                    <option value="2">2</option>
-                                                    <option value="3">3</option>
-                                                </select>
-                                            </div>
+                                    <div id="settings-scripts-section" class="row mb-4">
+                                        <div class="col-12">
+                                            <h6 class="text-primary mb-3"><i class="fa fa-code"></i> Custom Scripts</h6>
+                                            <div id="script-list"></div>
+                                            <button class="btn btn-sm btn-primary mt-2" id="script-create-btn"><i class="fa fa-plus"></i> New Script</button>
+                                            <button class="btn btn-sm btn-outline-secondary mt-2 ml-1" id="script-generate-btn"><i class="fa fa-magic"></i> Generate with LLM</button>
                                         </div>
                                     </div>
+                                </div>
+
                                 </div>
                             </div>
                         </div>
 
-                        
-
-                        <!-- Actions Section -->
-                        <div class="row mb-4">
-                              <div class="col-12">
-                                  <h6 class="text-primary mb-3"><i class="fa fa-tools"></i> Actions</h6>
-                                  <div class="row">
-                                      <div class="col">
-                                          <button id="settings-deleteLastTurn" class="btn btn-danger btn-sm rounded-pill w-100">
-                                              <i class="fa fa-trash"></i><span class="d-none d-sm-inline"> Last Turn</span>
-                                          </button>
-                                      </div>
-                                      <div class="col">
-                                          <button class="btn btn-info btn-sm rounded-pill w-100" id="settings-clarifyDraftButton" title="Generate clarification questions for the current draft message">
-                                              <i class="fa fa-question-circle"></i> Clarify
-                                          </button>
-                                      </div>
-                                      <div class="col">
-                                          <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-memory-pad-text-open-button">
-                                              <i class="bi bi-pen"></i> Mem Pad
-                                          </button>
-                                      </div>
-                                      <div class="col">
-                                          <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-pkb-modal-open-button">
-                                              <i class="bi bi-brain"></i> PKB
-                                          </button>
-                                      </div>
-                                      <div class="col">
-                                          <button class="btn btn-outline-info btn-sm rounded-pill w-100" id="settings-pkb-import-button" title="Import text/documents into PKB">
-                                              <i class="bi bi-box-arrow-in-down"></i> Import
-                                          </button>
-                                      </div>
-                                      <div class="col d-none d-sm-block">
-                                          <button class="btn btn-outline-secondary btn-sm rounded-pill w-100" id="settings-user-details-modal-open-button" title="Legacy - Use Personal Memory instead">
-                                              <i class="bi bi-pen"></i> User Details
-                                          </button>
-                                      </div>
-                                      <div class="col">
-                                          <button class="btn btn-warning btn-sm rounded-pill w-100" id="settings-clear-locks-modal-open-button" title="Check and clear stuck lock files">
-                                              <i class="fa fa-lock"></i> Clear
-                                          </button>
-                                      </div>
-                                      <div class="col">
-                                          <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-artefacts-modal-open-button">
-                                              <i class="bi bi-files"></i> Artefacts
-                                          </button>
-                                      </div>
-                                      <div class="col">
-                                          <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-code-editor-modal-open-button">  
-                                              <i class="bi bi-code-slash"></i> Code  
-                                          </button>  
-                                      </div>
-                                      <div class="col">
-                                          <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-prompt-manager-modal-open-button">
-                                              <i class="bi bi-pencil-square"></i> Prompts
-                                          </button>
-                                      </div>
-                                      <div class="col">
-                                          <button class="btn btn-outline-primary btn-sm rounded-pill w-100" id="settings-model-overrides-modal-open-button">
-                                              <i class="bi bi-sliders"></i> Model
-                                          </button>
-                                      </div>
-                                      <div class="col">
-                                          <button class="btn btn-outline-primary btn-sm rounded-pill w-100" id="settings-opencode-modal-open-button">
-                                              <i class="bi bi-terminal"></i> OpenCode
-                                          </button>
-                                      </div>
-                                      <div class="col">
-                                          <button class="btn btn-outline-info btn-sm rounded-pill w-100" id="settings-opencode-terminal-button" title="Open Terminal">
-                                              <i class="bi bi-terminal"></i> Terminal
-                                          </button>
-                                      </div>
-                                      <div class="col">
-                                          <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-file-browser-modal-open-button" title="Open File Browser" type="button">
-                                              <i class="bi bi-folder2-open"></i>
-                                          </button>
-                                      </div>
-                                      <div class="col">
-                                          <button class="btn btn-success btn-sm rounded-pill w-100" id="settings-generate-image-button" title="Generate Image with AI">
-                                              <i class="bi bi-image"></i> Image
-                                          </button>
-                                  </div>
-                              </div>
-                          </div>
-                        </div>
-
-                        <!-- Permanent Instructions Section -->
-                        <div class="row mb-3">
-                            <div class="col-12">
-                                <h6 class="text-primary mb-3"><i class="fa fa-sticky-note"></i> Permanent Instructions</h6>
-                                <div class="form-group">
-                                    <textarea id="settings-permanentText" class="form-control" rows="2" placeholder="Enter permanent instructions that will be included with every message..."></textarea>
-                                </div>
+                        <!-- ═══ ACCORDION 3: Appearance & Preferences ═══ -->
+                        <div class="settings-accordion-card">
+                            <div class="settings-accordion-header" data-toggle="collapse" data-target="#settings-acc-appearance" aria-expanded="false">
+                                <i class="fa fa-paint-brush"></i> Appearance & Preferences
+                                <i class="fa fa-chevron-down settings-acc-chevron"></i>
                             </div>
-                        </div>
+                            <div id="settings-acc-appearance" class="collapse" data-parent="#settings-accordion">
+                                <div class="settings-accordion-body">
 
-                        <!-- Code Theme Section -->
-                        <div class="row mb-3">
-                            <div class="col-12">
-                                <h6 class="text-primary mb-3"><i class="fa fa-code"></i> Code Theme</h6>
+                                <!-- Code Theme -->
                                 <div class="row">
                                     <div class="col-md-6">
                                         <div class="form-group">
@@ -3168,56 +3079,10 @@ greet("World");</code></pre>
                                         </div>
                                     </div>
                                 </div>
-                            </div>
-                        </div>
 
-                        <!-- Search Links Section -->
-                        <div class="row mb-3" style="display: none;">
-                            <div class="col-12">
-                                <h6 class="text-primary mb-3"><i class="fa fa-search"></i> Search & Links</h6>
-                                <div class="row">
-                                    <div class="col-md-6">
-                                        <div class="form-group">
-                                            <label for="settings-linkInput" class="form-label"><strong>Links to Visit</strong></label>
-                                            <textarea id="settings-linkInput" class="form-control" rows="3" placeholder="Links to visit, each in a new line"></textarea>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-6">
-                                        <div class="form-group">
-                                            <label for="settings-searchInput" class="form-label"><strong>Search Phrases</strong></label>
-                                            <textarea id="settings-searchInput" class="form-control" rows="3" placeholder="Search phrases, each in a new line"></textarea>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <!-- Extension: Workflows Section -->
-                                <div id="settings-workflows-section" class="row mb-4" style="display: none;">
-                                    <div class="col-12">
-                                        <h6 class="text-primary mb-3"><i class="fa fa-list-ol"></i> Workflows</h6>
-                                        <div id="workflow-list"></div>
-                                        <button class="btn btn-sm btn-primary mt-2" id="workflow-create-btn"><i class="fa fa-plus"></i> New Workflow</button>
-                                    </div>
-                                </div>
-
-                                <!-- Extension: Scripts Section -->
-                                <div id="settings-scripts-section" class="row mb-4" style="display: none;">
-                                    <div class="col-12">
-                                        <h6 class="text-primary mb-3"><i class="fa fa-code"></i> Custom Scripts</h6>
-                                        <div id="script-list"></div>
-                                        <button class="btn btn-sm btn-primary mt-2" id="script-create-btn"><i class="fa fa-plus"></i> New Script</button>
-                                        <button class="btn btn-sm btn-outline-secondary mt-2 ml-1" id="script-generate-btn"><i class="fa fa-magic"></i> Generate with LLM</button>
-                                    </div>
-                                </div>
-
-                            
-                        </div>
-
-                        <!-- Auto-Archive Settings -->
-                        <div class="row mb-4">
-                            <div class="col-12">
-                                <h6 class="text-primary mb-3"><i class="fa fa-archive"></i> Auto-Archive</h6>
-                                <div class="row">
-                                    <div class="col-md-4">
+                                <!-- Auto-Archive -->
+                                <div class="row mt-2">
+                                    <div class="col-md-4 col-6">
                                         <div class="form-group">
                                             <label for="auto-archive-grace-select" class="form-label"><strong>Auto-archive after</strong></label>
                                             <select class="form-control" id="auto-archive-grace-select">
@@ -3230,15 +3095,111 @@ greet("World");</code></pre>
                                             <small class="text-muted">Stale conversations are auto-archived based on last activity</small>
                                         </div>
                                     </div>
-                                    <div class="col-md-4 d-flex align-items-end">
+                                    <div class="col-md-4 col-6 d-flex align-items-end">
                                         <button class="btn btn-outline-warning btn-sm mb-3" id="mass-archive-btn">
                                             <i class="fa fa-archive"></i> Archive Stale Conversations
                                         </button>
                                     </div>
                                 </div>
+
+                                </div>
                             </div>
                         </div>
 
+                        <!-- ═══ ACCORDION 4: Actions ═══ -->
+                        <div class="settings-accordion-card">
+                            <div class="settings-accordion-header" data-toggle="collapse" data-target="#settings-acc-actions" aria-expanded="false">
+                                <i class="fa fa-tools"></i> Actions
+                                <i class="fa fa-chevron-down settings-acc-chevron"></i>
+                            </div>
+                            <div id="settings-acc-actions" class="collapse" data-parent="#settings-accordion">
+                                <div class="settings-accordion-body">
+
+                                <div class="row">
+                                    <div class="col">
+                                        <button id="settings-deleteLastTurn" class="btn btn-danger btn-sm rounded-pill w-100">
+                                            <i class="fa fa-trash"></i><span class="d-none d-sm-inline"> Last Turn</span>
+                                        </button>
+                                    </div>
+                                    <div class="col">
+                                        <button class="btn btn-info btn-sm rounded-pill w-100" id="settings-clarifyDraftButton" title="Generate clarification questions for the current draft message">
+                                            <i class="fa fa-question-circle"></i> Clarify
+                                        </button>
+                                    </div>
+                                    <div class="col">
+                                        <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-memory-pad-text-open-button">
+                                            <i class="bi bi-pen"></i> Mem Pad
+                                        </button>
+                                    </div>
+                                    <div class="col">
+                                        <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-pkb-modal-open-button">
+                                            <i class="bi bi-brain"></i> PKB
+                                        </button>
+                                    </div>
+                                    <div class="col">
+                                        <button class="btn btn-outline-info btn-sm rounded-pill w-100" id="settings-pkb-import-button" title="Import text/documents into PKB">
+                                            <i class="bi bi-box-arrow-in-down"></i> Import
+                                        </button>
+                                    </div>
+                                    <div class="col d-none d-sm-block">
+                                        <button class="btn btn-outline-secondary btn-sm rounded-pill w-100" id="settings-user-details-modal-open-button" title="Legacy - Use Personal Memory instead">
+                                            <i class="bi bi-pen"></i> User Details
+                                        </button>
+                                    </div>
+                                    <div class="col">
+                                        <button class="btn btn-warning btn-sm rounded-pill w-100" id="settings-clear-locks-modal-open-button" title="Check and clear stuck lock files">
+                                            <i class="fa fa-lock"></i> Clear
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="row mt-2">
+                                    <div class="col">
+                                        <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-artefacts-modal-open-button">
+                                            <i class="bi bi-files"></i> Artefacts
+                                        </button>
+                                    </div>
+                                    <div class="col">
+                                        <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-code-editor-modal-open-button">
+                                            <i class="bi bi-code-slash"></i> Code
+                                        </button>
+                                    </div>
+                                    <div class="col">
+                                        <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-prompt-manager-modal-open-button">
+                                            <i class="bi bi-pencil-square"></i> Prompts
+                                        </button>
+                                    </div>
+                                    <div class="col">
+                                        <button class="btn btn-outline-primary btn-sm rounded-pill w-100" id="settings-model-overrides-modal-open-button">
+                                            <i class="bi bi-sliders"></i> Model
+                                        </button>
+                                    </div>
+                                    <div class="col">
+                                        <button class="btn btn-outline-primary btn-sm rounded-pill w-100" id="settings-opencode-modal-open-button">
+                                            <i class="bi bi-terminal"></i> OpenCode
+                                        </button>
+                                    </div>
+                                    <div class="col">
+                                        <button class="btn btn-outline-info btn-sm rounded-pill w-100" id="settings-opencode-terminal-button" title="Open Terminal">
+                                            <i class="bi bi-terminal"></i> Terminal
+                                        </button>
+                                    </div>
+                                    <div class="col">
+                                        <button class="btn btn-primary btn-sm rounded-pill w-100" id="settings-file-browser-modal-open-button" title="Open File Browser" type="button">
+                                            <i class="bi bi-folder2-open"></i>
+                                        </button>
+                                    </div>
+                                    <div class="col">
+                                        <button class="btn btn-success btn-sm rounded-pill w-100" id="settings-generate-image-button" title="Generate Image with AI">
+                                            <i class="bi bi-image"></i> Image
+                                        </button>
+                                    </div>
+                                </div>
+
+                                </div>
+                            </div>
+                        </div>
+
+                        </div><!-- /settings-accordion -->
                     </div>
                 </div>
                 <div class="modal-footer" style="border-top: 1px solid #ddd;">
@@ -3820,7 +3781,7 @@ greet("World");</code></pre>
         #chat-settings-modal .modal-footer small {
             font-size: 0.72rem;
         }
-        /* Section headings */
+        /* Section headings (legacy, kept for any h6 inside accordion bodies) */
         #chat-settings-modal #settings-content h6 {
             font-size: 0.82rem;
             margin-bottom: 0.25rem !important;
@@ -3915,6 +3876,76 @@ greet("World");</code></pre>
         }
         #chat-settings-modal .bootstrap-select .dropdown-menu .inner {
             max-height: 280px !important;
+        }
+
+        /* ── Accordion Styles ── */
+        #settings-accordion {
+            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+        .settings-accordion-card {
+            border-bottom: 1px solid #dee2e6;
+        }
+        .settings-accordion-card:last-child {
+            border-bottom: none;
+        }
+        .settings-accordion-header {
+            padding: 0.5rem 0.75rem;
+            font-size: 0.82rem;
+            font-weight: 600;
+            cursor: pointer;
+            background: #f8f9fa;
+            display: flex;
+            align-items: center;
+            gap: 0.4rem;
+            user-select: none;
+            transition: background 0.15s;
+        }
+        .settings-accordion-header:hover {
+            background: #e9ecef;
+        }
+        .settings-accordion-header[aria-expanded="true"] {
+            background: #e7f1ff;
+            color: #0d6efd;
+        }
+        .settings-accordion-header .settings-acc-chevron {
+            margin-left: auto;
+            font-size: 0.65rem;
+            transition: transform 0.2s;
+        }
+        .settings-accordion-header[aria-expanded="true"] .settings-acc-chevron {
+            transform: rotate(180deg);
+        }
+        .settings-accordion-body {
+            padding: 0.6rem 0.75rem;
+        }
+
+        /* ── Mobile: stack columns and increase touch targets ── */
+        @media (max-width: 767.98px) {
+            #chat-settings-modal .modal-dialog {
+                max-width: 100% !important;
+                margin: 0.25rem;
+            }
+            #chat-settings-modal .modal-body {
+                max-height: 85vh !important;
+                padding: 0.3rem 0.4rem !important;
+            }
+            .settings-accordion-body {
+                padding: 0.5rem;
+            }
+            .settings-accordion-body .form-check {
+                min-height: 36px;
+                display: flex;
+                align-items: center;
+            }
+            .settings-accordion-body .form-check-label {
+                font-size: 0.85rem;
+            }
+            .settings-accordion-body .btn-sm {
+                min-height: 38px;
+                font-size: 0.75rem;
+            }
         }
 
         /* Secondary Modals - Higher level to appear above chat settings */
