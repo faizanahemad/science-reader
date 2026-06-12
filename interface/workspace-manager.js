@@ -24,6 +24,8 @@ var WorkspaceManager = {
     _recentSectionCount: 10,
     _recentSectionCollapsed: false,
     _recentSectionLocalStorageKey: 'recentSectionCollapsed',
+    _showArchived: false,
+    _timeViewActive: false,
 
     get defaultWorkspaceId() {
         var email = (typeof userDetails !== 'undefined' && userDetails.email) ? userDetails.email : 'unknown';
@@ -40,6 +42,7 @@ var WorkspaceManager = {
         var self = this;
         this.installMobileConversationInterceptor();
         this.setupToolbarHandlers();
+        this._restoreViewStates();
 
         // Recent section collapse/expand toggle
         $('#recent-section-toggle').off('click').on('click', function () {
@@ -86,6 +89,41 @@ var WorkspaceManager = {
         $('#pinned-color-filter').off('change').on('change', function () {
             try { localStorage.setItem(self.getPinnedColorFilterKey(), $(this).val()); } catch (_e) {}
             self.renderPinnedConversations();
+        });
+
+        // Archived toggle
+        $('#toggle-archived-btn').off('click').on('click', function () {
+            self._showArchived = !self._showArchived;
+            $(this).find('i').toggleClass('fa-eye fa-eye-slash');
+            try { localStorage.setItem(self._archivedToggleKey(), String(self._showArchived)); } catch (_e) {}
+            self.loadConversationsWithWorkspaces(false);
+        });
+
+        // Archived section collapse
+        $('#archived-section-toggle').off('click').on('click', function () {
+            var list = $('#archived-conversations-list');
+            var chevron = $(this).find('.archived-chevron');
+            if (list.is(':visible')) {
+                list.slideUp(150); chevron.addClass('collapsed');
+            } else {
+                list.slideDown(150); chevron.removeClass('collapsed');
+            }
+        });
+
+        // Time view toggle
+        $('#sidebar-view-toggle').off('click').on('click', function () {
+            self._timeViewActive = !self._timeViewActive;
+            $(this).find('i').toggleClass('fa-clock-o fa-folder-o');
+            try { localStorage.setItem(self._timeViewKey(), String(self._timeViewActive)); } catch (_e) {}
+            if (self._timeViewActive) {
+                $('#workspaces-container').hide();
+                $('#time-view-container').show();
+                self.renderTimeView();
+            } else {
+                $('#time-view-container').hide();
+                $('#workspaces-container').show();
+                self.highlightActiveConversation(ConversationManager.activeConversationId);
+            }
         });
     },
 
@@ -205,7 +243,9 @@ var WorkspaceManager = {
         if (typeof autoselect === 'undefined') autoselect = true;
 
         var workspacesRequest = $.ajax({ url: '/list_workspaces/' + currentDomain['domain'], type: 'GET' });
-        var conversationsRequest = $.ajax({ url: '/list_conversation_by_user/' + currentDomain['domain'], type: 'GET' });
+        var convUrl = '/list_conversation_by_user/' + currentDomain['domain'];
+        if (this._showArchived) convUrl += '?include_archived=true';
+        var conversationsRequest = $.ajax({ url: convUrl, type: 'GET' });
 
         var combined = $.when(workspacesRequest, conversationsRequest);
 
@@ -332,6 +372,8 @@ var WorkspaceManager = {
         this.renderTree(convByWs);
         this.renderRecentConversations();
         this.renderPinnedConversations();
+        this.renderArchivedConversations();
+        if (this._timeViewActive) this.renderTimeView();
     },
 
     // ---------------------------------------------------------------
@@ -360,8 +402,8 @@ var WorkspaceManager = {
         var badge = $('#recent-count-badge');
         container.empty();
 
-        // 1. Slice recent conversations
-        var recentConversations = this.conversations.slice(0, this._recentSectionCount);
+        // 1. Slice recent conversations (exclude archived)
+        var recentConversations = this.conversations.filter(function (c) { return !c.archived; }).slice(0, this._recentSectionCount);
 
         // 2. Update badge (only show when count < max — otherwise it's noise)
         if (recentConversations.length > 0 && recentConversations.length < self._recentSectionCount) {
@@ -446,7 +488,8 @@ var WorkspaceManager = {
                         'data-conversation-id': convId,
                         'data-conversation-friendly-id': $(this).data('conversation-friendly-id') || '',
                         'data-flag': $(this).data('flag') || 'none'
-                    }
+                    },
+                    original: { archived: false }
                 };
 
                 var items = self.buildConversationContextMenu(fakeNode);
@@ -515,6 +558,63 @@ var WorkspaceManager = {
         return 'pinnedColorFilter:' + email + ':' + domain;
     },
 
+    _archivedToggleKey: function () {
+        var email = (typeof userDetails !== 'undefined' && userDetails.email) ? userDetails.email : 'unknown';
+        var domain = (typeof currentDomain !== 'undefined' && currentDomain['domain']) ? currentDomain['domain'] : 'unknown';
+        return 'showArchived:' + email + ':' + domain;
+    },
+
+    _timeViewKey: function () {
+        var email = (typeof userDetails !== 'undefined' && userDetails.email) ? userDetails.email : 'unknown';
+        var domain = (typeof currentDomain !== 'undefined' && currentDomain['domain']) ? currentDomain['domain'] : 'unknown';
+        return 'timeViewActive:' + email + ':' + domain;
+    },
+
+    _restoreViewStates: function () {
+        try { this._showArchived = localStorage.getItem(this._archivedToggleKey()) === 'true'; } catch (_e) {}
+        try { this._timeViewActive = localStorage.getItem(this._timeViewKey()) === 'true'; } catch (_e) {}
+        if (this._showArchived) $('#toggle-archived-btn').find('i').removeClass('fa-eye-slash').addClass('fa-eye');
+        if (this._timeViewActive) {
+            $('#sidebar-view-toggle').find('i').removeClass('fa-clock-o').addClass('fa-folder-o');
+            $('#workspaces-container').hide();
+            $('#time-view-container').show();
+        }
+    },
+
+    renderArchivedConversations: function () {
+        var self = this;
+        var section = $('#archived-conversations-section');
+        var container = $('#archived-conversations-list');
+        container.empty();
+
+        if (!this._showArchived) { section.hide(); return; }
+
+        var archived = this.conversations.filter(function (c) { return c.archived; });
+        $('#archived-count-badge').text(archived.length || '');
+        if (archived.length === 0) { section.hide(); return; }
+
+        section.show();
+        archived.forEach(function (conv) {
+            var item = $('<div class="recent-conversation-item archived-item"></div>')
+                .attr('data-conversation-id', conv.conversation_id)
+                .text(conv.title || 'Untitled')
+                .on('click', function () {
+                    ConversationManager.setActiveConversation(conv.conversation_id);
+                    self.highlightActiveConversation(conv.conversation_id);
+                })
+                .on('contextmenu', function (e) {
+                    e.preventDefault();
+                    var fakeNode = { id: 'cv_' + conv.conversation_id, li_attr: { 'data-conversation-friendly-id': conv.conversation_friendly_id || '' }, original: { archived: true } };
+                    var items = self.buildConversationContextMenu(fakeNode);
+                    self._showContextMenuAtPosition(e, items);
+                });
+            if (conv.flag && conv.flag !== 'none') {
+                item.css('border-left', '3px solid ' + conv.flag);
+            }
+            container.append(item);
+        });
+    },
+
     renderPinnedConversations: function () {
         var self = this;
         var container = $('#pinned-conversations-list');
@@ -527,9 +627,9 @@ var WorkspaceManager = {
         try { savedColor = localStorage.getItem(self.getPinnedColorFilterKey()) || 'all'; } catch (_e) {}
         colorSelect.val(savedColor);
 
-        // Filter flagged conversations
+        // Filter flagged conversations (exclude archived)
         var allFlagged = this.conversations.filter(function (c) {
-            return c.flag && c.flag !== 'none';
+            return c.flag && c.flag !== 'none' && !c.archived;
         });
         var pinned = allFlagged;
         if (savedColor !== 'all') {
@@ -594,7 +694,8 @@ var WorkspaceManager = {
                         'data-conversation-id': convId,
                         'data-conversation-friendly-id': $(this).data('conversation-friendly-id') || '',
                         'data-flag': $(this).data('flag') || 'none'
-                    }
+                    },
+                    original: { archived: false }
                 };
                 var items = self.buildConversationContextMenu(fakeNode);
                 var vakataItems = self._convertToVakataItems(items, fakeNode);
@@ -712,6 +813,7 @@ var WorkspaceManager = {
             conversations.forEach(function (conv) {
                 var title = conv.title ? conv.title.trim() : '(untitled)';
                 var flagClass = (conv.flag && conv.flag !== 'none') ? ' jstree-flag-' + conv.flag : '';
+                if (conv.archived) flagClass += ' archived-conversation';
                 data.push({
                     id: 'cv_' + conv.conversation_id,
                     parent: 'ws_' + wsId,
@@ -726,7 +828,8 @@ var WorkspaceManager = {
                     a_attr: {
                         title: conv.title || '',
                         'data-conversation-id': conv.conversation_id
-                    }
+                    },
+                    original: { archived: !!conv.archived }
                 });
             });
         });
@@ -1188,6 +1291,16 @@ var WorkspaceManager = {
                 label: 'Move to...',
                 icon: 'fa fa-folder-open',
                 submenu: self.buildConversationMoveSubmenu(convId)
+            },
+            archiveConv: {
+                label: (node.original && node.original.archived) ? 'Unarchive' : 'Archive',
+                icon: 'fa fa-archive',
+                _disabled: !self._showArchived && (node.original && node.original.archived),
+                action: function () {
+                    $.post('/archive_conversation/' + convId, function () {
+                        self.loadConversationsWithWorkspaces(false);
+                    });
+                }
             },
             deleteConv: {
                 separator_before: true,

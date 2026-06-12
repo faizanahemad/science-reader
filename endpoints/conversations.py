@@ -1405,6 +1405,28 @@ def set_flag(conversation_id: str, flag: str):
     return jsonify({"message": "Flag set successfully"}), 200
 
 
+@conversations_bp.route("/archive_conversation/<conversation_id>", methods=["POST"])
+@limiter.limit("100 per minute")
+@login_required
+def archive_conversation(conversation_id: str):
+    email, _name, _loggedin = get_session_identity()
+    state = get_state()
+
+    if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
+        return json_error(
+            "Conversation not found", status=404, code="conversation_not_found"
+        )
+
+    conversation = state.conversation_cache[conversation_id]
+    if conversation is None:
+        return json_error(
+            "Conversation not found", status=404, code="conversation_not_found"
+        )
+
+    conversation.archived = not conversation.archived
+    return jsonify({"success": True, "archived": conversation.archived}), 200
+
+
 def _create_conversation_simple(
     domain: str, workspace_id: str | None = None
 ) -> Conversation:
@@ -1526,6 +1548,9 @@ def list_conversation_by_user(domain: str):
     )
 
     conversations = [c for c in conversations if c is not None and c.domain == domain and c.conversation_id not in deleted_temporary_ids]
+    include_archived = request.args.get("include_archived", "false").lower() == "true"
+    if not include_archived:
+        conversations = [c for c in conversations if not c.archived]
     conversations = [set_keys_on_docs(c, keys) for c in conversations]
     data = [[c.get_metadata(), c] for c in conversations]
     for metadata, conversation in data:

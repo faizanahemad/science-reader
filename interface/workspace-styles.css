@@ -415,3 +415,13 @@
     padding: 4px 12px;
     font-style: italic;
 }
+
+/* Archived conversations */
+.archived-conversation > .jstree-anchor {
+    opacity: 0.5;
+    font-style: italic;
+}
+.archived-item {
+    opacity: 0.6;
+    font-style: italic;
+}
