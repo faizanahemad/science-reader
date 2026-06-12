@@ -24,15 +24,19 @@ Smart auto-archival automatically archives conversations that are likely no long
 - Similarity computation between conversations
 - Auto-archival scoring logic
 - User preference for grace period
+- Cached BM25 tokens and embeddings for title+summary
 
 ## Requirements
 
 ### Core Behavior
 
-1. Auto-archive conversations that meet staleness criteria on each `list_conversation_by_user` call
+1. Auto-archive conversations that meet staleness criteria on each `list_conversation_by_user` call (throttled to once per hour)
 2. Auto-archived conversations behave exactly like manually archived ones (hidden by default, visible with "Show Archived" toggle, unarchivable)
-3. Never auto-archive: flagged conversations, conversations with pinned messages
-4. User can unarchive any auto-archived conversation (it stays unarchived permanently unless manually re-archived or meets criteria again after fresh activity)
+3. Never auto-archive: flagged conversations, conversations with pinned messages, conversations with `auto_archive_exempt` flag
+4. User can unarchive any auto-archived conversation — sets `auto_archive_exempt = True` so it's never auto-archived again
+5. Max 5 conversations auto-archived per page load (gradual rollout). Next load processes next batch.
+6. Toast notification with "Undo" button on auto-archival
+7. "Show Archived" displays auto-archived in a separate sub-section from manually archived
 
 ### Staleness Algorithm
 
@@ -52,6 +56,7 @@ Superseded modifier (hybrid similarity check):
 Exempt (never auto-archive):
 - Flagged conversations (any color)
 - Conversations with ≥1 pinned message
+- Conversations with auto_archive_exempt = True
 
 Final condition:
   stale = staleness_clock_age > adjusted_grace
@@ -65,122 +70,196 @@ Final condition:
 - For each candidate stale conversation, compute BM25/Jaccard similarity of `title + summary[:200]` against all newer conversations in the same domain
 - If similarity > 0.4 → mark as candidate for embedding check
 - Uses simple tokenization: lowercase, split on whitespace/punctuation, remove stopwords
+- BM25 tokens cached in DB per conversation (recomputed only when title/summary changes)
 
 **Step 2 — Embedding confirmation (accurate, API call):**
 - For BM25 candidates, compute cosine similarity of `title + summary[:200]` embeddings
 - If embedding similarity > 0.75 AND the similar conversation has more recent `last_updated` → apply superseded modifier (grace × 0.5)
-- Embeddings cached on the Conversation object (reuse existing `openai_embed`)
+- Embeddings cached in DB per conversation (recomputed only when title/summary changes)
+- If embedding already exists on conversation object, reuse it (no API call)
+- If API fails, skip superseded check entirely — fall back to time-only logic
 
-**Performance considerations:**
-- BM25 pre-filter runs on in-memory strings — fast for 66–500 conversations
-- Embedding step only runs on BM25 candidates (typically <10% of conversations)
-- Embedding results cached — only computed once per conversation title+summary change
-- Entire check runs lazily inside `list_conversation_by_user` (already loads all conversations)
+**Scope:** Across all workspaces in the domain (topic similarity doesn't depend on folder organization).
+
+**Performance:**
+- Time pre-filter: only check conversations where `staleness_clock_age > grace/2` (eliminates most)
+- Cap: max 50 candidates per load for similarity checks
+- BM25 tokens + embeddings cached in DB — subsequent runs are fast
+- Throttle: entire auto-archival runs at most once per hour
+
+### `last_opened_at` Tracking
+
+- Set to `datetime.now()` every time `get_conversation_history/<conversation_id>` is called (every open)
+- Persisted on the Conversation object (same pattern as other properties)
+- Backfill: for existing conversations without `last_opened_at`, treat as "opened today" on first encounter (conservative — innocent until proven stale)
+- Does NOT skip `save_local()` — since opens are less frequent than renders, and this is important for correctness
 
 ### User Preference
 
 - Setting: `auto_archive_grace_days` (default 90, options: 30 / 60 / 90 / 180 / never)
-- Stored in: localStorage (frontend) + passed as query param or read from user settings
+- Stored in: user settings in DB (persisted server-side, consistent across devices)
 - "Never" disables auto-archival entirely
-- UI: Small dropdown in sidebar toolbar or conversation settings
+- Previously auto-archived conversations stay archived when user disables (no mass restore)
 
-### `last_opened_at` Tracking
+### Mass Archival (Manual Cleanup)
 
-- Set to `datetime.now()` whenever `get_conversation_history/<conversation_id>` is called
-- Persisted on the Conversation object (same pattern as other properties)
-- Backfill: for existing conversations without `last_opened_at`, use `last_updated` as initial value
-- Does NOT trigger `save_local()` on every open (too expensive) — batch-save periodically or on next message
+- Button in chat-settings-modal: "Archive Stale Conversations"
+- Runs the same staleness algorithm but archives ALL qualifying conversations at once (not capped at 5)
+- Shows count before confirming: "24 conversations will be archived. Proceed?"
+- Useful for first-time cleanup or periodic maintenance
+- Separate from the gradual auto-archival on page load
 
 ## Design Decisions
 
-| Decision | Choice | Rationale |
-|----------|--------|-----------|
-| Trigger location | `list_conversation_by_user` | Already loads all conversations, runs cleanup, natural batch point |
-| Similarity approach | Hybrid BM25 → Embedding | BM25 is fast pre-filter; embedding confirms semantic similarity without false positives |
-| Embedding similarity threshold | 0.75 | High enough to avoid false supersession, low enough to catch rephrased topics |
-| BM25 threshold | 0.4 Jaccard on top terms | Generous pre-filter — let embedding do the precision work |
-| Grace period modifiers | Multiplicative | Compose cleanly: short conv (×0.5) + superseded (×0.5) = 90×0.25 = 22 days |
-| `last_opened_at` save strategy | Lazy (not immediate save_local) | Avoid disk I/O on every page load; piggyback on next message or periodic flush |
-| Unarchive permanence | Stays unarchived until fresh staleness | Prevents annoying re-archival loop; user intent is respected |
-| Auto-archive vs auto-delete | Auto-archive | Reversible, non-destructive, uses existing archive infrastructure |
+| # | Decision | Choice | Rationale |
+|---|----------|--------|-----------|
+| 1 | Mass archival on first deploy | Max 5/load + toast with undo | Prevents panic; gradual discovery |
+| 2 | `last_opened_at` is None initially | Treat as "opened today" | Conservative — innocent until proven stale |
+| 3 | Embedding API failure | Skip superseded, use time-only | Superseded is bonus signal, not requirement |
+| 4 | Re-archival after unarchive | `auto_archive_exempt` flag + last_opened_at updates on every access | Respects user intent; opening updates clock |
+| 5 | Superseded false positives | Multiplicative grace reduction only; opened_at updated on access protects active convs | Self-correcting — if user opens it, it's no longer stale |
+| 6 | Performance at scale | Time pre-filter + cap 50 candidates + cache BM25/embeddings in DB | Next load handles remainder |
+| 7 | Batch save cost | Async save_local() calls in background thread | Non-blocking |
+| 8 | Scope | Global: one setting for all domains | Less cognitive load |
+| 9 | Visual indicator | Separate sub-section: "Auto-archived (15)" vs "Archived (3)" | Clear distinction |
+| 10 | Notification | Toast + undo button | Builds trust |
+| 11 | Setting storage | User settings in DB (server-side) | Consistent across devices |
+| 12 | Superseded scope | Across all workspaces in domain | Users reorganize; topic != folder |
+| 13 | Disable behavior | Previously archived stay archived | Least surprising |
+| 14 | Throttle | Once per hour | Sufficient granularity |
+| 15 | Embedding model | Reuse `get_embedding_model(keys)` + existing cached embeddings | Avoid extra API calls |
 
 ## Tasks
 
 ### Task 1: Add `last_opened_at` property to Conversation
 
-- Add `last_opened_at` property (getattr-based, defaults to None → falls back to `last_updated`)
-- Add to `get_metadata()` return dict
-- Set in `get_conversation_history` endpoint (lazy save — update in-memory, persist on next `save_local`)
+- Add `last_opened_at` property (getattr-based, defaults to None)
+- Add to `get_metadata()` return dict (fallback: `last_updated` if None)
+- Set to `datetime.now()` in `get_conversation_history` endpoint
+- Call `save_local()` after setting (every open counts)
 
 **Files:** `Conversation.py`, `endpoints/conversations.py`
 
-### Task 2: BM25 similarity utility
+### Task 2: Add `auto_archive_exempt` property to Conversation
 
-- New file: `utils/text_similarity.py`
-- `tokenize(text)` — lowercase, split, remove stopwords (small hardcoded list)
+- Add `auto_archive_exempt` property (getattr-based, defaults False)
+- Set to `True` when user manually unarchives an auto-archived conversation
+- Add to `get_metadata()` return dict
+
+**Files:** `Conversation.py`, `endpoints/conversations.py`
+
+### Task 3: Similarity cache table in DB
+
+- New table: `ConversationSimilarityCache` with columns: `conversation_id`, `title_summary_hash`, `bm25_tokens` (JSON), `embedding` (BLOB), `updated_at`
+- Only recompute when title+summary hash changes
+- CRUD helpers
+
+**Files:** `database/connection.py`, `database/similarity_cache.py` (new)
+
+### Task 4: BM25 similarity utility
+
+- `tokenize(text)` — lowercase, split, remove stopwords
 - `jaccard_similarity(tokens_a, tokens_b)` — intersection/union on sets
 - `bm25_candidates(target_conv, all_convs, threshold=0.4)` — returns list of similar newer conversations
+- Uses cached tokens from DB
 
 **Files:** `utils/text_similarity.py` (new)
 
-### Task 3: Embedding similarity check
+### Task 5: Embedding similarity check
 
-- Function: `embedding_similarity(conv_a, conv_b)` — cosine similarity of cached embeddings
-- Cache embedding of `title + summary[:200]` on conversation (reuse existing embed infrastructure)
-- Only called for BM25 candidates
+- `embedding_similarity(conv_a, conv_b)` — cosine similarity
+- Check conversation object for existing embedding first
+- Fall back to cached embedding in DB
+- Only call API if missing; cache result
+- Graceful failure: return None if API fails
 
 **Files:** `utils/text_similarity.py`
 
-### Task 4: Staleness scoring function
+### Task 6: Staleness scoring function
 
-- `compute_staleness(conv, all_conversations, grace_days=90)` → returns `(is_stale: bool, reason: str)`
-- Implements the full algorithm: exemption check → message count modifier → superseded check → time comparison
-- Pure logic function, no side effects
+- `compute_staleness(conv, all_conversations, grace_days=90)` → `(is_stale: bool, reason: str)`
+- Full algorithm: exemption → message count modifier → superseded check → time comparison
+- Pure logic, no side effects except reading cache
 
 **Files:** `utils/auto_archival.py` (new)
 
-### Task 5: Wire into `list_conversation_by_user`
+### Task 7: Wire into `list_conversation_by_user`
 
-- After filtering by domain, before returning: run `compute_staleness` on each non-archived conversation
-- Auto-archive those that qualify (set `conv.archived = True`)
-- Log auto-archival events for debugging
-- Respect user preference (`auto_archive_grace_days` param)
+- Throttle: check `last_auto_archive_run` (in-memory timestamp), skip if < 1 hour ago
+- Time pre-filter: only score conversations with `staleness_clock_age > grace/2`
+- Cap: max 50 candidates for similarity, max 5 archives per run
+- Async `save_local()` for archived conversations
+- Log auto-archival events
 
 **Files:** `endpoints/conversations.py`
 
-### Task 6: User preference UI
+### Task 8: Toast notification + undo
 
-- Dropdown in sidebar settings or toolbar: "Auto-archive after: Never / 30d / 60d / 90d / 180d"
-- Store in localStorage, pass as query param to `list_conversation_by_user`
-- Default: 90 days
+- Return `auto_archived_ids` in `list_conversation_by_user` response
+- Frontend shows toast: "N conversations auto-archived" + "Undo" button
+- Undo calls `POST /archive_conversation/<id>` for each (toggles back)
 
-**Files:** `interface/interface.html`, `interface/workspace-manager.js`
+**Files:** `interface/workspace-manager.js`, `endpoints/conversations.py`
 
-### Task 7: Documentation
+### Task 9: Archived sub-sections (Auto-archived vs Manually archived)
 
-- Update `chat_app_capabilities.md` with auto-archival behavior
-- Update `sidebar_organization_features.plan.md` with cross-reference
+- Split `#archived-conversations-section` into two sub-groups
+- Track `archive_source: "auto" | "manual" | null` on Conversation
+- Render separately when "Show Archived" active
 
-**Files:** `documentation/product/behavior/chat_app_capabilities.md`, `documentation/planning/plans/sidebar_organization_features.plan.md`
+**Files:** `Conversation.py`, `interface/workspace-manager.js`
+
+### Task 10: User preference (grace period setting)
+
+- Add `auto_archive_grace_days` to user settings (DB-backed)
+- Endpoint to get/set
+- Frontend: dropdown in chat-settings-modal
+- Pass setting to staleness scorer
+
+**Files:** `database/users.py`, `endpoints/conversations.py`, `interface/interface.html`
+
+### Task 11: Mass archival cleanup button
+
+- Button in chat-settings-modal: "Archive Stale Conversations"
+- New endpoint: `POST /auto_archive_all/<domain>` — runs full staleness check, no cap
+- Confirmation dialog with count before proceeding
+- Returns list of archived conversation IDs
+
+**Files:** `endpoints/conversations.py`, `interface/interface.html`, `interface/common-chat.js`
+
+### Task 12: Documentation
+
+- Update `chat_app_capabilities.md`
+- Cross-reference from `sidebar_organization_features.plan.md`
+
+**Files:** documentation
 
 ## Files Modified (estimated)
 
 | File | Purpose |
 |------|---------|
-| `Conversation.py` | `last_opened_at` property |
-| `endpoints/conversations.py` | Set `last_opened_at`, run auto-archival in list endpoint |
-| `utils/text_similarity.py` | New: BM25 tokenize, Jaccard, embedding cosine |
-| `utils/auto_archival.py` | New: staleness scoring, superseded detection |
-| `interface/interface.html` | Grace period dropdown |
-| `interface/workspace-manager.js` | Pass grace param, UI control |
-| Documentation | Capabilities + plan cross-ref |
+| `Conversation.py` | `last_opened_at`, `auto_archive_exempt`, `archive_source` properties |
+| `endpoints/conversations.py` | Set `last_opened_at` on history load, auto-archival in list endpoint, mass archive endpoint |
+| `database/connection.py` | `ConversationSimilarityCache` table |
+| `database/similarity_cache.py` | New: cache CRUD for BM25 tokens + embeddings |
+| `utils/text_similarity.py` | New: tokenize, Jaccard, embedding cosine |
+| `utils/auto_archival.py` | New: staleness scoring, superseded detection, batch logic |
+| `interface/workspace-manager.js` | Toast + undo, sub-sections for auto/manual archived |
+| `interface/interface.html` | Mass archive button in settings modal |
+| `interface/common-chat.js` | Mass archive button handler |
+| `database/users.py` | `auto_archive_grace_days` setting |
+| Documentation | Capabilities + plan |
 
 ## Risks and Mitigations
 
 | Risk | Mitigation |
 |------|-----------|
-| False positive archival (important conv archived) | Exempt flagged + pinned; embedding threshold conservative (0.75); user can unarchive |
-| Performance on large conversation sets | BM25 pre-filter limits embedding calls; lazy evaluation; runs only on page load |
-| Embedding API cost | Only for BM25 candidates (<10%); cache results; skip if no API key |
-| `last_opened_at` disk I/O | Lazy save strategy — don't persist every open, batch with next message |
-| Superseded false match (e.g., "Meeting Notes Jan" vs "Meeting Notes Feb") | High embedding threshold (0.75) + must be genuinely newer with activity |
+| False positive archival | Exempt flagged + pinned + exempt flag; max 5/load; toast + undo |
+| Performance on large sets | Time pre-filter + cap 50 + cached BM25/embeddings in DB + once/hour throttle |
+| Embedding API cost | Reuse existing embeddings; cache in DB; skip on failure |
+| `last_opened_at` backfill | Treat None as "today"; self-corrects after first real open |
+| Re-archival loop | `auto_archive_exempt` flag on unarchive; last_opened_at updates on every access |
+| Superseded false match | High embedding threshold (0.75) + must be genuinely unopened >45d |
+| Mass archival panic | Gradual (5/load) + toast + undo + separate manual "Archive Stale" button for bulk |
+| Server restart loses in-memory throttle | Acceptable — runs again on next load, max 5 archives is safe |
+| DB table migration | `CREATE TABLE IF NOT EXISTS` + `ALTER TABLE ... ADD COLUMN` pattern — auto-migrates |
