@@ -55,6 +55,72 @@ The PKB notification system (v14) solved this for knowledge-base events. The app
 | PM9 | Emission failure handling | **Retry once after 1s, then skip** | Handles transient DB lock; adds minimal delay |
 | PM10 | Expiry behavior | **7 days from creation (unseen); 3 days from seen_at (seen)** — whichever is later | Fair: gives seen items a shorter tail; unseen items persist full week |
 
+### Scope Decisions
+
+| Item | In v1? | Notes |
+|------|--------|-------|
+| Background delegate task completion | ✓ | Biggest gap — currently zero notification |
+| Auto-doubts ready | ✓ | Persistent fallback for pulse animation |
+| Document indexing failure | ✓ | Only on failure (success obvious from UI) |
+| PKB unread link card | ✓ | "N PKB items — Open PKB" in dropdown |
+| Auto-context degradation | ✓ | 1 per conversation per session |
+| ask_clarification tool | ✗ | Already has modal (real-time, blocks stream) |
+| STM→LTM promotion | ✗ | Goes to PKB notifications (knowledge-base event) |
+| Stale/expired conversations | ✗ | Rare edge case: temp chat expired while away, just shows toast. Not worth persisting. |
+
+### Full Design Q&A (2026-06-12)
+
+**Q1: Bell shows PKB notifications or just non-PKB?**
+A: Show non-PKB only + link card to PKB notifications if unread exist.
+
+**Q2: Persistence level — DB or in-memory?**
+A: Persistent in DB (users.db). Polling works; survives page reload.
+
+**Q3: Background task notification — include full result?**
+A: "Background task completed — click to view" with truncated prompt (100 chars).
+
+**Q4: Auto-doubts — persistent notification in bell?**
+A: Yes, persistent notification. Keep pulse animation too (both).
+
+**Q5: Scope for v1?**
+A: Full (all items listed above).
+
+**Q6: Multi-tab polling — how to handle?**
+A: localStorage dedup — skip if another tab polled <25s ago.
+
+**Q7: SQLite contention?**
+A: WAL mode on users.db (concurrent readers + 1 writer).
+
+**Q8: Doubt watcher thread accumulation?**
+A: Cap at 2 per user. New message skips if 2 watchers already active.
+
+**Q9: Duplicate doubts signals (pulse + notification)?**
+A: Keep both. Pulse = immediate; notification = persistent record.
+
+**Q10: Auto-context noise?**
+A: 1 per conversation per session (until dismissed).
+
+**Q11: Background task missing user_email in context?**
+A: Make user_email a required parameter of start_background_agent (structural fix).
+
+**Q12: "View" navigation for doubts (cross-conversation)?**
+A: Full navigation — switch conversation + scroll to message.
+
+**Q13: Badge combines app + PKB — one request or two?**
+A: Two parallel requests via Promise.all (independent, no coupling).
+
+**Q14: Emission failure handling?**
+A: Retry once after 1s, then log warning and skip.
+
+**Q15: Expiry — 7 days from when?**
+A: 7 days from creation for unseen; 3 days from seen_at for seen (whichever is later).
+
+**Q16: STM→LTM promotion in app notifications?**
+A: No — it's a knowledge-base event, should be a PKB notification.
+
+**Q17: What is "stale conversation"?**
+A: When a temporary chat expires/deleted while user is away. Rare edge case, just a toast currently. Not worth persisting.
+
 ---
 
 ## 3. Schema
