@@ -20,6 +20,7 @@ from utils.text_similarity import (
 logger = logging.getLogger(__name__)
 
 BM25_THRESHOLD = 0.4
+BM25_STANDALONE_THRESHOLD = 0.6  # BM25-only supersession (no embedding needed)
 EMBEDDING_THRESHOLD = 0.75
 OPEN_STALE_DAYS = 45
 
@@ -48,6 +49,7 @@ def message_count_modifier(msg_count: int) -> float:
 
 
 def find_superseding_conversation(
+    target_conv_id: str,
     target_tokens: list,
     target_embedding,
     target_last_updated: datetime,
@@ -58,6 +60,7 @@ def find_superseding_conversation(
     """Check if a newer conversation with similar title+summary exists.
 
     Args:
+        target_conv_id: conversation_id of the target (for self-exclusion)
         target_tokens: BM25 tokens for the target conversation
         target_embedding: embedding bytes for the target (or None)
         target_last_updated: last_updated datetime of target
@@ -72,6 +75,9 @@ def find_superseding_conversation(
         return False
 
     for conv_id, tokens, last_updated, embedding in all_conv_tokens:
+        # Self-exclusion
+        if conv_id == target_conv_id:
+            continue
         # Only consider newer conversations
         if last_updated <= target_last_updated:
             continue
@@ -81,14 +87,14 @@ def find_superseding_conversation(
         if score < BM25_THRESHOLD:
             continue
 
-        # Embedding confirmation
+        # Embedding confirmation (if available)
         if target_embedding is not None and embedding is not None:
             cosine = embedding_cosine_similarity(target_embedding, embedding)
             if cosine > EMBEDDING_THRESHOLD:
                 return True
-        elif embed_fn is not None:
-            # Could call embed_fn here, but we skip if unavailable (Q3: graceful)
-            pass
+        elif score >= BM25_STANDALONE_THRESHOLD:
+            # High BM25 score alone is sufficient when embeddings unavailable
+            return True
 
     return False
 
@@ -159,7 +165,7 @@ def compute_staleness(
     target_embedding = cache_entry.get("embedding")
 
     is_superseded = find_superseding_conversation(
-        target_tokens, target_embedding, last_updated,
+        conv_id, target_tokens, target_embedding, last_updated,
         all_conv_tokens, cache_map, embed_fn
     )
     if is_superseded:

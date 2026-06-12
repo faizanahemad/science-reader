@@ -166,7 +166,7 @@ def _run_auto_archival(conversations, grace_days: int, users_dir: str) -> list:
                 lo = now
         staleness_clock = max(lu, lo)
         age_days = (now - staleness_clock).days
-        if age_days > grace_days / 2:
+        if age_days > grace_days / 4:
             candidates.append((c, meta, msg_count))
 
     # Cap at 50 candidates
@@ -223,10 +223,12 @@ def _run_auto_archival(conversations, grace_days: int, users_dir: str) -> list:
     for c, reason in stale_results[:5]:
         c._archived = True
         c._archive_source = "auto"
-        # Async save to avoid blocking
-        threading.Thread(target=c.save_local, daemon=True).start()
         archived_ids.append(c.conversation_id)
         logger.info("Auto-archived %s: %s", c.conversation_id, reason)
+
+    # Batch save (synchronous — 5 pickle writes is fast, avoids SQLite lock contention)
+    for c, _ in stale_results[:5]:
+        c.save_local()
 
     _last_auto_archive_run = time.time()
     return archived_ids
@@ -1549,14 +1551,16 @@ def archive_conversation(conversation_id: str):
             "Conversation not found", status=404, code="conversation_not_found"
         )
 
-    conversation.archived = not conversation.archived
-    if conversation.archived:
-        conversation.archive_source = "manual"
+    new_archived = not conversation.archived
+    conversation._archived = new_archived
+    if new_archived:
+        conversation._archive_source = "manual"
     else:
-        if conversation.archive_source == "auto":
-            conversation.auto_archive_exempt = True
-        conversation.archive_source = None
-    return jsonify({"success": True, "archived": conversation.archived}), 200
+        if getattr(conversation, "_archive_source", None) == "auto":
+            conversation._auto_archive_exempt = True
+        conversation._archive_source = None
+    conversation.save_local()
+    return jsonify({"success": True, "archived": new_archived}), 200
 
 
 @conversations_bp.route("/get_auto_archive_setting", methods=["GET"])
@@ -1627,9 +1631,8 @@ def auto_archive_all(domain: str):
     if grace_days <= 0:
         return jsonify({"success": True, "count": 0, "archived_ids": []})
 
-    from database.conversations import getCoversationsForUser
     conv_db = getCoversationsForUser(email, domain, users_dir=state.users_dir)
-    conversations = [state.conversation_cache[c[1]] for c in conv_db]
+    conversations = [state.conversation_cache.get(c[1]) for c in conv_db]
     conversations = [c for c in conversations if c is not None and c.domain == domain and not c.archived and not c.stateless]
 
     # Reuse _run_auto_archival logic but with no cap
@@ -1681,14 +1684,34 @@ def auto_archive_all(domain: str):
         all_conv_tokens.append((c.conversation_id, cached.get("bm25_tokens", []), lu, cached.get("embedding")))
 
     archived_ids = []
+    archived_convs = []
+    # Pre-filter: only score conversations past grace/4 (same as incremental pass)
     for c, meta, msg_count in conv_data:
+        lu_str = meta.get("last_updated", "")
+        lo_str = meta.get("last_opened_at")
+        try:
+            lu = datetime.strptime(lu_str, "%Y-%m-%d %H:%M:%S") if lu_str else now
+        except ValueError:
+            lu = now
+        lo = now if lo_str is None else lu  # conservative
+        if lo_str:
+            try:
+                lo = datetime.strptime(lo_str, "%Y-%m-%d %H:%M:%S") if isinstance(lo_str, str) else lo_str
+            except (ValueError, TypeError):
+                lo = now
+        age = (now - max(lu, lo)).days
+        if age <= grace_days / 4:
+            continue
         is_stale, reason = compute_staleness(meta, msg_count, all_conv_tokens, cache_map, pinned_conv_ids, grace_days=grace_days, now=now)
         if is_stale:
             c._archived = True
             c._archive_source = "auto"
-            threading.Thread(target=c.save_local, daemon=True).start()
+            archived_convs.append(c)
             archived_ids.append(c.conversation_id)
             logger.info("Mass auto-archived %s: %s", c.conversation_id, reason)
+
+    for c in archived_convs:
+        c.save_local()
 
     return jsonify({"success": True, "count": len(archived_ids), "archived_ids": archived_ids})
 
