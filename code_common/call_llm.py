@@ -113,6 +113,8 @@ def _get_token_limit(model_name: str) -> int:
         return MODEL_TOKEN_LIMITS["cheap_long_context"]
     elif model_name in LONG_CONTEXT_LLM:
         return MODEL_TOKEN_LIMITS["long_context"]
+    elif "claude-fable" in model_name:
+        return MODEL_TOKEN_LIMITS["gemini_flash"]
     elif model_name in EXPENSIVE_LLM:
         return MODEL_TOKEN_LIMITS["expensive"]
     elif (
@@ -205,6 +207,7 @@ VISION_CAPABLE_MODELS = frozenset(
         "openai/gpt-latest",
         "openai/gpt-5.5",
         "google/gemini-flash-latest",
+        "anthropic/claude-fable-5",
         
     }
 )

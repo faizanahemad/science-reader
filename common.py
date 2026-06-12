@@ -104,6 +104,7 @@ EXPENSIVE_LLM = [
     "anthropic/claude-opus-4.6",
     "anthropic/claude-sonnet-4.6",
     "moonshotai/kimi-k2.6",
+    "anthropic/claude-fable-5",
 ]
 UNUSED_EXPENSIVE_LLM = [
     

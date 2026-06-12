@@ -274,6 +274,8 @@
                                     <button id="add-new-workspace" type="button" class="btn btn-sm sidebar-tool-btn" title="New Workspace"><i class="fa fa-folder-o"></i></button>
                                     <button id="search-conversations-btn" type="button" class="btn btn-sm sidebar-tool-btn" title="Search Conversations"><i class="fa fa-search"></i></button>
                                     <button id="global-doubts-btn" type="button" class="btn btn-sm sidebar-tool-btn" title="My Doubts"><i class="bi bi-journal-bookmark"></i></button>
+                                    <button id="sidebar-view-toggle" type="button" class="btn btn-sm sidebar-tool-btn" title="Toggle Time View"><i class="fa fa-clock-o"></i></button>
+                                    <button id="toggle-archived-btn" type="button" class="btn btn-sm sidebar-tool-btn" title="Show/hide archived"><i class="fa fa-eye-slash"></i></button>
                                 </div>
                             </div>
                             
@@ -320,6 +322,27 @@
                             <!-- jsTree Container -->
                             <div id="workspaces-container" style="margin-top: 4px;">
                                 <!-- jsTree will be initialised here -->
+                            </div>
+
+                            <!-- Time View Container (hidden by default) -->
+                            <div id="time-view-container" style="display: none; margin-top: 4px;">
+                                <!-- Populated by WorkspaceManager.renderTimeView() -->
+                            </div>
+
+                            <!-- Archived Group (shown only when toggle active) -->
+                            <div id="archived-conversations-section" style="display: none; margin-top: 4px;">
+                                <div class="recent-section-header d-flex justify-content-between align-items-center"
+                                     id="archived-section-toggle"
+                                     title="Toggle Archived Conversations">
+                                    <span class="recent-section-title">
+                                        <i class="fa fa-chevron-down recent-chevron archived-chevron"></i>
+                                        Archived
+                                        <span class="recent-count-badge" id="archived-count-badge"></span>
+                                    </span>
+                                </div>
+                                <div id="archived-conversations-list">
+                                    <!-- Populated by WorkspaceManager.renderArchivedConversations() -->
+                                </div>
                             </div>
                         </div>
                         <div class="col-md-10" id="chat-assistant">
@@ -2517,12 +2540,13 @@
                                                         <option>anthropic/claude-opus-latest</option>
                                                         <option>Opus 4.6</option>
                                                         <option>Sonnet 4.6</option>
-                                                        <option>Gemini 3.1 Pro</option>
-                                                        <option>gemini-flash-3.5-non-reasoning</option>
-                                                        <option>Kimi K2.5</option>                                             
+                                                        <option>anthropic/claude-fable-5</option>
                                                     </optgroup>
                                                     <optgroup label="Others">
                                                         <option>Filler</option>
+                                                        <option>Gemini 3.1 Pro</option>
+                                                        <option>gemini-flash-3.5-non-reasoning</option>
+                                                        <option>Kimi K2.5</option>
                                                         <option>inception/mercury-2</option>
                                                         <option hidden>openai/gpt-5.1</option>
                                                         <option hidden>openai/gpt-5.2-pro</option>

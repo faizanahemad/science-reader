@@ -297,6 +297,15 @@ class Conversation:
             setattr(self, "_flag", value)
         self.save_local()
 
+    @property
+    def archived(self) -> bool:
+        return getattr(self, "_archived", False)
+
+    @archived.setter
+    def archived(self, value: bool):
+        self._archived = bool(value)
+        self.save_local()
+
     @staticmethod
     def _extract_referenced_claims(pkb_context: str) -> str:
         """
@@ -12168,6 +12177,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             summary_till_now=summary_till_now,
             domain=self.domain,
             flag=self.flag,
+            archived=self.archived,
             last_updated=memory["last_updated"].strftime("%Y-%m-%d %H:%M:%S")
             if isinstance(memory["last_updated"], datetime)
             else memory["last_updated"],
@@ -13471,6 +13481,8 @@ def model_name_to_canonical_name(model_name):
         model_name = "anthropic/claude-opus-4.5"
     elif model_name == "anthropic/claude-opus-4.6" or model_name == "Opus 4.6":
         model_name = "anthropic/claude-opus-4.6"
+    elif model_name == "anthropic/claude-fable-5":
+        model_name = "anthropic/claude-fable-5"
     elif (
         model_name == "anthropic/claude-sonnet-4"
         or model_name == "Claude Sonnet 4"
