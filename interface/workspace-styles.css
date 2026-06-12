@@ -483,3 +483,14 @@
     vertical-align: middle;
     line-height: 1.5;
 }
+
+/* Last-active conversation indicator dot */
+.last-active-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #4a9eff;
+    margin-left: 6px;
+    vertical-align: middle;
+}

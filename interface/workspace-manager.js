@@ -26,6 +26,7 @@ var WorkspaceManager = {
     _recentSectionLocalStorageKey: 'recentSectionCollapsed',
     _showArchived: false,
     _timeViewActive: false,
+    _previousConvId: null,  // the conversation user just left (for "back" dot)
 
     get defaultWorkspaceId() {
         var email = (typeof userDetails !== 'undefined' && userDetails.email) ? userDetails.email : 'unknown';
@@ -423,6 +424,8 @@ var WorkspaceManager = {
         var badge = $('#recent-count-badge');
         container.empty();
 
+        var lastActiveStoredId = this._previousConvId;
+
         // 1. Slice recent conversations (exclude archived)
         var recentConversations = this.conversations.filter(function (c) { return !c.archived; }).slice(0, this._recentSectionCount);
 
@@ -461,6 +464,9 @@ var WorkspaceManager = {
             });
             item.append('<i class="fa fa-comment-o recent-conv-icon"></i>');
             item.append($('<span class="recent-conv-title"></span>').text(title));
+            if (lastActiveStoredId && String(conv.conversation_id) === String(lastActiveStoredId)) {
+                item.append('<span class="last-active-dot" title="Previous conversation"></span>');
+            }
 
             // Click handler — switch conversation
             item.on('click', function (e) {
@@ -722,6 +728,9 @@ var WorkspaceManager = {
                 var item = $('<div class="recent-conversation-item"></div>')
                     .attr('data-conversation-id', conv.conversation_id)
                     .text(conv.title || 'Untitled');
+                if (self._previousConvId && String(conv.conversation_id) === String(self._previousConvId)) {
+                    item.append('<span class="last-active-dot" title="Previous conversation"></span>');
+                }
                 if (conv.flag && conv.flag !== 'none') {
                     item.css('border-left', '3px solid ' + conv.flag);
                 }
@@ -801,6 +810,9 @@ var WorkspaceManager = {
             });
             item.append('<i class="fa fa-thumb-tack recent-conv-icon"></i>');
             item.append($('<span class="recent-conv-title"></span>').text(title));
+            if (self._previousConvId && String(conv.conversation_id) === String(self._previousConvId)) {
+                item.append('<span class="last-active-dot" title="Previous conversation"></span>');
+            }
 
             item.on('click', function (e) {
                 if (e.which === 2 || e.metaKey || e.ctrlKey) return;
@@ -956,12 +968,14 @@ var WorkspaceManager = {
             var conversations = convByWs[wsId];
             conversations.forEach(function (conv) {
                 var title = conv.title ? conv.title.trim() : '(untitled)';
+                var dotHtml = (self._previousConvId && String(conv.conversation_id) === String(self._previousConvId))
+                    ? '<span class="last-active-dot" title="Previous conversation"></span>' : '';
                 var flagClass = (conv.flag && conv.flag !== 'none') ? ' jstree-flag-' + conv.flag : '';
                 if (conv.archived) flagClass += ' archived-conversation';
                 data.push({
                     id: 'cv_' + conv.conversation_id,
                     parent: 'ws_' + wsId,
-                    text: title,
+                    text: title + dotHtml,
                     type: 'conversation',
                     li_attr: {
                         'data-conversation-id': conv.conversation_id,
@@ -1704,6 +1718,21 @@ var WorkspaceManager = {
      *     workspaces.
      */
     highlightActiveConversation: function (conversationId, collapseOthers) {
+        // Track previous conversation and update "last active" dot
+        var prevId = this._previousConvId;
+        var currentActive = ConversationManager.activeConversationId || null;
+        if (currentActive && String(currentActive) !== String(conversationId)) {
+            this._previousConvId = String(currentActive);
+        }
+        // Move the dot: remove old, add to previous conversation
+        $('.last-active-dot').remove();
+        if (this._previousConvId) {
+            $('[data-conversation-id="' + this._previousConvId + '"]').each(function () {
+                if (!$(this).find('.last-active-dot').length) {
+                    $(this).append('<span class="last-active-dot" title="Previous conversation"></span>');
+                }
+            });
+        }
         // Always update Recent and Pinned section highlights (pure DOM, no jsTree dependency)
         this.highlightRecentConversation(conversationId);
         this.highlightPinnedConversation(conversationId);
