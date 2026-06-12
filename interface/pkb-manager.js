@@ -2159,20 +2159,17 @@ var PKBManager = (function() {
             url: '/pkb/cleanup',
             method: 'POST',
             contentType: 'application/json',
-            data: JSON.stringify({ apply: !!apply, use_llm: useLlm }),
+            data: JSON.stringify({ apply: false, use_llm: useLlm }),
             dataType: 'json'
         }).done(function(report) {
             renderCleanupReport(report);
-            var hasProposals = report && (
+            var hasProposals = (
                 (report.claims && report.claims.clusters && report.claims.clusters.length) ||
                 (report.entities && report.entities.clusters && report.entities.clusters.length) ||
-                (report.tags && report.tags.clusters && report.tags.clusters.length)
+                (report.tags && report.tags.clusters && report.tags.clusters.length) ||
+                (report.compaction && report.compaction.stale_candidates && report.compaction.stale_candidates.length)
             );
-            $('#pkb-cleanup-apply-btn').prop('disabled', !hasProposals || !!apply);
-            if (apply) {
-                showToast('Cleanup applied.', 'success');
-                loadClaims();
-            }
+            $('#pkb-cleanup-apply-btn').prop('disabled', !hasProposals);
         }).fail(function() {
             $('#pkb-cleanup-report').html('<div class="alert alert-danger">Cleanup failed. Please try again.</div>');
             showToast('Memory cleanup failed.', 'error');
@@ -2180,6 +2177,85 @@ var PKBManager = (function() {
             $('#pkb-cleanup-loading').hide();
             $('#pkb-cleanup-report').show();
             $('#pkb-cleanup-analyze-btn').prop('disabled', false);
+        });
+    }
+
+    /**
+     * Apply only the checked cleanup items: merge selected clusters, archive selected stale claims.
+     */
+    function applySelectedCleanup() {
+        var useLlm = $('#pkb-cleanup-use-llm').is(':checked');
+        var promises = [];
+
+        // Merge checked clusters
+        $('.pkb-cluster-check:checked').each(function() {
+            var $cb = $(this);
+            var ids = $cb.data('ids');
+            var keep = $cb.data('keep') || null;
+            var kind = $cb.data('kind');
+            if (kind === 'claims' && ids && ids.length >= 2) {
+                promises.push($.ajax({
+                    url: '/pkb/consolidation/merge',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ claim_ids: ids, keep_id: keep, use_llm: useLlm })
+                }));
+            } else if (kind === 'entities' && ids && ids.length >= 2) {
+                // Merge entities pairwise into first
+                for (var i = 1; i < ids.length; i++) {
+                    promises.push($.ajax({
+                        url: '/pkb/entities/merge',
+                        method: 'POST',
+                        contentType: 'application/json',
+                        data: JSON.stringify({ source_id: ids[i], target_id: ids[0] })
+                    }));
+                }
+            } else if (kind === 'tags' && ids && ids.length >= 2) {
+                for (var j = 1; j < ids.length; j++) {
+                    promises.push($.ajax({
+                        url: '/pkb/tags/merge',
+                        method: 'POST',
+                        contentType: 'application/json',
+                        data: JSON.stringify({ source_id: ids[j], target_id: ids[0] })
+                    }));
+                }
+            }
+        });
+
+        // Archive checked stale claims
+        var staleIds = [];
+        $('.pkb-stale-check:checked').each(function() {
+            staleIds.push($(this).data('id'));
+        });
+        if (staleIds.length) {
+            promises.push($.ajax({
+                url: '/pkb/claims/bulk_action',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ action: 'archive', claim_ids: staleIds })
+            }));
+        }
+
+        if (!promises.length) {
+            showToast('Nothing selected to apply.', 'warning');
+            return;
+        }
+
+        $('#pkb-cleanup-apply-btn').prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Applying…');
+        $.when.apply($, promises).then(function() {
+            var merged = $('.pkb-cluster-check:checked').length;
+            var archived = staleIds.length;
+            var msg = [];
+            if (merged) msg.push(merged + ' cluster' + (merged > 1 ? 's' : '') + ' merged');
+            if (archived) msg.push(archived + ' claim' + (archived > 1 ? 's' : '') + ' archived');
+            showToast(msg.join(', ') + '.', 'success');
+            // Re-run analyze to show updated state
+            runMemoryCleanup(false);
+            loadClaims();
+        }, function() {
+            showToast('Some actions failed. Try again.', 'danger');
+        }).always(function() {
+            $('#pkb-cleanup-apply-btn').prop('disabled', false).html('<i class="bi bi-magic"></i> Apply selected');
         });
     }
 
@@ -2192,7 +2268,7 @@ var PKBManager = (function() {
                 '<span class="badge badge-light mr-1">Dormant: ' + (swept.dormant || 0) + '</span>' +
                 '<span class="badge badge-light">Overview: ' + (report.overview_refreshed ? 'refreshed' : 'unchanged') + '</span></div>';
 
-        // Compaction section
+        // Compaction section — stale claims with per-item keep/archive
         var comp = report.compaction || {};
         if (comp.stm_expired || (comp.stale_candidates && comp.stale_candidates.length) || (comp.archived && comp.archived.length)) {
             html += '<div class="mb-2">';
@@ -2200,48 +2276,62 @@ var PKBManager = (function() {
             if (comp.archived && comp.archived.length) {
                 html += '<span class="badge badge-success mr-1">Archived: ' + comp.archived.length + ' stale claims</span>';
             } else if (comp.stale_candidates && comp.stale_candidates.length) {
-                html += '<span class="badge badge-warning mr-1">Stale claims: ' + comp.stale_candidates.length + ' (will archive on Apply)</span>';
-                html += '<ul class="list-group mt-1 mb-2">';
-                comp.stale_candidates.slice(0, 10).forEach(function(sc) {
-                    html += '<li class="list-group-item py-1 small">' + escapeHtml(sc.statement.substring(0, 80)) +
-                        ' <span class="text-muted">(conf: ' + (sc.confidence || '?') + ', last: ' + (sc.last_activity || 'never').substring(0, 10) + ')</span></li>';
+                html += '<h6 class="mt-2"><i class="bi bi-clock-history"></i> Stale Claims <span class="badge badge-warning">' + comp.stale_candidates.length + '</span></h6>';
+                html += '<p class="text-muted small mb-1">Low-confidence claims not accessed in 90+ days. Check ones to archive:</p>';
+                html += '<div class="list-group mb-2">';
+                comp.stale_candidates.forEach(function(sc, i) {
+                    html += '<label class="list-group-item list-group-item-action py-1 d-flex align-items-start mb-0" style="cursor:pointer;">' +
+                        '<input type="checkbox" class="mr-2 mt-1 pkb-stale-check" data-id="' + sc.claim_id + '" checked>' +
+                        '<div class="flex-grow-1"><small>' + escapeHtml(sc.statement.substring(0, 100)) + '</small>' +
+                        '<div><span class="badge badge-light">conf: ' + (sc.confidence || '?') + '</span> ' +
+                        '<span class="badge badge-light">last: ' + (sc.last_activity || 'never').substring(0, 10) + '</span></div>' +
+                        '</div></label>';
                 });
-                if (comp.stale_candidates.length > 10) html += '<li class="list-group-item py-1 small text-muted">...and ' + (comp.stale_candidates.length - 10) + ' more</li>';
-                html += '</ul>';
+                html += '</div>';
             }
             html += '</div>';
         }
 
-        function section(title, group, idKey, nameOf) {
+        // Cluster sections with per-cluster accept/skip
+        function clusterSection(title, group, kind) {
             var clusters = (group && group.clusters) || [];
             var merged = (group && group.merged) || [];
-            var s = '<h6 class="mt-3">' + title + ' <span class="badge badge-secondary">' + clusters.length + '</span>';
+            var s = '<h6 class="mt-3"><i class="bi bi-diagram-3"></i> ' + title + ' <span class="badge badge-secondary">' + clusters.length + '</span>';
             if (merged.length) s += ' <span class="badge badge-success">merged ' + merged.length + '</span>';
             s += '</h6>';
             if (!clusters.length) { s += '<p class="text-muted small">No duplicates found.</p>'; return s; }
-            s += '<ul class="list-group mb-2">';
-            clusters.forEach(function(cl) {
-                var names = nameOf(cl);
-                var verified = cl.llm_verified ? ' <span class="badge badge-info">LLM\u2713</span>' : '';
-                s += '<li class="list-group-item py-2 small">' + escapeHtml(names.join('  \u2194  ')) + verified + '</li>';
+            s += '<p class="text-muted small mb-1">Similar items that could be merged. Uncheck to skip:</p>';
+            s += '<div class="list-group mb-2">';
+            clusters.forEach(function(cl, i) {
+                var ids = cl.claim_ids || cl.entity_ids || cl.tag_ids || [];
+                var names = kind === 'claims'
+                    ? Object.values(cl.statements || {})
+                    : Object.values(cl.names || {});
+                var verified = cl.llm_verified ? ' <span class="badge badge-info">LLM✓</span>' : '';
+                var simBadge = cl.max_similarity ? ' <span class="badge badge-light">sim: ' + cl.max_similarity.toFixed(2) + '</span>' : '';
+                var keepId = cl.suggested_keep_id || '';
+                s += '<label class="list-group-item py-2 mb-0" style="cursor:pointer;">' +
+                    '<div class="d-flex align-items-start">' +
+                    '<input type="checkbox" class="mr-2 mt-1 pkb-cluster-check" data-kind="' + kind + '" data-index="' + i + '" ' +
+                    'data-ids=\'' + JSON.stringify(ids) + '\' data-keep="' + keepId + '" checked>' +
+                    '<div class="flex-grow-1">' +
+                    '<div class="small font-weight-bold">Cluster ' + (i + 1) + ' <span class="badge badge-light">' + ids.length + ' items</span>' + simBadge + verified + '</div>' +
+                    '<ul class="mb-0 pl-3 small">';
+                names.forEach(function(n) {
+                    s += '<li>' + escapeHtml(n.length > 120 ? n.substring(0, 120) + '…' : n) + '</li>';
+                });
+                s += '</ul></div></div></label>';
             });
-            s += '</ul>';
+            s += '</div>';
             return s;
         }
 
-        html += section('Duplicate claims', report.claims, 'claim_ids', function(cl) {
-            return Object.keys(cl.statements || {}).map(function(k) { return cl.statements[k]; });
-        });
-        html += section('Duplicate entities', report.entities, 'entity_ids', function(cl) {
-            return Object.keys(cl.names || {}).map(function(k) { return cl.names[k]; });
-        });
-        html += section('Duplicate tags', report.tags, 'tag_ids', function(cl) {
-            return Object.keys(cl.names || {}).map(function(k) { return cl.names[k]; });
-        });
+        html += clusterSection('Duplicate Claims', report.claims, 'claims');
+        html += clusterSection('Duplicate Entities', report.entities, 'entities');
+        html += clusterSection('Duplicate Tags', report.tags, 'tags');
+
         if (report.applied) {
-            html += '<div class="alert alert-success py-1 px-2 small mt-2">Suggested merges were applied.</div>';
-        } else {
-            html += '<p class="text-muted small mt-2">Click <strong>Apply suggested</strong> to merge each cluster into its best canonical form.</p>';
+            html += '<div class="alert alert-success py-1 px-2 small mt-2"><i class="bi bi-check-circle"></i> Applied successfully.</div>';
         }
         $('#pkb-cleanup-report').html(html);
     }
@@ -3036,35 +3126,6 @@ var PKBManager = (function() {
     }
 
     /**
-     * Load suggested clusters into the Maintenance tab section.
-     */
-    function loadClusters() {
-        $.get('/pkb/claims/clusters', function(resp) {
-            var clusters = resp.clusters || [];
-            var $section = $('#pkb-clusters-section');
-            var $list = $('#pkb-clusters-list');
-            var $count = $('#pkb-clusters-count');
-
-            if (!clusters.length) { $section.hide(); return; }
-
-            $section.show();
-            $count.text(clusters.length);
-
-            var html = clusters.map(function(cl, i) {
-                var stmts = Object.values(cl.statements || {}).map(function(s) {
-                    return '<li class="small">' + $('<span>').text(s).html() + '</li>';
-                }).join('');
-                return '<div class="border-bottom py-2">' +
-                    '<strong class="small">Cluster ' + (i+1) + '</strong> <span class="badge badge-light">' + cl.claim_ids.length + ' claims</span>' +
-                    ' <span class="badge badge-secondary">sim: ' + (cl.max_similarity || 0).toFixed(2) + '</span>' +
-                    '<ul class="mb-0 pl-3">' + stmts + '</ul>' +
-                '</div>';
-            }).join('');
-            $list.html(html);
-        }).fail(function() { $('#pkb-clusters-section').hide(); });
-    }
-
-    /**
      * Load fading (dormant) claims into the Maintenance tab section.
      */
     function loadFadingClaims() {
@@ -3254,7 +3315,6 @@ var PKBManager = (function() {
         $(document).on('shown.bs.tab', '#pkb-maintenance-tab', function() {
             loadRecentlyArchived();
             loadFadingClaims();
-            loadClusters();
             // Health dashboard
             $.get('/pkb/health', function(resp) {
                 var $dash = $('#pkb-health-dashboard');
@@ -3315,7 +3375,7 @@ var PKBManager = (function() {
             runMemoryCleanup(false);
         });
         $(document).on('click', '#pkb-cleanup-apply-btn', function() {
-            runMemoryCleanup(true);
+            applySelectedCleanup();
         });
         
         // Memory proposal save button

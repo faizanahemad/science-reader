@@ -849,7 +849,7 @@ def pkb_consolidation_merge_route():
                 "Failed to initialize PKB", status=500, code="pkb_init_failed"
             )
 
-        result = api.consolidate_claims(claim_ids, keep_id=keep_id)
+        result = api.smart_consolidate_claims(claim_ids) if data.get("use_llm") else api.consolidate_claims(claim_ids, keep_id=keep_id)
         if result.success:
             return jsonify(result.data)
         return json_error(
