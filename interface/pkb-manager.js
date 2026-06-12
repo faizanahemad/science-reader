@@ -3135,10 +3135,13 @@ var PKBManager = (function() {
             var $list = $('#pkb-fading-list');
             var $count = $('#pkb-fading-count');
 
-            if (!fading.length) { $section.hide(); return; }
-
             $section.show();
             $count.text(fading.length);
+
+            if (!fading.length) {
+                $list.html('<p class="text-muted small p-2 mb-0">No fading memories. Claims decay when unused for extended periods.</p>');
+                return;
+            }
 
             var html = fading.map(function(c) {
                 return '<div class="d-flex justify-content-between align-items-start border-bottom py-1">' +
@@ -3151,7 +3154,7 @@ var PKBManager = (function() {
                 '</div>';
             }).join('');
             $list.html(html);
-        }).fail(function() { $('#pkb-fading-section').hide(); });
+        }).fail(function() { $('#pkb-fading-section').show(); $('#pkb-fading-list').html('<p class="text-muted small p-2 mb-0">Could not load.</p>'); });
     }
 
     /**
@@ -3164,10 +3167,13 @@ var PKBManager = (function() {
             var $list = $('#pkb-archived-list');
             var $count = $('#pkb-archived-count');
 
-            if (!archived.length) { $section.hide(); return; }
-
             $section.show();
             $count.text(archived.length);
+
+            if (!archived.length) {
+                $list.html('<p class="text-muted small p-2 mb-0">No recently archived claims. Superseded, retracted, or stale claims appear here.</p>');
+                return;
+            }
 
             var html = archived.map(function(c) {
                 return '<div class="d-flex justify-content-between align-items-start border-bottom py-1">' +
@@ -3180,7 +3186,7 @@ var PKBManager = (function() {
                 '</div>';
             }).join('');
             $list.html(html);
-        }).fail(function() { $('#pkb-archived-section').hide(); });
+        }).fail(function() { $('#pkb-archived-section').show(); $('#pkb-archived-list').html('<p class="text-muted small p-2 mb-0">Could not load.</p>'); });
     }
 
     /**

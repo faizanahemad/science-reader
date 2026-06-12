@@ -374,8 +374,7 @@ def pkb_list_claims_route():
             filters["context_domain"] = request.args.get("context_domain")
         if request.args.get("status"):
             filters["status"] = request.args.get("status")
-        else:
-            filters["status"] = "active"
+        # When status is empty/missing, default to active (standard view)
 
         if query:
             # --- Search mode: use hybrid/fts/embedding search with filters ---
