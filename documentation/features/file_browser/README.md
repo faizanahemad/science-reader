@@ -2,7 +2,7 @@
 
 ## Overview
 
-Full-screen modal file browser and code editor accessible from the chat-settings-modal **Actions** tab. Provides VS Code-like file tree navigation, syntax-highlighted editing via CodeMirror 5, markdown preview with live toggle, and full CRUD operations. All file access is sandboxed to the server's working directory.
+Full-screen modal file browser and code editor accessible from the chat-settings-modal **Actions** accordion section. Provides VS Code-like file tree navigation, syntax-highlighted editing via CodeMirror 5, markdown preview with live toggle, and full CRUD operations. All file access is sandboxed to the server's working directory.
 
 ---
 

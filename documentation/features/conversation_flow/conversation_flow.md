@@ -102,7 +102,12 @@ See `documentation/product/behavior/CLARIFICATIONS_AND_AUTO_DOUBT_CONTEXT.md` fo
 
 ## Chat Settings Management
 
-Settings are managed via the **chat-settings-modal** in `interface/interface.html` and persisted across sessions via `localStorage`.
+Settings are managed via the **chat-settings-modal** in `interface/interface.html` and persisted across sessions via `localStorage`. The modal uses a 4-section Bootstrap 4 accordion layout (only one section open at a time):
+
+1. **Frequently Used** (open by default): Model, Preamble, Doubt Preamble, Agent, History, Use Memory Pad, LLM Right-Click Menu, Persist
+2. **Behavior & Memory**: Auto Clarify, Render Close, Compact Nav, PKB settings, Auto-doubts, Tools, Depth, Permanent Instructions
+3. **Appearance & Preferences**: Code Theme, Auto-Archive
+4. **Actions**: shortcut buttons to open other modals/features
 
 ### Architecture
 
@@ -126,7 +131,7 @@ All Basic Options settings share a single serialisation path. When adding or deb
 
 | Question | Where to look |
 |---|---|
-| **Where is the checkbox HTML?** | `interface/interface.html` — search for `settings-<key>` in `#chat-settings-modal > .basic-options` area |
+| **Where is the checkbox HTML?** | `interface/interface.html` — search for `settings-<key>` in `#chat-settings-modal` accordion sections |
 | **What is the default value?** | `interface/chat.js` `buildSettingsStateFromControlsOrDefaults()` — each key's fallback is defined here |
 | **How is the modal restored on open?** | `interface/chat.js` `setModalFromState(state)` — maps `state.<key>` to `$('#settings-<key>').prop('checked', ...)` or `.val(...)` |
 | **How is the value collected on modal close?** | `interface/chat.js` `collectSettingsFromModal()` — reads DOM and returns plain object |

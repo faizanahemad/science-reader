@@ -561,19 +561,20 @@ location /ws/terminal {
 **What it does**
  Adds native, mid-response tool calling to the chat pipeline — the LLM can autonomously invoke tools during a conversation turn.
  87 tools across 13 categories: clarification (1), search (5), documents (14), pkb (16), memory (7), code_runner (1), artefacts (8), prompts (5), conversation (5), cross_conversation (7 — 3 cross-conversation search + 4 tool call history), aggregator (4 — delegate_task, delegate_task_background, get_task_result, list_background_tasks), coding (12 — file system, PDF, image analysis, agent file summary, bash, todos), general (2 — generate_image, transcribe_audio).
- Multi-step agentic loop: up to 5 tool-call iterations per turn, with `tool_choice="none"` on the final iteration to force text output.
+ Multi-step agentic loop: up to 10 tool-call iterations per turn (configurable `max_iterations`), with `tool_choice="none"` on the final iteration to force text output.
  Interactive tools (ask_clarification, pkb_propose_memory) pause streaming, show a Bootstrap modal for user input (MCQ questions or editable proposed claims), wait up to 60s via `threading.Event`, then resume.
  Server-side tools (web search, document lookup, PKB operations, code execution, etc.) execute silently with inline status indicators.
  Master toggle + Bootstrap Select multi-select dropdown with per-tool granularity (11 category optgroups, 58 individual tool options, search filtering, select all/deselect all). **Tool use enabled by default** with `ask_clarification` and `pkb_nl_command` pre-selected via `DEFAULT_ENABLED_TOOLS` (configured in `code_common/tools.py`, enforced in `interface/chat.js` `resetSettingsToDefaults()`). Write-capable categories default to OFF.
  Backward-compatible: when tools disabled (`tools=None`), the entire call stack is unchanged.
- All 58 handlers have real implementations — mirrors the MCP server logic (DocIndex, StructuredAPI, Conversation methods, HTTP delegation for propose_edits/apply_edits/temp_llm_action). Aggregator tool (`delegate_task`) runs a non-streaming sub-agent loop via `run_agent_loop()` in `code_common/agent_tool.py`.
+ All 87 handlers have real implementations — mirrors the MCP server logic (DocIndex, StructuredAPI, Conversation methods, HTTP delegation for propose_edits/apply_edits/temp_llm_action). Aggregator tool (`delegate_task`) runs a non-streaming sub-agent loop via `run_agent_loop()` in `code_common/agent_tool.py`.
  **Search-intent auto-detection**: the frontend automatically injects web search tools (`web_search`, `perplexity_search`, `jina_search`, `jina_read_page`, `read_link`) when the user's message contains search-intent keywords (e.g. "search the web", "google", "latest news about", "find me recent info"). Implemented via `detectSearchIntent()` and `mergeWebSearchTools()` in `common-chat.js` — 27 regex patterns with code-block stripping to avoid false positives. Fail-open: if detection throws, the message sends normally.
 
 **Architecture**
  Tool registry: `code_common/tools.py` — `ToolRegistry`, `ToolDefinition`, `ToolContext`, `ToolCallResult`, `@register_tool` decorator, `TOOL_REGISTRY` singleton, `DEFAULT_ENABLED_TOOLS` list. Agent sub-loop: `code_common/agent_tool.py` — `AGENT_PROFILES`, `AGENT_DEFAULT_MODEL`, `run_agent_loop()`.
  LLM integration: `call_chat_model()` and `call_llm()` accept `tools`/`tool_choice` params; `_extract_text_from_openai_response()` yields both `str` (text) and `dict` (tool_call) from streaming.
- Agentic loop: `Conversation._run_tool_loop()` generator — iterates up to 5 times, executes tools, handles interactive pausing, builds continuation messages. When multiple tool calls are returned in one LLM response, non-interactive tools execute in **parallel** via `ThreadPoolExecutor` (each thread gets a `deepcopy` of `ToolContext` for thread safety), while interactive tools execute sequentially.
- Tool awareness: preamble injection when tools enabled tells the LLM about available tools and **explicitly instructs it to issue multiple tool calls at once** for independent information needs (parallel execution means wall-clock time equals the slowest tool, not the sum).
+ Agentic loop: `Conversation._run_tool_loop()` generator — iterates up to 10 times, executes tools, handles interactive pausing, builds continuation messages. When multiple tool calls are returned in one LLM response, non-interactive tools execute in **parallel** via `ThreadPoolExecutor` (each thread gets a `deepcopy` of `ToolContext` for thread safety), while interactive tools execute sequentially.
+ Tool awareness: preamble injection when tools enabled lists each enabled tool's name+description and **explicitly instructs the LLM to issue multiple tool calls at once** for independent information needs (parallel execution means wall-clock time equals the slowest tool, not the sum). Also injects dynamic document listings into document tool descriptions so the LLM can skip calling list tools.
+ Integration flow: UI selectpicker → `checkboxes.enabled_tools` array in `/reply` payload → `_get_enabled_tools()` resolves to OpenAI `tools` param (supports both array and legacy dict format) → `_inject_dynamic_doc_descriptions()` enriches doc tool descriptions → preamble augmented with tool awareness text → `_run_tool_loop()` enters agentic iteration.
  Interactive sync: `threading.Event` per tool_call_id, `POST /tool_response/<conv_id>/<tool_id>` endpoint unblocks the waiting thread.
  Streaming protocol: extends existing JSON-lines with `tool_call`, `tool_status`, `tool_input_request`, `tool_result` event types.
  Tool call timing: every tool call is timed end-to-end (`tool_exec_duration` for handler execution, `tool_total_duration` including user-wait for interactive tools). Timing appears in `tool_result` streaming events (`duration_seconds` field), inline status pills (`(Xs)` suffix), collapsible `<tool_calls_summary>` blocks (`(N chars, Xs)`), and `time_dict['tool_calls']` (list of `{name, duration_s, result_chars}` dicts in end-of-message YAML).
@@ -607,7 +608,7 @@ location /ws/terminal {
  Tool results not separately persisted — they become part of the conversation messages.
 
 **Key files**
-`code_common/tools.py` — Tool registry + 58 tool definitions with real handlers, `DEFAULT_ENABLED_TOOLS`
+`code_common/tools.py` — Tool registry + 87 tool definitions with real handlers, `DEFAULT_ENABLED_TOOLS`
 `code_common/conversation_search.py` — Shared conversation tool metadata (`CONVERSATION_TOOLS`), BM25 message search index (`MessageSearchIndex`), markdown feature extraction
 `code_common/agent_tool.py` — Agent sub-loop: `AGENT_PROFILES`, `AGENT_DEFAULT_MODEL`, `AGENT_MAX_ITERATIONS`, `AGENT_TOOLS` shared metadata, `run_agent_loop()`
 `code_common/call_llm.py` — `tools`/`tool_choice` passthrough, streaming tool_call parsing
@@ -615,7 +616,7 @@ location /ws/terminal {
 `Conversation.py` — `_get_enabled_tools()`, `_run_tool_loop()`, preamble injection, `reply()` tool branching, `search_messages()`, `list_messages()`, `read_message()`, `get_conversation_details()`, `_index_messages_for_search()`, `message_search_index` in `store_separate`
 `endpoints/conversations.py` — `POST /tool_response` endpoint, thread-safe response store
 `interface/tool-call-manager.js` — `ToolCallManager` singleton (inline status, modal, response submission)
-`interface/interface.html` — Bootstrap Select 1.13.18 CDN, tool settings `<select multiple>` with 11 optgroups and 58 options, `#tool-call-modal`
+`interface/interface.html` — Bootstrap Select 1.13.18 CDN, tool settings `<select multiple>` with 11 optgroups and 87 options, `#tool-call-modal`
 `interface/chat.js`, `interface/common.js`, `interface/common-chat.js` — settings persistence (selectpicker read/write with dual-format legacy support), stream handler, search-intent auto-detection (`detectSearchIntent`, `mergeWebSearchTools`, `SEARCH_INTENT_PATTERNS`), default tool enablement (`computeDefaultStateForTab` with `enable_tool_use: true`)
 `interface/service-worker.js` — cache version bump, precache
 
@@ -1256,6 +1257,56 @@ When "Better context" is enabled (default on for the modal; always on for the `/
 
 ---
 
+## Chat Settings Modal (`#chat-settings-modal`)
+
+Full-screen settings panel accessed via the gear icon in the chat input area. Uses Bootstrap 4 collapse accordion (4 sections, only one open at a time). Settings are persisted per-tab to `localStorage` and applied automatically on modal close.
+
+### Accordion Layout
+
+| Section | Default State | Contents |
+|---------|--------------|----------|
+| **Frequently Used** | Open | Preamble Options (multi-select), Doubt Preamble (multi-select), Main Model (multi-select with single/multi toggle), Agent (single select), History (∅ to ∞ + auto-light/medium/deep), Use Memory Pad, LLM Right-Click Menu, Persist |
+| **Behavior & Memory** | Collapsed | Auto Clarify, Render Close, Compact Nav, Default Temp Chat, Use PKB Memory (+ scope + extraction mode), Auto-save facts, Auto-doubts (+ 5 category checkboxes), OpenCode toggle, Enable Tools (+ 60-tool multi-select with group-header-click-to-select-all), Depth (1-4), Recent Conversations count, Permanent Instructions textarea. Hidden sub-sections: Search & Links, Workflows, Custom Scripts |
+| **Appearance & Preferences** | Collapsed | Highlight.js Code Theme (20 themes + live preview), Auto-Archive (grace period selector + mass archive button) |
+| **Actions** | Collapsed | 15 shortcut buttons that open other modals/features: Delete Last Turn, Clarify, Mem Pad, PKB, Import, User Details, Clear Locks, Artefacts, Code Editor, Prompts, Model Overrides, OpenCode, Terminal, File Browser, Image Generation |
+
+### Persistence Mechanism
+
+- **Storage**: `localStorage` key `${tab}chatSettingsState` (JSON object) where tab ∈ {`chat`, `search`, `finchat`}
+- **Flag**: `ENABLE_SETTINGS_PERSISTENCE = true` at top of `interface/chat.js` — set to `false` for session-only settings
+- **Write trigger**: `persistSettingsStateFromModal()` fires on modal `hidden.bs.modal` event and Apply button click
+- **Read trigger**: `getPersistedSettingsState()` on page load and tab switch
+- **Runtime**: `getOptions('chat-options', 'assistant')` in `interface/common.js` reads directly from DOM (falls back to `window.chatSettingsState` when modal hasn't been opened)
+- **Reset**: "Reset to Defaults" button calls `computeDefaultStateForTab(tab)` and clears localStorage for that tab
+- **In-memory**: Always stored as `window.chatSettingsState` regardless of persistence flag
+
+### State Flow
+
+```
+Page Load → getPersistedSettingsState() → window.chatSettingsState → setModalFromState()
+User modifies → modal close → collectSettingsFromModal() → window.chatSettingsState + localStorage
+Send message → getOptions() → reads DOM (or window.chatSettingsState) → payload.checkboxes
+```
+
+### Mobile Responsiveness
+
+- Modal goes full-width on viewports < 768px (`max-width: 100%`)
+- Touch targets enlarged (min-height 36-38px for checkboxes and buttons)
+- Accordion body padding reduced for compact mobile view
+- Accordion headers use `data-toggle="collapse"` + `data-parent="#settings-accordion"` (Bootstrap 4 native)
+- Chevron icon rotates 180° on expand via CSS transition
+
+### Key Files
+
+| File | Role |
+|------|------|
+| `interface/interface.html` | Modal HTML structure (accordion cards), inline `<script>` for tool-selector initialization, CSS within `<style>` block |
+| `interface/style.css` | Global collapse `::before` rotation rule (excluded for `.settings-accordion-header`) |
+| `interface/chat.js` | `collectSettingsFromModal()`, `setModalFromState()`, `persistSettingsStateFromModal()`, `getPersistedSettingsState()`, `computeDefaultStateForTab()`, `clearAllPersistedSettings()` |
+| `interface/common.js` | `getOptions()` — reads settings from DOM at send-time |
+
+---
+
 ## UI shell caching (Service Worker)
 
 The web UI registers a Service Worker to cache the app shell (JS/CSS/icons) so that reopening the interface does not re-download the same assets.
@@ -1469,9 +1520,9 @@ The extension uses two categories of endpoints:
 ---
 
 ## File Browser & Editor
-Full-screen modal file browser and code editor accessible from the chat-settings-modal **Actions** tab. Intended for server-side file management without leaving the chat interface.
+Full-screen modal file browser and code editor accessible from the chat-settings-modal **Actions** accordion section. Intended for server-side file management without leaving the chat interface.
 
-**Entry point**: Settings → Actions tab → **File Browser** button.
+**Entry point**: Settings → Actions section → **File Browser** button.
 **What it does**
  Displays a VS Code-like file tree of the server's working directory (lazy-loaded, depth-first expansion).
  Opens files in a CodeMirror 5 editor with syntax highlighting (Python, JS, TS, CSS, HTML, XML, Markdown, JSON).
