@@ -3016,6 +3016,43 @@ $(document).on('click', '.starred-msg-back', function (e) {
     $('#starred-messages-btn').trigger('click');
 });
 
+// --- Auto-Archive Settings ---
+$(document).on('shown.bs.modal', '#chat-settings-modal', function () {
+    $.get('/get_auto_archive_setting', function (data) {
+        $('#auto-archive-grace-select').val(String(data.auto_archive_grace_days || 90));
+    });
+});
+
+$(document).on('change', '#auto-archive-grace-select', function () {
+    var val = parseInt($(this).val(), 10);
+    $.ajax({ url: '/set_auto_archive_setting', type: 'POST', contentType: 'application/json', data: JSON.stringify({ auto_archive_grace_days: val }) });
+});
+
+$(document).on('click', '#mass-archive-btn', function () {
+    if (!confirm('This will archive all stale conversations based on your grace period setting. Proceed?')) return;
+    var domain = (typeof currentDomain !== 'undefined' && currentDomain) ? currentDomain['domain'] : 'assistant';
+    var btn = $(this);
+    btn.prop('disabled', true).text('Archiving...');
+    $.ajax({
+        url: '/auto_archive_all/' + domain,
+        type: 'POST',
+        success: function (data) {
+            btn.prop('disabled', false).html('<i class="fa fa-archive"></i> Archive Stale Conversations');
+            var count = data.count || 0;
+            if (typeof showToast === 'function') {
+                showToast(count + ' conversation' + (count !== 1 ? 's' : '') + ' archived', count > 0 ? 'success' : 'info');
+            }
+            if (count > 0 && typeof WorkspaceManager !== 'undefined') {
+                WorkspaceManager.loadConversationsWithWorkspaces(false);
+            }
+        },
+        error: function () {
+            btn.prop('disabled', false).html('<i class="fa fa-archive"></i> Archive Stale Conversations');
+            if (typeof showToast === 'function') showToast('Mass archive failed', 'error');
+        }
+    });
+});
+
 function getConversationIdFromUrl(url) {  
     const path = url ? new URL(url).pathname : window.location.pathname;
     const pathParts = path.split('/');  

@@ -1559,6 +1559,140 @@ def archive_conversation(conversation_id: str):
     return jsonify({"success": True, "archived": conversation.archived}), 200
 
 
+@conversations_bp.route("/get_auto_archive_setting", methods=["GET"])
+@limiter.limit("100 per minute")
+@login_required
+def get_auto_archive_setting():
+    """Get user's auto_archive_grace_days setting from user_preferences JSON."""
+    email, _name, _loggedin = get_session_identity()
+    state = get_state()
+    from database.users import getUserFromUserDetailsTable
+    user = getUserFromUserDetailsTable(email, users_dir=state.users_dir, logger=logger)
+    grace_days = 90  # default
+    if user and user.get("user_preferences"):
+        try:
+            prefs = json.loads(user["user_preferences"])
+            if isinstance(prefs, dict):
+                grace_days = prefs.get("auto_archive_grace_days", 90)
+        except (json.JSONDecodeError, TypeError):
+            pass
+    return jsonify({"auto_archive_grace_days": grace_days})
+
+
+@conversations_bp.route("/set_auto_archive_setting", methods=["POST"])
+@limiter.limit("30 per minute")
+@login_required
+def set_auto_archive_setting():
+    """Set user's auto_archive_grace_days in user_preferences JSON."""
+    email, _name, _loggedin = get_session_identity()
+    state = get_state()
+    from database.users import getUserFromUserDetailsTable, updateUserInfoInUserDetailsTable
+    value = request.json.get("auto_archive_grace_days", 90) if request.is_json else 90
+    if value not in (0, 30, 60, 90, 180):
+        value = 90
+    user = getUserFromUserDetailsTable(email, users_dir=state.users_dir, logger=logger)
+    prefs = {}
+    if user and user.get("user_preferences"):
+        try:
+            prefs = json.loads(user["user_preferences"])
+            if not isinstance(prefs, dict):
+                prefs = {}
+        except (json.JSONDecodeError, TypeError):
+            prefs = {}
+    prefs["auto_archive_grace_days"] = value
+    updateUserInfoInUserDetailsTable(email, user_preferences=json.dumps(prefs), users_dir=state.users_dir, logger=logger)
+    return jsonify({"success": True, "auto_archive_grace_days": value})
+
+
+@conversations_bp.route("/auto_archive_all/<domain>", methods=["POST"])
+@limiter.limit("5 per minute")
+@login_required
+def auto_archive_all(domain: str):
+    """Mass archive all stale conversations (no cap). Returns count + IDs."""
+    domain = domain.strip().lower()
+    email, _name, _loggedin = get_session_identity()
+    keys = keyParser(session)
+    state = get_state()
+
+    from database.users import getUserFromUserDetailsTable
+    user = getUserFromUserDetailsTable(email, users_dir=state.users_dir, logger=logger)
+    grace_days = 90
+    if user and user.get("user_preferences"):
+        try:
+            prefs = json.loads(user["user_preferences"])
+            if isinstance(prefs, dict):
+                grace_days = prefs.get("auto_archive_grace_days", 90)
+        except (json.JSONDecodeError, TypeError):
+            pass
+    if grace_days <= 0:
+        return jsonify({"success": True, "count": 0, "archived_ids": []})
+
+    from database.conversations import getCoversationsForUser
+    conv_db = getCoversationsForUser(email, domain, users_dir=state.users_dir)
+    conversations = [state.conversation_cache[c[1]] for c in conv_db]
+    conversations = [c for c in conversations if c is not None and c.domain == domain and not c.archived and not c.stateless]
+
+    # Reuse _run_auto_archival logic but with no cap
+    from database.pinned_messages import get_pinned_messages as db_get_pins
+    from database.similarity_cache import get_all_cached, upsert_cache
+    from utils.auto_archival import compute_staleness
+    from utils.text_similarity import tokenize, compute_title_summary_hash
+
+    now = datetime.now()
+    pinned_conv_ids = set()
+    for c in conversations:
+        try:
+            if db_get_pins(c.conversation_id, users_dir=state.users_dir):
+                pinned_conv_ids.add(c.conversation_id)
+        except Exception:
+            pass
+
+    conv_data = []
+    for c in conversations:
+        try:
+            meta = c.get_metadata()
+            msg_count = len(c.get_message_list())
+            conv_data.append((c, meta, msg_count))
+        except Exception:
+            continue
+
+    all_conv_ids = [c.conversation_id for c in conversations]
+    cache_map = get_all_cached(all_conv_ids, users_dir=state.users_dir)
+
+    # Update cache
+    for c, meta, _ in conv_data:
+        title = meta.get("title", "")
+        summary = meta.get("summary_till_now", "")
+        current_hash = compute_title_summary_hash(title, summary)
+        cached = cache_map.get(c.conversation_id)
+        if cached is None or cached.get("title_summary_hash") != current_hash:
+            tokens = tokenize(title + " " + (summary or "")[:200])
+            upsert_cache(c.conversation_id, current_hash, bm25_tokens=tokens, users_dir=state.users_dir)
+            cache_map[c.conversation_id] = {"conversation_id": c.conversation_id, "title_summary_hash": current_hash, "bm25_tokens": tokens, "embedding": cached.get("embedding") if cached else None}
+
+    all_conv_tokens = []
+    for c, meta, _ in conv_data:
+        cached = cache_map.get(c.conversation_id, {})
+        lu_str = meta.get("last_updated", "")
+        try:
+            lu = datetime.strptime(lu_str, "%Y-%m-%d %H:%M:%S") if lu_str else now
+        except ValueError:
+            lu = now
+        all_conv_tokens.append((c.conversation_id, cached.get("bm25_tokens", []), lu, cached.get("embedding")))
+
+    archived_ids = []
+    for c, meta, msg_count in conv_data:
+        is_stale, reason = compute_staleness(meta, msg_count, all_conv_tokens, cache_map, pinned_conv_ids, grace_days=grace_days, now=now)
+        if is_stale:
+            c._archived = True
+            c._archive_source = "auto"
+            threading.Thread(target=c.save_local, daemon=True).start()
+            archived_ids.append(c.conversation_id)
+            logger.info("Mass auto-archived %s: %s", c.conversation_id, reason)
+
+    return jsonify({"success": True, "count": len(archived_ids), "archived_ids": archived_ids})
+
+
 @conversations_bp.route("/pin_message/<conversation_id>/<message_id>", methods=["POST"])
 @limiter.limit("100 per minute")
 @login_required
@@ -1731,11 +1865,16 @@ def list_conversation_by_user(domain: str):
 
     # --- Auto-archival pass (throttled to once per hour) ---
     auto_archived_ids = []
-    grace_days_param = request.args.get("auto_archive_grace_days", "90")
-    try:
-        grace_days = int(grace_days_param)
-    except (ValueError, TypeError):
-        grace_days = 90
+    grace_days = 90
+    from database.users import getUserFromUserDetailsTable
+    _user_row = getUserFromUserDetailsTable(email, users_dir=state.users_dir, logger=logger)
+    if _user_row and _user_row.get("user_preferences"):
+        try:
+            _uprefs = json.loads(_user_row["user_preferences"])
+            if isinstance(_uprefs, dict):
+                grace_days = _uprefs.get("auto_archive_grace_days", 90)
+        except (json.JSONDecodeError, TypeError):
+            pass
 
     if grace_days > 0 and (time.time() - _last_auto_archive_run) >= 3600:
         auto_archived_ids = _run_auto_archival(conversations, grace_days, state.users_dir)

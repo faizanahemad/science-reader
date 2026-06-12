@@ -3218,6 +3218,34 @@ greet("World");</code></pre>
 
                             
                         </div>
+
+                        <!-- Auto-Archive Settings -->
+                        <div class="row mb-4">
+                            <div class="col-12">
+                                <h6 class="text-primary mb-3"><i class="fa fa-archive"></i> Auto-Archive</h6>
+                                <div class="row">
+                                    <div class="col-md-4">
+                                        <div class="form-group">
+                                            <label for="auto-archive-grace-select" class="form-label"><strong>Auto-archive after</strong></label>
+                                            <select class="form-control" id="auto-archive-grace-select">
+                                                <option value="0">Never</option>
+                                                <option value="30">30 days</option>
+                                                <option value="60">60 days</option>
+                                                <option value="90" selected>90 days</option>
+                                                <option value="180">180 days</option>
+                                            </select>
+                                            <small class="text-muted">Stale conversations are auto-archived based on last activity</small>
+                                        </div>
+                                    </div>
+                                    <div class="col-md-4 d-flex align-items-end">
+                                        <button class="btn btn-outline-warning btn-sm mb-3" id="mass-archive-btn">
+                                            <i class="fa fa-archive"></i> Archive Stale Conversations
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                     </div>
                 </div>
                 <div class="modal-footer" style="border-top: 1px solid #ddd;">
