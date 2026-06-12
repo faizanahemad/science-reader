@@ -1,6 +1,6 @@
 # Smart Auto-Archival
 
-**Status: PLANNED** (June 2026)
+**Status: DONE** (June 2026)
 
 ## Motivation and Background
 

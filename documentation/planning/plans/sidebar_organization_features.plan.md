@@ -437,3 +437,6 @@ var starBtn = '<button class="btn btn-sm msg-pin-btn" data-message-id="' + msgId
 - **Pin endpoint location**: Added to `endpoints/conversations.py` instead of a new file — simpler, follows existing pattern
 - **Context menu for archived**: `_showContextMenuAtPosition` helper extracts common positioning logic used by Archived section and Time View
 - **Archived in jsTree**: When "Show Archived" active, archived conversations appear in their workspace folders with dimmed/italic styling AND in the separate Archived group at bottom
+
+### Related: Smart Auto-Archival
+Full-featured auto-archival system built on top of the manual archive infrastructure above. See `documentation/planning/plans/smart_auto_archival.plan.md` for design, Q&A decisions, and implementation details.
