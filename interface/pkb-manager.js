@@ -597,9 +597,19 @@ var PKBManager = (function() {
      * @returns {string} HTML for the claim card
      */
     function renderClaimCard(claim) {
-        var statusClass = claim.status === 'contested' ? 'border-warning' : '';
-        var contestedBadge = claim.status === 'contested' ? 
-            '<span class="badge badge-warning ml-2">Contested</span>' : '';
+        var statusClass = claim.status === 'contested' ? 'border-warning' :
+                          (claim.status !== 'active' ? 'border-secondary' : '');
+        var statusBadge = '';
+        var statusBadges = {
+            'contested': '<span class="badge badge-warning ml-2">Contested</span>',
+            'superseded': '<span class="badge badge-secondary ml-2">Superseded (duplicate merged)</span>',
+            'retracted': '<span class="badge badge-danger ml-2">Retracted</span>',
+            'expired': '<span class="badge badge-dark ml-2">Expired</span>',
+            'dormant': '<span class="badge badge-info ml-2">Dormant</span>',
+            'historical': '<span class="badge badge-secondary ml-2">Historical</span>',
+            'draft': '<span class="badge badge-light ml-2">Draft</span>',
+        };
+        statusBadge = statusBadges[claim.status] || '';
         
         // Check if claim is pinned
         var isPinned = isClaimPinned(claim);
@@ -634,7 +644,7 @@ var PKBManager = (function() {
                         friendlyIdBadge +
                         renderClaimTypeBadge(claim.claim_type) + ' ' +
                         '<span class="badge badge-outline-secondary">' + claim.context_domain + '</span>' +
-                        contestedBadge +
+                        statusBadge +
                         pinnedBadge +
                         renderProvenanceBadge(claim) +
                     '</small>' +
