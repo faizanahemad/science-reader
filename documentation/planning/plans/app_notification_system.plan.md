@@ -64,6 +64,7 @@ The PKB notification system (v14) solved this for knowledge-base events. The app
 | Document indexing failure | ✓ | Only on failure (success obvious from UI) |
 | PKB unread link card | ✓ | "N PKB items — Open PKB" in dropdown |
 | Auto-context degradation | ✓ | 1 per conversation per session |
+| Auto-archival (conversations) | ✓ | "N conversations auto-archived" with undo action. Batched per sweep (max 5/run). |
 | ask_clarification tool | ✗ | Already has modal (real-time, blocks stream) |
 | STM→LTM promotion | ✗ | Goes to PKB notifications (knowledge-base event) |
 | Stale/expired conversations | ✗ | Rare edge case: temp chat expired while away, just shows toast. Not worth persisting. |
@@ -159,6 +160,7 @@ CREATE INDEX IF NOT EXISTS idx_app_notif_user_active
 | `doubts_ready` | low | `endpoints/conversations.py` | "View" |
 | `doc_index_failed` | medium | doc indexing endpoints | "Retry" |
 | `auto_context_degraded` | low | `code_common/auto_context.py` | None |
+| `conversations_archived` | low | `utils/auto_archival.py` via list_conversation_by_user | "Undo" |
 | `system_error` | medium | various | None |
 
 ---
@@ -288,6 +290,32 @@ if not existing:
     )
 ```
 
+### 5.5 Conversations Auto-Archived (`utils/auto_archival.py`)
+
+After auto-archival sweep archives conversations (max 5 per run, triggered by `list_conversation_by_user`). Batched into a single notification per sweep:
+```python
+# In the auto-archival sweep, after archiving N conversations:
+if archived_count > 0:
+    names = [c.title[:40] for c in archived_conversations[:3]]
+    body = ", ".join(names)
+    if archived_count > 3:
+        body += f" + {archived_count - 3} more"
+    create_app_notification(
+        user_email=user_email,
+        category="conversations_archived",
+        title=f"{archived_count} conversation{'s' if archived_count > 1 else ''} auto-archived",
+        body=body,
+        priority="low",
+        action_label="Undo",
+        action_data=json.dumps({
+            "conversation_ids": [c.id for c in archived_conversations],
+            "archive_source": "auto",
+        }),
+    )
+```
+
+The "Undo" action calls `POST /archive_conversation/<id>` (toggle) for each conversation in the batch.
+
 ---
 
 ## 6. UI Design
@@ -414,6 +442,13 @@ The two systems are independent. The header bell queries both:
 
 Badge total = app_count + pkb_count (both unseen).
 
+### Coexistence with existing toasts
+
+Several features already show ephemeral toasts (auto-archival toast+undo, auto-doubts pulse, doc indexing progress). The persistent notification system **supplements** these, not replaces:
+- **Auto-archival**: Toast+undo fires immediately during the session. Persistent notification is the fallback if user misses the toast (e.g. switched tabs during the sweep).
+- **Auto-doubts**: Pulse animation is the primary signal. Persistent notification catches the case where user wasn't looking.
+- **Doc indexing**: SSE progress is primary. Notification only for failures.
+
 ---
 
 ## 9. Constants
@@ -423,7 +458,7 @@ APP_NOTIFICATION_EXPIRY_DAYS = 7
 APP_NOTIFICATION_CATEGORIES = (
     "background_task_done", "background_task_error",
     "doubts_ready", "doc_index_failed",
-    "auto_context_degraded", "system_error",
+    "auto_context_degraded", "conversations_archived", "system_error",
 )
 APP_NOTIFICATION_POLL_INTERVAL_MS = 30000
 ```
