@@ -1639,10 +1639,11 @@ Pure function that routes a candidate claim to SAVE/CONFIRM/SKIP.
 **`pkb_user_settings`** — per-user autonomy config (email PK, settings_json, timestamps).
 
 **`pkb_activity_log`** — auditable record of auto-saves for undo:
-- `activity_id` (UUID), `user_email`, `action`, `facet`, `object_type`, `object_id`, `source`, `undo_data_json`, `undone_at`, `expires_at`, `created_at`
+- `activity_id` (UUID), `user_email`, `action`, `facet`, `object_type`, `object_id`, `source`, `session_id`, `undone_at`, `expires_at`, `created_at`
+- `session_id` groups entries by conversation for per-session undo.
 - 24h tombstone window for undo.
 
-**StructuredAPI methods:** `get_user_settings`/`set_user_settings`, `log_activity`, `undo_activity`, `get_recent_activity`.
+**StructuredAPI methods:** `get_user_settings`/`set_user_settings`, `log_activity` (with session_id), `undo_activity`, `get_recent_activity`, `get_auto_save_rate(days)`.
 
 **Files:** `truth_management_system/schema.py` (v13), `database.py`, `structured_api.py`, `tests/test_pkb_user_settings.py` (15 tests), `tests/test_pkb_activity_log.py` (11 tests)
 
@@ -1659,15 +1660,18 @@ Pure function that routes a candidate claim to SAVE/CONFIRM/SKIP.
 - `text_ingestion.py` — `ingest_and_propose()` routing block
 - Both include try/except → fallback to CONFIRM on error
 
-**REST surface (4 new endpoints):**
+**REST surface (5 new endpoints):**
 - `GET /pkb/memory/policy` — user's autonomy level + effective policy
 - `PUT /pkb/memory/policy` — update autonomy + overrides
-- `POST /pkb/memory/undo` — undo auto-saved claims by activity_id
+- `POST /pkb/memory/undo` — undo auto-saved claims by activity_id (supports per-session via session_id)
 - `GET /pkb/memory/recent_auto` — list recent auto-saves for review
+- `GET /pkb/memory/auto_save_rate?days=30` — eval gate metric (wrong-auto-save rate)
 
 **MCP surface (2 new tools):**
 - `pkb_get_policy` — read autonomy + policy
 - `pkb_undo_auto_saves` — undo by activity_ids
+
+**Telemetry:** Structured log `tiered:summary save=%d confirm=%d skip=%d total=%d` per routing pass + per-candidate log with gate/confidence. Activity log carries `session_id` for per-conversation grouping.
 
 **Provenance:** All MCP writes now tagged `channel="mcp"`, `derivation="inferred"` by default (ProvenanceChannel.MCP enum added).
 

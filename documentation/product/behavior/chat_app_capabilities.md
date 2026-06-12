@@ -798,15 +798,22 @@ The backend resolver (`resolve_reference()`) uses suffix-based routing for fast 
 **API surface:**
 - `GET /pkb/memory/policy` — read current policy
 - `PUT /pkb/memory/policy` — update autonomy level
-- `POST /pkb/memory/undo` — undo auto-saves by activity_id
-- `GET /pkb/memory/recent_auto` — review list
+- `POST /pkb/memory/undo` — undo auto-saves by activity_id (supports per-session grouping via session_id)
+- `GET /pkb/memory/recent_auto` — review list (grouped by session)
+- `GET /pkb/memory/auto_save_rate?days=30` — eval gate metric (wrong-auto-save rate)
 - MCP tools: `pkb_get_policy`, `pkb_undo_auto_saves`
+
+**Telemetry & monitoring:**
+- Structured log line per routing pass: `tiered:summary save=N confirm=N skip=N total=N` (lane-mix ratio for dashboards)
+- Per-candidate log: gate name, confidence, statement excerpt
+- Activity log with `session_id` for per-conversation undo grouping
+- Wrong-auto-save rate endpoint for eval gate (target < 3%)
 
 **MCP provenance:** External agent writes are tagged `channel="mcp"`, `derivation="inferred"` by default. Agents default to accept-all (autonomy 100) — safety comes from mandatory provenance + 24h reversibility, not from blocking.
 
 **Confidence calibration:** Extraction prompts score 4 aspects (explicitness, stability, clarity, usefulness) on a 1–10 anchored rubric; final confidence = mean/10.
 
-**Key files:** `truth_management_system/autonomy.py`, `routing.py`, `config.py` (tiered_persistence_enabled), `schema.py` (v13), `endpoints/pkb.py` (4 endpoints), `mcp_server/pkb.py` (2 tools)
+**Key files:** `truth_management_system/autonomy.py`, `routing.py`, `config.py` (tiered_persistence_enabled), `schema.py` (v13), `endpoints/pkb.py` (5 endpoints), `mcp_server/pkb.py` (2 tools)
 
 **Differentiator addendum:** No comparable chat system offers a user-tunable autonomy dial that smoothly transitions between full-manual and full-automatic memory with per-signal routing, auditable decisions, and reversible auto-saves.
 

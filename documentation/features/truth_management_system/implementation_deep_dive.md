@@ -4239,10 +4239,11 @@ route_candidate(candidate, policy, match_result):
 
 ### Activity Log & Undo
 
-- Every auto-save writes to `pkb_activity_log` with `action="auto_save"`.
+- Every auto-save writes to `pkb_activity_log` with `action="auto_save"` and `session_id` (= source_conversation_id).
 - 24h tombstone window: undo is available within `expires_at` (created_at + 24h).
 - `undo_activity(id)` reverses the action and marks `undone_at`.
-- Review surface: `GET /pkb/memory/recent_auto` returns recent auto-saves for user review.
+- Per-session grouping: `session_id` enables "undo all auto-saves from this conversation" by filtering activity entries.
+- Review surface: `GET /pkb/memory/recent_auto` returns recent auto-saves for user review (includes session_id for grouping).
 
 ### MCP Provenance
 
@@ -4256,7 +4257,22 @@ All external agent writes via MCP are tagged:
 Before enabling the feature flag:
 - **Primary metric:** wrong-auto-save rate < 3% (auto-saves user undoes / total auto-saves)
 - **Secondary:** friction reduction (% of candidates no longer requiring modal), recall lift
-- Computable from: activity log entries (auto_save vs undo events)
+- **Endpoint:** `GET /pkb/memory/auto_save_rate?days=30` → `{"total_auto_saves": N, "undone_count": M, "wrong_auto_save_rate": 0.02, "days": 30}`
+- Computable from: activity log entries (`action='auto_save'` vs `undone_at IS NOT NULL`)
+
+### Telemetry & Monitoring
+
+**Structured log lines (grep-able for dashboards):**
+- `tiered:summary save=%d confirm=%d skip=%d total=%d` — emitted after every routing pass (lane-mix ratio)
+- `tiered:auto_save gate=%s conf=%.2f <statement>` — per auto-saved candidate
+- `tiered:skip gate=%s conf=%.2f <statement>` — per skipped candidate
+
+**Activity log fields for analytics:**
+- `session_id` — groups auto-saves by conversation/session for per-session undo and cohort analysis
+- `action='auto_save'` + `undone_at` — enables wrong-auto-save rate computation
+- `source` — distinguishes `distillation` vs `text_ingestion` origin
+
+**Per-session undo:** Activity log entries carry `session_id` (= `source_conversation_id`). The undo endpoint accepts activity_ids filtered by session, enabling "undo all auto-saves from this conversation" in the UI.
 
 ### REST & MCP Endpoints
 
@@ -4266,6 +4282,7 @@ Before enabling the feature flag:
 | `/pkb/memory/policy` | PUT | Update autonomy level + overrides |
 | `/pkb/memory/undo` | POST | Undo auto-saved claims by activity_ids |
 | `/pkb/memory/recent_auto` | GET | List recent auto-saves for review |
+| `/pkb/memory/auto_save_rate` | GET | Eval gate metric (wrong-auto-save rate) |
 | `pkb_get_policy` (MCP) | — | Read policy |
 | `pkb_undo_auto_saves` (MCP) | — | Undo auto-saves |
 
