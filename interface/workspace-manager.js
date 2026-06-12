@@ -117,10 +117,12 @@ var WorkspaceManager = {
             try { localStorage.setItem(self._timeViewKey(), String(self._timeViewActive)); } catch (_e) {}
             if (self._timeViewActive) {
                 $('#workspaces-container').hide();
+                $('#recent-conversations-section').hide();
                 $('#time-view-container').show();
                 self.renderTimeView();
             } else {
                 $('#time-view-container').hide();
+                $('#recent-conversations-section').show();
                 $('#workspaces-container').show();
                 self.highlightActiveConversation(ConversationManager.activeConversationId);
             }
@@ -577,6 +579,7 @@ var WorkspaceManager = {
         if (this._timeViewActive) {
             $('#sidebar-view-toggle').find('i').removeClass('fa-clock-o').addClass('fa-folder-o');
             $('#workspaces-container').hide();
+            $('#recent-conversations-section').hide();
             $('#time-view-container').show();
         }
     },
