@@ -921,15 +921,29 @@ var WorkspaceManager = {
         var self = this;
         var data = [];
 
+        // Compute recursive conversation counts per workspace
+        var directCount = {};
+        Object.values(this.workspaces).forEach(function (ws) {
+            directCount[ws.workspace_id] = (convByWs[ws.workspace_id] || []).length;
+        });
+        function getRecursiveCount(wsId) {
+            var total = directCount[wsId] || 0;
+            Object.values(self.workspaces).forEach(function (ws) {
+                if (ws.parent_workspace_id === wsId) total += getRecursiveCount(ws.workspace_id);
+            });
+            return total;
+        }
+
         // Build workspace nodes (with parent pointers for jsTree)
         Object.values(this.workspaces).forEach(function (ws) {
             var displayName = self.getWorkspaceDisplayName(ws);
-            var convCount = (convByWs[ws.workspace_id] || []).length;
+            var totalCount = getRecursiveCount(ws.workspace_id);
             var parentNodeId = ws.parent_workspace_id ? ('ws_' + ws.parent_workspace_id) : '#';
+            var badgeHtml = totalCount > 0 ? ' <span class="ws-count-badge">' + totalCount + '</span>' : '';
             data.push({
                 id: 'ws_' + ws.workspace_id,
                 parent: parentNodeId,
-                text: displayName + (convCount > 0 ? ' (' + convCount + ')' : ''),
+                text: displayName + badgeHtml,
                 type: 'workspace',
                 state: { opened: false },
                 li_attr: { 'data-workspace-id': ws.workspace_id, 'data-color': ws.color },
