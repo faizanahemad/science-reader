@@ -724,6 +724,9 @@ textarea.form-control.dynamic-textarea {
 [data-toggle="collapse"].collapsed::before {
     transform: rotate(90deg);
 }
+[data-toggle="collapse"].settings-accordion-header::before {
+    content: none;
+}
 
 .nav-link {
     padding: 0.1rem 0.5rem;
