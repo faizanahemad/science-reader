@@ -21,7 +21,7 @@
 | G5 | **Reversibility-ordered** | Automation turns on in order of reversibility/trust-cost as the dial rises (safest first) |
 | G6 | **Legible** | The user can see exactly what each dial level does (live "what changes" preview) and override any facet |
 | G7 | **Per-user, cross-surface** | The same policy governs UI, REST, and MCP; resolved from the authenticated identity |
-| G8 | **Inert-by-default, eval-gated** | Ships with today's behavior as the default; new automation is flipped on only after evaluation |
+| G8 | **Dev-inert, eval-gated, Balanced GA default** | Code lands inert (no behavior change during development); the **GA default for users is Balanced (50)**, switched on only after the per-facet eval gate passes. Users who never touch the dial get Balanced once GA'd; the dial can always be set back to Manual (0) for fully-manual behavior |
 | G9 | **Transparent provenance** | Every automated action records why/when/by-which-policy; a unified activity/undo log exists |
 
 ### Non-goals
@@ -106,9 +106,12 @@ Five labeled detents. Cells show the effective behavior; numbers become the `der
 | Dormancy decay | off | off | gentle | on | aggressive |
 | Background sweep interval | off | 24h | 12h | 6h | 1h |
 | Hard expiry (valid_to passed) | propose | propose | auto | auto | auto |
-| Conflict resolution | manual | manual | manual | assisted (propose winner) | auto + undo |
+| Conflict resolution | manual | manual | manual | assisted (propose winner) | auto-pick winner (recency/confidence) + notify |
+| Update/supersede existing claim | confirm | low-risk* auto | low-risk* auto | non-sensitive confident auto | auto + undo |
 | Enrichment (entities/tags) | on-demand | auto | auto | auto | auto |
 | Overview refresh | manual | on demand | periodic | periodic | continuous |
+
+**\*low-risk** (for silent edits/updates): the change is to a non-sensitive domain, the candidate is `stated`/`extracted` (not `inferred`), confidence is high, and it is not a conflict — i.e. it passes the same safety floor as a silent add. Risky updates (sensitive, inferred, conflicting) always confirm below Full and notify+undo at Full.
 
 **Detent semantics:**
 - **0 Manual:** read/propose only. No background sweep, no decay, no auto-merge, no silent save. The PKB never mutates without a user click.
@@ -140,7 +143,7 @@ effective_config_field =
 ## 6. Per-User Policy Store & Config Resolution (architectural change)
 
 ### 6.1 Policy store (new)
-Add a per-user settings row in the TMS DB (e.g. `pkb_user_settings(email TEXT PRIMARY KEY, memory_autonomy INT, facet_overrides JSON, updated_at)`). Read/write via `StructuredAPI` (and exposed over REST/MCP). Defaults: row absent ⇒ autonomy = `default_autonomy` (ships as 0/Manual to preserve current behavior under G8).
+Add a per-user settings row in the TMS DB (e.g. `pkb_user_settings(email TEXT PRIMARY KEY, memory_autonomy INT, facet_overrides JSON, updated_at)`). Read/write via `StructuredAPI` (and exposed over REST/MCP). Defaults: row absent ⇒ autonomy = `default_autonomy`. During development this is **0** (dev-inert, behavior identical to today); the **GA default is 50/Balanced** (flipped via the `default_autonomy` config once the eval gate passes — G8). External MCP/agent callers default to **100** (see §7.3), regardless of the human default.
 
 ### 6.2 Effective config in `for_user` (the key change)
 `for_user(email)` currently passes the shared `config`. Change it to compute an **effective config**: load the user's policy, run `derive_policy`, overlay onto the base `PKBConfig` (reuse `PKBConfig.from_dict` + a merge), and pass that per-user config into the scoped `StructuredAPI`. Cache per email to avoid recompute. This localizes the entire change to one method + the resolver.
@@ -171,9 +174,10 @@ Add a per-user settings row in the TMS DB (e.g. `pkb_user_settings(email TEXT PR
 - **Back-compat:** autonomy 0 / flag off ⇒ all responses identical to today.
 
 ### 7.3 MCP (external agents)
-- Tools resolve the **same per-user policy** from the JWT identity. Writes honor the dial; an agent gets `auto_saved` (with `undo_token`s) + `pending_confirmation`.
-- Per-call override `autonomy`/`confirmation_mode` allowed, but **invariants I3 are server-enforced** — a client cannot push past the safety floor.
-- Tools: `pkb_get_policy` / `pkb_set_policy`, `pkb_memory_activity`, `pkb_undo` — so an agent can manage autonomy on the user's behalf.
+- **External agents default to autonomy 100 (accept-all).** A non-interactive agent has no human to confirm with mid-task, so writes are accepted automatically — but this is made safe by **mandatory provenance tagging** (next bullet) plus full reversibility and the activity log. The agent still *receives* `auto_saved` (with `undo_token`s) so it can surface or undo.
+- **Mandatory provenance for agent writes (decision 2026-06-12):** every claim an agent creates/edits is tagged so it is never mistaken for user-curated truth and can be filtered/down-weighted: `source.channel = "mcp"`, `source.agent = <token identity / agent name>`, `origin = "auto"`, and `derivation = "inferred"` by default (an agent asserting on the user's behalf is an inference, not a user statement) unless the agent explicitly passes `derivation="stated"` with evidence. Retrieval/ranking may down-weight `derivation=inferred` + agent-sourced claims so they don't overpower user-stated memories.
+- Per-call override `autonomy`/`confirmation_mode` allowed, but **invariants I1–I3 are server-enforced** — even at 100, conflicts/sensitive/deletes are logged + notified (surfaced in the response) and reversible; nothing is silently lost.
+- Tools: `pkb_get_policy` / `pkb_set_policy`, `pkb_memory_activity`, `pkb_undo` — so an agent (or its user) can inspect, adjust autonomy, review agent-added memories, and undo.
 
 ---
 
@@ -189,11 +193,12 @@ Automation is only acceptable if it's fully traceable:
 
 ## 9. Implementation Plan (phases, tasks, milestones)
 
-### Phase A — Foundations (no behavior change; default Manual)
+### Phase A — Foundations (no behavior change; default Manual during dev)
+- **A0 (audit)** Audit that nothing bypasses per-user config resolution: grep/trace every reader of `PKBConfig` (esp. cached/long-lived objects — `get_pkb_db`'s shared config, the scheduler's held config, `EmbeddingStore`, any module-level singletons) to confirm they read the per-user *effective* config produced by `for_user`, not the shared base. Document the readers; fix any that bypass. **Blocks A3 sign-off.**
 - **A1** Per-user policy store: `pkb_user_settings` table + `StructuredAPI` get/set methods.
 - **A2** `derive_policy(autonomy, overrides) → dict` pure function + the band table + exhaustive unit tests (incl. invariants I4/I5 and the safety floor).
 - **A3** Effective-config resolution in `for_user` (overlay + per-email cache).
-- **A4** Activity-log table + write helper; undo helper (retract/restore) + `POST /pkb/memory/undo`.
+- **A4** Activity-log table + write helper; undo helper (retract/restore); `POST /pkb/memory/undo`. **Undo window = 24h tombstone** (decision 2026-06-12): an auto-action is hard-reversible for 24h via a tombstone record (the created claim / applied merge / decay can be fully undone, restoring prior state); after 24h the action is finalized (undo becomes a normal manual edit/retract, not a clean restore).
 - **Gate:** full TMS suite green; `default_autonomy=0` ⇒ identical behavior.
 
 ### Phase B — Capture facet (the tiered persistence plan)
@@ -204,6 +209,7 @@ Automation is only acceptable if it's fully traceable:
 - **C2** Conflict resolution: at Proactive, propose a winner; at Full, auto-resolve with undo (never silently at lower levels — I3).
 
 ### Phase D — Lifecycle facet
+- **D0 (verify)** Confirm a working **restore** path exists for lifecycle transitions before auto-decay/expiry is allowed: that `dormant → active` and `expired → active` (and retract → active) operations exist, are exposed, and that a restored claim **re-enters retrieval** (FTS + embedding + ranking). If any restore path is missing, build it. This is the prerequisite for I2 (reversibility) on the Lifecycle facet — auto-decay/expiry must not ship until restore is proven by an integration test.
 - **D1** Dial drives `dormancy_threshold`, `sweep_interval_seconds`, hard-expiry auto-vs-propose, `reinforce_alpha`.
 - **D2** Scheduler made policy-aware (§6.3 v1: finest active interval, per-user sweep).
 
@@ -274,14 +280,17 @@ Automation is only acceptable if it's fully traceable:
 
 ## 13. Open Questions
 
-1. **Shipped default** once mature — keep Manual (0) and force a choice on first use, or default Balanced (50)?
-2. **Granularity** — 5 detents only, or continuous 0–100 with detents as snap points?
-3. **Per-domain dial** — should sensitive domains (health/finance) have their *own* sub-dial that caps below the master?
-4. **Scheduler** — accept v1 finest-interval, or invest in per-user schedules early?
-5. **Conflict auto-resolution at 100** — auto-pick a winner by recency/confidence, or always at least notify-and-default?
-6. **Undo window** per facet — uniform, or shorter for capture vs longer for lifecycle?
-7. **First-run UX** — onboarding that explains the dial vs a sensible silent default?
-8. **Does the dial belong per-PKB or per-context-domain** in the long run?
+### Resolved (2026-06-12)
+- **Shipped default:** GA default = **Balanced (50)**. Code lands dev-inert (`default_autonomy=0` during development); the default flips to 50 once the eval gate passes. No forced first-run choice — a non-blocking intro instead (see First-run below). The dial can always be set to Manual (0).
+- **Per-domain sub-dial:** **No.** Sensitive domains (`health`/`finance`/`relationships`) do **not** get a separate dial; they are handled by the escalation rules inside the single master dial (they require confirmation below Full, and notify+undo at Full).
+- **Conflict auto-resolution at 100:** **auto-pick the winner** by recency/confidence **and notify** (logged + undoable). Never silent below Full.
+- **Undo window:** **24h tombstone** — auto-actions are cleanly reversible for 24h; finalized after.
+- **First-run UX:** since the default is a sensible Balanced (not Manual), no blocking onboarding — show a one-time non-blocking explainer ("Memory is on Balanced — it remembers safe facts automatically and asks about sensitive ones. Adjust anytime in Settings.") linking to the dial.
+
+### Still open
+1. **Granularity** — 5 detents only, or continuous 0–100 with detents as snap points?
+2. **Scheduler** — accept v1 finest-interval, or invest in per-user schedules early? (default: v1)
+3. **Does the dial belong per-PKB or per-context-domain** in the long run?
 
 ---
 

@@ -93,7 +93,9 @@ Defaults: `SENSITIVE_DOMAINS = {health, finance, relationships}`, `HIGH_STAKES_T
 **Why a decision tree, not a score?** It's auditable ("saved silently because: stated fact, confidence 0.91, non-sensitive, no conflict"), trivially tunable, and every branch maps to a real signal. A weighted risk-score variant is a possible v2 (see §11).
 
 ### 3.3 Related-but-not-duplicate (`relation == "related"`)
-A `related` match means a near-neighbor exists but it's not a dup. Safe types with high confidence can still auto-save (they add nuance). If it actually *updates/supersedes* an existing claim, treat as CONFIRM in v1 (silent edits to existing memories are higher-trust-risk than silent adds).
+A `related` match means a near-neighbor exists but it's not a dup. Safe types with high confidence can still auto-save (they add nuance). If it actually *updates/supersedes* an existing claim:
+
+**Silent edits are autonomy- and risk-gated (decision 2026-06-12), not always-confirm.** Updates to existing claims may auto-apply when they are **low-risk** — non-sensitive domain, `stated`/`extracted` (not `inferred`), high confidence, non-conflicting — even at lower autonomy levels; and more broadly at higher autonomy. Risky updates (sensitive domain, `inferred`, or conflicting with the existing claim) still confirm below Full and notify+undo at Full. The update path records the prior value in the activity log so any auto-applied edit is fully reversible within the 24h tombstone window. (Editing an existing memory is no longer treated as categorically higher-risk than a silent add; the risk is judged by the same safety-floor signals.)
 
 ### 3.4 Silent merge (optional v1.1)
 For `duplicate` with `0.85 ≤ similarity < 0.92` we may silently reinforce the existing claim (bump recency/confidence) instead of skipping — improves the dormancy/decay signals without a new claim. Gate behind its own flag.
@@ -142,9 +144,10 @@ For `duplicate` with `0.85 ≤ similarity < 0.92` we may silently reinforce the 
 
 ### 4.3 MCP (external agents — Claude Code, etc.)
 External agents are the strongest case for silent-save (an agent shouldn't block on a human mid-task), but also the riskiest (no human watching). Design:
-- The **write/distill MCP tools honor the same per-user policy** resolved from the JWT identity (`_effective_email`, already landed). An agent calling a "remember this" tool gets Lane-A items saved and Lane-B items returned as *pending proposals* it can surface to its own user or skip.
-- Tool responses include `auto_saved` (with `undo_token`s) and `pending_confirmation` so the agent can render its own confirmation UI if it wants.
-- A tool param `confirmation_mode: "policy" | "always_confirm" | "never_confirm"` lets a caller override per-call (default `policy`); `never_confirm` is still subject to the **hard escalations** (conflicts/sensitive/inferred are never silently saved regardless — server-enforced, not client-trusted).
+- **External agents default to accept-all (autonomy 100)** (decision 2026-06-12) — they don't block on a human, so Capture accepts automatically. Safety comes from mandatory provenance + reversibility, not from confirmation.
+- **Mandatory provenance tagging** on every agent write: `source.channel="mcp"`, `source.agent=<token identity>`, `origin="auto"`, and `derivation="inferred"` by default (an agent asserting on the user's behalf is an inference unless it passes `derivation="stated"` with evidence). Agent-sourced + `inferred` claims may be down-weighted in retrieval so they don't overpower user-stated memories, and are filterable in the "Recently auto-saved" view.
+- Tool responses still include `auto_saved` (with `undo_token`s) and `pending_confirmation` so the agent can surface/undo on its user's behalf.
+- A tool param `confirmation_mode: "policy" | "always_confirm" | "never_confirm"` allows per-call override; **hard escalations remain server-enforced** — even at accept-all, conflicts/sensitive/inferred are logged + surfaced in the response and reversible (never silently lost).
 - Add an MCP tool `pkb_undo_auto_saves(session_id|claim_ids)` mirroring the REST undo.
 - Audit: every MCP auto-save is logged with the agent's token identity.
 
@@ -163,7 +166,7 @@ Single seam in `conversation_distillation.py` (and mirror in `text_ingestion.py`
 `is_sensitive(candidate) = context_domain in SENSITIVE_DOMAINS or visibility == "restricted"`. The extraction LLM already assigns `context_domain`; for free-text edge cases not captured by domain, a **v2** lightweight keyword/regex or small-LLM sensitivity check can be added behind a flag. Record the chosen reason for auditability.
 
 ### 5.3 Config & policy storage
-- Add `PKBConfig` fields (all defaulting to today's behavior when the master flag is off): `tiered_persistence_enabled: bool = False`, `auto_save_confidence: float = 0.85`, `skip_confidence: float = 0.45`, `sensitive_domains: tuple`, `high_stakes_types: tuple`, `safe_types: tuple`, `auto_save_undo_window_days: int = 30`, `silent_merge_enabled: bool = False`.
+- Add `PKBConfig` fields (all defaulting to today's behavior when the master flag is off): `tiered_persistence_enabled: bool = False`, `auto_save_confidence: float = 0.85`, `skip_confidence: float = 0.45`, `sensitive_domains: tuple`, `high_stakes_types: tuple`, `safe_types: tuple`, `auto_save_undo_window_hours: int = 24` (24h tombstone — clean reversal within the window, finalized after), `silent_merge_enabled: bool = False`.
 - **Per-user policy override** persisted in the PKB DB (a small `user_settings`-style row keyed by email) so REST/MCP/UI all read the same policy. Resolve order: per-user override → config default → off.
 
 ### 5.4 Undo, audit, telemetry
@@ -172,13 +175,28 @@ Single seam in `conversation_distillation.py` (and mirror in `text_ingestion.py`
 - **Telemetry counters** per route lane to watch the silent/confirm/skip mix in production.
 
 ### 5.5 Order of work
-1. `route_candidate` pure function + unit tests (all branches + a source guard that hard escalations can't be bypassed).
-2. Wire partitioning into `conversation_distillation.py` behind `tiered_persistence_enabled` (default OFF → zero behavior change).
-3. Mirror in `text_ingestion.py`.
-4. REST: response split + `undo` + `recent_auto` + `policy` endpoints.
-5. UI: toast + Recently-auto-saved view + settings.
-6. MCP: policy-aware tool responses + undo tool + server-enforced hard escalations.
-7. Eval harness + gate (§7). Only then consider flipping the default.
+0. **Verify the STM-silent precedent** (decision 2026-06-12): trace the actual execution path for `short_term_candidates` and confirm STM is persisted **without** user confirmation today (the "already silent" claim currently rests on a dataclass comment, not a traced path). Add a test asserting STM persistence requires no approval. This both validates the design premise and is a cheap correctness check.
+1. **Confidence calibration (§5.6) — prerequisite.** Land the improved confidence elicitation *before* tuning thresholds; gating on a miscalibrated score is meaningless.
+2. `route_candidate` pure function + unit tests (all branches + a source guard that hard escalations can't be bypassed).
+3. Wire partitioning into `conversation_distillation.py` behind `tiered_persistence_enabled` (default OFF → zero behavior change).
+4. Mirror in `text_ingestion.py`.
+5. REST: response split + `undo` + `recent_auto` + `policy` endpoints.
+6. UI: toast + Recently-auto-saved view + settings.
+7. MCP: policy-aware tool responses + undo tool + server-enforced hard escalations.
+8. Eval harness + gate (§7), including a confidence-calibration check. Only then consider flipping the default.
+
+### 5.6 Confidence calibration (make the gating signal trustworthy)
+
+The whole Capture facet gates on `confidence`; LLM-emitted confidence is notoriously overconfident/uncalibrated. Improve elicitation (decision 2026-06-12) so the score is discriminative:
+
+- **Integer 1–10, not a float.** Ask the LLM for an integer 1–10, not a 0.0–1.0 float (floats invite false precision and cluster at 0.8/0.9). Map to [0,1] for internal thresholds.
+- **Verbal-then-numeric.** Require the model to first state a **verbal** confidence label, *then* the number — e.g. "Very confident (the user stated it explicitly) → 9". Anchoring the number to words improves calibration.
+- **Anchored rubric.** Give each number a meaning in the prompt (e.g. 10 = user stated verbatim; 7 = clearly implied; 4 = inferred/uncertain; 1 = speculative), so scores are comparable across extractions.
+- **Multi-aspect, then combine.** Score **3–4 aspects** rather than one blended number, e.g.:
+  - `explicitness` (stated ↔ inferred), `stability` (durable fact ↔ fleeting), `clarity` (unambiguous ↔ vague), `usefulness` (worth remembering ↔ trivial).
+  - Combine into the final gating confidence (e.g. weighted min/mean; `explicitness` also feeds `derivation`). Storing the per-aspect scores aids the activity log's "why" and future tuning.
+- **Validate calibration in eval (§7):** bucket predicted confidence vs human-judged correctness (reliability curve); the auto-save threshold is chosen from that curve, not guessed. If confidence isn't discriminative even after this, fall back to a more conservative policy (e.g. only `derivation=stated` + `safe_types` auto-save, ignoring the numeric score).
+- Touch points: the extraction prompts in `conversation_distillation.py` (`_extract_claims_from_turn`, both relaxed/aggressive) and `text_ingestion.py`; parse the per-aspect scores into `CandidateClaim`.
 
 ---
 
@@ -193,7 +211,7 @@ Single seam in `conversation_distillation.py` (and mirror in `text_ingestion.py`
 | `high_stakes_types` | decision, task, reminder | Always confirm |
 | `safe_types` | fact, preference, habit, observation, memory | Eligible for Lane A |
 | `silent_merge_enabled` | False | Reinforce near-dups instead of skipping |
-| `auto_save_undo_window_days` | 30 | "Recently auto-saved" window / hard-delete grace |
+| `auto_save_undo_window_hours` | 24 | 24h tombstone: clean undo within window, finalized after |
 | (per-user) `memory_autonomy_preset` | ask_me | ask_me / balanced / just_remember |
 
 ---
@@ -252,10 +270,14 @@ Matches the project's philosophy (cf. the W-D tag strategy): **ship the code OFF
 
 ## 11. Open Questions
 
-1. **Auto-save undo window:** hard-delete within N minutes then soft-retract after, or always soft-retract? (affects whether undone claims are recoverable.)
-2. **Silent edits:** v1 sends `related`-that-updates to CONFIRM. Should high-confidence updates to *non-sensitive* claims ever auto-apply (with a stronger undo)?
-3. **Per-domain confidence thresholds:** one global `auto_save_confidence`, or per `context_domain`/`claim_type` thresholds?
-4. **MCP default:** should external-agent writes default to `balanced` or to `always_confirm` (more conservative for non-interactive callers)?
-5. **Notification batching:** how aggressively to coalesce toasts when many items save in one turn?
-6. **v2 risk score:** replace the tree with `risk = f(confidence, sensitivity, derivation, conflict, importance)` and a single threshold — worth it once we have eval data?
-7. **Reinforcement (silent merge):** ship 3.4 in v1 or defer?
+### Resolved (2026-06-12)
+- **Auto-save undo window:** **24h tombstone** — clean reversal within 24h, finalized after.
+- **Silent edits:** updates to existing claims **auto-apply when low-risk** (non-sensitive, stated/extracted, confident, non-conflicting) — at lower autonomy for low-risk items, more broadly at higher autonomy; risky updates confirm (below Full) or notify+undo (Full). See §3.3.
+- **MCP default:** external agents default to **accept-all (100)** with mandatory provenance tagging (`origin=auto`, `derivation=inferred`, agent identity); hard escalations stay server-enforced. See §4.3.
+- **Confidence trustworthiness:** improve elicitation (integer 1–10, verbal-then-numeric, anchored rubric, 3–4 aspects combined) and validate calibration in eval before threshold tuning. See §5.6.
+
+### Still open
+1. **Per-domain confidence thresholds:** one global `auto_save_confidence`, or per `context_domain`/`claim_type` thresholds?
+2. **Notification batching:** how aggressively to coalesce toasts when many items save in one turn?
+3. **v2 risk score:** replace the tree with `risk = f(confidence, sensitivity, derivation, conflict, importance)` and a single threshold — worth it once we have eval data?
+4. **Reinforcement (silent merge):** ship §3.4 in v1 or defer?

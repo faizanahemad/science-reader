@@ -316,6 +316,18 @@ route through it. The `user_email` argument is kept in the tool signatures for
 schema/client hinting but is advisory only. Tests: `tests/test_mcp_pkb_auth.py`
 (6, incl. a source guard so a new tool cannot reintroduce the raw pattern).
 
+### T2.1b Verify thread-local identity propagation end-to-end (SECURITY — before external exposure)
+
+**Why:** `_effective_email` (T2.1) trusts `_mcp_request_context.user_email`, a `threading.local` set by `JWTAuthMiddleware`. This is only correct if the **tool executes in the same thread/context** the middleware set it on. That was *assumed* (the web-search MCP server uses the same pattern) but never proven for the PKB server end-to-end. If FastMCP dispatches tools on a different thread/async task, the identity could be **missing** (fail-closed — safe) or, worst case if a worker thread is reused across requests, **stale/wrong** (cross-user data exposure).
+
+**Task — a two-identity integration test (must pass before M3 deploys MCP externally):**
+1. Spin up the PKB MCP ASGI app with a test `MCP_JWT_SECRET`.
+2. Mint two tokens for `alice@` and `bob@`; seed one claim in each PKB.
+3. Issue **concurrent/interleaved** tool calls (e.g. `pkb_search`, `pkb_add_claim`) with each token and assert each call only ever sees/writes its own user's data — never the other's — across many iterations to flush out thread reuse.
+4. Assert a request with no/invalid token fails closed (no identity leaks from a prior request on the same worker).
+
+If the test reveals propagation is unreliable, switch from `threading.local` to an explicit per-request context (e.g. `contextvars.ContextVar`, or thread the identity through the FastMCP request scope) and re-test.
+
 **Original fix sketch (for reference):** In `JWTAuthMiddleware` or a wrapper,
 after JWT validation:
 1. Store `request.state.authenticated_email = payload["email"]` (or equivalent for the MCP framework).
@@ -605,10 +617,10 @@ Cross-link from: `documentation/README.md`, `documentation/product/ops/mcp_serve
 4. For revocation phase 1, use SQLite table (per-user `token_version`) or the existing user JSON config?
 5. Should token-authenticated REST requests get the same rate limits as session requests, or stricter?
 6. When overriding `user_email` in MCP tools — log a warning when client-supplied value differs from JWT email, or silently override? **Resolved in M1: log a warning.**
-7. **(WS0)** Standalone HTTP framework: keep Flask (matches `endpoints/pkb.py`, easiest port) or go ASGI/Starlette (matches the MCP server, better async)? Default: **Flask for the REST app, reuse existing Starlette for MCP** — least porting risk.
-8. **(WS0)** Standalone multi-user vs single-user: should `serve-http` support many users (per-JWT-email storage dirs, like the chat app) or assume a single owner? Default proposal: multi-user keyed by JWT email, single-user as a config flag.
+7. **(WS0) Resolved (2026-06-12):** Standalone HTTP framework = **Flask for the REST app, reuse existing Starlette for the MCP server** (least porting risk).
+8. **(WS0) Resolved (2026-06-12):** Standalone is **multi-user** (per-JWT-email storage dirs, like the chat app); single-user is a config flag.
 9. **(WS0)** Default LLM provider: which models/embedding model does `default_provider` target, and how are keys supplied (env `OPENAI_API_KEY`/`OPENROUTER_API_KEY`)? Embedding model must be pinned to avoid vector-dim drift.
-10. **(WS0)** Package name on PyPI/internal index if ever published, and whether to split to a separate repo later (currently a non-goal).
+10. **(WS0) Resolved (2026-06-12):** Stays in the **monorepo for now**; a separate repo split happens **later**, once the import boundary is clean.
 11. **(WS0)** Does the chat app reference the vendored `pkb-manager.js` via symlink, a build-copy step, or a served path from the package? Pick one to keep a single UI source of truth.
 
 ---
