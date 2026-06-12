@@ -332,7 +332,7 @@ def get_conversation_history(conversation_id: str):
 
         # Use cached conversation + lock-clearing behavior already embedded in the cache loader.
         conversation: Conversation = get_state().conversation_cache[conversation_id]
-        conversation.last_opened_at = datetime.now()
+        conversation.record_access()
         query = request.args.get("query", "")
         history_text = conversation.get_conversation_history(query)
 

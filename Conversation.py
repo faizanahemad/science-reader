@@ -7,7 +7,7 @@ import os
 import hashlib
 import uuid
 from textwrap import dedent
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import yaml
 from agents.search_and_information_agents import (
@@ -314,6 +314,30 @@ class Conversation:
     def last_opened_at(self, value):
         self._last_opened_at = value
         self.save_local()
+
+    @property
+    def access_log(self):
+        return getattr(self, "_access_log", [])
+
+    def record_access(self):
+        """Record an access event: updates last_opened_at and appends to access_log."""
+        now = datetime.now()
+        self._last_opened_at = now
+        if not hasattr(self, "_access_log"):
+            self._access_log = []
+        self._access_log.append(now.isoformat())
+        # Keep only last 30 days of entries
+        cutoff = (now - timedelta(days=30)).isoformat()
+        self._access_log = [t for t in self._access_log if t >= cutoff]
+        self.save_local()
+
+    def _access_count_7d(self):
+        """Count access events in the last 7 days."""
+        log = getattr(self, "_access_log", [])
+        if not log:
+            return 0
+        cutoff = (datetime.now() - timedelta(days=7)).isoformat()
+        return sum(1 for t in log if t >= cutoff)
 
     @property
     def auto_archive_exempt(self) -> bool:
@@ -8717,21 +8741,12 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             len(tools_config) if tools_config else 0,
         )
         if tools_config and TOOLS_AVAILABLE:
-            tool_descriptions = []
-            # Use the enriched descriptions from tools_config (which have
-            # dynamic doc listings injected) rather than static TOOL_REGISTRY.
-            _tc_descs = {
-                tc["function"]["name"]: tc["function"]["description"]
-                for tc in tools_config
-            }
-            for t in TOOL_REGISTRY.get_all_tools():
-                if t.name in _tc_descs:
-                    tool_descriptions.append(f"- {t.name}: {_tc_descs[t.name]}")
-
+            # NOTE: Tool names and descriptions are already provided via the
+            # OpenAI `tools` parameter — no need to duplicate them in the
+            # system prompt. Only inject usage guidance here.
             tool_awareness_text = (
-                "\n\n## Available Tools\n"
-                "You have access to the following tools that you can invoke "
-                "during your response:\n" + "\n".join(tool_descriptions) + "\n\n"
+                "\n\n## Tool Usage Guidance\n"
+                "You have tools available (see the tools parameter). Key tips:\n\n"
                 "### Tool Usage Tips\n"
                 "- **perplexity_search**: Accepts a rich `context` parameter alongside the query. "
                 "Provide as much relevant background, intent, and specifics as possible in the context "
@@ -8760,7 +8775,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 "- The task is simple and doesn't benefit from tool use.\n\n"
                 "When you invoke a tool, the conversation will pause briefly "
                 "while it executes. After receiving the tool results, you MUST "
-                "continue your response \u2014 use the results to provide a complete, "
+                "continue your response — use the results to provide a complete, "
                 "helpful answer to the user. Never stop after a tool call without "
                 "giving the user a synthesized response based on the tool output.\n"
                 "If the tool results are insufficient, you may call another tool "
@@ -12214,6 +12229,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             else memory["last_updated"],
             conversation_settings=self.get_conversation_settings(),
             conversation_friendly_id=memory.get("conversation_friendly_id", ""),
+            access_count_7d=self._access_count_7d(),
         )
 
     def _initiate_reward_evaluation(

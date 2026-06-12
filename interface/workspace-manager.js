@@ -66,6 +66,14 @@ var WorkspaceManager = {
             } catch (_e) {}
         });
 
+        // Most Accessed section collapse/expand toggle
+        $('#most-accessed-toggle').off('click').on('click', function () {
+            var list = $('#most-accessed-list');
+            var chevron = $(this).find('.recent-chevron');
+            if (list.is(':visible')) { list.slideUp(150); chevron.addClass('collapsed'); }
+            else { list.slideDown(150); chevron.removeClass('collapsed'); }
+        });
+
         // Pinned section collapse/expand toggle
         $('#pinned-section-toggle').off('click').on('click', function (e) {
             if ($(e.target).is('#pinned-color-filter')) return; // don't toggle when clicking dropdown
@@ -393,10 +401,61 @@ var WorkspaceManager = {
 
         this.workspaces = workspacesMap;
         this.renderTree(convByWs);
+        this.renderMostAccessed();
         this.renderRecentConversations();
         this.renderPinnedConversations();
         this.renderArchivedConversations();
         if (this._timeViewActive) this.renderTimeView();
+    },
+
+    // ---------------------------------------------------------------
+    // Most Accessed Section
+    // ---------------------------------------------------------------
+
+    _mostAccessedIds: [],  // IDs to exclude from Recent
+    _mostAccessedQuota: 5,
+
+    renderMostAccessed: function () {
+        var self = this;
+        var container = $('#most-accessed-list');
+        var section = $('#most-accessed-section');
+        container.empty();
+
+        var candidates = this.conversations.filter(function (c) {
+            return !c.archived && (c.access_count_7d || 0) > 0;
+        });
+        candidates.sort(function (a, b) { return (b.access_count_7d || 0) - (a.access_count_7d || 0); });
+        var top = candidates.slice(0, this._mostAccessedQuota);
+        this._mostAccessedIds = top.map(function (c) { return c.conversation_id; });
+
+        if (top.length === 0) { section.hide(); return; }
+        section.show();
+        $('#most-accessed-count-badge').text('(' + top.length + ')');
+
+        var activeConvId = ConversationManager.activeConversationId || '';
+        top.forEach(function (conv) {
+            var title = conv.title ? conv.title.trim() : '(untitled)';
+            var item = $('<div class="recent-conversation-item"></div>')
+                .attr('data-conversation-id', conv.conversation_id)
+                .attr('title', title);
+            item.append('<i class="fa fa-fire most-accessed-icon"></i>');
+            item.append($('<span class="recent-conv-title"></span>').text(title));
+            if (self._previousConvId && String(conv.conversation_id) === String(self._previousConvId)) {
+                item.append('<span class="last-active-dot" title="Previous conversation"></span>');
+            }
+            if (String(conv.conversation_id) === String(activeConvId)) {
+                item.addClass('recent-active');
+            }
+            item.on('click', function (e) {
+                if (e.which === 2 || e.metaKey || e.ctrlKey) return;
+                e.preventDefault();
+                var convId = $(this).data('conversation-id');
+                if (!convId) return;
+                ConversationManager.setActiveConversation(convId);
+                self.highlightActiveConversation(convId);
+            });
+            container.append(item);
+        });
     },
 
     // ---------------------------------------------------------------
@@ -427,8 +486,11 @@ var WorkspaceManager = {
 
         var lastActiveStoredId = this._previousConvId;
 
-        // 1. Slice recent conversations (exclude archived)
-        var recentConversations = this.conversations.filter(function (c) { return !c.archived; }).slice(0, this._recentSectionCount);
+        // 1. Slice recent conversations (exclude archived and most-accessed)
+        var mostAccessedSet = this._mostAccessedIds || [];
+        var recentConversations = this.conversations.filter(function (c) {
+            return !c.archived && mostAccessedSet.indexOf(c.conversation_id) === -1;
+        }).slice(0, this._recentSectionCount);
 
         // 2. Update badge (only show when count < max — otherwise it's noise)
         if (recentConversations.length > 0 && recentConversations.length < self._recentSectionCount) {
@@ -567,6 +629,13 @@ var WorkspaceManager = {
         $('#recent-conversations-list .recent-conversation-item').removeClass('recent-active');
         if (conversationId) {
             $('#recent-conversations-list .recent-conversation-item[data-conversation-id="' + conversationId + '"]').addClass('recent-active');
+        }
+    },
+
+    highlightMostAccessedConversation: function (conversationId) {
+        $('#most-accessed-list .recent-conversation-item').removeClass('recent-active');
+        if (conversationId) {
+            $('#most-accessed-list .recent-conversation-item[data-conversation-id="' + conversationId + '"]').addClass('recent-active');
         }
     },
 
@@ -1736,6 +1805,7 @@ var WorkspaceManager = {
         // Always update Recent and Pinned section highlights (pure DOM, no jsTree dependency)
         this.highlightRecentConversation(conversationId);
         this.highlightPinnedConversation(conversationId);
+        this.highlightMostAccessedConversation(conversationId);
 
         // Time view highlight
         $('#time-view-container .recent-conversation-item').removeClass('recent-conversation-active');

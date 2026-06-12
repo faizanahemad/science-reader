@@ -494,3 +494,10 @@
     margin-left: 6px;
     vertical-align: middle;
 }
+
+/* Most Accessed section */
+.most-accessed-icon {
+    color: #e67e22;
+    margin-right: 6px;
+    font-size: 0.85em;
+}
