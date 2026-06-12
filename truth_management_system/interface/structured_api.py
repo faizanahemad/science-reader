@@ -2458,9 +2458,11 @@ class StructuredAPI:
             # 4) Optionally apply the suggested merges.
             if apply:
                 for cl in report["claims"]["clusters"]:
-                    res = self.consolidate_claims(
-                        cl.get("claim_ids", []), keep_id=cl.get("suggested_keep_id")
-                    )
+                    ids = cl.get("claim_ids", [])
+                    if use_llm and self.llm is not None:
+                        res = self.smart_consolidate_claims(ids)
+                    else:
+                        res = self.consolidate_claims(ids, keep_id=cl.get("suggested_keep_id"))
                     if res.success:
                         report["claims"]["merged"].append(res.data)
                 for cl in report["entities"]["clusters"]:
@@ -2920,6 +2922,96 @@ class StructuredAPI:
             )
         except Exception as e:
             logger.error(f"Failed to consolidate claims: {e}")
+            return ActionResult(
+                success=False, action="update", object_type="claim", errors=[str(e)],
+            )
+
+    def smart_consolidate_claims(self, claim_ids: List[str]) -> ActionResult:
+        """
+        LLM-powered cluster consolidation: reduces N claims to the minimal
+        distinct set, superseding only true duplicates. Keeps claims with
+        different facts (e.g. different dates/values) separate.
+
+        Returns:
+            ActionResult with data = {"kept": [...], "superseded": [...]}.
+        """
+        try:
+            if not claim_ids or len(claim_ids) < 2:
+                return ActionResult(
+                    success=False, action="update", object_type="claim",
+                    errors=["smart_consolidate needs at least two claim_ids"],
+                )
+            if self.llm is None:
+                return self.consolidate_claims(claim_ids)
+
+            claims = {cid: self.claims.get(cid) for cid in set(claim_ids)}
+            missing = [cid for cid, c in claims.items() if c is None]
+            if missing:
+                return ActionResult(
+                    success=False, action="update", object_type="claim",
+                    errors=[f"Claims not found: {', '.join(missing)}"],
+                )
+
+            # Build ordered list for LLM
+            ordered = list(claims.items())
+            statements = [c.statement for _, c in ordered]
+
+            result = self.llm.consolidate_cluster(statements)
+            consolidated_stmts = set(result.get("consolidated", []))
+            removed_indices = set(result.get("removed_indices", []))
+
+            # Map back: claims whose index is in removed_indices get superseded
+            # Find the best keeper among non-removed claims
+            kept_ids = []
+            supersede_ids = []
+            for i, (cid, _claim) in enumerate(ordered):
+                if i in removed_indices:
+                    supersede_ids.append(cid)
+                else:
+                    kept_ids.append(cid)
+
+            # If LLM removed nothing or everything, fall back
+            if not supersede_ids:
+                return ActionResult(
+                    success=True, action="update", object_type="claim",
+                    data={"kept": kept_ids, "superseded": []},
+                )
+            if not kept_ids:
+                # Keep at least one (highest confidence)
+                kept_ids = [self._suggest_keeper(list(claims.values())).claim_id]
+                supersede_ids = [cid for cid in claim_ids if cid not in kept_ids]
+
+            # Update kept claims' statements if LLM improved wording
+            for i, (cid, _claim) in enumerate(ordered):
+                if cid in kept_ids and i < len(consolidated_stmts):
+                    # Find matching consolidated statement for this position
+                    pass  # Keep original statement — LLM consolidation is for removal only
+
+            # Supersede duplicates, linking to the first keeper
+            primary_keeper = kept_ids[0]
+            from ..crud.links import get_claim_tags, link_claim_tag
+            superseded = []
+            for cid in supersede_ids:
+                for tag in get_claim_tags(self.db, cid):
+                    link_claim_tag(self.db, primary_keeper, tag.tag_id)
+                res = self.supersede_claim(
+                    primary_keeper, cid,
+                    resolution_notes="LLM-consolidated duplicate (D2)"
+                )
+                if res.success:
+                    superseded.append(cid)
+
+            self._record_audit(
+                "smart_merge", "claim", primary_keeper,
+                {"kept": kept_ids, "superseded": superseded, "reason": result.get("reason", "")},
+            )
+            return ActionResult(
+                success=True, action="update", object_type="claim",
+                object_id=primary_keeper,
+                data={"kept": kept_ids, "superseded": superseded},
+            )
+        except Exception as e:
+            logger.error(f"Smart consolidation failed: {e}")
             return ActionResult(
                 success=False, action="update", object_type="claim", errors=[str(e)],
             )

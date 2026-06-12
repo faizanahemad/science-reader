@@ -575,6 +575,55 @@ Result:"""
             logger.error(f"Duplicate judging failed: {e}")
             return {"duplicate": False, "canonical": "", "reason": f"error: {e}"}
 
+    def consolidate_cluster(self, statements: List[str]) -> Dict[str, Any]:
+        """
+        LLM-powered cluster consolidation: reduce N near-duplicate statements
+        to the minimal set of distinct claims, removing only true redundancy.
+
+        Returns:
+            {"consolidated": ["stmt1", ...], "removed_indices": [0, 2, ...], "reason": str}
+            On error returns all statements unchanged (fail safe).
+        """
+        if not statements or len(statements) < 2:
+            return {"consolidated": statements or [], "removed_indices": [], "reason": "nothing to consolidate"}
+
+        listing = "\n".join(f"{i+1}. \"{s}\"" for i, s in enumerate(statements))
+        prompt = f"""You are consolidating a personal knowledge base cluster. These claims were grouped by semantic similarity, but some carry DISTINCT information (different dates, values, or facts) while others are true duplicates.
+
+{listing}
+
+Your task:
+1. Identify which claims are TRUE duplicates (same meaning, just different wording/casing).
+2. For true duplicates, keep only the best-worded version.
+3. Keep ALL claims that carry distinct information (different dates, different values, different facts) — even if they are about the same topic.
+
+Return ONLY JSON:
+{{"consolidated": ["statement1", "statement2", ...], "removed_indices": [0-based indices of removed statements], "reason": "brief explanation"}}
+
+Result:"""
+        try:
+            response = self._call_llm(prompt)
+            text = response.strip()
+            try:
+                result = json.loads(text)
+            except json.JSONDecodeError:
+                import re
+                m = re.search(r"\{.*\}", text, re.DOTALL)
+                if not m:
+                    return {"consolidated": statements, "removed_indices": [], "reason": "unparseable"}
+                result = json.loads(m.group())
+            consolidated = result.get("consolidated", statements)
+            if not consolidated:
+                return {"consolidated": statements, "removed_indices": [], "reason": "empty result, keeping all"}
+            return {
+                "consolidated": consolidated,
+                "removed_indices": result.get("removed_indices", []),
+                "reason": str(result.get("reason", "")),
+            }
+        except Exception as e:
+            logger.error(f"Cluster consolidation failed: {e}")
+            return {"consolidated": statements, "removed_indices": [], "reason": f"error: {e}"}
+
     def batch_extract_all(
         self, statements: List[str], context_domain: str = "personal"
     ) -> List[ExtractionResult]:

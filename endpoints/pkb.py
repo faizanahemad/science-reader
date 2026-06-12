@@ -1037,7 +1037,8 @@ def pkb_cleanup_route():
         apply_changes = bool(data.get("apply", False))
         use_llm = data.get("use_llm")
 
-        api = get_pkb_api_for_user(email)
+        keys = keyParser(session)
+        api = get_pkb_api_for_user(email, keys)
         if api is None:
             return json_error(
                 "Failed to initialize PKB", status=500, code="pkb_init_failed"
