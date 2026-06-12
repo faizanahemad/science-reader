@@ -118,6 +118,9 @@ class StructuredAPI:
         self.config = config
         self.user_email = user_email
 
+        # Memory autonomy policy (derived per-user in for_user; None = not yet resolved)
+        self.policy: Optional[Dict] = None
+
         # Initialize CRUD instances (scoped to user if provided)
         self.claims = ClaimCRUD(db, user_email=user_email)
         self.notes = NoteCRUD(db, user_email=user_email)
@@ -375,18 +378,27 @@ class StructuredAPI:
         """
         Create a new StructuredAPI instance scoped to a specific user.
 
-        This is useful when you have a shared API instance and need
-        to scope operations to a specific user.
+        Resolves the user's memory autonomy policy from pkb_user_settings
+        (or config defaults) and attaches it as ``api.policy``.
 
         Args:
             user_email: User email to scope operations to.
 
         Returns:
-            New StructuredAPI instance scoped to the user.
+            New StructuredAPI instance scoped to the user, with .policy set.
         """
-        return StructuredAPI(
+        from ..autonomy import derive_policy
+
+        instance = StructuredAPI(
             db=self.db, keys=self.keys, config=self.config, user_email=user_email
         )
+        # Resolve per-user autonomy settings
+        settings = instance.get_user_settings(email=user_email)
+        instance.policy = derive_policy(
+            settings["memory_autonomy"],
+            settings.get("facet_overrides"),
+        )
+        return instance
 
     # =========================================================================
     # User Settings API (memory autonomy dial)

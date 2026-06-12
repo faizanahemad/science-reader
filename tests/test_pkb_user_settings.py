@@ -88,3 +88,42 @@ class TestDefaultAutonomy:
     def test_config_from_dict(self):
         config = PKBConfig.from_dict({"default_autonomy": 75})
         assert config.default_autonomy == 75
+
+
+class TestForUserPolicyResolution:
+    """for_user attaches the correct policy from user settings."""
+
+    def test_for_user_attaches_policy_default(self, api):
+        """No settings row => policy derived from default_autonomy=0 (Manual)."""
+        user_api = api.for_user("new@example.com")
+        assert user_api.policy is not None
+        assert user_api.policy["_level"] == "manual"
+        assert user_api.policy["_autonomy"] == 0
+        assert user_api.policy["capture_safe_stated_threshold"] is None  # confirm
+
+    def test_for_user_with_saved_settings(self, api):
+        """Saved autonomy=75 => Proactive policy."""
+        api.set_user_settings(memory_autonomy=75, email="pro@example.com")
+        user_api = api.for_user("pro@example.com")
+        assert user_api.policy["_level"] == "proactive"
+        assert user_api.policy["capture_safe_stated_threshold"] == 0.75
+        assert user_api.policy["conflict_resolution"] == "assisted"
+
+    def test_for_user_with_overrides(self, api):
+        """Facet overrides are applied."""
+        api.set_user_settings(
+            memory_autonomy=50,
+            facet_overrides={"lifecycle": 0},
+            email="mixed@example.com"
+        )
+        user_api = api.for_user("mixed@example.com")
+        assert user_api.policy["_level"] == "balanced"
+        # Lifecycle overridden to Manual
+        assert user_api.policy["dormancy_mode"] == "off"
+        assert user_api.policy["sweep_interval_seconds"] == 0
+        # Capture still at Balanced
+        assert user_api.policy["capture_safe_stated_threshold"] == 0.85
+
+    def test_bare_api_has_no_policy(self, api):
+        """Direct construction (not via for_user) has policy=None."""
+        assert api.policy is None
