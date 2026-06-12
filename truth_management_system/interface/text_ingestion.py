@@ -97,6 +97,10 @@ class TextIngestionPlan:
     add_count: int = 0
     edit_count: int = 0
     skip_count: int = 0
+    # Tiered persistence: auto-saved proposals (route=SAVE)
+    auto_saved: List[Any] = field(default_factory=list)
+    # Tiered persistence: routed-skip proposals (route=SKIP, distinct from dedup skip)
+    routed_skipped: List[Any] = field(default_factory=list)
 
 
 @dataclass
@@ -239,6 +243,44 @@ class TextIngestionDistiller:
             len(candidates), add_count, edit_count, skip_count
         )
 
+        # ─── Tiered persistence routing (B3) ─────────────────────────────────
+        auto_saved = []
+        routed_skipped = []
+        if self.config.tiered_persistence_enabled and getattr(self.api, 'policy', None):
+            from ..routing import route_candidate, Route
+            policy = self.api.policy
+            routed_proposals = []
+            for proposal in proposals:
+                if proposal.action == "skip":
+                    # Already dedup-skipped; keep as-is
+                    routed_proposals.append(proposal)
+                    continue
+                cand = proposal.candidate
+                # Map proposal -> match_result for routing
+                match_result = None
+                if proposal.action == "edit":
+                    match_result = {"relation": "related", "similarity_score": proposal.similarity_score or 0.0}
+                cand_dict = {
+                    "confidence": cand.confidence,
+                    "derivation": getattr(cand, 'derivation', 'extracted'),
+                    "context_domain": cand.context_domain,
+                    "claim_type": cand.claim_type,
+                }
+                result = route_candidate(cand_dict, policy, match_result)
+                if result.route == Route.SAVE:
+                    exec_result = self._execute_proposal(proposal)
+                    auto_saved.append({"proposal": proposal, "result": exec_result, "reason": result.reason})
+                elif result.route == Route.SKIP:
+                    routed_skipped.append({"proposal": proposal, "reason": result.reason, "gate": result.gate})
+                else:
+                    routed_proposals.append(proposal)
+            proposals = routed_proposals
+            # Recount after routing
+            add_count = sum(1 for p in proposals if p.action == "add")
+            edit_count = sum(1 for p in proposals if p.action == "edit")
+            skip_count = sum(1 for p in proposals if p.action == "skip")
+            summary = self._generate_summary(len(candidates), add_count, edit_count, skip_count)
+
         return TextIngestionPlan(
             plan_id=plan_id,
             raw_text=text,
@@ -249,6 +291,8 @@ class TextIngestionDistiller:
             add_count=add_count,
             edit_count=edit_count,
             skip_count=skip_count,
+            auto_saved=auto_saved,
+            routed_skipped=routed_skipped,
         )
 
     def execute_plan(
