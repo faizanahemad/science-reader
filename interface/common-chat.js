@@ -2471,6 +2471,10 @@ var ChatManager = {
                         <a class="dropdown-item open-artefacts-button" href="#" message-index="${index}" message-id="${message.message_id}">
                             <i class="bi bi-files mr-2"></i>Artefacts
                         </a>
+                        <a class="dropdown-item fork-from-here-button" href="#" message-index="${index}">
+                            <i class="bi bi-signpost-split mr-2"></i>Fork from here
+                        </a>
+                        <div class="dropdown-divider"></div>
                         <a class="dropdown-item delete-message-button text-danger" href="#" message-index="${index}" message-id="${message.message_id}">
                             <i class="bi bi-trash-fill mr-2"></i>Delete Message
                         </a>
@@ -2760,6 +2764,25 @@ var ChatManager = {
             } else {
                 showToast('Artefacts manager not loaded', 'error');
             }
+        });
+
+        $(".fork-from-here-button").off().on("click", function (event) {
+            event.preventDefault();
+            event.stopPropagation();
+            var msgIndex = parseInt($(this).attr("message-index"), 10);
+            if (isNaN(msgIndex)) return;
+            $.ajax({
+                url: '/fork_conversation/' + conversationId + '/' + msgIndex,
+                type: 'POST',
+                success: function (data) {
+                    showToast('Forked conversation', 'success');
+                    if (data.conversation_id) {
+                        ConversationManager.setActiveConversation(data.conversation_id);
+                        WorkspaceManager.loadConversationsWithWorkspaces(false);
+                    }
+                },
+                error: function () { showToast('Fork failed', 'error'); }
+            });
         });
 
         // Click-to-copy handler for message reference badges

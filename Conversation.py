@@ -2362,6 +2362,61 @@ Compact list of bullet points:
 
         return new_conversation
 
+    def fork_from_message(self, msg_index: int):
+        """Fork conversation up to msg_index (inclusive). Like clone but partial."""
+        uuid = "".join(secrets.choice(alphabet) for i in range(6))
+        new_conversation_id = f"{self.conversation_id}_fork_{uuid}"
+        parent_dir = os.path.dirname(self._storage)
+        new_storage = os.path.join(parent_dir, new_conversation_id)
+        os.makedirs(new_storage, exist_ok=True)
+
+        new_conversation = Conversation(
+            user_id=self.user_id,
+            openai_embed=None,
+            storage=parent_dir,
+            conversation_id=new_conversation_id,
+            domain=self.domain,
+        )
+        new_conversation.set_api_keys(self.get_api_keys())
+        new_conversation.domain = self.domain
+        new_conversation.memory_pad = (
+            self.memory_pad if hasattr(self, "_memory_pad") else ""
+        )
+
+        # Copy documents
+        uploaded_docs = self.get_field("uploaded_documents_list") or []
+        new_conversation.set_field("uploaded_documents_list", uploaded_docs)
+
+        # Copy messages up to index (inclusive)
+        messages = self.get_field("messages") or []
+        new_conversation.set_field("messages", messages[: msg_index + 1])
+
+        # Copy memory (title, summary, settings) but update title
+        memory = self.get_field("memory")
+        if memory:
+            import copy
+            new_memory = copy.deepcopy(memory)
+            new_memory["title"] = f"Fork of: {memory.get('title', 'Untitled')}"
+            new_memory["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            new_conversation.set_field("memory", new_memory)
+
+        # Copy conversation settings
+        settings = self.get_field("conversation_settings")
+        if settings:
+            new_conversation.set_field("conversation_settings", settings)
+
+        # Parent link
+        new_conversation._forked_from = {
+            "conversation_id": self.conversation_id,
+            "msg_index": msg_index,
+        }
+
+        new_conversation.save_local()
+        logger.info(
+            f"Forked conversation {self.conversation_id} at msg {msg_index} → {new_conversation_id}"
+        )
+        return new_conversation
+
     def delete_conversation(self):
         try:
             shutil.rmtree(self._storage)

@@ -843,6 +843,48 @@ def clone_conversation(conversation_id: str):
     )
 
 
+@conversations_bp.route("/fork_conversation/<conversation_id>/<int:msg_index>", methods=["POST"])
+@limiter.limit("25 per minute")
+@login_required
+def fork_conversation(conversation_id: str, msg_index: int):
+    """Fork a conversation from a specific message index."""
+    email, _name, _loggedin = get_session_identity()
+    keys = keyParser(session)
+    state = get_state()
+
+    if conversation_id not in state.conversation_cache:
+        return json_error("Conversation not found", status=404, code="conversation_not_found")
+
+    conversation: Conversation = get_conversation_with_keys(
+        state, conversation_id=conversation_id, keys=keys
+    )
+
+    messages = conversation.get_field("messages") or []
+    if msg_index < 0 or msg_index >= len(messages):
+        return json_error("Invalid message index", status=400, code="invalid_index")
+
+    new_conversation: Conversation = conversation.fork_from_message(msg_index)
+
+    workspace_info = getWorkspaceForConversation(
+        users_dir=state.users_dir, conversation_id=conversation_id
+    )
+    workspace_id = workspace_info.get("workspace_id") if workspace_info else None
+
+    addConversation(
+        email,
+        new_conversation.conversation_id,
+        workspace_id=workspace_id,
+        domain=conversation.domain,
+        users_dir=state.users_dir,
+    )
+    state.conversation_cache[new_conversation.conversation_id] = new_conversation
+
+    return jsonify({
+        "message": f"Forked conversation at message {msg_index}",
+        "conversation_id": new_conversation.conversation_id,
+    })
+
+
 @conversations_bp.route("/delete_conversation/<conversation_id>", methods=["DELETE"])
 @limiter.limit("5000 per minute")
 @login_required
