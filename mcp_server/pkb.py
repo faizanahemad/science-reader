@@ -352,12 +352,18 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
         tags: Optional[List[str]] = None,
         valid_from: Optional[str] = None,
         valid_to: Optional[str] = None,
+        derivation: Optional[str] = None,
     ) -> str:
         """Add a new claim (memory, fact, preference, etc.) to the PKB.
 
         Claims are the atomic units of the knowledge base.  Each claim
         has a type (e.g. "fact", "preference", "decision") and belongs
         to a context domain (e.g. "work", "health", "finance").
+
+        All MCP writes are tagged with channel="mcp" provenance. If no
+        derivation is supplied, it defaults to "inferred" (an agent
+        asserting on the user's behalf is an inference unless evidence
+        is provided).
 
         Args:
             user_email: Email of the PKB owner.
@@ -367,6 +373,7 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
             tags: Optional list of tag names to attach to the claim.
             valid_from: Start of validity period (ISO 8601 date). Optional.
             valid_to: End of validity period (ISO 8601 date). Required for task and reminder claims.
+            derivation: Epistemic basis — "stated" (user said it) or "inferred" (agent concluded it). Defaults to "inferred".
         """
         try:
             api = _get_pkb_api()
@@ -376,6 +383,8 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
                 claim_type=claim_type,
                 context_domain=context_domain,
                 tags=tags,
+                channel="mcp",
+                derivation=derivation or "inferred",
             )
             if valid_from is not None:
                 kwargs["valid_from"] = valid_from
@@ -973,6 +982,56 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
             except Exception as exc:
                 logger.exception("pkb_list_tags error: %s", exc)
                 return json.dumps({"error": f"pkb_list_tags failed: {exc}"})
+
+    # -----------------------------------------------------------------
+    # Tiered Persistence Tools (B5)
+    # -----------------------------------------------------------------
+
+    @mcp.tool()
+    def pkb_get_policy(user_email: str) -> str:
+        """Get the user's current memory autonomy policy.
+
+        Returns the autonomy level (0-100) and effective policy dict that
+        governs how memories are routed (auto-save vs. confirm vs. skip).
+
+        Args:
+            user_email: Email of the PKB owner.
+        """
+        try:
+            api = _get_pkb_api()
+            user_api = api.for_user(_effective_email(user_email))
+            settings = user_api.get_user_settings(_effective_email(user_email))
+            return json.dumps({
+                "autonomy": settings.get("autonomy", user_api.config.default_autonomy),
+                "policy": user_api.policy,
+            }, default=str)
+        except Exception as exc:
+            logger.exception("pkb_get_policy error: %s", exc)
+            return json.dumps({"error": f"pkb_get_policy failed: {exc}"})
+
+    @mcp.tool()
+    def pkb_undo_auto_saves(user_email: str, activity_ids: List[str]) -> str:
+        """Undo auto-saved claims within the 24h tombstone window.
+
+        Retracts claims that were auto-saved by the tiered persistence
+        system. Each activity_id corresponds to an auto-save event.
+
+        Args:
+            user_email: Email of the PKB owner.
+            activity_ids: List of activity log IDs to undo.
+        """
+        try:
+            api = _get_pkb_api()
+            user_api = api.for_user(_effective_email(user_email))
+            results = []
+            for aid in activity_ids:
+                r = user_api.undo_activity(aid)
+                results.append({"activity_id": aid, "success": r.success, "errors": r.errors})
+            return json.dumps({"results": results}, default=str)
+        except Exception as exc:
+            logger.exception("pkb_undo_auto_saves error: %s", exc)
+            return json.dumps({"error": f"pkb_undo_auto_saves failed: {exc}"})
+
     # -----------------------------------------------------------------
     # Build the Starlette ASGI app with middleware layers
     # -----------------------------------------------------------------

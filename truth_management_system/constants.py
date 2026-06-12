@@ -182,6 +182,7 @@ class ProvenanceChannel(str, Enum):
     CHAT = "chat"      # distilled from a conversation turn
     INGEST = "ingest"  # bulk text ingestion
     IMPORT = "import"  # portability import / legacy migration
+    MCP = "mcp"        # external agent via MCP protocol
 
     @classmethod
     def normalize(cls, value: str) -> str:
