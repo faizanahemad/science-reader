@@ -432,5 +432,14 @@ def create_tables(*, users_dir: str, logger: Optional[logging.Logger] = None) ->
         "CREATE INDEX IF NOT EXISTS idx_PinnedMessages_conv ON PinnedMessages (conversation_id)"
     )
 
+    # ConversationSimilarityCache — cached BM25 tokens + embeddings for auto-archival
+    cur.execute("""CREATE TABLE IF NOT EXISTS ConversationSimilarityCache (
+        conversation_id TEXT PRIMARY KEY,
+        title_summary_hash TEXT,
+        bm25_tokens TEXT,
+        embedding BLOB,
+        updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+    )""")
+
     conn.commit()
     conn.close()
