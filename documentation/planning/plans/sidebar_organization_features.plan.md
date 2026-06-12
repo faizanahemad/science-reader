@@ -1,6 +1,6 @@
 # Sidebar Organization Features: Archive, Time View, Message Pinning
 
-**Status: PLANNED** (June 2026)
+**Status: DONE** (June 2026)
 
 ## Motivation and Background
 
@@ -422,3 +422,18 @@ var starBtn = '<button class="btn btn-sm msg-pin-btn" data-message-id="' + msgId
 | `interface/workspace-manager.js` | Archive + Time View |
 | `interface/common.js` or `common-chat.js` | Message Pin (star in action row, modal) |
 | `interface/workspace-styles.css` | All three (CSS) |
+
+## Implementation Notes (completed)
+
+### Commits
+- `679164da` — Conversation.py `archived` property + interface.html sidebar buttons/containers
+- `cab07adf` — Archive frontend: toggle, rendering, context menu, CSS
+- `1033e285` — Time View: `renderTimeView()`, CSS
+- `7eebfaec` — Message Pinning: full stack (DB table, CRUD, endpoints, star icon, modal)
+- `ef8e6367` — Bug fixes: decorator names, preview field, missing helper function
+
+### Design Decisions Made During Implementation
+- **Auto-archival**: Chose Option C (auto-collapse "Older" group in Time View) over backend auto-archiving — safer, no data changes
+- **Pin endpoint location**: Added to `endpoints/conversations.py` instead of a new file — simpler, follows existing pattern
+- **Context menu for archived**: `_showContextMenuAtPosition` helper extracts common positioning logic used by Archived section and Time View
+- **Archived in jsTree**: When "Show Archived" active, archived conversations appear in their workspace folders with dimmed/italic styling AND in the separate Archived group at bottom
