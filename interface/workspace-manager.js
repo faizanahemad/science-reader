@@ -615,6 +615,100 @@ var WorkspaceManager = {
         });
     },
 
+    renderTimeView: function () {
+        var self = this;
+        var container = $('#time-view-container');
+        container.empty();
+
+        var conversations = this.conversations.filter(function (c) { return !c.archived; });
+
+        var now = new Date();
+        var todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        var weekAgo = new Date(todayStart.getTime() - 7 * 86400000);
+        var monthAgo = new Date(todayStart.getTime() - 30 * 86400000);
+        var quarterAgo = new Date(todayStart.getTime() - 90 * 86400000);
+
+        var groups = [
+            { label: 'Today', items: [] },
+            { label: 'This Week', items: [] },
+            { label: 'This Month', items: [] },
+            { label: 'This Quarter', items: [] },
+            { label: 'Older', items: [] }
+        ];
+
+        conversations.forEach(function (conv) {
+            var updated = new Date(conv.last_updated);
+            if (updated >= todayStart) groups[0].items.push(conv);
+            else if (updated >= weekAgo) groups[1].items.push(conv);
+            else if (updated >= monthAgo) groups[2].items.push(conv);
+            else if (updated >= quarterAgo) groups[3].items.push(conv);
+            else groups[4].items.push(conv);
+        });
+
+        // Sort each group: flagged first, then by last_updated DESC
+        groups.forEach(function (group) {
+            group.items.sort(function (a, b) {
+                var aFlagged = (a.flag && a.flag !== 'none') ? 1 : 0;
+                var bFlagged = (b.flag && b.flag !== 'none') ? 1 : 0;
+                if (bFlagged !== aFlagged) return bFlagged - aFlagged;
+                return new Date(b.last_updated) - new Date(a.last_updated);
+            });
+        });
+
+        var email = (typeof userDetails !== 'undefined' && userDetails.email) ? userDetails.email : 'unknown';
+        var domain = (typeof currentDomain !== 'undefined' && currentDomain['domain']) ? currentDomain['domain'] : 'unknown';
+        var activeConvId = ConversationManager.activeConversationId || '';
+
+        groups.forEach(function (group) {
+            if (group.items.length === 0) return;
+            var collapseKey = 'timeViewCollapsed:' + email + ':' + domain + ':' + group.label;
+            var collapsed = false;
+            try { collapsed = localStorage.getItem(collapseKey) === 'true'; } catch (_e) {}
+
+            var header = $('<div class="time-group-header"></div>')
+                .html('<i class="fa fa-chevron-down recent-chevron' + (collapsed ? ' collapsed' : '') + '"></i> ' + group.label + ' <span class="recent-count-badge">(' + group.items.length + ')</span>');
+
+            var list = $('<div class="time-group-list"></div>');
+            if (collapsed) list.hide();
+
+            header.on('click', function () {
+                var chevron = $(this).find('.recent-chevron');
+                if (list.is(':visible')) {
+                    list.slideUp(150); chevron.addClass('collapsed');
+                    try { localStorage.setItem(collapseKey, 'true'); } catch (_e) {}
+                } else {
+                    list.slideDown(150); chevron.removeClass('collapsed');
+                    try { localStorage.setItem(collapseKey, 'false'); } catch (_e) {}
+                }
+            });
+
+            group.items.forEach(function (conv) {
+                var item = $('<div class="recent-conversation-item"></div>')
+                    .attr('data-conversation-id', conv.conversation_id)
+                    .text(conv.title || 'Untitled');
+                if (conv.flag && conv.flag !== 'none') {
+                    item.css('border-left', '3px solid ' + conv.flag);
+                }
+                if (conv.conversation_id === activeConvId) {
+                    item.addClass('recent-conversation-active');
+                }
+                item.on('click', function () {
+                    ConversationManager.setActiveConversation(conv.conversation_id);
+                    self.highlightActiveConversation(conv.conversation_id);
+                });
+                item.on('contextmenu', function (e) {
+                    e.preventDefault();
+                    var fakeNode = { id: 'cv_' + conv.conversation_id, li_attr: { 'data-conversation-friendly-id': conv.conversation_friendly_id || '' }, original: { archived: false } };
+                    var items = self.buildConversationContextMenu(fakeNode);
+                    self._showContextMenuAtPosition(e, items);
+                });
+                list.append(item);
+            });
+
+            container.append(header).append(list);
+        });
+    },
+
     renderPinnedConversations: function () {
         var self = this;
         var container = $('#pinned-conversations-list');
@@ -1545,6 +1639,10 @@ var WorkspaceManager = {
         // Always update Recent and Pinned section highlights (pure DOM, no jsTree dependency)
         this.highlightRecentConversation(conversationId);
         this.highlightPinnedConversation(conversationId);
+
+        // Time view highlight
+        $('#time-view-container .recent-conversation-item').removeClass('recent-conversation-active');
+        $('#time-view-container .recent-conversation-item[data-conversation-id="' + conversationId + '"]').addClass('recent-conversation-active');
 
         if (!this._jsTreeReady) {
             this._pendingHighlight = conversationId;

@@ -425,3 +425,20 @@
     opacity: 0.6;
     font-style: italic;
 }
+
+/* Time view groups */
+.time-group-header {
+    padding: 3px 8px;
+    cursor: pointer;
+    user-select: none;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    color: #888;
+}
+.time-group-header:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+.time-group-list {
+    margin-bottom: 2px;
+}
