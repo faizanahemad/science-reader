@@ -4158,7 +4158,8 @@ def pkb_auto_clusters():
         return json_error("User not logged in", status=401, code="unauthorized")
 
     try:
-        api = get_pkb_api_for_user(email)
+        keys = keyParser(session)
+        api = get_pkb_api_for_user(email, keys)
         if api is None:
             return json_error("Failed to initialize PKB", status=500, code="pkb_init_failed")
 
