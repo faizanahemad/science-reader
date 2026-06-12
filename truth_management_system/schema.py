@@ -315,6 +315,21 @@ CREATE TABLE IF NOT EXISTS pkb_user_settings (
     facet_overrides TEXT,
     updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS pkb_activity_log (
+    activity_id TEXT PRIMARY KEY,
+    user_email TEXT NOT NULL,
+    action TEXT NOT NULL,
+    facet TEXT NOT NULL,
+    object_type TEXT,
+    object_id TEXT,
+    prior_state TEXT,
+    new_state TEXT,
+    source TEXT NOT NULL DEFAULT 'system',
+    undone_at TEXT,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 """
 
 
@@ -374,6 +389,10 @@ CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log(user_email, created_a
 CREATE INDEX IF NOT EXISTS idx_stm_user_expires ON pkb_short_term_memory(user_email, expires_at);
 CREATE INDEX IF NOT EXISTS idx_stm_user_recency ON pkb_short_term_memory(user_email, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_stm_conversation ON pkb_short_term_memory(conversation_id);
+
+-- Activity log indexes (memory autonomy undo)
+CREATE INDEX IF NOT EXISTS idx_activity_user_time ON pkb_activity_log(user_email, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_activity_expires ON pkb_activity_log(expires_at);
 
 -- v3 indexes for claims.friendly_id and contexts are created by the migration
 -- or by _ensure_v3_indexes() during initialization. They are NOT included here
@@ -504,6 +523,7 @@ def get_tables_list() -> list:
         "pkb_overview",
         "pkb_short_term_memory",
         "pkb_user_settings",
+        "pkb_activity_log",
         "schema_version",
     ]
 

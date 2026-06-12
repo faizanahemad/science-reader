@@ -979,8 +979,8 @@ class PKBDatabase:
         logger.info("Migration to v12 complete")
 
     def _migrate_v12_to_v13(self, conn: sqlite3.Connection) -> None:
-        """Migrate from schema v12 to v13: Add pkb_user_settings table."""
-        logger.info("Migrating to v13: Adding pkb_user_settings")
+        """Migrate from schema v12 to v13: Add pkb_user_settings + pkb_activity_log."""
+        logger.info("Migrating to v13: Adding pkb_user_settings + pkb_activity_log")
         conn.execute("""
             CREATE TABLE IF NOT EXISTS pkb_user_settings (
                 email TEXT PRIMARY KEY,
@@ -989,6 +989,24 @@ class PKBDatabase:
                 updated_at TEXT NOT NULL
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pkb_activity_log (
+                activity_id TEXT PRIMARY KEY,
+                user_email TEXT NOT NULL,
+                action TEXT NOT NULL,
+                facet TEXT NOT NULL,
+                object_type TEXT,
+                object_id TEXT,
+                prior_state TEXT,
+                new_state TEXT,
+                source TEXT NOT NULL DEFAULT 'system',
+                undone_at TEXT,
+                expires_at TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_activity_user_time ON pkb_activity_log(user_email, created_at DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_activity_expires ON pkb_activity_log(expires_at)")
         logger.info("Migration to v13 complete")
 
     def _ensure_catalog_seeded(self, conn: sqlite3.Connection) -> None:

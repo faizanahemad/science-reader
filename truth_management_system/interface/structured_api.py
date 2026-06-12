@@ -460,6 +460,138 @@ class StructuredAPI:
         return {"memory_autonomy": memory_autonomy, "facet_overrides": facet_overrides, "updated_at": now}
 
     # =========================================================================
+    # Activity Log API (memory autonomy undo)
+    # =========================================================================
+
+    _UNDO_WINDOW_HOURS = 24
+
+    def log_activity(self, action: str, facet: str, object_type: str = None,
+                     object_id: str = None, prior_state: str = None,
+                     new_state: str = None, source: str = "system") -> str:
+        """Write an entry to the activity log. Returns the activity_id (undo token)."""
+        import json as _json
+        from ..utils import now_iso, generate_uuid
+        from datetime import datetime, timedelta, timezone
+
+        now = now_iso()
+        activity_id = generate_uuid()
+        expires_at = (datetime.now(timezone.utc) + timedelta(hours=self._UNDO_WINDOW_HOURS)).isoformat()
+        email = self.user_email or "__system__"
+        conn = self.db.connect()
+        conn.execute(
+            """INSERT INTO pkb_activity_log
+               (activity_id, user_email, action, facet, object_type, object_id,
+                prior_state, new_state, source, expires_at, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (activity_id, email, action, facet, object_type, object_id,
+             prior_state, new_state, source, expires_at, now)
+        )
+        conn.commit()
+        return activity_id
+
+    def undo_activity(self, activity_id: str) -> Dict:
+        """Undo an auto-action within the 24h tombstone window.
+
+        Returns dict with status ('undone'|'expired'|'already_undone'|'not_found')
+        and restored object info if applicable.
+        """
+        from ..utils import now_iso
+        from datetime import datetime, timezone
+        import json as _json
+
+        conn = self.db.connect()
+        row = conn.execute(
+            "SELECT action, facet, object_type, object_id, prior_state, undone_at, expires_at, user_email "
+            "FROM pkb_activity_log WHERE activity_id = ?", (activity_id,)
+        ).fetchone()
+        if row is None:
+            return {"status": "not_found"}
+
+        action, facet, obj_type, obj_id, prior_state, undone_at, expires_at, email = row
+        if undone_at:
+            return {"status": "already_undone"}
+
+        # Check 24h window
+        now = datetime.now(timezone.utc)
+        try:
+            exp = datetime.fromisoformat(expires_at)
+            if exp.tzinfo is None:
+                exp = exp.replace(tzinfo=timezone.utc)
+            if now > exp:
+                return {"status": "expired"}
+        except (ValueError, TypeError):
+            return {"status": "expired"}
+
+        # Perform the undo based on action type
+        restored = self._execute_undo(action, obj_type, obj_id, prior_state)
+
+        # Mark as undone
+        conn.execute(
+            "UPDATE pkb_activity_log SET undone_at = ? WHERE activity_id = ?",
+            (now_iso(), activity_id)
+        )
+        conn.commit()
+        return {"status": "undone", "action": action, "object_id": obj_id, **restored}
+
+    def _execute_undo(self, action: str, obj_type: str, obj_id: str,
+                      prior_state: str) -> Dict:
+        """Execute the actual undo operation. Returns info about what was restored."""
+        import json as _json
+
+        if action == "auto_save" and obj_type == "claim":
+            # Undo an auto-save: retract the claim
+            conn = self.db.connect()
+            now = __import__("datetime").datetime.now(
+                __import__("datetime").timezone.utc).isoformat()
+            conn.execute(
+                "UPDATE claims SET status = 'retracted', retracted_at = ? WHERE claim_id = ?",
+                (now, obj_id)
+            )
+            conn.commit()
+            return {"restored": "claim_retracted", "claim_id": obj_id}
+
+        elif action == "auto_update" and obj_type == "claim" and prior_state:
+            # Undo an auto-update: restore prior state
+            prior = _json.loads(prior_state)
+            conn = self.db.connect()
+            conn.execute(
+                "UPDATE claims SET statement = ?, updated_at = ? WHERE claim_id = ?",
+                (prior.get("statement", ""), prior.get("updated_at", ""), obj_id)
+            )
+            conn.commit()
+            return {"restored": "claim_reverted", "claim_id": obj_id}
+
+        elif action == "auto_decay" and obj_type == "claim":
+            # Undo a decay: reactivate
+            conn = self.db.connect()
+            conn.execute(
+                "UPDATE claims SET status = 'active' WHERE claim_id = ?", (obj_id,)
+            )
+            conn.commit()
+            return {"restored": "claim_reactivated", "claim_id": obj_id}
+
+        return {"restored": "unknown_action"}
+
+    def get_recent_activity(self, limit: int = 50) -> list:
+        """Get recent activity log entries for the current user."""
+        import json as _json
+        email = self.user_email or "__system__"
+        conn = self.db.connect()
+        rows = conn.execute(
+            """SELECT activity_id, action, facet, object_type, object_id, source,
+                      undone_at, expires_at, created_at
+               FROM pkb_activity_log WHERE user_email = ?
+               ORDER BY created_at DESC LIMIT ?""",
+            (email, limit)
+        ).fetchall()
+        return [
+            {"activity_id": r[0], "action": r[1], "facet": r[2], "object_type": r[3],
+             "object_id": r[4], "source": r[5], "undone_at": r[6], "expires_at": r[7],
+             "created_at": r[8]}
+            for r in rows
+        ]
+
+    # =========================================================================
     # Claims API
     # =========================================================================
 
