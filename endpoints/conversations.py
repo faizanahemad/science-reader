@@ -21,6 +21,7 @@ import traceback
 import logging
 import secrets
 import string
+from datetime import datetime
 from typing import List
 
 from flask import Blueprint, Response, jsonify, request, send_from_directory, session
@@ -205,6 +206,7 @@ def get_conversation_history(conversation_id: str):
 
         # Use cached conversation + lock-clearing behavior already embedded in the cache loader.
         conversation: Conversation = get_state().conversation_cache[conversation_id]
+        conversation.last_opened_at = datetime.now()
         query = request.args.get("query", "")
         history_text = conversation.get_conversation_history(query)
 
@@ -1424,6 +1426,12 @@ def archive_conversation(conversation_id: str):
         )
 
     conversation.archived = not conversation.archived
+    if conversation.archived:
+        conversation.archive_source = "manual"
+    else:
+        if conversation.archive_source == "auto":
+            conversation.auto_archive_exempt = True
+        conversation.archive_source = None
     return jsonify({"success": True, "archived": conversation.archived}), 200
 
 

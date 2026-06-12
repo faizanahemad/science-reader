@@ -306,6 +306,32 @@ class Conversation:
         self._archived = bool(value)
         self.save_local()
 
+    @property
+    def last_opened_at(self):
+        return getattr(self, "_last_opened_at", None)
+
+    @last_opened_at.setter
+    def last_opened_at(self, value):
+        self._last_opened_at = value
+        self.save_local()
+
+    @property
+    def auto_archive_exempt(self) -> bool:
+        return getattr(self, "_auto_archive_exempt", False)
+
+    @auto_archive_exempt.setter
+    def auto_archive_exempt(self, value: bool):
+        self._auto_archive_exempt = bool(value)
+        self.save_local()
+
+    @property
+    def archive_source(self):
+        return getattr(self, "_archive_source", None)
+
+    @archive_source.setter
+    def archive_source(self, value):
+        self._archive_source = value
+
     @staticmethod
     def _extract_referenced_claims(pkb_context: str) -> str:
         """
@@ -12178,6 +12204,11 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             domain=self.domain,
             flag=self.flag,
             archived=self.archived,
+            archive_source=self.archive_source,
+            auto_archive_exempt=self.auto_archive_exempt,
+            last_opened_at=self.last_opened_at.strftime("%Y-%m-%d %H:%M:%S")
+            if isinstance(self.last_opened_at, datetime)
+            else self.last_opened_at,
             last_updated=memory["last_updated"].strftime("%Y-%m-%d %H:%M:%S")
             if isinstance(memory["last_updated"], datetime)
             else memory["last_updated"],
