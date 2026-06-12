@@ -31,9 +31,13 @@ def _resolve_users_dir(users_dir: Optional[str]) -> str:
     return _default_users_dir
 
 
+def _db_path(users_dir: str) -> str:
+    return f"{users_dir}/users.db"
+
+
 def get_cached(conversation_id: str, users_dir: Optional[str] = None) -> Optional[dict]:
     """Get cached similarity data for a conversation."""
-    conn = create_connection(_resolve_users_dir(users_dir))
+    conn = create_connection(_db_path(_resolve_users_dir(users_dir)))
     cur = conn.cursor()
     cur.execute(
         "SELECT title_summary_hash, bm25_tokens, embedding, updated_at FROM ConversationSimilarityCache WHERE conversation_id = ?",
@@ -56,7 +60,7 @@ def get_all_cached(conversation_ids: list, users_dir: Optional[str] = None) -> d
     """Get cached similarity data for multiple conversations. Returns dict of id -> cache entry."""
     if not conversation_ids:
         return {}
-    conn = create_connection(_resolve_users_dir(users_dir))
+    conn = create_connection(_db_path(_resolve_users_dir(users_dir)))
     cur = conn.cursor()
     placeholders = ",".join("?" * len(conversation_ids))
     cur.execute(
@@ -78,7 +82,7 @@ def get_all_cached(conversation_ids: list, users_dir: Optional[str] = None) -> d
 
 def upsert_cache(conversation_id: str, title_summary_hash: str, bm25_tokens: list = None, embedding: bytes = None, users_dir: Optional[str] = None) -> None:
     """Insert or update similarity cache entry."""
-    conn = create_connection(_resolve_users_dir(users_dir))
+    conn = create_connection(_db_path(_resolve_users_dir(users_dir)))
     cur = conn.cursor()
     tokens_json = json.dumps(bm25_tokens) if bm25_tokens is not None else None
     cur.execute(
