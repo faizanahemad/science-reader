@@ -217,7 +217,7 @@ def _fire_overview_update(user_email: str, trigger: str, claims: list, link_meta
     try:
         from base import get_async_future
         db, config = get_pkb_db()
-        keys = keyParser.get_api_keys()
+        keys = keyParser({})
         manager = PKBOverviewManager(db, keys, config)
         current = manager.get_raw_content(user_email) or ""
         event = OverviewUpdateEvent(
@@ -3571,7 +3571,7 @@ def pkb_get_overview_route():
 
     try:
         db, config = get_pkb_db()
-        keys = keyParser.get_api_keys()
+        keys = keyParser({})
         manager = PKBOverviewManager(db, keys, config)
         result = manager.get_overview(email)
         return jsonify({
@@ -3607,7 +3607,7 @@ def pkb_put_overview_route():
         data = request.get_json()
         content = data.get("content", "")
         db, config = get_pkb_db()
-        keys = keyParser.get_api_keys()
+        keys = keyParser({})
         manager = PKBOverviewManager(db, keys, config)
         manager.save(email, content)
         return jsonify({"success": True})
@@ -3635,7 +3635,7 @@ def pkb_regenerate_overview_route():
     def worker():
         try:
             db, config = get_pkb_db()
-            keys = keyParser.get_api_keys()
+            keys = keyParser({})
             manager = PKBOverviewManager(db, keys, config)
 
             def cb(msg):
@@ -3696,7 +3696,7 @@ def pkb_scan_overview_route():
     def worker():
         try:
             db, config = get_pkb_db()
-            keys = keyParser.get_api_keys()
+            keys = keyParser({})
             manager = PKBOverviewManager(db, keys, config)
 
             def cb(msg):
@@ -3752,7 +3752,7 @@ def pkb_get_overview_topics_route():
 
     try:
         db, config = get_pkb_db()
-        keys = keyParser.get_api_keys()
+        keys = keyParser({})
         manager = PKBOverviewManager(db, keys, config)
         topics = manager.get_topics(email)
         return jsonify({"topics": topics})
