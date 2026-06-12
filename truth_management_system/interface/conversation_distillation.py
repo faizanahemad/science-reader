@@ -189,7 +189,8 @@ class ConversationDistiller:
                         # Activity log for undo support
                         claim_id = getattr(exec_result, 'object_id', None)
                         if claim_id:
-                            self.api.log_activity("auto_save", "capture", "claim", claim_id, source="distillation")
+                            self.api.log_activity("auto_save", "capture", "claim", claim_id,
+                                                 source="distillation", session_id=source_conversation_id)
                         logger.info("tiered:auto_save gate=%s conf=%.2f %s", result.gate, cand.confidence, cand.statement[:60])
                     except Exception as e:
                         logger.warning("tiered:auto_save failed, falling back to confirm: %s", e)
@@ -200,6 +201,10 @@ class ConversationDistiller:
                 else:
                     routed_actions.append(pa)
             proposed_actions = routed_actions
+            # Structured telemetry: lane-mix counters
+            logger.info("tiered:summary save=%d confirm=%d skip=%d total=%d",
+                        len(auto_saved), len(routed_actions), len(skipped),
+                        len(auto_saved) + len(routed_actions) + len(skipped))
 
         user_prompt = self._generate_confirmation_prompt(proposed_actions)
         

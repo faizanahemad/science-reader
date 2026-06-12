@@ -285,6 +285,10 @@ class TextIngestionDistiller:
                 else:
                     routed_proposals.append(proposal)
             proposals = routed_proposals
+            # Structured telemetry: lane-mix counters
+            logger.info("tiered:summary save=%d confirm=%d skip=%d total=%d",
+                        len(auto_saved), len(routed_proposals), len(routed_skipped),
+                        len(auto_saved) + len(routed_proposals) + len(routed_skipped))
             # Recount after routing
             add_count = sum(1 for p in proposals if p.action == "add")
             edit_count = sum(1 for p in proposals if p.action == "edit")

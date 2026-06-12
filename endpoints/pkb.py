@@ -4284,3 +4284,30 @@ def pkb_memory_recent_auto():
     except Exception as e:
         logger.error(f"Error in pkb_memory_recent_auto: {e}")
         return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+
+
+@pkb_bp.route("/pkb/memory/auto_save_rate", methods=["GET"])
+@limiter.limit("10 per minute")
+@login_required
+def pkb_memory_auto_save_rate():
+    """Get wrong-auto-save rate (eval gate metric).
+
+    Query params: days (default 30).
+    Returns: total_auto_saves, undone_count, wrong_auto_save_rate, days.
+    """
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+
+    try:
+        days = int(request.args.get("days", 30))
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error("PKB not available", status=503, code="pkb_unavailable")
+        return jsonify(api.get_auto_save_rate(days=days))
+    except Exception as e:
+        logger.error(f"Error in pkb_memory_auto_save_rate: {e}")
+        return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")

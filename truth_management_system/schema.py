@@ -326,6 +326,7 @@ CREATE TABLE IF NOT EXISTS pkb_activity_log (
     prior_state TEXT,
     new_state TEXT,
     source TEXT NOT NULL DEFAULT 'system',
+    session_id TEXT,
     undone_at TEXT,
     expires_at TEXT NOT NULL,
     created_at TEXT NOT NULL

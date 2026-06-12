@@ -467,7 +467,8 @@ class StructuredAPI:
 
     def log_activity(self, action: str, facet: str, object_type: str = None,
                      object_id: str = None, prior_state: str = None,
-                     new_state: str = None, source: str = "system") -> str:
+                     new_state: str = None, source: str = "system",
+                     session_id: str = None) -> str:
         """Write an entry to the activity log. Returns the activity_id (undo token)."""
         import json as _json
         from ..utils import now_iso, generate_uuid
@@ -481,10 +482,10 @@ class StructuredAPI:
         conn.execute(
             """INSERT INTO pkb_activity_log
                (activity_id, user_email, action, facet, object_type, object_id,
-                prior_state, new_state, source, expires_at, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                prior_state, new_state, source, session_id, expires_at, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (activity_id, email, action, facet, object_type, object_id,
-             prior_state, new_state, source, expires_at, now)
+             prior_state, new_state, source, session_id, expires_at, now)
         )
         conn.commit()
         return activity_id
@@ -585,7 +586,7 @@ class StructuredAPI:
         if action_type:
             rows = conn.execute(
                 """SELECT activity_id, action, facet, object_type, object_id, source,
-                          undone_at, expires_at, created_at
+                          undone_at, expires_at, created_at, session_id
                    FROM pkb_activity_log WHERE user_email = ? AND action = ?
                    ORDER BY created_at DESC LIMIT ?""",
                 (email, action_type, limit)
@@ -593,7 +594,7 @@ class StructuredAPI:
         else:
             rows = conn.execute(
                 """SELECT activity_id, action, facet, object_type, object_id, source,
-                          undone_at, expires_at, created_at
+                          undone_at, expires_at, created_at, session_id
                    FROM pkb_activity_log WHERE user_email = ?
                    ORDER BY created_at DESC LIMIT ?""",
                 (email, limit)
@@ -601,9 +602,34 @@ class StructuredAPI:
         return [
             {"activity_id": r[0], "action": r[1], "facet": r[2], "object_type": r[3],
              "object_id": r[4], "source": r[5], "undone_at": r[6], "expires_at": r[7],
-             "created_at": r[8]}
+             "created_at": r[8], "session_id": r[9] if len(r) > 9 else None}
             for r in rows
         ]
+
+    def get_auto_save_rate(self, days: int = 30) -> dict:
+        """Compute wrong-auto-save rate: undone auto-saves / total auto-saves.
+
+        Returns dict with total_auto_saves, undone_count, rate (0.0-1.0).
+        """
+        from datetime import datetime, timedelta, timezone
+        email = self.user_email or "__system__"
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        conn = self.db.connect()
+        row = conn.execute(
+            """SELECT COUNT(*) as total,
+                      SUM(CASE WHEN undone_at IS NOT NULL THEN 1 ELSE 0 END) as undone
+               FROM pkb_activity_log
+               WHERE user_email = ? AND action = 'auto_save' AND created_at >= ?""",
+            (email, since)
+        ).fetchone()
+        total = row[0] or 0
+        undone = row[1] or 0
+        return {
+            "total_auto_saves": total,
+            "undone_count": undone,
+            "wrong_auto_save_rate": round(undone / total, 4) if total > 0 else 0.0,
+            "days": days,
+        }
 
     # =========================================================================
     # Claims API
