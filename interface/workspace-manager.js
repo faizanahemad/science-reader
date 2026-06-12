@@ -952,7 +952,7 @@ var WorkspaceManager = {
             var displayName = self.getWorkspaceDisplayName(ws);
             var totalCount = getRecursiveCount(ws.workspace_id);
             var parentNodeId = ws.parent_workspace_id ? ('ws_' + ws.parent_workspace_id) : '#';
-            var badgeHtml = totalCount > 0 ? ' <span class="ws-count-badge">' + totalCount + '</span>' : '';
+            var badgeHtml = ' <span class="ws-count-badge">' + totalCount + '</span>';
             data.push({
                 id: 'ws_' + ws.workspace_id,
                 parent: parentNodeId,
