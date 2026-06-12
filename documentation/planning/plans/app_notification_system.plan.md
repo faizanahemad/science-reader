@@ -40,6 +40,21 @@ The PKB notification system (v14) solved this for knowledge-base events. The app
 | 12 | Mark-as-read? | Opening bell panel marks all as seen. | Consistent with PKB behavior. |
 | 13 | STM→LTM promotion? | **PKB notification** (not app-wide). It's a knowledge-base event. | Correct ownership. |
 
+### Pre-Mortem Decisions (2026-06-12)
+
+| # | Issue | Decision | Detail |
+|---|-------|----------|--------|
+| PM1 | Multi-tab polling storm | **localStorage dedup** — skip poll if another tab polled <25s ago | ~5 lines JS; eliminates 80% redundant polls |
+| PM2 | SQLite contention on users.db | **WAL mode** — `PRAGMA journal_mode=WAL` on users.db | Concurrent readers + one writer; notification writes are infrequent |
+| PM3 | Doubt watcher thread accumulation | **Cap at 2** per user — new message skips if 2 watchers already active | Bounded resource, still covers rapid-fire edge case |
+| PM4 | Duplicate doubts signals (pulse + notification) | **Keep both** — pulse is immediate visual, notification is persistent record | Distinct purposes; no toast on notification creation to avoid triple-signal |
+| PM5 | Auto-context noise | **1 per conversation per session** (until dismissed) | Minimal noise; suppresses repeated same-issue notifications |
+| PM6 | Background task missing user_email | **Make `user_email` required parameter** of `start_background_agent` | Prevents the bug structurally; small refactor of callers |
+| PM7 | "View" navigation for doubts | **Full navigation** — switch conversation + scroll to message | Complex but correct; user lands exactly where doubts are |
+| PM8 | Badge combines app + PKB count | **Two parallel requests** (`Promise.all`) — independent, no coupling | Both are fast COUNT queries; perceived as single update |
+| PM9 | Emission failure handling | **Retry once after 1s, then skip** | Handles transient DB lock; adds minimal delay |
+| PM10 | Expiry behavior | **7 days from creation (unseen); 3 days from seen_at (seen)** — whichever is later | Fair: gives seen items a shorter tail; unseen items persist full week |
+
 ---
 
 ## 3. Schema
@@ -59,13 +74,15 @@ CREATE TABLE IF NOT EXISTS AppNotifications (
     action_data TEXT,
     seen_at TEXT,
     dismissed_at TEXT,
-    expires_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,           -- 7d from creation; or 3d from seen_at (whichever later)
     created_at TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_app_notif_user_active
     ON AppNotifications(user_email, dismissed_at, expires_at, created_at DESC);
 ```
+
+**Expiry logic (PM10):** `expires_at` initially set to `created_at + 7 days`. When `mark_seen` is called, if `seen_at + 3 days > current expires_at`, extend `expires_at` to `seen_at + 3 days`. This means: unseen = 7 days max; seen but not dismissed = min(7d from creation, 3d from seen), whichever is later.
 
 ### 3.1 Categories
 
@@ -116,41 +133,62 @@ def prune_expired_app_notifications() -> int  # delete where expires_at < now
 
 ### 5.1 Background Task Completion (`code_common/agent_tool.py`)
 
+Refactor: make `user_email` a required parameter of `start_background_agent` (PM6).
+
 In `_run_background_task`, after setting `status = "done"` or `"error"`:
 ```python
-create_app_notification(
-    user_email=context.get("user_email"),
-    category="background_task_done",  # or "background_task_error"
-    title="Background task completed",
-    body=prompt[:100] + ("..." if len(prompt) > 100 else ""),
-    priority="medium",
-    conversation_id=context.get("conversation_id"),
-    conversation_name=context.get("conversation_name"),
-    action_data=json.dumps({"task_id": task_id}),
-    action_label="View Result",
-)
+# Retry once on failure (PM9)
+def _emit_task_notification(user_email, task_id, prompt, status, context):
+    for attempt in range(2):
+        try:
+            create_app_notification(
+                user_email=user_email,
+                category=f"background_task_{status}",
+                title=f"Background task {'completed' if status == 'done' else 'failed'}",
+                body=prompt[:100] + ("..." if len(prompt) > 100 else ""),
+                priority="medium",
+                conversation_id=context.get("conversation_id"),
+                conversation_name=context.get("conversation_name"),
+                action_data=json.dumps({"task_id": task_id}),
+                action_label="View Result" if status == "done" else "View Error",
+            )
+            return
+        except Exception:
+            if attempt == 0:
+                time.sleep(1)
+            else:
+                logger.warning("Failed to emit notification for task %s", task_id)
 ```
 
 ### 5.2 Auto-Doubts Ready (`endpoints/conversations.py`)
 
-Wrap each doubt dispatch in a counter; emit notification when all dispatched doubts complete. Create a lightweight coordinator:
+Wrap each doubt dispatch in a counter; emit notification when all dispatched doubts complete. Cap at 2 active watcher threads per user (PM3):
 ```python
+# Module-level tracker
+_doubt_watchers: Dict[str, int] = {}  # user_email -> active count
+
 # After all get_async_future() calls, spawn a watcher thread:
 def _watch_doubts(futures, user_email, conversation_id, conv_name, message_id):
-    for f in futures:
-        try: f.result(timeout=120)
-        except: pass
-    count = sum(1 for f in futures if f.done() and not f.exception())
-    if count > 0:
-        create_app_notification(
-            user_email=user_email,
-            category="doubts_ready",
-            title=f"{count} learning aids ready",
-            conversation_id=conversation_id,
-            conversation_name=conv_name,
-            action_url=f"#message-{message_id}",
-            action_label="View",
-        )
+    if _doubt_watchers.get(user_email, 0) >= 2:
+        return  # Skip — too many active watchers
+    _doubt_watchers[user_email] = _doubt_watchers.get(user_email, 0) + 1
+    try:
+        for f in futures:
+            try: f.result(timeout=120)
+            except: pass
+        count = sum(1 for f in futures if f.done() and not f.exception())
+        if count > 0:
+            create_app_notification(
+                user_email=user_email,
+                category="doubts_ready",
+                title=f"{count} learning aids ready",
+                conversation_id=conversation_id,
+                conversation_name=conv_name,
+                action_url=f"#message-{message_id}",
+                action_label="View",
+            )
+    finally:
+        _doubt_watchers[user_email] = max(0, _doubt_watchers.get(user_email, 0) - 1)
 ```
 
 ### 5.3 Document Indexing Failure
@@ -170,15 +208,18 @@ create_app_notification(
 
 ### 5.4 Auto-Context Degradation (`code_common/auto_context.py`)
 
-On fallback (classification failed, doc selection failed):
+On fallback (classification failed, doc selection failed). Dedup: 1 per conversation per session until dismissed (PM5):
 ```python
-create_app_notification(
-    user_email=email,
-    category="auto_context_degraded",
-    title="Auto-context unavailable, using fallback",
-    body=reason,
-    conversation_id=conversation_id,
-)
+# Only emit if no existing undismissed notification for this conv + category
+existing = get_app_notifications_for_dedup(email, "auto_context_degraded", conversation_id)
+if not existing:
+    create_app_notification(
+        user_email=email,
+        category="auto_context_degraded",
+        title="Auto-context unavailable, using fallback",
+        body=reason,
+        conversation_id=conversation_id,
+    )
 ```
 
 ---
@@ -227,15 +268,35 @@ Fixed-width (380px), max-height 60vh, scrollable. Opens on bell click.
 ### 6.3 Interactions
 
 - Click bell → toggle dropdown, fire `mark_seen` for rendered items
-- Badge: shows count of unseen + undismissed + not-expired + PKB unread count
+- Badge: shows count of unseen + undismissed + not-expired (app + PKB combined)
 - "Open PKB" link → opens PKB modal, switches to notifications tab
-- "View Result" → shows background task result in a modal or scrolls to message
-- "View" (doubts) → navigates to conversation + scrolls to message
+- "View Result" → shows background task result in a modal
+- "View" (doubts) → full navigation: switch to conversation + scroll to message (PM7). Uses `setActiveConversation(conv_id)` then `scrollToMessage(msg_id)` after render.
 - "Dismiss" → POST `/notifications/<id>/dismiss`, remove card from DOM
 
 ### 6.4 Polling
 
-Every 30s: `GET /notifications/count` → update badge number. Only fires when document is visible (`document.visibilityState === 'visible'`).
+Every 30s with localStorage dedup (PM1): skip if another tab polled <25s ago.
+Two parallel requests via `Promise.all` (PM8):
+- `GET /notifications/count` → app notification count
+- `GET /pkb/memory/notifications/count` → PKB count
+
+Badge total = app_count + pkb_count. Only poll when `document.visibilityState === 'visible'`.
+
+```javascript
+function pollBadge() {
+    var lastPoll = parseInt(localStorage.getItem('notif_poll_ts') || '0');
+    if (Date.now() - lastPoll < 25000) return;
+    localStorage.setItem('notif_poll_ts', String(Date.now()));
+    Promise.all([
+        $.get('/notifications/count'),
+        $.get('/pkb/memory/notifications/count')
+    ]).then(function(results) {
+        var total = (results[0].count || 0) + (results[1].count || 0);
+        updateBellBadge(total);
+    });
+}
+```
 
 ---
 
