@@ -418,5 +418,19 @@ def create_tables(*, users_dir: str, logger: Optional[logging.Logger] = None) ->
         "CREATE INDEX IF NOT EXISTS idx_ExtensionWorkflows_user ON ExtensionWorkflows (user_email)"
     )
 
+    # PinnedMessages table — star/pin assistant messages within a conversation
+    cur.execute("""CREATE TABLE IF NOT EXISTS PinnedMessages (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        conversation_id TEXT NOT NULL,
+        message_id TEXT NOT NULL,
+        user_email TEXT NOT NULL,
+        preview TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(conversation_id, message_id)
+    )""")
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_PinnedMessages_conv ON PinnedMessages (conversation_id)"
+    )
+
     conn.commit()
     conn.close()

@@ -797,6 +797,8 @@ var ConversationManager = {
             $("#show-sidebar").focus();
             // Reveal doubts indicator buttons for messages that have doubts
             revealDoubtsButtons(conversationId);
+            // Fetch and highlight pinned messages
+            ChatManager._fetchAndHighlightPins(conversationId);
         }).fail(function () {
             // API call failed (e.g. 404 for deleted conversation).
             // Clear stale state and fall back gracefully.
@@ -1273,7 +1275,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
         // Add click event handler
         cardElement.off('click').on('click', function(e) {
             // Don't trigger on button clicks, checkboxes, or dropdown elements
-            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .scroll-to-bottom-btn, .header-hide-toggle, .scroll-to-top-btn, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
+            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .pin-message-btn, .scroll-to-bottom-btn, .header-hide-toggle, .scroll-to-top-btn, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                 return;
             }
             
@@ -1283,7 +1285,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
         // Add text selection event handler
         cardElement.off('selectstart mouseup').on('selectstart mouseup', function(e) {
             // Don't trigger on button clicks, checkboxes, or dropdown elements
-            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .scroll-to-bottom-btn, .header-hide-toggle, .scroll-to-top-btn, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
+            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .pin-message-btn, .scroll-to-bottom-btn, .header-hide-toggle, .scroll-to-top-btn, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                 return;
             }
             
@@ -1299,7 +1301,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
         // Add focus event handler for keyboard navigation
         cardElement.off('focus focusin').on('focus focusin', function(e) {
             // Don't trigger on button clicks, checkboxes, or dropdown elements
-            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .scroll-to-bottom-btn, .header-hide-toggle, .scroll-to-top-btn, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
+            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .pin-message-btn, .scroll-to-bottom-btn, .header-hide-toggle, .scroll-to-top-btn, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                 return;
             }
             
@@ -2494,6 +2496,9 @@ var ChatManager = {
                     <button class="btn btn-sm p-1 copy-btn-header" title="Copy Text">
                         <i class="bi bi-clipboard"></i>
                     </button>
+                    <button class="btn btn-sm p-1 pin-message-btn" title="Pin/Unpin Message" data-message-id="${message.message_id || ''}" style="${message.sender === 'user' ? 'display:none;' : ''}">
+                        <i class="bi bi-star"></i>
+                    </button>
                     <div class="dropdown d-inline-block">
                         <button class="btn btn-sm p-1 dropdown-toggle-no-caret vote-menu-toggle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="More Options">
                             <i class="bi bi-three-dots-vertical"></i>
@@ -2644,7 +2649,7 @@ var ChatManager = {
             // Add event handlers for immediate focus
             messageElement.on('click', function(e) {
                 // Don't trigger on button clicks, checkboxes, or dropdown elements
-            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .scroll-to-bottom-btn, .header-hide-toggle, .scroll-to-top-btn, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
+            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .pin-message-btn, .scroll-to-bottom-btn, .header-hide-toggle, .scroll-to-top-btn, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                     return;
                 }
                 
@@ -2654,7 +2659,7 @@ var ChatManager = {
             // Add text selection event handler
             messageElement.on('selectstart mouseup', function(e) {
                 // Don't trigger on button clicks, checkboxes, or dropdown elements
-            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .scroll-to-bottom-btn, .header-hide-toggle, .scroll-to-top-btn, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
+            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .pin-message-btn, .scroll-to-bottom-btn, .header-hide-toggle, .scroll-to-top-btn, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                     return;
                 }
                 
@@ -2670,7 +2675,7 @@ var ChatManager = {
             // Add focus event handler for keyboard navigation
             messageElement.on('focus focusin', function(e) {
                 // Don't trigger on button clicks, checkboxes, or dropdown elements
-            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .scroll-to-bottom-btn, .header-hide-toggle, .scroll-to-top-btn, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
+            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .pin-message-btn, .scroll-to-bottom-btn, .header-hide-toggle, .scroll-to-top-btn, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                     return;
                 }
                 
@@ -2909,9 +2914,107 @@ var ChatManager = {
         });
         responseWaitAndSuccessChecker('/send_message/' + conversationId, response);
         return response;
+    },
+
+    _pinnedMessageIds: new Set(),
+
+    _fetchAndHighlightPins: function (conversationId) {
+        var self = this;
+        self._pinnedMessageIds.clear();
+        $.get('/get_pinned_messages/' + conversationId, function (data) {
+            if (data && data.pinned_messages) {
+                data.pinned_messages.forEach(function (p) { self._pinnedMessageIds.add(p.message_id); });
+                // Highlight pinned stars
+                $('#chatView .pin-message-btn').each(function () {
+                    var msgId = $(this).data('message-id');
+                    if (self._pinnedMessageIds.has(String(msgId))) {
+                        $(this).find('i').removeClass('bi-star').addClass('bi-star-fill text-warning');
+                    }
+                });
+            }
+        });
     }
 
 };
+
+// Delegated pin/unpin click handler
+$(document).on('click', '.pin-message-btn', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    var btn = $(this);
+    var msgId = String(btn.data('message-id'));
+    var convId = ConversationManager.activeConversationId;
+    if (!convId || !msgId) return;
+    $.post('/pin_message/' + convId + '/' + msgId, function (data) {
+        if (data && data.success) {
+            var icon = btn.find('i');
+            if (data.pinned) {
+                icon.removeClass('bi-star').addClass('bi-star-fill text-warning');
+                ChatManager._pinnedMessageIds.add(msgId);
+            } else {
+                icon.removeClass('bi-star-fill text-warning').addClass('bi-star');
+                ChatManager._pinnedMessageIds.delete(msgId);
+            }
+        }
+    });
+});
+
+// Starred messages modal
+$(document).on('click', '#starred-messages-btn', function () {
+    var convId = ConversationManager.activeConversationId;
+    if (!convId) { if (typeof showToast === 'function') showToast('No active conversation', 'warning'); return; }
+    var body = $('#starred-messages-body');
+    body.html('<p class="text-muted">Loading...</p>');
+    $('#starred-messages-modal').modal('show');
+    $.get('/get_pinned_messages/' + convId, function (data) {
+        if (!data || !data.pinned_messages || data.pinned_messages.length === 0) {
+            body.html('<p class="text-muted">No starred messages yet. Click the <i class="bi bi-star"></i> icon on any assistant message to star it.</p>');
+            return;
+        }
+        var html = '';
+        data.pinned_messages.forEach(function (pin) {
+            var preview = $('<span>').text(pin.preview || '(no preview)').html();
+            html += '<div class="starred-msg-item mb-2 p-2 border rounded">' +
+                '<div class="starred-msg-preview" style="font-size:0.82rem;">' + preview + '</div>' +
+                '<div class="mt-1">' +
+                '<a href="#" class="starred-msg-goto small" data-message-id="' + pin.message_id + '">Go to message</a> &middot; ' +
+                '<a href="#" class="starred-msg-view small" data-message-id="' + pin.message_id + '">View full</a>' +
+                '</div></div>';
+        });
+        body.html(html);
+    });
+});
+
+// Go to starred message
+$(document).on('click', '.starred-msg-goto', function (e) {
+    e.preventDefault();
+    var msgId = $(this).data('message-id');
+    $('#starred-messages-modal').modal('hide');
+    var target = $('#chatView .card-header[message-id="' + msgId + '"]');
+    if (target.length) {
+        target[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+        target.closest('.message-card').addClass('highlight-flash');
+        setTimeout(function () { target.closest('.message-card').removeClass('highlight-flash'); }, 2000);
+    }
+});
+
+// View full starred message via markdown viewer
+$(document).on('click', '.starred-msg-view', function (e) {
+    e.preventDefault();
+    var msgId = $(this).data('message-id');
+    var card = $('#chatView .card-header[message-id="' + msgId + '"]').closest('.message-card');
+    if (card.length) {
+        var content = card.find('.actual-card-text').html();
+        var viewer = $('#starred-messages-body');
+        viewer.html('<div class="mb-2"><a href="#" class="starred-msg-back small">&laquo; Back to list</a></div><div class="starred-msg-full-content" style="font-size:0.85rem;">' + content + '</div>');
+    }
+});
+
+// Back to starred list
+$(document).on('click', '.starred-msg-back', function (e) {
+    e.preventDefault();
+    $('#starred-messages-btn').trigger('click');
+});
 
 function getConversationIdFromUrl(url) {  
     const path = url ? new URL(url).pathname : window.location.pathname;

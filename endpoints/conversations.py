@@ -1427,6 +1427,54 @@ def archive_conversation(conversation_id: str):
     return jsonify({"success": True, "archived": conversation.archived}), 200
 
 
+@conversations_bp.route("/pin_message/<conversation_id>/<message_id>", methods=["POST"])
+@require_login
+@conversations_rate_limit
+def pin_message(conversation_id: str, message_id: str):
+    email, _name, _loggedin = get_session_identity()
+    state = get_state()
+
+    if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
+        return json_error("Conversation not found", status=404, code="conversation_not_found")
+
+    from database.pinned_messages import pin_message as db_pin, unpin_message as db_unpin, get_pinned_messages as db_get
+
+    # Toggle: if already pinned, unpin
+    existing = db_get(conversation_id=conversation_id, users_dir=state.users_dir)
+    is_pinned = any(p["message_id"] == message_id for p in existing)
+
+    if is_pinned:
+        db_unpin(conversation_id=conversation_id, message_id=message_id, users_dir=state.users_dir)
+        return jsonify({"success": True, "pinned": False}), 200
+
+    # Get preview from conversation
+    conversation = state.conversation_cache[conversation_id]
+    preview = ""
+    if conversation:
+        for msg in conversation.conversation_history:
+            if msg.get("message_id") == message_id:
+                preview = (msg.get("content") or "")[:200]
+                break
+
+    db_pin(conversation_id=conversation_id, message_id=message_id, user_email=email, preview=preview, users_dir=state.users_dir)
+    return jsonify({"success": True, "pinned": True}), 200
+
+
+@conversations_bp.route("/get_pinned_messages/<conversation_id>", methods=["GET"])
+@require_login
+@conversations_rate_limit
+def get_pinned_messages(conversation_id: str):
+    email, _name, _loggedin = get_session_identity()
+    state = get_state()
+
+    if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
+        return json_error("Conversation not found", status=404, code="conversation_not_found")
+
+    from database.pinned_messages import get_pinned_messages as db_get
+    pins = db_get(conversation_id=conversation_id, users_dir=state.users_dir)
+    return jsonify({"success": True, "pinned_messages": pins}), 200
+
+
 def _create_conversation_simple(
     domain: str, workspace_id: str | None = None
 ) -> Conversation:

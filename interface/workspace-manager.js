@@ -664,6 +664,8 @@ var WorkspaceManager = {
             var collapseKey = 'timeViewCollapsed:' + email + ':' + domain + ':' + group.label;
             var collapsed = false;
             try { collapsed = localStorage.getItem(collapseKey) === 'true'; } catch (_e) {}
+            // Default-collapse "Older" group if no explicit preference saved
+            if (group.label === 'Older' && localStorage.getItem(collapseKey) === null) collapsed = true;
 
             var header = $('<div class="time-group-header"></div>')
                 .html('<i class="fa fa-chevron-down recent-chevron' + (collapsed ? ' collapsed' : '') + '"></i> ' + group.label + ' <span class="recent-count-badge">(' + group.items.length + ')</span>');

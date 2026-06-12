@@ -442,3 +442,23 @@
 .time-group-list {
     margin-bottom: 2px;
 }
+
+/* Starred/pinned messages */
+.pin-message-btn {
+    opacity: 0.5;
+    transition: opacity 0.15s;
+}
+.pin-message-btn:hover,
+.pin-message-btn .bi-star-fill {
+    opacity: 1;
+}
+.starred-msg-item:hover {
+    background: rgba(255, 193, 7, 0.05);
+}
+.highlight-flash {
+    animation: flash-highlight 2s ease-out;
+}
+@keyframes flash-highlight {
+    0% { box-shadow: 0 0 0 3px rgba(255, 193, 7, 0.6); }
+    100% { box-shadow: none; }
+}

@@ -352,6 +352,7 @@
                                   <div id="chat-doc-view" class="d-flex align-items-center flex-wrap">
                                       <button id="get-chat-transcript" type="button" class="btn btn-primary mr-2 btn-sm mb-1"><i class="fa fa-download">&nbsp;</i></button>
                                       <button id="share-chat" type="button" class="btn btn-primary mr-2 btn-sm mb-1"><i class="fa fa-share-alt">&nbsp;</i></button>
+                                      <button id="starred-messages-btn" type="button" class="btn btn-outline-warning mr-2 btn-sm mb-1" title="Starred Messages"><i class="fa fa-star">&nbsp;</i></button>
                                       <button id="conversation-docs-button" type="button" class="btn btn-outline-primary mr-2 btn-sm mb-1"><i class="fa fa-file">&nbsp; Docs</i></button>
                                       <button id="global-docs-button" type="button" class="btn btn-outline-info mr-2 btn-sm mb-1"><i class="fa fa-globe">&nbsp; Global Docs</i></button>
                                       <div class="btn-group mr-2 mb-1 ext-btn" id="ext-extract-page-group" style="display:none;">
@@ -468,6 +469,21 @@
     </div>
 
     
+
+    <!-- Starred Messages Modal -->
+    <div class="modal fade" id="starred-messages-modal" tabindex="-1" role="dialog" aria-labelledby="starredMsgsLabel" aria-hidden="true">
+      <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title" id="starredMsgsLabel"><i class="fa fa-star text-warning"></i> Starred Messages</h5>
+            <button type="button" class="close" data-dismiss="modal" aria-label="Close"><span aria-hidden="true">&times;</span></button>
+          </div>
+          <div class="modal-body" id="starred-messages-body" style="max-height:70vh;overflow-y:auto;">
+            <p class="text-muted">Loading...</p>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- Conversation Documents Modal -->
     <div class="modal fade" id="conversation-docs-modal" tabindex="-1" role="dialog" aria-labelledby="convDocsModalLabel" aria-hidden="true">
