@@ -17,6 +17,22 @@ from ..constants import ClaimType, ContextDomain
 
 logger = logging.getLogger(__name__)
 
+# ─── Confidence scoring instructions (shared across extraction prompts) ────────
+_CONFIDENCE_SCORING_INSTRUCTIONS = """
+CONFIDENCE SCORING — for each claim, score these 4 aspects (integer 1-10):
+  "explicitness": how directly the user stated this (10=verbatim quote, 7=clearly implied, 4=inferred, 1=speculative)
+  "stability": how durable/permanent this fact is (10=lifelong fact, 7=long-term preference, 4=current but may change, 1=fleeting/momentary)
+  "clarity": how unambiguous the meaning is (10=crystal clear, 7=clear in context, 4=somewhat vague, 1=very ambiguous)
+  "usefulness": how worth remembering this is (10=core identity/critical, 7=useful preference, 4=mildly interesting, 1=trivial/noise)
+
+First state a brief verbal confidence label (e.g. "stated verbatim", "clearly implied", "inferred from context"),
+then assign the 4 integer scores. Include them in the JSON as:
+  "confidence_verbal": "<your label>",
+  "confidence_scores": {"explicitness": N, "stability": N, "clarity": N, "usefulness": N}
+"""
+
+_CONFIDENCE_EXAMPLE_FIELDS = '"confidence_verbal": "stated verbatim", "confidence_scores": {"explicitness": 9, "stability": 8, "clarity": 9, "usefulness": 8}'
+
 
 @dataclass
 class CandidateClaim:
@@ -36,6 +52,8 @@ class CandidateClaim:
     derivation: str = "extracted"
     # UX: brief quote/paraphrase of what user said that triggered extraction
     reason: Optional[str] = None
+    # Multi-aspect confidence scores (1-10 each), stored for audit/tuning
+    confidence_aspects: Optional[Dict[str, int]] = None
 
 
 @dataclass
@@ -246,8 +264,9 @@ IMPORTANT: Return ONLY a valid JSON array with NO additional text before or afte
 For task/reminder types, include a "valid_to" field with the deadline in YYYY-MM-DD format if mentioned.
 Include a "tags" array with relevant short keyword tags.
 Include a "reason" field — a brief quote or paraphrase (max 15 words) of what the user said that led to this claim.
+""" + _CONFIDENCE_SCORING_INSTRUCTIONS + """
 Example format:
-[{"statement": "User prefers dark roast coffee", "claim_type": "preference", "context_domain": "personal", "confidence": 0.85, "derivation": "stated", "tags": ["coffee"], "reason": "said 'I only drink dark roast'"}, {"statement": "User needs to submit report by Friday", "claim_type": "task", "context_domain": "work", "confidence": 0.9, "valid_to": "2025-07-18", "derivation": "stated", "tags": ["report", "deadline"], "reason": "mentioned Friday deadline for report"}]
+[{"statement": "User prefers dark roast coffee", "claim_type": "preference", "context_domain": "personal", """ + _CONFIDENCE_EXAMPLE_FIELDS + """, "derivation": "stated", "tags": ["coffee"], "reason": "said 'I only drink dark roast'"}, {"statement": "User needs to submit report by Friday", "claim_type": "task", "context_domain": "work", "confidence_verbal": "stated verbatim", "confidence_scores": {"explicitness": 9, "stability": 4, "clarity": 9, "usefulness": 9}, "valid_to": "2025-07-18", "derivation": "stated", "tags": ["report", "deadline"], "reason": "mentioned Friday deadline for report"}]
 
 If nothing at all is worth remembering from the current message, return exactly: []
 
@@ -282,8 +301,9 @@ IMPORTANT: Return ONLY a valid JSON array with NO additional text before or afte
 For task/reminder types, include a "valid_to" field with the deadline in YYYY-MM-DD format if mentioned.
 Include a "tags" array with relevant short keyword tags.
 Include a "reason" field — a brief quote or paraphrase (max 15 words) of what the user said that led to this claim.
+""" + _CONFIDENCE_SCORING_INSTRUCTIONS + """
 Example format:
-[{"statement": "User is vegetarian", "claim_type": "fact", "context_domain": "health", "confidence": 0.9, "derivation": "stated", "tags": ["diet"], "reason": "said 'I'm vegetarian'"}, {"statement": "User has dentist appointment next Monday", "claim_type": "reminder", "context_domain": "health", "confidence": 0.9, "valid_to": "2025-07-21", "derivation": "stated", "tags": ["dentist", "appointment"], "reason": "mentioned dentist on Monday"}]
+[{"statement": "User is vegetarian", "claim_type": "fact", "context_domain": "health", """ + _CONFIDENCE_EXAMPLE_FIELDS + """, "derivation": "stated", "tags": ["diet"], "reason": "said 'I'm vegetarian'"}, {"statement": "User has dentist appointment next Monday", "claim_type": "reminder", "context_domain": "health", "confidence_verbal": "stated verbatim", "confidence_scores": {"explicitness": 9, "stability": 3, "clarity": 9, "usefulness": 8}, "valid_to": "2025-07-21", "derivation": "stated", "tags": ["dentist", "appointment"], "reason": "mentioned dentist on Monday"}]
 
 If no clear personal facts to remember from the current message, return exactly: []
 
@@ -314,18 +334,39 @@ Response:"""
                             statement=item.get('statement'),
                             claim_type=item.get('claim_type', 'fact'),
                             context_domain=item.get('context_domain', 'personal'),
-                            confidence=float(item.get('confidence', 0.8)),
+                            confidence=self._compute_confidence(item),
                             valid_from=item.get('valid_from'),
                             valid_to=item.get('valid_to'),
                             tags=item.get('tags', []) if isinstance(item.get('tags'), list) else [],
                             derivation=_deriv,
                             reason=item.get('reason'),
+                            confidence_aspects=item.get('confidence_scores'),
                         ))
                 return candidates
             return []
         except Exception as e:
             logger.error(f"Claim extraction failed: {e}")
             return []
+
+    @staticmethod
+    def _compute_confidence(item: dict) -> float:
+        """Compute final 0-1 confidence from multi-aspect scores or legacy float.
+
+        Prefers the new multi-aspect format (confidence_scores dict with 4 int
+        values 1-10). Falls back to legacy 'confidence' float for backward compat.
+        Combination: mean of aspects / 10 (balanced, not overly conservative).
+        """
+        scores = item.get('confidence_scores')
+        if isinstance(scores, dict) and scores:
+            aspects = ['explicitness', 'stability', 'clarity', 'usefulness']
+            vals = [max(1, min(10, int(scores.get(a, 5)))) for a in aspects if a in scores]
+            if vals:
+                return round(sum(vals) / (len(vals) * 10), 2)
+        # Legacy fallback: plain float
+        try:
+            return float(item.get('confidence', 0.8))
+        except (ValueError, TypeError):
+            return 0.8
 
     def _extract_short_term_memories(
         self,

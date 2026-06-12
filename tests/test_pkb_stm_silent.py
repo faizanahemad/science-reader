@@ -49,3 +49,38 @@ class TestSTMSilentPrecedent:
         assert hasattr(plan, "proposed_actions")
         # proposed_actions go through execute_plan(approved_indices)
         # short_term_candidates are saved directly without that gate
+
+
+class TestComputeConfidence:
+    """Test the multi-aspect confidence computation."""
+
+    def test_multi_aspect_mean(self):
+        from truth_management_system.interface.conversation_distillation import ConversationDistiller
+        item = {"confidence_scores": {"explicitness": 9, "stability": 8, "clarity": 9, "usefulness": 8}}
+        assert ConversationDistiller._compute_confidence(item) == 0.85  # mean(9,8,9,8)/10
+
+    def test_multi_aspect_low(self):
+        from truth_management_system.interface.conversation_distillation import ConversationDistiller
+        item = {"confidence_scores": {"explicitness": 3, "stability": 4, "clarity": 5, "usefulness": 4}}
+        assert ConversationDistiller._compute_confidence(item) == 0.4  # mean(3,4,5,4)/10
+
+    def test_legacy_float_fallback(self):
+        from truth_management_system.interface.conversation_distillation import ConversationDistiller
+        item = {"confidence": 0.75}
+        assert ConversationDistiller._compute_confidence(item) == 0.75
+
+    def test_missing_both_defaults_to_08(self):
+        from truth_management_system.interface.conversation_distillation import ConversationDistiller
+        assert ConversationDistiller._compute_confidence({}) == 0.8
+
+    def test_partial_aspects(self):
+        from truth_management_system.interface.conversation_distillation import ConversationDistiller
+        item = {"confidence_scores": {"explicitness": 10, "clarity": 10}}
+        # Only 2 aspects provided, mean of those
+        assert ConversationDistiller._compute_confidence(item) == 1.0
+
+    def test_clamping(self):
+        from truth_management_system.interface.conversation_distillation import ConversationDistiller
+        item = {"confidence_scores": {"explicitness": 15, "stability": -2, "clarity": 10, "usefulness": 10}}
+        # clamped: 10, 1, 10, 10 -> mean = 31/40 = 0.78
+        assert ConversationDistiller._compute_confidence(item) == 0.78
