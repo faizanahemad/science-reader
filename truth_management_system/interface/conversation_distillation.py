@@ -189,8 +189,17 @@ class ConversationDistiller:
                         # Activity log for undo support
                         claim_id = getattr(exec_result, 'object_id', None)
                         if claim_id:
-                            self.api.log_activity("auto_save", "capture", "claim", claim_id,
+                            act_id = self.api.log_activity("auto_save", "capture", "claim", claim_id,
                                                  source="distillation", session_id=source_conversation_id)
+                            # Emit auto_save notification
+                            self.api.create_notification(
+                                priority="medium", category="auto_save",
+                                title=f"Auto-saved: {cand.statement[:80]}",
+                                body=cand.statement, object_type="claim", object_id=claim_id,
+                                activity_id=act_id, available_actions=["undo", "dismiss"],
+                                action_payload={"claim_id": claim_id, "statement": cand.statement},
+                                source="distillation", session_id=source_conversation_id,
+                            )
                         logger.info("tiered:auto_save gate=%s conf=%.2f %s", result.gate, cand.confidence, cand.statement[:60])
                     except Exception as e:
                         logger.warning("tiered:auto_save failed, falling back to confirm: %s", e)
@@ -200,6 +209,23 @@ class ConversationDistiller:
                     logger.info("tiered:skip gate=%s conf=%.2f %s", result.gate, cand.confidence, cand.statement[:60])
                 else:
                     routed_actions.append(pa)
+                    # Emit confirm_required notification
+                    self.api.create_notification(
+                        priority="high", category="confirm_required",
+                        title=f"Confirm: {cand.statement[:80]}",
+                        body=cand.statement, object_type="claim",
+                        action_required=True,
+                        available_actions=["approve", "reject", "dismiss"],
+                        action_payload={
+                            "proposed_action": pa.action,
+                            "statement": cand.statement,
+                            "claim_type": cand.claim_type,
+                            "context_domain": cand.context_domain,
+                            "confidence": cand.confidence,
+                            "derivation": getattr(cand, 'derivation', 'stated'),
+                        },
+                        source="distillation", session_id=source_conversation_id,
+                    )
             proposed_actions = routed_actions
             # Structured telemetry: lane-mix counters
             logger.info("tiered:summary save=%d confirm=%d skip=%d total=%d",

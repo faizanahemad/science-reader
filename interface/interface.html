@@ -922,6 +922,11 @@
                   <i class="bi bi-tools"></i> Maintenance
                 </a>
               </li>
+              <li class="nav-item">
+                <a class="nav-link" id="pkb-notifs-tab" data-toggle="tab" href="#pkb-notifs-pane" role="tab">
+                  <i class="bi bi-bell-fill"></i> <span id="pkb-notifs-badge" class="badge badge-danger" style="display:none;">0</span>
+                </a>
+              </li>
             </ul>
             
             <!-- Tab Content -->
@@ -1374,6 +1379,35 @@
                       <div class="card-body p-2" id="pkb-archived-list" style="max-height:30vh;overflow-y:auto;"></div>
                     </div>
                   </div>
+                </div>
+              </div>
+
+              <!-- Notifications Tab -->
+              <div class="tab-pane fade" id="pkb-notifs-pane" role="tabpanel">
+                <!-- Filter pills -->
+                <div class="btn-group btn-group-sm mb-2" role="group" id="pkb-notifs-filters">
+                  <button type="button" class="btn btn-outline-primary active" data-filter="action">Action Needed</button>
+                  <button type="button" class="btn btn-outline-primary" data-filter="recent">Recent</button>
+                  <button type="button" class="btn btn-outline-primary" data-filter="all">All</button>
+                </div>
+                <!-- Bulk actions toolbar -->
+                <div id="pkb-notifs-bulk-bar" class="mb-2" style="display:none;">
+                  <button class="btn btn-sm btn-success" id="pkb-notifs-bulk-approve">Approve All</button>
+                  <button class="btn btn-sm btn-secondary" id="pkb-notifs-bulk-dismiss">Dismiss All</button>
+                  <button class="btn btn-sm btn-warning" id="pkb-notifs-bulk-undo-session">Undo Session</button>
+                  <span class="text-muted small ml-2" id="pkb-notifs-selected-count">0 selected</span>
+                </div>
+                <!-- Notifications list -->
+                <div id="pkb-notifs-list" style="max-height:55vh; overflow-y:auto;">
+                  <p class="text-muted text-center py-3" id="pkb-notifs-empty">
+                    <i class="bi bi-check-circle"></i> All caught up!
+                  </p>
+                </div>
+                <!-- Settings gear -->
+                <div class="text-right mt-2">
+                  <button class="btn btn-sm btn-link text-muted" id="pkb-notifs-settings-btn" title="Notification settings">
+                    <i class="bi bi-gear"></i>
+                  </button>
                 </div>
               </div>
 

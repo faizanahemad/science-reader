@@ -2548,6 +2548,31 @@ def pkb_execute_updates_route():
                 if result.success:
                     added_count += 1
 
+        # Emit low-priority notifications for confirmed items
+        for r in results:
+            if r["success"] and r.get("claim_id"):
+                try:
+                    api.create_notification(
+                        priority="low", category="claim_confirmed",
+                        title=f"Confirmed: {r['statement'][:80]}",
+                        body=r["statement"],
+                        object_type="claim", object_id=r["claim_id"],
+                        available_actions=["dismiss"],
+                        source="system",
+                    )
+                    # Resolve any pending confirm_required notification for same statement
+                    from truth_management_system.utils import now_iso as _now_iso
+                    conn = api.db.connect()
+                    conn.execute(
+                        "UPDATE pkb_notifications SET action_taken = 'approved_via_modal', "
+                        "resolved_at = ? WHERE user_email = ? AND category = 'confirm_required' "
+                        "AND resolved_at IS NULL AND title LIKE ?",
+                        (_now_iso(), email, f"Confirm: {r['statement'][:80]}%")
+                    )
+                    conn.commit()
+                except Exception:
+                    pass
+
         del _memory_update_plans[plan_id]
 
         # One consolidated overview update for all successfully modified claims
@@ -4311,3 +4336,186 @@ def pkb_memory_auto_save_rate():
     except Exception as e:
         logger.error(f"Error in pkb_memory_auto_save_rate: {e}")
         return json_error(f"An error occurred: {str(e)}", status=500, code="internal_error")
+
+
+# ─── PKB Notification Endpoints (v14) ─────────────────────────────────────────
+
+@pkb_bp.route("/pkb/memory/notifications", methods=["GET"])
+@limiter.limit("60 per minute")
+@login_required
+def pkb_notifications_list():
+    """List notifications with optional filters."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error("PKB not available", status=503, code="pkb_unavailable")
+        # Trigger reminder check on list request
+        api.check_reminders_due()
+        return jsonify(api.get_notifications(
+            priority=request.args.get("priority"),
+            category=request.args.get("category"),
+            unresolved_only=request.args.get("unresolved", "true").lower() == "true",
+            unseen_only=request.args.get("unseen", "false").lower() == "true",
+            limit=int(request.args.get("limit", 50)),
+            offset=int(request.args.get("offset", 0)),
+        ))
+    except Exception as e:
+        logger.error(f"Error in pkb_notifications_list: {e}")
+        return json_error(str(e), status=500, code="internal_error")
+
+
+@pkb_bp.route("/pkb/memory/notifications/count", methods=["GET"])
+@limiter.limit("120 per minute")
+@login_required
+def pkb_notifications_count():
+    """Get badge count (unseen high/medium action-required)."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error("PKB not available", status=503, code="pkb_unavailable")
+        return jsonify({"count": api.get_notification_count()})
+    except Exception as e:
+        logger.error(f"Error in pkb_notifications_count: {e}")
+        return json_error(str(e), status=500, code="internal_error")
+
+
+@pkb_bp.route("/pkb/memory/notifications/<notification_id>/action", methods=["POST"])
+@limiter.limit("30 per minute")
+@login_required
+def pkb_notifications_action(notification_id):
+    """Take action on a notification (approve/reject/undo/dismiss/pick_new/pick_existing/keep_both)."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+    try:
+        data = request.get_json(force=True) or {}
+        action = data.get("action")
+        if not action:
+            return json_error("Missing 'action' field", status=400, code="bad_request")
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error("PKB not available", status=503, code="pkb_unavailable")
+        result = api.resolve_notification(notification_id, action)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Error in pkb_notifications_action: {e}")
+        return json_error(str(e), status=500, code="internal_error")
+
+
+@pkb_bp.route("/pkb/memory/notifications/bulk_action", methods=["POST"])
+@limiter.limit("15 per minute")
+@login_required
+def pkb_notifications_bulk_action():
+    """Bulk resolve notifications with same action."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+    try:
+        data = request.get_json(force=True) or {}
+        ids = data.get("ids", [])
+        action = data.get("action")
+        if not ids or not action:
+            return json_error("Missing 'ids' or 'action'", status=400, code="bad_request")
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error("PKB not available", status=503, code="pkb_unavailable")
+        result = api.bulk_resolve(ids, action)
+        return jsonify(result)
+    except Exception as e:
+        logger.error(f"Error in pkb_notifications_bulk_action: {e}")
+        return json_error(str(e), status=500, code="internal_error")
+
+
+@pkb_bp.route("/pkb/memory/notifications/mark_seen", methods=["POST"])
+@limiter.limit("60 per minute")
+@login_required
+def pkb_notifications_mark_seen():
+    """Mark notifications as seen."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+    try:
+        data = request.get_json(force=True) or {}
+        ids = data.get("ids", [])
+        if not ids:
+            return json_error("Missing 'ids'", status=400, code="bad_request")
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error("PKB not available", status=503, code="pkb_unavailable")
+        count = api.mark_seen(ids)
+        return jsonify({"marked": count})
+    except Exception as e:
+        logger.error(f"Error in pkb_notifications_mark_seen: {e}")
+        return json_error(str(e), status=500, code="internal_error")
+
+
+@pkb_bp.route("/pkb/memory/notifications/settings", methods=["GET", "PUT"])
+@limiter.limit("30 per minute")
+@login_required
+def pkb_notifications_settings():
+    """Get or update notification preferences."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("User not logged in", status=401, code="unauthorized")
+    try:
+        api = get_pkb_api_for_user(email)
+        if api is None:
+            return json_error("PKB not available", status=503, code="pkb_unavailable")
+        conn = api.db.connect()
+        if request.method == "GET":
+            row = conn.execute(
+                "SELECT facet_overrides FROM pkb_user_settings WHERE email = ?",
+                (email,)
+            ).fetchone()
+            import json as _json
+            overrides = _json.loads(row[0]) if row and row[0] else {}
+            return jsonify(overrides.get("notification_preferences", {
+                "badge_min_priority": "medium",
+                "reminder_threshold_hours": 24,
+                "emit_low_priority": True,
+                "categories_muted": [],
+            }))
+        else:
+            import json as _json
+            from truth_management_system.utils import now_iso
+            data = request.get_json(force=True) or {}
+            row = conn.execute(
+                "SELECT facet_overrides FROM pkb_user_settings WHERE email = ?",
+                (email,)
+            ).fetchone()
+            overrides = _json.loads(row[0]) if row and row[0] else {}
+            overrides["notification_preferences"] = data
+            if row:
+                conn.execute(
+                    "UPDATE pkb_user_settings SET facet_overrides = ?, updated_at = ? WHERE email = ?",
+                    (_json.dumps(overrides), now_iso(), email)
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO pkb_user_settings (email, memory_autonomy, facet_overrides, updated_at) "
+                    "VALUES (?, 50, ?, ?)",
+                    (email, _json.dumps(overrides), now_iso())
+                )
+            conn.commit()
+            return jsonify({"status": "updated"})
+    except Exception as e:
+        logger.error(f"Error in pkb_notifications_settings: {e}")
+        return json_error(str(e), status=500, code="internal_error")

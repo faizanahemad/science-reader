@@ -531,6 +531,12 @@ class StructuredAPI:
             "UPDATE pkb_activity_log SET undone_at = ? WHERE activity_id = ?",
             (now_iso(), activity_id)
         )
+        # Sync: resolve any notification linked to this activity
+        conn.execute(
+            "UPDATE pkb_notifications SET action_taken = 'undone_externally', resolved_at = ? "
+            "WHERE activity_id = ? AND resolved_at IS NULL AND user_email = ?",
+            (now_iso(), activity_id, self.user_email)
+        )
         conn.commit()
         return {"status": "undone", "action": action, "object_id": obj_id, **restored}
 
@@ -630,6 +636,337 @@ class StructuredAPI:
             "wrong_auto_save_rate": round(undone / total, 4) if total > 0 else 0.0,
             "days": days,
         }
+
+    # =========================================================================
+    # Notifications API (v14)
+    # =========================================================================
+
+    def create_notification(
+        self, priority: str, category: str, title: str,
+        body: str = None, object_type: str = None, object_id: str = None,
+        activity_id: str = None, action_required: bool = False,
+        available_actions: list = None, action_payload: dict = None,
+        source: str = "system", session_id: str = None, expires_at: str = None,
+    ) -> str:
+        """Create a notification. Returns notification_id."""
+        import uuid
+        import json as _json
+        from ..utils import now_iso
+
+        nid = str(uuid.uuid4())
+        conn = self.db.connect()
+        conn.execute(
+            "INSERT INTO pkb_notifications (notification_id, user_email, priority, "
+            "category, title, body, object_type, object_id, activity_id, "
+            "action_required, available_actions, action_payload, source, "
+            "session_id, expires_at, created_at) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (nid, self.user_email, priority, category, title, body,
+             object_type, object_id, activity_id,
+             1 if action_required else 0,
+             _json.dumps(available_actions) if available_actions else None,
+             _json.dumps(action_payload) if action_payload else None,
+             source, session_id, expires_at, now_iso())
+        )
+        conn.commit()
+        return nid
+
+    def get_notifications(
+        self, priority: str = None, category: str = None,
+        unresolved_only: bool = True, unseen_only: bool = False,
+        limit: int = 50, offset: int = 0,
+    ) -> list:
+        """Get notifications for current user with filters."""
+        import json as _json
+        clauses = ["user_email = ?"]
+        params: list = [self.user_email]
+        if unresolved_only:
+            clauses.append("resolved_at IS NULL")
+        if unseen_only:
+            clauses.append("seen_at IS NULL")
+        if priority:
+            clauses.append("priority = ?")
+            params.append(priority)
+        if category:
+            clauses.append("category = ?")
+            params.append(category)
+        where = " AND ".join(clauses)
+        conn = self.db.connect()
+        rows = conn.execute(
+            f"SELECT notification_id, priority, category, title, body, "
+            f"object_type, object_id, activity_id, action_required, "
+            f"available_actions, action_payload, action_taken, resolved_at, "
+            f"seen_at, source, session_id, created_at "
+            f"FROM pkb_notifications WHERE {where} "
+            f"ORDER BY created_at DESC LIMIT ? OFFSET ?",
+            params + [limit, offset]
+        ).fetchall()
+        results = []
+        for r in rows:
+            results.append({
+                "notification_id": r[0], "priority": r[1], "category": r[2],
+                "title": r[3], "body": r[4], "object_type": r[5],
+                "object_id": r[6], "activity_id": r[7],
+                "action_required": bool(r[8]),
+                "available_actions": _json.loads(r[9]) if r[9] else [],
+                "action_payload": _json.loads(r[10]) if r[10] else None,
+                "action_taken": r[11], "resolved_at": r[12], "seen_at": r[13],
+                "source": r[14], "session_id": r[15], "created_at": r[16],
+            })
+        return results
+
+    def get_notification_count(self, unresolved_only: bool = True,
+                               action_required_only: bool = True) -> int:
+        """Get badge count (unseen + action_required, high/medium only)."""
+        clauses = ["user_email = ?", "seen_at IS NULL",
+                   "priority IN ('high', 'medium')"]
+        params: list = [self.user_email]
+        if unresolved_only:
+            clauses.append("resolved_at IS NULL")
+        if action_required_only:
+            clauses.append("action_required = 1")
+        where = " AND ".join(clauses)
+        conn = self.db.connect()
+        row = conn.execute(
+            f"SELECT COUNT(*) FROM pkb_notifications WHERE {where}", params
+        ).fetchone()
+        return row[0] if row else 0
+
+    def resolve_notification(self, notification_id: str, action_taken: str) -> dict:
+        """Resolve a notification by taking an action.
+
+        For 'approve' on confirm_required: performs stale check then executes.
+        For 'undo' on auto_save: calls undo_activity.
+        For 'reject': logs to activity log.
+        For 'dismiss': just marks resolved.
+        """
+        import json as _json
+        from ..utils import now_iso
+
+        conn = self.db.connect()
+        row = conn.execute(
+            "SELECT category, action_payload, activity_id, object_id, resolved_at, user_email "
+            "FROM pkb_notifications WHERE notification_id = ?",
+            (notification_id,)
+        ).fetchone()
+        if not row:
+            return {"status": "not_found"}
+        category, payload_str, act_id, obj_id, resolved_at, email = row
+        if resolved_at:
+            return {"status": "already_resolved"}
+
+        payload = _json.loads(payload_str) if payload_str else {}
+        result = {"status": "resolved", "action_taken": action_taken}
+
+        if action_taken == "approve" and category == "confirm_required":
+            # Stale check: see if conflicts emerged
+            stale = self._notification_stale_check(payload)
+            if stale:
+                conn.execute(
+                    "UPDATE pkb_notifications SET body = ? WHERE notification_id = ?",
+                    (f"Conflict emerged: {stale}", notification_id)
+                )
+                conn.commit()
+                return {"status": "stale_conflict", "detail": stale}
+            # Execute the proposed action
+            exec_result = self._execute_notification_approve(payload)
+            result.update(exec_result)
+
+        elif action_taken == "undo" and act_id:
+            undo_result = self.undo_activity(act_id)
+            result["undo_status"] = undo_result.get("status")
+        elif action_taken == "undo" and not act_id and obj_id:
+            # No activity_id — retract the claim directly
+            conn.execute(
+                "UPDATE claims SET status = 'retracted', retracted_at = ? WHERE claim_id = ? AND user_email = ?",
+                (now_iso(), obj_id, self.user_email)
+            )
+            conn.commit()
+            result["undo_status"] = "retracted_directly"
+
+        elif action_taken == "reject" and category == "confirm_required":
+            self.log_activity(
+                action="user_reject", facet="capture",
+                object_type="notification", object_id=notification_id
+            )
+
+        elif action_taken in ("pick_new", "pick_existing", "keep_both"):
+            resolve_result = self._execute_conflict_resolution(payload, action_taken)
+            result.update(resolve_result)
+
+        # Mark as resolved
+        conn.execute(
+            "UPDATE pkb_notifications SET action_taken = ?, resolved_at = ? "
+            "WHERE notification_id = ?",
+            (action_taken, now_iso(), notification_id)
+        )
+        conn.commit()
+        return result
+
+    def _notification_stale_check(self, payload: dict) -> str:
+        """Check if approving this notification would conflict with current state.
+        Returns conflict description string or empty string if clean."""
+        statement = payload.get("statement", "")
+        if not statement:
+            return ""
+        # Simple check: look for active claims with same statement
+        conn = self.db.connect()
+        row = conn.execute(
+            "SELECT claim_id, statement FROM claims "
+            "WHERE user_email = ? AND status = 'active' AND statement = ?",
+            (self.user_email, statement)
+        ).fetchone()
+        if row:
+            return f"Exact duplicate already exists (claim {row[0]})"
+        return ""
+
+    def _execute_notification_approve(self, payload: dict) -> dict:
+        """Execute an approve action from a confirm_required notification."""
+        action = payload.get("proposed_action", "add")
+        if action == "add":
+            result = self.add_claim(
+                statement=payload.get("statement", ""),
+                claim_type=payload.get("claim_type", "fact"),
+                context_domain=payload.get("context_domain", "personal"),
+                confidence=payload.get("confidence"),
+                meta_json=payload.get("meta"),
+            )
+            return {"claim_id": result.object_id if result.success else None}
+        return {}
+
+    def _execute_conflict_resolution(self, payload: dict, action: str) -> dict:
+        """Execute a conflict resolution action."""
+        from ..utils import now_iso
+        new_id = payload.get("new_claim_id")
+        existing_id = payload.get("existing_claim_id")
+        conn = self.db.connect()
+        if action == "pick_new" and existing_id:
+            conn.execute(
+                "UPDATE claims SET status = 'superseded', retracted_at = ? WHERE claim_id = ?",
+                (now_iso(), existing_id)
+            )
+            self.resolve_notifications_for_object(existing_id, reason="resolved_externally")
+        elif action == "pick_existing" and new_id:
+            conn.execute(
+                "UPDATE claims SET status = 'retracted', retracted_at = ? WHERE claim_id = ?",
+                (now_iso(), new_id)
+            )
+            self.resolve_notifications_for_object(new_id, reason="resolved_externally")
+        # keep_both: no claim state change needed
+        # Resolve the conflict set if present
+        cs_id = payload.get("conflict_set_id")
+        if cs_id:
+            conn.execute(
+                "UPDATE conflict_sets SET status = 'resolved', updated_at = ? "
+                "WHERE conflict_set_id = ?", (now_iso(), cs_id)
+            )
+        conn.commit()
+        return {"resolved_conflict": cs_id}
+
+    def mark_seen(self, notification_ids: list) -> int:
+        """Mark notifications as seen. Returns count updated."""
+        if not notification_ids:
+            return 0
+        from ..utils import now_iso
+        conn = self.db.connect()
+        placeholders = ",".join("?" * len(notification_ids))
+        cur = conn.execute(
+            f"UPDATE pkb_notifications SET seen_at = ? "
+            f"WHERE notification_id IN ({placeholders}) AND seen_at IS NULL AND user_email = ?",
+            [now_iso()] + notification_ids + [self.user_email]
+        )
+        conn.commit()
+        return cur.rowcount
+
+    def bulk_resolve(self, notification_ids: list, action_taken: str) -> dict:
+        """Bulk resolve notifications with the same action."""
+        results = []
+        for nid in notification_ids:
+            r = self.resolve_notification(nid, action_taken)
+            results.append({"notification_id": nid, **r})
+        return {"resolved": len([r for r in results if r.get("status") == "resolved"]),
+                "results": results}
+
+    def resolve_notifications_for_object(self, object_id: str,
+                                         reason: str = "resolved_externally") -> int:
+        """Resolve all unresolved notifications for a given object."""
+        from ..utils import now_iso
+        conn = self.db.connect()
+        cur = conn.execute(
+            "UPDATE pkb_notifications SET action_taken = ?, resolved_at = ? "
+            "WHERE object_id = ? AND resolved_at IS NULL AND user_email = ?",
+            (reason, now_iso(), object_id, self.user_email)
+        )
+        conn.commit()
+        return cur.rowcount
+
+    def check_reminders_due(self, threshold_hours: int = None) -> int:
+        """Check for reminder claims due within threshold; create notifications if needed."""
+        from datetime import datetime, timezone, timedelta
+        from ..utils import now_iso
+        from ..constants import REMINDER_DUE_THRESHOLD_HOURS
+
+        if threshold_hours is None:
+            threshold_hours = REMINDER_DUE_THRESHOLD_HOURS
+        now = datetime.now(timezone.utc)
+        threshold_dt = now + timedelta(hours=threshold_hours)
+        conn = self.db.connect()
+        # Find reminder claims due within threshold that don't have an existing unresolved notification
+        rows = conn.execute(
+            "SELECT c.claim_id, c.statement, c.valid_to FROM claims c "
+            "WHERE c.user_email = ? AND c.claim_type = 'reminder' "
+            "AND c.status = 'active' AND c.valid_to IS NOT NULL "
+            "AND c.valid_to <= ? AND c.valid_to >= ? "
+            "AND NOT EXISTS ("
+            "  SELECT 1 FROM pkb_notifications n "
+            "  WHERE n.object_id = c.claim_id AND n.category = 'reminder_due' "
+            "  AND n.resolved_at IS NULL AND n.user_email = ?"
+            ")",
+            (self.user_email, threshold_dt.isoformat(), now.isoformat(), self.user_email)
+        ).fetchall()
+        count = 0
+        for claim_id, statement, valid_to in rows:
+            import json as _json
+            self.create_notification(
+                priority="medium", category="reminder_due",
+                title=f"Reminder due: {statement[:80]}",
+                body=statement,
+                object_type="claim", object_id=claim_id,
+                action_required=False,
+                available_actions=["dismiss", "snooze"],
+                action_payload={"claim_id": claim_id, "statement": statement,
+                                "valid_to": valid_to},
+                source="scheduler",
+            )
+            count += 1
+        # Prune low-priority while we're here
+        self.prune_low_priority()
+        return count
+
+    def prune_low_priority(self, keep: int = None) -> int:
+        """Delete oldest resolved low-priority notifications beyond cap."""
+        from ..constants import LOW_PRIORITY_CAP
+        if keep is None:
+            keep = LOW_PRIORITY_CAP
+        conn = self.db.connect()
+        # Count resolved low-priority
+        total = conn.execute(
+            "SELECT COUNT(*) FROM pkb_notifications "
+            "WHERE user_email = ? AND priority = 'low' AND resolved_at IS NOT NULL",
+            (self.user_email,)
+        ).fetchone()[0]
+        if total <= keep:
+            return 0
+        to_delete = total - keep
+        cur = conn.execute(
+            "DELETE FROM pkb_notifications WHERE notification_id IN ("
+            "  SELECT notification_id FROM pkb_notifications "
+            "  WHERE user_email = ? AND priority = 'low' AND resolved_at IS NOT NULL "
+            "  ORDER BY created_at ASC LIMIT ?"
+            ")", (self.user_email, to_delete)
+        )
+        conn.commit()
+        return cur.rowcount
 
     # =========================================================================
     # Claims API
@@ -1087,6 +1424,8 @@ class StructuredAPI:
 
             if claim:
                 self._record_audit("delete", "claim", claim_id, detail={"mode": mode})
+                # Sync: resolve notifications referencing this claim
+                self.resolve_notifications_for_object(claim_id, reason="resolved_externally")
                 return ActionResult(
                     success=True,
                     action="delete",
@@ -1577,6 +1916,33 @@ class StructuredAPI:
         """Create a conflict set from 2+ claims."""
         try:
             conflict_set = self.conflicts.create(claim_ids, notes)
+
+            # Emit conflict_detected notification
+            if len(claim_ids) >= 2:
+                try:
+                    conn = self.db.connect()
+                    stmts = []
+                    for cid in claim_ids[:2]:
+                        row = conn.execute("SELECT statement FROM claims WHERE claim_id = ?", (cid,)).fetchone()
+                        stmts.append({"claim_id": cid, "statement": row[0] if row else ""})
+                    self.create_notification(
+                        priority="high", category="conflict_detected",
+                        title=f"Conflict: {stmts[0]['statement'][:50]} vs {stmts[1]['statement'][:50]}",
+                        body=notes,
+                        object_type="conflict_set", object_id=conflict_set.conflict_set_id,
+                        action_required=True,
+                        available_actions=["pick_new", "pick_existing", "keep_both", "dismiss"],
+                        action_payload={
+                            "new_claim_id": stmts[0]["claim_id"],
+                            "new_statement": stmts[0]["statement"],
+                            "existing_claim_id": stmts[1]["claim_id"],
+                            "existing_statement": stmts[1]["statement"],
+                            "conflict_set_id": conflict_set.conflict_set_id,
+                        },
+                        source="system",
+                    )
+                except Exception:
+                    pass  # Non-critical
 
             return ActionResult(
                 success=True,

@@ -272,3 +272,16 @@ REFERENCE_TYPE_SUFFIXES = {
 Used by resolve_reference() to route @references directly to the
 correct lookup without sequential fallback.
 """
+
+
+# =============================================================================
+# Notification System Constants (v14)
+# =============================================================================
+
+NOTIFICATION_PRIORITIES = ("high", "medium", "low")
+NOTIFICATION_CATEGORIES = (
+    "confirm_required", "conflict_detected", "auto_save", "mcp_write",
+    "reminder_due", "claim_confirmed", "claim_deprecated", "claim_enriched", "stm_promoted"
+)
+REMINDER_DUE_THRESHOLD_HOURS = 24
+LOW_PRIORITY_CAP = 500

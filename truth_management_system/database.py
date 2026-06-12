@@ -289,6 +289,10 @@ class PKBDatabase:
         if from_version < 13 <= to_version:
             self._migrate_v12_to_v13(conn)
 
+        # Migration from v13 to v14: Add pkb_notifications table
+        if from_version < 14 <= to_version:
+            self._migrate_v13_to_v14(conn)
+
     def _migrate_v1_to_v2(self, conn: sqlite3.Connection) -> None:
         """
         Migrate from schema v1 to v2: Add user_email column for multi-user support.
@@ -1008,6 +1012,42 @@ class PKBDatabase:
         conn.execute("CREATE INDEX IF NOT EXISTS idx_activity_user_time ON pkb_activity_log(user_email, created_at DESC)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_activity_expires ON pkb_activity_log(expires_at)")
         logger.info("Migration to v13 complete")
+
+    def _migrate_v13_to_v14(self, conn: sqlite3.Connection) -> None:
+        """Migrate from schema v13 to v14: Add pkb_notifications table + session_id to activity_log."""
+        logger.info("Migrating to v14: Adding pkb_notifications + activity_log.session_id")
+        # Add session_id to pkb_activity_log if missing (added post-v13)
+        cursor = conn.execute("PRAGMA table_info(pkb_activity_log)")
+        cols = [row[1] for row in cursor.fetchall()]
+        if "session_id" not in cols:
+            conn.execute("ALTER TABLE pkb_activity_log ADD COLUMN session_id TEXT")
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pkb_notifications (
+                notification_id TEXT PRIMARY KEY,
+                user_email TEXT NOT NULL,
+                priority TEXT NOT NULL,
+                category TEXT NOT NULL,
+                title TEXT NOT NULL,
+                body TEXT,
+                object_type TEXT,
+                object_id TEXT,
+                activity_id TEXT,
+                action_required INTEGER NOT NULL DEFAULT 0,
+                available_actions TEXT,
+                action_payload TEXT,
+                action_taken TEXT,
+                resolved_at TEXT,
+                seen_at TEXT,
+                source TEXT NOT NULL DEFAULT 'system',
+                session_id TEXT,
+                expires_at TEXT,
+                created_at TEXT NOT NULL
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_notif_user_unresolved ON pkb_notifications(user_email, resolved_at, priority, created_at DESC)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_notif_object ON pkb_notifications(object_id, object_type)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_notif_activity ON pkb_notifications(activity_id)")
+        logger.info("Migration to v14 complete")
 
     def _ensure_catalog_seeded(self, conn: sqlite3.Connection) -> None:
         """

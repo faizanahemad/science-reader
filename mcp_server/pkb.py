@@ -391,6 +391,19 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
             if valid_to is not None:
                 kwargs["valid_to"] = valid_to
             result = user_api.add_claim(**kwargs)
+            # Emit mcp_write notification
+            if result.success and result.object_id:
+                try:
+                    user_api.create_notification(
+                        priority="medium", category="mcp_write",
+                        title=f"MCP added: {statement[:80]}",
+                        body=statement, object_type="claim", object_id=result.object_id,
+                        available_actions=["undo", "dismiss"],
+                        action_payload={"claim_id": result.object_id, "statement": statement},
+                        source="mcp",
+                    )
+                except Exception:
+                    pass  # Non-critical
             return _serialize_action_result(result)
         except Exception as exc:
             logger.exception("pkb_add_claim error: %s", exc)
@@ -1031,6 +1044,66 @@ def create_pkb_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[Any, Any]
         except Exception as exc:
             logger.exception("pkb_undo_auto_saves error: %s", exc)
             return json.dumps({"error": f"pkb_undo_auto_saves failed: {exc}"})
+
+    @mcp.tool()
+    def pkb_list_notifications(
+        user_email: str,
+        priority: str = None,
+        category: str = None,
+        unresolved_only: bool = True,
+        limit: int = 20,
+    ) -> str:
+        """List PKB notifications for a user.
+
+        Returns notifications with their action options and status.
+        Use to check what needs user attention in their knowledge base.
+
+        Args:
+            user_email: Email of the PKB owner.
+            priority: Filter by priority ('high', 'medium', 'low').
+            category: Filter by category (e.g. 'confirm_required', 'conflict_detected').
+            unresolved_only: Only show unresolved notifications (default True).
+            limit: Max results to return (default 20).
+        """
+        try:
+            api = _get_pkb_api()
+            user_api = api.for_user(_effective_email(user_email))
+            notifs = user_api.get_notifications(
+                priority=priority, category=category,
+                unresolved_only=unresolved_only, limit=limit,
+            )
+            return json.dumps({"notifications": notifs, "count": len(notifs)}, default=str)
+        except Exception as exc:
+            logger.exception("pkb_list_notifications error: %s", exc)
+            return json.dumps({"error": f"pkb_list_notifications failed: {exc}"})
+
+    @mcp.tool()
+    def pkb_resolve_notification(
+        user_email: str,
+        notification_id: str,
+        action: str,
+    ) -> str:
+        """Resolve a PKB notification by taking an action.
+
+        Available actions depend on the notification category:
+        - confirm_required: approve, reject, dismiss
+        - conflict_detected: pick_new, pick_existing, keep_both, dismiss
+        - auto_save/mcp_write: undo, dismiss
+        - reminder_due: dismiss, snooze
+
+        Args:
+            user_email: Email of the PKB owner.
+            notification_id: ID of the notification to resolve.
+            action: Action to take (approve/reject/undo/dismiss/pick_new/pick_existing/keep_both).
+        """
+        try:
+            api = _get_pkb_api()
+            user_api = api.for_user(_effective_email(user_email))
+            result = user_api.resolve_notification(notification_id, action)
+            return json.dumps(result, default=str)
+        except Exception as exc:
+            logger.exception("pkb_resolve_notification error: %s", exc)
+            return json.dumps({"error": f"pkb_resolve_notification failed: {exc}"})
 
     # -----------------------------------------------------------------
     # Build the Starlette ASGI app with middleware layers

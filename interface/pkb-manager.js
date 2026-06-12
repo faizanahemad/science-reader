@@ -4260,6 +4260,230 @@ var PKBManager = (function() {
     }
 
     // ===========================================================================
+    // ===========================================================================
+    // Notifications (v14)
+    // ===========================================================================
+
+    var _notifsCache = [];
+    var _notifsFilter = 'action'; // 'action' | 'recent' | 'all'
+    var _notifsSelected = new Set();
+
+    function loadNotifications() {
+        var params = { limit: 50, offset: 0 };
+        if (_notifsFilter === 'action') {
+            params.unresolved = 'true';
+        } else if (_notifsFilter === 'recent') {
+            params.unresolved = 'false';
+            params.limit = 50;
+        } else {
+            params.unresolved = 'false';
+        }
+        $.get('/pkb/memory/notifications', params, function(data) {
+            _notifsCache = data || [];
+            renderNotifications();
+            // Mark rendered as seen
+            var unseenIds = _notifsCache.filter(function(n) { return !n.seen_at; })
+                .map(function(n) { return n.notification_id; });
+            if (unseenIds.length > 0) {
+                $.ajax({ url: '/pkb/memory/notifications/mark_seen', method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ ids: unseenIds }) });
+            }
+        });
+    }
+
+    function updateNotifsBadge() {
+        $.get('/pkb/memory/notifications/count', function(data) {
+            var count = (data && data.count) || 0;
+            var $badge = $('#pkb-notifs-badge');
+            if (count > 0) {
+                $badge.text(count).show();
+            } else {
+                $badge.hide();
+            }
+        });
+    }
+
+    function renderNotifications() {
+        var $list = $('#pkb-notifs-list');
+        var $empty = $('#pkb-notifs-empty');
+        _notifsSelected.clear();
+        updateBulkBar();
+
+        var items = _notifsCache;
+        if (_notifsFilter === 'action') {
+            items = items.filter(function(n) { return !n.resolved_at && n.action_required; });
+        }
+        if (items.length === 0) {
+            $list.html('');
+            $empty.show();
+            return;
+        }
+        $empty.hide();
+        var html = '';
+        items.forEach(function(n) {
+            html += renderNotifCard(n);
+        });
+        $list.html(html);
+    }
+
+    function renderNotifCard(n) {
+        var priorityIcon = n.priority === 'high' ? '🔴' : (n.priority === 'medium' ? '🟡' : '⚪');
+        var resolvedClass = n.resolved_at ? ' opacity-50' : '';
+        var timeAgo = formatTimeAgo(n.created_at);
+        var expanded = '';
+        var actions = '';
+
+        // Action buttons
+        if (!n.resolved_at && n.available_actions && n.available_actions.length > 0) {
+            n.available_actions.forEach(function(a) {
+                var btnClass = 'btn-outline-secondary';
+                var icon = '';
+                if (a === 'approve') { btnClass = 'btn-success'; icon = '✓ '; }
+                else if (a === 'reject') { btnClass = 'btn-danger'; icon = '✗ '; }
+                else if (a === 'undo') { btnClass = 'btn-warning'; icon = '↩ '; }
+                else if (a === 'dismiss') { btnClass = 'btn-outline-secondary'; icon = '— '; }
+                else if (a === 'pick_new') { btnClass = 'btn-info'; icon = ''; }
+                else if (a === 'pick_existing') { btnClass = 'btn-info'; icon = ''; }
+                else if (a === 'keep_both') { btnClass = 'btn-outline-info'; icon = ''; }
+                actions += '<button class="btn btn-sm ' + btnClass + ' mr-1 pkb-notif-action-btn" '
+                    + 'data-id="' + n.notification_id + '" data-action="' + a + '">'
+                    + icon + a.replace(/_/g, ' ') + '</button>';
+            });
+        }
+        if (n.resolved_at) {
+            actions = '<span class="badge badge-light">' + (n.action_taken || 'resolved') + '</span>';
+        }
+
+        // Expanded details for conflict
+        if (n.category === 'conflict_detected' && n.action_payload) {
+            expanded = '<div class="mt-2 small">'
+                + '<div class="text-success">NEW: "' + escapeHtml(n.action_payload.new_statement || '') + '"</div>'
+                + '<div class="text-danger">vs EXISTING: "' + escapeHtml(n.action_payload.existing_statement || '') + '"</div>'
+                + '</div>';
+        } else if (n.body && n.body !== n.title) {
+            expanded = '<div class="mt-1 small text-muted">' + escapeHtml(n.body) + '</div>';
+        }
+
+        var checkbox = !n.resolved_at ? '<input type="checkbox" class="pkb-notif-check mr-2" data-id="' + n.notification_id + '">' : '';
+
+        return '<div class="card mb-2 pkb-notif-card' + resolvedClass + '" data-id="' + n.notification_id + '">'
+            + '<div class="card-body py-2 px-3">'
+            + '<div class="d-flex align-items-start">'
+            + checkbox
+            + '<div class="flex-grow-1">'
+            + '<div class="d-flex justify-content-between">'
+            + '<span>' + priorityIcon + ' <strong class="small">' + escapeHtml(n.title) + '</strong></span>'
+            + '<span class="text-muted small">' + timeAgo + '</span>'
+            + '</div>'
+            + expanded
+            + '<div class="mt-1">' + actions + '</div>'
+            + '</div></div></div></div>';
+    }
+
+    function formatTimeAgo(isoStr) {
+        if (!isoStr) return '';
+        var diff = (Date.now() - new Date(isoStr).getTime()) / 1000;
+        if (diff < 60) return 'now';
+        if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+        if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+        return Math.floor(diff / 86400) + 'd ago';
+    }
+
+    function updateBulkBar() {
+        var count = _notifsSelected.size;
+        if (count > 0) {
+            $('#pkb-notifs-bulk-bar').show();
+            $('#pkb-notifs-selected-count').text(count + ' selected');
+        } else {
+            $('#pkb-notifs-bulk-bar').hide();
+        }
+    }
+
+    function initNotificationsUI() {
+        // Filter pills
+        $(document).on('click', '#pkb-notifs-filters .btn', function() {
+            $('#pkb-notifs-filters .btn').removeClass('active');
+            $(this).addClass('active');
+            _notifsFilter = $(this).data('filter');
+            loadNotifications();
+        });
+
+        // Tab activation
+        $(document).on('shown.bs.tab', '#pkb-notifs-tab', function() {
+            loadNotifications();
+        });
+
+        // Action button click
+        $(document).on('click', '.pkb-notif-action-btn', function() {
+            var id = $(this).data('id');
+            var action = $(this).data('action');
+            var $btn = $(this);
+            $btn.prop('disabled', true);
+            $.ajax({
+                url: '/pkb/memory/notifications/' + id + '/action',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ action: action }),
+                success: function(resp) {
+                    if (resp.status === 'stale_conflict') {
+                        showToast('Cannot approve: ' + (resp.detail || 'conflict detected'), 'warning');
+                    } else {
+                        showToast(action.replace(/_/g, ' ') + ' applied', 'success');
+                    }
+                    loadNotifications();
+                    updateNotifsBadge();
+                },
+                error: function() {
+                    showToast('Action failed', 'danger');
+                    $btn.prop('disabled', false);
+                }
+            });
+        });
+
+        // Checkbox selection
+        $(document).on('change', '.pkb-notif-check', function() {
+            var id = $(this).data('id');
+            if ($(this).is(':checked')) { _notifsSelected.add(id); }
+            else { _notifsSelected.delete(id); }
+            updateBulkBar();
+        });
+
+        // Bulk actions
+        $('#pkb-notifs-bulk-approve').on('click', function() { bulkNotifAction('approve'); });
+        $('#pkb-notifs-bulk-dismiss').on('click', function() { bulkNotifAction('dismiss'); });
+        $('#pkb-notifs-bulk-undo-session').on('click', function() { bulkNotifAction('undo'); });
+
+        // Update badge on PKB modal show
+        $(document).on('shown.bs.modal', '#pkb-modal', function() {
+            updateNotifsBadge();
+        });
+    }
+
+    function bulkNotifAction(action) {
+        var ids = Array.from(_notifsSelected);
+        if (ids.length === 0) return;
+        $.ajax({
+            url: '/pkb/memory/notifications/bulk_action',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ ids: ids, action: action }),
+            success: function() {
+                showToast(action + ' applied to ' + ids.length + ' items', 'success');
+                _notifsSelected.clear();
+                loadNotifications();
+                updateNotifsBadge();
+            },
+            error: function() { showToast('Bulk action failed', 'danger'); }
+        });
+    }
+
+    // Initialize on document ready
+    $(document).ready(function() {
+        initNotificationsUI();
+    });
+
+    // ===========================================================================
     // Public API
     // ===========================================================================
     
@@ -4362,5 +4586,9 @@ var PKBManager = (function() {
         saveOverview: saveOverview,
         regenerateOverview: regenerateOverview,
         scanOverviewGaps: scanOverviewGaps,
+
+        // Notifications (v14)
+        loadNotifications: loadNotifications,
+        updateNotifsBadge: updateNotifsBadge,
     };
 })();

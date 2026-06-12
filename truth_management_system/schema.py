@@ -22,7 +22,8 @@ All tables use:
 """
 
 SCHEMA_VERSION = (
-    13  # v13: Added pkb_user_settings table (memory autonomy dial per-user)
+    14  # v14: Added pkb_notifications table (notification system)
+    # 13: Added pkb_user_settings table (memory autonomy dial per-user)
     # 12: Added pkb_short_term_memory table + last_accessed_at on claims
     # 11: Added pkb_overview table (PKB Memory Overview feature)
     # 10: Added audit_log table (Workstream G3: append-only audit log + export/import)
@@ -331,6 +332,28 @@ CREATE TABLE IF NOT EXISTS pkb_activity_log (
     expires_at TEXT NOT NULL,
     created_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS pkb_notifications (
+    notification_id TEXT PRIMARY KEY,
+    user_email TEXT NOT NULL,
+    priority TEXT NOT NULL,
+    category TEXT NOT NULL,
+    title TEXT NOT NULL,
+    body TEXT,
+    object_type TEXT,
+    object_id TEXT,
+    activity_id TEXT,
+    action_required INTEGER NOT NULL DEFAULT 0,
+    available_actions TEXT,
+    action_payload TEXT,
+    action_taken TEXT,
+    resolved_at TEXT,
+    seen_at TEXT,
+    source TEXT NOT NULL DEFAULT 'system',
+    session_id TEXT,
+    expires_at TEXT,
+    created_at TEXT NOT NULL
+);
 """
 
 
@@ -394,6 +417,11 @@ CREATE INDEX IF NOT EXISTS idx_stm_conversation ON pkb_short_term_memory(convers
 -- Activity log indexes (memory autonomy undo)
 CREATE INDEX IF NOT EXISTS idx_activity_user_time ON pkb_activity_log(user_email, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_activity_expires ON pkb_activity_log(expires_at);
+
+-- Notification indexes (v14)
+CREATE INDEX IF NOT EXISTS idx_notif_user_unresolved ON pkb_notifications(user_email, resolved_at, priority, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_notif_object ON pkb_notifications(object_id, object_type);
+CREATE INDEX IF NOT EXISTS idx_notif_activity ON pkb_notifications(activity_id);
 
 -- v3 indexes for claims.friendly_id and contexts are created by the migration
 -- or by _ensure_v3_indexes() during initialization. They are NOT included here
@@ -525,6 +553,7 @@ def get_tables_list() -> list:
         "pkb_short_term_memory",
         "pkb_user_settings",
         "pkb_activity_log",
+        "pkb_notifications",
         "schema_version",
     ]
 
