@@ -492,3 +492,18 @@ Repeated runs should be fast without recomputing.
 | Mass archival panic | Gradual (5/load) + toast + undo + separate manual "Archive Stale" button for bulk |
 | Server restart loses in-memory throttle | Acceptable — runs again on next load, max 5 archives is safe |
 | DB table migration | `CREATE TABLE IF NOT EXISTS` + `ALTER TABLE ... ADD COLUMN` pattern — auto-migrates |
+
+## Post-Implementation Bug Fixes
+
+Commit `4090fe50` — fixes found via code review:
+
+| # | Bug | Fix |
+|---|-----|-----|
+| 1 | `KeyError` when conversation not in cache (`auto_archive_all`) | Use `.get()` instead of `[]` |
+| 2+3 | `archive_source` setter never called `save_local()` + triple save_local race on unarchive | Use `_attrs` directly, single `save_local()` |
+| 4 | Superseded detection dead without embeddings (always False) | Added `BM25_STANDALONE_THRESHOLD = 0.6` — high Jaccard alone is sufficient |
+| 5 | Pre-filter `grace/2` too aggressive for short+superseded conversations | Changed to `grace/4` |
+| 6 | No self-exclusion in `find_superseding_conversation` | Added `target_conv_id` parameter, skip if `conv_id == target_conv_id` |
+| 7 | Concurrent daemon threads writing SQLite (lock contention) | Synchronous batch saves (set attrs first, save all at end) |
+| 10 | O(n²) in `auto_archive_all` with no pre-filter | Added same `grace/4` time pre-filter |
+| 12 | Redundant inline import of `getCoversationsForUser` | Removed (already imported at top-level) |
