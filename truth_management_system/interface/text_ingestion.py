@@ -268,10 +268,20 @@ class TextIngestionDistiller:
                 }
                 result = route_candidate(cand_dict, policy, match_result)
                 if result.route == Route.SAVE:
-                    exec_result = self._execute_proposal(proposal)
-                    auto_saved.append({"proposal": proposal, "result": exec_result, "reason": result.reason})
+                    try:
+                        exec_result = self._execute_proposal(
+                            proposal, cand.statement, cand.claim_type, cand.context_domain)
+                        auto_saved.append({"proposal": proposal, "result": exec_result, "reason": result.reason})
+                        claim_id = getattr(exec_result, 'object_id', None)
+                        if claim_id:
+                            self.api.log_activity("auto_save", "capture", "claim", claim_id, source="text_ingestion")
+                        logger.info("tiered:auto_save gate=%s conf=%.2f %s", result.gate, cand.confidence, cand.statement[:60])
+                    except Exception as e:
+                        logger.warning("tiered:auto_save failed, falling back to confirm: %s", e)
+                        routed_proposals.append(proposal)
                 elif result.route == Route.SKIP:
                     routed_skipped.append({"proposal": proposal, "reason": result.reason, "gate": result.gate})
+                    logger.info("tiered:skip gate=%s conf=%.2f %s", result.gate, cand.confidence, cand.statement[:60])
                 else:
                     routed_proposals.append(proposal)
             proposals = routed_proposals

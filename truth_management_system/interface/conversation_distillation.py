@@ -183,11 +183,20 @@ class ConversationDistiller:
                 }
                 result = route_candidate(cand_dict, policy, match_result)
                 if result.route == Route.SAVE:
-                    # Auto-execute: save immediately
-                    exec_result = self._execute_single_action(pa, source_conversation_id, source_message_id)
-                    auto_saved.append({"action": pa, "result": exec_result, "reason": result.reason})
+                    try:
+                        exec_result = self._execute_single_action(pa, source_conversation_id, source_message_id)
+                        auto_saved.append({"action": pa, "result": exec_result, "reason": result.reason})
+                        # Activity log for undo support
+                        claim_id = getattr(exec_result, 'object_id', None)
+                        if claim_id:
+                            self.api.log_activity("auto_save", "capture", "claim", claim_id, source="distillation")
+                        logger.info("tiered:auto_save gate=%s conf=%.2f %s", result.gate, cand.confidence, cand.statement[:60])
+                    except Exception as e:
+                        logger.warning("tiered:auto_save failed, falling back to confirm: %s", e)
+                        routed_actions.append(pa)
                 elif result.route == Route.SKIP:
                     skipped.append({"action": pa, "reason": result.reason, "gate": result.gate})
+                    logger.info("tiered:skip gate=%s conf=%.2f %s", result.gate, cand.confidence, cand.statement[:60])
                 else:
                     routed_actions.append(pa)
             proposed_actions = routed_actions

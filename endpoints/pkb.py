@@ -2196,6 +2196,25 @@ def pkb_propose_updates_route():
                 action["existing_statement"] = pa.existing_claim.statement
             proposed_actions.append(action)
 
+        # Tiered persistence: serialize auto-saved and skipped
+        auto_saved_response = []
+        for item in getattr(plan, 'auto_saved', []):
+            pa = item.get("action")
+            res = item.get("result")
+            auto_saved_response.append({
+                "statement": pa.candidate.statement if pa else "",
+                "claim_type": pa.candidate.claim_type if pa else "",
+                "claim_id": getattr(res, 'object_id', None),
+                "reason": item.get("reason", ""),
+            })
+        skipped_response = []
+        for item in getattr(plan, 'skipped', []):
+            pa = item.get("action")
+            skipped_response.append({
+                "statement": pa.candidate.statement if pa else "",
+                "reason": item.get("reason", ""),
+            })
+
         return jsonify(
             {
                 "has_updates": True,
@@ -2204,6 +2223,8 @@ def pkb_propose_updates_route():
                 "user_prompt": plan.user_prompt,
                 "stm_stored": stm_stored,
                 "stm_reinforced": stm_reinforced,
+                "auto_saved": auto_saved_response,
+                "skipped": skipped_response,
             }
         )
     except Exception as e:

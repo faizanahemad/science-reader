@@ -58,14 +58,14 @@ def route_candidate(
     match_result = match_result or {}
 
     # Extract candidate signals
-    confidence = float(candidate.get("confidence", 0.8))
+    confidence = float(candidate.get("confidence") or 0.8)
     derivation = candidate.get("derivation", "extracted")
     domain = candidate.get("context_domain", "personal")
     claim_type = candidate.get("claim_type", "fact")
 
     # Extract match signals
     relation = match_result.get("relation")  # None, "duplicate", "related", "conflict"
-    similarity = float(match_result.get("similarity_score", 0.0))
+    similarity = float(match_result.get("similarity_score") or 0.0)
 
     # Policy thresholds (fall back to strict defaults if policy is incomplete)
     auto_save_threshold = policy.get("capture_safe_stated_threshold")
