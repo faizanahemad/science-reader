@@ -60,6 +60,9 @@ Conversations are organized into **hierarchical workspaces** per user and domain
 - Active conversation highlighted with auto-expand of parent workspaces.
 - **Recent Conversations section**: Collapsible "Recent" section above the workspace tree showing the 5 most recently updated conversations across all workspaces. One-click access to active conversations without navigating the workspace hierarchy. Right-click context menu reuses the same conversation menu as jsTree nodes (via fake node construction). Active conversation highlighted in both the Recent section and jsTree simultaneously. Collapse/expand state persisted to `localStorage` (scoped by user+domain). Pure front-end feature — no backend changes, data sourced from the existing `WorkspaceManager.conversations` array (already sorted by `last_updated` DESC).
 - **Pinned Conversations section**: Collapsible "Pinned" section below Recent, showing flagged conversations (top 5 most recent). Reuses the existing flag/color system — any conversation with a flag appears here. Color filter dropdown (All / 🔴🔵🟢🟡🟠🟣) narrows to a specific flag color; selection persisted in `localStorage`. Flagged conversations also float above unflagged within their jsTree workspace folder (sort comparator). Right-click context menu same as Recent/jsTree. No backend changes — uses existing `/set_flag` endpoint and `flag` field from conversation metadata.
+- **Conversation Archiving**: Archive/Unarchive action in the conversation context menu. Archived conversations are hidden from Recent, Pinned, and the workspace tree by default. Toggle "Show Archived" button (eye icon in sidebar toolbar) loads archived conversations and renders them in a separate "Archived" group at the bottom of the sidebar. Unarchive only available when "Show Archived" is active. Backend: `archived` property on `Conversation`, `POST /archive_conversation/<id>` toggles the flag, `GET /list_conversation_by_user` accepts `?include_archived=true`. Dimmed/italic CSS styling.
+- **Time View**: Sidebar toggle (clock icon) switches between workspace tree and a flat chronological view grouped by Today / This Week / This Month / This Quarter / Older. No workspace folders shown. Flagged conversations float to top within each time group. Active conversation highlighted. Each group is independently collapsible with state persisted in `localStorage`. "Older" group auto-collapsed by default (visual auto-archival). Toggle state persisted. Switching back to workspace view auto-expands the active conversation's folder.
+- **Message Pinning (Stars)**: Star icon on assistant message headers to pin/unpin. Pinned state persisted in SQLite `PinnedMessages` table. `POST /pin_message/<conv_id>/<msg_id>` toggles pin. `GET /get_pinned_messages/<conv_id>` returns list. Starred Messages toolbar button (★) opens a modal showing ~200-char previews of all pinned messages with "Go to message" (scrolls + highlight flash) and "View full" (shows rendered markdown inline). Pin persists across message edit/regeneration (keyed by `message_id`). Pinned message IDs fetched on conversation load; filled star icon marks pinned messages.
 
 **API endpoints:**
 - `POST /create_workspace/<domain>/<name>` — optional `parent_workspace_id` in JSON body
@@ -68,8 +71,11 @@ Conversations are organized into **hierarchical workspaces** per user and domain
 - `PUT /update_workspace/<workspace_id>` — rename, recolor, expand/collapse
 - `DELETE /delete_workspace/<domain>/<workspace_id>` — cascade-safe deletion
 - `PUT /move_conversation_to_workspace/<conversation_id>` — move conversation
+- `POST /archive_conversation/<conversation_id>` — toggle archived state
+- `POST /pin_message/<conversation_id>/<message_id>` — toggle message pin (star)
+- `GET /get_pinned_messages/<conversation_id>` — list pinned messages with previews
 
-**Key files:** `database/workspaces.py`, `endpoints/workspaces.py`, `interface/workspace-manager.js`, `interface/workspace-styles.css`
+**Key files:** `database/workspaces.py`, `database/pinned_messages.py`, `endpoints/workspaces.py`, `endpoints/conversations.py`, `interface/workspace-manager.js`, `interface/workspace-styles.css`, `interface/common-chat.js`
 **Docs:** `documentation/features/workspaces/README.md`
 
 ### Domains
