@@ -10817,7 +10817,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             or (isinstance(model_name, (list, tuple)) and len(set(model_name)) > 1)
         ) and agent is None
         if isinstance(model_name, (list, tuple)):
-            model_name = list(set(model_name))
+            model_name = list(dict.fromkeys(model_name))  # deduplicate preserving order
         from agents.slide_agent import SlideAgent, CodingQuestionSlideAgent
 
         is_slide_agent = agent is not None and (
