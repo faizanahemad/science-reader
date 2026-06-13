@@ -1433,6 +1433,7 @@ The extension uses two categories of endpoints:
   - toggle options (web search, memory pad, PKB memory, planner, reward dialer, model selection, preamble, tool use (enable_tool_use + per-category toggles))
   - next question suggestions
   - per-message actions: doubt clearing, TTS, edit/delete, show/hide, edit as artefact, save to memory, table of contents (see [Message Card Header](../../features/message_card_header/README.md) for full architecture, dropdown population, and extension guide)
+  - multi-select message actions: floating action bar on checkbox selection — batch copy/delete/hide, summarize, ask about, run preamble, fork, use-as-context (see [Multi-Select Message Actions](../../features/multi_select_message_actions/README.md))
   - tool call status indicators and interactive tool modal
 - PKB screen:
   - claims CRUD
