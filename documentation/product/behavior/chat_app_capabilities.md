@@ -140,14 +140,11 @@ Server-side injection:
 - On completion, the UI does a final render pass, initializes voting UI, and requests next-question suggestions.
 
 **TLDR auto-summary for long answers**
-- For very long answers, the server appends a TLDR block after the main response.
-- Trigger conditions:
-  - Answer length > 1000 words
-  - No specialized agent is active
-  - Not cancelled; model is not `FILLER_MODEL`
-- The TLDR is generated with `tldr_summary_prompt`, using the user query + running summary + full answer.
-- Model selection uses `conversation_settings.model_overrides.tldr_model` if set, otherwise `CHEAP_LONG_CONTEXT_LLM[0]`.
-- The TLDR is wrapped in a collapsible `<details>` section with header “📝 TLDR Summary (Quick Read)”.
+- For answers >300 words, the server appends a TLDR block after the main response.
+- Trigger: answer > 300 words, no agent active, not cancelled, not `FILLER_MODEL`.
+- **Mid-stream async**: TLDR future fires once streaming crosses 300 words (partial answer). Runs in parallel with remaining streaming. Collected post-stream (15s timeout). Falls back to sync if future wasn't fired.
+- Helper: `Conversation._generate_tldr_text(answer_text, user_query, summary_text)`. Model: `SUPERFAST_LLM[0]`.
+- Wrapped in collapsible `<details>` with header “📝 TLDR Summary (Quick Read)”.
 
 **Persistence**
 - Conversation content is persisted to the filesystem under a per-conversation folder (see “Local conversation storage” below).
@@ -723,6 +720,7 @@ The backend resolver (`resolve_reference()`) uses suffix-based routing for fast 
 - UI parses `@references` from message text (`parseMemoryReferences()`) and collects "Use Now" attachments (`PKBManager.getPendingAttachments()`).
 - Server injects conversation-pinned claim IDs from session state.
 - `Conversation.reply()` fetches claims via `_get_pkb_context()` in a background thread.
+- **Internal parallelization**: `_get_pkb_context()` fires hybrid search + overview snippet + STM retrieval as futures immediately after API creation, running in parallel with all direct ID lookups (referenced, attached, pinned, conv-pinned claims). The search future resolves after ID lookups finish. Overview snippet is computed once and reused (no re-fetch). Net savings: 200-2000ms per turn.
 - Each `@friendly_id` is resolved by `resolve_reference()` which routes by suffix to the correct resolver (claim, context, entity, tag, or domain).
 - `@pkb_overview` is a special reference that injects the full Memory Overview document verbatim (bypasses distillation).
 - Auto-retrieval uses hybrid search combining several strategies in parallel, merged in ONE top-level Reciprocal Rank Fusion (RRF), then recency/confidence re-ranked (`w_recency=0.15`, `w_confidence=0.1`, half-life=30 days):

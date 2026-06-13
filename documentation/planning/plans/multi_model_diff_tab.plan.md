@@ -8,16 +8,19 @@ When users select multiple models, responses appear as tabs in the message card 
 
 ## Requirements
 
+- **Multi-model only**: Diff tab and badges only appear when 2+ models are selected. Not for single-model + TLDR.
 - Pre-computed: fires immediately after multi-model response completes
 - Persisted in message text (loads on reload via `<answer_diff>` tags, like `<answer_tldr>`)
 - Parallel LLM calls: one per secondary model (vs primary), yielded as each completes
 - Diff tab shows loading spinner until all diffs arrive
-- Detail field contains **actual content** in markdown (not summaries about content)
+- Detail field contains **actual content** in markdown (not summaries about content) — the user reads the diff directly without needing to open the source model's tab
 - Empty diff (all models agree) shows "✅ All models agree" in the diff tab
 - Badges: `+N ⚠M` format (additions + contradictions count)
 - Diff tab body: grouped by model, with typed sections (addition/contradiction/omission)
-- Multi-model only (not single-model + TLDR)
 - Pairwise vs primary only for now; architecture supports pairwise between all models later
+- Primary model = first model in the selection list (first to be streamed)
+- Side-by-side view explicitly rejected — models arrange info too differently for column comparison
+- Inline annotations (option 3) rejected — paragraph-level alignment is brittle and requires stronger/more expensive LLM
 
 ## UX Decisions
 
@@ -29,6 +32,18 @@ When users select multiple models, responses appear as tabs in the message card 
 | Diff tab loading | Spinner until LLM calls complete |
 | Detail content | Actual information in markdown, directly renderable |
 | Tab position | After model tabs, before TLDR: `[Model A] [Model B (+2⚠1)] [⚡ Diff] [TLDR]` |
+| Visibility | Diff tab + badges shown ONLY when 2+ models in response |
+| Primary model | First model in the user's selection (first in streaming order) |
+
+## Rejected Alternatives
+
+| Alternative | Reason |
+|-------------|--------|
+| Side-by-side columns | Models arrange information too differently for meaningful column alignment |
+| Inline annotations on primary | Paragraph-level alignment is brittle; requires expensive LLM call; fragile positioning |
+| Accordion instead of tabs for responses | Forces sequential scrolling through long responses; can't compare; accordion is for short config groups |
+| On-demand diff (click to generate) | Adds latency at the moment user wants the info; pre-compute is better UX for a cheap call |
+| Separate diff call from badge call | Same JSON output feeds both — no reason to split |
 
 ## Architecture
 
@@ -185,8 +200,9 @@ Multiple `<answer_diff>` blocks if 3+ models selected (one per secondary).
 1. In `applyModelResponseTabs()`: after building model tabs, scan for `[data-answer-diff]` or `<answer_diff>` text
 2. Parse JSON from each diff block
 3. Inject badges into corresponding model nav-links
-4. Add "⚡ Diff" tab (always present if multi-model; shows spinner → content → or "all agree")
+4. Add "⚡ Diff" tab **only if multiple models detected** (shows spinner → content → or "all agree")
 5. Render diff sections as HTML with markdown rendering (use existing `marked` library)
+6. If only one model in response, never show diff tab even if `<answer_diff>` tags somehow exist
 
 ### CSS
 

@@ -194,6 +194,32 @@ All Basic Options settings share a single serialisation path. When adding or deb
 - Doc Index overrides (`doc_long_summary_model`, `doc_long_summary_v2_model`, `doc_short_answer_model`) apply when reading uploaded documents and generating document summaries/answers.
 - See `documentation/features/conversation_model_overrides/README.md` for the override system details.
 
+### Parallel Architecture in `reply()`
+
+`Conversation.reply()` uses `get_async_future()` to fire 15+ futures in parallel across the method's ~3,800 lines. Key design principles:
+
+**Fire early, resolve late**: Futures are created as soon as their inputs are available and resolved at the latest point before their output is needed. This maximizes overlap.
+
+**Major parallel groups:**
+
+| Future | Fired at | Resolved at | Typical latency |
+|--------|----------|-------------|-----------------|
+| Tool selection (`_tools_config_future`) | After `/pkb` guard (~line 8020) | CHECKPOINT-G (right before main dispatch) | ~200ms |
+| PKB context (`pkb_context_future`) | After tool selection | CHECKPOINT-E | 200-2000ms |
+| Hybrid search + STM (inside `_get_pkb_context`) | Immediately after API creation | After ID lookups complete | 200-2000ms |
+| Prior context (`prior_context_future`) | After checkbox parsing | CHECKPOINT-A | ~50ms |
+| LLM-based context (`prior_context_llm_based_future`) | After prior context fire | CHECKPOINT-C (deferred for non-auto-context) | 1-5s |
+| User ask TLDR/keywords/prior context | After prior context fire | Passed to persist (fire-and-forget) | 1-3s |
+| Link reading (`link_future`) | After preamble | After web search start | 1-10s |
+| Web search + Perplexity | After link reading | Accumulation loop + blocking | 5-30s |
+| Visual tab (`_visual_tab_future`) | After preamble (Deep Learn mode) | Post-stream | 2-5s |
+| TLDR (`_tldr_future`) | Mid-stream (at 300 words) | Post-stream | 1-3s |
+| Persist turn | Post-stream (fire-and-forget) | Never awaited | — |
+
+**Polling intervals**: All poll loops use 0.1s sleep (reduced from 0.5s) to minimize wake-up latency when futures complete.
+
+**CHECKPOINT-C deferral**: The LLM-based context extraction future resolves early only when auto-context mode needs it (rare). For the common path, resolution is deferred ~800 lines to just before prompt assembly, allowing more parallel overlap.
+
 ## Sidebar Conversation Selection (pre-chat)
 
 Before any chat message can be sent, a conversation must be selected in the sidebar. The sidebar is rendered by `WorkspaceManager` (`interface/workspace-manager.js`) using **jsTree** (jQuery tree plugin).
@@ -372,16 +398,18 @@ Key refs:
 `Conversation.reply()` can append a TLDR block to the end of the answer when the response is very long. This is a server-side augmentation that shows up as a collapsible “TLDR Summary” section in the UI.
 
 ### When it triggers
-- The answer exceeds 1000 words (after stripping `<answer>` tags).
+- The answer exceeds 300 words (after stripping `<answer>` tags).
 - The request is not cancelled.
 - The model is not the `FILLER_MODEL`.
 - No specialized agent is active (`agent is None`).
 
 ### How it is generated
-- The TLDR prompt includes the user query, the running summary (if available), and the full answer content.
-- The model is selected via conversation overrides if present:
-  - `conversation_settings.model_overrides.tldr_model`, else `CHEAP_LONG_CONTEXT_LLM[0]`.
-- The TLDR LLM runs non-streaming (`stream=False`) to get the full text, then wraps it in a collapsible block.
+- **Mid-stream future (parallel)**: Once the answer crosses 300 words during streaming, a TLDR future is fired in the background with the partial answer text. This runs in parallel with the rest of the answer streaming, so the TLDR is usually ready by the time streaming completes.
+- **Post-stream collection**: After streaming, if the word threshold is met, the pre-computed TLDR future is collected (15s timeout). Falls back to synchronous generation if the future wasn't fired.
+- The TLDR prompt includes the user query, the running summary (if available), and the answer content (partial for mid-stream, full for fallback).
+- The model used is `SUPERFAST_LLM[0]` (via `conversation_internal_model` override).
+- Helper method: `Conversation._generate_tldr_text(answer_text, user_query, summary_text)`.
+- Net latency savings: 1-3s post-stream compared to fully synchronous generation.
 
 ### How it is appended and rendered
 - The TLDR is appended after the main answer with a horizontal rule (`---`), then an `<answer_tldr>` wrapper.

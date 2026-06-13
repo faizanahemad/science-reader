@@ -652,6 +652,65 @@ class Conversation:
             all_claims = []  # List of (source, claim) tuples
             seen_ids = set()
 
+            # ---- Parallelization: fire hybrid search early (it's the slowest step) ----
+            # We start it with an optimistic k and trim results after ID lookups finish.
+            _search_future = None
+            _ov_snippet = None
+            _stm_future = None
+            deliberate_count = (
+                len(referenced_claim_ids)
+                + len(attached_claim_ids)
+                + len(conversation_pinned_claim_ids)
+            )
+            # Build enhanced query now so search can start immediately
+            enhanced_query = query or ""
+            if conversation_summary:
+                max_summary_chars = 4000
+                _summary_for_search = conversation_summary.strip()
+                if len(_summary_for_search) > max_summary_chars:
+                    _summary_for_search = _summary_for_search[-max_summary_chars:]
+                _summary_for_search = (
+                    _summary_for_search.replace("—", " ")
+                    .replace("–", " ")
+                    .replace("-", " ")
+                    .replace(":", " ")
+                )
+                enhanced_query = f"{_summary_for_search}\n\nCurrent query: {query}"
+
+            # Fire overview snippet + search + STM in parallel with ID lookups
+            def _run_search():
+                """Run hybrid search with overview context."""
+                try:
+                    from truth_management_system.interface.overview_manager import PKBOverviewManager as _OvMgr
+                    _ov_mgr = _OvMgr(db, self.get_api_keys(), config)
+                    _snippet = _ov_mgr.get_key_areas_snippet(user_email)
+                    if _snippet:
+                        api.search_strategy.set_overview_context(_snippet)
+                except Exception:
+                    _snippet = None
+
+                _strategy_queries = None
+                if getattr(config, "fts_use_focused_query", False) and (query or "").strip():
+                    _strategy_queries = {"fts": query, "entity": query}
+                _scope_filters = None
+                if pkb_scope:
+                    _domains = [d.strip() for d in pkb_scope.split(",") if d.strip()]
+                    if _domains:
+                        _scope_filters = {"context_domains": _domains}
+                return api.search(
+                    enhanced_query, strategy="hybrid", k=k + 5,
+                    strategy_queries=_strategy_queries,
+                    filters=_scope_filters,
+                ), _snippet
+
+            _search_future = get_async_future(_run_search)
+            # Fire STM retrieval in parallel too
+            if config and getattr(config, "stm_enabled", True):
+                _stm_future = get_async_future(
+                    api.get_active_short_term_memories,
+                    limit=getattr(config, "stm_inject_limit", 10),
+                )
+
             # 0a. Separate cross-conversation refs from PKB friendly_id refs
             conv_refs = []
             pkb_fids = []
@@ -812,121 +871,44 @@ class Conversation:
                     )
 
             # 5. Auto-retrieved via hybrid search - fill remaining slots
-            deliberate_count = (
-                len(referenced_claim_ids)
-                + len(attached_claim_ids)
-                + len(conversation_pinned_claim_ids)
-            )
+            # 5. Collect hybrid search results (future was fired earlier in parallel)
             remaining_slots = max(1, k - len(all_claims))
             time_logger.info(
                 f"[PKB] Auto-search: remaining_slots={remaining_slots}, deliberate_count={deliberate_count}"
             )
-            if remaining_slots > 0:
-                # Build an "enhanced" query with conversation context.
-                #
-                # IMPORTANT:
-                # - conversation_summary can be extremely long (10k-100k chars) and will
-                #   destroy retrieval quality + performance.
-                # - it frequently contains hyphenated model names like "Claude-opus-4.5"
-                #   which can trigger SQLite FTS5 parser issues (e.g. "no such column: opus")
-                #   depending on the FTS query construction in the PKB module.
-                #
-                # So we cap and lightly normalize the summary before including it.
-                enhanced_query = query or ""
-                if conversation_summary:
-                    max_summary_chars = 4000
-                    summary = conversation_summary.strip()
-                    if len(summary) > max_summary_chars:
-                        # Prefer the tail: it tends to include the most recent topic.
-                        summary = summary[-max_summary_chars:]
-                        time_logger.info(
-                            f"[PKB] Truncated conversation_summary for PKB search to last {max_summary_chars} chars"
-                        )
-                    # Normalize dashes/colons to reduce FTS5 parser surprises in some environments.
-                    summary = (
-                        summary.replace("—", " ")
-                        .replace("–", " ")
-                        .replace("-", " ")
-                        .replace(":", " ")
-                    )
-                    enhanced_query = f"{summary}\n\nCurrent query: {query}"
-
-                time_logger.info(
-                    f"[PKB] Running hybrid search with enhanced_query_len={len(enhanced_query)}, query='{enhanced_query[:100]}...'"
-                )
-
-                # Pass overview Key Areas to the rewrite strategy for domain-aware expansion
+            if remaining_slots > 0 and _search_future:
                 try:
-                    from truth_management_system.interface.overview_manager import PKBOverviewManager as _OvMgr
-                    _ov_mgr = _OvMgr(db, self.get_api_keys(), config)
-                    _ov_snippet = _ov_mgr.get_key_areas_snippet(user_email)
-                    if _ov_snippet:
-                        api.search_strategy.set_overview_context(_ov_snippet)
-                except Exception as _ov_e:
-                    time_logger.debug(f"[PKB] overview context for rewrite unavailable: {_ov_e}")
-
-                # W-B: scope literal FTS to the *focused* current message so the
-                # (potentially summary-laden) enhanced_query stops polluting
-                # literal matching. The entity strategy (W-C) is routed the same
-                # focused query so it resolves entities from the *current
-                # message* (per plan), not from past-topic summary text.
-                # Embedding/rewrite keep the contextual enhanced_query, which
-                # legitimately benefits from context. No-op when there is no
-                # separate summary (focused == enhanced) or the flag is off.
-                _strategy_queries = None
-                if getattr(config, "fts_use_focused_query", False) and (query or "").strip():
-                    _strategy_queries = {"fts": query, "entity": query}
-
-                # Build scope filters from user's pkb_scope setting
-                _scope_filters = None
-                if pkb_scope:
-                    _domains = [d.strip() for d in pkb_scope.split(",") if d.strip()]
-                    if _domains:
-                        _scope_filters = {"context_domains": _domains}
-
-                result = api.search(
-                    enhanced_query, strategy="hybrid", k=remaining_slots + 5,
-                    strategy_queries=_strategy_queries,
-                    filters=_scope_filters,
-                )  # Get extra for dedup
-
-                time_logger.info(
-                    f"[PKB] Search result: success={result.success}, data_type={type(result.data)}, data_len={len(result.data) if result.data else 0}"
-                )
-
-                if result.success and result.data:
-                    search_added = 0
-                    for search_result in result.data:
-                        claim = search_result.claim
-                        if claim.claim_id not in seen_ids:
-                            all_claims.append(("auto", claim))
-                            seen_ids.add(claim.claim_id)
-                            search_added += 1
-                            if (
-                                len(all_claims) >= k + deliberate_count
-                            ):  # Allow deliberate claims extra
-                                break
+                    result, _ov_snippet = _search_future.result()
                     time_logger.info(
-                        f"[PKB] Hybrid search returned {len(result.data)} results, added {search_added} unique claims"
+                        f"[PKB] Search result: success={result.success}, data_type={type(result.data)}, data_len={len(result.data) if result.data else 0}"
                     )
-                elif result.success and not result.data:
-                    # Check if there are ANY claims in the database for this user
-                    from truth_management_system.models import ClaimStatus
-
-                    all_user_claims = api.claims.list(
-                        filters={"status": ClaimStatus.ACTIVE.value}, limit=10
-                    )
-                    time_logger.info(
-                        f"[PKB] Search returned 0 results. Total active claims for user: {len(all_user_claims)}"
-                    )
-                    if all_user_claims:
+                    if result.success and result.data:
+                        search_added = 0
+                        for search_result in result.data:
+                            claim = search_result.claim
+                            if claim.claim_id not in seen_ids:
+                                all_claims.append(("auto", claim))
+                                seen_ids.add(claim.claim_id)
+                                search_added += 1
+                                if len(all_claims) >= k + deliberate_count:
+                                    break
                         time_logger.info(
-                            f"[PKB] Sample claims: {[c.statement[:50] for c in all_user_claims[:3]]}"
+                            f"[PKB] Hybrid search returned {len(result.data)} results, added {search_added} unique claims"
                         )
-                else:
-                    time_logger.info(
-                        f"[PKB] Hybrid search failed: success={result.success}, errors={result.errors if hasattr(result, 'errors') else 'N/A'}"
-                    )
+                    elif result.success and not result.data:
+                        from truth_management_system.models import ClaimStatus
+                        all_user_claims = api.claims.list(
+                            filters={"status": ClaimStatus.ACTIVE.value}, limit=10
+                        )
+                        time_logger.info(
+                            f"[PKB] Search returned 0 results. Total active claims for user: {len(all_user_claims)}"
+                        )
+                    else:
+                        time_logger.info(
+                            f"[PKB] Hybrid search failed: success={result.success}, errors={result.errors if hasattr(result, 'errors') else 'N/A'}"
+                        )
+                except Exception as _se:
+                    time_logger.warning(f"[PKB] Search future failed: {_se}")
 
             time_logger.info(f"[PKB] Total claims collected: {len(all_claims)}")
             if not all_claims:
@@ -936,18 +918,15 @@ class Conversation:
 
             # --- Short-term memory injection (cross-conversation context) ---
             stm_block = ""
-            if config and getattr(config, "stm_enabled", True):
+            if _stm_future:
                 try:
-                    stm_result = api.get_active_short_term_memories(
-                        limit=getattr(config, "stm_inject_limit", 10)
-                    )
+                    stm_result = _stm_future.result()
                     if stm_result.success and stm_result.data:
                         from datetime import datetime, timezone
                         now = datetime.now(timezone.utc)
                         stm_lines = []
                         memory_ids = []
                         for mem in stm_result.data:
-                            # Calculate relative time
                             try:
                                 created = datetime.fromisoformat(mem["created_at"].replace("Z", "+00:00"))
                                 delta = now - created
@@ -963,7 +942,6 @@ class Conversation:
                             memory_ids.append(mem["memory_id"])
 
                         if stm_lines:
-                            # Enforce word budget
                             max_words = getattr(config, "stm_inject_max_words", 200)
                             final_lines = []
                             word_count = 0
@@ -975,8 +953,11 @@ class Conversation:
                                 word_count += words
 
                             stm_block = "<stm_context>\n## Recent context from your other conversations:\n" + "\n".join(final_lines) + "\n</stm_context>\n"
-                            # Touch accessed memories
-                            api.touch_short_term_memories(memory_ids[:len(final_lines)])
+                            # Fire-and-forget touch
+                            try:
+                                api.touch_short_term_memories(memory_ids[:len(final_lines)])
+                            except Exception:
+                                pass
                             time_logger.info(f"[PKB] Injected {len(final_lines)} short-term memories")
                 except Exception as stm_e:
                     time_logger.debug(f"[PKB] STM injection failed: {stm_e}")
@@ -1047,12 +1028,10 @@ class Conversation:
             # through distillation, not verbatim re-injection.
             try:
                 if config and getattr(config, "overview_snippet_in_context", False):
-                    from truth_management_system.interface.overview_manager import PKBOverviewManager as _OvMgr
-                    _ov_manager = _OvMgr(db, self.get_api_keys(), config)
-                    _snippet = _ov_manager.get_key_areas_snippet(user_email)
-                    if _snippet:
+                    # Reuse _ov_snippet from the search future (already fetched)
+                    if _ov_snippet:
                         context_lines.append(
-                            f'<pkb_item source="overview_summary" type="overview">{_snippet}</pkb_item>'
+                            f'<pkb_item source="overview_summary" type="overview">{_ov_snippet}</pkb_item>'
                         )
                         formatted_context = "\n".join(context_lines)
             except Exception as _ov_e:
@@ -9739,7 +9718,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 if link_future.done():
                     link_result_text, all_docs_info = link_future.result()
                     break
-                time.sleep(0.5)
+                time.sleep(0.1)
 
             read_links = parse_mardown_link_text(link_result_text)
             read_links = list(
@@ -9808,7 +9787,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                         ]
                     )
                     break
-                time.sleep(0.5)
+                time.sleep(0.1)
             time_logger.info(
                 f"[DOC-READ] get_multiple_answers completed | doc_answer_len={len(conversation_docs_answer.split())} words | t={time.time() - st:.2f}s"
             )
@@ -9846,26 +9825,22 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         previous_messages_long = prior_context["previous_messages_long"]
         previous_messages_very_long = prior_context["previous_messages_very_long"]
         yield {"text": "", "status": "Prior context got ..."}
-        time_logger.warning(
-            "[STREAM][CHECKPOINT-C] waiting on prior_context_llm_based_future (timeout=120s) | t=%.2fs",
-            time.time() - st,
-        )
-        prior_context_llm_based = sleep_and_get_future_result(prior_context_llm_based_future, timeout=120)
-        time_logger.warning(
-            "[STREAM][CHECKPOINT-C] prior_context_llm_based ready | t=%.2fs",
-            time.time() - st,
-        )
-        prior_context_llm_based_context = prior_context_llm_based["extracted_context"]
-        yield {
-            "text": "",
-            "status": "Prior context LLM based extraction done with len = "
-            + str(len(prior_context_llm_based_context.split()))
-            + " tokens ...",
-        }
+        # CHECKPOINT-C: Defer resolution unless auto-context needs it now.
+        # In the common non-auto-context path, this future resolves ~800 lines later
+        # (just before prompt assembly), letting the LLM extraction run longer in parallel.
+        prior_context_llm_based_context = ""
+        _checkpoint_c_resolved = False
 
         # Auto context: merge classifier + agent results, override previous_messages
         if _auto_context_mode is not None and _auto_classifier_future is not None:
             from code_common.auto_context import assemble_auto_context, AUTO_CONTEXT_CONFIGS
+            # Resolve CHECKPOINT-C here (auto-context needs it for assembly)
+            time_logger.warning(
+                "[STREAM][CHECKPOINT-C] resolving for auto-context | t=%.2fs", time.time() - st,
+            )
+            prior_context_llm_based = sleep_and_get_future_result(prior_context_llm_based_future, timeout=120)
+            prior_context_llm_based_context = prior_context_llm_based["extracted_context"]
+            _checkpoint_c_resolved = True
             # Memory pad: set before assembly so it applies even if assembly fails
             _auto_cfg = AUTO_CONTEXT_CONFIGS[_auto_context_mode]
             if _auto_cfg["inject_memory_pad"] and not use_memory_pad:
@@ -9983,7 +9958,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             def get_first_few_result_summary(start=0, end=4):
                 st = time.time()
                 while len(web_text_accumulator) < end:
-                    time.sleep(0.5)
+                    time.sleep(0.1)
                 if not exists_tmp_marker_file(web_search_tmp_marker_name):
                     return ""
                 full_web_string = ""
@@ -10060,7 +10035,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 if one_web_result is None and break_condition:
                     break
                 if one_web_result is None:
-                    time.sleep(0.5)
+                    time.sleep(0.1)
                     continue
                 if one_web_result == TERMINATION_SIGNAL:
                     break
@@ -10085,7 +10060,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     time_logger.info(
                         f"Time taken to get n-th {len(web_text_accumulator)}-th web result with len = {len(one_web_result['text'].split())}, time = {(time.time() - st):.2f}, wait time = {(qu_et - qu_st):.2f}, link = {one_web_result['link']}"
                     )
-                time.sleep(0.5)
+                time.sleep(0.1)
 
             time_logger.info(
                 f"Time to get web search results without sorting: {(time.time() - st):.2f} with result count = {len(web_text_accumulator)} and only web reading time: {(time.time() - qu_st):.2f}"
@@ -10132,7 +10107,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             while time.time() - tt < 5 and any(
                 [not wta.done() for wta in [first_four_summary, second_four_summary]]
             ):
-                time.sleep(0.5)
+                time.sleep(0.1)
             if (
                 first_four_summary.done()
                 and first_four_summary.exception() is None
@@ -10570,7 +10545,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                             f"[PKB-REPLY] Could not get future2 exception: {e}"
                         )
                     break
-                time.sleep(0.5)
+                time.sleep(0.1)
 
             # Get the result from whichever future completed first
             time_logger.info(
@@ -10633,6 +10608,18 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             if use_memory_pad
             else ""
         )
+
+        # Deferred CHECKPOINT-C resolution (non-auto-context path)
+        if not _checkpoint_c_resolved:
+            time_logger.warning(
+                "[STREAM][CHECKPOINT-C] deferred resolution | t=%.2fs", time.time() - st,
+            )
+            prior_context_llm_based = sleep_and_get_future_result(prior_context_llm_based_future, timeout=120)
+            prior_context_llm_based_context = prior_context_llm_based["extracted_context"]
+            time_logger.warning(
+                "[STREAM][CHECKPOINT-C] ready | len=%d | t=%.2fs",
+                len(prior_context_llm_based_context.split()), time.time() - st,
+            )
 
         (
             link_result_text,
@@ -11484,6 +11471,8 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         )
         stream_iter_start = time.perf_counter()
         first_stream_chunk_logged = False
+        _tldr_future = None
+        _tldr_skip = (model_name == FILLER_MODEL or agent is not None)
         for dcit in main_ans_gen:
             if not first_stream_chunk_logged:
                 time_logger.info(
@@ -11550,6 +11539,18 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 )
             yield {"text": txt, "status": status}
             answer += str(txt)
+            # Fire TLDR future mid-stream once answer crosses word threshold
+            if (
+                _tldr_future is None
+                and not _tldr_skip
+                and len(answer.split()) > 300
+            ):
+                _tldr_future = get_async_future(
+                    self._generate_tldr_text,
+                    answer.replace("<answer>", "").strip(),
+                    query["messageText"],
+                    summary_text,
+                )
             _collect_reward_output(block=False)
             if reward_output_ready:
                 yield from _emit_reward_output()
@@ -11597,8 +11598,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             yield {"text": slide_response, "status": "answering in progress"}
             answer += slide_response
 
-        # Generate a TLDR summary for long answers (over 1000 words)
-        # Extract the main answer content (between <answer> tags, excluding markup)
+        # Generate a TLDR summary for long answers (over 300 words)
         answer_content_for_tldr = answer.replace("<answer>", "").strip()
         answer_word_count = len(answer_content_for_tldr.split())
 
@@ -11619,33 +11619,14 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             answer += "<answer_tldr>\n"
 
             try:
-                # Format the TLDR prompt with context
-                tldr_prompt_formatted = tldr_summary_prompt.format(
-                    query=query["messageText"],
-                    summary=summary_text
-                    if len(summary_text.strip()) > 0
-                    else "No previous conversation summary available.",
-                    answer=answer_content_for_tldr,
-                )
+                # Use pre-fired future if available, otherwise generate synchronously
+                if _tldr_future is not None:
+                    tldr_stream = sleep_and_get_future_result(_tldr_future, sleep_time=0.05, timeout=15)
+                else:
+                    tldr_stream = self._generate_tldr_text(
+                        answer_content_for_tldr, query["messageText"], summary_text
+                    )
 
-                # Use a fast, cheap model for TLDR generation
-                tldr_model = self.get_model_override(
-                    "conversation_internal_model", SUPERFAST_LLM[0]
-                )
-                tldr_llm = CallLLm(
-                    self.get_api_keys(),
-                    model_name=tldr_model,
-                    use_gpt4=True,
-                    use_16k=True,
-                )
-                tldr_stream = tldr_llm(
-                    tldr_prompt_formatted,
-                    system=tldr_summary_prompt_system,
-                    temperature=0.3,
-                    stream=False,
-                )
-
-                # Wrap the TLDR stream in a collapsible wrapper
                 tldr_wrapped = collapsible_wrapper(
                     tldr_stream,
                     header="📝 TLDR Summary (Quick Read)",
@@ -11653,7 +11634,6 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     add_close_button=True,
                 )
 
-                # Yield the wrapped TLDR content
                 tldr_wrapped = convert_stream_to_iterable(tldr_wrapped)
                 yield {"text": tldr_wrapped, "status": "Generating TLDR summary..."}
                 answer += tldr_wrapped
@@ -11666,7 +11646,6 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 error_logger.error(
                     f"Error generating TLDR summary: {e}, stack: {traceback.format_exc()}"
                 )
-                # Continue without TLDR if there's an error - don't break the main flow
                 time_dict["tldr_error"] = str(e)
 
         # --- Visual explanation tab (Deep Learn mode, fired in parallel at start) ---
@@ -11771,6 +11750,25 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             "status": "saving answer ...",
             "message_ids": message_ids,
         }
+
+    def _generate_tldr_text(self, answer_text, user_query, summary_text):
+        """Generate TLDR text for an answer. Used both synchronously and as a future."""
+        tldr_prompt_formatted = tldr_summary_prompt.format(
+            query=user_query,
+            summary=summary_text if len(summary_text.strip()) > 0
+            else "No previous conversation summary available.",
+            answer=answer_text,
+        )
+        tldr_model = self.get_model_override(
+            "conversation_internal_model", SUPERFAST_LLM[0]
+        )
+        tldr_llm = CallLLm(
+            self.get_api_keys(), model_name=tldr_model, use_gpt4=True, use_16k=True,
+        )
+        return tldr_llm(
+            tldr_prompt_formatted, system=tldr_summary_prompt_system,
+            temperature=0.3, stream=False,
+        )
 
     # ── /image command handler ────────────────────────────────────────────
 
