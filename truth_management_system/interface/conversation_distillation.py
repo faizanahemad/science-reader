@@ -638,13 +638,18 @@ Response:"""
                     reason=f"Updates/replaces existing claim {contradicted.claim_id[:8]} "
                            f"(\"{contradicted.statement[:40]}\")"))
             elif existing is not None:
-                # H3 distiller hook: an extracted restatement of an existing
-                # claim is a reinforcement signal, not a silent skip. Propose a
-                # user-confirmable "reinforce" action carrying the matched claim.
-                actions.append(ProposedAction(
-                    action="reinforce", candidate=candidate,
-                    existing_claim=existing, relation="duplicate",
-                    reason=f"Restates existing claim {existing.claim_id[:8]} — reinforce it"))
+                # H3: duplicate (score > 0.9). If the existing claim already has
+                # high confidence, silently reinforce it without bothering the user.
+                # Only show the reinforce proposal for lower-confidence claims where
+                # user confirmation adds value.
+                if existing.confidence and existing.confidence >= 0.75:
+                    # Silent reinforce — don't add to proposals
+                    self.api.reinforce_claim(existing.claim_id, upgrade_derivation=True)
+                else:
+                    actions.append(ProposedAction(
+                        action="reinforce", candidate=candidate,
+                        existing_claim=existing, relation="duplicate",
+                        reason=f"Restates existing claim {existing.claim_id[:8]} — reinforce it"))
             else:
                 related = [(cl, r) for c, cl, r in matches if c.statement == candidate.statement and r == "related"]
                 if related:
