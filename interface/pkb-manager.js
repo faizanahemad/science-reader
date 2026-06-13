@@ -2337,8 +2337,14 @@ var PKBManager = (function() {
                     '<div class="flex-grow-1">' +
                     '<div class="small font-weight-bold">Cluster ' + (i + 1) + ' <span class="badge badge-light">' + ids.length + ' items</span>' + simBadge + verified + '</div>' +
                     '<ul class="mb-0 pl-3 small">';
-                names.forEach(function(n) {
-                    s += '<li>' + escapeHtml(n.length > 120 ? n.substring(0, 120) + '…' : n) + '</li>';
+                names.forEach(function(n, ni) {
+                    var display = n.length > 120 ? n.substring(0, 120) + '…' : n;
+                    if (ni === 0 || kind !== 'claims') {
+                        s += '<li>' + escapeHtml(display) + '</li>';
+                    } else {
+                        // Highlight differences vs first item
+                        s += '<li>' + highlightDiff(display, names[0].substring(0, 120)) + '</li>';
+                    }
                 });
                 s += '</ul></div></div></label>';
             });
@@ -3196,10 +3202,15 @@ var PKBManager = (function() {
             }
 
             var html = archived.map(function(c) {
+                var statusBadge = '';
+                if (c.status && c.status !== 'archived') {
+                    var cls = c.status === 'superseded' ? 'badge-warning' : c.status === 'retracted' ? 'badge-danger' : 'badge-dark';
+                    statusBadge = '<span class="badge ' + cls + ' mr-1">' + c.status + '</span>';
+                }
                 return '<div class="d-flex justify-content-between align-items-start border-bottom py-1">' +
                     '<div class="flex-grow-1 mr-2">' +
                         '<small>' + $('<span>').text(c.statement).html() + '</small>' +
-                        '<div><span class="badge badge-secondary">' + (c.claim_type || '') + '</span> ' +
+                        '<div>' + statusBadge + '<span class="badge badge-secondary">' + (c.claim_type || '') + '</span> ' +
                         '<span class="badge badge-light">' + (c.context_domain || '') + '</span></div>' +
                     '</div>' +
                     '<button class="btn btn-outline-success btn-xs pkb-restore-claim" data-id="' + c.claim_id + '" title="Restore to active"><i class="bi bi-arrow-counterclockwise"></i></button>' +
@@ -3461,13 +3472,37 @@ var PKBManager = (function() {
             // Health dashboard
             $.get('/pkb/health', function(resp) {
                 var $dash = $('#pkb-health-dashboard');
-                var active = (resp.by_status || {}).active || 0;
-                var dormant = (resp.by_status || {}).dormant || 0;
+                var byStatus = resp.by_status || {};
+                var byType = resp.by_type || {};
+                var byDomain = resp.by_domain || {};
                 var total = resp.total_claims || 0;
-                var domains = Object.keys(resp.by_domain || {}).length;
-                $('#pkb-health-stats').text(
-                    total + ' claims (' + active + ' active, ' + dormant + ' dormant) · ' + domains + ' domains'
-                );
+
+                // Status line with colored badges
+                var statusHtml = '<strong>' + total + '</strong> claims: ';
+                var statusColors = {active:'success', dormant:'info', superseded:'warning', retracted:'danger', expired:'dark', draft:'light', historical:'secondary'};
+                Object.keys(byStatus).forEach(function(s) {
+                    if (byStatus[s] > 0) {
+                        statusHtml += '<span class="badge badge-' + (statusColors[s] || 'secondary') + ' mr-1">' + byStatus[s] + ' ' + s + '</span>';
+                    }
+                });
+
+                // Types compact
+                var typeEntries = Object.entries(byType).filter(function(e) { return e[1] > 0; });
+                var typeHtml = typeEntries.length ? '<span class="text-muted ml-2">Types:</span> ' + typeEntries.map(function(e) {
+                    return '<span class="badge badge-outline-secondary mr-1">' + e[1] + ' ' + e[0] + '</span>';
+                }).join('') : '';
+
+                // Domains compact
+                var domainCount = Object.keys(byDomain).length;
+                var domainHtml = domainCount ? '<span class="text-muted ml-2">' + domainCount + ' domains</span>' : '';
+
+                // Stale indicator
+                var staleHtml = '';
+                if (resp.stale_count > 0) {
+                    staleHtml = '<span class="badge badge-warning ml-2">' + resp.stale_count + ' stale</span>';
+                }
+
+                $('#pkb-health-stats').html(statusHtml + typeHtml + domainHtml + staleHtml);
                 $dash.show();
             });
         });

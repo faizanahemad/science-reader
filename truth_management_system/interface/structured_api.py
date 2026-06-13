@@ -4617,29 +4617,29 @@ class StructuredAPI:
                           data={"memory_id": memory_id, "deleted_claim_id": claim_id})
 
     def get_recently_archived(self, limit: int = 20) -> ActionResult:
-        """Get recently archived claims (available for one-click restore)."""
+        """Get recently archived/superseded/retracted claims (available for one-click restore)."""
         rows = self.db.fetchall(
-            """SELECT claim_id, statement, claim_type, context_domain, updated_at
+            """SELECT claim_id, statement, claim_type, context_domain, updated_at, status
                FROM claims
-               WHERE user_email = ? AND status = 'archived'
+               WHERE user_email = ? AND status IN ('archived', 'superseded', 'retracted')
                ORDER BY updated_at DESC
                LIMIT ?""",
             (self.user_email, limit),
         )
         results = [{"claim_id": r[0], "statement": r[1], "claim_type": r[2],
-                    "context_domain": r[3], "archived_at": r[4]} for r in rows]
+                    "context_domain": r[3], "archived_at": r[4], "status": r[5]} for r in rows]
         return ActionResult(success=True, action="list", object_type="archived_claims", data=results)
 
     def restore_archived_claim(self, claim_id: str) -> ActionResult:
-        """Restore an archived claim back to active status."""
+        """Restore an archived/superseded/retracted claim back to active status."""
         from ..utils import now_iso
         row = self.db.fetchone(
-            "SELECT claim_id FROM claims WHERE claim_id = ? AND user_email = ? AND status = 'archived'",
+            "SELECT claim_id FROM claims WHERE claim_id = ? AND user_email = ? AND status IN ('archived', 'superseded', 'retracted')",
             (claim_id, self.user_email),
         )
         if not row:
             return ActionResult(success=False, action="restore", object_type="claim",
-                              errors=["Archived claim not found"])
+                              errors=["Claim not found or not restorable"])
         with self.db.transaction() as conn:
             conn.execute(
                 "UPDATE claims SET status = 'active', updated_at = ? WHERE claim_id = ?",
@@ -4720,12 +4720,27 @@ class StructuredAPI:
             by_domain = {r["context_domain"]: r["cnt"] for r in domain_rows}
 
             total = sum(by_status.values())
+
+            # Fast stale count: low confidence + not accessed in 90 days
+            from ..utils import now_iso
+            from datetime import datetime, timezone, timedelta
+            cutoff = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            stale_row = self.db.fetchone(
+                f"""SELECT COUNT(*) as cnt FROM claims
+                    WHERE {user_filter} AND status = 'active'
+                    AND confidence < 0.5
+                    AND COALESCE(last_accessed_at, updated_at, created_at) < ?""",
+                params + (cutoff,),
+            )
+            stale_count = stale_row["cnt"] if stale_row else 0
+
             return ActionResult(success=True, action="stats", object_type="health",
                               data={
                                   "total_claims": total,
                                   "by_status": by_status,
                                   "by_type": by_type,
                                   "by_domain": by_domain,
+                                  "stale_count": stale_count,
                               })
         except Exception as e:
             return ActionResult(success=False, action="stats", object_type="health", errors=[str(e)])
