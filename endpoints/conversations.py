@@ -1909,10 +1909,15 @@ def list_conversation_by_user(domain: str):
 
     conv_db = getCoversationsForUser(email, domain, users_dir=state.users_dir)
     conversation_ids = [c[1] for c in conv_db]
-    conversations = [
-        state.conversation_cache[conversation_id]
-        for conversation_id in conversation_ids
-    ]
+    conversations = []
+    for conversation_id in conversation_ids:
+        try:
+            conv = state.conversation_cache[conversation_id]
+            conversations.append(conv)
+        except Exception as _load_err:
+            logger.warning(
+                f"Skipping conversation {conversation_id!r} — failed to load: {_load_err}"
+            )
     conversation_id_to_workspace_id = {
         c[1]: {"workspace_id": c[4], "workspace_name": c[5]}
         for c in conv_db
