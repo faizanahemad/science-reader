@@ -4,16 +4,16 @@ overview: "Focused backlog of UX gaps discovered during 2026-06-12 audit. The ba
 todos:
   - id: recently-archived-include-superseded
     content: "Recently Archived section shows only status='archived' — should also show 'superseded' and 'retracted' claims so users can find merged duplicates"
-    status: pending
+    status: done
   - id: health-dashboard-enrich
     content: "Health dashboard only shows 'N claims (active, dormant) · domains'. Should show by_status breakdown, by_type, by_provenance (stated/extracted/inferred), activity this month, top entities"
-    status: pending
+    status: done
   - id: dedup-highlight-in-cleanup
     content: "Dedup highlighting (highlightDiff) exists on proposal cards but NOT in maintenance cleanup cluster view — apply same highlighting to cluster member pairs"
-    status: pending
+    status: done
   - id: stale-section-always-visible
     content: "Stale claims (from Analyze) are only visible after clicking Analyze. Consider showing stale count in the health stats or running a lightweight stale-check on tab open"
-    status: pending
+    status: done
   - id: standalone-memory-ui
     content: "Full-page /memory/ route that renders PKBManager outside the modal. Plan in pkb_external_access_ui_mcp_rest_auth.plan.md WS1 (T1.1–T1.6). Required for external use and better UX than cramming everything in a modal"
     status: pending
