@@ -182,6 +182,7 @@ var WorkspaceManager = {
                 var target = e.target;
                 if (!target || !target.closest) return;
                 if (target.closest('button')) return;
+                if (target.closest('.jstree-node-menu-btn')) return;
 
                 // jsTree renders anchors inside <li> nodes – look for a conversation node.
                 var li = target.closest('li.jstree-node');
@@ -1297,8 +1298,8 @@ var WorkspaceManager = {
                 return false;
             });
 
-            // Also prevent mousedown from bubbling to jsTree's selection handler
-            btn.on('mousedown', function (e) {
+            // Also prevent mousedown/touch from bubbling to jsTree's selection handler
+            btn.on('mousedown touchstart touchend', function (e) {
                 e.stopPropagation();
                 e.stopImmediatePropagation();
             });
