@@ -2448,7 +2448,9 @@ var ChatManager = {
             var isLastInBatch = (originalIndex === array.length - 1);
             var senderText = message.sender === 'user' ? 'You' : 'Assistant';
             var showHide = message.show_hide || 'hide';
+            var userHidden = message.user_hidden === true;
             messageElement = $('<div class="mb-1 mt-0 card w-100 my-1 d-flex flex-column message-card"></div>');
+            if (userHidden) messageElement.css('display', 'none').addClass('message-user-hidden');
             // Create action dropdown for left side (doubts, delete, move)
             var actionDropdown = `
                 <div class="dropdown d-inline-block">
@@ -5464,14 +5466,14 @@ var MultiSelectManager = {
                     showToast('No message text found to summarize', 'warning');
                     break;
                 }
-                if (typeof TempLlmManager !== 'undefined') {
-                    TempLlmManager.preambleName = '';
+                if (typeof TempLLMManager !== 'undefined') {
+                    TempLLMManager.preambleName = '';
                     // Delay slightly to let Bootstrap dropdown finish closing
                     setTimeout(function () {
-                        TempLlmManager.executeAction('summarize_selection', concatenated, { conversationId: convId }, false);
+                        TempLLMManager.executeAction('summarize_selection', concatenated, { conversationId: convId }, false);
                     }, 150);
                 } else {
-                    showToast('TempLlmManager not available', 'error');
+                    showToast('TempLLMManager not available', 'error');
                 }
                 self.clearAll();
                 break;
@@ -5498,13 +5500,13 @@ var MultiSelectManager = {
         var self = this;
         var convId = ConversationManager.activeConversationId;
         var concatenated = self.getSelectedTexts().join('\n\n');
-        if (typeof TempLlmManager !== 'undefined') {
-            TempLlmManager.preambleName = preambleName;
+        if (typeof TempLLMManager !== 'undefined') {
+            TempLLMManager.preambleName = preambleName;
             setTimeout(function () {
-                TempLlmManager.executeAction('run_preamble', concatenated, { conversationId: convId }, false);
+                TempLLMManager.executeAction('run_preamble', concatenated, { conversationId: convId }, false);
             }, 150);
         } else {
-            showToast('TempLlmManager not available', 'error');
+            showToast('TempLLMManager not available', 'error');
         }
         self.clearAll();
     }

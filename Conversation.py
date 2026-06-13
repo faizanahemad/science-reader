@@ -4912,8 +4912,9 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         return len(ids_set)
 
     def batch_show_hide_messages(self, message_ids: list, show_hide: str):
-        """Set show_hide field on multiple messages in one pass."""
+        """Set user_hidden field on multiple messages in one pass."""
         ids_set = set(str(mid) for mid in message_ids)
+        hidden = show_hide == "hide"
         lock_location = self._get_lock_location("message_operations")
         lock = FileLock(f"{lock_location}.lock")
         with lock.acquire(timeout=600):
@@ -4921,7 +4922,7 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
             count = 0
             for m in messages:
                 if m.get("message_id") in ids_set:
-                    m["show_hide"] = show_hide
+                    m["user_hidden"] = hidden
                     count += 1
             self.set_messages_field(messages, overwrite=True)
             self.save_local()
