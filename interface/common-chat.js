@@ -5294,11 +5294,22 @@ var MultiSelectManager = {
             e.stopPropagation(); // prevent handleMessageFocus from firing
         });
 
-        // Action handlers
-        $(document).on('click', '.ms-action', function (e) {
+        // Action handlers — primary bar buttons
+        $(document).on('click', '#multi-select-bar > .ms-action', function (e) {
             e.preventDefault();
             var action = $(this).data('action');
             if (!action) return;
+            self._handleAction(action);
+        });
+
+        // Action handlers — items inside "More" dropdown
+        $(document).on('click', '#ms-more-menu .ms-action', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            var action = $(this).data('action');
+            if (!action) return;
+            // Close dropdown manually before executing action
+            $(this).closest('.dropdown, .dropup').find('[data-toggle="dropdown"]').dropdown('toggle');
             self._handleAction(action);
         });
 
