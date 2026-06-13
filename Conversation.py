@@ -282,6 +282,76 @@ class Conversation:
 
         self.save_local()
 
+    # =========================================================================
+    # SQLite conversation store (lazy-initialized, auto-migrates from JSON)
+    # =========================================================================
+
+    @property
+    def conversation_store(self):
+        """Lazy-init ConversationStore; triggers one-time migration from JSON if needed."""
+        if not hasattr(self, "_conversation_store") or self._conversation_store is None:
+            from database.conversation_store import ConversationStore
+
+            db_path = os.path.join(self._storage, "conversation.db")
+            store = ConversationStore(db_path)
+            if store.is_empty():
+                self._migrate_json_to_sqlite(store)
+            self._conversation_store = store
+        return self._conversation_store
+
+    def _migrate_json_to_sqlite(self, store):
+        """One-time migration of all JSON fields into the SQLite store."""
+        from database.migration import migrate_conversation
+
+        conv_id = self.conversation_id
+        # If JSON files still exist, do the full migration
+        messages_json = os.path.join(self._storage, f"{conv_id}-messages.json")
+        if os.path.exists(messages_json):
+            migrate_conversation(self._storage, conv_id)
+            # Re-open since migrate_conversation closes the store
+            store.close()
+            from database.conversation_store import ConversationStore
+
+            db_path = os.path.join(self._storage, "conversation.db")
+            self._conversation_store = ConversationStore(db_path)
+        else:
+            # No JSON files — this is a fresh conversation, just write current state
+            messages = getattr(self, "messages", None) or []
+            memory_data = getattr(self, "memory", None)
+            artefacts = getattr(self, "artefacts", None)
+            artefact_links = getattr(self, "artefact_message_links", None)
+            settings = getattr(self, "conversation_settings", None)
+            uploaded = getattr(self, "uploaded_documents_list", None)
+            attached = getattr(self, "message_attached_documents_list", None)
+            dill_attrs = {}
+            for attr in ("_memory_pad", "_domain", "_flag", "_archived",
+                         "_auto_archive_exempt", "_archive_source",
+                         "_last_opened_at", "_access_log"):
+                if hasattr(self, attr) and getattr(self, attr) is not None:
+                    dill_attrs[attr] = getattr(self, attr)
+            store.import_all(
+                messages=messages if messages else None,
+                memory=memory_data,
+                artefacts=artefacts,
+                artefact_links=artefact_links,
+                settings=settings,
+                uploaded_docs=uploaded,
+                attached_docs=attached,
+                dill_attrs=dill_attrs if dill_attrs else None,
+            )
+
+    @property
+    def _use_sqlite(self) -> bool:
+        """True if this conversation has been migrated to SQLite."""
+        db_path = os.path.join(self._storage, "conversation.db")
+        if os.path.exists(db_path):
+            return True
+        # Also check if JSON files are missing (already migrated/renamed)
+        messages_json = os.path.join(
+            self._storage, f"{self.conversation_id}-messages.json"
+        )
+        return not os.path.exists(messages_json)
+
     @property
     def flag(self) -> Union[str, None]:
         if hasattr(self, "_flag"):
@@ -2252,6 +2322,47 @@ Compact list of bullet points:
         except Exception as e:
             logger.error(f"Error loading from local storage {folder} with error {e}")
             traceback.print_exc()
+            # Recovery: if conversation.db exists, reconstruct minimal object
+            db_path = os.path.join(original_folder, "conversation.db")
+            if os.path.exists(db_path):
+                try:
+                    from database.conversation_store import ConversationStore
+
+                    store = ConversationStore(db_path)
+                    mem = store.get_memory()
+                    conv_id = os.path.basename(original_folder)
+                    # Reconstruct a minimal Conversation object without calling __init__
+                    obj = object.__new__(Conversation)
+                    obj.conversation_id = conv_id
+                    obj.user_id = mem.get("user_id", "unknown")
+                    obj._storage = original_folder
+                    obj._stateless = False
+                    obj._conversation_store = store
+                    obj._context_data = {
+                        "current_score": 0, "recent_achievements": [],
+                        "problem_difficulty": "medium", "total_rewards": 0,
+                        "total_penalties": 0, "session_start_time": time.time(),
+                        "last_reward_timestamp": None, "reward_history": [],
+                    }
+                    obj._next_question_suggestions = []
+                    # Restore metadata from SQLite memory table
+                    obj._memory_pad = mem.get("memory_pad", "")
+                    obj._domain = mem.get("domain")
+                    obj._flag = mem.get("flag")
+                    obj._archived = mem.get("archived", False)
+                    obj._auto_archive_exempt = mem.get("auto_archive_exempt", False)
+                    obj._archive_source = mem.get("archive_source")
+                    obj._last_opened_at = mem.get("last_opened_at")
+                    obj._access_log = mem.get("access_log", [])
+                    obj._running_summary = mem.get("running_summary", "")
+                    if isinstance(obj._running_summary, list):
+                        obj._running_summary = obj._running_summary[-1] if obj._running_summary else ""
+                    obj._doc_infos = ""
+                    obj._request_tools_expansions = 0
+                    logger.info(f"Recovered conversation {conv_id} from SQLite after dill failure")
+                    return obj
+                except Exception as e2:
+                    logger.error(f"SQLite recovery also failed for {original_folder}: {e2}")
             try:
                 shutil.rmtree(original_folder)
             except Exception as e:
@@ -2426,12 +2537,46 @@ Compact list of bullet points:
             presave_api_keys = self.api_keys
             self.api_keys = {k: None for k, v in self.api_keys.items()}
 
+        # Persist metadata to SQLite if store is active (non-blocking; best-effort)
+        if hasattr(self, "_conversation_store") and self._conversation_store is not None:
+            try:
+                updates = {}
+                for attr, key in (
+                    ("_memory_pad", "memory_pad"),
+                    ("_domain", "domain"),
+                    ("_flag", "flag"),
+                    ("_archived", "archived"),
+                    ("_auto_archive_exempt", "auto_archive_exempt"),
+                    ("_archive_source", "archive_source"),
+                    ("_last_opened_at", "last_opened_at"),
+                    ("_access_log", "access_log"),
+                ):
+                    val = getattr(self, attr, None)
+                    if val is not None:
+                        if hasattr(val, "isoformat"):
+                            val = val.isoformat()
+                        updates[key] = val
+                if updates:
+                    self._conversation_store.set_memory(updates)
+            except Exception:
+                pass  # Don't let SQLite errors break save_local
+
         with lock.acquire(timeout=600):
             previous_attr = dict()
             for k in self.store_separate:
                 if hasattr(self, k):
                     previous_attr[k] = getattr(self, k)
                     setattr(self, k, None)
+            # Also null out non-serializable / transient attrs before dill dump
+            _transient_attrs = (
+                "_conversation_store", "_opencode_client",
+                "_opencode_session_manager", "_cross_conv_index",
+            )
+            saved_transient = {}
+            for attr in _transient_attrs:
+                if hasattr(self, attr) and getattr(self, attr) is not None:
+                    saved_transient[attr] = getattr(self, attr)
+                    setattr(self, attr, None)
             tmp_filepath = filepath + f".tmp.{os.getpid()}"
             try:
                 with open(tmp_filepath, "wb") as f:
@@ -2446,10 +2591,107 @@ Compact list of bullet points:
             finally:
                 for k, v in previous_attr.items():
                     setattr(self, k, v)
+                for attr, val in saved_transient.items():
+                    setattr(self, attr, val)
         if hasattr(self, "api_keys"):
             self.api_keys = presave_api_keys
 
+    def _get_field_sqlite(self, top_key):
+        """Read a store_separate field from the SQLite conversation store."""
+        store = self.conversation_store
+        if top_key == "messages":
+            return store.get_messages()
+        elif top_key == "memory":
+            return store.get_memory()
+        elif top_key == "artefacts":
+            return store.get_artefacts()
+        elif top_key == "artefact_message_links":
+            return store.get_artefact_links()
+        elif top_key == "uploaded_documents_list":
+            return store.get_documents("uploaded")
+        elif top_key == "message_attached_documents_list":
+            return store.get_documents("attached")
+        elif top_key == "conversation_settings":
+            return store.get_settings()
+        elif top_key == "message_search_index":
+            return None  # FTS5 replaces this; no standalone object needed
+        return None
+
+    def _set_field_sqlite(self, top_key, value, overwrite=False):
+        """Write a store_separate field to the SQLite conversation store."""
+        store = self.conversation_store
+        if top_key == "messages":
+            if overwrite:
+                store.overwrite_messages(value)
+            else:
+                store.append_messages(value)
+        elif top_key == "memory":
+            if overwrite or not isinstance(value, dict):
+                # Full replace: clear and re-set
+                for k in list(store.get_memory().keys()):
+                    store.delete_memory_key(k)
+                if isinstance(value, dict):
+                    store.set_memory(value)
+            else:
+                store.set_memory(value)
+        elif top_key == "artefacts":
+            if overwrite:
+                for a in store.get_artefacts():
+                    store.delete_artefact(a["artefact_id"])
+                if isinstance(value, list):
+                    for a in value:
+                        store.add_artefact(a)
+            else:
+                if isinstance(value, list):
+                    for a in value:
+                        store.add_artefact(a)
+        elif top_key == "artefact_message_links":
+            if isinstance(value, dict):
+                for mid, link_data in value.items():
+                    if isinstance(link_data, dict):
+                        aid = link_data.get("artefact_id")
+                        if aid:
+                            store.add_link(str(mid), str(aid))
+        elif top_key == "uploaded_documents_list":
+            if isinstance(value, list):
+                for doc in value:
+                    if isinstance(doc, (list, tuple)) and len(doc) >= 1:
+                        store.add_document(
+                            str(doc[0]), "uploaded",
+                            doc[1] if len(doc) > 1 else None,
+                            doc[2] if len(doc) > 2 else None,
+                            doc[3] if len(doc) > 3 else None,
+                        )
+        elif top_key == "message_attached_documents_list":
+            if isinstance(value, list):
+                for doc in value:
+                    if isinstance(doc, (list, tuple)) and len(doc) >= 1:
+                        store.add_document(
+                            str(doc[0]), "attached",
+                            doc[1] if len(doc) > 1 else None,
+                            doc[2] if len(doc) > 2 else None,
+                            doc[3] if len(doc) > 3 else None,
+                        )
+        elif top_key == "conversation_settings":
+            if overwrite:
+                existing = store.get_settings()
+                for k in existing:
+                    store._conn.execute("DELETE FROM settings WHERE key=?", (k,))
+                store._conn.commit()
+            if isinstance(value, dict):
+                store.set_settings(value)
+        elif top_key == "message_search_index":
+            pass  # FTS5 handles this via triggers
+
     def get_field(self, top_key):
+        # Route through SQLite if migrated
+        if self._use_sqlite and top_key in (
+            "messages", "memory", "artefacts", "artefact_message_links",
+            "uploaded_documents_list", "message_attached_documents_list",
+            "conversation_settings", "message_search_index",
+        ):
+            return self._get_field_sqlite(top_key)
+
         import dill
 
         doc_id = self.conversation_id
@@ -2590,6 +2832,15 @@ Compact list of bullet points:
         return lock_location
 
     def set_field(self, top_key, value, overwrite=False):
+        # Route through SQLite if migrated
+        if self._use_sqlite and top_key in (
+            "messages", "memory", "artefacts", "artefact_message_links",
+            "uploaded_documents_list", "message_attached_documents_list",
+            "conversation_settings", "message_search_index",
+        ):
+            self._set_field_sqlite(top_key, value, overwrite=overwrite)
+            return
+
         import dill
 
         doc_id = self.conversation_id
@@ -3477,6 +3728,9 @@ Now return JSON with 'ops' and 'notes'.
         return result
 
     def show_hide_message(self, message_id, index, show_hide):
+        if self._use_sqlite:
+            self.conversation_store.set_hidden(str(message_id), show_hide == "hide")
+            return
         # Add lock acquisition at the beginning
         lock_location = self._get_lock_location("message_operations")
         lock = FileLock(f"{lock_location}.lock")
@@ -4823,9 +5077,11 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
             return None
 
     def move_messages_up_or_down(self, message_ids, direction="up"):
+        message_ids = [str(m) for m in message_ids]
+        if self._use_sqlite:
+            self.conversation_store.move_messages(message_ids, direction)
+            return
         messages = self.get_field("messages")
-        message_ids: List[str] = [str(m) for m in message_ids]
-        messages: List[Dict] = [m for m in messages if m["message_id"] in message_ids]
         # Get indices of selected messages
         selected_indices = []
         for i, msg in enumerate(self.get_field("messages")):
@@ -4856,8 +5112,6 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         # Save changes
         self.set_messages_field(all_messages, overwrite=True)
         self.save_local()
-        # we want to move them all up or down, relative to their current position.
-        # we want to move them all up or down, relative to their current position.
 
     def delete_message(self, message_id, index):
         """
@@ -4888,20 +5142,30 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
             "memory",
             {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")},
         )
-        messages = self.get_field("messages") or []
-        if not isinstance(messages, list):
-            raise GenericShortException("Conversation messages field is not a list")
 
-        def should_keep(i: int, m: dict) -> bool:
-            if i == index_int:
-                return False
-            if message_id_norm is not None and m.get("message_id") == message_id_norm:
-                return False
-            return True
+        if self._use_sqlite:
+            if message_id_norm:
+                self.conversation_store.delete_message(message_id_norm)
+            else:
+                # Fallback: get by position index
+                msgs = self.conversation_store.get_messages()
+                if 0 <= index_int < len(msgs):
+                    self.conversation_store.delete_message(msgs[index_int]["message_id"])
+        else:
+            messages = self.get_field("messages") or []
+            if not isinstance(messages, list):
+                raise GenericShortException("Conversation messages field is not a list")
 
-        messages = [m for i, m in enumerate(messages) if should_keep(i, m)]
-        self.set_messages_field(messages, overwrite=True)
-        self.save_local()
+            def should_keep(i: int, m: dict) -> bool:
+                if i == index_int:
+                    return False
+                if message_id_norm is not None and m.get("message_id") == message_id_norm:
+                    return False
+                return True
+
+            messages = [m for i, m in enumerate(messages) if should_keep(i, m)]
+            self.set_messages_field(messages, overwrite=True)
+            self.save_local()
         # Cross-conversation search: message deleted — full reindex needed
         try:
             if hasattr(self, "_cross_conv_index") and self._cross_conv_index:
@@ -4912,6 +5176,9 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
     def delete_messages_batch(self, message_ids: list):
         """Delete multiple messages by their IDs in one pass."""
         ids_set = set(str(mid) for mid in message_ids)
+        if self._use_sqlite:
+            self.conversation_store.delete_messages_batch(list(ids_set))
+            return len(ids_set)
         lock_location = self._get_lock_location("message_operations")
         lock = FileLock(f"{lock_location}.lock")
         with lock.acquire(timeout=600):
@@ -4925,6 +5192,9 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         """Set user_hidden field on multiple messages in one pass."""
         ids_set = set(str(mid) for mid in message_ids)
         hidden = show_hide == "hide"
+        if self._use_sqlite:
+            self.conversation_store.set_hidden_batch(list(ids_set), hidden)
+            return len(ids_set)
         lock_location = self._get_lock_location("message_operations")
         lock = FileLock(f"{lock_location}.lock")
         with lock.acquire(timeout=600):
@@ -5004,14 +5274,23 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
             "memory",
             {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")},
         )
-        messages = self.get_field("messages")
-        index = int(index)
-        for i, m in enumerate(messages):
-            if m["message_id"] == message_id or i == index:
-                messages[i]["text"] = text
+        if self._use_sqlite:
+            mid = str(message_id)
+            if mid in {"None", "", "nan", "undefined"}:
+                msgs = self.conversation_store.get_messages()
+                idx = int(index)
+                if 0 <= idx < len(msgs):
+                    mid = msgs[idx]["message_id"]
+            self.conversation_store.edit_message(mid, text)
+        else:
+            messages = self.get_field("messages")
+            index = int(index)
+            for i, m in enumerate(messages):
+                if m["message_id"] == message_id or i == index:
+                    messages[i]["text"] = text
 
-        self.set_messages_field(messages, overwrite=True)
-        self.save_local()
+            self.set_messages_field(messages, overwrite=True)
+            self.save_local()
         # Cross-conversation search: message edited — full reindex needed
         try:
             if hasattr(self, "_cross_conv_index") and self._cross_conv_index:
@@ -12204,6 +12483,30 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         list[dict]
             Search results with message_id, preview/snippet, sender, index.
         """
+        # FTS5 fast path for BM25 mode when SQLite is active
+        if self._use_sqlite and mode == "bm25":
+            results = self.conversation_store.search_messages(query, limit=top_k)
+            # Apply post-filters
+            if sender_filter:
+                results = [r for r in results if r.get("sender") == sender_filter]
+            if min_length:
+                results = [r for r in results if len(r.get("text", "")) >= min_length]
+            if max_length:
+                results = [r for r in results if len(r.get("text", "")) <= max_length]
+            # Format results to match expected interface
+            all_msgs = self.conversation_store.get_messages()
+            id_to_idx = {m["message_id"]: i for i, m in enumerate(all_msgs)}
+            formatted = []
+            for r in results[:top_k]:
+                text = r.get("text", "")
+                formatted.append({
+                    "message_id": r["message_id"],
+                    "preview": text[:200] if text else "",
+                    "sender": r.get("sender", ""),
+                    "index": id_to_idx.get(r["message_id"], -1),
+                })
+            return formatted
+
         idx = self._get_or_create_search_index()
         if mode == "text":
             return idx.search_text(

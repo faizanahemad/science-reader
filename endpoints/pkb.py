@@ -74,12 +74,51 @@ def _pinned_store() -> dict[str, set]:
     Return the in-memory conversation-level pinned-claims store.
 
     The store maps: conversation_id -> set(claim_id).
+    Backed by SQLite (PinnedClaims table in users.db) for persistence.
     """
 
     st = get_state()
     if st.pinned_claims is None:
+        # Load from DB on first access
         st.pinned_claims = {}
+        try:
+            import sqlite3
+
+            db_path = os.path.join(st.users_dir, "users.db")
+            conn = sqlite3.connect(db_path)
+            rows = conn.execute("SELECT conversation_id, claim_id FROM PinnedClaims").fetchall()
+            for conv_id, claim_id in rows:
+                st.pinned_claims.setdefault(conv_id, set()).add(claim_id)
+            conn.close()
+        except Exception:
+            pass  # Table may not exist yet
     return st.pinned_claims
+
+
+def _pinned_db_write(conversation_id: str, claim_id: str, action: str) -> None:
+    """Write-through to SQLite for pinned claims persistence."""
+    try:
+        import sqlite3
+
+        st = get_state()
+        db_path = os.path.join(st.users_dir, "users.db")
+        conn = sqlite3.connect(db_path)
+        if action == "add":
+            conn.execute(
+                "INSERT OR IGNORE INTO PinnedClaims (conversation_id, claim_id, user_email) VALUES (?,?,?)",
+                (conversation_id, claim_id, ""),
+            )
+        elif action == "remove":
+            conn.execute(
+                "DELETE FROM PinnedClaims WHERE conversation_id=? AND claim_id=?",
+                (conversation_id, claim_id),
+            )
+        elif action == "clear":
+            conn.execute("DELETE FROM PinnedClaims WHERE conversation_id=?", (conversation_id,))
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
 
 
 def get_conversation_pinned_claims(conversation_id: str) -> set:
@@ -96,6 +135,7 @@ def add_conversation_pinned_claim(conversation_id: str, claim_id: str) -> None:
     if conversation_id not in store:
         store[conversation_id] = set()
     store[conversation_id].add(claim_id)
+    _pinned_db_write(conversation_id, claim_id, "add")
 
 
 def remove_conversation_pinned_claim(conversation_id: str, claim_id: str) -> None:
@@ -104,6 +144,7 @@ def remove_conversation_pinned_claim(conversation_id: str, claim_id: str) -> Non
     store = _pinned_store()
     if conversation_id in store:
         store[conversation_id].discard(claim_id)
+    _pinned_db_write(conversation_id, claim_id, "remove")
 
 
 def clear_conversation_pinned_claims(conversation_id: str) -> None:
@@ -112,6 +153,7 @@ def clear_conversation_pinned_claims(conversation_id: str) -> None:
     store = _pinned_store()
     if conversation_id in store:
         del store[conversation_id]
+    _pinned_db_write(conversation_id, "", "clear")
 
 
 def get_pkb_db():

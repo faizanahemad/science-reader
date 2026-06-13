@@ -443,5 +443,41 @@ def create_tables(*, users_dir: str, logger: Optional[logging.Logger] = None) ->
         updated_at TEXT DEFAULT CURRENT_TIMESTAMP
     )""")
 
+    # remember_tokens — replaces remember_tokens.json (concurrent auth access)
+    cur.execute("""CREATE TABLE IF NOT EXISTS RememberTokens (
+        token TEXT PRIMARY KEY,
+        email TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+    )""")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_rt_email ON RememberTokens (email)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_rt_expires ON RememberTokens (expires_at)")
+
+    # pinned_claims — replaces in-memory dict (persists across restarts)
+    cur.execute("""CREATE TABLE IF NOT EXISTS PinnedClaims (
+        conversation_id TEXT NOT NULL,
+        claim_id TEXT NOT NULL,
+        user_email TEXT NOT NULL,
+        pinned_at TEXT NOT NULL DEFAULT (datetime('now')),
+        PRIMARY KEY (conversation_id, claim_id)
+    )""")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_pc_conv ON PinnedClaims (conversation_id)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_pc_user ON PinnedClaims (user_email)")
+
+    # Fix redundant indexes (drop safely — IF EXISTS handles already-dropped)
+    for idx in ("idx_User_email_doc_conversation", "idx_UserDetails_email"):
+        cur.execute(f"DROP INDEX IF EXISTS {idx}")
+
+    # Add missing index: lookup conversation by ID (used by getConversationById)
+    cur.execute(
+        "CREATE INDEX IF NOT EXISTS idx_utci_conversation_id ON UserToConversationId (conversation_id)"
+    )
+    # Unique constraint on friendly_id per user
+    cur.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_utci_friendly_id "
+        "ON UserToConversationId (user_email, conversation_friendly_id) "
+        "WHERE conversation_friendly_id IS NOT NULL"
+    )
+
     conn.commit()
     conn.close()

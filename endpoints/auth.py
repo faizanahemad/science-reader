@@ -60,10 +60,46 @@ def check_credentials(username: str, password: str) -> bool:
 
 
 def _tokens_file() -> str:
-    """Absolute path to the remember-me token store JSON file."""
+    """Absolute path to the remember-me token store JSON file (legacy, for migration)."""
 
     state = get_state()
     return os.path.join(state.users_dir, "remember_tokens.json")
+
+
+def _get_tokens_db():
+    """Get a connection to users.db for remember_tokens table."""
+    import sqlite3
+
+    state = get_state()
+    db_path = os.path.join(state.users_dir, "users.db")
+    conn = sqlite3.connect(db_path)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def _migrate_tokens_json_to_db():
+    """One-time migration of remember_tokens.json → users.db RememberTokens table."""
+    tokens_file = _tokens_file()
+    if not os.path.exists(tokens_file):
+        return
+    try:
+        with open(tokens_file, "r") as f:
+            tokens = json.load(f)
+        if not tokens:
+            os.rename(tokens_file, tokens_file + ".migrated")
+            return
+        conn = _get_tokens_db()
+        cur = conn.cursor()
+        for token, data in tokens.items():
+            cur.execute(
+                "INSERT OR IGNORE INTO RememberTokens (token, email, created_at, expires_at) VALUES (?,?,?,?)",
+                (token, data["email"], data["created_at"], data["expires_at"]),
+            )
+        conn.commit()
+        conn.close()
+        os.rename(tokens_file, tokens_file + ".migrated")
+    except Exception:
+        pass  # Non-fatal; will retry next time
 
 
 def generate_remember_token(email: str) -> str:
@@ -71,108 +107,71 @@ def generate_remember_token(email: str) -> str:
     Generate a secure remember-me token for the user.
 
     If a valid token already exists for this email, return it instead.
-
-    Parameters
-    ----------
-    email:
-        User email identifier.
-
-    Returns
-    -------
-    str
-        Token string.
     """
+    # One-time migration
+    _migrate_tokens_json_to_db()
 
-    tokens_file = _tokens_file()
+    conn = _get_tokens_db()
     current_time = datetime.now()
 
-    tokens: Optional[dict] = None
-    if os.path.exists(tokens_file):
-        with open(tokens_file, "r") as f:
-            tokens = json.load(f)
+    # Check for existing valid token
+    row = conn.execute(
+        "SELECT token FROM RememberTokens WHERE email=? AND expires_at > ?",
+        (email, current_time.isoformat()),
+    ).fetchone()
+    if row:
+        conn.close()
+        return row["token"]
 
-        # Return an existing valid token for this email, if present.
-        for token, data in tokens.items():
-            if data.get("email") == email and datetime.fromisoformat(data["expires_at"]) > current_time:
-                return token
-
-    if not tokens:
-        tokens = {}
-
+    # Generate new token
     random_token = secrets.token_hex(32)
     combined = f"{email}:{random_token}:{int(current_time.timestamp())}"
     token = sha256(combined.encode()).hexdigest()
 
-    tokens[token] = {
-        "email": email,
-        "created_at": current_time.isoformat(),
-        "expires_at": (current_time + timedelta(days=30)).isoformat(),
-    }
-
-    with open(tokens_file, "w") as f:
-        json.dump(tokens, f)
-
+    conn.execute(
+        "INSERT OR REPLACE INTO RememberTokens (token, email, created_at, expires_at) VALUES (?,?,?,?)",
+        (token, email, current_time.isoformat(), (current_time + timedelta(days=30)).isoformat()),
+    )
+    conn.commit()
+    conn.close()
     return token
 
 
 def verify_remember_token(token: str) -> Optional[str]:
     """
     Verify a remember-me token and return the associated email if valid.
-
-    Returns
-    -------
-    Optional[str]
-        Email if token is valid and not expired, else None.
     """
-
-    tokens_file = _tokens_file()
-    if not os.path.exists(tokens_file):
-        return None
-
     try:
-        with open(tokens_file, "r") as f:
-            tokens = json.load(f)
-
-        token_data = tokens.get(token)
-        if not token_data:
+        conn = _get_tokens_db()
+        row = conn.execute(
+            "SELECT email, expires_at FROM RememberTokens WHERE token=?", (token,)
+        ).fetchone()
+        if not row:
+            conn.close()
             return None
 
-        expires_at = datetime.fromisoformat(token_data["expires_at"])
-        if datetime.now() > expires_at:
-            # Remove this expired token only.
-            del tokens[token]
-            with open(tokens_file, "w") as f:
-                json.dump(tokens, f)
+        if datetime.now() > datetime.fromisoformat(row["expires_at"]):
+            conn.execute("DELETE FROM RememberTokens WHERE token=?", (token,))
+            conn.commit()
+            conn.close()
             return None
 
-        return token_data.get("email")
+        conn.close()
+        return row["email"]
     except Exception:
-        # Preserve server.py behavior: don't hard-fail requests due to token store issues.
         return None
 
 
 def cleanup_tokens() -> None:
     """Remove expired tokens from the remember-me store."""
-
-    tokens_file = _tokens_file()
-    if not os.path.exists(tokens_file):
-        return
-
     try:
-        with open(tokens_file, "r") as f:
-            tokens = json.load(f)
-
-        current_time = datetime.now()
-        expired = [
-            token
-            for token, data in tokens.items()
-            if current_time > datetime.fromisoformat(data["expires_at"])
-        ]
-        for token in expired:
-            del tokens[token]
-
-        with open(tokens_file, "w") as f:
-            json.dump(tokens, f)
+        conn = _get_tokens_db()
+        conn.execute(
+            "DELETE FROM RememberTokens WHERE expires_at < ?",
+            (datetime.now().isoformat(),),
+        )
+        conn.commit()
+        conn.close()
     except Exception:
         return
 
