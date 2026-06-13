@@ -2432,10 +2432,20 @@ Compact list of bullet points:
                 if hasattr(self, k):
                     previous_attr[k] = getattr(self, k)
                     setattr(self, k, None)
-            with open(filepath, "wb") as f:
-                dill.dump(self, f)
-            for k, v in previous_attr.items():
-                setattr(self, k, v)
+            tmp_filepath = filepath + f".tmp.{os.getpid()}"
+            try:
+                with open(tmp_filepath, "wb") as f:
+                    dill.dump(self, f)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp_filepath, filepath)
+            except:
+                if os.path.exists(tmp_filepath):
+                    os.remove(tmp_filepath)
+                raise
+            finally:
+                for k, v in previous_attr.items():
+                    setattr(self, k, v)
         if hasattr(self, "api_keys"):
             self.api_keys = presave_api_keys
 
@@ -7688,7 +7698,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
                     user_response = None
                     if tool_response_waiter:
-                        user_response = tool_response_waiter(tc_id, timeout=60)
+                        user_response = tool_response_waiter(tc_id, timeout=120)
 
                     if user_response:
                         if tc_name == "ask_clarification":
@@ -7702,6 +7712,28 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                                 "[Clarifications from user]\n"
                                 + "\n\n".join(answer_lines)
                             )
+                        elif tc_name == "pkb_propose_memory":
+                            # Save confirmed claims to PKB
+                            confirmed = user_response.get("confirmed_claims", [])
+                            if confirmed:
+                                from truth_management_system.interface.structured_api import get_or_create_pkb_api
+                                _pkb_api = get_or_create_pkb_api()
+                                _user_api = _pkb_api.for_user(self.user_email)
+                                saved = []
+                                for claim in confirmed:
+                                    r = _user_api.add_claim(
+                                        statement=claim.get("text", ""),
+                                        claim_type=claim.get("claim_type", "fact"),
+                                        context_domain=claim.get("context_domain", "personal"),
+                                        tags=claim.get("tags"),
+                                        valid_from=claim.get("valid_from"),
+                                        valid_to=claim.get("valid_to"),
+                                    )
+                                    if r.success:
+                                        saved.append(claim.get("text", ""))
+                                tool_result_text = f"Saved {len(saved)} memory entries: {'; '.join(saved)}"
+                            else:
+                                tool_result_text = "User declined all proposed memories."
                         else:
                             tool_result_text = json.dumps(user_response)
                     else:

@@ -578,6 +578,9 @@
             $container.on('click', '.memory-proposal-remove', function () {
                 $(this).closest('.memory-proposal-card').slideUp(200, function () {
                     $(this).remove();
+                    if ($container.find('.memory-proposal-card').length === 0) {
+                        $('#tool-call-submit-btn').prop('disabled', true).text('No entries');
+                    }
                 });
             });
 

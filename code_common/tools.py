@@ -2327,7 +2327,7 @@ def handle_pkb_pin_claim(args: dict, context: ToolContext) -> ToolCallResult:
         },
         "required": ["command"],
     },
-    is_interactive=False,
+    is_interactive=True,
     category="pkb",
 )
 def handle_pkb_nl_command(args: dict, context: ToolContext) -> ToolCallResult:
@@ -2348,8 +2348,7 @@ def handle_pkb_nl_command(args: dict, context: ToolContext) -> ToolCallResult:
 
         api = _get_pkb_api()
         user_api = api.for_user(context.user_email)
-        from endpoints.utils import keyParser
-        keys = keyParser({})
+        keys = context.keys
         agent = PKBNLAgent(api=user_api, keys=keys, model=model)
         result = agent.process(command)
 
@@ -2359,11 +2358,11 @@ def handle_pkb_nl_command(args: dict, context: ToolContext) -> ToolCallResult:
             return ToolCallResult(
                 tool_id="",
                 tool_name="pkb_propose_memory",
-                result=result.message,
+                result=result.message or "Review proposed memories.",
                 needs_user_input=True,
                 ui_schema={
                     "claims": result.proposed_claims,
-                    "message": result.message,
+                    "message": result.message or "Review proposed memories.",
                 },
             )
 
