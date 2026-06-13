@@ -3375,6 +3375,10 @@ function detectSearchIntent(messageText) {
  */
 function mergeWebSearchTools(options) {
     options.enable_tool_use = true;
+    // If tool_mode is 'none', upgrade to 'hybrid' (search intent overrides no-tools)
+    if (options.tool_mode === 'none') {
+        options.tool_mode = 'hybrid';
+    }
 
     if (!Array.isArray(options.enabled_tools)) {
         options.enabled_tools = [];

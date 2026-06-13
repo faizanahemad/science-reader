@@ -484,11 +484,8 @@ def handle_ask_clarification(args: dict, context: ToolContext) -> ToolCallResult
 @register_tool(
     name="web_search",
     description=(
-        "Search the web for current information. Use when you need up-to-date "
-        "facts, news, or information not in your training data or the "
-        "conversation context. Provide a focused search query and additional "
-        "context describing what information is needed and why. The context "
-        "helps the search agent produce more relevant results."
+        "Search the web for current information not in training data or context. "
+        "Provide focused query + context for better results."
     ),
     parameters={
         "type": "object",
@@ -917,11 +914,8 @@ def handle_perplexity_search(args: dict, context: ToolContext) -> ToolCallResult
 @register_tool(
     name="jina_search",
     description=(
-        "Search using Jina AI with full web content retrieval. "
-        "Fetches actual page content (not just snippets), summarises "
-        "long pages, and handles PDFs. Provide a focused search query and "
-        "additional context describing what information is needed. The context "
-        "helps produce more relevant results by guiding extraction and summarization."
+        "Search via Jina AI with full page content retrieval (not just snippets). "
+        "Summarizes long pages, handles PDFs. Provide query + context."
     ),
     parameters={
         "type": "object",
@@ -1856,16 +1850,10 @@ def _pkb_serialize_data(data):
 @register_tool(
     name="pkb_search",
     description=(
-        "Search the user's Personal Knowledge Base (PKB) for relevant claims. "
-        "Uses hybrid search (FTS5 + embedding similarity) by default. "
-        "Returns a ranked list of matching claims with relevance scores. "
-        "HIGH RECALL IS CRITICAL — the PKB uses semantic similarity so you MUST search with multiple "
-        "phrasings, synonyms, and alternative terms to avoid missing relevant memories. For example, "
-        "if looking for dietary preferences, also search for 'food', 'eating', 'diet', 'nutrition', 'meal'. "
-        "If looking for work tasks, also try 'project', 'deadline', 'assignment', 'todo'. "
-        "Issue MULTIPLE searches with varied queries rather than relying on a single query. "
-        "Use broad terms first, then narrow down. Cross-domain terms help: e.g. for 'exercise' also try 'fitness', 'gym', 'workout', 'health'. "
-        "Request a higher k (30-50) when comprehensive coverage matters."
+        "Search the user's PKB for relevant claims using hybrid search (FTS5 + embedding). "
+        "HIGH RECALL IS CRITICAL — search with multiple phrasings, synonyms, and alternative terms. "
+        "Issue MULTIPLE searches with varied queries. Use broad terms first, then narrow. "
+        "Request higher k (30-50) when comprehensive coverage matters."
     ),
     parameters={
         "type": "object",
@@ -2321,15 +2309,9 @@ def handle_pkb_pin_claim(args: dict, context: ToolContext) -> ToolCallResult:
 @register_tool(
     name="pkb_nl_command",
     description=(
-        "Process a natural language command against the Personal Knowledge Base. "
-        "Accepts free-form text and performs multi-step CRUD operations "
-        "(search, add, edit, delete claims; manage entities and tags) "
-        "using an internal agentic LLM loop. Returns a natural language "
-        "summary of actions taken. Use this for complex or multi-step PKB "
-        "operations expressed in natural language. "
-        "When the command involves searching or retrieving memories, the internal agent "
-        "optimizes for HIGH RECALL by using synonyms, alternative phrasings, and broad search terms "
-        "to ensure no relevant memories are missed."
+        "Process a natural language command against the PKB. Performs multi-step CRUD "
+        "(search, add, edit, delete claims; manage entities/tags) via internal agent loop. "
+        "Use for complex PKB operations. Agent optimizes for HIGH RECALL with synonyms and broad terms."
     ),
     parameters={
         "type": "object",
@@ -2400,11 +2382,9 @@ def handle_pkb_nl_command(args: dict, context: ToolContext) -> ToolCallResult:
 @register_tool(
     name="pkb_propose_memory",
     description=(
-        "Propose memory entries (claims) to the user for review before saving to the "
-        "Personal Knowledge Base.  Use this when you are not fully confident about "
-        "the structure, type, dates, tags or entities of a memory the user mentioned.  "
-        "The UI will show a modal with pre-filled fields that the user can edit and confirm.  "
-        "Only use this tool when clarification or user review of the proposed memory is needed."
+        "Propose memory entries to user for review before saving to PKB. "
+        "Shows modal with pre-filled fields user can edit and confirm. "
+        "Use when uncertain about structure/type/dates/tags of a memory."
     ),
     parameters={
         "type": "object",
@@ -4870,11 +4850,8 @@ def _coding_get_keys(context: ToolContext) -> dict:
 @register_tool(
     name="fs_read_file",
     description=(
-        "Read the contents of a file, optionally restricted to a line range. "
-        "Supports plain text files, PDF files (.pdf auto-detected via pdfplumber), "
-        "and image files (analysed via vision LLM). "
-        "For text files use start_line/end_line to read a specific section. "
-        "For PDF files returns extracted text grouped by page (start_line/end_line ignored)."
+        "Read file contents. Supports text (with line range), PDF (pdfplumber), "
+        "and images (vision LLM). Use start_line/end_line for text sections."
     ),
     parameters={
         "type": "object",
@@ -5949,3 +5926,177 @@ def handle_list_background_tasks(args: dict, context: ToolContext) -> ToolCallRe
         tool_id="", tool_name="list_background_tasks",
         result=json.dumps(tasks, indent=2),
     )
+
+
+# ---------------------------------------------------------------------------
+# Tool Mode Selector — Tiered loading, Smart Select, request_tools meta-tool
+# ---------------------------------------------------------------------------
+
+TIER_1_TOOLS = [
+    "ask_clarification",
+    "perplexity_search",
+    "jina_search",
+    "jina_read_page",
+    "read_link",
+    "document_lookup",
+    "docs_query",
+    "docs_get_full_text",
+    "pkb_search",
+    "delegate_task",
+    "search_messages",
+    "request_tools",
+]
+
+# Minimal always-included base for adaptive tier 1
+_TIER_1_BASE = [
+    "ask_clarification",
+    "pkb_search",
+    "delegate_task",
+    "search_messages",
+    "request_tools",
+]
+
+
+_adaptive_tier1_cache = {}  # {user_email: (timestamp, result)}
+_ADAPTIVE_TIER1_TTL = 86400  # 1 day
+
+
+def get_adaptive_tier1_tools(user_email="", target_size=12):
+    """Get adaptive Tier 1 tools based on user's usage history.
+
+    Falls back to static TIER_1_TOOLS if no history or on error.
+    Uses most-frequently-used tools from last 30 days. Cached per user (1-day TTL).
+    """
+    import time
+    if not user_email:
+        return list(TIER_1_TOOLS)
+    # Check cache
+    cached = _adaptive_tier1_cache.get(user_email)
+    if cached and (time.time() - cached[0]) < _ADAPTIVE_TIER1_TTL:
+        return list(cached[1])
+    try:
+        from code_common.tool_call_history import get_tool_call_history_db
+        import time
+        from collections import Counter
+        db = get_tool_call_history_db()
+        if not db:
+            return list(TIER_1_TOOLS)
+        cutoff = time.time() - 30 * 86400
+        rows = db.list_calls(user_email=user_email, since=cutoff, limit=200)
+        if len(rows) < 10:
+            _adaptive_tier1_cache[user_email] = (time.time(), TIER_1_TOOLS)
+            return list(TIER_1_TOOLS)
+        counts = Counter(r["tool_name"] for r in rows)
+        frequent = [name for name, _ in counts.most_common(target_size * 2)]
+        # Build adaptive: base + top frequent, capped at target_size
+        all_names = {t.name for t in TOOL_REGISTRY.get_all_tools()}
+        result = list(_TIER_1_BASE)
+        for name in frequent:
+            if name not in result and name in all_names:
+                result.append(name)
+            if len(result) >= target_size:
+                break
+        _adaptive_tier1_cache[user_email] = (time.time(), result)
+        return result
+    except Exception:
+        return list(TIER_1_TOOLS)
+
+
+def _build_compact_tool_menu():
+    """Build a compact one-line-per-tool menu for the Smart Select LLM."""
+    lines = []
+    for t in TOOL_REGISTRY.get_all_tools():
+        if t.name == "request_tools":
+            continue
+        lines.append(f"- {t.name} [{t.category}]: {t.description[:80]}")
+    return "\n".join(lines)
+
+
+# Pre-computed at import time after all tools are registered.
+# Populated lazily on first access since tools register throughout module load.
+_COMPACT_TOOL_MENU_CACHE = None
+
+
+def get_compact_tool_menu():
+    global _COMPACT_TOOL_MENU_CACHE
+    if _COMPACT_TOOL_MENU_CACHE is None:
+        _COMPACT_TOOL_MENU_CACHE = _build_compact_tool_menu()
+    return _COMPACT_TOOL_MENU_CACHE
+
+
+@register_tool(
+    name="request_tools",
+    description=(
+        "Load additional tools not in your current set. Categories: "
+        "search, documents, pkb, memory, conversation, cross_conversation, "
+        "code_runner, artefacts, prompts, coding, aggregator, general. "
+        "You can also request specific tool names."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "categories": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Categories to load (e.g. ['coding', 'artefacts'])",
+            },
+            "tool_names": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Specific tool names to load",
+            },
+        },
+    },
+    is_interactive=False,
+    category="meta",
+)
+def handle_request_tools(args: dict, context: ToolContext) -> ToolCallResult:
+    """Handled specially in _run_tool_loop() as zero-cost expansion. This is a fallback."""
+    categories = args.get("categories", [])
+    tool_names = args.get("tool_names", [])
+    loaded = []
+    for t in TOOL_REGISTRY.get_all_tools():
+        if t.category in categories or t.name in tool_names:
+            loaded.append(t.name)
+    return ToolCallResult(
+        tool_id="", tool_name="request_tools",
+        result=f"Loaded {len(loaded)} tools: {', '.join(loaded[:20])}",
+    )
+
+
+def _select_relevant_tools(user_message, summary, keys):
+    """Use VERY_CHEAP_LLM to select relevant tools for this turn. HIGH RECALL."""
+    from code_common.call_llm import call_llm
+    from common import VERY_CHEAP_LLM
+
+    menu = get_compact_tool_menu()
+    prompt = (
+        "Select which tools are relevant for this user message. "
+        "HIGH RECALL — err heavily on inclusion. Missing a needed tool is much "
+        "worse than including an unneeded one. Include follow-up tools (e.g. if "
+        "search is needed, include read_link too). Include tools for plausible "
+        "next steps the user might take within this turn.\n"
+        "Return ONLY a JSON array of tool names.\n\n"
+        f"Message: {user_message[:500]}\n"
+        f"Context: {summary[:500]}\n\n"
+        f"Available tools:\n{menu}\n\n"
+        "Output: [\"tool1\", \"tool2\", ...]"
+    )
+    try:
+        result = call_llm(keys=keys, model_name=VERY_CHEAP_LLM[0], text=prompt, stream=False)
+        # Extract JSON array from response
+        import re
+        match = re.search(r'\[.*?\]', result, re.DOTALL)
+        if not match:
+            return list(TIER_1_TOOLS)
+        selected = json.loads(match.group())
+        # Validate: only keep names that exist
+        all_names = {t.name for t in TOOL_REGISTRY.get_all_tools()}
+        selected = [n for n in selected if n in all_names]
+        if len(selected) < 3:
+            selected = list(set(selected + TIER_1_TOOLS))
+        if len(selected) > 30:
+            selected = selected[:30]
+        return selected
+    except Exception:
+        return list(TIER_1_TOOLS)

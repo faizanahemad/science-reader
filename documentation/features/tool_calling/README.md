@@ -69,9 +69,12 @@ Iteration 1..N:
      - Text chunks → yield to client stream
      - Tool call dicts → collect until finish_reason="tool_calls"
   3. If tool calls received:
+     - SPECIAL CASE: If only call is `request_tools` (max 2/turn):
+       → Expand tools_config, append assistant+tool messages, continue WITHOUT incrementing iteration
      - Classify: interactive vs non-interactive (via ToolDefinition.is_interactive)
      - Non-interactive: execute ALL in parallel (ThreadPoolExecutor, max 5 workers)
      - Interactive: execute sequentially with threading.Event wait (60s timeout)
+     - If `request_tools` called alongside other tools: expand tools_config for next iteration
      - Emit tool_call/tool_status/tool_result streaming events to UI
      - Append {"role": "tool", "tool_call_id": ..., "content": result} to messages
      - Record in tool call history DB (fail-open)
@@ -79,7 +82,7 @@ Iteration 1..N:
   4. If text only: break, done
 ```
 
-**Hard caps**: 10 iterations max (configurable), 50,000 character result truncation, 60-second interactive tool timeout.
+**Hard caps**: 10 iterations max (configurable), 50,000 character result truncation, 60-second interactive tool timeout, 2 zero-cost `request_tools` expansions per turn.
 
 ---
 
@@ -89,70 +92,115 @@ Iteration 1..N:
 
 The gear icon in the chat input area opens `#chat-settings-modal`. Tool settings live in the **Behavior & Memory** accordion section:
 
-1. **Master toggle**: `#settings-enable_tool_use` checkbox (checked by default). When OFF, no tools are loaded — zero overhead, plain text responses only.
+1. **Tool Mode selector**: `#settings-tool_mode` — a `<select>` with 5 options controlling how tools are loaded per turn:
 
-2. **Tool selector dropdown**: `#settings-tool-selector` — a Bootstrap Select 1.13.18 `<select multiple>` with:
+   | Mode | Value | Behavior | Token Cost |
+   |------|-------|----------|-----------|
+   | Hybrid (AI + fallback) | `hybrid` | Fast LLM selects relevant tools + `request_tools` fallback | ~3,500-5,000 |
+   | Smart Select (AI picks) | `smart` | Fast LLM selects relevant tools, no fallback | ~3,000-4,500 |
+   | Tiered (core + on-demand) | `tiered` | Adaptive core tools + `request_tools` meta-tool | ~2,500 |
+   | Manual Selection | `manual` | User picks specific tools via selectpicker dropdown | varies |
+   | No Tools | `none` | Plain text only, zero overhead | 0 |
+
+   **Default**: `hybrid` — best balance of token savings and capability.
+
+2. **Tool selector dropdown** (visible only in `manual` mode): `#settings-tool-selector` — a Bootstrap Select 1.13.18 `<select multiple>` with:
    - 11 `<optgroup>` categories (Clarification, Web Search, Documents, Knowledge Base, Memory, Conversation, Code Runner, Artefacts, Prompts, Aggregator, Coding & Files)
-   - ~87 individual `<option>` elements, each with `value="tool_name_string"`
+   - ~98 individual `<option>` elements, each with `value="tool_name_string"`
    - `data-live-search="true"` — type-ahead filtering
    - `data-actions-box="true"` — Select All / Deselect All per category
    - `data-selected-text-format="count > 3"` — shows "{N} tools selected" when >3 selected
-   - Custom CSS: `max-height: 300px` on dropdown menu
 
 ### Default Selections
 
-- `ask_clarification` is pre-selected by default (both in HTML `selected` attribute and in `computeDefaultStateForTab()` / `resetSettingsToDefaults()` in `chat.js`)
-- Web Search tools are NOT selected by default in UI but are auto-injected by search-intent detection (see next section)
-- Categories that default OFF: PKB, Memory, Code Runner, Artefacts, Prompts, Aggregator, Coding (write-capable or resource-intensive)
+- Default tool mode: `hybrid` (both in HTML `selected` attribute and in `computeDefaultStateForTab()` / `resetSettingsToDefaults()` in `chat.js`)
+- In `manual` mode, `ask_clarification` is pre-selected by default
+- Web Search tools are auto-injected by search-intent detection regardless of mode (upgrades `none` → `hybrid`)
 
 ### Settings Payload Format
 
 The frontend sends tool settings as part of the `checkboxes` object in the `/reply` request:
 
-**Current format** (per-tool array from selectpicker):
+**Current format** (5-mode system):
 ```json
 {
   "checkboxes": {
+    "tool_mode": "hybrid",
     "enable_tool_use": true,
-    "enabled_tools": ["ask_clarification", "web_search", "perplexity_search", "document_lookup"]
+    "enabled_tools": ["ask_clarification", "web_search"]
   }
 }
 ```
 
-**Legacy format** (per-category booleans, still accepted for backward compatibility):
+`tool_mode` controls behavior. `enable_tool_use` is derived (`tool_mode !== 'none'`) for backward compatibility. `enabled_tools` is only meaningful when `tool_mode` is `"manual"`.
+
+**Legacy format** (still accepted — no `tool_mode` field):
 ```json
 {
   "checkboxes": {
     "enable_tool_use": true,
-    "enabled_tools": {
-      "clarification": true,
-      "search": true,
-      "documents": true,
-      "pkb": false
-    }
+    "enabled_tools": ["ask_clarification", "web_search"]
   }
 }
 ```
+Maps to `tool_mode = "manual"` when `enable_tool_use` is true, `"none"` when false.
 
 ### Backend Resolution (`_get_enabled_tools`)
 
-`Conversation._get_enabled_tools(checkboxes, user_email, users_dir)` at line ~6766 resolves the final OpenAI tools parameter:
+`Conversation._get_enabled_tools(checkboxes, user_email, users_dir, user_message, summary)` resolves the final OpenAI tools parameter:
 
 1. If `TOOLS_AVAILABLE` is False or `TOOL_REGISTRY` is None → `None`
-2. If `checkboxes.enable_tool_use` is False → `None`
-3. Read `checkboxes.enabled_tools`:
-   - **List**: use tool names directly
-   - **Dict** (legacy): map category booleans to tool names via `TOOL_REGISTRY.get_tools_by_category()`
-   - **None/missing** but master toggle ON: enable ALL tools
+2. Resolve `tool_mode` from checkboxes (falls back to legacy `enable_tool_use` boolean)
+3. Dispatch by mode:
+   - **`none`** → `None`
+   - **`tiered`** → `get_adaptive_tier1_tools(user_email)` — personalized core set based on usage history (falls back to static `TIER_1_TOOLS` for new users)
+   - **`smart`** → `_select_relevant_tools(user_message, summary, keys)` — fast LLM picks 15-25 relevant tools
+   - **`hybrid`** → same as `smart` but ensures `request_tools` meta-tool is always included as fallback
+   - **`manual`** → read `enabled_tools` (list or legacy category dict)
 4. Call `TOOL_REGISTRY.get_openai_tools_param(enabled_names)` → OpenAI format list
-5. Call `_inject_dynamic_doc_descriptions()` to enrich document tools with actual doc listings
-6. Return list (or `None` if empty)
+5. If `request_tools` is in the set: inject names of all NOT-loaded tools into its description (so LLM knows what to request)
+6. Call `_inject_dynamic_doc_descriptions()` to enrich document tools with actual doc listings
+7. Return list (or `None` if empty)
 
-The LLM can only invoke tools that appear in this filtered list. **The UI selection is the gatekeeper.**
+### The `request_tools` Meta-Tool
+
+A special tool that lets the LLM load additional tools on demand:
+
+- **Description** dynamically includes the names of all tools NOT currently loaded
+- **Zero-cost expansion**: When `request_tools` is the ONLY tool call in a response, tools are expanded without consuming an iteration (max 2 expansions per turn)
+- **Mixed-mode**: When called alongside other tools, expansion happens for the next iteration (counts normally)
+- **Safety cap**: Max 2 zero-cost expansions per turn to prevent infinite loops
+
+### Adaptive Tier 1
+
+In `tiered` and `hybrid` modes, the core tool set is personalized per user:
+
+- **Fixed base** (5 tools): ask_clarification, pkb_search, delegate_task, search_messages, request_tools
+- **Adaptive portion**: Most frequently used tools by this user (last 30 days from `tool_call_history` DB)
+- **Target size**: 12 tools total
+- **Fallback**: Static `TIER_1_TOOLS` if user has < 10 recorded tool calls
+- **Caching**: Results cached per user with 1-day TTL. DB is not re-queried on every turn.
+
+### Smart Select (`_select_relevant_tools`)
+
+Uses `VERY_CHEAP_LLM[0]` to pick tools per-turn:
+
+- Input: user message (500 chars), conversation summary + last user-assistant turn (500 chars), compact tool menu (one line per tool)
+- Prompt: HIGH RECALL — "err heavily on inclusion, missing a needed tool is much worse than including an unneeded one"
+- Output: JSON array of tool names, validated against registry
+- Fallback: returns static `TIER_1_TOOLS` on any error (timeout, parse failure, etc.)
+- Guardrails: minimum 3 tools (else merge with TIER_1), maximum 30 tools
+
+### Performance
+
+- **Parallel execution**: Tool selection fires as a `get_async_future` at the earliest possible point in `reply()` (right after `/pkb` guard, ~860 lines before resolution). Runs in parallel with PKB retrieval, prior context, TLDR extraction, doc processing, and visual tab.
+- **Streaming status**: In smart/hybrid mode, a "Selecting tools..." status is yielded to the UI before resolving the future.
+- **Net latency cost**: Effectively 0ms — the ~200ms LLM call completes during other parallel work.
+- **Tiered mode**: No LLM call at all — just a cached DB lookup (1-day TTL).
 
 ### Prompt Cache Implications
 
-Each unique combination of enabled tools produces a different `tools` parameter, which means different prompt cache keys. Toggling tools mid-conversation invalidates the API prompt cache. For best cache hit rates, keep the same tool selection throughout a conversation.
+Each unique combination of enabled tools produces a different `tools` parameter, which means different prompt cache keys. In `tiered` mode, the stable core set maximizes cache hits. In `smart`/`hybrid` mode, cache hit rates are lower but token savings outweigh the cost.
 
 ---
 

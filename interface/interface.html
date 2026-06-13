@@ -2818,9 +2818,15 @@
                                         </div>
                                     </div>
                                     <div class="col-md-3 col-6">
-                                        <div class="form-check mb-2">
-                                            <input class="form-check-input" id="settings-enable_tool_use" type="checkbox" checked>
-                                            <label class="form-check-label" for="settings-enable_tool_use">Enable Tools</label>
+                                        <div class="form-group mb-2">
+                                            <label for="settings-tool_mode" class="form-label"><strong>Tools</strong></label>
+                                            <select id="settings-tool_mode" class="form-control form-control-sm" title="Controls how tools are loaded each turn">
+                                                <option value="hybrid" selected title="AI selects relevant tools per turn + fallback to load more on demand. Best balance.">Hybrid (AI + fallback)</option>
+                                                <option value="smart" title="AI selects relevant tools per turn. Slightly fewer tokens than hybrid.">Smart Select (AI picks)</option>
+                                                <option value="tiered" title="Your most-used tools loaded by default. Ask for more mid-turn. Most token-efficient.">Tiered (core + on-demand)</option>
+                                                <option value="manual" title="You pick exactly which tools are available from the dropdown below.">Manual Selection</option>
+                                                <option value="none" title="Plain text only. No tools, zero token overhead.">No Tools</option>
+                                            </select>
                                         </div>
                                     </div>
                                     <div class="col-md-3 col-6">
@@ -2956,13 +2962,16 @@
                                     if (typeof $.fn.selectpicker !== 'undefined') {
                                         $('#settings-tool-selector').selectpicker();
                                     }
-                                    // Master toggle for tool use options
-                                    $('#settings-enable_tool_use').on('change', function() {
-                                        $('#tool-use-options').toggle($(this).is(':checked'));
-                                        if ($(this).is(':checked') && typeof $.fn.selectpicker !== 'undefined') {
+                                    // Show tool-use-options only in 'manual' mode
+                                    $('#settings-tool_mode').on('change', function() {
+                                        var isManual = $(this).val() === 'manual';
+                                        $('#tool-use-options').toggle(isManual);
+                                        if (isManual && typeof $.fn.selectpicker !== 'undefined') {
                                             $('#settings-tool-selector').selectpicker('refresh');
                                         }
                                     });
+                                    // Initialize visibility
+                                    $('#tool-use-options').toggle($('#settings-tool_mode').val() === 'manual');
 
                                     // Group header mousedown: fires before bootstrap-select swallows the click event
                                     $(document).on('mousedown.toolGroupHeader', function(e) {

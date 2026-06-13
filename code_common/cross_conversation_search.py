@@ -765,13 +765,9 @@ CROSS_CONVERSATION_TOOLS: Dict[str, dict] = {
     "search_conversations": {
         "name": "search_conversations",
         "description": (
-            "Search across ALL of the user's conversations by keyword, phrase, or regex. "
-            "Use this when the user asks to find something they discussed in a previous conversation, "
-            "or when they reference past work without specifying which conversation. "
-            "Returns matching conversations with title, date, snippet showing where the match is, "
-            "conversation ID, and friendly ID. Use 'deep' mode to also search within message "
-            "headers and key terms (slower but more thorough). "
-            "Combine with get_conversation_summary for full details of a specific result."
+            "Search across ALL user's conversations by keyword/phrase/regex. "
+            "Returns matching conversations with title, date, snippet, and IDs. "
+            "'deep' mode searches message headers too. Use get_conversation_summary for details."
         ),
         "parameters": {
             "type": "object",

@@ -87,7 +87,7 @@ See `documentation/product/behavior/CLARIFICATIONS_AND_AUTO_DOUBT_CONTEXT.md` fo
 - **Cross-conversation message references** (`@conversation_<fid>_message_<hash>`) are also detected here. Before PKB resolution, `_get_pkb_context()` separates conversation refs from PKB friendly IDs using `CONV_REF_PATTERN`, resolves them via `_resolve_conversation_message_refs()`, and injects the referenced message text as `[REFERENCED @conversation_...]` blocks. These survive post-distillation re-injection alongside PKB claims.
 - For complete details on how PKB references are parsed, resolved, and injected, see [PKB Reference Resolution Flow](../truth_management_system/pkb_reference_resolution_flow.md).
 - For cross-conversation message references, see [Cross-Conversation Message References](../cross_conversation_references/README.md).
-- **Tool calling branch**: When `checkboxes.enable_tool_use` is true and `checkboxes.enabled_tools` has at least one enabled category, `reply()` calls `_get_enabled_tools()` to build the tools config and then `_run_tool_loop()` instead of the normal LLM path. `_run_tool_loop()` is a generator that yields the same dict format as the normal path, plus tool-specific event types (`tool_call`, `tool_status`, `tool_input_request`, `tool_result`). The loop runs up to 5 iterations; on the final iteration, `tool_choice="none"` forces text output. When the LLM returns multiple tool calls in a single response, they are classified as interactive or non-interactive: **non-interactive tools execute in parallel** via `ThreadPoolExecutor` (each thread receives a `deepcopy` of `ToolContext` to avoid shared mutable state), while **interactive tools** (`ask_clarification`, `pkb_propose_memory`) execute sequentially since they require `threading.Event` synchronization via `POST /tool_response/<conv_id>/<tool_id>` (60s timeout). The system prompt includes explicit guidance telling the LLM to issue multiple tool calls at once for independent information needs, since parallel execution means wall-clock time equals the slowest tool rather than the sum of all tools. Tool results are truncated to `TOOL_RESULT_TRUNCATION_LIMIT` characters (currently 50000, defined in `code_common/tools.py`) before being appended to the messages array as `{"role": "tool"}` messages for LLM continuation. Each tool call is timed (`tool_exec_duration` for handler execution, `tool_total_duration` including user-wait time); timing flows into `tool_result` events (`duration_seconds`), the collapsible `<tool_calls_summary>` block, and `time_dict['tool_calls']` (list of `{name, duration_s, result_chars}` dicts appended in `reply()`). See `documentation/features/tool_calling/README.md`.
+- **Tool calling branch**: When `checkboxes.tool_mode` is not `none` (or legacy `checkboxes.enable_tool_use` is true), `reply()` calls `_get_enabled_tools()` to build the tools config and then `_run_tool_loop()` instead of the normal LLM path. The tool mode determines which tools are loaded: `hybrid` uses a fast LLM to select relevant tools + `request_tools` fallback, `smart` uses just the LLM selection, `tiered` uses an adaptive core set personalized to the user's usage history, `manual` uses the user's explicit selection. `_run_tool_loop()` is a generator that yields the same dict format as the normal path, plus tool-specific event types (`tool_call`, `tool_status`, `tool_input_request`, `tool_result`). The loop runs up to 10 iterations; on the final iteration, `tool_choice="none"` forces text output. A special `request_tools` meta-tool allows zero-cost expansion of the tool set mid-turn (max 2 expansions without consuming iteration budget). When the LLM returns multiple tool calls in a single response, they are classified as interactive or non-interactive: **non-interactive tools execute in parallel** via `ThreadPoolExecutor` (each thread receives a `deepcopy` of `ToolContext` to avoid shared mutable state), while **interactive tools** (`ask_clarification`, `pkb_propose_memory`) execute sequentially since they require `threading.Event` synchronization via `POST /tool_response/<conv_id>/<tool_id>` (60s timeout). The system prompt includes explicit guidance telling the LLM to issue multiple tool calls at once for independent information needs, since parallel execution means wall-clock time equals the slowest tool rather than the sum of all tools. Tool results are truncated to `TOOL_RESULT_TRUNCATION_LIMIT` characters (currently 50000, defined in `code_common/tools.py`) before being appended to the messages array as `{"role": "tool"}` messages for LLM continuation. Each tool call is timed (`tool_exec_duration` for handler execution, `tool_total_duration` including user-wait time); timing flows into `tool_result` events (`duration_seconds`), the collapsible `<tool_calls_summary>` block, and `time_dict['tool_calls']` (list of `{name, duration_s, result_chars}` dicts appended in `reply()`). See `documentation/features/tool_calling/README.md`.
 
 4) **Streaming render**
 - `sendMessageCallback()` calls `renderStreamingResponse(response, ...)` in `interface/common-chat.js`.
@@ -160,8 +160,8 @@ All Basic Options settings share a single serialisation path. When adding or deb
 | Planner | `settings-enable_planner` | off | `enable_planner` | Multi-step planner agent (hidden) |
 | Default Temp Chat | `settings-default_temp_chat` | off | *(client-only)* | When ON, page load auto-creates a temporary chat (via `WorkspaceManager.createTemporaryConversation()`) instead of resuming the last conversation. Fires once per page load via `activateChatTab()` with a `window._defaultTempChatCreated` guard to prevent repeated creation on tab switches. |
 
-| Enable Tool Use | `settings-enable_tool_use` | off | `enable_tool_use` | Master toggle for LLM tool calling (requires at least one category enabled). **Default-enabled tools**: When tool use is enabled, `DEFAULT_ENABLED_TOOLS` (`ask_clarification`, `pkb_nl_command`) are always force-enabled regardless of per-category selection (configured in `code_common/tools.py` and enforced in `interface/chat.js` `resetSettingsToDefaults()`). |
-| Enabled Tools | `settings-enabled_tools` (per-category checkboxes) | all off | `enabled_tools` | Per-category tool toggles: clarification, search, documents, pkb, memory, code_runner, artefacts, prompts, conversation. PKB category includes `pkb_nl_command` (NL agent), `pkb_delete_claim`, and `pkb_propose_memory` (interactive modal). See `documentation/features/tool_calling/README.md` |
+| Tool Mode | `settings-tool_mode` | hybrid | `tool_mode` | 5-mode selector for tool loading strategy: `hybrid` (AI picks + request_tools fallback), `smart` (AI picks only), `tiered` (adaptive core + on-demand), `manual` (user picks from selectpicker), `none` (no tools). See `documentation/features/tool_calling/README.md`. |
+| Enabled Tools | `settings-tool-selector` (visible in manual mode only) | ask_clarification | `enabled_tools` | Per-tool selectpicker for manual mode. 98 tools across 11 categories. Only used when `tool_mode` is `manual`. |
 ## Server-Side Streaming
 
 ### Endpoint
@@ -458,17 +458,20 @@ Location: `interface/shared.js`
 
 ## Tool Calling Pipeline (Agentic Loop)
 
-When the "Enable Tools" master toggle is ON and tools are selected in the Bootstrap Select dropdown, the conversation pipeline branches into an agentic tool-calling loop.
+When the tool mode is not `none`, the conversation pipeline branches into an agentic tool-calling loop.
 
 ### Settings Flow (UI → Backend)
 
-1. **UI**: User opens chat settings modal → checks "Enable Tools" → selects individual tools from the Bootstrap Select dropdown (`#settings-tool-selector`, 56 tools across 9 `<optgroup>` categories).
-2. **JS persistence**: `collectSettingsFromModal()` / `getStateFromModal()` reads selected tool names via `getSelectPickerValue('#settings-tool-selector', [])` → stored as `state.enabled_tools` (array of tool name strings).
-3. **Request payload**: `getOptions()` in `common.js` includes `enable_tool_use: true` and `enabled_tools: ["ask_clarification", "web_search", ...]` in the `checkboxes` object sent with `POST /send_message/<conversation_id>`.
-4. **Backend parsing**: `Conversation._get_enabled_tools(checkboxes)` reads the payload:
-   - If `enabled_tools` is a **list** → uses tool names directly (new format)
-   - If `enabled_tools` is a **dict** → maps category booleans to tool names (legacy format)
-   - If `None` but master toggle ON → enables all tools
+1. **UI**: User opens chat settings modal → selects a **Tool Mode** from the `#settings-tool_mode` dropdown (hybrid/smart/tiered/manual/none). The manual selectpicker (`#settings-tool-selector`, 98 tools across 11 categories) is only visible when mode is `manual`.
+2. **JS persistence**: `collectSettingsFromModal()` reads `$('#settings-tool_mode').val()` → stored as `state.tool_mode`. In manual mode, also reads `getSelectPickerValue('#settings-tool-selector', [])` → `state.enabled_tools`.
+3. **Request payload**: `getOptions()` in `common.js` includes `tool_mode: "hybrid"`, `enable_tool_use: true` (derived), and `enabled_tools: [...]` in the `checkboxes` object sent with `POST /send_message/<conversation_id>`.
+4. **Backend parsing**: `Conversation._get_enabled_tools(checkboxes, user_email, users_dir, user_message, summary)` dispatches by mode:
+   - `none` → returns None (no tools)
+   - `tiered` → `get_adaptive_tier1_tools(user_email)` — personalized core set from usage history
+   - `smart` → `_select_relevant_tools(user_message, summary, keys)` — VERY_CHEAP_LLM picks per-turn
+   - `hybrid` → same as smart + ensures `request_tools` fallback meta-tool
+   - `manual` → reads `enabled_tools` (list or legacy category dict)
+   - Injects remaining tool names into `request_tools` description
    - Returns OpenAI-format `tools` parameter via `TOOL_REGISTRY.get_openai_tools_param(enabled_names)`
 
 ### Tool-Enabled Reply Flow
@@ -477,18 +480,23 @@ When the "Enable Tools" master toggle is ON and tools are selected in the Bootst
 User sends message
   → POST /send_message/<conversation_id>
     → Conversation.reply()
-      → tools_config = _get_enabled_tools(checkboxes)
+      → tools_config = _get_enabled_tools(checkboxes, user_email, users_dir, user_message, summary)
       → IF tools_config is not None:
           → _run_tool_loop(prompt, preamble, images, model, keys, tools_config, ...)
-            → Iteration 1 (of max 5):
+            → Iteration 1 (of max 10):
               → call_llm(..., tools=tools_config, tool_choice="auto")
-                → call_chat_model(..., tools=tools_config, tool_choice="auto")
-                  → client.chat.completions.create(model, messages, tools=tools_config, stream=True)
-                  → _extract_text_from_openai_response(response)
-                    → yields str chunks (streamed text)
-                    → yields dict chunks (tool_call objects when finish_reason="tool_calls")
+                → client.chat.completions.create(model, messages, tools=tools_config, stream=True)
               
               → IF tool_call dicts received:
+                  → ZERO-COST EXPANSION: If only call is request_tools (max 2/turn):
+                      → Expand tools_config with requested tools
+                      → Append assistant+tool messages
+                      → Continue WITHOUT incrementing iteration counter
+                  
+                  → MIXED MODE: If request_tools called with other tools:
+                      → Expand tools_config for next iteration
+                      → Continue with normal execution below
+
                   → Classify tool calls: interactive vs non-interactive
                   → Stream tool_call events for ALL tools
                   
@@ -497,6 +505,7 @@ User sends message
                       → ThreadPoolExecutor(max_workers=min(N, 5))
                           → Each thread: deepcopy(ToolContext) → TOOL_REGISTRY.execute()
                       → Collect results, emit tool_result/tool_status in original order
+                      → Append all {"role": "tool"} messages
                       → Append all {"role": "tool"} messages
                   
                   → INTERACTIVE tools (sequential execution):

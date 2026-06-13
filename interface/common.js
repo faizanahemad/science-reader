@@ -5336,7 +5336,8 @@ function getOptions(parentElementId, type) {
         render_close_to_source: $('#settings-render-close-to-source').is(':checked'),
         use_pkb: $('#settings-use_pkb').length ? $('#settings-use_pkb').is(':checked') : true,
         opencode_enabled: $('#settings-enable_opencode').length ? $('#settings-enable_opencode').is(':checked') : false,
-        enable_tool_use: $('#settings-enable_tool_use').length ? $('#settings-enable_tool_use').is(':checked') : false,
+        enable_tool_use: $('#settings-tool_mode').length ? ($('#settings-tool_mode').val() !== 'none') : false,
+        tool_mode: $('#settings-tool_mode').length ? $('#settings-tool_mode').val() : 'hybrid',
         auto_doubts_enabled: $('#settings-auto_doubts_enabled').length ? $('#settings-auto_doubts_enabled').is(':checked') : true,
         enabled_tools: (function() {
             var $sel = $('#settings-tool-selector');

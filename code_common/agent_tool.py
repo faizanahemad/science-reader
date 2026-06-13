@@ -205,18 +205,9 @@ AGENT_TOOLS: Dict[str, dict] = {
     "delegate_task": {
         "name": "delegate_task",
         "description": (
-            "Delegate a sub-task to an autonomous agent that has its own tool "
-            "access. The agent runs a multi-step tool loop (up to 5 iterations) "
-            "and returns a synthesized text answer. Use this to offload complex "
-            "research, document analysis, or multi-tool workflows without "
-            "consuming the main conversation's iteration budget.\n\n"
-            "Profiles control which tools the agent can use:\n"
-            "- 'research': Web search + document query + conversation search. "
-            "Best for information gathering.\n"
-            "- 'documents': Full document tools + conversation tools. "
-            "Best for document analysis and lookup.\n"
-            "- 'general': All non-interactive tools (broadest capability). "
-            "Best for open-ended tasks."
+            "Delegate a sub-task to an autonomous agent (blocking, up to 5 iterations). "
+            "Profiles: 'research' (web search + docs), 'documents' (doc analysis), "
+            "'general' (all non-interactive tools). Returns synthesized answer."
         ),
         "parameters": {
             "type": "object",
@@ -247,13 +238,8 @@ AGENT_TOOLS: Dict[str, dict] = {
     "delegate_task_background": {
         "name": "delegate_task_background",
         "description": (
-            "Fire-and-forget version of delegate_task. Starts the sub-agent in a "
-            "background daemon thread and returns a task_id immediately so the "
-            "main LLM can continue working in parallel.\n\n"
-            "The sub-agent has full access to all tools in the chosen profile "
-            "(including fs_*, run_python_code, web search, MCP tools, etc.).\n\n"
-            "Use get_task_result(task_id=...) to poll for the result. "
-            "Use list_background_tasks() to see all active/completed tasks."
+            "Fire-and-forget delegate_task. Starts sub-agent in background thread, "
+            "returns task_id immediately. Poll with get_task_result(task_id)."
         ),
         "parameters": {
             "type": "object",

@@ -540,13 +540,8 @@ TOOL_HISTORY_TOOLS: Dict[str, dict] = {
     "list_search_history": {
         "name": "list_search_history",
         "description": (
-            "List previous web searches and page reads from this session and "
-            "past conversations. Returns metadata including a unique ID for "
-            "each call, the tool used, search query/URL, result size, duration, "
-            "and timestamp. Use this to check if a similar search was already "
-            "performed before making a new one. Use get_search_results with "
-            "the returned IDs to retrieve full results without re-executing "
-            "the search."
+            "List previous web searches/page reads with metadata (ID, tool, query, size, timestamp). "
+            "Check before re-executing a search. Use get_search_results with IDs to get full results."
         ),
         "parameters": {
             "type": "object",

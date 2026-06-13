@@ -652,7 +652,8 @@ function buildSettingsStateFromControlsOrDefaults() {
         permanentText: $('#permanentText').length ? $('#permanentText').val() : ($('#settings-permanentText').val() || ''),
         links: $('#linkInput').length ? $('#linkInput').val() : ($('#settings-linkInput').val() || ''),
         search: $('#searchInput').length ? $('#searchInput').val() : ($('#settings-searchInput').val() || ''),
-        enable_tool_use: $('#settings-enable_tool_use').is(':checked') || false,
+        enable_tool_use: $('#settings-tool_mode').val() !== 'none',
+        tool_mode: $('#settings-tool_mode').val() || 'hybrid',
         enabled_tools: getSelectPickerValue('#settings-tool-selector', []),
         compact_nav: $('#settings-compact_nav').is(':checked') || false,
         default_temp_chat: $('#settings-default_temp_chat').is(':checked') || false,
@@ -702,8 +703,10 @@ function setModalFromState(state) {
     $('#settings-permanentText').val(state.permanentText || '');
     $('#settings-linkInput').val(state.links || '');
     $('#settings-searchInput').val(state.search || '');
-    $('#settings-enable_tool_use').prop('checked', state.enable_tool_use || false);
-    $('#tool-use-options').toggle(!!state.enable_tool_use);
+    // Set tool mode selector (backward compat: derive from enable_tool_use if tool_mode absent)
+    var toolMode = state.tool_mode || (state.enable_tool_use === false ? 'none' : 'hybrid');
+    $('#settings-tool_mode').val(toolMode);
+    $('#tool-use-options').toggle(toolMode === 'manual');
     $('#settings-compact_nav').prop('checked', !!state.compact_nav);
     applyCompactNav(!!state.compact_nav);
     $('#settings-default_temp_chat').prop('checked', !!state.default_temp_chat);
@@ -822,7 +825,8 @@ function collectSettingsFromModal() {
         permanentText: $('#settings-permanentText').val() || '',
         links: $('#settings-linkInput').val() || '',
         search: $('#settings-searchInput').val() || '',
-        enable_tool_use: $('#settings-enable_tool_use').is(':checked'),
+        enable_tool_use: $('#settings-tool_mode').val() !== 'none',
+        tool_mode: $('#settings-tool_mode').val() || 'hybrid',
         enabled_tools: getSelectPickerValue('#settings-tool-selector', []),
         compact_nav: $('#settings-compact_nav').is(':checked'),
         default_temp_chat: $('#settings-default_temp_chat').is(':checked'),
@@ -1318,8 +1322,8 @@ function resetSettingsToDefaults() {
     $('#settings-enable_custom_context_menu').prop('checked', !isProbablyMobileDevice());
 
     // Tool Use
-    $('#settings-enable_tool_use').prop('checked', true);
-    $('#tool-use-options').show();
+    $('#settings-tool_mode').val('hybrid');
+    $('#tool-use-options').hide();
     $('#settings-tool-selector').val(['ask_clarification', 'pkb_nl_command']);
     if (typeof $.fn.selectpicker !== 'undefined') {
         $('#settings-tool-selector').selectpicker('refresh');
@@ -1419,6 +1423,7 @@ function computeDefaultStateForTab(tab) {
         history: '2',
         reward: '0',
         enable_tool_use: true,
+        tool_mode: 'hybrid',
         enabled_tools: ['ask_clarification'],
         preamble_options: getDefaultPreambleForTab(tab),
         doubt_preamble_options: [],

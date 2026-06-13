@@ -521,16 +521,10 @@ CONVERSATION_TOOLS: Dict[str, dict] = {
     "search_messages": {
         "name": "search_messages",
         "description": (
-            "Search within the current conversation's messages by keyword. "
-            "Supports two modes: 'bm25' for relevance-ranked keyword search "
-            "(best for topical queries like 'machine learning', 'error handling'), "
-            "and 'text' for exact substring or regex matching (best for finding "
-            "specific phrases, code snippets, or names). "
-            "Use this when the user asks to find, recall, or locate something "
-            "said earlier in the conversation. Prefer 'bm25' mode by default; "
-            "use 'text' mode when the user wants an exact phrase match. "
-            "Results include a preview snippet, sender role, and message index. "
-            "Combine with read_message to get full message content."
+            "Search conversation messages by keyword. "
+            "Modes: 'bm25' (relevance-ranked, default) or 'text' (exact/regex match). "
+            "Use when user asks to find something said earlier. "
+            "Results include preview snippet, sender, and index. Combine with read_message for full content."
         ),
         "parameters": {
             "type": "object",
@@ -604,14 +598,9 @@ CONVERSATION_TOOLS: Dict[str, dict] = {
     "list_messages": {
         "name": "list_messages",
         "description": (
-            "List messages in the current conversation with a short preview. "
-            "Each result includes the message index, message_id, sender role, "
-            "the first 300 characters of text, and the TLDR summary (if the "
-            "assistant message has one). "
-            "Use this to get an overview of conversation contents, browse "
-            "messages by position, or find a specific message to read in full. "
-            "Supports slicing by index range (from start or from end) and "
-            "filtering by sender."
+            "List messages with short preview (300 chars) and TLDR. "
+            "Supports index range slicing (from start or end) and sender filtering. "
+            "Use to browse conversation contents or find a message to read in full."
         ),
         "parameters": {
             "type": "object",
@@ -669,12 +658,9 @@ CONVERSATION_TOOLS: Dict[str, dict] = {
     "read_message": {
         "name": "read_message",
         "description": (
-            "Read the full content of a specific message by its message_id "
-            "or by its numeric index in the conversation. Returns the complete "
-            "message text, sender, message_id, any extracted markdown headers, "
-            "bold and italic text, and context (adjacent messages). "
-            "Use this after search_messages or list_messages to get full "
-            "content of a message of interest."
+            "Read full content of a message by message_id or index. "
+            "Returns text, sender, extracted markdown headers/bold/italic, and adjacent context. "
+            "Use after search_messages or list_messages."
         ),
         "parameters": {
             "type": "object",
@@ -718,14 +704,9 @@ CONVERSATION_TOOLS: Dict[str, dict] = {
     "get_conversation_details": {
         "name": "get_conversation_details",
         "description": (
-            "Get a comprehensive overview of the conversation: title, summary, "
-            "total message count with message IDs and short hashes, attached "
-            "documents with their titles, artefacts in the conversation, "
-            "conversation settings, and metadata like domain and last-updated "
-            "timestamp. "
-            "Use this to orient yourself within a conversation before diving "
-            "into specific messages or documents. Also useful when the user "
-            "asks 'what have we discussed?' or 'what files are attached?'."
+            "Get conversation overview: title, summary, message count/IDs, "
+            "attached documents, artefacts, settings, and metadata. "
+            "Use to orient yourself before diving into specific messages or docs."
         ),
         "parameters": {
             "type": "object",
@@ -757,15 +738,9 @@ CONVERSATION_TOOLS: Dict[str, dict] = {
     "get_conversation_memory_pad": {
         "name": "get_conversation_memory_pad",
         "description": (
-            "Get the conversation's memory pad — a running scratchpad of "
-            "extracted facts, key numbers, user preferences, and accumulated "
-            "knowledge from the conversation so far. The memory pad is "
-            "auto-updated after each turn with important details from the "
-            "user's query and assistant's response. "
-            "Use this when you need a factual summary of what has been "
-            "discussed, or when the user asks about specific details, "
-            "numbers, or decisions made earlier. Lighter-weight than "
-            "searching through all messages."
+            "Get the conversation's memory pad — auto-updated scratchpad of extracted "
+            "facts, key numbers, and preferences from the conversation. "
+            "Lighter-weight than searching all messages."
         ),
         "parameters": {
             "type": "object",

@@ -6847,92 +6847,96 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
     # Tool Calling Framework — settings reader and agentic loop
     # =========================================================================
 
-    def _get_enabled_tools(self, checkboxes, user_email="", users_dir=""):
+    def _get_enabled_tools(self, checkboxes, user_email="", users_dir="", user_message="", summary=""):
         """Read tool settings from query checkboxes and return OpenAI tools param.
 
-        Reads 'enable_tool_use' master toggle and 'enabled_tools' from
-        the checkboxes. Supports two formats:
-        - List of tool names: ["ask_clarification", "web_search", ...]
-        - Dict of category booleans: {"clarification": True, "search": True, ...}
-
-        When user_email and users_dir are provided, document tool descriptions
-        are dynamically enriched with the actual list of available documents so
-        the LLM can skip calling list tools.
+        Supports 5 tool modes (new) plus legacy boolean format:
+        - 'none': No tools
+        - 'tiered': Core tools + request_tools meta-tool
+        - 'smart': LLM picks relevant tools per turn
+        - 'hybrid': Smart select + request_tools fallback (default)
+        - 'manual': User-selected tools (list or category dict)
 
         Returns None if tools are disabled.
-
-        Parameters
-        ----------
-        checkboxes : dict
-            The checkboxes dict from query["checkboxes"].
-        user_email : str, optional
-            Current user email for fetching global docs.
-        users_dir : str, optional
-            Users directory path for global doc DB lookups.
-
-        Returns
-        -------
-        list[dict] or None
-            OpenAI-format tools list, or None if tools disabled.
         """
         if not TOOLS_AVAILABLE or TOOL_REGISTRY is None:
             logger.warning(
                 "[_get_enabled_tools] Tools not available: TOOLS_AVAILABLE=%s, TOOL_REGISTRY=%s",
-                TOOLS_AVAILABLE,
-                TOOL_REGISTRY,
+                TOOLS_AVAILABLE, TOOL_REGISTRY,
             )
             return None
         if not checkboxes:
             logger.warning("[_get_enabled_tools] No checkboxes provided")
             return None
 
-        enable_tool_use = checkboxes.get("enable_tool_use", False)
-        if not enable_tool_use:
-            logger.warning(
-                "[_get_enabled_tools] enable_tool_use is False/missing. checkboxes keys: %s",
-                list(checkboxes.keys()),
-            )
+        # Resolve tool_mode (new) or fall back to legacy enable_tool_use
+        tool_mode = checkboxes.get("tool_mode")
+        if tool_mode is None:
+            # Legacy backward compat
+            if checkboxes.get("enable_tool_use", False):
+                tool_mode = "manual"
+            else:
+                return None
+        if tool_mode == "none":
             return None
-        logger.warning("[_get_enabled_tools] enable_tool_use=%s", enable_tool_use)
 
-        enabled_tools_config = checkboxes.get("enabled_tools", None)
-        logger.warning(
-            "[_get_enabled_tools] enabled_tools_config type=%s, value=%s",
-            type(enabled_tools_config).__name__,
-            str(enabled_tools_config)[:200],
-        )
+        logger.warning("[_get_enabled_tools] tool_mode=%s", tool_mode)
 
-        if isinstance(enabled_tools_config, list):
-            # New format: list of individual tool names
-            enabled_names = [name for name in enabled_tools_config if name]
-        elif isinstance(enabled_tools_config, dict):
-            # Legacy format: dict of category booleans
-            category_to_enabled = {
-                "clarification": enabled_tools_config.get("clarification", True),
-                "search": enabled_tools_config.get("search", True),
-                "documents": enabled_tools_config.get("documents", True),
-                "pkb": enabled_tools_config.get("pkb", False),
-                "memory": enabled_tools_config.get("memory", False),
-                "code_runner": enabled_tools_config.get("code_runner", False),
-                "artefacts": enabled_tools_config.get("artefacts", False),
-                "prompts": enabled_tools_config.get("prompts", False),
-                "aggregator": enabled_tools_config.get("aggregator", False),
-                "coding": enabled_tools_config.get("coding", False),
-            }
-            enabled_names = []
-            for tool_def in TOOL_REGISTRY.get_all_tools():
-                if category_to_enabled.get(tool_def.category, True):
-                    enabled_names.append(tool_def.name)
+        from code_common.tools import TIER_1_TOOLS, _select_relevant_tools, get_adaptive_tier1_tools
+
+        if tool_mode == "tiered":
+            enabled_names = get_adaptive_tier1_tools(user_email=user_email)
+        elif tool_mode == "smart":
+            keys = self.get_api_keys()
+            enabled_names = _select_relevant_tools(user_message, summary, keys)
+        elif tool_mode == "hybrid":
+            keys = self.get_api_keys()
+            enabled_names = _select_relevant_tools(user_message, summary, keys)
+            if "request_tools" not in enabled_names:
+                enabled_names.append("request_tools")
         else:
-            # No config provided but master toggle is on — enable all
-            enabled_names = [t.name for t in TOOL_REGISTRY.get_all_tools()]
+            # "manual" mode — existing logic
+            enabled_tools_config = checkboxes.get("enabled_tools", None)
+            if isinstance(enabled_tools_config, list):
+                enabled_names = [name for name in enabled_tools_config if name]
+            elif isinstance(enabled_tools_config, dict):
+                category_to_enabled = {
+                    "clarification": enabled_tools_config.get("clarification", True),
+                    "search": enabled_tools_config.get("search", True),
+                    "documents": enabled_tools_config.get("documents", True),
+                    "pkb": enabled_tools_config.get("pkb", False),
+                    "memory": enabled_tools_config.get("memory", False),
+                    "code_runner": enabled_tools_config.get("code_runner", False),
+                    "artefacts": enabled_tools_config.get("artefacts", False),
+                    "prompts": enabled_tools_config.get("prompts", False),
+                    "aggregator": enabled_tools_config.get("aggregator", False),
+                    "coding": enabled_tools_config.get("coding", False),
+                }
+                enabled_names = []
+                for tool_def in TOOL_REGISTRY.get_all_tools():
+                    if category_to_enabled.get(tool_def.category, True):
+                        enabled_names.append(tool_def.name)
+            else:
+                # No config but mode is manual — enable all
+                enabled_names = [t.name for t in TOOL_REGISTRY.get_all_tools()]
 
         if not enabled_names:
             logger.warning("[_get_enabled_tools] No enabled tool names found")
             return None
 
         tools_param = TOOL_REGISTRY.get_openai_tools_param(enabled_names)
-        # Inject dynamic document listings into doc tool descriptions
+        # Inject remaining tool names into request_tools description so LLM knows what's available
+        if tools_param and "request_tools" in enabled_names:
+            all_names = {t.name for t in TOOL_REGISTRY.get_all_tools()}
+            remaining = sorted(all_names - set(enabled_names))
+            if remaining:
+                remaining_str = ", ".join(remaining)
+                for tool in tools_param:
+                    if tool["function"]["name"] == "request_tools":
+                        tool["function"]["description"] += (
+                            f"\n\nTools available to load: {remaining_str}"
+                        )
+                        break
         if tools_param and user_email:
             tools_param = self._inject_dynamic_doc_descriptions(
                 tools_param, user_email, users_dir
@@ -7274,6 +7278,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             }
 
         iteration = 0
+        self._request_tools_expansions = 0
         use_messages_mode = (
             False  # First call uses simple mode; continuations use messages mode
         )
@@ -7394,6 +7399,70 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 if tc_name == "read_link" and "detailed" not in tc_args:
                     tc_args["detailed"] = False
                 parsed_tool_calls.append((tc_id, tc_name, tc_args))
+
+            # --- Zero-cost request_tools expansion ---
+            # If the ONLY tool call is request_tools, expand tools_config and
+            # re-run without counting as an iteration.
+            if (
+                len(parsed_tool_calls) == 1
+                and parsed_tool_calls[0][1] == "request_tools"
+                and getattr(self, "_request_tools_expansions", 0) < 2
+            ):
+                rt_id, _, rt_args = parsed_tool_calls[0]
+                categories = rt_args.get("categories", [])
+                tool_names_req = rt_args.get("tool_names", [])
+                new_names = []
+                for t in TOOL_REGISTRY.get_all_tools():
+                    if t.category in categories or t.name in tool_names_req:
+                        new_names.append(t.name)
+                # Merge with current tool set
+                current_names = {tc["function"]["name"] for tc in tools_config}
+                added = [n for n in new_names if n not in current_names]
+                if added:
+                    all_names = list(current_names) + added
+                    tools_config = TOOL_REGISTRY.get_openai_tools_param(all_names)
+                self._request_tools_expansions = getattr(self, "_request_tools_expansions", 0) + 1
+                # Build assistant message with tool_calls (required by API)
+                messages.append({
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [{
+                        "id": rt_id,
+                        "type": "function",
+                        "function": {
+                            "name": "request_tools",
+                            "arguments": json.dumps(rt_args),
+                        },
+                    }],
+                })
+                # Append tool result so LLM knows what was loaded
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": rt_id,
+                    "content": f"Loaded {len(added)} tools from: {', '.join(categories + tool_names_req)}",
+                })
+                logger.warning(
+                    "[_run_tool_loop] Zero-cost request_tools expansion: +%d tools", len(added)
+                )
+                use_messages_mode = True
+                continue  # Don't increment iteration
+
+            # If request_tools is called alongside other tools, expand for next iteration
+            if any(tc[1] == "request_tools" for tc in parsed_tool_calls):
+                for tc_id, tc_name, tc_args in parsed_tool_calls:
+                    if tc_name == "request_tools":
+                        categories = tc_args.get("categories", [])
+                        tool_names_req = tc_args.get("tool_names", [])
+                        new_names = []
+                        for t in TOOL_REGISTRY.get_all_tools():
+                            if t.category in categories or t.name in tool_names_req:
+                                new_names.append(t.name)
+                        current_names = {tc["function"]["name"] for tc in tools_config}
+                        added = [n for n in new_names if n not in current_names]
+                        if added:
+                            all_names = list(current_names) + added
+                            tools_config = TOOL_REGISTRY.get_openai_tools_param(all_names)
+                        break
 
             # Classify tool calls into interactive and non-interactive
             interactive_calls = []
@@ -7939,6 +8008,23 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
         # Start PKB context retrieval in parallel (if PKB is available and use_pkb is enabled)
         pkb_context_future = None
+
+        # Start tool selection early (parallel with PKB retrieval and everything else)
+        # Includes last assistant turn for better Smart Select context
+        _last_turn_for_tools = ""
+        if self.messages and len(self.messages) >= 2:
+            _last_user = self.messages[-2].get("content", "") if self.messages[-2].get("role") == "user" else ""
+            _last_asst = self.messages[-1].get("content", "") if self.messages[-1].get("role") == "assistant" else ""
+            _last_turn_for_tools = f"Previous user: {_last_user[:200]}\nPrevious assistant: {_last_asst[:200]}"
+        _tool_summary_for_select = f"{self.running_summary[:300]}\n{_last_turn_for_tools}" if _last_turn_for_tools else (self.running_summary or "")
+        _tools_config_future = get_async_future(
+            self._get_enabled_tools,
+            checkboxes,
+            user_email=user_email or "",
+            users_dir=users_dir or "",
+            user_message=query.get("messageText", ""),
+            summary=_tool_summary_for_select,
+        )
         pkb_k = None
         # use_pkb checkbox controls whether PKB memory retrieval and user_info
         # distillation happen.  Default is True (enabled).
@@ -8790,17 +8876,13 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 _visual_tab_future = None
 
         # Inject tool awareness into preamble when tools are enabled
-        tools_config = self._get_enabled_tools(
-            checkboxes,
-            user_email=user_email or "",
-            users_dir=users_dir or "",
-        )
-        logger.warning(
-            "[reply] tools_config from _get_enabled_tools: %s (count=%d)",
-            "present" if tools_config else "None",
-            len(tools_config) if tools_config else 0,
-        )
-        if tools_config and TOOLS_AVAILABLE:
+        # Tool mode check (future started at line ~8020, resolved ~2700 lines later at CHECKPOINT-G)
+        # For preamble injection, we only need to know if tools are active (from tool_mode).
+        _tool_mode = checkboxes.get("tool_mode", "manual")
+        if _tool_mode in ("smart", "hybrid") and checkboxes.get("enable_tool_use", True) is not False:
+            yield {"text": "", "status": "Selecting tools..."}
+        _tools_will_be_active = _tool_mode != "none" and TOOLS_AVAILABLE and checkboxes.get("enable_tool_use", True) is not False
+        if _tools_will_be_active:
             # NOTE: Tool names and descriptions are already provided via the
             # OpenAI `tools` parameter — no need to duplicate them in the
             # system prompt. Only inject usage guidance here.
@@ -10658,6 +10740,16 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         # logger.info(f"link_result_text: {link_result_text}")
         # logger.info(f"conversation_docs_answer: {conversation_docs_answer}")
         # logger.info(f"Prompt length: {len(enc.encode(prompt))}, prompt - ```\n{prompt}\n```")
+        # Resolve tools_config future (started ~2700 lines earlier for max parallelism)
+        try:
+            tools_config = sleep_and_get_future_result(_tools_config_future, sleep_time=0.1, timeout=15)
+        except (TimeoutError, Exception):
+            tools_config = None
+        logger.warning(
+            "[reply] tools_config resolved: %s (count=%d)",
+            "present" if tools_config else "None",
+            len(tools_config) if tools_config else 0,
+        )
         time_logger.warning(
             "[STREAM][CHECKPOINT-G] prompt assembled, reached main answer dispatch | model=%s | agent=%s | tools=%s | t=%.2fs",
             str(model_name), type(agent).__name__ if agent is not None else "None",
