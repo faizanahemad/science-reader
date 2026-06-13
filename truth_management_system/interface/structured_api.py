@@ -4722,7 +4722,6 @@ class StructuredAPI:
             total = sum(by_status.values())
 
             # Fast stale count: low confidence + not accessed in 90 days
-            from ..utils import now_iso
             from datetime import datetime, timezone, timedelta
             cutoff = (datetime.now(timezone.utc) - timedelta(days=90)).strftime("%Y-%m-%dT%H:%M:%SZ")
             stale_row = self.db.fetchone(

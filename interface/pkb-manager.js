@@ -1472,7 +1472,7 @@ var PKBManager = (function() {
                 if (response.auto_saved && response.auto_saved.length > 0) {
                     var n = response.auto_saved.length;
                     var label = n === 1
-                        ? '🧠 Remembered: ' + response.auto_saved[0].statement.substring(0, 60)
+                        ? '🧠 Remembered: ' + escapeHtml(response.auto_saved[0].statement.substring(0, 60))
                         : '🧠 Remembered ' + n + ' things';
                     showToast(label + ' <a href="#" class="pkb-undo-all-autosave text-warning ml-2" data-ids=\'' +
                         JSON.stringify(response.auto_saved.map(function(a) { return a.activity_id || a.claim_id; })) +
@@ -2100,12 +2100,14 @@ var PKBManager = (function() {
      * @param {string} message - Message to show
      * @param {string} type - Type (success, error, warning, info)
      */
-    function showToast(message, type) {
+    function showToast(message, type, duration) {
         // Simple implementation - can be enhanced with actual toast library
         type = type || 'info';
+        duration = duration || 3000;
         var alertClass = {
             'success': 'alert-success',
             'error': 'alert-danger',
+            'danger': 'alert-danger',
             'warning': 'alert-warning',
             'info': 'alert-info'
         }[type] || 'alert-info';
@@ -2120,7 +2122,7 @@ var PKBManager = (function() {
         
         setTimeout(function() {
             $toast.alert('close');
-        }, 3000);
+        }, duration);
     }
 
     // ===========================================================================
@@ -2342,8 +2344,8 @@ var PKBManager = (function() {
                     if (ni === 0 || kind !== 'claims') {
                         s += '<li>' + escapeHtml(display) + '</li>';
                     } else {
-                        // Highlight differences vs first item
-                        s += '<li>' + highlightDiff(display, names[0].substring(0, 120)) + '</li>';
+                        var ref = names[0].length > 120 ? names[0].substring(0, 120) + '…' : names[0];
+                        s += '<li>' + highlightDiff(display, ref) + '</li>';
                     }
                 });
                 s += '</ul></div></div></label>';
@@ -3205,7 +3207,7 @@ var PKBManager = (function() {
                 var statusBadge = '';
                 if (c.status && c.status !== 'archived') {
                     var cls = c.status === 'superseded' ? 'badge-warning' : c.status === 'retracted' ? 'badge-danger' : 'badge-dark';
-                    statusBadge = '<span class="badge ' + cls + ' mr-1">' + c.status + '</span>';
+                    statusBadge = '<span class="badge ' + cls + ' mr-1">' + escapeHtml(c.status) + '</span>';
                 }
                 return '<div class="d-flex justify-content-between align-items-start border-bottom py-1">' +
                     '<div class="flex-grow-1 mr-2">' +
@@ -3487,9 +3489,9 @@ var PKBManager = (function() {
                 });
 
                 // Types compact
-                var typeEntries = Object.entries(byType).filter(function(e) { return e[1] > 0; });
-                var typeHtml = typeEntries.length ? '<span class="text-muted ml-2">Types:</span> ' + typeEntries.map(function(e) {
-                    return '<span class="badge badge-outline-secondary mr-1">' + e[1] + ' ' + e[0] + '</span>';
+                var typeKeys = Object.keys(byType).filter(function(k) { return byType[k] > 0; });
+                var typeHtml = typeKeys.length ? '<span class="text-muted ml-2">Types:</span> ' + typeKeys.map(function(k) {
+                    return '<span class="badge badge-outline-secondary mr-1">' + byType[k] + ' ' + escapeHtml(k) + '</span>';
                 }).join('') : '';
 
                 // Domains compact
