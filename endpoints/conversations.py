@@ -795,6 +795,49 @@ def show_hide_message_from_conversation(
     return jsonify({"message": f"Message {message_id} state changed to {show_hide}"})
 
 
+@conversations_bp.route("/batch_delete_messages/<conversation_id>", methods=["POST"])
+@limiter.limit("25 per minute")
+@login_required
+def batch_delete_messages(conversation_id: str):
+    """Delete multiple messages by IDs in one operation."""
+    email, _name, _loggedin = get_session_identity()
+    keys = keyParser(session)
+    data = request.json or {}
+    message_ids = data.get("message_ids", [])
+    if not message_ids:
+        return json_error("No message_ids provided", status=400, code="bad_request")
+
+    state = get_state()
+    if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
+        return json_error("Conversation not found", status=404, code="conversation_not_found")
+
+    conversation = get_conversation_with_keys(state, conversation_id=conversation_id, keys=keys)
+    deleted = conversation.delete_messages_batch(message_ids)
+    return jsonify({"deleted": deleted})
+
+
+@conversations_bp.route("/batch_hide_messages/<conversation_id>", methods=["POST"])
+@limiter.limit("25 per minute")
+@login_required
+def batch_hide_messages(conversation_id: str):
+    """Set show_hide on multiple messages in one operation."""
+    email, _name, _loggedin = get_session_identity()
+    keys = keyParser(session)
+    data = request.json or {}
+    message_ids = data.get("message_ids", [])
+    show_hide = data.get("show_hide", "hide")
+    if not message_ids:
+        return json_error("No message_ids provided", status=400, code="bad_request")
+
+    state = get_state()
+    if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
+        return json_error("Conversation not found", status=404, code="conversation_not_found")
+
+    conversation = get_conversation_with_keys(state, conversation_id=conversation_id, keys=keys)
+    count = conversation.batch_show_hide_messages(message_ids, show_hide)
+    return jsonify({"hidden": count})
+
+
 @conversations_bp.route("/clone_conversation/<conversation_id>", methods=["POST"])
 @limiter.limit("25 per minute")
 @login_required

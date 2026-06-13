@@ -5165,3 +5165,293 @@ function initializeChatControlsToggleHandler() {
     });
 
 })();
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MultiSelectManager — floating action bar for batch operations on messages
+// ─────────────────────────────────────────────────────────────────────────────
+var MultiSelectManager = {
+    _ids: [],
+    _indices: [],
+
+    count: function () { return this._ids.length; },
+    getIds: function () { return this._ids.slice(); },
+    getIndices: function () { return this._indices.slice(); },
+
+    _sync: function () {
+        var self = this;
+        self._ids = [];
+        self._indices = [];
+        $(".history-message-checkbox:checked").each(function () {
+            self._ids.push($(this).attr('message-id'));
+            var idx = $(this).closest('.card-header').attr('message-index');
+            if (idx !== undefined) self._indices.push(parseInt(idx, 10));
+        });
+        self._updateBar();
+    },
+
+    clearAll: function () {
+        $(".history-message-checkbox:checked").prop('checked', false);
+        $(".message-card").removeClass('message-selected');
+        this._ids = [];
+        this._indices = [];
+        this._updateBar();
+    },
+
+    _updateBar: function () {
+        var bar = $('#multi-select-bar');
+        if (!bar.length) return;
+        var n = this.count();
+        if (n > 0) {
+            bar.find('.ms-count').text(n + ' selected');
+            bar.removeClass('d-none');
+            $('#chatView').addClass('has-selection-bar');
+        } else {
+            bar.addClass('d-none');
+            $('#chatView').removeClass('has-selection-bar');
+        }
+    },
+
+    /** Concatenate selected messages as markdown (in DOM order) */
+    getSelectedTexts: function () {
+        var ids = this._ids;
+        var texts = [];
+        $('.message-card').each(function () {
+            var msgId = $(this).find('.history-message-checkbox').attr('message-id');
+            if (ids.indexOf(msgId) >= 0) {
+                var sender = $(this).find('.card-header strong').first().text().trim() || 'Unknown';
+                var text = $(this).find('.actual-card-text').first().text().trim();
+                texts.push('**' + sender + ':** ' + text);
+            }
+        });
+        return texts;
+    },
+
+    init: function () {
+        var self = this;
+        // Inject action bar HTML
+        var isMobile = window.innerWidth < 768;
+        var moreClass = isMobile ? 'dropup' : 'dropdown';
+        var barHtml = '<div id="multi-select-bar" class="d-none" role="toolbar" aria-label="Selected message actions">' +
+            '<span class="ms-count" aria-live="polite"></span>' +
+            '<button class="btn btn-sm btn-outline-secondary ms-action" data-action="copy" title="Copy as Markdown"><i class="bi bi-clipboard"></i> Copy</button>' +
+            '<button class="btn btn-sm btn-outline-danger ms-action" data-action="delete" title="Delete Selected"><i class="bi bi-trash"></i> Delete</button>' +
+            '<button class="btn btn-sm btn-outline-secondary ms-action" data-action="hide" title="Hide Selected"><i class="bi bi-eye-slash"></i> Hide</button>' +
+            '<div class="' + moreClass + ' d-inline-block">' +
+                '<button class="btn btn-sm btn-outline-secondary dropdown-toggle" data-toggle="dropdown" aria-haspopup="true">More</button>' +
+                '<div class="dropdown-menu" id="ms-more-menu">' +
+                    '<a class="dropdown-item ms-action" data-action="summarize" href="#">Summarize</a>' +
+                    '<a class="dropdown-item ms-action" data-action="ask" href="#">Ask Question About</a>' +
+                    '<a class="dropdown-item" href="#" id="ms-preamble-toggle">Run Preamble ▸</a>' +
+                    '<div id="ms-preamble-submenu" class="d-none" style="padding-left:10px;">' +
+                    '</div>' +
+                    '<div class="dropdown-divider"></div>' +
+                    '<a class="dropdown-item ms-action" data-action="fork" href="#">Fork from Last Selected</a>' +
+                    '<a class="dropdown-item ms-action" data-action="context" href="#">Use as Context</a>' +
+                '</div>' +
+            '</div>' +
+            '<button class="btn btn-sm btn-outline-dark ms-dismiss" title="Dismiss" aria-label="Dismiss selection">&times;</button>' +
+        '</div>';
+        // Insert bar above chatView
+        $('#chatView').before(barHtml);
+
+        // Checkbox change → update state + visual
+        $(document).on('change', '.history-message-checkbox', function () {
+            var card = $(this).closest('.message-card');
+            if ($(this).prop('checked')) {
+                card.addClass('message-selected');
+            } else {
+                card.removeClass('message-selected');
+            }
+            self._sync();
+        });
+
+        // Dismiss button
+        $(document).on('click', '.ms-dismiss', function () {
+            self.clearAll();
+        });
+
+        // Escape key
+        $(document).on('keydown', function (e) {
+            if (e.key === 'Escape' && self.count() > 0) {
+                self.clearAll();
+            }
+        });
+
+        // Header tap to toggle checkbox (excluding buttons, dropdowns, checkboxes)
+        $(document).on('click', '.card-header', function (e) {
+            if ($(e.target).closest('.btn, .dropdown, .dropdown-menu, .dropdown-item, input[type="checkbox"], a, [data-toggle]').length > 0) return;
+            var cb = $(this).find('.history-message-checkbox');
+            cb.prop('checked', !cb.prop('checked')).trigger('change');
+        });
+
+        // Action handlers
+        $(document).on('click', '.ms-action', function (e) {
+            e.preventDefault();
+            var action = $(this).data('action');
+            if (!action) return;
+            self._handleAction(action);
+        });
+
+        // Preamble submenu toggle
+        $(document).on('click', '#ms-preamble-toggle', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            var sub = $('#ms-preamble-submenu');
+            if (sub.hasClass('d-none')) {
+                self._buildPreambleSubmenu();
+                sub.removeClass('d-none');
+            } else {
+                sub.addClass('d-none');
+            }
+        });
+
+        // Dynamic dropup on mobile
+        $(window).on('resize', function () {
+            var moreWrap = $('#multi-select-bar .dropdown, #multi-select-bar .dropup');
+            if (window.innerWidth < 768) {
+                moreWrap.removeClass('dropdown').addClass('dropup');
+            } else {
+                moreWrap.removeClass('dropup').addClass('dropdown');
+            }
+        });
+    },
+
+    _PREAMBLES: [
+        { id: 'engineering_excellence_prompt', label: '⭐ Engineering Excellence' },
+        { id: 'more_related_questions_prompt', label: '❓ Follow-up Questions' },
+        { id: 'general_chain_of_density_prompt', label: '📝 Dense Summary' },
+        { id: 'preamble_argumentative', label: '⚖️ Argumentative Analysis' },
+        { id: 'preamble_cot', label: '🔗 Chain of Thought' },
+        { id: 'improve_code_prompt', label: '💻 Improve Code' },
+    ],
+
+    _buildPreambleSubmenu: function () {
+        var self = this;
+        var container = $('#ms-preamble-submenu');
+        container.empty();
+        self._PREAMBLES.forEach(function (p) {
+            container.append('<a class="dropdown-item ms-preamble-item" href="#" data-preamble="' + p.id + '">' + p.label + '</a>');
+        });
+        container.off('click', '.ms-preamble-item').on('click', '.ms-preamble-item', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            var name = $(this).data('preamble');
+            self._runPreamble(name);
+        });
+    },
+
+    _handleAction: function (action) {
+        var self = this;
+        var convId = ConversationManager.activeConversationId;
+        if (!convId) return;
+
+        switch (action) {
+            case 'copy':
+                var texts = self.getSelectedTexts();
+                navigator.clipboard.writeText(texts.join('\n\n')).then(function () {
+                    showToast('Copied ' + texts.length + ' messages', 'success');
+                });
+                self.clearAll();
+                break;
+
+            case 'delete':
+                var ids = self.getIds();
+                if (!confirm('Delete ' + ids.length + ' messages? This cannot be undone.')) return;
+                $.ajax({
+                    url: '/batch_delete_messages/' + convId,
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ message_ids: ids }),
+                    success: function () {
+                        showToast('Deleted ' + ids.length + ' messages', 'success');
+                        self.clearAll();
+                        ConversationManager.setActiveConversation(convId);
+                    },
+                    error: function () { showToast('Delete failed', 'error'); }
+                });
+                break;
+
+            case 'hide':
+                var ids = self.getIds();
+                $.ajax({
+                    url: '/batch_hide_messages/' + convId,
+                    type: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ message_ids: ids, show_hide: 'hide' }),
+                    success: function () {
+                        showToast(ids.length + ' messages hidden', 'success');
+                        self.clearAll();
+                        ConversationManager.setActiveConversation(convId);
+                    },
+                    error: function () { showToast('Hide failed', 'error'); }
+                });
+                break;
+
+            case 'context':
+                // Keep checkboxes checked — send flow will pick them up
+                var n = self.count();
+                showToast(n + ' messages set as context', 'success');
+                $('#messageText').focus();
+                // Hide bar but do NOT uncheck
+                $('#multi-select-bar').addClass('d-none');
+                $('#chatView').removeClass('has-selection-bar');
+                break;
+
+            case 'ask':
+                var n = self.count();
+                showToast(n + ' messages set as context — type your question', 'success');
+                $('#messageText').attr('placeholder', 'Ask about the selected messages...').focus();
+                $('#multi-select-bar').addClass('d-none');
+                $('#chatView').removeClass('has-selection-bar');
+                break;
+
+            case 'fork':
+                var indices = self.getIndices();
+                if (!indices.length) return;
+                var maxIdx = Math.max.apply(null, indices);
+                $.ajax({
+                    url: '/fork_conversation/' + convId + '/' + maxIdx,
+                    type: 'POST',
+                    success: function (data) {
+                        showToast('Forked conversation', 'success');
+                        self.clearAll();
+                        if (data.conversation_id) {
+                            WorkspaceManager.loadConversationsWithWorkspaces(false).done(function () {
+                                ConversationManager.setActiveConversation(data.conversation_id);
+                                WorkspaceManager.highlightActiveConversation(data.conversation_id);
+                            });
+                        }
+                    },
+                    error: function () { showToast('Fork failed', 'error'); }
+                });
+                break;
+
+            case 'summarize':
+                var concatenated = self.getSelectedTexts().join('\n\n');
+                if (typeof TempLlmManager !== 'undefined') {
+                    TempLlmManager.executeAction('summarize_selection', concatenated, { conversationId: convId }, false);
+                } else {
+                    showToast('TempLlmManager not available', 'error');
+                }
+                self.clearAll();
+                break;
+        }
+    },
+
+    _runPreamble: function (preambleName) {
+        var self = this;
+        var convId = ConversationManager.activeConversationId;
+        var concatenated = self.getSelectedTexts().join('\n\n');
+        if (typeof TempLlmManager !== 'undefined') {
+            TempLlmManager.preambleName = preambleName;
+            TempLlmManager.executeAction('run_preamble', concatenated, { conversationId: convId }, false);
+        } else {
+            showToast('TempLlmManager not available', 'error');
+        }
+        self.clearAll();
+    }
+};
+
+$(document).ready(function () {
+    MultiSelectManager.init();
+});

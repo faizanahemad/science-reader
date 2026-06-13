@@ -28,7 +28,9 @@ const TempLLMManager = {
         'expand': '📖 Expand This',
         'eli5': '🧒 ELI5 (Explain Like I\'m 5)',
         'ask_temp': '💬 Ask Temporarily',
-        'explain_visual': '🎨 Explain Visually'
+        'explain_visual': '🎨 Explain Visually',
+        'summarize_selection': '📝 Summarize Selection',
+        'run_preamble': '⚙️ Run Preamble'
     },
     
     /**
@@ -361,7 +363,8 @@ const TempLLMManager = {
             message_text: this.currentMessageContext?.messageText,
             conversation_id: this.currentMessageContext?.conversationId,
             history: this.currentHistory,
-            with_context: this.withContext || false
+            with_context: this.withContext || false,
+            preamble_name: this.preambleName || ''
         };
         
         // Make the streaming request

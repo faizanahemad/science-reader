@@ -501,3 +501,52 @@
     margin-right: 6px;
     font-size: 0.85em;
 }
+
+/* ── Multi-Select Message Actions ── */
+.message-selected {
+    background-color: #e3f2fd !important;
+    border-left: 3px solid #1976d2 !important;
+}
+
+#multi-select-bar {
+    position: sticky;
+    top: 0;
+    z-index: 1050;
+    background: #f8f9fa;
+    border-bottom: 1px solid #dee2e6;
+    padding: 6px 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+#multi-select-bar .ms-count {
+    font-weight: 600;
+    font-size: 0.85rem;
+    margin-right: 4px;
+}
+
+#multi-select-bar .ms-dismiss {
+    margin-left: auto;
+    font-size: 1.2rem;
+    line-height: 1;
+}
+
+#chatView.has-selection-bar {
+    scroll-padding-top: 50px;
+}
+
+@media (max-width: 768px) {
+    #multi-select-bar {
+        position: fixed;
+        bottom: 60px;
+        top: auto;
+        left: 0;
+        right: 0;
+        border-bottom: none;
+        border-top: 1px solid #dee2e6;
+        box-shadow: 0 -2px 4px rgba(0,0,0,0.1);
+    }
+}

@@ -4899,6 +4899,34 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         except Exception:
             pass
 
+    def delete_messages_batch(self, message_ids: list):
+        """Delete multiple messages by their IDs in one pass."""
+        ids_set = set(str(mid) for mid in message_ids)
+        lock_location = self._get_lock_location("message_operations")
+        lock = FileLock(f"{lock_location}.lock")
+        with lock.acquire(timeout=600):
+            messages = self.get_field("messages") or []
+            messages = [m for m in messages if m.get("message_id") not in ids_set]
+            self.set_messages_field(messages, overwrite=True)
+            self.save_local()
+        return len(ids_set)
+
+    def batch_show_hide_messages(self, message_ids: list, show_hide: str):
+        """Set show_hide field on multiple messages in one pass."""
+        ids_set = set(str(mid) for mid in message_ids)
+        lock_location = self._get_lock_location("message_operations")
+        lock = FileLock(f"{lock_location}.lock")
+        with lock.acquire(timeout=600):
+            messages = self.get_field("messages") or []
+            count = 0
+            for m in messages:
+                if m.get("message_id") in ids_set:
+                    m["show_hide"] = show_hide
+                    count += 1
+            self.set_messages_field(messages, overwrite=True)
+            self.save_local()
+        return count
+
     def delete_message_pair(self, index):
         """Delete a user+assistant message pair by the index of either message.
 
@@ -13043,6 +13071,7 @@ Please provide your explanation or answer to the user's doubt in a clear, struct
         message_id=None,
         history=None,
         with_context=False,
+        **kwargs,
     ):
         """
         Execute an ephemeral LLM action without persistence.
@@ -13245,10 +13274,27 @@ Structure your answer as follows:
 Do not add any preamble or meta-commentary. Go straight into the diagrams.
 
 Your visual explanation:""",
+                "summarize_selection": f"""Summarize the following conversation exchange concisely. Capture the key points, decisions, and conclusions. Use bullet points for clarity.
+
+## Messages
+{selected_text}
+
+Your summary:""",
             }
 
             if user_message:
                 prompt = prompts["ask_temp"]
+            elif action_type == "run_preamble":
+                # Load named preamble and use it as system prompt with selected_text as content
+                from prompts import get_prompt
+                preamble_name = kwargs.get("preamble_name", "")
+                preamble_text = get_prompt(preamble_name, None)
+                if not preamble_text:
+                    preamble_text = "Analyze the following text and provide insights."
+                prompt = f"""{preamble_text}
+
+## Content
+{selected_text}"""
             else:
                 prompt = prompts.get(action_type, prompts["explain"])
 
