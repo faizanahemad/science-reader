@@ -5284,16 +5284,54 @@ var MultiSelectManager = {
             }
         });
 
-        // Header tap to toggle checkbox:
-        // - Always works with Cmd/Ctrl+click (desktop shortcut to start multi-select)
-        // - Without modifier, only works when multi-select is already engaged
-        $(document).on('click', '.card-header', function (e) {
+        // Header/card tap to toggle checkbox:
+        // Desktop: Cmd/Ctrl+click starts multi-select; plain click toggles when already active
+        // Mobile: long-press on card starts multi-select; short tap toggles when active
+        var _longPressTimer = null;
+        var _longPressTriggered = false;
+
+        // Mobile long-press to initiate multi-select
+        $(document).on('touchstart', '.message-card', function (e) {
+            if ($(e.target).closest('.btn, .dropdown, .dropdown-menu, .dropdown-item, input[type="checkbox"], a, [data-toggle]').length > 0) return;
+            var card = $(this);
+            _longPressTriggered = false;
+            _longPressTimer = setTimeout(function () {
+                _longPressTriggered = true;
+                var cb = card.find('.history-message-checkbox');
+                cb.prop('checked', !cb.prop('checked')).trigger('change');
+            }, 500);
+        });
+
+        $(document).on('touchend touchmove touchcancel', '.message-card', function (e) {
+            if (e.type === 'touchmove') {
+                clearTimeout(_longPressTimer);
+                _longPressTimer = null;
+            }
+            if (e.type === 'touchend' || e.type === 'touchcancel') {
+                clearTimeout(_longPressTimer);
+                _longPressTimer = null;
+            }
+        });
+
+        // Mobile short tap toggles when multi-select is active (WhatsApp style)
+        $(document).on('click', '.message-card', function (e) {
+            if (_longPressTriggered) { _longPressTriggered = false; return; }
+            // On mobile: only when multi-select active
+            if (window.innerWidth < 768) {
+                if (self.count() === 0) return;
+                if ($(e.target).closest('.btn, .dropdown, .dropdown-menu, .dropdown-item, input[type="checkbox"], a, [data-toggle]').length > 0) return;
+                var cb = $(this).find('.history-message-checkbox');
+                cb.prop('checked', !cb.prop('checked')).trigger('change');
+                e.stopPropagation();
+                return;
+            }
+            // Desktop: Cmd/Ctrl+click or active multi-select
             var hasModifier = e.metaKey || e.ctrlKey;
             if (!hasModifier && self.count() === 0) return;
             if ($(e.target).closest('.btn, .dropdown, .dropdown-menu, .dropdown-item, input[type="checkbox"], a, [data-toggle]').length > 0) return;
             var cb = $(this).find('.history-message-checkbox');
             cb.prop('checked', !cb.prop('checked')).trigger('change');
-            e.stopPropagation(); // prevent handleMessageFocus from firing
+            e.stopPropagation();
         });
 
         // Action handlers — primary bar buttons
