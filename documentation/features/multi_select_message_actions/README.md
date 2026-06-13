@@ -25,6 +25,18 @@ Every message has a checkbox (`history-message-checkbox`) that previously only s
 ### Header-Tap Toggle
 When at least one message is already checked (multi-select mode is active), tapping anywhere on a card header toggles that message's checkbox — providing a larger touch target than the small checkbox alone. When no messages are checked, header taps behave normally (triggering `handleMessageFocus`).
 
+### Desktop Selection
+- **Cmd+click** (Mac) or **Ctrl+click** (Windows/Linux) on any message card starts multi-select — even when nothing is selected yet
+- Once at least one message is checked, plain clicks on cards also toggle selection
+- `handleMessageFocus` is suppressed when Cmd/Ctrl is held or multi-select is active
+
+### Mobile Selection (WhatsApp-style)
+- **Long-press** (500ms) on any message card starts multi-select and selects that message
+- Once multi-select is active, **short tap** on any card toggles selection
+- Short tap on an already-selected message deselects it
+- Scrolling/moving finger cancels the long-press (no accidental selection)
+- Touch events: `touchstart` starts timer, `touchmove`/`touchcancel` clears it, `touchend` clears it; click handler checks `_longPressTriggered` flag to avoid double-toggle
+
 ### Dismiss
 - "×" button unchecks all checkboxes and hides the bar
 - `Escape` key does the same
@@ -62,7 +74,7 @@ Deletes all messages matching the given IDs in a single pass (one file lock, one
 Request: `{ "message_ids": ["id1", "id2", ...], "show_hide": "hide"|"show" }`  
 Response: `{ "hidden": N }`
 
-Sets `show_hide` field on matching messages in a single pass.
+Sets `user_hidden` boolean field on matching messages in a single pass. Note: the `show_hide` field in this app controls text expand/collapse (show more/less), NOT visibility. The `user_hidden` field is what actually hides messages from view by setting `display: none` on the card during rendering while preserving message-index for other operations (fork, delete, edit).
 
 ### Extended: `POST /temporary_llm_action`
 
@@ -102,8 +114,12 @@ New methods:
 ### Conflict Avoidance
 
 - **ContextMenuManager** (right-click on text selection) is completely separate — operates on text within a single message, not whole messages
-- **handleMessageFocus** (card click) is suppressed when multi-select is active to prevent conflicts
+- **handleMessageFocus** (card click) is suppressed when multi-select is active or Cmd/Ctrl is held
 - Existing checkbox gathering in the send flow is unchanged — it still reads all `.history-message-checkbox:checked` on send
+- **Chat refresh after batch ops**: `setActiveConversation` short-circuits when the conversation is already active, so `activeConversationId` is set to `null` before calling it to force a full re-fetch
+- **More dropdown items**: Use a separate click handler with `e.stopPropagation()` and manual dropdown close to avoid Bootstrap swallowing the event
+- **TempLLMManager modal**: 150ms setTimeout before `executeAction` to let Bootstrap dropdown finish closing animation before modal opens
+- **Variable name**: The object is `TempLLMManager` (capital LLM), not `TempLlmManager`
 
 ## Available Preambles for Run Preamble
 
