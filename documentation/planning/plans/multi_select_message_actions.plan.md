@@ -405,3 +405,190 @@ The action bar only has `message_id` values (from checkboxes). Endpoints like de
 #### Frontend notification pattern
 
 All actions use `showToast(message, type)` where type is `'success'`, `'error'`, or `'warning'`. Already available globally.
+
+### Phase 3 Implementation Details (LLM Actions)
+
+#### TempLlmManager integration pattern
+
+For Summarize and Run Preamble, reuse the existing `TempLlmManager.executeAction()`:
+```javascript
+TempLlmManager.executeAction(action, selectedText, messageContext, withContext);
+```
+Where:
+- `action`: string like `'explain'`, `'critique'`, `'summarize_selection'`, etc.
+- `selectedText`: the concatenated message texts
+- `messageContext`: `{ messageId, messageText, conversationId }`
+- `withContext`: boolean (false for multi-select — we're providing the context explicitly)
+
+**Key**: The temp LLM modal already handles streaming, multi-turn follow-up, and rendering. We just need to pass the right data.
+
+#### Backend: temporary_llm_action endpoint
+
+`POST /temporary_llm_action` (in `endpoints/doubts.py` line 215):
+```json
+{
+    "action_type": "summarize_selection",
+    "selected_text": "**User:** msg1\n\n**Assistant:** msg2\n\n...",
+    "user_message": "",
+    "message_id": null,
+    "message_text": "",
+    "conversation_id": "conv_id_here",
+    "history": [],
+    "with_context": false
+}
+```
+
+For multi-select actions, we pass the concatenated messages as `selected_text`. The backend's `temporary_llm_action` method (Conversation.py line ~12989) maps `action_type` to a system prompt. We need to add new action types:
+- `"summarize_selection"` → system prompt that summarizes multiple messages
+- `"run_preamble"` → uses the named preamble as system prompt
+
+#### Adding new action_types to Conversation.temporary_llm_action
+
+In Conversation.py line ~13050-13200, there's a `prompts` dict mapping action_type to system prompt strings. Add:
+```python
+"summarize_selection": f"""Summarize the following conversation exchange concisely...
+{selected_text}
+""",
+"run_preamble": None,  # handled separately — prompt loaded from prompts.py by name
+```
+
+For "run_preamble", pass the preamble name as a new field (e.g., `data.get("preamble_name")`), load it via `get_prompt(preamble_name)`, and use it as the system prompt with `selected_text` as user content.
+
+#### Ask Question About
+
+This is simpler than Summarize — it doesn't need a new action_type:
+1. Set checked messages as context (same as "Use as Context")
+2. Focus `#messageText` textarea
+3. Optionally set placeholder: `$('#messageText').attr('placeholder', 'Ask about the selected messages...')`
+4. Dismiss action bar, keep checkboxes checked
+5. User types their question and sends normally — existing flow handles the rest
+
+#### Run Preamble submenu
+
+Frontend needs a list of preamble names. Two approaches:
+1. **Static list** (simpler): Hardcode a curated subset in JS — the ones useful for message analysis
+2. **Dynamic endpoint** (more flexible): `GET /list_preambles` → returns `{ preambles: [...] }`
+
+Recommended: Static curated list for v1. These are the preambles suitable for "run on messages":
+```javascript
+const MULTI_SELECT_PREAMBLES = [
+    { id: 'senior_engineer_summary_prompt', label: '🔧 Senior Engineer Summary' },
+    { id: 'senior_engineer_mental_models_and_thought_process_prompt', label: '🧠 Mental Models & Thought Process' },
+    { id: 'more_related_questions_prompt', label: '❓ Generate Follow-up Questions' },
+    { id: 'engineering_excellence_prompt', label: '⭐ Engineering Excellence Review' },
+    { id: 'general_chain_of_density_prompt', label: '📝 Dense Summary (Chain of Density)' },
+    { id: 'preamble_argumentative', label: '⚖️ Argumentative Analysis' },
+    { id: 'preamble_cot', label: '🔗 Chain of Thought' },
+    { id: 'improve_code_prompt', label: '💻 Improve Code' },
+];
+```
+
+These are loaded from `prompts.json` via `manager["name"]` at module level in `prompts.py`. The inline-defined ones (like `senior_engineer_summary_prompt` at line 291) are also accessible via the manager. Backend should use `get_prompt(name)` to retrieve.
+
+#### Request flow for Run Preamble
+
+Frontend:
+```javascript
+var concatenated = selectedMessages.map(m => '**' + m.sender + ':** ' + m.text).join('\n\n');
+TempLlmManager.currentSelection = concatenated;
+TempLlmManager.currentMessageContext = { conversationId: convId };
+TempLlmManager.currentActionType = 'run_preamble';
+TempLlmManager.currentHistory = [];
+TempLlmManager.withContext = false;
+TempLlmManager.openModal('run_preamble', concatenated);
+// Custom stream call with extra preamble_name field
+fetch('/temporary_llm_action', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({
+        action_type: 'run_preamble',
+        selected_text: concatenated,
+        conversation_id: convId,
+        preamble_name: selectedPreambleName,  // NEW field
+    })
+})
+```
+
+Or simpler: extend `TempLlmManager.streamActionResponse` to accept an extra `preamble_name` param and include it in the request body.
+
+### Phase 4 Implementation Details (Polish)
+
+#### Dropup on mobile
+
+Bootstrap 4 supports dropup natively:
+```html
+<div class="dropup">  <!-- instead of "dropdown" -->
+    <button data-toggle="dropdown">More</button>
+    <div class="dropdown-menu">...</div>
+</div>
+```
+Toggle class based on `window.isProbablyMobileDevice()` or `window.innerWidth < 768`.
+
+#### Keyboard shortcuts
+
+```javascript
+$(document).on('keydown', function(e) {
+    if (e.key === 'Escape' && MultiSelectManager.count() > 0) {
+        MultiSelectManager.clearAll();
+    }
+});
+```
+
+#### Accessibility
+
+Minimal aria additions:
+```html
+<div id="multi-select-bar" role="toolbar" aria-label="Selected message actions">
+    <span aria-live="polite">3 messages selected</span>
+    <button aria-label="Copy selected messages as markdown">📋</button>
+    ...
+</div>
+```
+
+#### Bar positioning and content overlap
+
+To prevent the bar from covering messages:
+```css
+#chatView {
+    transition: padding-top 0.2s;
+}
+#chatView.has-selection-bar {
+    padding-top: 50px; /* height of bar */
+}
+/* Mobile: padding-bottom instead */
+@media (max-width: 768px) {
+    #chatView.has-selection-bar {
+        padding-top: 0;
+        padding-bottom: 50px;
+    }
+}
+```
+Toggle `.has-selection-bar` class when bar shows/hides.
+
+### All prompts.json keys (for reference)
+
+```
+base_system, chat_slow_reply_prompt, code_agent_prompt1, code_agent_prompt2,
+code_agent_prompt2_v2, code_agent_prompt3, code_agent_what_if_prompt,
+coding_interview_prompt, dating_maverick_prompt, diagram_instructions, dynamic,
+engineering_excellence_prompt, google_behavioral_interview_prompt, google_gl_prompt,
+improve_code_prompt, improve_code_prompt_interviews, manager_assist_agent_prompt,
+manager_assist_agent_short_prompt, manager_to_manager_framework_prompt,
+math_formatting_instructions, ml_system_design_*, more_related_questions_prompt,
+no_code_prompt, persist_current_turn_prompt, preamble_argumentative,
+preamble_blackmail, preamble_code_exec, preamble_cot, preamble_creative,
+preamble_easy_copy, preamble_explore, preamble_no_ai, preamble_no_ai_short,
+preamble_no_code_exec, preamble_no_code_prompt, preamble_short, preamble_web_search,
+relationship_prompt, short_coding_interview_prompt, tts_friendly_format_instructions,
+wife_prompt
+```
+
+Plus inline-defined prompts in prompts.py (not in .json):
+- `senior_engineer_summary_prompt` (line 291)
+- `senior_engineer_mental_models_and_thought_process_prompt` (line 267)
+- `scientific_chain_of_density_prompt` (line 356)
+- `business_chain_of_density_prompt` (line 383)
+- `technical_chain_of_density_prompt` (line 412)
+- `general_chain_of_density_prompt` (line 443)
+- `tldr_summary_prompt` (line 143)
+- `keyword_extraction_prompt` (line 191)
