@@ -44,6 +44,8 @@ def create_connection(db_file):
     conn = None
     try:
         conn = sqlite3.connect(db_file)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
     except Error as e:
         print(f"Database connection error: {e}")
     return conn

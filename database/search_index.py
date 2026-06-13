@@ -56,6 +56,7 @@ def get_search_connection(users_dir: str) -> sqlite3.Connection:
 
     # Enable WAL for concurrent read/write
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA busy_timeout=5000")
 
     # Register a REGEXP function for regex search mode
     def _regexp(pattern: str, value: str) -> bool:

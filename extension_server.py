@@ -638,7 +638,10 @@ def create_connection(db_path):
     import sqlite3
 
     try:
-        return sqlite3.connect(db_path)
+        conn = sqlite3.connect(db_path)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
+        return conn
     except Exception as e:
         logger.error(f"Database connection error: {e}")
         return None

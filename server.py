@@ -230,8 +230,8 @@ def _run_global_docs_migration(*, global_docs_dir: str, users_dir: str) -> None:
 
     try:
         conn = sqlite3.connect(db_path)
-
-        # Step 1 — create OS directories for all folders
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         for folder_id, user_email in conn.execute(
             "SELECT folder_id, user_email FROM GlobalDocFolders"
         ).fetchall():
