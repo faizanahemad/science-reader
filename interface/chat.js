@@ -3,6 +3,9 @@
 // When disabled, settings will still work during the session but won't persist across page reloads
 const ENABLE_SETTINGS_PERSISTENCE = true;
 
+// Default tools enabled for new conversations / settings reset
+const DEFAULT_ENABLED_TOOLS = ['ask_clarification', 'pkb_nl_command'];
+
 // ---------- Compact Nav (move action buttons into navbar dropdown) ----------
 function applyCompactNav(enabled) {
     if (enabled) {
@@ -1324,7 +1327,7 @@ function resetSettingsToDefaults() {
     // Tool Use
     $('#settings-tool_mode').val('hybrid');
     $('#tool-use-options').hide();
-    $('#settings-tool-selector').val(['ask_clarification', 'pkb_nl_command']);
+    $('#settings-tool-selector').val(DEFAULT_ENABLED_TOOLS);
     if (typeof $.fn.selectpicker !== 'undefined') {
         $('#settings-tool-selector').selectpicker('refresh');
     }
@@ -1424,7 +1427,7 @@ function computeDefaultStateForTab(tab) {
         reward: '0',
         enable_tool_use: true,
         tool_mode: 'hybrid',
-        enabled_tools: ['ask_clarification'],
+        enabled_tools: DEFAULT_ENABLED_TOOLS,
         preamble_options: getDefaultPreambleForTab(tab),
         doubt_preamble_options: [],
         main_model: getDefaultModelForTab(tab),

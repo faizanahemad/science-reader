@@ -1,6 +1,6 @@
 # Plan: PKB NL Tool UI Enhancements & Default Tools Config
 
-**Status:** PARTIAL — Group A (bug fixes) done. Group B interactive tool architecture partially done (implemented as pkb_propose_memory instead of pkb_propose_updates; B7-B9 UI not wired).
+**Status:** DONE (June 2026) — All items implemented. Group B uses tool name pkb_propose_memory (equivalent to planned pkb_propose_updates).
 
 **Date**: 2026-03-10
 **Status**: Draft
