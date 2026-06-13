@@ -607,8 +607,12 @@ def make_conversation_stateless(conversation_id: str):
     conversation = get_conversation_with_keys(
         state, conversation_id=conversation_id, keys=keys
     )
-    conversation.make_stateless()
-    return jsonify({"message": f"Conversation {conversation_id} stateless now."})
+    if conversation.stateless:
+        conversation.make_stateful()
+        return jsonify({"message": f"Conversation {conversation_id} is now stateful.", "stateless": False})
+    else:
+        conversation.make_stateless()
+        return jsonify({"message": f"Conversation {conversation_id} stateless now.", "stateless": True})
 
 
 @conversations_bp.route(

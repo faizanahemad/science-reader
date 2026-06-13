@@ -277,8 +277,12 @@ var ConversationManager = {
             type: 'DELETE',
             success: function (result) {
                 if (suppressModal) return;
-                if (currentDomain['domain'] === 'assistant' || currentDomain['domain'] === 'finance') {
-                    $('#stateless-conversation-modal').modal('show');
+                if (result.stateless === false) {
+                    $('#stateful-conversation-modal').modal('show');
+                } else {
+                    if (currentDomain['domain'] === 'assistant' || currentDomain['domain'] === 'finance') {
+                        $('#stateless-conversation-modal').modal('show');
+                    }
                 }
             },
             error: function (result) {
