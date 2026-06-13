@@ -5395,6 +5395,7 @@ var MultiSelectManager = {
                     success: function () {
                         showToast('Deleted ' + ids.length + ' messages', 'success');
                         self.clearAll();
+                        ConversationManager.activeConversationId = null;
                         ConversationManager.setActiveConversation(convId);
                     },
                     error: function () { showToast('Delete failed', 'error'); }
@@ -5411,6 +5412,7 @@ var MultiSelectManager = {
                     success: function () {
                         showToast(ids.length + ' messages hidden', 'success');
                         self.clearAll();
+                        ConversationManager.activeConversationId = null;
                         ConversationManager.setActiveConversation(convId);
                     },
                     error: function () { showToast('Hide failed', 'error'); }
