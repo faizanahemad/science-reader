@@ -1,6 +1,6 @@
 # PKB / TMS — Tiered Memory Persistence (Silent-with-Undo + Confirm-when-Risky)
 
-**Status:** Draft
+**Status:** PARTIAL — Backend routing logic complete (routing.py, config, REST/MCP endpoints, tests). UI layer missing (no auto-save toast, no undo button, no review section, no audit log table).
 **Created:** 2026-06-12
 **Scope:** Replace the current "every long-term claim requires user confirmation" behavior with a **tiered routing policy** that decides, per extracted candidate, whether to (A) **save silently with undo**, (B) **ask the user to confirm**, or (C) **skip silently**. The decision is computed from signals the pipeline *already* produces (confidence, dedup similarity, conflict relation, derivation, context domain, claim type, visibility). Covers product design, the UX at UI / REST / MCP levels, the implementation seam, config, rollout (inert-by-default, eval-gated), and evaluation.
 

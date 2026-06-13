@@ -1,5 +1,7 @@
 # Plan: Tool Mode Selector — 5-Mode Tool Selection System
 
+**Status:** DONE (June 2026)
+
 ## Motivation
 
 With all 97 tools enabled, the system consumes ~14,200 tokens per turn just for tool definitions in the OpenAI `tools` parameter. Most conversations use only 3-8 tools per turn. The current binary toggle (tools ON/OFF) forces a choice between full capability (expensive) and no tools (limiting).

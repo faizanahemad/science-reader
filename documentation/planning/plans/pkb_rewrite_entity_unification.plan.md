@@ -37,6 +37,8 @@ todos:
     status: pending
 ---
 
+**Status:** DONE (June 2026) — All workstreams implemented and eval-gated (mrr 0.927 vs 0.872 baseline).
+
 # PKB Rewrite/Entity Unification
 
 **Keyed eval gate — PASSED** (k=5 on `pkb_seed_v3`, OpenRouter key, strategies

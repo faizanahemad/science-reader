@@ -1,5 +1,7 @@
 # Doubt System Enhancements Plan
 
+**Status:** DONE (June 2026) — All 13 features implemented.
+
 ## Background
 
 The doubt system provides a persistent, threaded Q&A layer attached to individual messages. It supports manual doubts (user-triggered via context menu) and auto-doubts (5 parallel threads generated after each assistant reply). This plan covers 7 enhancements to improve discoverability, usability, and learning value.

@@ -40,6 +40,8 @@ todos:
     status: pending
 ---
 
+**Status:** PARTIAL (June 2026) — Code for W-A (weighted RRF), W-B (query scoping), W-C (entity strategy) all implemented with tests. Missing: eval-baseline re-run and eval-gate validation runs not recorded.
+
 # PKB Retrieval Ranking Improvements
 
 ## Motivation & Problem Statement

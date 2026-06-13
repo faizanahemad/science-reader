@@ -1,7 +1,7 @@
 # PKB Memory Overview: Design & Implementation Plan
 
 **Created:** 2026-06-10
-**Status:** Planned
+**Status:** DONE (June 2026)
 **Depends On:** PKB v0.9 (Schema v10, `truth_management_system/`), `MarkdownEditorManager` (`interface/markdown-editor.js`), REST API (`endpoints/pkb.py`)
 **Schema Version:** This plan adds schema v11 (`pkb_overview` table). Schema v10 is `audit_log` (Workstream G3) — already shipped.
 **Related Docs:**
