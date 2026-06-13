@@ -1565,7 +1565,13 @@ function displayLockStatus(data, conversationId) {
 
     function setMultiMode(on) {
         window._modelSelectorMultiMode = !!on;
-        if (!on) { window._modelSelectionOrder = []; }
+        if (!on) {
+            window._modelSelectionOrder = [];
+        } else {
+            // Seed order from current selection (DOM order as initial baseline)
+            var current = $('#settings-main-model-selector').val() || [];
+            window._modelSelectionOrder = current.slice();
+        }
         try { localStorage.setItem(STORAGE_KEY, !!on); } catch(e) {}
         updateToggleButton();
     }
