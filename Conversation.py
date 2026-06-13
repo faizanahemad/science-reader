@@ -11610,12 +11610,18 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     _model_ids = sorted(_model_responses.keys(), key=lambda x: int(x.rsplit("_", 1)[1]))
                     _primary_id = _model_ids[0]
                     _primary_name = _primary_id.rsplit("_", 1)[0]
-                    _primary_text = _model_responses[_primary_id]
+                    # Strip <details>/<summary> wrapper from stored responses
+                    import re as _re
+                    def _strip_details_wrapper(text):
+                        text = _re.sub(r'^<details[^>]*>\s*<summary>.*?</summary>\s*', '', text, flags=_re.DOTALL)
+                        text = _re.sub(r'\s*</details>\s*$', '', text)
+                        return text.strip()
+                    _primary_text = _strip_details_wrapper(_model_responses[_primary_id])
                     # Fire parallel diff calls for each secondary model
                     _diff_futures = []
                     for _sec_id in _model_ids[1:]:
                         _sec_name = _sec_id.rsplit("_", 1)[0]
-                        _sec_text = _model_responses[_sec_id]
+                        _sec_text = _strip_details_wrapper(_model_responses[_sec_id])
                         _diff_futures.append((
                             _sec_name,
                             get_async_future(

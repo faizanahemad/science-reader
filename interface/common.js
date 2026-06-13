@@ -3428,12 +3428,14 @@ function applyModelResponseTabs(elem_to_render_in) {
         });
     }
 
-    // Add Diff tab if multiple models present
+    // Add Diff tab if multiple models present (before TLDR/Visual — splice it in)
     var $diffBlocks = $root.find('[data-answer-diff]');
     var hasDiffContent = $diffBlocks.length > 0;
     var isMultiModel = modelDetails.length > 1;
     if (isMultiModel) {
-        tabItems.push({
+        // Insert diff right after model tabs (before tldr/visual)
+        var diffInsertIdx = modelDetails.length > 0 ? modelDetails.length : 0;
+        tabItems.splice(diffInsertIdx, 0, {
             key: 'diff',
             label: '⚡ Diff',
             element: null,
@@ -3517,11 +3519,15 @@ function applyModelResponseTabs(elem_to_render_in) {
                         if (sections.length > 0) $diffContainer.append($group);
                         // Inject badge into the corresponding model tab nav-link
                         if (badge) {
+                            var shortNameLower = shortName.toLowerCase();
                             $nav.find('.nav-link').each(function() {
-                                var linkText = ($(this).text() || '').trim().toLowerCase();
-                                if (linkText && shortName.toLowerCase().indexOf(linkText) !== -1 || linkText.indexOf(shortName.toLowerCase()) !== -1) {
-                                    if (!$(this).find('.model-diff-badge').length) {
-                                        $(this).append(' <span class="model-diff-badge">' + badge + '</span>');
+                                var $link = $(this);
+                                var tabKey = ($link.attr('data-tab-key') || '').toLowerCase();
+                                var linkText = ($link.text() || '').trim().toLowerCase();
+                                // Match by checking if the model short name appears in the tab key or label
+                                if ((tabKey.indexOf(shortNameLower) !== -1 || linkText.indexOf(shortNameLower) !== -1) && tabKey !== 'diff' && tabKey !== 'tldr' && tabKey !== 'visual') {
+                                    if (!$link.find('.model-diff-badge').length) {
+                                        $link.append(' <span class="model-diff-badge">' + badge + '</span>');
                                     }
                                 }
                             });
@@ -3530,7 +3536,10 @@ function applyModelResponseTabs(elem_to_render_in) {
                     $block.attr('data-model-tabs-hidden', 'true');
                     $block[0].style.display = 'none';
                 });
-                if (allAgree && $diffBlocks.length > 0) {
+                if (allAgree) {
+                    $diffContainer.append('<div class="diff-all-agree">✅ All models agree</div>');
+                } else if ($diffContainer.find('.diff-model-group').length === 0) {
+                    // Stats indicated differences but no sections rendered — show generic message
                     $diffContainer.append('<div class="diff-all-agree">✅ All models agree</div>');
                 }
                 $body.append($diffContainer);
@@ -4359,8 +4368,22 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
     has_end_answer_tag = html.includes('</answer>')
     html = html.replace(/<answer>/g, '').replace(/<\/answer>/g, '');
     // Convert <answer_diff> tags to divs with data attributes (persisted model comparison data)
-    html = html.replace(/<\s*answer_diff\s+model="([^"]*?)"\s+vs="([^"]*?)"\s*>/gi, '<div data-answer-diff="true" data-diff-model="$1" data-diff-vs="$2">')
-        .replace(/<\s*\/\s*answer_diff\s*>/gi, '</div>');
+    var _diffOpenCount = (html.match(/<\s*answer_diff\s/gi) || []).length;
+    var _diffCloseCount = (html.match(/<\s*\/\s*answer_diff\s*>/gi) || []).length;
+    if (_diffOpenCount > 0 && _diffOpenCount === _diffCloseCount) {
+        // All blocks complete — safe to convert
+        html = html.replace(/<\s*answer_diff\s+model="([^"]*?)"\s+vs="([^"]*?)"\s*>/gi, '<div data-answer-diff="true" data-diff-model="$1" data-diff-vs="$2">')
+            .replace(/<\s*\/\s*answer_diff\s*>/gi, '</div>');
+    } else if (_diffOpenCount > _diffCloseCount) {
+        // Some blocks still streaming — convert only complete pairs, hide incomplete
+        // Convert matched pairs first
+        for (var _di = 0; _di < _diffCloseCount; _di++) {
+            html = html.replace(/<\s*answer_diff\s+model="([^"]*?)"\s+vs="([^"]*?)"\s*>/, '<div data-answer-diff="true" data-diff-model="$1" data-diff-vs="$2">');
+            html = html.replace(/<\s*\/\s*answer_diff\s*>/, '</div>');
+        }
+        // Hide remaining unclosed opening tags
+        html = html.replace(/<\s*answer_diff[^>]*>/gi, '<!--answer_diff_pending-->');
+    }
     // Streaming-safety for <answer_tldr>:
     // During streaming, we may receive the opening tag before the closing tag arrives.
     // Converting an unclosed <answer_tldr> into a <div> produces malformed HTML, and browsers
