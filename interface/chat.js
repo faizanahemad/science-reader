@@ -1565,6 +1565,7 @@ function displayLockStatus(data, conversationId) {
 
     function setMultiMode(on) {
         window._modelSelectorMultiMode = !!on;
+        if (!on) { window._modelSelectionOrder = []; }
         try { localStorage.setItem(STORAGE_KEY, !!on); } catch(e) {}
         updateToggleButton();
     }
