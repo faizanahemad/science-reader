@@ -11072,6 +11072,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             )
 
         else:
+            llm = None  # default; assigned below in the non-only_slides / non-ensemble branches
             if is_slide_agent and storyboard_context is not None:
                 prompt = (
                     prompt
