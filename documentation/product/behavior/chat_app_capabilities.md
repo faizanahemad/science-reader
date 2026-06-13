@@ -559,7 +559,7 @@ location /ws/terminal {
  Adds native, mid-response tool calling to the chat pipeline — the LLM can autonomously invoke tools during a conversation turn.
  98 tools across 14 categories: clarification (1), search (5), documents (14), pkb (16), memory (7), code_runner (1), artefacts (8), prompts (5), conversation (5), cross_conversation (7 — 3 cross-conversation search + 4 tool call history), aggregator (4 — delegate_task, delegate_task_background, get_task_result, list_background_tasks), coding (12 — file system, PDF, image analysis, agent file summary, bash, todos), general (2 — generate_image, transcribe_audio), meta (1 — request_tools).
  Multi-step agentic loop: up to 10 tool-call iterations per turn (configurable `max_iterations`), with `tool_choice="none"` on the final iteration to force text output. Zero-cost `request_tools` expansions (max 2/turn) don't consume iteration budget.
- Interactive tools (ask_clarification, pkb_propose_memory) pause streaming, show a Bootstrap modal for user input (MCQ questions or editable proposed claims), wait up to 60s via `threading.Event`, then resume.
+ Interactive tools (ask_clarification, pkb_propose_memory) pause streaming, show a Bootstrap modal for user input (MCQ questions or editable proposed claims), wait up to 120s via `threading.Event`, then resume.
  Server-side tools (web search, document lookup, PKB operations, code execution, etc.) execute silently with inline status indicators.
  **5-mode tool selection** replaces the old master toggle + selectpicker:
    - `hybrid` (default): Fast LLM (VERY_CHEAP_LLM) selects 15-25 relevant tools per turn + `request_tools` fallback meta-tool. Best balance of token savings and capability.
