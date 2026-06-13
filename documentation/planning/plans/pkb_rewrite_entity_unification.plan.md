@@ -4,37 +4,37 @@ overview: "Make the existing overview-aware rewrite the single source of query d
 todos:
   - id: context-mechanism
     content: "Add a per-call dispatch mechanism to thread rewrite outputs to strategies without a 2nd LLM call: a `strategy_context` (entities/embedding_query/precomputed rewrite metadata) carried alongside the existing W-B `strategy_queries` map through hybrid.search → _execute_parallel → strategy.search. Decide interface: extend SearchFilters (transient hints) vs a dedicated context param. Lean: dedicated `strategy_context: Dict[str, Any]` symmetric with strategy_queries."
-    status: pending
+    status: done
   - id: single-call-coordination
     content: "In the hybrid orchestrator: when a key is present and rewrite+entity are both active, compute the rewrite metadata ONCE (rewrite.search_with_metadata or a memoized _rewrite_query), use those rewrite results as the `rewrite` source (do not re-run rewrite's LLM in parallel), and pass extracted_entities → entity strategy (surface_forms) and embedding_query → embedding. Inject precomputed metadata into the rewrite strategy so it never double-calls."
-    status: pending
+    status: done
   - id: rewrite-precomputed-metadata
     content: "Add an optional `precomputed_metadata`/`metadata` param to RewriteSearchStrategy.search/search_with_metadata so the orchestrator can supply the already-computed RewriteMetadata and the strategy skips its own _rewrite_query call. Default None = current behavior (self-call)."
-    status: pending
+    status: done
   - id: entity-consume-rewrite-entities
     content: "Entity strategy consumes the LLM entities via the surface_forms hook (already added in 05b604a) read from strategy_context; falls back to regex extraction when absent (offline / no key). Gate with `entity_use_rewrite_entities` (default True). Cap still applies (entity_strategy_max_entities=5)."
-    status: pending
+    status: done
   - id: reuse-query-embedding
     content: "Avoid the entity strategy's extra get_query_embedding call: pass the embedding_query (or a precomputed query vector) via strategy_context so entity cosine ranking reuses what embedding/rewrite already computed. Fallback: compute as today. Keep _cosine dimension-consistent (same get_query_embedding/get_embedding_model path)."
-    status: pending
+    status: done
   - id: config-flags
     content: "Add config flags (default to current behavior): entity_use_rewrite_entities: bool = True; rewrite_is_query_source: bool = True (single-call dispatch). Wire through dataclass/to_dict/from_dict/env. No-op/inert defaults so a restart with no env changes preserves behavior."
-    status: pending
+    status: done
   - id: backfill-entities
     content: "Optional data-level migration: StructuredAPI.backfill_entities(context_domain=None, dry_run=False) following the existing backfill_embeddings/backfill_provenance/backfill_origin pattern — for claims lacking claim_entities links, run extract_entities + get_or_create + link_claim_entity. Idempotent, batched, dry-run, user-scoped. Optional REST endpoint + CLI. NOT required for correctness (FTS/embedding still retrieve un-linked claims); only raises entity-path recall on the existing corpus."
-    status: pending
+    status: done
   - id: eval
     content: "Extend the retrieval eval harness with entity-mention + paraphrase cases that exercise the LLM-entity path (keyed run). Re-baseline, then gate: confirm precision@5/mrr improve (or hold) and recall@5 does not regress. Tune rrf_strategy_weights (W-A) on this harness (fts<embedding; entity≈0.8) and ship only what helps."
-    status: pending
+    status: done
   - id: tests
     content: "Unit: strategy_context threading; rewrite precomputed_metadata skips the LLM call; entity consumes surface_forms from context; reused embedding ranking; config round-trip/defaults. Integration: hybrid issues exactly ONE rewrite LLM call (no double-call) and entity claims surface + dedup in a single top-level RRF. Migration: backfill_entities idempotency + dry-run + user scope + status filter. Restart: load_config defaults preserve behavior."
-    status: pending
+    status: done
   - id: docs
     content: "Update README (search approaches), implementation.md (rewrite + entity sections, orchestration), implementation_deep_dive.md (single-call dispatch + RRF flow), and config docs. Document the backfill command + that it is optional."
-    status: pending
+    status: done
   - id: rollback
     content: "Verify rollback: flags off (entity_use_rewrite_entities=False, rewrite_is_query_source=False) returns to today's behavior (entity uses regex; strategies run independently). rrf_strategy_weights={} keeps unweighted fusion. No schema change to revert."
-    status: pending
+    status: done
 ---
 
 **Status:** DONE (June 2026) — All workstreams implemented and eval-gated (mrr 0.927 vs 0.872 baseline).

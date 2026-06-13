@@ -1,6 +1,6 @@
 # Multi-Select Message Actions
 
-**Status:** Approved  
+**Status:** DONE (June 2026)
 **Created:** 2026-06-13  
 **Scope:** A floating action bar that appears when one or more message checkboxes are ticked, providing batch operations on selected messages. Works on desktop and mobile without conflicting with the existing LLM right-click context menu.
 

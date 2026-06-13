@@ -4,40 +4,40 @@ overview: "Improve PKB retrieval precision with three independent, eval-gated ch
 todos:
   - id: eval-baseline
     content: "RE-BASELINE the retrieval eval against the CURRENT working tree (post short-term-memory v12 + the w_recency=0.15/w_confidence=0.1 tuning). The historical 0.537/0.763/0.664 was measured at w_recency=w_confidence=0 and is now stale. Capture the new precision@5/recall@5/mrr before any change."
-    status: pending
+    status: done
   - id: wa-weighted-rrf
     content: "W-A: add per-strategy weights to merge_results_rrf (weighted RRF); config w_fts < w_embedding; default weights reproduce current ranking exactly"
-    status: pending
+    status: done
   - id: wa-eval
     content: "W-A: eval-gate — tune w_fts/w_embedding on the harness, keep or revert based on precision@5/mrr"
-    status: pending
+    status: done
   - id: wb-query-scoping
     content: "W-B: route per-strategy queries in hybrid — FTS gets the focused current-message/rewrite fts_query, embedding gets the contextual embedding_query; stop feeding the summary-laden enhanced_query to literal FTS"
-    status: pending
+    status: done
   - id: wb-eval
     content: "W-B: eval-gate query scoping; verify stale past-topic matches drop without recall regression"
-    status: pending
+    status: done
   - id: wc-entity-strategy
     content: "W-C: new EntitySearchStrategy — resolve query entities (reuse rewrite entities + W6 aliases), pull claim_entities-linked claims, rank by cached claim-embedding cosine to query, return top-N"
-    status: pending
+    status: done
   - id: wc-hybrid-wire
     content: "W-C: register entity strategy in hybrid default set behind a flag; RRF fusion gives the boost + dedup automatically"
-    status: pending
+    status: done
   - id: wc-eval
     content: "W-C: eval-gate entity strategy; add entity-mention queries to the eval set if missing"
-    status: pending
+    status: done
   - id: config-fields
     content: Add config fields (rrf strategy weights, entity strategy top-N + enable flags) wired through to_dict/from_dict/env
-    status: pending
+    status: done
   - id: coordinate-getpkbcontext
     content: "W-B builds on the ALREADY-LANDED short-term-memory _get_pkb_context (STM injects a <stm_context> block and updates last_accessed_at after distillation). Preserve both; the query-scoping change is confined to the enhanced_query/api.search construction region."
-    status: pending
+    status: done
   - id: docs
     content: Update implementation.md + deep-dive (search section), feature doc, config docs with the three changes
-    status: pending
+    status: done
   - id: tests
     content: Unit tests for weighted RRF, per-strategy query routing, and the entity strategy (resolution, alias linking, embedding ranking, top-N, RRF boost)
-    status: pending
+    status: done
 ---
 
 **Status:** DONE (June 2026) — Code for W-A (weighted RRF), W-B (query scoping), W-C (entity strategy) all implemented with tests. Eval baseline and validation completed 2026-06-13.
