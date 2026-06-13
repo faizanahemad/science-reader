@@ -723,7 +723,7 @@ The backend resolver (`resolve_reference()`) uses suffix-based routing for fast 
 - **Internal parallelization**: `_get_pkb_context()` fires hybrid search + overview snippet + STM retrieval as futures immediately after API creation, running in parallel with all direct ID lookups (referenced, attached, pinned, conv-pinned claims). The search future resolves after ID lookups finish. Overview snippet is computed once and reused (no re-fetch). Net savings: 200-2000ms per turn.
 - Each `@friendly_id` is resolved by `resolve_reference()` which routes by suffix to the correct resolver (claim, context, entity, tag, or domain).
 - `@pkb_overview` is a special reference that injects the full Memory Overview document verbatim (bypasses distillation).
-- Auto-retrieval uses hybrid search combining several strategies in parallel, merged in ONE top-level Reciprocal Rank Fusion (RRF), then recency/confidence re-ranked (`w_recency=0.15`, `w_confidence=0.1`, half-life=30 days):
+- Auto-retrieval uses hybrid search combining several strategies in parallel, merged in ONE top-level Reciprocal Rank Fusion (RRF) with **tuned per-strategy weights** (`embedding=1.0, fts=0.6, entity=0.8` — eval-validated 2026-06-13: mrr 0.827→0.864), then recency/confidence re-ranked (`w_recency=0.15`, `w_confidence=0.1`, half-life=30 days):
   - **FTS** (original keywords), **Embedding** (vector similarity), and **Rewrite** (SUPERFAST_LLM rewrites the query informed by PKB overview Key Areas → runs both FTS + embedding on the rewritten queries).
   - **Entity** (W-C, default on): resolves named entities in the query and pulls their linked claims as another ranked list — orthogonal recall for people/orgs/things. Works without an API key (degrades to recency order).
   - **Tag** (W-D, **off by default / opt-in**): the symmetric counterpart for *category* tags (health, work, family, ...) — resolves the rewrite's tags to tagged claims via `claim_tags` (traversing the tag hierarchy). Gated on `tag_strategy_enabled`; ships **inert** because the keyed eval showed it lifts category-query recall/mrr to ~1.0 but at a small, consistent lexical-precision cost. Has a safer `tag_strategy_boost_only` mode (re-ranks corroborated claims only, never introduces tag-only claims).
@@ -748,8 +748,14 @@ The backend resolver (`resolve_reference()`) uses suffix-based routing for fast 
 - **Inferred claims are trusted less**: confidence is capped at `inferred_confidence_cap` (0.4) at add time and the rerank multiplies their score by `(1 − inferred_rerank_penalty)`. An explicit restatement *reconfirms* and upgrades `inferred→stated` (`reinforce_claim(upgrade_derivation=True)`).
 - **auto vs curated origin** for entities/tags (`meta_json.origin`): `auto` from enrichment, `curated` from the user. Trust/cleanup signal only — does not gate dedup.
 - **Dedup & merge**: cheap prefilters propose duplicate clusters for claims, entities and tags; an optional LLM pass (`judge_duplicates`, gated by `dedup_llm_verify`/`use_llm`) confirms each and picks a canonical. Tag merge (`POST /pkb/tags/merge`) mirrors entity merge (non-lossy).
-- **Memory Cleanup** orchestrator (`POST /pkb/cleanup`, `{apply?, use_llm?}`): one button that sweeps expired/dormant claims, refreshes the overview, and proposes dedup merges; two-phase (Analyze → Apply) so nothing destructive happens until confirmed.
-- **UI**: claim cards show a provenance badge (derivation + channel); entity/tag cards show an auto/curated origin badge; the **Maintenance tab** (PKB modal Tab 9) hosts Analyze/Apply; a toast fires when an add supersedes earlier memories.
+- **Memory Cleanup** orchestrator (`POST /pkb/cleanup`, `{apply?, use_llm?}`): one button that sweeps expired/dormant claims, refreshes the overview, and proposes dedup merges; two-phase (Analyze → Apply) so nothing destructive happens until confirmed. Per-item checkboxes for selective apply.
+- **Health Dashboard**: shows per-status colored badges (active/dormant/superseded/retracted/expired), type breakdown, domain count, and stale claim warning badge (confidence < 0.5, not accessed in 90+ days).
+- **Fading Memories** section: low-confidence claims approaching staleness with one-click Reinforce button. Always visible.
+- **Recently Archived** section: shows archived + superseded + retracted claims with status badges and one-click Restore button. Always visible.
+- **Dedup highlighting**: cluster members in cleanup analysis get word-level diff highlighting against the first item.
+- **Memory Autonomy Dial**: 5-detent slider (Manual/Assisted/Balanced/Proactive/Full) with live preview text and per-facet Advanced overrides (Capture/Curation/Lifecycle/Enrichment). Auto-saves on change.
+- **Recently Auto-Saved** section: shows claims saved by tiered persistence Lane A with per-item Undo buttons.
+- **UI**: claim cards show a provenance badge (derivation + channel) and status badge for non-active claims; entity/tag cards show an auto/curated origin badge; the **Maintenance tab** (PKB modal Tab 9) hosts all of the above; a toast fires when an add supersedes earlier memories or when claims are auto-saved (with undo link, 8s duration).
 - See `features/truth_management_system/pkb_provenance_and_cleanup.md`.
 
 **Toggle**
@@ -772,7 +778,7 @@ The backend resolver (`resolve_reference()`) uses suffix-based routing for fast 
 
 **Persistence**
 - PKB uses a separate sqlite DB: `pkb.sqlite` under `users_dir`.
-- Schema v11 with: claims, contexts, context_claims (M:N), entities (with `friendly_id`), tags (with `friendly_id`), claim_entities, claim_tags, claims_fts (FTS5), claim_embeddings, audit_log (v10), pkb_overview (v11).
+- Schema v14 with: claims, contexts, context_claims (M:N), entities (with `friendly_id`), tags (with `friendly_id`), claim_entities, claim_tags, claims_fts (FTS5), claim_embeddings, audit_log (v10), pkb_overview (v11), stm_entries (v12), pkb_notifications (v14), pkb_user_settings (v13), pkb_activity_log (v13).
 - Entity and tag friendly_ids are auto-generated with type suffixes (`_entity`, `_tag`) and indexed.
 - Context friendly_ids have `_context` suffix (migrated from unsuffixed in v6→v7).
 - Domain references are computed at query time (no separate DB table).
@@ -805,7 +811,7 @@ The backend resolver (`resolve_reference()`) uses suffix-based routing for fast 
 - Tiered routing: each extracted candidate is routed through a decision tree (conflict? → confirm; inferred? → confirm; sensitive domain? → confirm; duplicate? → skip; high-confidence stated fact? → auto-save; else → confirm).
 - All auto-saves are logged, reversible within 24h, and visible in a "Recently auto-saved" review surface.
 
-**Status:** Code complete, inert behind `tiered_persistence_enabled=False` and `default_autonomy=0`. Activation requires eval-gate (wrong-auto-save rate < 3%).
+**Status:** Code complete. UI landed 2026-06-13 (slider in Maintenance tab, auto-save toast with undo, recently auto-saved review section). Feature remains behind `tiered_persistence_enabled=False` and `default_autonomy=0` until eval-gate (wrong-auto-save rate < 3%) is confirmed in production.
 
 **User-facing surfaces (when activated):**
 - Toast notification when memories are auto-saved (with undo link)

@@ -59,9 +59,18 @@ Merges and provenance changes are now audited via the append-only `audit_log`: `
 
 In `interface/interface.html` + `interface/pkb-manager.js` (consumes the REST surface; no new backend):
 - **Provenance badge** on each claim card — `derivation` (stated=green / extracted=blue / inferred=amber) with a `channel` tooltip (`renderProvenanceBadge`).
+- **Status badge** on non-active claim cards — colored badges for superseded (warning), retracted (danger), expired (dark), dormant (info), historical (secondary), draft (light).
 - **Origin badge** (auto/curated) on entity and tag cards (`renderOriginBadge`).
-- **Maintenance tab** (PKB modal Tab 9) — the Memory Cleanup home: an **Analyze** button (non-destructive) renders the sweep counts + duplicate claim/entity/tag clusters (with an "LLM✓" marker when LLM verification is on), and **Apply suggested** merges them. An **LLM verify** checkbox maps to `use_llm`. Backed by `runMemoryCleanup` / `renderCleanupReport`.
+- **Maintenance tab** (PKB modal Tab 9) — the Memory Cleanup home:
+  - **Health Dashboard**: per-status colored badges, type breakdown, domain count, stale claims warning badge.
+  - **Analyze** button (non-destructive): renders sweep counts + duplicate claim/entity/tag clusters with per-item checkboxes for selective apply. Cluster members get **word-level diff highlighting** against the first item. "LLM✓" marker when LLM verification is on.
+  - **Apply selected**: merges only checked items (not all-or-nothing).
+  - **Fading Memories** section: low-confidence approaching-stale claims with Reinforce button. Always visible.
+  - **Recently Archived** section: shows archived + superseded + retracted claims with status badges and Restore button. Always visible.
+  - **Memory Autonomy Dial**: 5-detent slider (Manual→Full) with live preview and per-facet Advanced overrides.
+  - **Recently Auto-Saved** section: Lane A auto-saved claims with per-item Undo.
 - **Lifecycle toast** (`showLifecycleChanges`) when an add supersedes earlier memories; the add-claim REST response returns `lifecycle_changes`.
+- **Auto-save toast** with inline Undo link (8s duration) when tiered persistence saves claims silently.
 
 ## Configuration
 
