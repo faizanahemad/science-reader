@@ -1,6 +1,6 @@
 # PKB / TMS Memory System — Improvement Plan
 
-**Status:** M1 (embedding cache + eval harness) complete 2026-06-09 — remainder Draft
+**Status:** DONE (June 2026) — All workstreams A–H complete
 **Created:** 2026-06-09
 **Scope:** Internal improvements to the Truth Management System (PKB) — retrieval quality, scale, truth-management depth, provenance, lifecycle, and quality/ops. Does **not** cover external access (standalone UI, MCP, REST API) — see `pkb_external_access_ui_mcp_rest_auth.plan.md`.
 

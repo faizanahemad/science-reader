@@ -1,5 +1,7 @@
 # Multi-Model Diff Tab
 
+**Status:** DONE (June 2026)
+
 ## Motivation
 
 When users select multiple models, responses appear as tabs in the message card header. Currently there's no way to quickly understand how models differ without reading each response fully and mentally comparing. This feature adds:
