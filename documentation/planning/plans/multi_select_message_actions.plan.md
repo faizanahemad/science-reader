@@ -336,3 +336,72 @@ From `prompts.py`, these make sense on a group of messages:
 - Use Bootstrap 4 classes: `btn`, `btn-sm`, `btn-outline-*`, `dropdown`, `dropup`
 - jQuery is available globally
 - Icons: Bootstrap Icons (`bi bi-*`) used throughout
+
+### Phase 2 Implementation Details
+
+#### Batch Delete
+
+The existing `delete_message(message_id, index)` in Conversation.py (line 4852):
+- Acquires file lock, filters out the matching message from the messages list, calls `set_messages_field(messages, overwrite=True)`, saves
+- For batch delete, add `delete_messages_batch(message_ids)` that filters out all matching IDs in one pass (single lock, single save)
+- Endpoint pattern: `POST /batch_delete_messages/<conv_id>` with body `{ message_ids: ["id1", "id2", ...] }`
+- After delete, frontend should call `ConversationManager.setActiveConversation(convId)` to refresh the chat view (this re-fetches via `ChatManager.listMessages`)
+
+#### Batch Hide
+
+The existing `show_hide_message(message_id, index, show_hide)` in Conversation.py (line 3469):
+- Acquires file lock, iterates messages, sets `show_hide` field, saves
+- For batch: add `batch_show_hide_messages(message_ids, show_hide)` — single lock, iterate once, save once
+- Endpoint: `POST /batch_hide_messages/<conv_id>` with body `{ message_ids: [...], show_hide: "hide"|"show" }`
+- Frontend calls show_hide with "hide" from the action bar. To un-hide, user uses existing per-message toggle.
+- After hide, refresh chat view same as delete
+
+#### Copy as Markdown
+
+Pure frontend — no endpoint needed:
+```javascript
+// Gather selected messages in DOM order
+var texts = [];
+$('.message-card').each(function() {
+    var msgId = $(this).find('.history-message-checkbox').attr('message-id');
+    if (selectedIds.includes(msgId)) {
+        var sender = $(this).find('.card-header .badge').text().trim() || 'Unknown';
+        var text = $(this).find('.actual-card-text').text().trim();
+        texts.push('**' + sender + ':** ' + text);
+    }
+});
+navigator.clipboard.writeText(texts.join('\n\n'));
+```
+Note: `.actual-card-text` contains the rendered text. For raw markdown, would need to fetch from API — but clipboard copy of rendered text is sufficient for v1.
+
+#### Use as Context
+
+Already works — checkboxes checked → send flow gathers them. Action bar version:
+1. Toast "N messages set as context for next message"
+2. Focus `#messageText`
+3. Dismiss action bar but DO NOT uncheck the checkboxes (they need to stay checked for send flow to pick them up)
+4. This is the ONE action where dismiss doesn't uncheck — special case
+
+#### Fork from Last Selected
+
+```javascript
+var maxIndex = Math.max(...selectedIndices);
+// POST /fork_conversation/{convId}/{maxIndex} — already exists
+```
+Navigate to fork on success (reuse pattern from existing fork handler).
+
+#### Chat view refresh pattern
+
+After delete/hide, refresh by re-calling:
+```javascript
+ConversationManager.setActiveConversation(ConversationManager.activeConversationId);
+```
+This triggers `ChatManager.listMessages()` which re-fetches and re-renders. Simple but causes a full re-render. Acceptable for v1.
+
+#### Getting message index from message_id
+
+The action bar only has `message_id` values (from checkboxes). Endpoints like delete use `message_id + index`. For batch endpoints, use only `message_ids` — the backend iterates the messages list and matches by ID. This avoids index staleness issues when multiple deletes happen.
+
+#### Frontend notification pattern
+
+All actions use `showToast(message, type)` where type is `'success'`, `'error'`, or `'warning'`. Already available globally.
