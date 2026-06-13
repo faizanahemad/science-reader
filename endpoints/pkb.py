@@ -4538,3 +4538,42 @@ def pkb_notifications_settings():
     except Exception as e:
         logger.error(f"Error in pkb_notifications_settings: {e}")
         return json_error(str(e), status=500, code="internal_error")
+
+
+# ---------------------------------------------------------------------------
+# Token Management
+# ---------------------------------------------------------------------------
+
+@pkb_bp.route("/pkb/token", methods=["POST"])
+@login_required
+def pkb_mint_token():
+    """Mint a JWT token for external PKB access (MCP/REST).
+
+    Session-only — must be logged in via the web UI to generate tokens.
+    The token can then be used with Bearer auth for external access.
+    """
+    import os
+    from mcp_server.auth import generate_token
+
+    email, _, _ = get_session_identity()
+    data = request.json or {}
+    scopes = data.get("scopes", ["read", "write"])
+    # Validate scopes
+    valid_scopes = {"read", "write", "admin"}
+    scopes = [s for s in scopes if s in valid_scopes]
+    if not scopes:
+        scopes = ["read"]
+    days = min(int(data.get("days", 365)), 365)
+
+    secret = os.environ.get("MCP_JWT_SECRET", "")
+    if not secret:
+        return json_error("Server not configured for token issuance (MCP_JWT_SECRET missing)",
+                         status=500, code="config_error")
+
+    token = generate_token(secret, email, days=days, scopes=scopes)
+    return jsonify({
+        "token": token,
+        "email": email,
+        "scopes": scopes,
+        "expires_in_days": days,
+    })

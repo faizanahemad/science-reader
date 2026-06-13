@@ -168,6 +168,13 @@ class PKBConfig:
     llm_model: str = "google/gemini-3.1-flash-lite-preview"
     embedding_model: str = "openai/text-embedding-3-small"
     llm_temperature: float = 0.0  # Deterministic for extraction
+    # Model tiers for different latency/cost tradeoffs
+    fast_llm_model: str = "anthropic/claude-haiku-4.5"
+    superfast_llm_model: str = "inception/mercury-coder-small"
+
+    # LLM provider (injected; defaults to CodeCommonProvider which wraps
+    # code_common.call_llm). Set to None for lazy default construction.
+    llm_provider: object = None
 
     # PKB Memory Overview — config-gated Key Areas snippet injection into
     # _get_pkb_context(). When True, a condensed ~100-word Key Areas section
@@ -269,6 +276,13 @@ class PKBConfig:
     # (today's behavior). When True, route_candidate partitions into save/confirm/skip.
     tiered_persistence_enabled: bool = False
     
+    def get_provider(self):
+        """Get the LLM provider, lazily constructing the default if needed."""
+        if self.llm_provider is None:
+            from .providers import CodeCommonProvider
+            self.llm_provider = CodeCommonProvider()
+        return self.llm_provider
+
     def expand_db_path(self) -> str:
         """
         Expand ~ and environment variables in db_path.
