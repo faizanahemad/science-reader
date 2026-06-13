@@ -1278,6 +1278,8 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
             if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .pin-message-btn, .scroll-to-bottom-btn, .header-hide-toggle, .scroll-to-top-btn, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                 return;
             }
+            // Skip focus when multi-select is active — header taps toggle checkboxes instead
+            if (typeof MultiSelectManager !== 'undefined' && MultiSelectManager.count() > 0) return;
             
             handleMessageFocus(messageId, conversationId);
         });
@@ -2656,6 +2658,8 @@ var ChatManager = {
             if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .pin-message-btn, .scroll-to-bottom-btn, .header-hide-toggle, .scroll-to-top-btn, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                     return;
                 }
+                // Skip focus when multi-select is active — header taps toggle checkboxes instead
+                if (typeof MultiSelectManager !== 'undefined' && MultiSelectManager.count() > 0) return;
                 
                 handleMessageFocus(message.message_id, conversationId);
             });
@@ -3607,6 +3611,7 @@ function sendMessageCallback(skipAutoClarify) {
     // Clear the messageText field only when we are actually sending.
     $('#messageText').val('');
     $('#messageText').trigger('change');
+    $('#messageText').attr('placeholder', 'Type your message here. Press Ctrl+K for voice input.');
     $('#messageText').prop('working', true);
 
     // Get pending memory attachments from PKBManager (Deliberate Memory Attachment feature)
@@ -5277,11 +5282,14 @@ var MultiSelectManager = {
             }
         });
 
-        // Header tap to toggle checkbox (excluding buttons, dropdowns, checkboxes)
+        // Header tap to toggle checkbox — only active when multi-select mode is already engaged
+        // (prevents conflict with existing handleMessageFocus on card click)
         $(document).on('click', '.card-header', function (e) {
+            if (self.count() === 0) return; // only works once at least 1 is checked
             if ($(e.target).closest('.btn, .dropdown, .dropdown-menu, .dropdown-item, input[type="checkbox"], a, [data-toggle]').length > 0) return;
             var cb = $(this).find('.history-message-checkbox');
             cb.prop('checked', !cb.prop('checked')).trigger('change');
+            e.stopPropagation(); // prevent handleMessageFocus from firing
         });
 
         // Action handlers
@@ -5348,9 +5356,16 @@ var MultiSelectManager = {
         switch (action) {
             case 'copy':
                 var texts = self.getSelectedTexts();
-                navigator.clipboard.writeText(texts.join('\n\n')).then(function () {
-                    showToast('Copied ' + texts.length + ' messages', 'success');
-                });
+                var mdText = texts.join('\n\n');
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(mdText).then(function () {
+                        showToast('Copied ' + texts.length + ' messages', 'success');
+                    }).catch(function () {
+                        self._fallbackCopy(mdText, texts.length);
+                    });
+                } else {
+                    self._fallbackCopy(mdText, texts.length);
+                }
                 self.clearAll();
                 break;
 
@@ -5392,7 +5407,9 @@ var MultiSelectManager = {
                 var n = self.count();
                 showToast(n + ' messages set as context', 'success');
                 $('#messageText').focus();
-                // Hide bar but do NOT uncheck
+                // Hide bar but do NOT uncheck — reset internal state so bar stays hidden
+                self._ids = [];
+                self._indices = [];
                 $('#multi-select-bar').addClass('d-none');
                 $('#chatView').removeClass('has-selection-bar');
                 break;
@@ -5401,6 +5418,8 @@ var MultiSelectManager = {
                 var n = self.count();
                 showToast(n + ' messages set as context — type your question', 'success');
                 $('#messageText').attr('placeholder', 'Ask about the selected messages...').focus();
+                self._ids = [];
+                self._indices = [];
                 $('#multi-select-bar').addClass('d-none');
                 $('#chatView').removeClass('has-selection-bar');
                 break;
@@ -5436,6 +5455,22 @@ var MultiSelectManager = {
                 self.clearAll();
                 break;
         }
+    },
+
+    _fallbackCopy: function (text, count) {
+        var ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        try {
+            document.execCommand('copy');
+            showToast('Copied ' + count + ' messages', 'success');
+        } catch (_e) {
+            showToast('Copy failed — try manually', 'error');
+        }
+        document.body.removeChild(ta);
     },
 
     _runPreamble: function (preambleName) {

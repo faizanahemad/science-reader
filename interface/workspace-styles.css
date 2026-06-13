@@ -508,6 +508,10 @@
     border-left: 3px solid #1976d2 !important;
 }
 
+.message-selected .card-header {
+    cursor: pointer;
+}
+
 #multi-select-bar {
     position: sticky;
     top: 0;
@@ -548,5 +552,9 @@
         border-bottom: none;
         border-top: 1px solid #dee2e6;
         box-shadow: 0 -2px 4px rgba(0,0,0,0.1);
+    }
+    #multi-select-bar .dropdown-menu {
+        max-height: 50vh;
+        overflow-y: auto;
     }
 }
