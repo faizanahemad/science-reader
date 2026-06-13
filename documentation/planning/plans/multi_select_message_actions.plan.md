@@ -249,3 +249,90 @@ Phase 1 (foundation) → Phase 2 (simple actions) → Phase 3 (LLM actions) → 
 Each phase is independently shippable. Phase 1 + Phase 2 gives immediate value. Phase 3 adds power-user features. Phase 4 is UX refinement.
 
 Estimated effort: ~3-4 hours for Phases 1-2, ~2-3 hours for Phase 3, ~1 hour for Phase 4.
+
+---
+
+## 10. Critical Implementation Context
+
+This section contains architectural details a coding agent needs to implement correctly.
+
+### How "Use as Context" currently works
+
+1. Each message has `<input type="checkbox" class="history-message-checkbox" message-id="...">` (line ~2492 of common-chat.js)
+2. On send (line ~3434 of common-chat.js), all checked checkboxes are gathered into `history_message_ids[]`, checkboxes are unchecked, and IDs are merged into the `options` object via `mergeOptions(parsed_message, options)`
+3. The `options` object (called `checkboxes` in `sendMessage` params) is sent as `requestBody.checkboxes` to the backend
+4. Backend uses `history_message_ids` to include those messages as context for the LLM call
+5. If `render_close_to_source` setting is on, the response is rendered near the checked messages in the DOM
+
+**Key insight**: The "Use as Context" action in the multi-select bar should simply leave the checkboxes checked (they already are) and let the existing send flow handle it. Just show a toast and dismiss the bar.
+
+### Move Up/Down existing pattern (common.js line ~2455)
+
+The existing move handler already collects all checked checkboxes and moves them together:
+```javascript
+$(".history-message-checkbox:checked").each(function() {
+    ids.push($(this).attr('message-id'));
+    $(this).prop('checked', false);
+});
+ChatManager.moveMessagesUpOrDown(ids, direction);
+```
+This means multi-select move is already partially implemented. The action bar just needs to call this.
+
+### TempLlmManager (for Summarize and Run Preamble)
+
+- `TempLlmManager.openModal(action, selectedText, autoStream)` — opens modal, optionally auto-streams
+- Endpoint: `POST /temporary_llm_action` in `endpoints/doubts.py` (line 215)
+- Request body: `{ action_type, selected_text, user_message, message_id, message_text, conversation_id, history, with_context }`
+- For multi-select Summarize/Preamble, we can pass concatenated message texts as `selected_text` and a new `action_type` like `"summarize_selection"` or `"run_preamble"`
+- The temp LLM modal already handles streaming display
+
+### Single delete endpoint (existing)
+
+- `DELETE /delete_message_from_conversation/<conv_id>/<message_id>/<index>`
+- For batch delete, either loop client-side or add a new batch endpoint (preferred — single save_local call)
+
+### Show/hide endpoint (existing)
+
+- `POST /show_hide_message_from_conversation/<conv_id>/<message_id>/<index>` with body `{ show_hide: "show"|"hide" }`
+- Toggles a single message. For batch hide, either loop client-side (N requests) or add a batch endpoint.
+- Messages with `show_hide: "hide"` are not rendered by the frontend.
+
+### File locations
+
+| What | File | Line(s) |
+|------|------|---------|
+| Checkbox HTML template | `common-chat.js` | ~2492 |
+| Checkbox gathering on send | `common-chat.js` | ~3434-3445 |
+| Move handler (multi-select aware) | `common.js` | ~2455-2475 |
+| Single delete endpoint | `endpoints/conversations.py` | ~922-967 |
+| TempLlmManager | `interface/temp-llm-manager.js` | full file (~500 lines) |
+| Temp LLM endpoint | `endpoints/doubts.py` | ~215-290 |
+| Preambles available | `prompts.py` | lines 66-93, 267-443 |
+| ContextMenuManager | `interface/context-menu-manager.js` | full file (~600 lines) |
+| Action dropdown per message | `common-chat.js` | ~2450-2490 |
+| Message card structure | `common-chat.js` | ~2420-2500 (renderMessages) |
+| `isProbablyMobileDevice()` | check for mobile detection utility |
+
+### Preambles suitable for "Run Preamble" submenu
+
+From `prompts.py`, these make sense on a group of messages:
+- `senior_engineer_summary_prompt` — structured summary
+- `senior_engineer_mental_models_and_thought_process_prompt` — extract mental models
+- `more_related_questions_prompt` — generate follow-up questions (NQS-like)
+- `engineering_excellence_prompt` — evaluate quality
+- `scientific_chain_of_density_prompt` / `general_chain_of_density_prompt` — iterative summarization
+- `tldr_summary_prompt` — quick TLDR
+
+### CSS/Layout context
+
+- Chat view: `#chatView` — scrollable container of `.card.message-card` elements
+- Message cards: `.card.message-card` with `.card-header` (sender + actions) and `.card-body > .actual-card-text`
+- Existing styles in `interface/workspace-styles.css` and inline in `interface.html`
+- Mobile breakpoint: 768px (used throughout the app)
+- Input area: `#messageText` textarea at bottom of chat
+
+### Bootstrap version: 4.6
+
+- Use Bootstrap 4 classes: `btn`, `btn-sm`, `btn-outline-*`, `dropdown`, `dropup`
+- jQuery is available globally
+- Icons: Bootstrap Icons (`bi bi-*`) used throughout
