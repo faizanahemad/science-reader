@@ -5449,8 +5449,16 @@ var MultiSelectManager = {
 
             case 'summarize':
                 var concatenated = self.getSelectedTexts().join('\n\n');
+                if (!concatenated) {
+                    showToast('No message text found to summarize', 'warning');
+                    break;
+                }
                 if (typeof TempLlmManager !== 'undefined') {
-                    TempLlmManager.executeAction('summarize_selection', concatenated, { conversationId: convId }, false);
+                    TempLlmManager.preambleName = '';
+                    // Delay slightly to let Bootstrap dropdown finish closing
+                    setTimeout(function () {
+                        TempLlmManager.executeAction('summarize_selection', concatenated, { conversationId: convId }, false);
+                    }, 150);
                 } else {
                     showToast('TempLlmManager not available', 'error');
                 }
@@ -5481,7 +5489,9 @@ var MultiSelectManager = {
         var concatenated = self.getSelectedTexts().join('\n\n');
         if (typeof TempLlmManager !== 'undefined') {
             TempLlmManager.preambleName = preambleName;
-            TempLlmManager.executeAction('run_preamble', concatenated, { conversationId: convId }, false);
+            setTimeout(function () {
+                TempLlmManager.executeAction('run_preamble', concatenated, { conversationId: convId }, false);
+            }, 150);
         } else {
             showToast('TempLlmManager not available', 'error');
         }
