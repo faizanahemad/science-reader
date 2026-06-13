@@ -2190,6 +2190,7 @@ def pkb_propose_updates_route():
                 "claim_type": candidate.claim_type,
                 "context_domain": candidate.context_domain,
                 "action": pa.action if pa else "add",
+                "relation": pa.relation if pa else None,
                 "valid_from": candidate.valid_from,
                 "valid_to": candidate.valid_to,
                 "tags": candidate.tags or [],
@@ -2198,6 +2199,13 @@ def pkb_propose_updates_route():
             if pa and pa.existing_claim:
                 action["existing_claim_id"] = pa.existing_claim.claim_id
                 action["existing_statement"] = pa.existing_claim.statement
+                # Derive similarity from relation (exact score isn't stored on ProposedAction)
+                if pa.relation == "duplicate":
+                    action["similarity_score"] = 0.95
+                elif pa.relation == "related":
+                    action["similarity_score"] = 0.8
+                elif pa.relation == "contradicts":
+                    action["similarity_score"] = 0.75
             proposed_actions.append(action)
 
         # Tiered persistence: serialize auto-saved and skipped
