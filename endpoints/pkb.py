@@ -2184,13 +2184,16 @@ def pkb_propose_updates_route():
         pa_by_statement = {pa.candidate.statement: pa for pa in plan.proposed_actions}
         for i, candidate in enumerate(plan.candidates):
             pa = pa_by_statement.get(candidate.statement)
+            if pa is None:
+                # Candidate was silently handled (e.g. duplicate reinforced) — don't show
+                continue
             action = {
                 "index": i,
                 "statement": candidate.statement,
                 "claim_type": candidate.claim_type,
                 "context_domain": candidate.context_domain,
-                "action": pa.action if pa else "add",
-                "relation": pa.relation if pa else None,
+                "action": pa.action,
+                "relation": pa.relation,
                 "valid_from": candidate.valid_from,
                 "valid_to": candidate.valid_to,
                 "tags": candidate.tags or [],
