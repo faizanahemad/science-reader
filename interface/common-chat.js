@@ -1278,8 +1278,8 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
             if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .pin-message-btn, .scroll-to-bottom-btn, .header-hide-toggle, .scroll-to-top-btn, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                 return;
             }
-            // Skip focus when multi-select is active — header taps toggle checkboxes instead
-            if (typeof MultiSelectManager !== 'undefined' && MultiSelectManager.count() > 0) return;
+            // Skip focus when multi-select is active or Cmd/Ctrl+click (toggles checkbox instead)
+            if (typeof MultiSelectManager !== 'undefined' && (MultiSelectManager.count() > 0 || e.metaKey || e.ctrlKey)) return;
             
             handleMessageFocus(messageId, conversationId);
         });
@@ -2658,8 +2658,8 @@ var ChatManager = {
             if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .pin-message-btn, .scroll-to-bottom-btn, .header-hide-toggle, .scroll-to-top-btn, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
                     return;
                 }
-                // Skip focus when multi-select is active — header taps toggle checkboxes instead
-                if (typeof MultiSelectManager !== 'undefined' && MultiSelectManager.count() > 0) return;
+                // Skip focus when multi-select is active or Cmd/Ctrl+click (toggles checkbox instead)
+                if (typeof MultiSelectManager !== 'undefined' && (MultiSelectManager.count() > 0 || e.metaKey || e.ctrlKey)) return;
                 
                 handleMessageFocus(message.message_id, conversationId);
             });
@@ -5282,10 +5282,12 @@ var MultiSelectManager = {
             }
         });
 
-        // Header tap to toggle checkbox — only active when multi-select mode is already engaged
-        // (prevents conflict with existing handleMessageFocus on card click)
+        // Header tap to toggle checkbox:
+        // - Always works with Cmd/Ctrl+click (desktop shortcut to start multi-select)
+        // - Without modifier, only works when multi-select is already engaged
         $(document).on('click', '.card-header', function (e) {
-            if (self.count() === 0) return; // only works once at least 1 is checked
+            var hasModifier = e.metaKey || e.ctrlKey;
+            if (!hasModifier && self.count() === 0) return;
             if ($(e.target).closest('.btn, .dropdown, .dropdown-menu, .dropdown-item, input[type="checkbox"], a, [data-toggle]').length > 0) return;
             var cb = $(this).find('.history-message-checkbox');
             cb.prop('checked', !cb.prop('checked')).trigger('change');
