@@ -557,13 +557,31 @@ Response:"""
             return []
     
     def _find_existing_matches(self, candidate: CandidateClaim) -> List[Tuple[Claim, str]]:
-        """Search for existing claims that match the candidate."""
-        result = self.api.search(candidate.statement, k=5)
-        if not result.success or not result.data:
-            return []
-        
+        """Search for existing claims that match the candidate using embedding cosine similarity."""
+        from ..search.base import SearchFilters
+        filters = SearchFilters(user_email=self.api.user_email)
+
+        # Call embedding strategy DIRECTLY to get cosine similarity scores (0-1).
+        # Do NOT use api.search() which wraps in HybridSearchStrategy + RRF fusion
+        # (RRF scores are ~0.016 for rank 1, making >0.9 threshold impossible).
+        embedding_strategy = self.api.search_strategy.strategies.get("embedding")
+        if embedding_strategy:
+            results = embedding_strategy.search(candidate.statement, k=5, filters=filters)
+        else:
+            # No embedding available — fall back to exact string match via FTS
+            results = self.api.search_strategy.strategies.get("fts", None)
+            if results is None:
+                return []
+            results = results.search(candidate.statement, k=5, filters=filters)
+            # FTS scores are BM25, not 0-1. Only detect exact string matches.
+            matches = []
+            for sr in results:
+                if sr.claim.statement.lower().strip() == candidate.statement.lower().strip():
+                    matches.append((sr.claim, "duplicate"))
+            return self._detect_contradictions(candidate, matches)
+
         matches = []
-        for search_result in result.data:
+        for search_result in results:
             claim = search_result.claim
             if search_result.score > 0.9:
                 matches.append((claim, "duplicate"))
