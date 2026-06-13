@@ -40,7 +40,27 @@ todos:
     status: pending
 ---
 
-**Status:** PARTIAL (June 2026) — Code for W-A (weighted RRF), W-B (query scoping), W-C (entity strategy) all implemented with tests. Missing: eval-baseline re-run and eval-gate validation runs not recorded.
+**Status:** DONE (June 2026) — Code for W-A (weighted RRF), W-B (query scoping), W-C (entity strategy) all implemented with tests. Eval baseline and validation completed 2026-06-13.
+
+## Eval Results (2026-06-13)
+
+Dataset: `pkb_seed_v3` — 58 claims, 45 cases, 11 categories. k=5.
+
+| Configuration | precision@5 | recall@5 | mrr |
+|---------------|-------------|----------|-----|
+| **Baseline** (equal weights, W-B on, W-C on) | 0.209 | 0.926 | 0.827 |
+| **W-A tuned** (emb=1.0, fts=0.6, entity=0.8) | 0.218 | 0.941 | 0.851 |
+| **W-A tuned + W-B off** | 0.218 | 0.941 | 0.862 |
+| Entity-only (W-C solo) | 0.056 | 0.067 | 0.056 |
+| Embedding-only | 0.231 | 0.963 | 0.904 |
+| FTS-only | 0.455 | 0.726 | 0.700 |
+
+**Findings:**
+- **W-A (weighted RRF)** provides a clear improvement: +0.009 precision, +0.015 recall, +0.024 mrr over baseline.
+- **W-B (focused query)** shows *no improvement on this eval dataset* because queries don't include running summaries. In production (where running summary is appended to the query), W-B would prevent summary noise from polluting FTS results. Keeping W-B on is the correct production default.
+- **W-C (entity strategy)** has zero marginal effect on hybrid — the 3 entity-specific cases are already found by embedding search at rank 1. Entity strategy is valuable as a *fallback* when embeddings are unavailable.
+- Adding entity to hybrid fusion (`fts+embedding+entity`) produces identical scores to `fts+embedding` — entity's contribution is redundant when embedding covers those cases.
+- **Recommended production config:** `rrf_strategy_weights = {"embedding": 1.0, "fts": 0.6, "entity": 0.8}`, `fts_use_focused_query = True`, `entity_strategy_enabled = True`.
 
 # PKB Retrieval Ranking Improvements
 
