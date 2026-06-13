@@ -1623,7 +1623,27 @@ function displayLockStatus(data, conversationId) {
     // In single mode, when user selects a new option, deselect all others.
     // bootstrap-select fires 'changed.bs.select' with (event, clickedIndex, isSelected, previousValue).
     $(document).on('changed.bs.select', '#settings-main-model-selector', function(e, clickedIndex, isSelected, previousValue) {
-        if (isMultiMode()) return; // multi-select mode — don't interfere
+        if (isMultiMode()) {
+            // Track selection order: maintain ordered list where first selected = primary
+            var order = window._modelSelectionOrder || [];
+            var $sel = $(this);
+            var allSelected = $sel.val() || [];
+            if (isSelected && clickedIndex != null) {
+                var addedVal = $sel.find('option').eq(clickedIndex).val();
+                if (addedVal && order.indexOf(addedVal) === -1) {
+                    order.push(addedVal);
+                }
+            } else if (!isSelected && clickedIndex != null) {
+                var removedVal = $sel.find('option').eq(clickedIndex).val();
+                order = order.filter(function(v) { return v !== removedVal; });
+            }
+            // Prune any values no longer in allSelected
+            order = order.filter(function(v) { return allSelected.indexOf(v) !== -1; });
+            // Add any in allSelected not yet in order (e.g. restored from state)
+            allSelected.forEach(function(v) { if (order.indexOf(v) === -1) order.push(v); });
+            window._modelSelectionOrder = order;
+            return;
+        }
         if (!isSelected) return;   // user deselected something — allow it
         // User selected a new option. Keep only that one.
         var $sel = $(this);

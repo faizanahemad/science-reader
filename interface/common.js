@@ -5467,7 +5467,12 @@ function getOptions(parentElementId, type) {
         }
         
         values['preamble_options'] = preambleOptions || [];
-        values['main_model'] = $('#main-model-selector').length ? $('#main-model-selector').val() : $('#settings-main-model-selector').val();
+        // Use tracked selection order if available (first selected = primary for diff)
+        var _modelVal = $('#main-model-selector').length ? $('#main-model-selector').val() : $('#settings-main-model-selector').val();
+        if (window._modelSelectionOrder && window._modelSelectionOrder.length > 1) {
+            _modelVal = window._modelSelectionOrder;
+        }
+        values['main_model'] = _modelVal;
         values['field'] = $('#field-selector').length ? $('#field-selector').val() : $('#settings-field-selector').val();
         values["permanentText"] = $("#permanentText").length ? $("#permanentText").val() : $("#settings-permanentText").val();
         if (window.chatSettingsState && window.chatSettingsState.model_overrides) {

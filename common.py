@@ -754,7 +754,7 @@ def generate_model_diff(keys, primary_name, primary_text, secondary_name, second
     """
     import json as _json
 
-    diff_prompt = f"""You are comparing two LLM responses to the same question. Your job is to extract the ACTUAL unique content from Response B that isn't in Response A.
+    diff_prompt = f"""You are comparing two LLM responses to the same question. Extract the ACTUAL unique content from Response B that isn't in Response A.
 
 Response A (PRIMARY - from {primary_name}):
 <response_a>
@@ -766,27 +766,26 @@ Response B (from {secondary_name}):
 {secondary_text}
 </response_b>
 
-Compare B against A. Identify:
-1. ADDITIONS: Information in B not present in A. Extract the actual content.
-2. CONTRADICTIONS: Where B makes different claims than A. Show what B actually says.
-3. OMISSIONS: Topics A covers that B skips entirely (brief note only).
+Compare B against A. For each meaningful difference, extract the actual content verbatim (rewritten for clarity if needed).
 
-Output ONLY valid JSON (no markdown fences, no explanation):
-{{"stats": {{"additions": N, "contradictions": N, "omissions": N}}, "badge_summary": "+N ⚠M", "diff_sections": [{{"type": "addition|contradiction|omission", "topic": "2-5 word heading", "detail": "The actual content in markdown format. For additions: the full explanation/info that B provides. For contradictions: what B claims (the reader already has A). For omissions: one sentence noting what is missing."}}]}}
+Output ONLY valid JSON (no markdown fences):
+{{"stats": {{"additions": N, "contradictions": N, "omissions": N}}, "badge_summary": "+N ⚠M", "diff_sections": [{{"type": "addition|contradiction|omission", "topic": "2-5 word heading", "detail": "ACTUAL CONTENT HERE - see rules below"}}]}}
 
-Rules:
-- detail field must contain the ACTUAL information — not "Model B explains X" but the explanation itself
-- Use markdown in detail (code blocks, bold, lists) for readability
-- Only include genuinely meaningful differences (ignore phrasing/formatting/ordering differences)
+CRITICAL rules for the "detail" field:
+- For ADDITIONS: Write the actual information/explanation/code that B provides. Copy or rephrase the content itself so the reader learns it directly from reading this field. Do NOT write "B explains that..." or "B additionally covers..." — write the explanation itself.
+- For CONTRADICTIONS: Write what B actually claims (the correct or different claim). The reader already has A's version. Do NOT write "B disagrees and says..." — just state the claim directly.
+- For OMISSIONS: One sentence noting what topic is missing (this is the only type where a brief description is acceptable).
+- Use markdown formatting (code blocks, bold, lists) in detail for readability.
+- Only include genuinely meaningful differences (ignore phrasing/formatting/ordering differences).
 - If responses are essentially the same, return {{"stats": {{"additions": 0, "contradictions": 0, "omissions": 0}}, "badge_summary": "", "diff_sections": []}}
-- Maximum 8 diff_sections total
-- badge_summary format: "+N" if only additions, "+N ⚠M" if contradictions exist, "" if empty"""
+- Maximum 8 diff_sections total.
+- badge_summary: "+N" if only additions, "+N ⚠M" if contradictions exist, "" if empty."""
 
     system = "You are a precise comparison engine. Output only valid JSON. No markdown fences."
 
     try:
         from call_llm import CallLLm
-        diff_llm = CallLLm(keys, model_name=VERY_CHEAP_LLM[0], use_gpt4=True, use_16k=True)
+        diff_llm = CallLLm(keys, model_name=CHEAP_LLM[0], use_gpt4=True, use_16k=True)
         result = diff_llm(diff_prompt, system=system, temperature=0.1, stream=False)
         # Strip markdown fences if present
         result = result.strip()
