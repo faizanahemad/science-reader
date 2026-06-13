@@ -1427,6 +1427,51 @@
                     </div>
                   </div>
                 </div>
+
+                <!-- Memory Autonomy Dial -->
+                <div class="mt-3" id="pkb-autonomy-section" style="display:none;">
+                  <div class="card border-info">
+                    <div class="card-header bg-info text-white py-2 d-flex justify-content-between align-items-center" style="cursor:pointer;" data-toggle="collapse" data-target="#pkb-autonomy-collapse">
+                      <span><i class="bi bi-sliders"></i> Memory Autonomy</span>
+                      <i class="bi bi-chevron-down"></i>
+                    </div>
+                    <div class="collapse show" id="pkb-autonomy-collapse">
+                      <div class="card-body p-3">
+                        <label class="small font-weight-bold mb-1">Manual ◀──▶ Automatic</label>
+                        <input type="range" class="custom-range" id="pkb-autonomy-slider" min="0" max="100" step="25" value="0">
+                        <div class="d-flex justify-content-between small text-muted" style="margin-top:-4px;">
+                          <span>Manual</span><span>Assisted</span><span>Balanced</span><span>Proactive</span><span>Full</span>
+                        </div>
+                        <div id="pkb-autonomy-preview" class="small text-muted mt-2 p-2 bg-light rounded" style="min-height:2em;"></div>
+                        <div class="mt-2">
+                          <a href="#" class="small" data-toggle="collapse" data-target="#pkb-autonomy-advanced">Advanced (per-facet) ▾</a>
+                          <div class="collapse mt-2" id="pkb-autonomy-advanced">
+                            <div class="row small">
+                              <div class="col-6 mb-1"><label>Capture</label><select class="form-control form-control-sm pkb-facet-override" data-facet="capture"><option value="">Auto</option><option value="0">Manual</option><option value="25">Assisted</option><option value="50">Balanced</option><option value="75">Proactive</option><option value="100">Full</option></select></div>
+                              <div class="col-6 mb-1"><label>Curation</label><select class="form-control form-control-sm pkb-facet-override" data-facet="curation"><option value="">Auto</option><option value="0">Manual</option><option value="25">Assisted</option><option value="50">Balanced</option><option value="75">Proactive</option><option value="100">Full</option></select></div>
+                              <div class="col-6 mb-1"><label>Lifecycle</label><select class="form-control form-control-sm pkb-facet-override" data-facet="lifecycle"><option value="">Auto</option><option value="0">Manual</option><option value="25">Assisted</option><option value="50">Balanced</option><option value="75">Proactive</option><option value="100">Full</option></select></div>
+                              <div class="col-6 mb-1"><label>Enrichment</label><select class="form-control form-control-sm pkb-facet-override" data-facet="enrichment"><option value="">Auto</option><option value="0">Manual</option><option value="25">Assisted</option><option value="50">Balanced</option><option value="75">Proactive</option><option value="100">Full</option></select></div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Recently Auto-Saved -->
+                <div class="mt-3" id="pkb-autosaved-section" style="display:none;">
+                  <div class="card border-success">
+                    <div class="card-header bg-success text-white py-2 d-flex justify-content-between align-items-center" style="cursor:pointer;" data-toggle="collapse" data-target="#pkb-autosaved-collapse">
+                      <span><i class="bi bi-lightning"></i> Recently Auto-Saved <span id="pkb-autosaved-count" class="badge badge-light ml-1">0</span></span>
+                      <i class="bi bi-chevron-down"></i>
+                    </div>
+                    <div class="collapse" id="pkb-autosaved-collapse">
+                      <div class="card-body p-2" id="pkb-autosaved-list" style="max-height:30vh;overflow-y:auto;"></div>
+                    </div>
+                  </div>
+                </div>
+
               </div>
 
               <!-- Notifications Tab -->

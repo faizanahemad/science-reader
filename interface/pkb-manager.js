@@ -1468,6 +1468,16 @@ var PKBManager = (function() {
                     if (response.stm_reinforced > 0) msg += ' (' + response.stm_reinforced + ' reinforced)';
                     showToast(msg, 'info');
                 }
+                // Auto-saved claims (tiered persistence Lane A)
+                if (response.auto_saved && response.auto_saved.length > 0) {
+                    var n = response.auto_saved.length;
+                    var label = n === 1
+                        ? '🧠 Remembered: ' + response.auto_saved[0].statement.substring(0, 60)
+                        : '🧠 Remembered ' + n + ' things';
+                    showToast(label + ' <a href="#" class="pkb-undo-all-autosave text-warning ml-2" data-ids=\'' +
+                        JSON.stringify(response.auto_saved.map(function(a) { return a.activity_id || a.claim_id; })) +
+                        '\'>Undo</a>', 'success', 8000);
+                }
                 if (response.has_updates && response.proposed_actions && response.proposed_actions.length > 0) {
                     currentPlanId = response.plan_id;
                     currentProposals = response.proposed_actions;
@@ -3199,6 +3209,78 @@ var PKBManager = (function() {
         }).fail(function() { $('#pkb-archived-section').show(); $('#pkb-archived-list').html('<p class="text-muted small p-2 mb-0">Could not load.</p>'); });
     }
 
+    // ─── Memory Autonomy Dial ───────────────────────────────────────────
+    var _autonomyPreviewText = {
+        0: 'All extractions require your confirmation. Nothing is saved automatically.',
+        25: 'High-confidence stated facts may be saved automatically. You confirm the rest.',
+        50: 'Safe facts saved silently · near-duplicates merged · conflicts still ask you.',
+        75: 'Most claims saved automatically · curation is proactive · decay is active.',
+        100: 'Fully automatic. Everything is saved, merged, and cleaned without asking.'
+    };
+
+    function loadAutonomyDial() {
+        $.get('/pkb/memory/policy', function(resp) {
+            var autonomy = resp.autonomy || 0;
+            var overrides = resp.overrides || {};
+            $('#pkb-autonomy-slider').val(autonomy);
+            $('#pkb-autonomy-preview').text(_autonomyPreviewText[autonomy] || '');
+            // Set facet overrides
+            $('.pkb-facet-override').each(function() {
+                var facet = $(this).data('facet');
+                $(this).val(overrides[facet] !== undefined ? String(overrides[facet]) : '');
+            });
+            $('#pkb-autonomy-section').show();
+        }).fail(function() { $('#pkb-autonomy-section').hide(); });
+    }
+
+    function saveAutonomyPolicy() {
+        var autonomy = parseInt($('#pkb-autonomy-slider').val(), 10);
+        var overrides = {};
+        $('.pkb-facet-override').each(function() {
+            var v = $(this).val();
+            if (v !== '') overrides[$(this).data('facet')] = parseInt(v, 10);
+        });
+        $.ajax({
+            url: '/pkb/memory/policy',
+            method: 'PUT',
+            contentType: 'application/json',
+            data: JSON.stringify({ autonomy: autonomy, overrides: overrides }),
+            success: function() { showToast('Memory autonomy updated', 'success'); },
+            error: function() { showToast('Failed to save policy', 'danger'); }
+        });
+    }
+
+    // ─── Recently Auto-Saved ────────────────────────────────────────────
+    function loadRecentlyAutoSaved() {
+        $.get('/pkb/memory/recent_auto', function(resp) {
+            var items = resp.recent_auto || [];
+            var $section = $('#pkb-autosaved-section');
+            var $list = $('#pkb-autosaved-list');
+            var $count = $('#pkb-autosaved-count');
+
+            $section.show();
+            $count.text(items.length);
+
+            if (!items.length) {
+                $list.html('<p class="text-muted small p-2 mb-0">No auto-saved claims in the last 7 days.</p>');
+                return;
+            }
+
+            var html = items.map(function(item) {
+                var stmt = item.statement || item.description || item.activity_id || '';
+                var reason = item.route_reason || item.facet || '';
+                return '<div class="d-flex justify-content-between align-items-start border-bottom py-1">' +
+                    '<div class="flex-grow-1 mr-2">' +
+                        '<small>' + $('<span>').text(stmt).html() + '</small>' +
+                        (reason ? '<div><span class="badge badge-info badge-sm">' + escapeHtml(reason) + '</span></div>' : '') +
+                    '</div>' +
+                    '<button class="btn btn-outline-warning btn-xs pkb-undo-autosave" data-id="' + (item.activity_id || item.claim_id || '') + '" title="Undo"><i class="bi bi-arrow-counterclockwise"></i></button>' +
+                '</div>';
+            }).join('');
+            $list.html(html);
+        }).fail(function() { $('#pkb-autosaved-section').show(); $('#pkb-autosaved-list').html('<p class="text-muted small p-2 mb-0">Could not load.</p>'); });
+    }
+
     /**
      * Initialize event handlers.
      */
@@ -3327,10 +3409,55 @@ var PKBManager = (function() {
             }).fail(function() { showToast('Reinforce failed', 'danger'); });
         });
 
+        // Undo auto-saved claim
+        $(document).on('click', '.pkb-undo-autosave', function() {
+            var id = $(this).data('id');
+            $.ajax({
+                url: '/pkb/memory/undo',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ activity_ids: [id] }),
+                success: function() {
+                    showToast('Auto-save undone', 'success');
+                    loadRecentlyAutoSaved();
+                },
+                error: function() { showToast('Undo failed', 'danger'); }
+            });
+        });
+
+        // Undo all auto-saved (from toast link)
+        $(document).on('click', '.pkb-undo-all-autosave', function(e) {
+            e.preventDefault();
+            var ids = JSON.parse($(this).attr('data-ids') || '[]');
+            if (!ids.length) return;
+            $.ajax({
+                url: '/pkb/memory/undo',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ activity_ids: ids }),
+                success: function() { showToast('Auto-saves undone', 'success'); },
+                error: function() { showToast('Undo failed', 'danger'); }
+            });
+        });
+
+        // Autonomy slider change
+        $(document).on('input', '#pkb-autonomy-slider', function() {
+            var val = parseInt($(this).val(), 10);
+            $('#pkb-autonomy-preview').text(_autonomyPreviewText[val] || '');
+        });
+        $(document).on('change', '#pkb-autonomy-slider', function() {
+            saveAutonomyPolicy();
+        });
+        $(document).on('change', '.pkb-facet-override', function() {
+            saveAutonomyPolicy();
+        });
+
         // Load archived + fading claims when maintenance tab is shown
         $(document).on('shown.bs.tab', '#pkb-maintenance-tab', function() {
             loadRecentlyArchived();
             loadFadingClaims();
+            loadAutonomyDial();
+            loadRecentlyAutoSaved();
             // Health dashboard
             $.get('/pkb/health', function(resp) {
                 var $dash = $('#pkb-health-dashboard');
