@@ -375,3 +375,243 @@ class ConversationStore:
 | One global DB for all conversations | Harder to delete/fork conversations; no isolation benefit |
 | PostgreSQL/MySQL | Requires external server; SQLite already used in project; single-user app |
 | MongoDB/Redis | External dependency; overkill for single-user single-server |
+
+## Data Model Analysis
+
+The parallel survey uncovered significant structural problems in the current data model that should be fixed during the SQLite migration — not carried forward.
+
+### Problem 1: Redundant Fields Per Message
+
+Every message stores `user_id` and `conversation_id` — but these are ALWAYS the same for all messages in a conversation. At 500 messages, that's 1000 redundant string copies (~50KB wasted per conversation, plus JSON serialization overhead).
+
+**Fix:** Don't store `user_id` or `conversation_id` in messages table rows. The conversation.db IS the conversation — these are implicit from context.
+
+### Problem 2: Dual Visibility Flags (show_hide vs user_hidden)
+
+- `show_hide_message()` sets `msg["show_hide"] = "show"/"hide"` (string)
+- `batch_show_hide_messages()` sets `msg["user_hidden"] = True/False` (bool)
+- `get_message_summaries()` reads ONLY `show_hide`, ignoring `user_hidden`
+
+This means batch-hide silently doesn't work for message filtering.
+
+**Fix:** Single `hidden INTEGER DEFAULT 0` column in SQLite. Both operations write to the same field. Drop the legacy `show_hide` string.
+
+### Problem 3: message_id is 32-bit mmh3 (Collision Risk)
+
+`mmh3.hash(conversation_id + user_id + text, signed=False)` produces a 32-bit unsigned int. Birthday collision expected at ~65,000 messages. Worse: identical message text in the same conversation ALWAYS produces the same message_id — edits that restore original text create duplicate IDs.
+
+**Fix:** For new messages in SQLite, generate `uuid4().hex` as message_id. For migrated messages, keep the old mmh3 IDs (they're already stored and referenced by artefact_links, pinned_messages, etc).
+
+### Problem 4: config Blob is Oversized
+
+The entire UI checkbox state (20+ keys including link_context, search results, etc.) is stored verbatim on every model message. This is never read back. It inflates message files significantly (can be 5-10KB per message of pure audit noise).
+
+**Fix:** Store only the meaningful subset in a `config` JSON column:
+```json
+{"model": "anthropic/claude-opus", "temperature": 0.7, "field": "coding"}
+```
+The full checkbox state can go to a separate `message_audit` table if audit is truly needed (likely it isn't).
+
+### Problem 5: running_summary Grows Forever
+
+`memory["running_summary"]` is a `List[str]` that appends one entry per turn but only `[-1]` is ever read. A 200-message conversation accumulates 200 summary strings (potentially 100KB+) of dead weight.
+
+**Fix:** In the `memory` table (key-value), store only the latest summary. If history is needed, keep at most the last 3.
+
+### Problem 6: Critical State in Dill-Only (No Recovery Path)
+
+These attributes survive ONLY in the `.index` dill blob — if it corrupts, they're gone:
+- `_memory_pad` — persistent user knowledge store (HIGH value)
+- `_domain` — conversation categorization
+- `_flag`, `_archived`, `_auto_archive_exempt` — organizational state
+
+**Fix:** Move to the `memory` table in conversation.db:
+```sql
+INSERT INTO memory VALUES ('memory_pad', '...');
+INSERT INTO memory VALUES ('domain', '"coding"');
+INSERT INTO memory VALUES ('flag', '"important"');
+INSERT INTO memory VALUES ('archived', 'false');
+```
+
+### Problem 7: doc_id is 32-bit mmh3 (Collision Risk)
+
+`mmh3.hash(doc_source + filetype + doc_type)` as document ID means uploading the same filename with a different filetype could collide, silently merging directories.
+
+**Impact on migration:** Low — doc_id is used as a directory name and DocIndex key. Not changing this in the migration (it's a DocIndex concern, not a conversation store concern). Flag for future fix.
+
+### Problem 8: artefact_message_links Direction
+
+Currently: `{message_id → {artefact_id, message_index}}` — one message → one artefact. But a message can CREATE multiple artefacts (code + explanation). The 1:1 constraint is artificial.
+
+**Fix:** The `artefact_links` table in the new schema supports many-to-many:
+```sql
+PRIMARY KEY (message_id, artefact_id)
+```
+
+### Problem 9: conversation_friendly_id Dual-Write
+
+Stored in BOTH `memory["conversation_friendly_id"]` (JSON file) and `UserToConversationId.conversation_friendly_id` (users.db). No UNIQUE constraint on the DB column. Application-level collision retry loop can race.
+
+**Fix:** After migration, make `conversation_friendly_id` authoritative in users.db with a UNIQUE constraint. Remove from memory dict (derive from DB on read). Add proper `INSERT OR IGNORE` + retry on collision.
+
+### Problem 10: Redundant Indexes in users.db
+
+4 indexes that duplicate primary keys (waste write I/O):
+- `idx_User_email_doc_conversation` on UserToConversationId(user_email) — prefix of existing UNIQUE
+- `idx_UserDetails_email` on UserDetails(user_email) — IS the PK
+- `idx_ConversationIdToWorkspaceId_conversation_id` — IS the PK
+- `idx_WorkspaceMetadata_workspace_id` — IS the PK
+
+One missing index:
+- `UserToConversationId(conversation_id)` — needed by `getConversationById`
+
+**Fix:** Drop 4 redundant indexes. Add 1 missing index. Do this in Phase 2 as part of `create_tables()` migration.
+
+---
+
+## Revised Schema (Incorporating Data Model Fixes)
+
+```sql
+-- Per-conversation database: {conv_id}/conversation.db
+PRAGMA journal_mode = WAL;
+PRAGMA synchronous = NORMAL;
+PRAGMA busy_timeout = 5000;
+
+-- Messages: no redundant user_id/conversation_id; unified hidden flag; slim config
+CREATE TABLE messages (
+    message_id TEXT PRIMARY KEY,
+    position INTEGER NOT NULL,
+    role TEXT NOT NULL,                    -- 'user' or 'model'
+    text TEXT,
+    hidden INTEGER NOT NULL DEFAULT 0,    -- unified: replaces show_hide + user_hidden
+    model TEXT,                           -- extracted from config (NULL for user messages)
+    temperature REAL,                     -- extracted from config (NULL for user messages)
+    answer_tldr TEXT,
+    answer_keywords TEXT,                 -- JSON: {entities, topics, technical_terms, general_terms}
+    message_short_hash TEXT,
+    metadata TEXT,                        -- JSON blob for remaining per-message data
+    created_at REAL NOT NULL DEFAULT (unixepoch('subsec')),
+    updated_at REAL
+);
+CREATE INDEX idx_msg_position ON messages(position);
+CREATE INDEX idx_msg_hash ON messages(message_short_hash) WHERE message_short_hash IS NOT NULL;
+
+-- Artefacts (unchanged from original plan)
+CREATE TABLE artefacts (
+    artefact_id TEXT PRIMARY KEY,
+    name TEXT,
+    filename TEXT,
+    filetype TEXT,
+    size_bytes INTEGER,
+    metadata TEXT,                         -- JSON blob
+    created_at REAL NOT NULL DEFAULT (unixepoch('subsec')),
+    updated_at REAL
+);
+
+-- Artefact links: many-to-many (fixes Problem 8)
+CREATE TABLE artefact_links (
+    message_id TEXT NOT NULL,
+    artefact_id TEXT NOT NULL,
+    link_type TEXT DEFAULT 'created',
+    PRIMARY KEY (message_id, artefact_id)
+);
+CREATE INDEX idx_artlink_artefact ON artefact_links(artefact_id);
+
+-- Memory: key-value (includes formerly dill-only state)
+CREATE TABLE memory (
+    key TEXT PRIMARY KEY,
+    value TEXT
+);
+-- Keys: title, last_updated, running_summary (ONLY latest 3),
+--        conversation_friendly_id, memory_pad, domain, flag,
+--        archived, auto_archive_exempt, archive_source, created_at
+
+-- Settings: key-value
+CREATE TABLE settings (
+    key TEXT PRIMARY KEY,
+    value TEXT
+);
+
+-- Documents
+CREATE TABLE documents (
+    doc_id TEXT PRIMARY KEY,
+    doc_type TEXT NOT NULL,                -- 'uploaded' or 'attached'
+    doc_storage TEXT,
+    doc_source TEXT,
+    display_name TEXT,
+    metadata TEXT,
+    created_at REAL NOT NULL DEFAULT (unixepoch('subsec'))
+);
+
+-- Todos
+CREATE TABLE todos (
+    id TEXT PRIMARY KEY,
+    text TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    position INTEGER,
+    metadata TEXT,
+    created_at REAL NOT NULL DEFAULT (unixepoch('subsec')),
+    updated_at REAL
+);
+
+-- FTS5 for in-conversation message search
+CREATE VIRTUAL TABLE messages_fts USING fts5(
+    text,
+    content=messages,
+    content_rowid=rowid,
+    tokenize='porter unicode61'
+);
+
+-- Auto-sync triggers
+CREATE TRIGGER messages_ai AFTER INSERT ON messages BEGIN
+    INSERT INTO messages_fts(rowid, text) VALUES (new.rowid, new.text);
+END;
+CREATE TRIGGER messages_ad AFTER DELETE ON messages BEGIN
+    INSERT INTO messages_fts(messages_fts, rowid, text) VALUES ('delete', old.rowid, old.text);
+END;
+CREATE TRIGGER messages_au AFTER UPDATE OF text ON messages BEGIN
+    INSERT INTO messages_fts(messages_fts, rowid, text) VALUES ('delete', old.rowid, old.text);
+    INSERT INTO messages_fts(rowid, text) VALUES (new.rowid, new.text);
+END;
+```
+
+### Migration Mapping (Old → New)
+
+| Old Field | New Location | Transformation |
+|---|---|---|
+| `msg["user_id"]` | Dropped | Redundant (implicit from conversation) |
+| `msg["conversation_id"]` | Dropped | Redundant (implicit from DB file) |
+| `msg["show_hide"]` | `messages.hidden` | "show"→0, "hide"→1 |
+| `msg["user_hidden"]` | `messages.hidden` | False→0, True→1 (OR'd with show_hide) |
+| `msg["config"]["main_model"]` | `messages.model` | Extracted |
+| `msg["config"]["temperature"]` | `messages.temperature` | Extracted (if present) |
+| `msg["config"]` (rest) | `messages.metadata` | JSON blob (slim: only non-default keys) |
+| `msg["sender"]` | `messages.role` | "user"→"user", "model"→"model" |
+| `msg["display_attachments"]` | `messages.metadata` | Nested in JSON blob |
+| `msg["generated_images"]` | `messages.metadata` | Nested in JSON blob |
+| `memory["running_summary"]` | `memory.value` WHERE key='running_summary' | Keep only last 3 entries |
+| `Conversation._memory_pad` | `memory.value` WHERE key='memory_pad' | Move from dill to SQLite |
+| `Conversation._domain` | `memory.value` WHERE key='domain' | Move from dill to SQLite |
+| `Conversation._flag` | `memory.value` WHERE key='flag' | Move from dill to SQLite |
+| `Conversation._archived` | `memory.value` WHERE key='archived' | Move from dill to SQLite |
+| `uploaded_documents_list` tuples | `documents` rows (doc_type='uploaded') | Tuple fields → columns |
+| `message_attached_documents_list` tuples | `documents` rows (doc_type='attached') | Same |
+| `artefact_message_links` dict | `artefact_links` rows | message_id key + artefact_id value → row |
+
+### users.db Index Fixes (Phase 2)
+
+```sql
+-- Drop redundant
+DROP INDEX IF EXISTS idx_User_email_doc_conversation;
+DROP INDEX IF EXISTS idx_UserDetails_email;
+DROP INDEX IF EXISTS idx_ConversationIdToWorkspaceId_conversation_id;
+DROP INDEX IF EXISTS idx_WorkspaceMetadata_workspace_id;
+
+-- Add missing
+CREATE INDEX IF NOT EXISTS idx_utci_conversation_id ON UserToConversationId(conversation_id);
+
+-- Add UNIQUE on friendly_id (per-user scope)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_utci_friendly_id
+    ON UserToConversationId(user_email, conversation_friendly_id)
+    WHERE conversation_friendly_id IS NOT NULL;
+```
