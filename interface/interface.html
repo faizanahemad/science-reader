@@ -5085,6 +5085,31 @@ greet("World");</code></pre>
         opacity: 1;
     }
 
+    /* Model diff tab styles */
+    .model-diff-badge {
+        font-size: 0.65rem;
+        font-weight: 600;
+        padding: 1px 4px;
+        border-radius: 3px;
+        background: #e8f5e9;
+        color: #2e7d32;
+        margin-left: 4px;
+        white-space: nowrap;
+    }
+    .diff-tab-content { padding: 8px 0; }
+    .diff-model-group { margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid #eee; }
+    .diff-model-group:last-child { border-bottom: none; margin-bottom: 0; }
+    .diff-model-header { font-size: 0.85rem; font-weight: 600; color: #555; margin-bottom: 8px; }
+    .diff-section { margin-bottom: 10px; padding-left: 10px; border-left: 3px solid #ccc; }
+    .diff-section.diff-addition { border-left-color: #4caf50; }
+    .diff-section.diff-contradiction { border-left-color: #ff9800; }
+    .diff-section.diff-omission { border-left-color: #9e9e9e; }
+    .diff-section-header { font-weight: 600; font-size: 0.82rem; margin-bottom: 4px; }
+    .diff-section-body { font-size: 0.85rem; color: #333; }
+    .diff-section-body p { margin-bottom: 0.4em; }
+    .diff-all-agree { text-align: center; padding: 20px; color: #4caf50; font-weight: 500; }
+    .diff-loading-spinner { text-align: center; padding: 20px; color: #888; font-size: 0.85rem; }
+
     /* Header "Bottom of answer" button (top-right of card header) + the non-tabbed
        header [hide] toggle that proxies the in-body show/hide. */
     .scroll-to-bottom-btn {

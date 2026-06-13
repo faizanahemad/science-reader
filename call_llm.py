@@ -191,6 +191,7 @@ class CallMultipleLLM:
         if model_names is None or len(model_names) < 2:
             raise ValueError("At least two models are needed for multiple model call")
         self.model_names = model_names
+        self.model_responses = {}  # Populated after iteration: {model_id: response_text}
 
         self.merge = merge
         self.merge_model = (
@@ -270,6 +271,7 @@ class CallMultipleLLM:
             system=system,
             collapsible_headers=True,
             header_template="Response from {model}",
+            result_container=self.model_responses,
         )
         time_logger.warning(
             "[CallMultipleLLM] stream_multiple_models returned generator | dt=%.3fs",

@@ -294,6 +294,7 @@ def stream_multiple_models(
     system=None,
     collapsible_headers=True,
     header_template: Union[str, List[str]] = "Response from {model}",
+    result_container=None,
 ):
     """
     Streams responses from multiple LLM models sequentially in a coordinated fashion, ensuring one complete
@@ -740,7 +741,66 @@ def stream_multiple_models(
             model_buffers[model_id] = []
 
     # Return the complete model responses dictionary for potential further processing
+    if result_container is not None:
+        result_container.update(model_responses)
     return model_responses
+
+
+def generate_model_diff(keys, primary_name, primary_text, secondary_name, secondary_text):
+    """Generate a structured diff between two model responses.
+
+    Returns JSON string with stats, badge_summary, and diff_sections containing
+    the actual content differences in markdown format.
+    """
+    import json as _json
+
+    diff_prompt = f"""You are comparing two LLM responses to the same question. Your job is to extract the ACTUAL unique content from Response B that isn't in Response A.
+
+Response A (PRIMARY - from {primary_name}):
+<response_a>
+{primary_text}
+</response_a>
+
+Response B (from {secondary_name}):
+<response_b>
+{secondary_text}
+</response_b>
+
+Compare B against A. Identify:
+1. ADDITIONS: Information in B not present in A. Extract the actual content.
+2. CONTRADICTIONS: Where B makes different claims than A. Show what B actually says.
+3. OMISSIONS: Topics A covers that B skips entirely (brief note only).
+
+Output ONLY valid JSON (no markdown fences, no explanation):
+{{"stats": {{"additions": N, "contradictions": N, "omissions": N}}, "badge_summary": "+N ⚠M", "diff_sections": [{{"type": "addition|contradiction|omission", "topic": "2-5 word heading", "detail": "The actual content in markdown format. For additions: the full explanation/info that B provides. For contradictions: what B claims (the reader already has A). For omissions: one sentence noting what is missing."}}]}}
+
+Rules:
+- detail field must contain the ACTUAL information — not "Model B explains X" but the explanation itself
+- Use markdown in detail (code blocks, bold, lists) for readability
+- Only include genuinely meaningful differences (ignore phrasing/formatting/ordering differences)
+- If responses are essentially the same, return {{"stats": {{"additions": 0, "contradictions": 0, "omissions": 0}}, "badge_summary": "", "diff_sections": []}}
+- Maximum 8 diff_sections total
+- badge_summary format: "+N" if only additions, "+N ⚠M" if contradictions exist, "" if empty"""
+
+    system = "You are a precise comparison engine. Output only valid JSON. No markdown fences."
+
+    try:
+        from call_llm import CallLLm
+        diff_llm = CallLLm(keys, model_name=VERY_CHEAP_LLM[0], use_gpt4=True, use_16k=True)
+        result = diff_llm(diff_prompt, system=system, temperature=0.1, stream=False)
+        # Strip markdown fences if present
+        result = result.strip()
+        if result.startswith("```"):
+            result = result.split("\n", 1)[1] if "\n" in result else result[3:]
+            if result.endswith("```"):
+                result = result[:-3]
+            result = result.strip()
+        # Validate JSON
+        _json.loads(result)
+        return result
+    except Exception as e:
+        logger.error(f"[generate_model_diff] error: {e}")
+        return _json.dumps({"stats": {"additions": 0, "contradictions": 0, "omissions": 0}, "badge_summary": "", "diff_sections": []})
 
 
 import requests

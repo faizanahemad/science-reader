@@ -11598,6 +11598,50 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             yield {"text": slide_response, "status": "answering in progress"}
             answer += slide_response
 
+        # --- Multi-model diff generation (ensemble mode) ---
+        if ensemble and not self.is_cancelled():
+            try:
+                from common import generate_model_diff
+                _model_responses = {}
+                if hasattr(llm, '_call_multiple_llm'):
+                    _model_responses = llm._call_multiple_llm.model_responses
+                if len(_model_responses) >= 2:
+                    # Sort by index suffix to ensure first selected model is primary
+                    _model_ids = sorted(_model_responses.keys(), key=lambda x: int(x.rsplit("_", 1)[1]))
+                    _primary_id = _model_ids[0]
+                    _primary_name = _primary_id.rsplit("_", 1)[0]
+                    _primary_text = _model_responses[_primary_id]
+                    # Fire parallel diff calls for each secondary model
+                    _diff_futures = []
+                    for _sec_id in _model_ids[1:]:
+                        _sec_name = _sec_id.rsplit("_", 1)[0]
+                        _sec_text = _model_responses[_sec_id]
+                        _diff_futures.append((
+                            _sec_name,
+                            get_async_future(
+                                generate_model_diff,
+                                self.get_api_keys(),
+                                _primary_name,
+                                _primary_text,
+                                _sec_name,
+                                _sec_text,
+                            ),
+                        ))
+                    # Collect results as they complete
+                    for _sec_name, _diff_future in _diff_futures:
+                        if self.is_cancelled():
+                            break
+                        try:
+                            _diff_json = sleep_and_get_future_result(_diff_future, sleep_time=0.1, timeout=30)
+                            _diff_block = f'\n\n<answer_diff model="{_sec_name}" vs="{_primary_name}">\n{_diff_json}\n</answer_diff>\n'
+                            yield {"text": _diff_block, "status": "Model diff generated"}
+                            answer += _diff_block
+                        except Exception as _de:
+                            error_logger.error(f"Error generating diff for {_sec_name}: {_de}")
+                    time_dict["diff_generated"] = True
+            except Exception as _diff_err:
+                error_logger.error(f"Error in multi-model diff generation: {_diff_err}")
+
         # Generate a TLDR summary for long answers (over 300 words)
         answer_content_for_tldr = answer.replace("<answer>", "").strip()
         answer_word_count = len(answer_content_for_tldr.split())

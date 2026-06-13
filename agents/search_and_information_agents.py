@@ -1142,6 +1142,7 @@ Select the best response from the given multiple responses.
             else self.writer_model
         )
         llm = CallMultipleLLM(self.keys, self.writer_models)
+        self._call_multiple_llm = llm  # Expose for model_responses access
 
         time_logger.warning(
             "[NResponseAgent] calling CallMultipleLLM | dt=%.3fs",

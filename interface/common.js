@@ -3428,6 +3428,19 @@ function applyModelResponseTabs(elem_to_render_in) {
         });
     }
 
+    // Add Diff tab if multiple models present
+    var $diffBlocks = $root.find('[data-answer-diff]');
+    var hasDiffContent = $diffBlocks.length > 0;
+    var isMultiModel = modelDetails.length > 1;
+    if (isMultiModel) {
+        tabItems.push({
+            key: 'diff',
+            label: '⚡ Diff',
+            element: null,
+            type: 'diff'
+        });
+    }
+
     tabItems.forEach(function(item, itemIndex) {
         var tabKey = item.key;
         var tabId = groupKey + '-tab-' + tabKey;
@@ -3470,6 +3483,61 @@ function applyModelResponseTabs(elem_to_render_in) {
                     $body.append(tldrContentClone.contents());
                 }
             }
+        } else if (item.type === 'diff') {
+            // Build diff tab content from <answer_diff> blocks
+            if (hasDiffContent) {
+                var $diffContainer = $('<div class="diff-tab-content"></div>');
+                var allAgree = true;
+                $diffBlocks.each(function() {
+                    var $block = $(this);
+                    var diffModel = $block.attr('data-diff-model') || '';
+                    var rawJson = ($block.text() || '').trim();
+                    try {
+                        var diffData = JSON.parse(rawJson);
+                        var stats = diffData.stats || {};
+                        if ((stats.additions || 0) + (stats.contradictions || 0) + (stats.omissions || 0) > 0) {
+                            allAgree = false;
+                        }
+                        var badge = diffData.badge_summary || '';
+                        // Build model group
+                        var $group = $('<div class="diff-model-group"></div>');
+                        var shortName = diffModel.replace(/^.*\//, '');
+                        $group.append('<h6 class="diff-model-header">vs ' + shortName + (badge ? ' <span class="model-diff-badge">' + badge + '</span>' : '') + '</h6>');
+                        var sections = diffData.diff_sections || [];
+                        for (var si = 0; si < sections.length; si++) {
+                            var sec = sections[si];
+                            var icon = sec.type === 'addition' ? '✅' : sec.type === 'contradiction' ? '⚠️' : '❌';
+                            var typeClass = 'diff-' + sec.type;
+                            var $sec = $('<div class="diff-section ' + typeClass + '"></div>');
+                            $sec.append('<div class="diff-section-header">' + icon + ' ' + (sec.topic || '') + '</div>');
+                            var detailHtml = (typeof marked !== 'undefined' && marked.parse) ? marked.parse(sec.detail || '') : (sec.detail || '');
+                            $sec.append('<div class="diff-section-body">' + detailHtml + '</div>');
+                            $group.append($sec);
+                        }
+                        if (sections.length > 0) $diffContainer.append($group);
+                        // Inject badge into the corresponding model tab nav-link
+                        if (badge) {
+                            $nav.find('.nav-link').each(function() {
+                                var linkText = ($(this).text() || '').trim().toLowerCase();
+                                if (linkText && shortName.toLowerCase().indexOf(linkText) !== -1 || linkText.indexOf(shortName.toLowerCase()) !== -1) {
+                                    if (!$(this).find('.model-diff-badge').length) {
+                                        $(this).append(' <span class="model-diff-badge">' + badge + '</span>');
+                                    }
+                                }
+                            });
+                        }
+                    } catch (e) { /* ignore parse errors */ }
+                    $block.attr('data-model-tabs-hidden', 'true');
+                    $block[0].style.display = 'none';
+                });
+                if (allAgree && $diffBlocks.length > 0) {
+                    $diffContainer.append('<div class="diff-all-agree">✅ All models agree</div>');
+                }
+                $body.append($diffContainer);
+            } else if (isLiveStreaming || (!hasDiffContent && isMultiModel)) {
+                // Show spinner while waiting for diff results
+                $body.append('<div class="diff-loading-spinner"><span class="spinner-border spinner-border-sm"></span> Generating comparison...</div>');
+            }
         } else if (item.type === 'main') {
             // For the single-model case we want the full rendered message content.
             // After showMore() runs, the real content usually lives inside `.more-text`.
@@ -3485,6 +3553,7 @@ function applyModelResponseTabs(elem_to_render_in) {
             // Don't show the showMore toggle inside the tab pane.
             $mainClone.find('a.show-more').remove();
             $mainClone.find('[data-answer-tldr]').remove();
+            $mainClone.find('[data-answer-diff]').remove();
             // Remove visual wrapper and its parent section-details
             $mainClone.find('[data-answer-visual]').each(function() {
                 var $parentSection = $(this).closest('.section-details');
@@ -3511,6 +3580,7 @@ function applyModelResponseTabs(elem_to_render_in) {
             $detailsClone.find('.model-tabs-container').remove();
             $detailsClone.find('[data-answer-tldr]').remove();
             $detailsClone.find('[data-answer-visual]').remove();
+            $detailsClone.find('[data-answer-diff]').remove();
             $detailsClone.find('details').each(function() {
                 var $details = $(this);
                 var summaryText = ($details.find('> summary').first().text() || '').trim().toLowerCase();
@@ -4288,6 +4358,9 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
     // check html has </answer> tag
     has_end_answer_tag = html.includes('</answer>')
     html = html.replace(/<answer>/g, '').replace(/<\/answer>/g, '');
+    // Convert <answer_diff> tags to divs with data attributes (persisted model comparison data)
+    html = html.replace(/<\s*answer_diff\s+model="([^"]*?)"\s+vs="([^"]*?)"\s*>/gi, '<div data-answer-diff="true" data-diff-model="$1" data-diff-vs="$2">')
+        .replace(/<\s*\/\s*answer_diff\s*>/gi, '</div>');
     // Streaming-safety for <answer_tldr>:
     // During streaming, we may receive the opening tag before the closing tag arrives.
     // Converting an unclosed <answer_tldr> into a <div> produces malformed HTML, and browsers
