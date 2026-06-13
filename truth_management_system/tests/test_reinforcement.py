@@ -278,15 +278,14 @@ def test_distiller_proposes_and_executes_reinforce_for_duplicate(api):
         statement="I am vegetarian", claim_type="fact", context_domain="health"
     )
 
+    # Duplicates (score > 0.9) are now silently reinforced — no proposal returned
     actions = d._propose_actions([cand], [(cand, existing, "duplicate")])
-    assert len(actions) == 1
-    assert actions[0].action == "reinforce"
-    assert actions[0].existing_claim.claim_id == existing.claim_id
+    assert len(actions) == 0  # silent reinforce, no proposal
 
-    res = d._execute_action(actions[0])
-    assert res.success
-    assert res.action == "reinforce"
-    assert res.data.reinforcement_count == 1
+    # Verify the reinforce actually happened
+    refreshed = api.get_claim(existing.claim_id)
+    assert refreshed.success
+    assert refreshed.data.reinforcement_count == 1
 
 
 def test_add_claim_duplicate_reinforces_when_configured(api, monkeypatch):
