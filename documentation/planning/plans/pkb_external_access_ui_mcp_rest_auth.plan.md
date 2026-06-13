@@ -1,8 +1,8 @@
 # PKB / TMS as a Standalone System — Extraction, Standalone UI, MCP, REST API, Auth & Agent Integration
 
-**Status:** Draft (revised)
+**Status:** In Progress — M1 done, T0.1 partial (provider protocol + config), T3.1 done (dual-auth decorator), T4.1 done (token endpoint)
 **Created:** 2026-06-09
-**Revised:** 2026-06-10; 2026-06-11 (sync with landed `backfill_entities` REST route + DB concurrency fix — see §1, §9, §12); 2026-06-12 (**major re-scope** — PKB is now to become a standalone, separately-hostable system; added Workstream 0 extraction + explicit independence goals — see §0, §2, §3.0, §8); 2026-06-12b (sync surface counts, keyParser bug fix, maintenance UX overhaul, LLM smart consolidation, schema v14 — see §1, §9, §12)
+**Revised:** 2026-06-10; 2026-06-11 (sync with landed `backfill_entities` REST route + DB concurrency fix — see §1, §9, §12); 2026-06-12 (**major re-scope** — PKB is now to become a standalone, separately-hostable system; added Workstream 0 extraction + explicit independence goals — see §0, §2, §3.0, §8); 2026-06-12b (sync surface counts, keyParser bug fix, maintenance UX overhaul, LLM smart consolidation, schema v14 — see §1, §9, §12); 2026-06-13 (landed: LLMProvider protocol, CodeCommonProvider, PKBConfig model fields, dual-auth decorator, /pkb/token endpoint — all non-breaking/additive)
 **Scope:** Turn the PKB/TMS into an **independent, separately-hostable system** that runs in three modes — (a) an importable Python **library**, (b) a self-contained **HTTP server with its own bundled UI**, and (c) a standalone **MCP server** — usable by *any* assistant or coding service (Claude Code, OpenCode, Cursor, scripts), **while preserving the existing in-chat-app integration unchanged**. This subsumes the original narrower scope (a `/memory/` page, external MCP, token REST API, dual-auth, agent recipes), which now becomes the set of *surfaces built inside the extracted package* rather than inside the chat app.
 
 Internal memory-system improvements are covered separately in `pkb_memory_system_improvements.plan.md`, `pkb_ux_improvements.plan.md`, `pkb_retrieval_ranking.plan.md`, and `pkb_rewrite_entity_unification.plan.md` (the latter added the `backfill_entities` maintenance op now exposed over REST — see §1).
@@ -541,11 +541,24 @@ Cross-link from: `documentation/README.md`, `documentation/product/ops/mcp_serve
 |-----------|-------|------------|--------|
 | **M0 — Standalone extraction** ⭐ foundational | T0.1–T0.8 (provider injection, auth/http/mcp/ui move, CLI, packaging) | M1 (done) | Large — but incremental; each step keeps chat app green. **Unblocks true separate hosting (G0a–G0f).** |
 | **M1 — MCP security fix** ✅ DONE | T2.1 (user_email override) | None | Small — critical security fix (landed 2026-06-11) |
-| **M2 — Token issuance + dual auth** | T4.1, T3.1, T3.2, T3.3 | M0, M1 | Medium — enables all external access (built in package) |
+| **M2 — Token issuance + dual auth** | T4.1 ✅, T3.1 ✅, T3.2, T3.3 | M0, M1 | Medium — enables all external access (built in package) |
 | **M3 — MCP external deployment** | T2.2, T2.3, T2.4 | M0, M2 | Small — nginx config + verification |
 | **M4 — Standalone UI** | T1.1, T1.2, T1.3, T1.4 | M0 | Medium — JS refactor + new page (vendored in package) |
 | **M5 — Token management UI** | T4.2, T4.3 | M2, M4 | Medium |
 | **M6 — Integration docs** | T5.1–T5.4 | M2, M3 | Small |
+
+### Progress summary (2026-06-13)
+
+| Task | Status | Commit |
+|------|--------|--------|
+| T2.1 (MCP user_email fix) | ✅ Done | Landed 2026-06-11 |
+| T0.1 partial (LLMProvider protocol + CodeCommonProvider) | ✅ Done | `985ae8ef` — protocol defined, provider impl created, PKBConfig wired. Remaining: replace ~22 `from code_common` import sites. |
+| T0.1 partial (C2: model tier config) | ✅ Done | `985ae8ef` — `fast_llm_model`/`superfast_llm_model` added to PKBConfig |
+| T3.1 (dual-auth decorator) | ✅ Done | `985ae8ef` — `endpoints/pkb_auth.py` with `pkb_auth_required`, `require_scope()` |
+| T4.1 (token mint endpoint) | ✅ Done | `985ae8ef` — `POST /pkb/token` (session-only, scoped, lifetime-capped) |
+| T2.1b (thread-local verification) | Pending | Needs integration test before external deployment |
+| T0.1 remainder (replace imports) | Next — highest impact | ~22 sites to route through provider |
+| T3.2 (swap @login_required → @pkb_auth_required) | After T0.1 | Mechanical find-replace |
 
 **Recommended order:** **M1 ✅ → M0 (extraction, the new critical path)** → M2 → M3 → M6 (external + standalone access working), then M4 → M5 (UI) in parallel or after. The biggest change from the original plan: **M0 is now the backbone** — without it the other milestones produce a chat-app-bound feature, not a hostable system. Within M0, T0.1 (provider injection, verified against the full suite) is the safest first move and the highest-leverage de-risk.
 
