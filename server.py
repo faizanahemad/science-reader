@@ -165,6 +165,8 @@ def load_conversation(conversation_id: str) -> Conversation:
 
     path = os.path.join(conversation_folder, conversation_id)
     conversation: Conversation = Conversation.load_local(path)
+    if conversation is None:
+        raise KeyError(f"Conversation {conversation_id!r} could not be loaded from disk (index file missing or corrupt)")
     conversation.clear_lockfile("")
     conversation.clear_lockfile("all")
     conversation.clear_lockfile("message_operations")
