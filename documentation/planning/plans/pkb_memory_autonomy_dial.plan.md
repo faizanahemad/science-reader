@@ -1,6 +1,6 @@
 # PKB / TMS — Unified Memory Autonomy Dial (Manual ◀──▶ Automatic)
 
-**Status:** PARTIAL — Backend complete (routing, config, autonomy.py, REST endpoints, MCP tools, activity log). UI not started (no dial/slider, no activity feed, no settings panel).
+**Status:** DONE — Backend complete (routing, config, autonomy.py, REST endpoints, MCP tools, activity log). UI landed 2026-06-13 (slider, preview, facet overrides, auto-save on change).
 **Created:** 2026-06-12
 **Owner:** PKB / TMS
 
