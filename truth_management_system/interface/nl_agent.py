@@ -37,7 +37,7 @@ class PKBToolResult:
         if not self.success:
             return f"ERROR: {self.error}"
         from common import get_first_n_words
-        return get_first_n_words(json.dumps(self.data, default=str), n=1000)
+        return get_first_n_words(json.dumps(self.data, default=str), n=4000)
 
 
 @dataclass
@@ -413,7 +413,7 @@ class PKBNLAgent:
         # The user can refine it in the modal
         from common import get_first_n_words
         return [{
-            "text": get_first_n_words(user_text, n=200),
+            "text": get_first_n_words(user_text, n=500),
             "claim_type": "note",
             "valid_from": None,
             "valid_to": None,

@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Math Rendering Debug</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <script type="text/x-mathjax-config">
+      MathJax.Hub.Config({
+        tex2jax: {
+          inlineMath: [['$', '$'], ['\\(', '\\)']],
+          displayMath: [['$$', '$$'], ['\\[', '\\]']],
+          processEscapes: true,
+          skipTags: ["code", "pre", "math", "script"],
+        },
+        extensions: ["tex2jax.js", "MathMenu.js", "MathZoom.js", "AssistiveMML.js"],
+        TeX: {
+          extensions: ["AMSmath.js", "AMSsymbols.js", "noErrors.js", "noUndefined.js", "color.js", "cases.js"],
+        },
+        "HTML-CSS": { 
+          linebreaks: { automatic: true, width: "container" }
+        }
+      });
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        body { font-family: sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; }
+        .test-case { border: 1px solid #ccc; padding: 15px; margin: 20px 0; border-radius: 8px; }
+        .test-case h3 { margin-top: 0; color: #333; }
+        .raw { background: #f5f5f5; padding: 10px; font-family: monospace; font-size: 12px; white-space: pre-wrap; }
+        .rendered { background: #fff; padding: 10px; border-top: 1px dashed #ddd; margin-top: 10px; }
+        .label { font-size: 11px; color: #666; text-transform: uppercase; margin-bottom: 5px; }
+    </style>
+</head>
+<body>
+    <h1>MathJax + Marked.js Rendering Debug</h1>
+    <p>Testing whether <code>$$...$$</code> display math renders correctly after <code>marked.parse()</code></p>
+
+    <!-- Test 1: $$ on same line as text (the problematic pattern from the doubt) -->
+    <div class="test-case">
+        <h3>Test 1: $$ inline with surrounding text (single newline before/after)</h3>
+        <div class="label">Raw markdown:</div>
+        <div class="raw" id="raw1"></div>
+        <div class="label">Rendered via marked.parse() then MathJax:</div>
+        <div class="rendered" id="rendered1"></div>
+    </div>
+
+    <!-- Test 2: $$ with blank lines around it -->
+    <div class="test-case">
+        <h3>Test 2: $$ with blank lines (double newline) before and after</h3>
+        <div class="label">Raw markdown:</div>
+        <div class="raw" id="raw2"></div>
+        <div class="label">Rendered via marked.parse() then MathJax:</div>
+        <div class="rendered" id="rendered2"></div>
+    </div>
+
+    <!-- Test 3: $$ on its own paragraph -->
+    <div class="test-case">
+        <h3>Test 3: $$ completely isolated (own paragraph)</h3>
+        <div class="label">Raw markdown:</div>
+        <div class="raw" id="raw3"></div>
+        <div class="label">Rendered via marked.parse() then MathJax:</div>
+        <div class="rendered" id="rendered3"></div>
+    </div>
+
+    <!-- Test 4: Exact text from the doubt -->
+    <div class="test-case">
+        <h3>Test 4: Exact pattern from the doubt (text before, single \n, $$, single \n, text after)</h3>
+        <div class="label">Raw markdown:</div>
+        <div class="raw" id="raw4"></div>
+        <div class="label">Rendered via marked.parse() then MathJax:</div>
+        <div class="rendered" id="rendered4"></div>
+    </div>
+
+    <!-- Test 5: No marked.parse - raw HTML with MathJax only -->
+    <div class="test-case">
+        <h3>Test 5: Direct HTML (no marked.parse) - MathJax only</h3>
+        <div class="label">Raw HTML:</div>
+        <div class="raw" id="raw5"></div>
+        <div class="label">Rendered (MathJax only, no markdown processing):</div>
+        <div class="rendered" id="rendered5"></div>
+    </div>
+
+    <!-- Test 6: marked.parse but NO MathJax.Hub.Queue -->
+    <div class="test-case">
+        <h3>Test 6: marked.parse() WITHOUT MathJax.Hub.Queue (simulates doubt-manager bug)</h3>
+        <div class="label">Raw markdown:</div>
+        <div class="raw" id="raw6"></div>
+        <div class="label">Rendered (marked only, no MathJax trigger):</div>
+        <div class="rendered" id="rendered6"></div>
+    </div>
+
+    <script>
+    // Test cases
+    var test1 = "The GC complexity is:\n$$\\text{Complexity}_{\\text{Go}} = \\mathcal{O}(L_{\\text{global}})$$\nwhere $L_{\\text{global}}$ is the sum of all live objects.";
+
+    var test2 = "The GC complexity is:\n\n$$\\text{Complexity}_{\\text{Go}} = \\mathcal{O}(L_{\\text{global}})$$\n\nwhere $L_{\\text{global}}$ is the sum of all live objects.";
+
+    var test3 = "The GC complexity is:\n\n$$\n\\text{Complexity}_{\\text{Go}} = \\mathcal{O}(L_{\\text{global}})\n$$\n\nwhere $L_{\\text{global}}$ is the sum of all live objects.";
+
+    var test4 = "In the BEAM, if the system is running $N$ processes, the memory is partitioned such that:\n\n$$H = \\sum_{i=1}^{N} h_i$$\n\nThe complexity of a GC cycle for any single process $i$ is strictly bounded by its local live data:\n\n$$\\text{Complexity}_{\\text{BEAM}_i} = \\mathcal{O}(l_i) \\quad \\text{where} \\quad l_i \\ll L_{\\text{global}}$$\n\nBecause these local GC cycles run asynchronously.";
+
+    var test5_html = '<p>The number of connections is:</p><p>$$\\text{Connections} = \\frac{N(N - 1)}{2}$$</p><p>This grows quadratically.</p>';
+
+    var test6 = "The formula is:\n\n$$\\text{Connections} = \\frac{N(N - 1)}{2}$$\n\nThis grows quadratically with $N$.";
+
+    // Show raw text
+    document.getElementById('raw1').textContent = test1;
+    document.getElementById('raw2').textContent = test2;
+    document.getElementById('raw3').textContent = test3;
+    document.getElementById('raw4').textContent = test4;
+    document.getElementById('raw5').textContent = test5_html;
+    document.getElementById('raw6').textContent = test6;
+
+    // Render with marked.parse + MathJax
+    document.getElementById('rendered1').innerHTML = marked.parse(test1);
+    document.getElementById('rendered2').innerHTML = marked.parse(test2);
+    document.getElementById('rendered3').innerHTML = marked.parse(test3);
+    document.getElementById('rendered4').innerHTML = marked.parse(test4);
+    document.getElementById('rendered5').innerHTML = test5_html;
+    document.getElementById('rendered6').innerHTML = marked.parse(test6);
+
+    // Queue MathJax for tests 1-5 (NOT test 6 - that simulates the bug)
+    MathJax.Hub.Queue(["Typeset", MathJax.Hub, document.getElementById('rendered1')]);
+    MathJax.Hub.Queue(["Typeset", MathJax.Hub, document.getElementById('rendered2')]);
+    MathJax.Hub.Queue(["Typeset", MathJax.Hub, document.getElementById('rendered3')]);
+    MathJax.Hub.Queue(["Typeset", MathJax.Hub, document.getElementById('rendered4')]);
+    MathJax.Hub.Queue(["Typeset", MathJax.Hub, document.getElementById('rendered5')]);
+    // Test 6: deliberately NO MathJax.Hub.Queue - this is the doubt-manager bug
+    </script>
+</body>
+</html>

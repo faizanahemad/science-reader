@@ -6077,8 +6077,8 @@ def _select_relevant_tools(user_message, summary, keys):
         "search is needed, include read_link too). Include tools for plausible "
         "next steps the user might take within this turn.\n"
         "Return ONLY a JSON array of tool names.\n\n"
-        f"Message: {get_first_n_words(user_message, n=200)}\n"
-        f"Context: {get_first_n_words(summary, n=200)}\n\n"
+        f"Message: {get_first_n_words(user_message, n=500)}\n"
+        f"Context: {get_first_n_words(summary, n=500)}\n\n"
         f"Available tools:\n{menu}\n\n"
         "Output: [\"tool1\", \"tool2\", ...]"
     )

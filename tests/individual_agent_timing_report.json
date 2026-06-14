@@ -1,0 +1,109 @@
+{
+  "query": "What are the latest advances in AI?",
+  "detail_level": 1,
+  "timestamp": "2025-12-31T23:09:15.053922",
+  "tests": [
+    {
+      "agent": "WebSearchWithAgent",
+      "query": "What are the latest advances in AI?",
+      "detail_level": 1,
+      "timings": {
+        "initialization": 2.5987625122070312e-05,
+        "agent_call": 78.32743120193481,
+        "total": 78.32746481895447
+      },
+      "sub_timings": {
+        "query_generation": 6.111630201339722,
+        "web_search_execution": 61.16654682159424,
+        "combiner_llm": 11.049208879470825
+      },
+      "success": true,
+      "error": null,
+      "output_length": 120138
+    },
+    {
+      "agent": "PerplexitySearchAgent",
+      "query": "What are the latest advances in AI?",
+      "detail_level": 1,
+      "num_queries": 3,
+      "timings": {
+        "initialization": 4.506111145019531e-05,
+        "agent_call": 34.22346591949463,
+        "total": 34.22352409362793
+      },
+      "sub_timings": {
+        "query_generation": 4.080700874328613,
+        "perplexity_api_calls": 15.09034514427185,
+        "combiner_llm": 15.052379846572876
+      },
+      "success": true,
+      "error": null,
+      "output_length": 53591,
+      "perplexity_models": [
+        "perplexity/sonar-pro",
+        "perplexity/sonar"
+      ]
+    },
+    {
+      "agent": "JinaSearchAgent",
+      "query": "What are the latest advances in AI?",
+      "detail_level": 1,
+      "num_queries": 3,
+      "timings": {
+        "initialization": 5.412101745605469e-05,
+        "agent_call": 130.75095343589783,
+        "total": 130.75102186203003
+      },
+      "sub_timings": {
+        "query_generation": 4.09785795211792,
+        "jina_api_calls": 102.81247878074646,
+        "combiner_llm": 23.8405339717865
+      },
+      "success": true,
+      "error": null,
+      "output_length": 189936
+    },
+    {
+      "test": "LLM Combiner Speed Comparison",
+      "query": "What are the latest advances in AI?",
+      "model_timings": {
+        "VERY_CHEAP_LLM": {
+          "model": "google/gemini-2.5-flash-lite",
+          "time": 1.3291361331939697,
+          "response_length": 616
+        },
+        "CHEAP_LLM": {
+          "model": "anthropic/claude-haiku-4.5",
+          "time": 4.053802967071533,
+          "response_length": 1000
+        },
+        "CHEAP_LONG_CONTEXT_LLM": {
+          "model": "google/gemini-2.5-flash",
+          "time": 1.5597150325775146,
+          "response_length": 570
+        }
+      },
+      "success": true,
+      "fastest_model": "VERY_CHEAP_LLM"
+    },
+    {
+      "agent": "MultiSourceSearchAgent (Parallel Fix Test)",
+      "query": "What are the latest advances in AI?",
+      "detail_level": 1,
+      "timings": {
+        "initialization": 0.00011706352233886719,
+        "agent_call": 146.50126218795776,
+        "total": 146.5014510154724
+      },
+      "sub_timings": {
+        "web_search": 116.62329912185669,
+        "perplexity": 116.62340688705444,
+        "jina": 116.62350392341614
+      },
+      "success": true,
+      "error": null,
+      "output_length": 84189,
+      "parallel_working": false
+    }
+  ]
+}

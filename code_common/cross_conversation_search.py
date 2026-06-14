@@ -765,8 +765,10 @@ CROSS_CONVERSATION_TOOLS: Dict[str, dict] = {
     "search_conversations": {
         "name": "search_conversations",
         "description": (
-            "Search across ALL user's conversations by keyword/phrase/regex. "
+            "Search across user's conversations by keyword/phrase/regex. "
             "Returns matching conversations with title, date, snippet, and IDs. "
+            "By default searches all conversations. Pass workspace_id to scope to "
+            "the current workspace only (available in context). "
             "'deep' mode searches message headers too. Use get_conversation_summary for details."
         ),
         "parameters": {

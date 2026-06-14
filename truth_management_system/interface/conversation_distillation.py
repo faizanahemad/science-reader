@@ -311,8 +311,8 @@ class ConversationDistiller:
         for i, turn in enumerate(prior_turns, 1):
             prior_context_lines.append(
                 f"Prior turn {i}:\n"
-                f"  User: {get_first_n_words(turn.get('user', ''), n=200)}\n"
-                f"  Assistant: {get_first_n_words(turn.get('assistant', ''), n=300)}"
+                f"  User: {get_first_n_words(turn.get('user', ''), n=500)}\n"
+                f"  Assistant: {get_first_n_words(turn.get('assistant', ''), n=800)}"
             )
         prior_context = "\n\n".join(prior_context_lines) if prior_context_lines else "(none)"
         if self.extraction_mode == 'aggressive':

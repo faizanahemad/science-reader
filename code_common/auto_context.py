@@ -112,7 +112,7 @@ def _compact_message_repr(msg: dict, index: int) -> dict:
         "sender": sender,
     }
     if sender == "user":
-        entry["tldr"] = msg.get("user_ask_tldr") or get_first_n_words(msg.get("text", ""), n=80)
+        entry["tldr"] = msg.get("user_ask_tldr") or get_first_n_words(msg.get("text", ""), n=200)
         kw = msg.get("user_ask_keywords")
         if kw:
             entry["keywords"] = kw
@@ -120,7 +120,7 @@ def _compact_message_repr(msg: dict, index: int) -> dict:
         if pc:
             entry["prior_context"] = pc
     else:
-        entry["tldr"] = msg.get("answer_tldr") or get_first_n_words(msg.get("text", ""), n=80)
+        entry["tldr"] = msg.get("answer_tldr") or get_first_n_words(msg.get("text", ""), n=200)
         kw = msg.get("answer_keywords")
         if kw:
             entry["keywords"] = kw
@@ -528,7 +528,7 @@ def agentic_context_finder(
             {"role": "user", "content": _AGENT_INITIAL_PROMPT.format(
                 query=query,
                 summary=running_summary or "(none)",
-                last_turn=get_first_n_words(last_turn_text, n=300) if last_turn_text else "(none)",
+                last_turn=get_first_n_words(last_turn_text, n=800) if last_turn_text else "(none)",
             )},
         ]
 
@@ -742,9 +742,9 @@ def assemble_auto_context(
                 text = _extract_user_answer(msg.get("text", ""))
             else:
                 if sender == "user":
-                    text = msg.get("user_ask_tldr") or get_first_n_words(msg.get("text", ""), n=120)
+                    text = msg.get("user_ask_tldr") or get_first_n_words(msg.get("text", ""), n=300)
                 else:
-                    text = msg.get("answer_tldr") or get_first_n_words(msg.get("text", ""), n=120)
+                    text = msg.get("answer_tldr") or get_first_n_words(msg.get("text", ""), n=300)
             parts.append(f"<{sender}>\n{text}\n</{sender}>")
         result = "\n\n".join(parts)
 

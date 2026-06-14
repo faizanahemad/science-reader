@@ -3046,7 +3046,7 @@ Original user question:
 \"\"\"{message}\"\"\"
 
 Assistant answer:
-\"\"\"{get_first_n_words(answer_trimmed, n=5000)}\"\"\"
+\"\"\"{get_first_n_words(answer_trimmed, n=20000)}\"\"\"
 
 Question to answer:
 {suggestion}
@@ -3363,7 +3363,7 @@ User question:
 \"\"\"{message}\"\"\"
 
 Assistant answer:
-\"\"\"{get_first_n_words(answer_trimmed, n=8000)}\"\"\"
+\"\"\"{get_first_n_words(answer_trimmed, n=30000)}\"\"\"
 """
 
         # Run both LLM calls in parallel
@@ -3488,7 +3488,7 @@ User question:
 \"\"\"{message}\"\"\"
 
 Assistant answer:
-\"\"\"{get_first_n_words(answer_trimmed, n=8000)}\"\"\"
+\"\"\"{get_first_n_words(answer_trimmed, n=30000)}\"\"\"
 """
 
         # Run both LLM calls in parallel

@@ -1,0 +1,87 @@
+{
+  "query": "What are the latest advances in AI?",
+  "timestamp": "2026-01-01T14:13:59.896556",
+  "total_duration_seconds": 349.75860714912415,
+  "results": [
+    {
+      "name": "Query Generation (LLM)",
+      "duration_seconds": 7.912662982940674,
+      "success": true,
+      "result_summary": "2055 chars generated",
+      "error": null,
+      "sub_timings": {}
+    },
+    {
+      "name": "WebSearchWithAgent",
+      "duration_seconds": 95.82700490951538,
+      "success": true,
+      "result_summary": "123650 chars",
+      "error": null,
+      "sub_timings": {
+        "Query Generation": 5.776089906692505,
+        "Web Search Execution": 76.37283492088318,
+        "Combiner LLM": 13.678080081939697
+      }
+    },
+    {
+      "name": "PerplexitySearchAgent",
+      "duration_seconds": 51.16549229621887,
+      "success": true,
+      "result_summary": "64010 chars",
+      "error": null,
+      "sub_timings": {
+        "Query Generation": 3.0561840534210205,
+        "Perplexity API Calls": 18.94076108932495,
+        "Combiner LLM": 29.168545961380005
+      }
+    },
+    {
+      "name": "JinaSearchAgent",
+      "duration_seconds": 34.54760813713074,
+      "success": true,
+      "result_summary": "72101 chars",
+      "error": null,
+      "sub_timings": {
+        "Query Generation": 3.2998619079589844,
+        "Jina API Calls": 19.54064106941223,
+        "Combiner LLM": 11.707103967666626
+      }
+    },
+    {
+      "name": "MultiSourceSearchAgent (Full)",
+      "duration_seconds": 89.1800422668457,
+      "success": true,
+      "result_summary": "73589 chars",
+      "error": null,
+      "sub_timings": {
+        "WebSearch Wait": 61.7997932434082,
+        "Perplexity Wait": 40.43657112121582,
+        "Jina Wait": 43.271199226379395,
+        "Final Combiner LLM": 27.380248069763184
+      }
+    },
+    {
+      "name": "Combiner LLM (isolated)",
+      "duration_seconds": 5.862881898880005,
+      "success": true,
+      "result_summary": "4411 chars",
+      "error": null,
+      "sub_timings": {}
+    },
+    {
+      "name": "Parallel vs Sequential Analysis",
+      "duration_seconds": 62.65987300872803,
+      "success": true,
+      "result_summary": "Parallel: 62.7s, Est Sequential: 188.0s, Speedup: 3.0x",
+      "error": null,
+      "sub_timings": {
+        "WebSearch (parallel)": 62.65936517715454,
+        "Perplexity (parallel)": 62.65937614440918,
+        "Jina (parallel)": 62.65938186645508,
+        "Theoretical Sequential Total": 187.9781231880188,
+        "Actual Parallel Total": 62.659383058547974,
+        "Parallel Speedup Factor": 2.9999995852556496
+      }
+    }
+  ]
+}
