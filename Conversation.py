@@ -315,7 +315,11 @@ class Conversation:
             db_path = os.path.join(self._storage, "conversation.db")
             self._conversation_store = ConversationStore(db_path)
         else:
-            # No JSON files — this is a fresh conversation, just write current state
+            # No JSON files — this could be:
+            # 1. A fresh conversation (nothing to migrate)
+            # 2. Already migrated (JSON renamed to .migrated but DB was deleted/empty)
+            # In either case, seed from current in-memory state and write a sentinel
+            # so is_empty() returns False on next check.
             messages = getattr(self, "messages", None) or []
             memory_data = getattr(self, "memory", None)
             artefacts = getattr(self, "artefacts", None)
@@ -339,18 +343,20 @@ class Conversation:
                 attached_docs=attached,
                 dill_attrs=dill_attrs if dill_attrs else None,
             )
+            # Ensure DB is not considered "empty" even with no messages
+            # by writing a sentinel memory key
+            if store.is_empty():
+                store.set_memory_key("_migrated_at", time.time())
 
     @property
     def _use_sqlite(self) -> bool:
         """True if this conversation has been migrated to SQLite."""
-        db_path = os.path.join(self._storage, "conversation.db")
-        if os.path.exists(db_path):
+        # Quick check: if store is already open, it's SQLite
+        if hasattr(self, "_conversation_store") and self._conversation_store is not None:
             return True
-        # Also check if JSON files are missing (already migrated/renamed)
-        messages_json = os.path.join(
-            self._storage, f"{self.conversation_id}-messages.json"
-        )
-        return not os.path.exists(messages_json)
+        # Only use SQLite if conversation.db actually exists on disk
+        db_path = os.path.join(self._storage, "conversation.db")
+        return os.path.exists(db_path)
 
     @property
     def flag(self) -> Union[str, None]:
@@ -2646,6 +2652,10 @@ Compact list of bullet points:
                     for a in value:
                         store.add_artefact(a)
         elif top_key == "artefact_message_links":
+            if overwrite:
+                # Clear existing links and re-add
+                store._conn.execute("DELETE FROM artefact_links")
+                store._conn.commit()
             if isinstance(value, dict):
                 for mid, link_data in value.items():
                     if isinstance(link_data, dict):
@@ -2653,6 +2663,10 @@ Compact list of bullet points:
                         if aid:
                             store.add_link(str(mid), str(aid))
         elif top_key == "uploaded_documents_list":
+            if overwrite:
+                # Delete existing uploaded docs, then add new ones
+                for d in store.get_documents("uploaded"):
+                    store.delete_document(d["doc_id"])
             if isinstance(value, list):
                 for doc in value:
                     if isinstance(doc, (list, tuple)) and len(doc) >= 1:
@@ -2663,6 +2677,9 @@ Compact list of bullet points:
                             doc[3] if len(doc) > 3 else None,
                         )
         elif top_key == "message_attached_documents_list":
+            if overwrite:
+                for d in store.get_documents("attached"):
+                    store.delete_document(d["doc_id"])
             if isinstance(value, list):
                 for doc in value:
                     if isinstance(doc, (list, tuple)) and len(doc) >= 1:
@@ -4374,8 +4391,8 @@ Your response will be in below xml style format:
     def set_title(self, title):
         memory = self.get_field("memory")
         memory["title"] = title
-        self.set_field("memory", memory)
         memory["title_force_set"] = True
+        self.set_field("memory", memory, overwrite=True)
         self.save_local()
         # Cross-conversation search: title changed
         try:

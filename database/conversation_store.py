@@ -147,8 +147,10 @@ class ConversationStore:
             self._conn = None
 
     def is_empty(self) -> bool:
-        """True if no messages exist (migration has not occurred)."""
-        row = self._conn.execute("SELECT COUNT(*) FROM messages").fetchone()
+        """True if no data has been imported (neither messages nor memory keys exist)."""
+        row = self._conn.execute(
+            "SELECT (SELECT COUNT(*) FROM messages) + (SELECT COUNT(*) FROM memory)"
+        ).fetchone()
         return row[0] == 0
 
     def schema_version(self) -> int:
@@ -390,12 +392,12 @@ class ConversationStore:
     # ===================== Artefact Links =====================
 
     def get_artefact_links(self) -> dict:
-        """Returns {message_id: [{artefact_id, link_type}, ...]}."""
+        """Returns {message_id: {artefact_id: ..., link_type: ...}} matching legacy format."""
         rows = self._conn.execute("SELECT * FROM artefact_links").fetchall()
         result = {}
         for r in rows:
-            result.setdefault(r["message_id"], []).append(
-                {"artefact_id": r["artefact_id"], "link_type": r["link_type"]})
+            # Legacy format: one link per message (last one wins if multiple)
+            result[r["message_id"]] = {"artefact_id": r["artefact_id"]}
         return result
 
     def get_links_for_artefact(self, artefact_id: str) -> list[str]:
