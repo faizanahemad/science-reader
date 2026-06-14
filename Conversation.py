@@ -807,11 +807,7 @@ class Conversation:
                         conv_refs, user_email, users_dir, conversation_loader
                     )
                     for ref_label, msg_text in resolved_msgs:
-                        truncated = msg_text[:8000]
-                        if len(msg_text) > 8000:
-                            truncated += (
-                                f"\n... [truncated, original was {len(msg_text)} chars]"
-                            )
+                        truncated = get_first_n_words(msg_text, n=2000)
                         # Create a mock claim-like object with the required attributes
                         # so the formatting loop can handle it alongside PKB claims.
                         mock_claim = type(
@@ -831,11 +827,7 @@ class Conversation:
                         "[PKB] Failed to resolve cross-conversation refs: %s", e
                     )
                     for ref_label, msg_text in resolved_msgs:
-                        truncated = msg_text[:8000]
-                        if len(msg_text) > 8000:
-                            truncated += (
-                                f"\n... [truncated, original was {len(msg_text)} chars]"
-                            )
+                        truncated = get_first_n_words(msg_text, n=2000)
                         all_claims.append(
                             (
                                 f"referenced_@{ref_label}",
@@ -4224,7 +4216,7 @@ Your response will be in below xml style format:
                 _ans_kw_llm = CallLLm(self.get_api_keys(), model_name=_kw_model, use_gpt4=False, use_16k=False)
                 _ans_kw_future = get_async_future(
                     _ans_kw_llm,
-                    keyword_extraction_prompt.format(text=_answer_text[:3000]),
+                    keyword_extraction_prompt.format(text=get_first_n_words(_answer_text, n=800)),
                     temperature=0.1, stream=False,
                 )
             else:
@@ -4459,7 +4451,7 @@ Look for indicators like:
             detection_prompt = f"""Analyze the following text and determine if it contains LeetCode-style or technical interview coding content:
 
 <text>
-{text[:3000]}  # Limit to first 3000 chars for efficiency
+{get_first_n_words(text, n=800)}
 </text>
 
 Respond with a JSON object containing is_coding_interview, confidence, reasoning, and content_type."""
@@ -8419,8 +8411,8 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         if self.messages and len(self.messages) >= 2:
             _last_user = self.messages[-2].get("content", "") if self.messages[-2].get("role") == "user" else ""
             _last_asst = self.messages[-1].get("content", "") if self.messages[-1].get("role") == "assistant" else ""
-            _last_turn_for_tools = f"Previous user: {_last_user[:200]}\nPrevious assistant: {_last_asst[:200]}"
-        _tool_summary_for_select = f"{self.running_summary[:300]}\n{_last_turn_for_tools}" if _last_turn_for_tools else (self.running_summary or "")
+            _last_turn_for_tools = f"Previous user: {get_first_n_words(_last_user, n=100)}\nPrevious assistant: {get_first_n_words(_last_asst, n=100)}"
+        _tool_summary_for_select = f"{get_first_n_words(self.running_summary, n=150)}\n{_last_turn_for_tools}" if _last_turn_for_tools else (self.running_summary or "")
         _tools_config_future = get_async_future(
             self._get_enabled_tools,
             checkboxes,
@@ -8627,8 +8619,8 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 _msgs = self.get_field("messages") or []
                 if len(_msgs) >= 2:
                     _last_turn_text = (
-                        _msgs[-2].get("text", "")[:500] + "\n" +
-                        _msgs[-1].get("text", "")[:500]
+                        get_first_n_words(_msgs[-2].get("text", ""), n=200) + "\n" +
+                        get_first_n_words(_msgs[-1].get("text", ""), n=200)
                     )
             except Exception:
                 pass
@@ -9271,7 +9263,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     _visual_llm = _CallLLm_visual(self.get_api_keys(), model_name=_visual_model, use_gpt4=False, use_16k=False)
                     _visual_prompt = visual_tab_prompt.format(
                         query=query["messageText"],
-                        summary=summary_text[:2000] if summary_text else "No conversation context.",
+                        summary=get_first_n_words(summary_text, n=500) if summary_text else "No conversation context.",
                     )
                     _visual_tab_future = get_async_future(
                         _visual_llm, _visual_prompt, temperature=0.4, stream=False,

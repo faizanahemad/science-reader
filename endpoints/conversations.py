@@ -36,6 +36,7 @@ from common import (
     CHEAP_LONG_CONTEXT_LLM,
     LONG_CONTEXT_LLM,
     SUPERFAST_LLM,
+    get_first_n_words,
 )
 from database.conversations import (
     addConversation,
@@ -3045,7 +3046,7 @@ Original user question:
 \"\"\"{message}\"\"\"
 
 Assistant answer:
-\"\"\"{answer_trimmed[:20000]}\"\"\"
+\"\"\"{get_first_n_words(answer_trimmed, n=5000)}\"\"\"
 
 Question to answer:
 {suggestion}
@@ -3362,7 +3363,7 @@ User question:
 \"\"\"{message}\"\"\"
 
 Assistant answer:
-\"\"\"{answer_trimmed[:30000]}\"\"\"
+\"\"\"{get_first_n_words(answer_trimmed, n=8000)}\"\"\"
 """
 
         # Run both LLM calls in parallel
@@ -3487,7 +3488,7 @@ User question:
 \"\"\"{message}\"\"\"
 
 Assistant answer:
-\"\"\"{answer_trimmed[:30000]}\"\"\"
+\"\"\"{get_first_n_words(answer_trimmed, n=8000)}\"\"\"
 """
 
         # Run both LLM calls in parallel

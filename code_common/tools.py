@@ -106,6 +106,7 @@ class ToolContext:
     conversation_summary: str = ""
     recent_messages: list = field(default_factory=list)
     model_overrides: dict = field(default_factory=dict)
+    workspace_id: str = ""
 
 
 @dataclass
@@ -6066,7 +6067,7 @@ def handle_request_tools(args: dict, context: ToolContext) -> ToolCallResult:
 def _select_relevant_tools(user_message, summary, keys):
     """Use VERY_CHEAP_LLM to select relevant tools for this turn. HIGH RECALL."""
     from code_common.call_llm import call_llm
-    from common import VERY_CHEAP_LLM
+    from common import VERY_CHEAP_LLM, get_first_n_words
 
     menu = get_compact_tool_menu()
     prompt = (
@@ -6076,8 +6077,8 @@ def _select_relevant_tools(user_message, summary, keys):
         "search is needed, include read_link too). Include tools for plausible "
         "next steps the user might take within this turn.\n"
         "Return ONLY a JSON array of tool names.\n\n"
-        f"Message: {user_message[:500]}\n"
-        f"Context: {summary[:500]}\n\n"
+        f"Message: {get_first_n_words(user_message, n=200)}\n"
+        f"Context: {get_first_n_words(summary, n=200)}\n\n"
         f"Available tools:\n{menu}\n\n"
         "Output: [\"tool1\", \"tool2\", ...]"
     )

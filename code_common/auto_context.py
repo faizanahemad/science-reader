@@ -104,6 +104,7 @@ def _extract_user_answer(text: str) -> str:
 
 def _compact_message_repr(msg: dict, index: int) -> dict:
     """Compact metadata-only representation for classifier input."""
+    from common import get_first_n_words
     sender = msg.get("sender", "")
     entry: dict[str, Any] = {
         "index": index,
@@ -111,7 +112,7 @@ def _compact_message_repr(msg: dict, index: int) -> dict:
         "sender": sender,
     }
     if sender == "user":
-        entry["tldr"] = msg.get("user_ask_tldr") or msg.get("text", "")[:200]
+        entry["tldr"] = msg.get("user_ask_tldr") or get_first_n_words(msg.get("text", ""), n=80)
         kw = msg.get("user_ask_keywords")
         if kw:
             entry["keywords"] = kw
@@ -119,7 +120,7 @@ def _compact_message_repr(msg: dict, index: int) -> dict:
         if pc:
             entry["prior_context"] = pc
     else:
-        entry["tldr"] = msg.get("answer_tldr") or msg.get("text", "")[:200]
+        entry["tldr"] = msg.get("answer_tldr") or get_first_n_words(msg.get("text", ""), n=80)
         kw = msg.get("answer_keywords")
         if kw:
             entry["keywords"] = kw
@@ -503,7 +504,7 @@ def agentic_context_finder(
     try:
         from code_common.call_llm import call_llm as _cc_call_llm
         from code_common.tools import TOOL_REGISTRY, ToolContext
-        from common import get_async_future, sleep_and_get_future_result
+        from common import get_async_future, sleep_and_get_future_result, get_first_n_words
 
         cfg = AUTO_CONTEXT_CONFIGS[mode]
         max_iterations = cfg["agent_max_iterations"]
@@ -527,7 +528,7 @@ def agentic_context_finder(
             {"role": "user", "content": _AGENT_INITIAL_PROMPT.format(
                 query=query,
                 summary=running_summary or "(none)",
-                last_turn=last_turn_text[:800] if last_turn_text else "(none)",
+                last_turn=get_first_n_words(last_turn_text, n=300) if last_turn_text else "(none)",
             )},
         ]
 
@@ -676,6 +677,7 @@ def assemble_auto_context(
     cfg = AUTO_CONTEXT_CONFIGS[mode]
     dedup_rule = cfg["dedup_rule"]
 
+    from common import get_first_n_words
     try:
         messages = conversation.get_message_list() or []
     except Exception:
@@ -740,9 +742,9 @@ def assemble_auto_context(
                 text = _extract_user_answer(msg.get("text", ""))
             else:
                 if sender == "user":
-                    text = msg.get("user_ask_tldr") or msg.get("text", "")[:300]
+                    text = msg.get("user_ask_tldr") or get_first_n_words(msg.get("text", ""), n=120)
                 else:
-                    text = msg.get("answer_tldr") or msg.get("text", "")[:300]
+                    text = msg.get("answer_tldr") or get_first_n_words(msg.get("text", ""), n=120)
             parts.append(f"<{sender}>\n{text}\n</{sender}>")
         result = "\n\n".join(parts)
 
