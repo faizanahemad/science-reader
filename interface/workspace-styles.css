@@ -27,6 +27,18 @@
     padding: 2px 6px;
     font-size: 0.85rem;
     line-height: 1;
+    position: relative;
+}
+
+.sidebar-plus {
+    font-weight: 700;
+    color: #bbb;
+    font-size: 0.7em;
+    margin-left: 1px;
+}
+
+.sidebar-tool-btn:hover .sidebar-plus {
+    color: #fff;
 }
 
 .sidebar-tool-btn:hover {
