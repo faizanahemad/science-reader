@@ -78,6 +78,18 @@ body.compact-nav #gear-menu-floating .gear-sidebar-item {
     z-index: 1050;
 }
 
+#gear-menu-floating > button {
+    background-color: rgba(50, 50, 50, 0.85);
+    border-color: rgba(100, 100, 100, 0.6);
+    color: #ddd;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+#gear-menu-floating > button:hover {
+    background-color: rgba(70, 70, 70, 0.95);
+    color: #fff;
+}
+
 .gear-compact-check::after {
     content: '';
 }
