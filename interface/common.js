@@ -2572,6 +2572,9 @@ marked.setOptions({
     smartypants: false,
     xhtml: true
 });
+markdownParser.table = function(header, body) {
+    return '<div class="table-responsive" style="overflow-x:auto;"><table>' + header + body + '</table></div>';
+};
 markdownParser.text = function(text) {
     // Preserve math delimiters from being processed
     // This prevents marked from interfering with $ signs
