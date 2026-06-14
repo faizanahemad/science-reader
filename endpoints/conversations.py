@@ -1914,6 +1914,7 @@ def list_conversation_by_user(domain: str):
     conv_db = getCoversationsForUser(email, domain, users_dir=state.users_dir)
     conversation_ids = [c[1] for c in conv_db]
     conversations = []
+    orphaned_ids = []
     for conversation_id in conversation_ids:
         try:
             conv = state.conversation_cache[conversation_id]
@@ -1922,6 +1923,13 @@ def list_conversation_by_user(domain: str):
             logger.warning(
                 f"Skipping conversation {conversation_id!r} — failed to load: {_load_err}"
             )
+            orphaned_ids.append(conversation_id)
+    if orphaned_ids:
+        try:
+            cleanup_deleted_conversations(orphaned_ids, users_dir=state.users_dir, logger=logger)
+            logger.info(f"Auto-cleaned {len(orphaned_ids)} orphaned conversation DB rows")
+        except Exception as _cleanup_err:
+            logger.warning(f"Failed to cleanup orphaned rows: {_cleanup_err}")
     conversation_id_to_workspace_id = {
         c[1]: {"workspace_id": c[4], "workspace_name": c[5]}
         for c in conv_db
