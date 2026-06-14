@@ -1,0 +1,15 @@
+---
+alwaysApply: true
+---
+
+Use `conda activate science-reader` to activate the correct env for this project before running anything.
+
+In code_common/ folder we have common and highly useful utilities like how to call LLM or get embeddings and keywords, logging callers as well. Read call_llm.md to understand how to do calling LLM for image, text as well as to get embeddings.
+
+We also have common utils in very_common.py
+
+Implement highly common functionality in code_common/ folder. When you implement something in code_common/ write a corresponding short and crisp md (markdown) file to ensure that the usage (and How-to) of the common code is documented.
+
+Use the `impl-details.md` file if present to understand the current structure and also update it with every change so that it reflects any changes and structural updates or new functions we add. impl-details.md talks about what we have implemented, how is the file tree, what functions are linked to what and what file or function calls what and what does what. It is like a summary of implementation, skeleton of the code and directory hierarchy. The goal is to be able to write down and keep all details in one place so that once the code base is too big we can use this impl-details.md to understand how everything works together and fits together without diving deep into full code.  
+
+When you write a new python file or edit an existing python file, add filename.public.md and filename.impl.md to add details on the public interface of the file which other files or callers will use and the implementation details put in the impl file, and updated when changes are made.

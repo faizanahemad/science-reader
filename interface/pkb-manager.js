@@ -3128,7 +3128,7 @@ var PKBManager = (function() {
      */
     function proposeFromText(text) {
         if (!text || !text.trim()) return;
-        var truncated = text.substring(0, 4000);
+        var truncated = text.substring(0, 16000); // ~4000 tokens
         showToast('Analyzing text for memories...', 'info');
         $.ajax({
             url: '/pkb/propose_updates',

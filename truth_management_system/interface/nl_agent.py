@@ -36,7 +36,8 @@ class PKBToolResult:
         """Format as observation string for the LLM context."""
         if not self.success:
             return f"ERROR: {self.error}"
-        return json.dumps(self.data, default=str)[:4000]
+        from common import get_first_n_words
+        return get_first_n_words(json.dumps(self.data, default=str), n=1000)
 
 
 @dataclass
@@ -410,8 +411,9 @@ class PKBNLAgent:
 
         # Return a single proposal with the user's text as-is
         # The user can refine it in the modal
+        from common import get_first_n_words
         return [{
-            "text": user_text[:500],
+            "text": get_first_n_words(user_text, n=200),
             "claim_type": "note",
             "valid_from": None,
             "valid_to": None,

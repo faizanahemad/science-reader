@@ -14,6 +14,7 @@ from .structured_api import StructuredAPI, ActionResult
 from ..config import PKBConfig
 from ..models import Claim
 from ..constants import ClaimType, ContextDomain
+from common import get_first_n_words
 
 logger = logging.getLogger(__name__)
 
@@ -310,8 +311,8 @@ class ConversationDistiller:
         for i, turn in enumerate(prior_turns, 1):
             prior_context_lines.append(
                 f"Prior turn {i}:\n"
-                f"  User: {turn.get('user', '')[:500]}\n"
-                f"  Assistant: {turn.get('assistant', '')[:800]}"
+                f"  User: {get_first_n_words(turn.get('user', ''), n=200)}\n"
+                f"  Assistant: {get_first_n_words(turn.get('assistant', ''), n=300)}"
             )
         prior_context = "\n\n".join(prior_context_lines) if prior_context_lines else "(none)"
         if self.extraction_mode == 'aggressive':

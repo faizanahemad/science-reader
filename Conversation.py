@@ -13913,9 +13913,8 @@ def build_page_context_text(page_context: dict) -> str:
         )
 
     # Case 3: Single page text (may be OCR-extracted)
-    max_size = 64000
-    if len(content) > max_size:
-        content = content[:max_size] + "\n\n[Content truncated...]"
+    max_tokens = 16000
+    content = get_first_n_words(content, n=max_tokens)
 
     ocr_note = ""
     if is_ocr:

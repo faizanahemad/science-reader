@@ -1703,7 +1703,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                 var _plainAnswer = answer.replace(/<\/?(?:answer|thinking|status|tool_use)[^>]*>/gi, '').trim();
                 ConversationManager.recentTurns.push({
                     user: (typeof messageText === 'string' ? messageText : '').trim(),
-                    assistant: _plainAnswer.substring(0, 2000)  // cap at 2000 chars
+                    assistant: _plainAnswer.substring(0, 8000)  // ~2000 tokens
                 });
                 // Keep only last 2 turns
                 if (ConversationManager.recentTurns.length > 2) {
