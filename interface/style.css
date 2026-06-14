@@ -27,6 +27,16 @@ body.compact-nav #gear-menu-floating .gear-sidebar-item {
     display: block !important;
 }
 
+/* On true mobile (narrow + touch + short), also show floating gear */
+@media (max-width: 768px) and (pointer: coarse) and (max-height: 768px) {
+    #gear-menu-floating {
+        display: block !important;
+    }
+    #gear-menu-floating .gear-sidebar-item {
+        display: block !important;
+    }
+}
+
 /* ==========================================================================
    Gear Menu — replaces top navbar. Domain selector + actions in one dropdown.
    ========================================================================== */
