@@ -585,22 +585,12 @@ var WorkspaceManager = {
                 var convId = $(this).data('conversation-id');
                 if (!convId) return;
 
+                // Mobile: close sidebar (even if same conv is tapped)
+                hideSidebarIfMobileOpen();
+
                 // Skip if already active
                 var currentActive = ConversationManager.getActiveConversation();
                 if (currentActive && String(currentActive) === String(convId)) return;
-
-                // Mobile: close sidebar
-                try {
-                    if (window.matchMedia && window.matchMedia('(max-width: 768px)').matches) {
-                        var sidebar = $('#chat-assistant-sidebar');
-                        var contentCol = $('#chat-assistant');
-                        if (sidebar.length && contentCol.length && !sidebar.hasClass('d-none')) {
-                            sidebar.addClass('d-none');
-                            contentCol.removeClass('col-md-10').addClass('col-md-12');
-                            $(window).trigger('resize');
-                        }
-                    }
-                } catch (_e) {}
 
                 // Switch conversation.
                 // IMPORTANT: Do NOT call highlightActiveConversation() separately.
