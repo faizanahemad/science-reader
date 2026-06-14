@@ -19,6 +19,14 @@ body.compact-nav #chat-actions-nav.d-md-none {
     display: block !important;
 }
 
+/* In compact mode, float the gear menu over the chat area */
+body.compact-nav #gear-menu-floating {
+    display: block !important;
+}
+body.compact-nav #gear-menu-floating .gear-sidebar-item {
+    display: block !important;
+}
+
 /* ==========================================================================
    Gear Menu — replaces top navbar. Domain selector + actions in one dropdown.
    ========================================================================== */
@@ -49,6 +57,27 @@ body.compact-nav #chat-actions-nav.d-md-none {
     background-color: rgba(0, 123, 255, 0.1);
     border-left-color: #007bff;
     color: #007bff;
+}
+
+/* Floating gear menu — shown only in compact-nav mode */
+#gear-menu-floating {
+    display: none;
+    position: fixed;
+    top: 8px;
+    right: 12px;
+    z-index: 1050;
+}
+
+#gear-menu-floating .gear-sidebar-item {
+    display: none;
+}
+
+.gear-sidebar-item + .dropdown-divider {
+    display: none;
+}
+
+body.compact-nav .gear-sidebar-item + .dropdown-divider {
+    display: block !important;
 }
 
 #ask-questions-view input {

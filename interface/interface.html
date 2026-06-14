@@ -415,6 +415,30 @@
                                       </div>
                                   </div>
                               </div>
+                              <!-- Floating gear menu for compact-nav mode -->
+                              <div class="dropdown" id="gear-menu-floating">
+                                  <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" id="gear-menu-floating-btn" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="Menu">
+                                      <i class="fa fa-cog"></i>
+                                  </button>
+                                  <div class="dropdown-menu dropdown-menu-right gear-dropdown" aria-labelledby="gear-menu-floating-btn">
+                                      <a class="dropdown-item gear-sidebar-item" href="#" id="gear-floating-show-sidebar"><i class="fa fa-bars mr-2"></i>Toggle Sidebar</a>
+                                      <div class="dropdown-divider"></div>
+                                      <div class="gear-domain-nav">
+                                          <a class="dropdown-item gear-domain-item active" href="#" data-domain="assistant"><i class="fa fa-comment-o mr-2"></i>Assistant</a>
+                                          <a class="dropdown-item gear-domain-item" href="#" data-domain="search"><i class="fa fa-search mr-2"></i>Search</a>
+                                          <a class="dropdown-item gear-domain-item" href="#" data-domain="finchat"><i class="fa fa-line-chart mr-2"></i>Prep-Chat</a>
+                                      </div>
+                                      <div class="dropdown-divider"></div>
+                                      <a class="dropdown-item" href="#" id="gear-floating-new-temp-chat"><i class="fa fa-eye-slash mr-2"></i>New Temp Chat</a>
+                                      <a class="dropdown-item" href="#" id="gear-floating-transcript"><i class="fa fa-download mr-2"></i>Download Transcript</a>
+                                      <a class="dropdown-item" href="#" id="gear-floating-share"><i class="fa fa-share-alt mr-2"></i>Share Chat</a>
+                                      <div class="dropdown-divider"></div>
+                                      <a class="dropdown-item" href="#" id="gear-floating-docs"><i class="fa fa-file mr-2"></i>Docs</a>
+                                      <a class="dropdown-item" href="#" id="gear-floating-global-docs"><i class="fa fa-globe mr-2"></i>Global Docs</a>
+                                      <div class="dropdown-divider"></div>
+                                      <a class="dropdown-item" href="#" id="gear-floating-logout"><i class="fa fa-sign-out mr-2"></i>Logout</a>
+                                  </div>
+                              </div>
                               <div id="chatView" class="row flex-grow-1 overflow-auto">
                                   <!-- Chat messages will be dynamically populated here -->
                               </div>

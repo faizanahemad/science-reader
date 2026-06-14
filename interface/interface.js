@@ -175,6 +175,15 @@ function interface_readiness() {
     $('#gear-conversation-docs').on('click', function(e) { e.preventDefault(); $('#conversation-docs-button').trigger('click'); });
     $('#gear-global-docs').on('click', function(e) { e.preventDefault(); $('#global-docs-button').trigger('click'); });
     $('#gear-logout').on('click', function(e) { e.preventDefault(); $('#logout-link').trigger('click'); });
+
+    // Floating gear menu (compact-nav mode) — same delegation
+    $('#gear-floating-show-sidebar').on('click', function(e) { e.preventDefault(); toggleSidebar(); });
+    $('#gear-floating-new-temp-chat').on('click', function(e) { e.preventDefault(); $('#new-temp-chat').trigger('click'); });
+    $('#gear-floating-transcript').on('click', function(e) { e.preventDefault(); $('#get-chat-transcript').trigger('click'); });
+    $('#gear-floating-share').on('click', function(e) { e.preventDefault(); $('#share-chat').trigger('click'); });
+    $('#gear-floating-docs').on('click', function(e) { e.preventDefault(); $('#conversation-docs-button').trigger('click'); });
+    $('#gear-floating-global-docs').on('click', function(e) { e.preventDefault(); $('#global-docs-button').trigger('click'); });
+    $('#gear-floating-logout').on('click', function(e) { e.preventDefault(); $('#logout-link').trigger('click'); });
     // =================================================================
 
     $('#show-sidebar').on('click', toggleSidebar);
