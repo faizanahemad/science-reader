@@ -148,6 +148,9 @@ var WorkspaceManager = {
 
         var lastTouchTs = 0;
         var CLICK_AFTER_TOUCH_MS = 700;
+        var touchStartY = 0;
+        var touchStartX = 0;
+        var SCROLL_THRESHOLD = 10; // px — movement beyond this = scroll, not tap
 
         function isMobileWidth() {
             try { return window.matchMedia && window.matchMedia('(max-width: 768px)').matches; }
@@ -171,6 +174,15 @@ var WorkspaceManager = {
             try {
                 if (!isMobileWidth()) return;
                 if (e.type === 'touchend') lastTouchTs = Date.now();
+                if (e.type === 'touchend' && e.changedTouches && e.changedTouches[0]) {
+                    var t = e.changedTouches[0];
+                    if (Math.abs(t.clientY - touchStartY) > SCROLL_THRESHOLD ||
+                        Math.abs(t.clientX - touchStartX) > SCROLL_THRESHOLD) return;
+                }
+                if (e.type === 'pointerup') {
+                    if (Math.abs(e.clientY - touchStartY) > SCROLL_THRESHOLD ||
+                        Math.abs(e.clientX - touchStartX) > SCROLL_THRESHOLD) return;
+                }
                 if (e.type === 'click' && (Date.now() - lastTouchTs) < CLICK_AFTER_TOUCH_MS) return;
 
                 // Long-press opened context menu — don't navigate on the subsequent touchend/click
@@ -210,6 +222,12 @@ var WorkspaceManager = {
             } catch (_e) { /* best-effort */ }
         }
 
+        try { document.addEventListener('touchstart', function (e) {
+            if (e.touches && e.touches[0]) { touchStartX = e.touches[0].clientX; touchStartY = e.touches[0].clientY; }
+        }, { capture: true, passive: true }); } catch (_e) {}
+        try { document.addEventListener('pointerdown', function (e) {
+            touchStartX = e.clientX; touchStartY = e.clientY;
+        }, { capture: true, passive: true }); } catch (_e) {}
         try { document.addEventListener('touchend', handler, { capture: true, passive: false }); } catch (_e) {}
         try { document.addEventListener('pointerup', handler, true); } catch (_e) {}
         try { document.addEventListener('click', handler, true); } catch (_e) {}
