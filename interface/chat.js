@@ -10,8 +10,10 @@ const DEFAULT_ENABLED_TOOLS = ['ask_clarification', 'pkb_nl_command'];
 function applyCompactNav(enabled) {
     if (enabled) {
         document.body.classList.add('compact-nav');
+        document.body.classList.remove('compact-nav-off');
     } else {
         document.body.classList.remove('compact-nav');
+        document.body.classList.add('compact-nav-off');
     }
 }
 $(function() {

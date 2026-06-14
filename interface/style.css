@@ -11,12 +11,18 @@
    Compact Nav — force mobile-style navbar dropdown regardless of viewport.
    Toggled via body.compact-nav class from Chat Settings > Compact Nav.
    ========================================================================== */
-body.compact-nav #mainView > .d-none.d-md-flex,
-body.compact-nav #mainView > .row.d-none.d-md-flex {
+body.compact-nav #chat-toolbar-row {
     display: none !important;
 }
 body.compact-nav #chat-actions-nav.d-md-none {
     display: block !important;
+}
+
+/* Auto-enable compact nav on true mobile */
+@media (max-width: 768px) and (pointer: coarse) and (max-height: 768px) {
+    body:not(.compact-nav-off) #chat-toolbar-row {
+        display: none !important;
+    }
 }
 
 /* In compact mode, float the gear menu over the chat area */
@@ -27,12 +33,12 @@ body.compact-nav #gear-menu-floating .gear-sidebar-item {
     display: block !important;
 }
 
-/* On true mobile (narrow + touch + short), also show floating gear */
+/* On true mobile (narrow + touch + short), also show floating gear (auto-compact) */
 @media (max-width: 768px) and (pointer: coarse) and (max-height: 768px) {
-    #gear-menu-floating {
+    body:not(.compact-nav-off) #gear-menu-floating {
         display: block !important;
     }
-    #gear-menu-floating .gear-sidebar-item {
+    body:not(.compact-nav-off) #gear-menu-floating .gear-sidebar-item {
         display: block !important;
     }
 }
