@@ -571,7 +571,7 @@ location /ws/terminal {
  Adaptive Tier 1: personalized per-user core tool set (fixed base of 5 + most-frequently-used from last 30 days via tool_call_history DB). Falls back to static 12-tool set for new users.
  Backward-compatible: old payloads with `enable_tool_use: true/false` and no `tool_mode` field map to `manual`/`none` mode.
  All 98 handlers have real implementations — mirrors the MCP server logic (DocIndex, StructuredAPI, Conversation methods, HTTP delegation for propose_edits/apply_edits/temp_llm_action). Aggregator tool (`delegate_task`) runs a non-streaming sub-agent loop via `run_agent_loop()` in `code_common/agent_tool.py`.
- **Search-intent auto-detection**: the frontend automatically injects web search tools when the user's message contains search-intent keywords. In `none` mode, auto-upgrades to `hybrid`. Implemented via `detectSearchIntent()` and `mergeWebSearchTools()` in `common-chat.js` — 27 regex patterns with code-block stripping. Fail-open: if detection throws, the message sends normally.
+ **Auto-detection of tool need (backend)**: `Conversation._detect_auto_tools()` automatically activates tools when `tool_mode == "none"` and the message contains URLs or search-intent phrases. URLs inject `jina_read_page` + `read_link`; search phrases inject `perplexity_search` + `jina_search` + `jina_read_page` + `read_link`. Upgrades mode to `manual` with only detected tools. ~20 regex patterns with code-block stripping. Compiled regex cached on class.
 
 **Architecture**
  Tool registry: `code_common/tools.py` — `ToolRegistry`, `ToolDefinition`, `ToolContext`, `ToolCallResult`, `@register_tool` decorator, `TOOL_REGISTRY` singleton, `TIER_1_TOOLS`, `get_adaptive_tier1_tools()`, `_select_relevant_tools()`, `get_compact_tool_menu()`. Agent sub-loop: `code_common/agent_tool.py` — `AGENT_PROFILES`, `AGENT_DEFAULT_MODEL`, `run_agent_loop()`.
@@ -590,7 +590,7 @@ location /ws/terminal {
 | Category | Tools | Default | Key Operations |
 |---|---|---|---|
 | `clarification` | 1 | ON | MCQ clarification questions with modal UI |
-| `search` | 5 | ON | Web search (Perplexity, Jina), page reading. Web search tools auto-injected on search-intent keywords. |
+| `search` | 5 | ON | Web search (Perplexity, Jina), page reading. Auto-injected by backend `_detect_auto_tools()` when URLs or search-intent keywords detected. |
 | `documents` | 10 | ON | List/query/retrieve conversation docs and global docs |
 || `pkb` | 13 | OFF (`pkb_nl_command` default-enabled) | Search claims, get/add/edit/delete/pin claims, resolve @-references, NL command (`pkb_nl_command`), delete claim (`pkb_delete_claim`), interactive memory proposal (`pkb_propose_memory`) |
 | `memory` | 7 | OFF | Memory pad, conversation history, user details/preferences |

@@ -27,7 +27,7 @@ User selects tools in settings modal
 Frontend reads selectpicker → builds checkboxes payload
          │
          ▼
-Search-intent auto-detection may inject web search tools
+Search-intent and URL auto-detection may inject web search/read tools (backend, upgrades `none` → `manual`)
          │
          ▼
 POST /reply with { checkboxes: { enable_tool_use: true, enabled_tools: [...] } }
@@ -115,7 +115,7 @@ The gear icon in the chat input area opens `#chat-settings-modal`. Tool settings
 
 - Default tool mode: `hybrid` (both in HTML `selected` attribute and in `computeDefaultStateForTab()` / `resetSettingsToDefaults()` in `chat.js`)
 - In `manual` mode, `ask_clarification` is pre-selected by default
-- Web Search tools are auto-injected by search-intent detection regardless of mode (upgrades `none` → `hybrid`)
+- Web Search tools are auto-injected by backend `_detect_auto_tools()` when URLs or search phrases are present (upgrades `none` → `manual`)
 
 ### Settings Payload Format
 
@@ -204,40 +204,47 @@ Each unique combination of enabled tools produces a different `tools` parameter,
 
 ---
 
-## Search-Intent Auto-Detection (Auto-Mode)
+## Auto-Detection of Tool Need (Backend)
 
-The system has **one automatic tool selection mechanism**: frontend search-intent detection. There is no backend auto-mode.
+The system has **one automatic tool activation mechanism** in `Conversation._detect_auto_tools()` (backend, `Conversation.py`). It runs inside `_get_enabled_tools()` when `tool_mode == "none"` and upgrades to `manual` mode with specific tools if the message warrants it.
 
 ### How It Works
 
-In `sendMessageCallback()` (in `interface/common-chat.js`), immediately after `mergeOptions()`:
+1. Called from `_get_enabled_tools()` when tool_mode is `"none"` (tools disabled)
+2. Strips code blocks (fenced and inline) from the user message
+3. Checks two conditions:
+   - **URLs present** → injects `jina_read_page`, `read_link`
+   - **Search intent phrases match** → injects `perplexity_search`, `jina_search`, `jina_read_page`, `read_link`
+4. If any tools activated: overrides `tool_mode` to `"manual"` with only the detected tools
 
-1. `detectSearchIntent(messageText)` strips code blocks from the message, then tests against **27 regex patterns**
-2. If matched, `mergeWebSearchTools(options)` sets `enable_tool_use = true` and de-duplicates the 5 web search tools into `enabled_tools`
-3. The send proceeds normally — no early return, no message modification
+### Trigger Patterns (Search Intent)
 
-### Trigger Patterns
+~20 regex patterns (case-insensitive, word-boundary-anchored):
 
-Organized by category (all case-insensitive, word-boundary-anchored):
-
-- **Explicit search commands**: "search the web/internet", "google X", "look up", "search online", "search for recent/latest/current"
-- **Recency/currency phrases**: "find me recent/latest/current info", "latest news/updates/research", "what's the latest", "what's new with", "up-to-date info", "real-time data"
-- **Browse/check**: "look/check/find online", "browse the web"
-- **Research**: "find me information on/about", "find out about/what/who", "research online"
-- **News**: "news about X", "headlines about X"
+- **Explicit search**: "search the web/internet", "google X", "look up", "search online/about"
+- **Recency**: "find recent/latest", "latest news/updates/research", "what's the latest"
+- **Browse**: "look/check/find online", "browse the web"
+- **Research**: "find information on/about", "news about X"
 - **Direct tool references**: "use the search tool", "enable web search", "with web search"
+
+### URL Detection
+
+Simple `https?://\S+` regex on code-stripped text. When a link is present, the LLM gets `jina_read_page` and `read_link` tools so it can fetch additional pages if needed (the main link pipeline `read_over_multiple_links` already fetches provided links independently).
 
 ### Design Principles
 
-- **Transparent**: user doesn't need to manually enable search tools
-- **Additive only**: only adds search tools, never removes user selections
-- **Fail-open**: wrapped in try/catch; if detection throws, message sends normally
-- **Code-aware**: strips fenced (```) and inline (`) code blocks before matching to avoid false positives
-- **Non-blocking**: does NOT return early or modify message text — only modifies the options object in-place
+- **Backend-only**: no frontend detection logic needed; single source of truth
+- **Transparent**: user doesn't need to manually enable tools
+- **Additive only**: only activates when mode is `"none"`, never overrides existing tool selections
+- **Code-aware**: strips fenced and inline code blocks before matching to avoid false positives
+- **Lazy compilation**: regex compiled once and cached on class
 
 ### Tools Auto-Injected
 
-`WEB_SEARCH_TOOLS = ['web_search', 'perplexity_search', 'jina_search', 'jina_read_page', 'read_link']`
+| Trigger | Tools |
+|---------|-------|
+| URL in message | `jina_read_page`, `read_link` |
+| Search intent phrase | `perplexity_search`, `jina_search`, `jina_read_page`, `read_link` |
 
 ---
 
@@ -654,7 +661,7 @@ This format is recognized by the agent's `extract_queries_contexts()` method, wh
 | `interface/tool-call-manager.js` | UI singleton: status pills, modal rendering, response submission |
 | `interface/interface.html` | Bootstrap Select dropdown, `#tool-call-modal`, CSS |
 | `interface/chat.js` | Settings persistence, `setModalFromState()`, `categoryDefaults` |
-| `interface/common-chat.js` | Stream handler dispatch, search-intent detection, `mergeWebSearchTools()` |
+| `interface/common-chat.js` | Stream handler dispatch |
 | `interface/common.js` | `getOptions()` reads tool settings from selectpicker |
 | `interface/service-worker.js` | `tool-call-manager.js` in precache list |
 
@@ -833,7 +840,8 @@ total_time_to_reply: 28.5
 | `interface/tool-call-manager.js` | **New** | ToolCallManager singleton (status pills, modal, submission) |
 | `interface/interface.html` | Modified | Bootstrap Select CDN, tool selector dropdown (11 optgroups, 87 options), `#tool-call-modal`, CSS |
 | `interface/chat.js` | Modified | Settings persistence, `setModalFromState()`, `categoryDefaults` |
-| `interface/common-chat.js` | Modified | Stream handler dispatch, search-intent auto-detection (27 patterns) |
+| `interface/common-chat.js` | Modified | Stream handler dispatch |
+| `Conversation.py` | Modified | `_detect_auto_tools()` — backend search-intent and URL auto-detection |
 | `interface/common.js` | Modified | `getOptions()` reads tool settings from selectpicker |
 | `interface/service-worker.js` | Modified | Precache list update |
 | `code_common/conversation_search.py` | **New** | `CONVERSATION_TOOLS` dict, `MessageSearchIndex`, `extract_markdown_features()` |
