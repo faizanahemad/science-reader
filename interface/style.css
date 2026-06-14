@@ -68,6 +68,16 @@ body.compact-nav #gear-menu-floating .gear-sidebar-item {
     z-index: 1050;
 }
 
+.gear-compact-check::after {
+    content: '';
+}
+
+body.compact-nav .gear-compact-check::after {
+    content: '✓';
+    font-weight: 700;
+    color: #007bff;
+}
+
 #gear-menu-floating .gear-sidebar-item {
     display: none;
 }

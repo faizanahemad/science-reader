@@ -184,6 +184,14 @@ function interface_readiness() {
     $('#gear-floating-docs').on('click', function(e) { e.preventDefault(); $('#conversation-docs-button').trigger('click'); });
     $('#gear-floating-global-docs').on('click', function(e) { e.preventDefault(); $('#global-docs-button').trigger('click'); });
     $('#gear-floating-logout').on('click', function(e) { e.preventDefault(); $('#logout-link').trigger('click'); });
+
+    // Compact nav toggle — syncs with settings modal checkbox
+    $('#gear-compact-nav-toggle').on('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        var isCompact = document.body.classList.contains('compact-nav');
+        $('#settings-compact_nav').prop('checked', !isCompact).trigger('change');
+    });
     // =================================================================
 
     $('#show-sidebar').on('click', toggleSidebar);
