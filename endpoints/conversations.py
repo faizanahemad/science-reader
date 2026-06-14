@@ -2170,12 +2170,31 @@ def create_temporary_conversation(domain: str):
     # ------------------------------------------------------------------
     conv_db = getCoversationsForUser(email, domain, users_dir=state.users_dir)
     conversation_ids = [c[1] for c in conv_db]
-    cached_conversations = [state.conversation_cache[cid] for cid in conversation_ids]
+    cached_conversations = []
+    orphaned_ids = []
+    for cid in conversation_ids:
+        try:
+            cached_conversations.append(state.conversation_cache[cid])
+        except Exception:
+            cached_conversations.append(None)
+            orphaned_ids.append(cid)
 
-    stale_ids: list[str] = []
+    stale_ids: list[str] = list(orphaned_ids)
+    GRACE_PERIOD_SECONDS = 300  # 5 minutes
 
     for conv in cached_conversations:
         if conv is not None and conv.stateless:
+            # Respect grace period — don't delete recently active stateless convs
+            try:
+                memory = conv.get_field("memory")
+                last_updated_str = memory.get("last_updated", "")
+                if last_updated_str:
+                    from datetime import datetime as _dt
+                    lu = _dt.strptime(str(last_updated_str), "%Y-%m-%d %H:%M:%S")
+                    if time.time() - lu.timestamp() < GRACE_PERIOD_SECONDS:
+                        continue
+            except Exception:
+                pass
             stale_ids.append(conv.conversation_id)
             removeUserFromConversation(
                 email, conv.conversation_id, users_dir=state.users_dir
@@ -2187,10 +2206,11 @@ def create_temporary_conversation(domain: str):
             conv.delete_conversation()
 
     for cid, conv in zip(conversation_ids, cached_conversations):
-        if conv is None:
+        if conv is None and cid not in orphaned_ids:
             stale_ids.append(cid)
             removeUserFromConversation(email, cid, users_dir=state.users_dir)
-            del state.conversation_cache[cid]
+            if cid in state.conversation_cache:
+                del state.conversation_cache[cid]
             deleteConversationForUser(email, cid, users_dir=state.users_dir)
 
     if stale_ids:
