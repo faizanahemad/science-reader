@@ -19,6 +19,38 @@ body.compact-nav #chat-actions-nav.d-md-none {
     display: block !important;
 }
 
+/* ==========================================================================
+   Gear Menu — replaces top navbar. Domain selector + actions in one dropdown.
+   ========================================================================== */
+#pdf-details-tab {
+    display: none !important;
+}
+
+#pdf-details-tab + #navbar-trigger {
+    display: none !important;
+}
+
+.gear-dropdown {
+    min-width: 200px;
+    padding: 0.25rem 0;
+}
+
+.gear-domain-nav {
+    padding: 0.25rem 0;
+}
+
+.gear-domain-item {
+    padding: 0.35rem 1.25rem;
+    font-weight: 500;
+    border-left: 3px solid transparent;
+}
+
+.gear-domain-item.active {
+    background-color: rgba(0, 123, 255, 0.1);
+    border-left-color: #007bff;
+    color: #007bff;
+}
+
 #ask-questions-view input {
     display: block;
     width: 100%;

@@ -389,8 +389,30 @@
                                       <button id="ext-refresh-page" class="btn btn-outline-info mr-2 btn-sm mb-1 ext-btn" style="display:none;" title="Refresh page context"><i class="fa fa-refresh"></i> Refresh</button>
                                       <button id="ext-multi-tab" class="btn btn-outline-info mr-2 btn-sm mb-1 ext-btn" style="display:none;" title="Capture content from multiple tabs"><i class="fa fa-clone"></i> Multi-tab</button>
                                   </div>
-                                  <div class="ml-auto">
+                                  <div class="ml-auto d-flex align-items-center">
+                                      <button id="chat-area-show-sidebar" type="button" class="btn btn-outline-secondary btn-sm mb-1 mr-1" title="Toggle Sidebar"><i class="fa fa-bars"></i></button>
                                       <button id="new-temp-chat" type="button" class="btn btn-outline-secondary btn-sm mb-1" title="New Temporary Chat (deleted on page reload)"><i class="fa fa-eye-slash">&nbsp;</i></button>
+                                      <div class="dropdown ml-1 mb-1" id="gear-menu-container">
+                                          <button class="btn btn-outline-secondary btn-sm dropdown-toggle" type="button" id="gear-menu-btn" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="Menu">
+                                              <i class="fa fa-cog"></i>
+                                          </button>
+                                          <div class="dropdown-menu dropdown-menu-right gear-dropdown" aria-labelledby="gear-menu-btn">
+                                              <div class="gear-domain-nav">
+                                                  <a class="dropdown-item gear-domain-item active" href="#" data-domain="assistant"><i class="fa fa-comment-o mr-2"></i>Assistant</a>
+                                                  <a class="dropdown-item gear-domain-item" href="#" data-domain="search"><i class="fa fa-search mr-2"></i>Search</a>
+                                                  <a class="dropdown-item gear-domain-item" href="#" data-domain="finchat"><i class="fa fa-line-chart mr-2"></i>Prep-Chat</a>
+                                              </div>
+                                              <div class="dropdown-divider"></div>
+                                              <a class="dropdown-item" href="#" id="gear-new-temp-chat"><i class="fa fa-eye-slash mr-2"></i>New Temp Chat</a>
+                                              <a class="dropdown-item" href="#" id="gear-get-chat-transcript"><i class="fa fa-download mr-2"></i>Download Transcript</a>
+                                              <a class="dropdown-item" href="#" id="gear-share-chat"><i class="fa fa-share-alt mr-2"></i>Share Chat</a>
+                                              <div class="dropdown-divider"></div>
+                                              <a class="dropdown-item" href="#" id="gear-conversation-docs"><i class="fa fa-file mr-2"></i>Docs</a>
+                                              <a class="dropdown-item" href="#" id="gear-global-docs"><i class="fa fa-globe mr-2"></i>Global Docs</a>
+                                              <div class="dropdown-divider"></div>
+                                              <a class="dropdown-item" href="#" id="gear-logout"><i class="fa fa-sign-out mr-2"></i>Logout</a>
+                                          </div>
+                                      </div>
                                   </div>
                               </div>
                               <div id="chatView" class="row flex-grow-1 overflow-auto">

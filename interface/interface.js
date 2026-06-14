@@ -102,6 +102,7 @@ function interface_readiness() {
         
         $("#chat-options-assistant-use-google-scholar").parent().show();
         activateChatTab();
+        $(document).trigger('domainChanged');
     });
     $('#search-tab').on('shown.bs.tab', function (e) {
         previous_domain = currentDomain["domain"];
@@ -118,7 +119,7 @@ function interface_readiness() {
         
         
         $("#chat-options-assistant-use-google-scholar").parent().show();
-        
+        $(document).trigger('domainChanged');
     });
 
     $('#finchat-tab').on('shown.bs.tab', function (e) {
@@ -135,11 +136,50 @@ function interface_readiness() {
         // $("#field-selector").val("Finance");
         
         $("#chat-options-assistant-use-google-scholar").parent().hide();
-        
+        $(document).trigger('domainChanged');
     });
-    
+
+    // ======== Gear Menu — domain switching + action delegation ========
+    $('.gear-domain-item').on('click', function(e) {
+        e.preventDefault();
+        var newDomain = $(this).data('domain');
+        if (newDomain === currentDomain["domain"]) return;
+
+        // Update visual highlight
+        $('.gear-domain-item').removeClass('active');
+        $(this).addClass('active');
+
+        // Ensure chat content is visible (hide PDF view if open)
+        $("#chat-pdf-content").addClass('d-none');
+        $("#chat-content").removeClass('d-none');
+
+        // Signal that this is a user-initiated switch (needed for clearUrlofConversationId)
+        currentDomain["manual_domain_change"] = true;
+
+        // Switch domain via the hidden tabs — match existing pattern (common-chat.js:834)
+        var tabId = { assistant: 'assistant-tab', search: 'search-tab', finchat: 'finchat-tab' };
+        $('#pdf-details-tab .nav-link').removeClass('active');
+        $('#' + tabId[newDomain]).addClass('active').trigger('shown.bs.tab');
+    });
+
+    // Sync gear menu highlight when domain changes from other sources (e.g. conversation load)
+    $(document).on('domainChanged', function() {
+        $('.gear-domain-item').removeClass('active');
+        $('.gear-domain-item[data-domain="' + currentDomain["domain"] + '"]').addClass('active');
+    });
+
+    // Action items delegate to existing handlers
+    $('#gear-new-temp-chat').on('click', function(e) { e.preventDefault(); $('#new-temp-chat').trigger('click'); });
+    $('#gear-get-chat-transcript').on('click', function(e) { e.preventDefault(); $('#get-chat-transcript').trigger('click'); });
+    $('#gear-share-chat').on('click', function(e) { e.preventDefault(); $('#share-chat').trigger('click'); });
+    $('#gear-conversation-docs').on('click', function(e) { e.preventDefault(); $('#conversation-docs-button').trigger('click'); });
+    $('#gear-global-docs').on('click', function(e) { e.preventDefault(); $('#global-docs-button').trigger('click'); });
+    $('#gear-logout').on('click', function(e) { e.preventDefault(); $('#logout-link').trigger('click'); });
+    // =================================================================
+
     $('#show-sidebar').on('click', toggleSidebar);
     $('#show-sidebar').on('click', function () { $("#chat-pdf-content").addClass('d-none');});
+    $('#chat-area-show-sidebar').on('click', toggleSidebar);
     
 
     $(document).on('click', '.copy-code-btn', function() {
