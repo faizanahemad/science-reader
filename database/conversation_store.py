@@ -206,6 +206,17 @@ class ConversationStore:
         config = msg.get("config") or {}
         model = config.get("main_model")
         temperature = config.get("temperature")
+        # model can be a list (multi-model feature) — join for storage
+        if isinstance(model, list):
+            model = ", ".join(str(m) for m in model)
+        # temperature can occasionally be a list — take first
+        if isinstance(temperature, list):
+            temperature = temperature[0] if temperature else None
+        if temperature is not None:
+            try:
+                temperature = float(temperature)
+            except (TypeError, ValueError):
+                temperature = None
         answer_tldr = msg.get("answer_tldr")
         answer_keywords = _json_encode(msg.get("answer_keywords"))
         message_short_hash = msg.get("message_short_hash")
