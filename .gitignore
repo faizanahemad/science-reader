@@ -782,3 +782,20 @@ storage
 *.pyc
 
 restart_server/flask_sessions/*
+
+# Large artifacts / runtime data
+node_modules/
+output/
+.cursor/
+users/*.db
+users/*.sqlite
+temp/
+:memory:
+.opencode/package-lock.json
+
+# Log/debug files
+Server-log.txt
+Server-response.txt
+UI-log.txt
+error_log.txt
+error.json
