@@ -13766,15 +13766,12 @@ Your summary:""",
         if not history:
             return ""
 
-        enc = tiktoken.encoding_for_model("gpt-4")
+        from common import get_first_last_parts
         history_text = "## Previous Conversation\n"
         for msg in history[-12:]:  # Last 12 messages
             role = "User" if msg.get("role") == "user" else "Assistant"
             content = msg.get("content", "")
-            # Truncate to 10k tokens
-            tokens = enc.encode(content)
-            if len(tokens) > 10000:
-                content = enc.decode(tokens[:10000])
+            content = get_first_last_parts(content, first_n=8000, last_n=2000)
             history_text += f"**{role}:** {content}\n\n"
 
         return history_text
