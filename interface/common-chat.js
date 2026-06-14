@@ -3459,16 +3459,7 @@ function sendMessageCallback(skipAutoClarify) {
     // messageText = parsed_message.text;
     options = mergeOptions(parsed_message, options)
 
-    // Auto-enable web search tools when message contains search intent keywords.
-    // Does NOT return early — modifies options in-place and lets the send proceed.
-    try {
-        if (detectSearchIntent(messageText)) {
-            mergeWebSearchTools(options);
-            console.log('Search intent detected — web search tools auto-enabled');
-        }
-    } catch (e) {
-        console.warn('Search intent detection failed (proceeding without auto-enable):', e);
-    }
+    // Search intent auto-detection moved to backend (_detect_auto_tools in Conversation.py)
     if (options['tell_me_more'] && messageText.trim().length == 0) {
         messageText = 'Tell me more';
     }

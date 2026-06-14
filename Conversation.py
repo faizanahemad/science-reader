@@ -7161,6 +7161,58 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
     # Tool Calling Framework — settings reader and agentic loop
     # =========================================================================
 
+    # Patterns that indicate search intent (case-insensitive)
+    _SEARCH_INTENT_PATTERNS = [
+        r"\bsearch\s+the\s+(web|internet|net)\b",
+        r"\b(web|internet|online)\s+search\b",
+        r"\bgoogle\b",
+        r"\blook\s*up\b",
+        r"\bsearch\s+online\b",
+        r"\bsearch\s+about\b",
+        r"\bsearch\s+for\s+(recent|latest|current)\b",
+        r"\bfind\s+(me\s+)?recent\b",
+        r"\bfind\s+(me\s+)?(the\s+)?latest\b",
+        r"\blatest\s+(news|info|updates?|research|data|reports?)\b",
+        r"\brecent\s+(news|info|updates?|research|data|reports?)\b",
+        r"\bcurrent\s+(news|events?|info|data)\b",
+        r"\bwhat'?s\s+(the\s+)?latest\b",
+        r"\b(look|check|find|search)\s+online\b",
+        r"\bbrowse\s+the\s+(web|internet)\b",
+        r"\bfind\s+(me\s+)?info(rmation)?\s+(on|about|regarding|for)\b",
+        r"\bnews\s+(about|on|regarding|for)\b",
+        r"\buse\s+(the\s+)?(web\s+)?search\s+tool\b",
+        r"\bwith\s+web\s+search\b",
+        r"\benable\s+web\s+search\b",
+    ]
+    _SEARCH_INTENT_RE = None  # compiled lazily
+
+    _URL_PATTERN = re.compile(r"https?://\S+", re.IGNORECASE)
+
+    def _detect_auto_tools(self, user_message):
+        """Return list of tool names to auto-enable, or None if no auto-activation needed."""
+        if not user_message:
+            return None
+
+        # Strip code blocks
+        stripped = re.sub(r"```[\s\S]*?```", "", user_message)
+        stripped = re.sub(r"`[^`]+`", "", stripped)
+
+        tools = set()
+
+        # Links in message → read tools
+        if self._URL_PATTERN.search(stripped):
+            tools.update(["jina_read_page", "read_link"])
+
+        # Search intent → search tools
+        if self._SEARCH_INTENT_RE is None:
+            Conversation._SEARCH_INTENT_RE = re.compile(
+                "|".join(self._SEARCH_INTENT_PATTERNS), re.IGNORECASE
+            )
+        if self._SEARCH_INTENT_RE.search(stripped):
+            tools.update(["perplexity_search", "jina_search", "jina_read_page", "read_link"])
+
+        return list(tools) if tools else None
+
     def _get_enabled_tools(self, checkboxes, user_email="", users_dir="", user_message="", summary=""):
         """Read tool settings from query checkboxes and return OpenAI tools param.
 
@@ -7192,7 +7244,14 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             else:
                 return None
         if tool_mode == "none":
-            return None
+            # Auto-activate tools if message contains URLs or search intent phrases
+            auto_tools = self._detect_auto_tools(user_message)
+            if auto_tools:
+                tool_mode = "manual"
+                checkboxes["enabled_tools"] = auto_tools
+                logger.warning("[_get_enabled_tools] Auto-activated tools: %s", auto_tools)
+            else:
+                return None
 
         logger.warning("[_get_enabled_tools] tool_mode=%s", tool_mode)
 
