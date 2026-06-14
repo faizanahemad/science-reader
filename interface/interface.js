@@ -186,7 +186,7 @@ function interface_readiness() {
     $('#gear-floating-logout').on('click', function(e) { e.preventDefault(); $('#logout-link').trigger('click'); });
 
     // Compact nav toggle — syncs with settings modal checkbox
-    $('#gear-compact-nav-toggle').on('click', function(e) {
+    $('#gear-compact-nav-toggle, #gear-floating-compact-toggle').on('click', function(e) {
         e.preventDefault();
         e.stopPropagation();
         var isCompact = document.body.classList.contains('compact-nav');

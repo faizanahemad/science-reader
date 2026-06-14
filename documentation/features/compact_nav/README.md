@@ -55,6 +55,7 @@ The gear dropdown contains:
 │ 📄 Docs              │
 │ 🌐 Global Docs       │
 ├──────────────────────┤
+│ ⊡ Compact Mode    ✓  │  ← checkmark when active
 │ ↩ Logout             │
 └──────────────────────┘
 ```
@@ -75,6 +76,26 @@ Clicking a domain item in the gear menu:
 6. This fires all existing domain-switch logic (workspace reload, settings swap, URL clear)
 
 A `domainChanged` custom event keeps the gear menu in sync when domain changes programmatically (e.g., loading a conversation from a different domain auto-switches the tab).
+
+## Compact Mode
+
+The "Compact Mode" toggle (available inside the gear dropdown itself) switches between two presentations:
+
+### Normal Mode (default)
+- Toolbar row visible with all action buttons + inline gear dropdown + sidebar toggle
+- Gear dropdown serves as secondary access to domain switching, docs, logout
+
+### Compact Mode (body.compact-nav)
+- Toolbar row hidden (`display: none !important` on `.row.d-none.d-md-flex`)
+- Floating gear button appears (`#gear-menu-floating`, `position: fixed; top: 8px; right: 12px; z-index: 1050`)
+- Floating dropdown includes an extra "Toggle Sidebar" item (`.gear-sidebar-item`)
+- Maximizes vertical space for chat content
+
+### Toggle Behavior
+- `#gear-compact-nav-toggle` click → sets `#settings-compact_nav` checkbox → triggers `change` event
+- `chat.js` `change` handler calls `applyCompactNav()` → adds/removes `body.compact-nav`
+- CSS checkmark (`.gear-compact-check::after { content: '✓' }`) reacts to `body.compact-nav` automatically
+- Setting persisted to localStorage via `chatSettingsState.compact_nav`
 
 ## Implementation Details
 
@@ -122,6 +143,12 @@ Each `shown.bs.tab` handler now fires `$(document).trigger('domainChanged')`. Th
 - **`getCurrentActiveTab()`** in `chat.js` still works (reads `.hasClass('active')` from hidden tab links).
 - **Programmatic domain switch** (`common-chat.js:834`) still triggers `$('#' + active_tab).trigger('shown.bs.tab')` — the `domainChanged` event syncs the gear menu.
 - **compact_nav setting** still exists in settings modal but is now effectively a no-op (navbar is always hidden).
+
+### Known Design Decisions
+
+1. **Why not remove the old navbar HTML?** — Too many JS references to `#assistant-tab`, `#search-tab`, `#finchat-tab` across the codebase. Hiding via CSS is zero-risk; removing HTML would require rewriting all domain-switch callers.
+2. **Why direct `.trigger('shown.bs.tab')` instead of `.tab('show')`?** — Bootstrap 4's `.tab('show')` tries to activate a target pane (`#search-view`, `#finchat-view`) which don't exist as DOM elements. The event might not fire. Direct trigger is the proven pattern (used by `common-chat.js:834`).
+3. **Default active domain is `assistant`** — matches the page-load initialization at `interface.js:217` which forces `assistant-tab`.
 
 ### Known Design Decisions
 
