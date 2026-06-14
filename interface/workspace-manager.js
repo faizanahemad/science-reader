@@ -473,6 +473,32 @@ var WorkspaceManager = {
                 ConversationManager.setActiveConversation(convId);
                 self.highlightActiveConversation(convId);
             });
+
+            item.on('contextmenu', function (e) {
+                e.preventDefault(); e.stopPropagation();
+                var convId = $(this).data('conversation-id');
+                if (!convId) return;
+                var fakeNode = { id: 'cv_' + convId, li_attr: { 'data-conversation-id': convId, 'data-conversation-friendly-id': '', 'data-flag': 'none' }, original: { archived: false } };
+                var items = self.buildConversationContextMenu(fakeNode);
+                var vakataItems = self._convertToVakataItems(items, fakeNode);
+                $.vakata.context.hide();
+                var sidebar = $('#chat-assistant-sidebar'), sidebarRight = 0;
+                if (sidebar.length) { var so = sidebar.offset(); sidebarRight = so.left + sidebar.outerWidth(); }
+                var menuX = Math.max(e.pageX, sidebarRight + 2);
+                var posEl = $('<span>').css({ position: 'absolute', left: menuX + 'px', top: e.pageY + 'px', width: '1px', height: '1px' });
+                $('body').append(posEl);
+                $.vakata.context.show(posEl, { x: menuX, y: e.pageY }, vakataItems);
+                setTimeout(function () { posEl.remove(); }, 200);
+            });
+
+            var menuBtn = $('<span class="recent-menu-btn" title="Menu"><i class="fa fa-ellipsis-v"></i></span>');
+            menuBtn.on('click', function (e) {
+                e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+                item.trigger($.Event('contextmenu', { pageX: e.pageX, pageY: e.pageY }));
+            });
+            menuBtn.on('mousedown touchstart touchend', function (e) { e.stopPropagation(); e.stopImmediatePropagation(); });
+            item.append(menuBtn);
+
             container.append(item);
         });
     },
@@ -624,6 +650,15 @@ var WorkspaceManager = {
                 setTimeout(function () { posEl.remove(); }, 200);
             });
 
+            // Triple-dot menu button
+            var menuBtn = $('<span class="recent-menu-btn" title="Menu"><i class="fa fa-ellipsis-v"></i></span>');
+            menuBtn.on('click', function (e) {
+                e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+                item.trigger($.Event('contextmenu', { pageX: e.pageX, pageY: e.pageY }));
+            });
+            menuBtn.on('mousedown touchstart touchend', function (e) { e.stopPropagation(); e.stopImmediatePropagation(); });
+            item.append(menuBtn);
+
             container.append(item);
         });
 
@@ -721,9 +756,9 @@ var WorkspaceManager = {
             }
             items.forEach(function (conv) {
                 var item = $('<div class="recent-conversation-item archived-item"></div>')
-                    .attr('data-conversation-id', conv.conversation_id)
-                    .text(conv.title || 'Untitled')
-                    .on('click', function () {
+                    .attr('data-conversation-id', conv.conversation_id);
+                item.append($('<span class="recent-conv-title"></span>').text(conv.title || 'Untitled'));
+                item.on('click', function () {
                         ConversationManager.setActiveConversation(conv.conversation_id);
                         self.highlightActiveConversation(conv.conversation_id);
                     })
@@ -736,6 +771,13 @@ var WorkspaceManager = {
                 if (conv.flag && conv.flag !== 'none') {
                     item.css('border-left', '3px solid ' + conv.flag);
                 }
+                var menuBtn = $('<span class="recent-menu-btn" title="Menu"><i class="fa fa-ellipsis-v"></i></span>');
+                menuBtn.on('click', function (e) {
+                    e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+                    item.trigger($.Event('contextmenu', { pageX: e.pageX, pageY: e.pageY }));
+                });
+                menuBtn.on('mousedown touchstart touchend', function (e) { e.stopPropagation(); e.stopImmediatePropagation(); });
+                item.append(menuBtn);
                 container.append(item);
             });
         }
@@ -815,8 +857,8 @@ var WorkspaceManager = {
 
             group.items.forEach(function (conv) {
                 var item = $('<div class="recent-conversation-item"></div>')
-                    .attr('data-conversation-id', conv.conversation_id)
-                    .text(conv.title || 'Untitled');
+                    .attr('data-conversation-id', conv.conversation_id);
+                item.append($('<span class="recent-conv-title"></span>').text(conv.title || 'Untitled'));
                 if (self._previousConvId && String(conv.conversation_id) === String(self._previousConvId)) {
                     item.append('<span class="last-active-dot" title="Previous conversation"></span>');
                 }
@@ -836,6 +878,13 @@ var WorkspaceManager = {
                     var items = self.buildConversationContextMenu(fakeNode);
                     self._showContextMenuAtPosition(e, items);
                 });
+                var menuBtn = $('<span class="recent-menu-btn" title="Menu"><i class="fa fa-ellipsis-v"></i></span>');
+                menuBtn.on('click', function (e) {
+                    e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+                    item.trigger($.Event('contextmenu', { pageX: e.pageX, pageY: e.pageY }));
+                });
+                menuBtn.on('mousedown touchstart touchend', function (e) { e.stopPropagation(); e.stopImmediatePropagation(); });
+                item.append(menuBtn);
                 list.append(item);
             });
 
@@ -943,6 +992,15 @@ var WorkspaceManager = {
                 $.vakata.context.show(posEl, { x: menuX, y: e.pageY }, vakataItems);
                 setTimeout(function () { posEl.remove(); }, 200);
             });
+
+            // Triple-dot menu button
+            var menuBtn = $('<span class="recent-menu-btn" title="Menu"><i class="fa fa-ellipsis-v"></i></span>');
+            menuBtn.on('click', function (e) {
+                e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+                item.trigger($.Event('contextmenu', { pageX: e.pageX, pageY: e.pageY }));
+            });
+            menuBtn.on('mousedown touchstart touchend', function (e) { e.stopPropagation(); e.stopImmediatePropagation(); });
+            item.append(menuBtn);
 
             container.append(item);
         });

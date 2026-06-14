@@ -386,6 +386,36 @@
     overflow: hidden;
     white-space: normal;
     word-break: break-word;
+    flex: 1;
+}
+
+.recent-menu-btn {
+    display: none;
+    margin-left: auto;
+    flex-shrink: 0;
+    border: none;
+    background: transparent;
+    color: #999;
+    font-size: 0.7rem;
+    padding: 0 4px;
+    cursor: pointer;
+    line-height: 17px;
+}
+.recent-menu-btn:hover {
+    color: #fff;
+    background: rgba(255,255,255,0.15);
+    border-radius: 3px;
+}
+.recent-conversation-item:hover .recent-menu-btn {
+    display: inline-block;
+}
+
+@media (max-width: 768px) {
+    .recent-menu-btn {
+        display: inline-block !important;
+        font-size: 1rem;
+        padding: 4px 10px;
+    }
 }
 
 /* Flag indicators — match jsTree flag colors */
@@ -543,6 +573,13 @@
 }
 
 @media (max-width: 768px) {
+    /* Show triple-dot on all conversations, not just hovered/selected */
+    .jstree-node-menu-btn {
+        display: inline-block !important;
+        font-size: 1rem;
+        padding: 4px 10px;
+        line-height: 24px;
+    }
     #multi-select-bar {
         position: fixed;
         bottom: 60px;
