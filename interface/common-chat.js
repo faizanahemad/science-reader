@@ -3297,7 +3297,7 @@ function openAsideChatModal(questionText) {
  * Matches the 'search' category from chat.js categoryDefaults.
  */
 var WEB_SEARCH_TOOLS = [
-    'web_search', 'perplexity_search', 'jina_search', 'jina_read_page', 'read_link'
+    'perplexity_search', 'jina_search', 'jina_read_page', 'read_link'
 ];
 
 /**
