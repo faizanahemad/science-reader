@@ -6645,6 +6645,15 @@ Any other `/command` is passed through to OpenCode directly.
         # Always prepend the conversation ID so the LLM can pass it to conversation tools
         # (search_messages, list_messages, read_message, etc.) which require conversation_id.
         preamble = f"Current conversation ID: {self.conversation_id}\n"
+        try:
+            from database.workspaces import getWorkspaceForConversation
+            import os as _os
+            _users_dir = _os.path.join(_os.getcwd(), _os.environ.get("STORAGE_DIR", "storage"), "users")
+            _ws_info = getWorkspaceForConversation(users_dir=_users_dir, conversation_id=self.conversation_id)
+            if _ws_info and _ws_info.get("workspace_id"):
+                preamble += f"Current workspace ID: {_ws_info['workspace_id']} (use with search_conversations workspace_id filter to scope search to this workspace, or omit for global search)\n"
+        except Exception:
+            pass
         plot_prefix = f"plot-{prefix}-"
         try:
             from flask import request as flask_request
@@ -13758,9 +13767,9 @@ Your summary:""",
             return ""
 
         history_text = "## Previous Conversation\n"
-        for msg in history[-6:]:  # Last 6 messages
+        for msg in history[-12:]:  # Last 12 messages
             role = "User" if msg.get("role") == "user" else "Assistant"
-            content = msg.get("content", "")[:1000]  # Truncate long messages
+            content = msg.get("content", "")[:10000]
             history_text += f"**{role}:** {content}\n\n"
 
         return history_text
