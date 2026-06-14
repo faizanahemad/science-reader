@@ -134,6 +134,113 @@ Only available when OpenCode is enabled. Forwarded to OpenCode session.
 | `/models` | Show available models |
 | `/help` | Show available commands |
 
+## Backend Effects of Key Commands
+
+This section explains what happens server-side when each command's flag reaches `Conversation.reply()`.
+
+### Web Search Commands
+
+#### `/search` → `perform_web_search = true`
+
+Triggers the **traditional pre-LLM web search pipeline**. Before the main LLM generates its answer:
+
+1. `web_search_queue()` fires asynchronously:
+   - Uses a cheap LLM to generate ~4 search queries from user message + conversation context
+   - Dispatches queries to multiple SERP APIs in parallel (BrightData/Google, SerpAPI, Bing)
+   - Collects top results, then fetches full page content via `read_over_multiple_links()`
+2. `PerplexitySearchAgent` fires in parallel (uses Perplexity sonar-pro model for a direct answer)
+3. Both results are combined and injected as context into the main LLM prompt
+4. The main model (user's selected model) generates the final answer with search results as context
+
+**Key file**: `Conversation.py` line 9480+, `base.py` `web_search_part1_real()`
+
+#### `/search_exact` → `search_exact = true` (also forces `perform_web_search = true`)
+
+Same pipeline as `/search` but **skips LLM query generation** — the user's exact message text is used directly as the search query. Useful when you know exactly what to search for.
+
+#### `/enable_search` / `/disable_search` → `perform_web_search = true/false`
+
+Per-turn override. `/enable_search` is functionally identical to `/search`. `/disable_search` suppresses the web search pipeline even if the per-conversation checkbox is enabled — useful for a single turn where you don't want search.
+
+### Tool Commands
+
+#### `/enable_tools` → `enable_tool_use = true`
+
+Enables the **agentic tool-calling loop**. In `_get_enabled_tools()`:
+- Since `tool_mode` is typically null when sent from slash, `enable_tool_use = true` resolves to `tool_mode = "manual"`
+- In manual mode with no `enabled_tools` list → ALL registered tools are enabled (~87 tools)
+- The LLM enters `_run_tool_loop()`: it can autonomously call tools mid-response (up to 10 iterations)
+- Tools include `web_search`, `perplexity_search`, `jina_search`, `read_link`, `code_runner`, `create_document`, etc.
+
+**Key difference from `/search`**: `/search` always searches before answering. `/enable_tools` gives the LLM the *option* to search if it decides to — it may not search at all if the question doesn't need it.
+
+#### `/disable_tools` → `enable_tool_use = false`
+
+Disables tool calling for this turn. The LLM answers directly without access to any tools.
+
+### Agent Commands
+
+#### `/agent_web_search` → `field = "WebSearch"`
+
+**Bypasses the main model entirely.** Routes the full response through `WebSearchWithAgent`:
+
+1. Agent uses an LLM to generate multiple search queries
+2. Fires parallel SERP requests (same providers as `/search`)
+3. Reads top pages in parallel
+4. Synthesizes a comprehensive answer from all gathered content
+5. The user's selected main model is NOT used — the agent has its own model
+
+Use when you want a dedicated, thorough web research response rather than a general assistant answer with search context.
+
+**Key file**: `Conversation.py` line 6830, `agents/search_and_information_agents.py` `WebSearchWithAgent`
+
+#### `/agent_perplexity_search` → `field = "PerplexitySearch"`
+
+**Bypasses the main model entirely.** Routes through `PerplexitySearchAgent`:
+
+1. Uses Perplexity AI API (sonar-pro or sonar model)
+2. Perplexity handles search + synthesis internally (their model has built-in web access)
+3. Returns Perplexity's answer directly with citations
+
+Fastest search agent — single API call, no multi-step SERP pipeline.
+
+**Key file**: `Conversation.py` line 6823, `agents/search_and_information_agents.py` `PerplexitySearchAgent`
+
+#### `/agent_interleaved_web_search_agent` → `field = "InterleavedWebSearchAgent"`
+
+Multi-hop iterative search agent:
+
+1. A planner LLM breaks the question into sub-queries
+2. Each sub-query is searched independently
+3. Results from earlier steps inform later searches
+4. Final synthesis combines all findings
+
+Best for complex, multi-faceted research questions. Slowest but most thorough.
+
+**Key file**: `Conversation.py` line 6801, `agents/search_and_information_agents.py` `InterleavedWebSearchAgent`
+
+### Comparison Table
+
+| Command | Who answers | Search method | When to use |
+|---------|------------|---------------|-------------|
+| `/search` | Your main model | Pre-LLM parallel SERP + Perplexity | General questions needing web context |
+| `/search_exact` | Your main model | Pre-LLM SERP with exact query | When you know the exact search terms |
+| `/enable_tools` | Your main model (with tools) | LLM decides if/when to search | When LLM might need search but might not |
+| `/agent_web_search` | WebSearchWithAgent | Multi-query SERP + page reading | Thorough web research |
+| `/agent_perplexity_search` | Perplexity AI | Perplexity's built-in search | Fast, citation-rich answers |
+| `/agent_interleaved_web_search_agent` | InterleavedWebSearchAgent | Multi-hop iterative | Complex multi-faceted research |
+
+### Auto-Detection (No Command Needed)
+
+When `tool_mode == "none"` (tools disabled), the backend `_detect_auto_tools()` in `Conversation.py` can still activate tools automatically:
+
+| Message contains | Tools auto-injected | Mode set to |
+|-----------------|--------------------:|-------------|
+| A URL (`https://...`) | `jina_read_page`, `read_link` | `manual` |
+| Search-intent phrase ("google", "look up", "latest news", etc.) | `perplexity_search`, `jina_search`, `jina_read_page`, `read_link` | `manual` |
+
+This is independent of `/search` — it enables the tool-calling path (LLM decides when to use tools) rather than forcing a pre-LLM search blast.
+
 ## Autocomplete
 
 ### Behavior
