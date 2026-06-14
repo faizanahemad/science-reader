@@ -16,6 +16,18 @@
 var WorkspaceManager = {
     workspaces: {},
     _mobileConversationInterceptorInstalled: false,
+    hideSidebarIfMobile: function () {
+        try {
+            if (!(window.matchMedia && window.matchMedia('(max-width: 768px)').matches)) return;
+            var sidebar = $('#chat-assistant-sidebar');
+            var contentCol = $('#chat-assistant');
+            if (sidebar.length && contentCol.length && !sidebar.hasClass('d-none')) {
+                sidebar.addClass('d-none');
+                contentCol.removeClass('col-md-10').addClass('col-md-12');
+                $(window).trigger('resize');
+            }
+        } catch (_e) {}
+    },
     _jsTreeReady: false,
     _pendingHighlight: null,
     _pendingHighlightCollapse: false,
@@ -470,7 +482,7 @@ var WorkspaceManager = {
                 e.preventDefault();
                 var convId = $(this).data('conversation-id');
                 if (!convId) return;
-                hideSidebarIfMobileOpen();
+                WorkspaceManager.hideSidebarIfMobile();
                 var currentActive = ConversationManager.getActiveConversation();
                 if (currentActive && String(currentActive) === String(convId)) return;
                 ConversationManager.setActiveConversation(convId);
@@ -588,7 +600,7 @@ var WorkspaceManager = {
                 if (!convId) return;
 
                 // Mobile: close sidebar (even if same conv is tapped)
-                hideSidebarIfMobileOpen();
+                WorkspaceManager.hideSidebarIfMobile();
 
                 // Skip if already active
                 var currentActive = ConversationManager.getActiveConversation();
@@ -950,7 +962,7 @@ var WorkspaceManager = {
                 e.stopPropagation();
                 var convId = $(this).data('conversation-id');
                 if (!convId) return;
-                hideSidebarIfMobileOpen();
+                WorkspaceManager.hideSidebarIfMobile();
                 var currentActive = ConversationManager.getActiveConversation();
                 if (currentActive && String(currentActive) === String(convId)) return;
                 ConversationManager.setActiveConversation(convId);
