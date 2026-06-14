@@ -1342,18 +1342,62 @@ The web UI registers a Service Worker to cache the app shell (JS/CSS/icons) so t
 
 ## Local conversation storage (important for parity + ops)
 
-Conversations are persisted to the filesystem (not only SQLite):
+Conversations are stored in per-conversation SQLite databases (one `conversation.db` per folder), migrated from the legacy JSON flat-file system. Both storage backends coexist — unmigrated conversations continue using JSON.
 
-- Directory layout (conceptual):
-  - `<conversation_folder>/<conversation_id>/`
-    - `<conversation_id>.index` (serialized conversation object)
-    - `<conversation_id>-messages.json` (messages cached to JSON)
-    - `<conversation_id>-memory.json` (memory cached to JSON)
-    - `uploaded_documents/` (DocIndex artifacts)
-  - A separate shared `locks/` directory is used for `FileLock` locks.
+### Current architecture (SQLite — post-migration)
 
-This design supports fast local reads, incremental field updates (messages/memory),
-and avoids loading everything for every request.
+- Directory layout:
+  - `storage/conversations/<conversation_id>/`
+    - `conversation.db` — single WAL-mode SQLite DB with all conversation data
+    - `<conversation_id>.index` — dill pickle (slimmed: identity fields + transient state only)
+    - `<conversation_id>-indices.partial` — FAISS embedding vectors (dill)
+    - `artefacts/` — artefact content files
+    - `images/` — generated images
+  - A separate shared `locks/` directory is used for `FileLock` locks (legacy path only).
+
+- SQLite schema (7 tables + FTS5):
+  - `messages` — all messages with position, role, text, hidden flag, model, temperature, metadata
+  - `artefacts` — artefact metadata (content stays on filesystem)
+  - `artefact_links` — many-to-many message↔artefact links
+  - `memory` — key-value store (title, summary, domain, flag, archived, memory_pad, etc.)
+  - `settings` — key-value store for conversation settings
+  - `documents` — uploaded + attached document references
+  - `todos` — per-conversation todo items
+  - `messages_fts` — FTS5 virtual table with auto-sync triggers (replaces manual BM25 index)
+
+- Performance: O(1) mutations (edit/delete/hide = single UPDATE, not full-file rewrite). 200-2000x faster than JSON at 500 messages.
+
+- Migration: `python -m database.migration migrate_all storage/conversations/` — one-time bulk migration. JSON files renamed to `.json.migrated` (rollback available). New conversations created after migration use SQLite from the start.
+
+### Legacy architecture (JSON — pre-migration)
+
+- Directory layout (unmigrated conversations):
+  - `<conversation_id>-messages.json` (full rewrite every mutation)
+  - `<conversation_id>-memory.json`
+  - `<conversation_id>-artefacts.json`
+  - `<conversation_id>-artefact_message_links.json`
+  - `<conversation_id>-uploaded_documents_list.json`
+  - `<conversation_id>-message_attached_documents_list.json`
+  - `<conversation_id>-conversation_settings.json`
+  - `<conversation_id>-message_search_index.json` (manual BM25)
+  - `<conversation_id>.index` (dill pickle — full Conversation object)
+
+### Shared databases (always SQLite)
+
+| Database | Location | Purpose |
+|----------|----------|----------|
+| `users.db` | `storage/users/` | Users, conversations, workspaces, doubts, pinned messages, remember tokens, pinned claims |
+| `search_index.db` | `storage/users/` | Cross-conversation FTS5 search |
+| `pkb.sqlite` | `storage/users/` | Personal Knowledge Base |
+| `tool_call_history.sqlite` | `storage/users/` | MCP/tool invocation audit |
+
+### Key implementation files
+
+- `database/conversation_store.py` — `ConversationStore` class (per-conversation SQLite CRUD)
+- `database/migration.py` — migrate/rollback/status CLI commands
+- `Conversation.py` — `conversation_store` lazy property, `_use_sqlite` gate, routing layer
+
+Documentation: `documentation/features/sqlite_conversation_storage/README.md`, Plan: `documentation/planning/plans/sqlite_storage_migration.plan.md`
 
 ---
 
