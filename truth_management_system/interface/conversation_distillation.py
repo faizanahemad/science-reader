@@ -152,6 +152,12 @@ class ConversationDistiller:
         if not candidates and not short_term_candidates:
             return MemoryUpdatePlan(user_prompt="No memorable facts found.", requires_user_confirmation=False)
         
+        # Filter out candidates recently rejected by the user (TTL: 7 days)
+        candidates = self._filter_recently_rejected(candidates)
+
+        if not candidates and not short_term_candidates:
+            return MemoryUpdatePlan(user_prompt="No memorable facts found.", requires_user_confirmation=False)
+
         matches = []
         for candidate in candidates:
             existing = self._find_existing_matches(candidate)
@@ -557,6 +563,71 @@ Response:"""
             logger.error(f"Short-term memory extraction failed: {e}")
             return []
     
+    def _filter_recently_rejected(self, candidates: List[CandidateClaim]) -> List[CandidateClaim]:
+        """Remove candidates that match statements rejected by the user within the last 7 days."""
+        if not candidates:
+            return candidates
+        try:
+            rows = self.api.db.fetchall(
+                "SELECT action_payload FROM pkb_notifications "
+                "WHERE user_email = ? AND action_taken IN ('reject', 'dismiss') "
+                "AND created_at > datetime('now', '-7 days')",
+                (self.api.user_email,)
+            )
+            if not rows:
+                return candidates
+            rejected_statements = []
+            import json as _json
+            for (payload_str,) in rows:
+                try:
+                    payload = _json.loads(payload_str) if payload_str else {}
+                    stmt = payload.get("statement", "")
+                    if stmt:
+                        rejected_statements.append(stmt.lower().strip())
+                except Exception:
+                    continue
+            if not rejected_statements:
+                return candidates
+
+            # Compute embeddings for rejected statements and compare via cosine similarity
+            try:
+                from code_common.call_llm import get_query_embedding
+                import numpy as np
+                rejected_embs = []
+                for stmt in rejected_statements:
+                    emb = get_query_embedding(stmt, self.keys)
+                    if emb is not None:
+                        rejected_embs.append(emb)
+                if not rejected_embs:
+                    raise ValueError("No embeddings computed")
+
+                filtered = []
+                for candidate in candidates:
+                    cand_emb = get_query_embedding(candidate.statement, self.keys)
+                    if cand_emb is None:
+                        filtered.append(candidate)
+                        continue
+                    # Check max cosine similarity against all rejected statements
+                    max_sim = max(
+                        float(np.dot(cand_emb, rej_emb) / (np.linalg.norm(cand_emb) * np.linalg.norm(rej_emb) + 1e-9))
+                        for rej_emb in rejected_embs
+                    )
+                    if max_sim > 0.92:
+                        logger.info("rejection_cache:filtered sim=%.3f %s", max_sim, candidate.statement[:60])
+                    else:
+                        filtered.append(candidate)
+                return filtered
+            except Exception:
+                # Fallback: exact string match
+                filtered = []
+                for c in candidates:
+                    if c.statement.lower().strip() not in rejected_statements:
+                        filtered.append(c)
+                return filtered
+        except Exception as e:
+            logger.warning("Rejection cache check failed, proceeding without filter: %s", e)
+            return candidates
+
     def _find_existing_matches(self, candidate: CandidateClaim) -> List[Tuple[Claim, str]]:
         """Search for existing claims that match the candidate using embedding cosine similarity."""
         from ..search.base import SearchFilters
