@@ -105,6 +105,7 @@ EXPENSIVE_LLM = [
     "anthropic/claude-sonnet-4.6",
     "moonshotai/kimi-k2.6",
     "anthropic/claude-fable-5",
+    "openrouter/fusion",
 ]
 UNUSED_EXPENSIVE_LLM = [
     

@@ -14191,6 +14191,8 @@ def model_name_to_canonical_name(model_name):
         model_name = "anthropic/claude-opus-4.6"
     elif model_name == "anthropic/claude-fable-5":
         model_name = "anthropic/claude-fable-5"
+    elif model_name == "openrouter/fusion":
+        model_name = "openrouter/fusion"
     elif (
         model_name == "anthropic/claude-sonnet-4"
         or model_name == "Claude Sonnet 4"
