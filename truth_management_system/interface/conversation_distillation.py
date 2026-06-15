@@ -591,16 +591,14 @@ Response:"""
 
             # Compute embeddings for rejected statements and compare via cosine similarity
             try:
-                from code_common.call_llm import get_query_embedding
+                from code_common.call_llm import get_query_embedding, get_document_embeddings
                 import numpy as np
                 _emb_model = getattr(self.config, "embedding_model", None)
-                rejected_embs = []
-                for stmt in rejected_statements:
-                    emb = get_query_embedding(stmt, self.keys, model=_emb_model)
-                    if emb is not None:
-                        rejected_embs.append((stmt, emb))
-                if not rejected_embs:
+                # Batch embed all rejected statements in one call
+                rej_embs_array = get_document_embeddings(rejected_statements, self.keys, model=_emb_model)
+                if rej_embs_array is None or len(rej_embs_array) == 0:
                     raise ValueError("No embeddings computed")
+                rejected_embs = list(zip(rejected_statements, rej_embs_array))
 
                 # Get LLM helper for contradiction detection on high-similarity matches
                 llm = getattr(self.api, "llm", None)

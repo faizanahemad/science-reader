@@ -2931,6 +2931,15 @@ var PKBManager = (function() {
         
         if (approved.length === 0) {
             $('#memory-proposal-modal').modal('hide');
+            // Record all as rejected
+            if (planId) {
+                $.ajax({
+                    url: '/pkb/reject_proposals',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ plan_id: planId, rejected_indices: 'all' })
+                });
+            }
             return;
         }
         
