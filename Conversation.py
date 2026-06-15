@@ -13525,7 +13525,7 @@ Please provide your explanation or answer to the user's doubt in a clear, struct
                         tools_config=tools_config,
                         max_iterations=3,
                         conversation_id=self.conversation_id,
-                        user_email=self.user_email or "",
+                        user_email=self.user_id or "",
                     ):
                         if self.is_doubt_clearing_cancelled():
                             yield "\n\n**Doubt clearing was cancelled by user**"
@@ -13847,7 +13847,7 @@ Your summary:""",
                         tools_config=tools_config,
                         max_iterations=3,
                         conversation_id=self.conversation_id,
-                        user_email=self.user_email or "",
+                        user_email=self.user_id or "",
                     ):
                         text = chunk_dict.get("text", "")
                         if text:

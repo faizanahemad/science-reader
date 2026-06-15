@@ -1059,8 +1059,7 @@ const DoubtManager = {
             selected_text: this.selectedText || '',
             with_context: this.withContext || false,
             preamble_options: this.getActiveDoubtPreambleOptions(),
-            tools_enabled: $('#doubt-tools-toggle-btn').hasClass('active'),
-            length: ($('.doubt-length-option.active').data('length') || 'medium')
+            tools_enabled: $('#doubt-tools-toggle-btn').hasClass('active')
         };
         
         if (parentDoubtId) {

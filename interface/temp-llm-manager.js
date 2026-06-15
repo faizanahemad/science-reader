@@ -300,8 +300,7 @@ const TempLLMManager = {
         // Inject a summarize request into the chat
         this.currentSelection = threadText;
         var assistantCard = this.addMessageToChat('', 'assistant');
-        var assistantBody = assistantCard.find('.card-body');
-        this.streamResponse('Summarize this conversation thread concisely. Capture key points, decisions, and conclusions.', assistantCard, assistantBody, 'summarize_selection');
+        this.streamResponse('Summarize this conversation thread concisely. Capture key points, decisions, and conclusions.', assistantCard, 'summarize_selection');
     },
     
     /**
@@ -535,8 +534,9 @@ const TempLLMManager = {
                         assistantCard.data('rawText', accumulatedText);
                     }
                     
-                    // Add to history
-                    if (accumulatedText) {
+                    // Add to history (guard against double-push from completed chunk)
+                    if (accumulatedText && !assistantCard.data('historyPushed')) {
+                        assistantCard.data('historyPushed', true);
                         if (userMessage) {
                             self.currentHistory.push({
                                 role: 'user',
@@ -609,8 +609,9 @@ const TempLLMManager = {
                             self.currentStreamingController = null;
                             self.isStreaming = false;
                             
-                            // Add to history
-                            if (accumulatedText) {
+                            // Add to history (guard against double-push from done branch)
+                            if (accumulatedText && !assistantCard.data('historyPushed')) {
+                                assistantCard.data('historyPushed', true);
                                 if (userMessage) {
                                     self.currentHistory.push({
                                         role: 'user',
