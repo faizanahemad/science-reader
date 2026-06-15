@@ -13401,7 +13401,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
     def clear_doubt(
         self, message_id, doubt_text="", doubt_history=None, reward_level=0,
-        selected_text="", with_context=False, preamble_options=None
+        selected_text="", with_context=False, preamble_options=None, tools_enabled=False
     ):
         """Clear a doubt about a specific message - streaming response"""
         from call_llm import CallLLm
@@ -13500,9 +13500,6 @@ Please provide your explanation or answer to the user's doubt in a clear, struct
             doubt_model = self.get_model_override(
                 "quick_action_model", SUPERFAST_LLM[0]
             )
-            llm = CallLLm(
-                api_keys, model_name=doubt_model, use_gpt4=False, use_16k=False
-            )
 
             base_system = "You are a helpful AI assistant specializing in clarifying doubts and explaining complex concepts clearly and thoroughly. When using markdown headings you can use only level 4 headers (`####`). Write with the intention to help the user learn and understand better and expand their Knowledge boundaries. Avoid using tables in doubt and LLM temp answers, and if necessary use tables with max 2 columns."
             # Progressive disclosure: structured 3-section format (only for Long)
@@ -13515,27 +13512,54 @@ Please provide your explanation or answer to the user's doubt in a clear, struct
             else:
                 system = base_system
 
-            # Generate streaming response
-            response_stream = llm(
-                doubt_prompt,
-                images=[],
-                temperature=0.3,
-                stream=True,
-                max_tokens=2000,
-                system=system,
-            )
+            if tools_enabled:
+                from code_common.tools import TIER_1_TOOLS, TOOL_REGISTRY
+                if TOOL_REGISTRY:
+                    tools_config = TOOL_REGISTRY.get_openai_tools_param(TIER_1_TOOLS)
+                    for chunk_dict in self._run_tool_loop(
+                        prompt=doubt_prompt,
+                        preamble=system,
+                        images=[],
+                        model_name=doubt_model,
+                        keys=api_keys,
+                        tools_config=tools_config,
+                        max_iterations=3,
+                        conversation_id=self.conversation_id,
+                        user_email=self.user_email or "",
+                    ):
+                        if self.is_doubt_clearing_cancelled():
+                            yield "\n\n**Doubt clearing was cancelled by user**"
+                            break
+                        text = chunk_dict.get("text", "")
+                        if text:
+                            yield text
+                else:
+                    tools_enabled = False
 
-            # Stream the response
-            for chunk in response_stream:
-                # Check for cancellation before processing each chunk
-                if self.is_doubt_clearing_cancelled():
-                    logger.info(
-                        f"Doubt clearing cancelled for conversation {self.conversation_id}"
-                    )
-                    yield "\n\n**Doubt clearing was cancelled by user**"
-                    break
-                if chunk:
-                    yield chunk
+            if not tools_enabled:
+                llm = CallLLm(
+                    api_keys, model_name=doubt_model, use_gpt4=False, use_16k=False
+                )
+                # Generate streaming response
+                response_stream = llm(
+                    doubt_prompt,
+                    images=[],
+                    temperature=0.3,
+                    stream=True,
+                    max_tokens=2000,
+                    system=system,
+                )
+
+                # Stream the response
+                for chunk in response_stream:
+                    if self.is_doubt_clearing_cancelled():
+                        logger.info(
+                            f"Doubt clearing cancelled for conversation {self.conversation_id}"
+                        )
+                        yield "\n\n**Doubt clearing was cancelled by user**"
+                        break
+                    if chunk:
+                        yield chunk
 
             # Process reward evaluation if it was initiated
             if reward_future is not None:
@@ -13793,16 +13817,11 @@ Your summary:""",
             context_action_model = self.get_model_override(
                 "quick_action_model", SUPERFAST_LLM[0]
             )
-            llm = CallLLm(
-                api_keys,
-                model_name=context_action_model,
-                use_gpt4=False,
-                use_16k=False,
-            )
 
             # Build system prompt with preamble_options and length
             preamble_options = kwargs.get("preamble_options", []) or []
             length = kwargs.get("length", "Medium")
+            tools_enabled = kwargs.get("tools_enabled", False)
             base_system = "You are a helpful, clear, and engaging assistant. Respond concisely and in brief. Avoid using LaTeX or math notation. Avoid using tables in doubt and LLM temp answers, and if necessary use tables with max 2 columns."
             if length == "Short":
                 base_system += "\n\nBe very brief and concise. Answer in a few sentences only."
@@ -13814,20 +13833,41 @@ Your summary:""",
 
             max_tokens = {"Short": 800, "Medium": 2000, "Long": 4000}.get(length, 2000)
 
-            # Generate streaming response
-            response_stream = llm(
-                prompt,
-                images=[],
-                temperature=0.4,
-                stream=True,
-                max_tokens=max_tokens,
-                system=base_system,
-            )
+            if tools_enabled:
+                # Tool-calling mode: use tiered tools + _run_tool_loop
+                from code_common.tools import TIER_1_TOOLS, TOOL_REGISTRY
+                if TOOL_REGISTRY:
+                    tools_config = TOOL_REGISTRY.get_openai_tools_param(TIER_1_TOOLS)
+                    for chunk_dict in self._run_tool_loop(
+                        prompt=prompt,
+                        preamble=base_system,
+                        images=[],
+                        model_name=context_action_model,
+                        keys=api_keys,
+                        tools_config=tools_config,
+                        max_iterations=3,
+                        conversation_id=self.conversation_id,
+                        user_email=self.user_email or "",
+                    ):
+                        text = chunk_dict.get("text", "")
+                        if text:
+                            yield text
+                else:
+                    tools_enabled = False  # fallback
 
-            # Stream the response
-            for chunk in response_stream:
-                if chunk:
-                    yield chunk
+            if not tools_enabled:
+                # Simple mode: direct LLM call
+                llm = CallLLm(
+                    api_keys, model_name=context_action_model,
+                    use_gpt4=False, use_16k=False,
+                )
+                response_stream = llm(
+                    prompt, images=[], temperature=0.4,
+                    stream=True, max_tokens=max_tokens, system=base_system,
+                )
+                for chunk in response_stream:
+                    if chunk:
+                        yield chunk
 
         except Exception as e:
             error_msg = f"Error in temporary LLM action: {str(e)}"

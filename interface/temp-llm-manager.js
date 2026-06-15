@@ -167,10 +167,17 @@ const TempLLMManager = {
             self.copyCardText($(this).closest('.temp-llm-card'));
         });
 
-        // Length toggle
-        $('.temp-llm-length-btn').off('click').on('click', function() {
-            $('.temp-llm-length-btn').removeClass('active');
+        // Length dropdown
+        $('#temp-llm-length-dropdown-btn').parent().find('.temp-llm-length-option').off('click').on('click', function(e) {
+            e.preventDefault();
+            $('.temp-llm-length-option').removeClass('active');
             $(this).addClass('active');
+            $('#temp-llm-length-dropdown-btn').text($(this).data('label'));
+        });
+
+        // Tools toggle
+        $('#temp-llm-tools-toggle-btn').off('click').on('click', function() {
+            $(this).toggleClass('active btn-outline-secondary btn-primary');
         });
 
         // Preamble multi-select dropdown
@@ -255,7 +262,7 @@ const TempLLMManager = {
      * @returns {string}
      */
     getSelectedLength: function() {
-        var active = $('.temp-llm-length-btn.active').data('length') || 'medium';
+        var active = $('.temp-llm-length-option.active').data('length') || 'medium';
         return active.charAt(0).toUpperCase() + active.slice(1);
     },
 
@@ -461,7 +468,8 @@ const TempLLMManager = {
             with_context: this.withContext || false,
             preamble_name: this.preambleName || '',
             preamble_options: this.getSelectedPreambleOptions(),
-            length: this.getSelectedLength()
+            length: this.getSelectedLength(),
+            tools_enabled: $('#temp-llm-tools-toggle-btn').hasClass('active')
         };
         
         // Make the streaming request

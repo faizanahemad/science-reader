@@ -71,6 +71,9 @@ def clear_doubt_route(conversation_id: str, message_id: str):
     preamble_options = (
         request.json.get("preamble_options", []) if request.is_json and request.json else []
     ) or []
+    tools_enabled = bool(
+        request.json.get("tools_enabled", False) if request.is_json and request.json else False
+    )
 
     try:
         if not checkConversationExists(
@@ -122,7 +125,7 @@ def clear_doubt_route(conversation_id: str, message_id: str):
                 doubt_generator = conversation.clear_doubt(
                     message_id, doubt_text, doubt_history, reward_level,
                     selected_text=selected_text, with_context=with_context,
-                    preamble_options=preamble_options
+                    preamble_options=preamble_options, tools_enabled=tools_enabled
                 )
 
                 accumulated_text = ""
@@ -238,6 +241,7 @@ def temporary_llm_action_route():
         preamble_name = data.get("preamble_name", "")
         preamble_options = data.get("preamble_options", []) or []
         length = data.get("length", "Medium")
+        tools_enabled = bool(data.get("tools_enabled", False))
 
         logger.info(
             f"Temporary LLM action: {action_type} for user {email}, with_context: {with_context}"
@@ -282,6 +286,7 @@ def temporary_llm_action_route():
                         preamble_name=preamble_name,
                         preamble_options=preamble_options,
                         length=length,
+                        tools_enabled=tools_enabled,
                     )
                 else:
                     # Fallback: direct call without conversation context.

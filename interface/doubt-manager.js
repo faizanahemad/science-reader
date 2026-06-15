@@ -354,8 +354,9 @@ const DoubtManager = {
      */
     initDoubtModalControls: function() {
         // Set length to medium
-        $('.doubt-length-btn').removeClass('active');
-        $('.doubt-length-btn[data-length="medium"]').addClass('active');
+        $('.doubt-length-option').removeClass('active');
+        $('.doubt-length-option[data-length="medium"]').addClass('active');
+        $('#doubt-length-dropdown-btn').text('M');
         
         // Pre-select preamble options from settings
         const currentOpts = (window.chatSettingsState && window.chatSettingsState.doubt_preamble_options) || [];
@@ -385,10 +386,17 @@ const DoubtManager = {
             DoubtManager._updatePreambleButtonLabel();
         });
         
-        // Length toggle click handler
-        $('.doubt-length-btn').off('click').on('click', function() {
-            $('.doubt-length-btn').removeClass('active');
+        // Length dropdown click handler
+        $('#doubt-length-dropdown-btn').parent().find('.doubt-length-option').off('click').on('click', function(e) {
+            e.preventDefault();
+            $('.doubt-length-option').removeClass('active');
             $(this).addClass('active');
+            $('#doubt-length-dropdown-btn').text($(this).data('label'));
+        });
+
+        // Tools toggle
+        $('#doubt-tools-toggle-btn').off('click').on('click', function() {
+            $(this).toggleClass('active btn-outline-secondary btn-primary');
         });
     },
     
@@ -971,7 +979,7 @@ const DoubtManager = {
         }
         
         // Merge length toggle: Short/Long added to preamble list, Medium = neither
-        const activeLength = $('.doubt-length-btn.active').data('length');
+        const activeLength = $('.doubt-length-option.active').data('length');
         opts = opts.filter(o => o !== 'Short' && o !== 'Long');
         if (activeLength === 'short') opts.push('Short');
         else if (activeLength === 'long') opts.push('Long');
@@ -1050,7 +1058,9 @@ const DoubtManager = {
             reward_level: rewardLevel,
             selected_text: this.selectedText || '',
             with_context: this.withContext || false,
-            preamble_options: this.getActiveDoubtPreambleOptions()
+            preamble_options: this.getActiveDoubtPreambleOptions(),
+            tools_enabled: $('#doubt-tools-toggle-btn').hasClass('active'),
+            length: ($('.doubt-length-option.active').data('length') || 'medium')
         };
         
         if (parentDoubtId) {
