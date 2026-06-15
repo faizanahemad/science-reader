@@ -597,9 +597,12 @@ Response:"""
                 for stmt in rejected_statements:
                     emb = get_query_embedding(stmt, self.keys)
                     if emb is not None:
-                        rejected_embs.append(emb)
+                        rejected_embs.append((stmt, emb))
                 if not rejected_embs:
                     raise ValueError("No embeddings computed")
+
+                # Get LLM helper for contradiction detection on high-similarity matches
+                llm = getattr(self.api, "llm", None)
 
                 filtered = []
                 for candidate in candidates:
@@ -607,13 +610,25 @@ Response:"""
                     if cand_emb is None:
                         filtered.append(candidate)
                         continue
-                    # Check max cosine similarity against all rejected statements
-                    max_sim = max(
-                        float(np.dot(cand_emb, rej_emb) / (np.linalg.norm(cand_emb) * np.linalg.norm(rej_emb) + 1e-9))
-                        for rej_emb in rejected_embs
-                    )
-                    if max_sim > 0.92:
-                        logger.info("rejection_cache:filtered sim=%.3f %s", max_sim, candidate.statement[:60])
+                    # Find the most similar rejected statement
+                    best_sim, best_stmt = 0.0, ""
+                    for rej_stmt, rej_emb in rejected_embs:
+                        sim = float(np.dot(cand_emb, rej_emb) / (np.linalg.norm(cand_emb) * np.linalg.norm(rej_emb) + 1e-9))
+                        if sim > best_sim:
+                            best_sim, best_stmt = sim, rej_stmt
+                    if best_sim > 0.92:
+                        # High similarity — but check if it's actually a temporal update/contradiction
+                        # If so, allow it through (it's a new distinct fact, not the same rejected claim)
+                        is_contradiction = False
+                        if llm and best_stmt:
+                            try:
+                                is_contradiction = llm.detect_contradiction(candidate.statement, best_stmt)
+                            except Exception:
+                                pass
+                        if is_contradiction:
+                            filtered.append(candidate)  # Allow through — it's a temporal update
+                        else:
+                            logger.info("rejection_cache:filtered sim=%.3f %s", best_sim, candidate.statement[:60])
                     else:
                         filtered.append(candidate)
                 return filtered
