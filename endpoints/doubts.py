@@ -236,6 +236,8 @@ def temporary_llm_action_route():
         history = data.get("history", [])
         with_context = bool(data.get("with_context", False))
         preamble_name = data.get("preamble_name", "")
+        preamble_options = data.get("preamble_options", []) or []
+        length = data.get("length", "Medium")
 
         logger.info(
             f"Temporary LLM action: {action_type} for user {email}, with_context: {with_context}"
@@ -278,6 +280,8 @@ def temporary_llm_action_route():
                         history=history,
                         with_context=with_context,
                         preamble_name=preamble_name,
+                        preamble_options=preamble_options,
+                        length=length,
                     )
                 else:
                     # Fallback: direct call without conversation context.

@@ -13800,14 +13800,28 @@ Your summary:""",
                 use_16k=False,
             )
 
+            # Build system prompt with preamble_options and length
+            preamble_options = kwargs.get("preamble_options", []) or []
+            length = kwargs.get("length", "Medium")
+            base_system = "You are a helpful, clear, and engaging assistant. Respond concisely and in brief. Avoid using LaTeX or math notation. Avoid using tables in doubt and LLM temp answers, and if necessary use tables with max 2 columns."
+            if length == "Short":
+                base_system += "\n\nBe very brief and concise. Answer in a few sentences only."
+            elif length == "Long":
+                base_system += "\n\nProvide a thorough, detailed response with examples and nuances."
+            if preamble_options:
+                extra_preamble, _ = self.get_preamble(preamble_options, None)
+                base_system += "\n\n" + extra_preamble
+
+            max_tokens = {"Short": 800, "Medium": 2000, "Long": 4000}.get(length, 2000)
+
             # Generate streaming response
             response_stream = llm(
                 prompt,
                 images=[],
                 temperature=0.4,
                 stream=True,
-                max_tokens=2000,
-                system="You are a helpful, clear, and engaging assistant. Respond concisely and in brief. Avoid using LaTeX or math notation. Avoid using tables in doubt and LLM temp answers, and if necessary use tables with max 2 columns.",
+                max_tokens=max_tokens,
+                system=base_system,
             )
 
             # Stream the response

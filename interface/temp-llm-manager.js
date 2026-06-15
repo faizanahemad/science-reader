@@ -166,6 +166,41 @@ const TempLLMManager = {
             e.stopPropagation();
             self.copyCardText($(this).closest('.temp-llm-card'));
         });
+
+        // Length toggle
+        $('.temp-llm-length-btn').off('click').on('click', function() {
+            $('.temp-llm-length-btn').removeClass('active');
+            $(this).addClass('active');
+        });
+
+        // Preamble multi-select dropdown
+        $('#temp-llm-preamble-dropdown-menu .temp-llm-preamble-option').off('click').on('click', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            const val = $(this).data('value');
+            if (!val) {
+                // "None" — clear all
+                $('#temp-llm-preamble-dropdown-menu .temp-llm-preamble-option').removeClass('active');
+            } else {
+                $('#temp-llm-preamble-dropdown-menu .temp-llm-preamble-option[data-value=""]').removeClass('active');
+                $(this).toggleClass('active');
+            }
+            // Update button badge
+            const count = $('#temp-llm-preamble-dropdown-menu .temp-llm-preamble-option.active').length;
+            const btn = $('#temp-llm-preamble-dropdown-btn');
+            btn.find('.badge').remove();
+            if (count > 0) btn.append(' <span class="badge badge-info">' + count + '</span>');
+        });
+
+        // Copy thread
+        $('#temp-llm-copy-thread-btn').off('click').on('click', function() {
+            self.copyThread();
+        });
+
+        // Summarize thread
+        $('#temp-llm-summarize-btn').off('click').on('click', function() {
+            self.summarizeThread();
+        });
     },
 
     /**
@@ -200,6 +235,66 @@ const TempLLMManager = {
                 bad();
             }
         }
+    },
+
+    /**
+     * Get the currently selected preamble options from the dropdown.
+     * @returns {string[]}
+     */
+    getSelectedPreambleOptions: function() {
+        var opts = [];
+        $('#temp-llm-preamble-dropdown-menu .temp-llm-preamble-option.active').each(function() {
+            var v = $(this).data('value');
+            if (v) opts.push(v);
+        });
+        return opts;
+    },
+
+    /**
+     * Get the selected length label (Short/Medium/Long).
+     * @returns {string}
+     */
+    getSelectedLength: function() {
+        var active = $('.temp-llm-length-btn.active').data('length') || 'medium';
+        return active.charAt(0).toUpperCase() + active.slice(1);
+    },
+
+    /**
+     * Copy entire thread as markdown to clipboard.
+     */
+    copyThread: function() {
+        var lines = [];
+        $('#temp-llm-messages .temp-llm-card').each(function() {
+            var sender = $(this).find('.temp-llm-card-sender').text().trim();
+            var text = $(this).data('rawText') || $(this).find('.card-body').first().text().trim();
+            lines.push('**' + sender + ':** ' + text);
+        });
+        var md = lines.join('\n\n');
+        if (!md) { if (typeof showToast === 'function') showToast('Nothing to copy', 'info'); return; }
+        navigator.clipboard.writeText(md).then(function() {
+            if (typeof showToast === 'function') showToast('Thread copied', 'success');
+        }).catch(function() {
+            if (typeof showToast === 'function') showToast('Failed to copy', 'error');
+        });
+    },
+
+    /**
+     * Summarize the current thread by sending it as a new temp LLM request.
+     */
+    summarizeThread: function() {
+        if (this.isStreaming) return;
+        var threadText = '';
+        $('#temp-llm-messages .temp-llm-card').each(function() {
+            var sender = $(this).find('.temp-llm-card-sender').text().trim();
+            var text = $(this).data('rawText') || $(this).find('.card-body').first().text().trim();
+            threadText += sender + ': ' + text + '\n\n';
+        });
+        if (!threadText.trim()) { if (typeof showToast === 'function') showToast('Nothing to summarize', 'info'); return; }
+        // Inject a summarize request into the chat
+        this.currentSelection = threadText;
+        var assistantCard = this.addMessageToChat('', 'assistant');
+        var assistantBody = assistantCard.find('.card-body');
+        this.streamResponse('Summarize this conversation thread concisely. Capture key points, decisions, and conclusions.', assistantCard, assistantBody, 'summarize_selection');
     },
     
     /**
@@ -364,7 +459,9 @@ const TempLLMManager = {
             conversation_id: this.currentMessageContext?.conversationId,
             history: this.currentHistory,
             with_context: this.withContext || false,
-            preamble_name: this.preambleName || ''
+            preamble_name: this.preambleName || '',
+            preamble_options: this.getSelectedPreambleOptions(),
+            length: this.getSelectedLength()
         };
         
         // Make the streaming request

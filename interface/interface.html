@@ -2321,6 +2321,35 @@
                     <h5 class="modal-title" style="color: #333;">
                         <i class="bi bi-chat-dots"></i>&nbsp;💬 <span id="temp-llm-modal-title">Temporary Chat</span>
                     </h5>
+                    <span class="ml-auto d-flex align-items-center" style="gap: 4px;">
+                        <div class="btn-group btn-group-sm" role="group" aria-label="Length control">
+                            <button class="btn btn-outline-secondary temp-llm-length-btn" data-length="short">S</button>
+                            <button class="btn btn-outline-secondary temp-llm-length-btn active" data-length="medium">M</button>
+                            <button class="btn btn-outline-secondary temp-llm-length-btn" data-length="long">L</button>
+                        </div>
+                        <div class="dropdown d-inline-block">
+                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="temp-llm-preamble-dropdown-btn" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="Preamble">
+                                <i class="bi bi-sliders"></i>
+                            </button>
+                            <div class="dropdown-menu dropdown-menu-right" aria-labelledby="temp-llm-preamble-dropdown-btn" id="temp-llm-preamble-dropdown-menu">
+                                <a class="dropdown-item temp-llm-preamble-option" data-value="" href="#">None</a>
+                                <a class="dropdown-item temp-llm-preamble-option" data-value="Wife Prompt" href="#">Wife Prompt</a>
+                                <a class="dropdown-item temp-llm-preamble-option" data-value="Short" href="#">Short</a>
+                                <a class="dropdown-item temp-llm-preamble-option" data-value="Deep Learn" href="#">Deep Learn</a>
+                                <a class="dropdown-item temp-llm-preamble-option" data-value="Software and ML Learning" href="#">Software and ML Learning</a>
+                                <a class="dropdown-item temp-llm-preamble-option" data-value="Senior Engineer Summary" href="#">Senior Engineer Summary</a>
+                                <a class="dropdown-item temp-llm-preamble-option" data-value="Senior Engineer Mental Models" href="#">Senior Engineer Mental Models</a>
+                                <a class="dropdown-item temp-llm-preamble-option" data-value="Argumentative" href="#">Argumentative</a>
+                                <a class="dropdown-item temp-llm-preamble-option" data-value="No AI" href="#">No AI</a>
+                            </div>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="temp-llm-summarize-btn" title="Summarize Thread">
+                            <i class="bi bi-journal-text"></i>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="temp-llm-copy-thread-btn" title="Copy Thread as Markdown">
+                            <i class="bi bi-clipboard"></i>
+                        </button>
+                    </span>
                     <button type="button" class="close" data-dismiss="modal" aria-label="Close" style="color: #aaa; font-size: 28px; font-weight: bold; line-height: 1;">
                         <span aria-hidden="true">&times;</span>
                     </button>
