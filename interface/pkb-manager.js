@@ -3562,6 +3562,18 @@ var PKBManager = (function() {
         $(document).on('click', '#memory-proposal-save', function() {
             saveSelectedProposals();
         });
+
+        // Memory proposal cancel — record all unchecked items as rejections
+        $(document).on('click', '#memory-proposal-skip', function() {
+            var planId = $('#memory-proposal-plan-id').val();
+            if (!planId) return;
+            $.ajax({
+                url: '/pkb/reject_proposals',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ plan_id: planId, rejected_indices: 'all' })
+            });
+        });
         
         // Bulk Add tab handlers
         $(document).on('click', '#pkb-bulk-add-row', function() {
