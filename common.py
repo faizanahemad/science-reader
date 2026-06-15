@@ -81,7 +81,7 @@ SCIENCE_KEYS = [
 
 OPENROUTER_LLM = ["google/gemini-2.5-flash"]
 
-SUPERFAST_LLM = ["inception/mercury-2"]
+SUPERFAST_LLM = ["anthropic/claude-sonnet-4.6"]
 
 VERY_CHEAP_LLM = [
     "google/gemini-3.1-flash-lite-preview",
