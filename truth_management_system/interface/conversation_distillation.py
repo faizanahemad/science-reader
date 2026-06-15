@@ -593,9 +593,10 @@ Response:"""
             try:
                 from code_common.call_llm import get_query_embedding
                 import numpy as np
+                _emb_model = getattr(self.config, "embedding_model", None)
                 rejected_embs = []
                 for stmt in rejected_statements:
-                    emb = get_query_embedding(stmt, self.keys)
+                    emb = get_query_embedding(stmt, self.keys, model=_emb_model)
                     if emb is not None:
                         rejected_embs.append((stmt, emb))
                 if not rejected_embs:
@@ -606,7 +607,7 @@ Response:"""
 
                 filtered = []
                 for candidate in candidates:
-                    cand_emb = get_query_embedding(candidate.statement, self.keys)
+                    cand_emb = get_query_embedding(candidate.statement, self.keys, model=_emb_model)
                     if cand_emb is None:
                         filtered.append(candidate)
                         continue
