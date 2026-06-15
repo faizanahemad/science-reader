@@ -1464,9 +1464,10 @@ Compact list of bullet points:
         if hasattr(self, "_running_summary"):
             return self._running_summary
         self.set_memory_if_None()
-        if len(self.get_field("memory")["running_summary"]) == 0:
+        running_summary_list = self.get_field("memory").get("running_summary", [])
+        if len(running_summary_list) == 0:
             return ""
-        running_summary = "".join(self.get_field("memory")["running_summary"][-1:])
+        running_summary = "".join(running_summary_list[-1:])
         setattr(self, "_running_summary", running_summary)
         return running_summary
 
