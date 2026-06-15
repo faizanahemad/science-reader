@@ -13499,7 +13499,7 @@ Please provide your explanation or answer to the user's doubt in a clear, struct
             # Initialize the LLM with appropriate model
             api_keys = self.get_api_keys()
             doubt_model = self.get_model_override(
-                "quick_action_model", SUPERFAST_LLM[0]
+                "quick_action_model", QUICK_ACTION_LLM
             )
 
             base_system = "You are a helpful AI assistant specializing in clarifying doubts and explaining complex concepts clearly and thoroughly. When using markdown headings you can use only level 4 headers (`####`). Write with the intention to help the user learn and understand better and expand their Knowledge boundaries. Avoid using tables in doubt and LLM temp answers, and if necessary use tables with max 2 columns."
@@ -13816,7 +13816,7 @@ Your summary:""",
             # Initialize LLM
             api_keys = self.get_api_keys()
             context_action_model = self.get_model_override(
-                "quick_action_model", SUPERFAST_LLM[0]
+                "quick_action_model", QUICK_ACTION_LLM
             )
 
             # Build system prompt with preamble_options and length
