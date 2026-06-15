@@ -494,7 +494,7 @@ LLM-powered extraction via `code_common/call_llm.py`.
 | `extract_single` | `(statement, context_domain)` → `ExtractionResult` | Single extraction |
 | `analyze_claim_statement` | `(statement, model=None)` → `ClaimAnalysisResult` | **G2:** one combined LLM call extracting all fields (tags/entities/SPO/type/keywords/questions) — replaces ~6 calls |
 | `batch_analyze` | `(statements, model=None)` → `List[ClaimAnalysisResult]` | **G2:** fan `analyze_claim_statement` across the parallel executor (bulk/background enrichment) |
-| `detect_contradiction` | `(new_statement, existing_statement)` → `bool` | **D1 follow-up:** ungated LLM check used by the distiller to propose a supersede |
+| `detect_contradiction` | `(new_statement, existing_statement)` → `str` (`"supersedes"`/`"temporal_update"`/`"none"`) | **D1 follow-up:** 3-way LLM classification — supersedes (retire old), temporal_update (keep both), none. Used by distiller `_detect_contradictions()` and rejection cache |
 | `judge_duplicates` | `(items, kind)` → `{duplicate, canonical, reason}` | **W7:** verify a candidate dedup cluster is a true duplicate (fail-safe False) |
 
 **`ClaimAnalysisResult` Dataclass (G2 combined call):** tags, entities, spo, claim_type, keywords, and `possible_questions` — the single-call superset of `ExtractionResult` plus questions.
@@ -980,7 +980,9 @@ class DistillationResult:
 4. Generate user confirmation prompt
 5. Execute approved actions
 
-**Contradiction → Supersede (D1 follow-up):** when `distiller_detect_contradictions` is on, the top existing matches are run through `llm_helpers.detect_contradiction`; a confirmed contradiction upgrades the relation to `contradicts` and `_propose_actions` proposes a **supersede** (priority over duplicate→reinforce), executed via `add_claim(..., supersedes=old_id)` so the old claim becomes `superseded` and a `claim_links` edge is recorded.
+**Contradiction → Supersede / Temporal Update (D1 follow-up):** when `distiller_detect_contradictions` is on, the top existing matches are run through `llm_helpers.detect_contradiction` which returns a 3-way classification: `"supersedes"` upgrades the relation to `contradicts` and `_propose_actions` proposes a **supersede** (priority over duplicate→reinforce), executed via `add_claim(..., supersedes=old_id)` so the old claim becomes `superseded` and a `claim_links` edge is recorded. `"temporal_update"` adds as a new claim keeping both (e.g. weight measurements at different dates). `"none"` preserves the original relation.
+
+**Rejection Cache (`_filter_recently_rejected`):** before matching against existing claims, candidates are checked against statements the user rejected/dismissed in the last 7 days (queried from `pkb_notifications` where `action_taken IN ('reject', 'dismiss')`). Embedding cosine similarity > 0.92 triggers suppression. Before suppressing, runs `detect_contradiction` — if the result is `"supersedes"` or `"temporal_update"`, the candidate passes through (it's meaningfully different from the rejected statement). Falls back to exact case-insensitive string match if embeddings fail. Uses `config.embedding_model` for consistency with PKB EmbeddingStore.
 
 #### `interface/text_ingestion.py` - `TextIngestionDistiller`
 
