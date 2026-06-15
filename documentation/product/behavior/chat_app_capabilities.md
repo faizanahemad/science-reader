@@ -1037,6 +1037,10 @@ The `@pkb:claim_id` prefix is supported as a legacy alias alongside `@memory:` a
 - **Global "My Doubts" modal** — cross-conversation searchable/filterable paginated view from sidebar.
 - **Separate doubt preamble** — `doubt_preamble_options` distinct from main chat preambles.
 - **Progressive disclosure** — Answers rendered as TL;DR (always visible) + Explanation (collapsible) + Deep Dive (collapsible, closed by default). Collapse state persisted via `SectionHiddenDetails` table. Markers stripped during streaming, applied on completion.
+- **Tools toggle** — 🔧 button in both doubt and temp LLM modal headers. When active, enables tiered tool calling (`TIER_1_TOOLS` — 12 tools including search, docs, PKB, delegate, request_tools). Uses `_run_tool_loop` with max 3 iterations. Tools off by default. `request_tools` meta-tool allows on-demand expansion to the full tool registry.
+- **Compact length dropdown** — S/M/L button group replaced with a single dropdown button (shows current label, click reveals Short/Medium/Long). Saves header space for the tools toggle.
+- **Responsive tables** — All markdown tables in chat messages, doubts, and temp LLM are wrapped in `<div class="table-responsive">` via `markdownParser.table` override, preventing page-level horizontal scroll from wide tables.
+- **Quick action model** — `QUICK_ACTION_LLM` constant in `common.py` (default: `anthropic/claude-sonnet-4.6`). Used by both `clear_doubt` and `temporary_llm_action` as the default model (overridable via `quick_action_model` setting).
 
 ---
 
