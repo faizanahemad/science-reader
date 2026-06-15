@@ -52,6 +52,10 @@
 
 - Write modular code as functions and separate modules with reusable interfaces, then integrate into existing systems.
 - Apply small patches or edits sequentially and write in small chunks — large chunks are error-prone. When writing an entire new file, create the outline first, then fill gradually.
+- **Follow existing patterns**: Before writing new code that needs a capability (embeddings, LLM calls, DB access, config values), find how the surrounding module already does it and use the same path. Never bypass a config-driven abstraction with a hardcoded convenience import.
+- **Respect architectural seams**: If a config value exists (e.g. `config.embedding_model`, `config.llm_model`), it exists because the system is designed to be swappable there. Always flow config through rather than hardcoding.
+- **Check callers and callees**: When modifying a function's return type or signature, grep for all callers (including tests and mocks) and update them in the same commit.
+- **Think about consistency across layers**: If you compute something in one layer (e.g. embeddings for search), and need the same thing in another layer (e.g. embeddings for rejection filtering), they must use the same model/parameters or the comparison is meaningless.
 
 ### Documentation guidelines
 - View the docs in `documentation` folder by running `tree documentation` bash command. View the docs also when asked for context around a functionality or plan.
