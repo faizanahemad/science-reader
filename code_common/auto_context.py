@@ -663,6 +663,7 @@ def assemble_auto_context(
     agent_result: list[dict],
     llm_based_extracted_context: str = "",
     mode: AutoContextMode = AutoContextMode.DEEP,
+    pinned_message_ids: list = None,
 ) -> str:
     """
     Merge classifier and agent finder outputs into a <messages>…</messages> string.
@@ -728,6 +729,23 @@ def assemble_auto_context(
             if mid:
                 merged[mid] = "paraphrased"
 
+    # Inject pinned messages as verbatim (max 5 assistant msgs + their user msgs)
+    if pinned_message_ids:
+        for mid in pinned_message_ids[:5]:
+            idx = id_to_idx.get(mid)
+            if idx is None:
+                continue
+            msg = id_to_msg.get(mid)
+            if msg is None or msg.get("sender") != "model":
+                continue
+            merged[mid] = "verbatim"
+            # Also include preceding user message (truncated via "pinned_user" mode)
+            if idx > 0:
+                prev_msg = messages[idx - 1]
+                prev_mid = prev_msg.get("message_id", "")
+                if prev_mid and prev_msg.get("sender") == "user":
+                    merged.setdefault(prev_mid, "pinned_user")
+
     if not merged:
         result = ""
     else:
@@ -740,6 +758,10 @@ def assemble_auto_context(
             sender = msg.get("sender", "user")
             if final_mode == "verbatim":
                 text = _extract_user_answer(msg.get("text", ""))
+            elif final_mode == "pinned_user":
+                from common import get_first_last_parts
+                raw = _extract_user_answer(msg.get("text", ""))
+                text = get_first_last_parts(raw, first_n=200, last_n=200)
             else:
                 if sender == "user":
                     text = msg.get("user_ask_tldr") or get_first_n_words(msg.get("text", ""), n=300)

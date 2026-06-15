@@ -3533,7 +3533,8 @@ Now return JSON with 'ops' and 'notes'.
 
     @timer
     def retrieve_prior_context(
-        self, query, past_message_ids=[], required_message_lookback=18
+        self, query, past_message_ids=[], required_message_lookback=18,
+        pinned_message_ids=None,
     ):
         # Lets get the previous 2 messages, upto 1000 tokens
         st = time.time()
@@ -3581,6 +3582,67 @@ Now return JSON with 'ops' and 'notes'.
             if word_count < token_limit_very_long:
                 previous_messages_very_long = previous_messages_text
             message_lookback += 2
+
+        # --- Inject pinned message turns (auto mode only) ---
+        # pinned_message_ids: set of assistant message_ids that are pinned.
+        # For each, include the preceding user message (truncated) + the assistant message.
+        # Max 5 turns (10 messages). Placed at chronological position.
+        if pinned_message_ids:
+            pinned_set = set(pinned_message_ids)
+            # Find which pinned messages are NOT already in the window
+            window_size = message_lookback - 2  # last successful lookback
+            windowed_msgs = messages[-window_size:] if window_size > 0 else []
+            windowed_ids = {m["message_id"] for m in windowed_msgs}
+            missing_pinned = [mid for mid in pinned_message_ids if mid not in windowed_ids]
+            if missing_pinned:
+                from common import get_first_last_parts
+                # Build pinned turns text and insert at correct chronological position
+                # Collect (position_in_messages, turn_text) for missing pinned msgs
+                msg_id_to_idx = {m["message_id"]: i for i, m in enumerate(messages)}
+                pinned_turns = []
+                for mid in missing_pinned:
+                    idx = msg_id_to_idx.get(mid)
+                    if idx is None:
+                        continue
+                    msg = messages[idx]
+                    if msg.get("sender") != "model":
+                        continue
+                    assistant_text = extract_user_answer(msg["text"])
+                    # Find preceding user message
+                    user_text = ""
+                    if idx > 0 and messages[idx - 1].get("sender") == "user":
+                        raw_user = extract_user_answer(messages[idx - 1]["text"])
+                        user_text = get_first_last_parts(raw_user, first_n=200, last_n=200)
+                    pinned_turns.append((idx, user_text, assistant_text))
+                # Sort by position (chronological)
+                pinned_turns.sort(key=lambda x: x[0])
+                # Cap at 5 turns
+                pinned_turns = pinned_turns[:5]
+                # Build text
+                pinned_parts = []
+                for _, user_text, assistant_text in pinned_turns:
+                    if user_text:
+                        pinned_parts.append(f"<user>\n{user_text}\n</user>")
+                    pinned_parts.append(f"<model>\n{assistant_text}\n</model>")
+                pinned_text = "\n\n".join(pinned_parts)
+                # Prepend pinned turns before the windowed messages (they are older)
+                if pinned_text:
+                    if previous_messages_very_short:
+                        previous_messages_very_short = pinned_text + "\n\n" + previous_messages_very_short
+                    else:
+                        previous_messages_very_short = pinned_text
+                    if previous_messages_short:
+                        previous_messages_short = pinned_text + "\n\n" + previous_messages_short
+                    else:
+                        previous_messages_short = pinned_text
+                    if previous_messages_long:
+                        previous_messages_long = pinned_text + "\n\n" + previous_messages_long
+                    else:
+                        previous_messages_long = pinned_text
+                    if previous_messages_very_long:
+                        previous_messages_very_long = pinned_text + "\n\n" + previous_messages_very_long
+                    else:
+                        previous_messages_very_long = pinned_text
 
         running_summary = self.running_summary
         # older_extensive_summary = find_nearest_divisible_by_three(memory["running_summary"])
@@ -8555,11 +8617,25 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             # reduce message lookback to 2
             message_lookback = 2
 
+        # Fetch pinned message IDs for auto mode (pins always in LLM context)
+        _pinned_msg_ids = None
+        if (enablePreviousMessages.startswith("auto-")
+                and len(past_message_ids) == 0):
+            try:
+                from database.pinned_messages import get_pinned_messages as _get_pins
+                _pins = _get_pins(conversation_id=self.conversation_id)
+                if _pins:
+                    # Most recent pins first (already ordered by created_at DESC)
+                    _pinned_msg_ids = [p["message_id"] for p in _pins[:5]]
+            except Exception:
+                _pinned_msg_ids = None
+
         prior_context_future = get_async_future(
             self.retrieve_prior_context,
             query["messageText"],
             past_message_ids=past_message_ids,
             required_message_lookback=message_lookback,
+            pinned_message_ids=_pinned_msg_ids,
         )
         # Generate user_ask_tldr async in parallel — zero latency since it resolves
         # during streaming and is collected in persist_current_turn.
@@ -10299,6 +10375,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 _auto_assembled = assemble_auto_context(
                     self, _classifier_result, _agent_result,
                     prior_context_llm_based_context, _auto_context_mode,
+                    pinned_message_ids=_pinned_msg_ids,
                 )
                 # Override: auto context replaces the raw previous_messages + llm_based context
                 previous_messages = _auto_assembled
