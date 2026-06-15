@@ -1270,6 +1270,42 @@ When "Better context" is enabled (default on for the modal; always on for the `/
 
 ---
 
+### 13) Multi-Conversation Tabs
+
+Multiple conversations can be open simultaneously with instant switching. On desktop, a horizontal tab bar appears above the chat area when 2+ tabs are open. On mobile, tabs are listed in the gear dropdown menu.
+
+**Opening tabs:**
+- Right-click a conversation in the sidebar → "Open in New Tab"
+- Ctrl+click (or Cmd+click on Mac) a conversation in the sidebar
+- Click the "+" button in the tab bar
+- New Temp Chat opens in a new tab when tabs are already active
+
+**Behavior:**
+- Maximum 5 simultaneous tabs
+- Each tab has its own chat pane (DOM element) on desktop — switching is instant with no re-render
+- On mobile, switching tabs saves current state via RenderedStateManager then calls setActiveConversation for a full reload
+- Mid-stream close warning (confirm dialog) if a streaming response is in progress
+- Tab bar auto-hides when only 1 tab remains
+- Normal sidebar click replaces the focused tab's conversation (doesn't open new tab)
+- Tab titles sync from the sidebar tree node text
+
+**Persistence:**
+- Open tabs are saved to `localStorage` keyed by `openTabs:{email}:{domain}`
+- Restored on page reload; only the focused tab loads immediately (lazy load)
+- Domain switch clears all tabs
+
+**API surface:** None — purely client-side feature.
+
+**Key files:**
+- `interface/tab-manager.js` — TabManager module (state, open/close/focus, render, persist)
+- `interface/common-chat.js` — `$chatView(convId)` accessor (line ~36), replaces all `$('#chatView')` refs
+- `interface/rendered-state-manager.js` — `getChatViewEl(convId)` targets per-tab panes
+- `interface/workspace-manager.js` — context menu item, Ctrl+click handler, title sync, init call
+- `interface/style.css` — `#conv-tab-bar`, `.chatView-pane`, `.gear-tab-nav` styles
+- `interface/interface.html` — `#conv-tab-bar`, `#chatView-container` wrapper, `.gear-tab-nav` sections
+
+---
+
 ## Chat Settings Modal (`#chat-settings-modal`)
 
 Full-screen settings panel accessed via the gear icon in the chat input area. Uses Bootstrap 4 collapse accordion (4 sections, only one open at a time). Settings are persisted per-tab to `localStorage` and applied automatically on modal close.

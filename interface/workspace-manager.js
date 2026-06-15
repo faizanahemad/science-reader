@@ -340,6 +340,11 @@ var WorkspaceManager = {
                 if (conversationId && urlConvExists) {
                     ConversationManager.setActiveConversation(conversationId);
                     WorkspaceManager.highlightActiveConversation(conversationId, true);
+                    if (typeof TabManager !== 'undefined' && !TabManager.focusedTabId) {
+                        var tree = $('#workspaces-container').jstree(true);
+                        var titleNode = tree && tree.get_node('cv_' + conversationId);
+                        TabManager.init(conversationId, titleNode ? titleNode.text : 'Untitled');
+                    }
                 } else {
                     if (conversationId && !urlConvExists) {
                         // URL had a conversation ID that no longer exists — show a toast
@@ -359,6 +364,11 @@ var WorkspaceManager = {
                         var targetId = resumeExists ? resumeId : conversations[0].conversation_id;
                         ConversationManager.setActiveConversation(targetId);
                         WorkspaceManager.highlightActiveConversation(targetId, true);
+                        if (typeof TabManager !== 'undefined' && !TabManager.focusedTabId) {
+                            var tree2 = $('#workspaces-container').jstree(true);
+                            var titleNode2 = tree2 && tree2.get_node('cv_' + targetId);
+                            TabManager.init(targetId, titleNode2 ? titleNode2.text : 'Untitled');
+                        }
                     }
                 }
             } else {
@@ -1264,6 +1274,14 @@ var WorkspaceManager = {
             if (nodeId.indexOf('cv_') === 0) {
                 var conversationId = nodeId.substring(3);
                 var currentActive = (ConversationManager.getActiveConversation && ConversationManager.getActiveConversation()) || null;
+
+                // Ctrl+click or Meta+click: open in new tab
+                if (data.event && (data.event.ctrlKey || data.event.metaKey) && typeof TabManager !== 'undefined') {
+                    var title = data.node.text || 'Untitled';
+                    TabManager.openTab(conversationId, title, true);
+                    return;
+                }
+
                 if (currentActive && String(currentActive) === String(conversationId)) return;
 
                 try {
@@ -1278,6 +1296,29 @@ var WorkspaceManager = {
                     }
                 } catch (_e) {}
 
+                // Update the focused tab or register this conversation as the active tab
+                if (typeof TabManager !== 'undefined' && TabManager.focusedTabId) {
+                    var title = data.node.text || 'Untitled';
+                    if (TabManager.hasTab(conversationId)) {
+                        TabManager.focusTab(conversationId);
+                        return;
+                    }
+                    // Replace focused tab's conversation with this one
+                    var oldTab = TabManager.getTab(TabManager.focusedTabId);
+                    if (oldTab) {
+                        var oldPaneId = oldTab.conversationId;
+                        oldTab.conversationId = conversationId;
+                        oldTab.title = title;
+                        TabManager.focusedTabId = conversationId;
+                        // Rename the pane DOM element on desktop
+                        var $oldPane = $(document.getElementById('chatView-' + oldPaneId));
+                        if ($oldPane.length) {
+                            $oldPane.attr('id', 'chatView-' + conversationId).empty();
+                        }
+                        TabManager.renderUI();
+                        TabManager.persist();
+                    }
+                }
                 ConversationManager.setActiveConversation(conversationId);
             }
         });
@@ -1589,6 +1630,16 @@ var WorkspaceManager = {
                     window.open('/interface/' + convId, '_blank', 'noopener');
                 }
             },
+            openInTab: {
+                label: 'Open in New Tab',
+                icon: 'fa fa-columns',
+                action: function () {
+                    if (typeof TabManager !== 'undefined') {
+                        var title = node.text || 'Untitled';
+                        TabManager.openTab(convId, title, true);
+                    }
+                }
+            },
             clone: {
                 separator_before: true,
                 label: 'Clone',
@@ -1849,7 +1900,12 @@ var WorkspaceManager = {
                 $('#linkInput').val('');
                 $('#searchInput').val('');
                 self._processAndRenderData(response.workspaces, response.conversations);
-                ConversationManager.setActiveConversation(convId);
+                // Open as new tab if tabs are active
+                if (typeof TabManager !== 'undefined' && TabManager.tabs.length >= 1) {
+                    TabManager.openTab(convId, 'New Chat', true);
+                } else {
+                    ConversationManager.setActiveConversation(convId);
+                }
                 self.highlightActiveConversation(convId);
             }
         });
@@ -1929,6 +1985,10 @@ var WorkspaceManager = {
             this._suppressExpandPersist = false;
 
             tree.select_node(nodeId, true);
+            // Sync tab title from tree node
+            if (typeof TabManager !== 'undefined' && node.text) {
+                TabManager.updateTitle(conversationId, node.text);
+            }
         }
     },
 

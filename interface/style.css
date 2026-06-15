@@ -1893,3 +1893,64 @@ table, tr, thead, th, td {
 
 
 
+
+/* ====================== Multi-Conversation Tabs ====================== */
+
+/* Tab bar */
+#conv-tab-bar {
+    display: none;
+    margin-left: -15px;
+    margin-right: -15px;
+    background: #1e1e1e;
+    border-bottom: 1px solid #333;
+    padding: 2px 8px;
+    gap: 2px;
+    min-height: 30px;
+    overflow-x: auto;
+    flex-shrink: 0;
+    flex-direction: row;
+    align-items: center;
+}
+#conv-tab-bar.visible { display: flex; }
+@media (max-width: 768px) and (pointer: coarse) {
+    #conv-tab-bar.visible { display: none; }
+}
+#conv-tab-bar::-webkit-scrollbar { height: 3px; }
+#conv-tab-bar::-webkit-scrollbar-thumb { background: #555; border-radius: 2px; }
+
+.conv-tab {
+    display: flex;
+    align-items: center;
+    padding: 3px 8px;
+    border-radius: 4px 4px 0 0;
+    background: #2a2a2a;
+    border: 1px solid #444;
+    border-bottom: none;
+    cursor: pointer;
+    white-space: nowrap;
+    font-size: 0.78rem;
+    color: #bbb;
+    max-width: 160px;
+    transition: background 0.15s;
+}
+.conv-tab:hover { background: #333; }
+.conv-tab.active { background: #333; color: #fff; border-color: #555; border-bottom: 2px solid #4a9eff; }
+.conv-tab-title { overflow: hidden; text-overflow: ellipsis; }
+.conv-tab-close {
+    background: none; border: none; color: #888; margin-left: 6px;
+    padding: 0 2px; font-size: 0.85rem; line-height: 1; cursor: pointer;
+}
+.conv-tab-close:hover { color: #ff6b6b; }
+.conv-tab-new {
+    background: none; border: 1px solid #444; color: #888; border-radius: 4px;
+    padding: 2px 8px; margin-left: 4px; cursor: pointer; font-size: 0.85rem;
+}
+.conv-tab-new:hover { color: #fff; border-color: #666; }
+
+/* ChatView container and panes */
+#chatView-container { position: relative; min-height: 0; margin-left: -15px; margin-right: -15px; }
+.chatView-pane { display: none; margin-left: 0; margin-right: 0; }
+.chatView-pane.active { display: flex; }
+
+/* Gear dropdown tab items — reuse domain item styling */
+.gear-tab-nav .gear-tab-item.active { border-left: 3px solid #4a9eff; padding-left: 12px; }

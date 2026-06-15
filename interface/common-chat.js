@@ -28,6 +28,18 @@ var currentHintStreamingController = null;
 var currentSolutionStreamingController = null;
 var currentDoubtStreamingController = null;
 
+/**
+ * $chatView — returns the jQuery element for the chat view pane of a given conversation.
+ * On mobile (single DOM) or when TabManager is not loaded, falls back to $('#chatView').
+ * @param {string} [convId] - conversation ID; defaults to focused tab
+ */
+function $chatView(convId) {
+    if (typeof TabManager === 'undefined' || !TabManager.focusedTabId) return $('#chatView');
+    var id = convId || TabManager.focusedTabId;
+    var el = document.getElementById('chatView-' + id);
+    return el ? $(el) : $('#chatView');
+}
+
 var pendingAttachments = [];
 
 function generateThumbnailForMainUI(dataUrl, maxSize) {
@@ -769,9 +781,9 @@ var ConversationManager = {
                 // renderInnerContentAsMarkdown was skipped, so the normal debounced call didn't run.
                 try {
                     if (conversationId && !MOCK_SECTION_STATE_API) {
-                        var $chatView = $('#chatView');
-                        attachSectionListeners($chatView[0]);
-                        fetchConversationUIState(conversationId, $chatView[0]);
+                        var $cv = $chatView(conversationId);
+                        attachSectionListeners($cv[0]);
+                        fetchConversationUIState(conversationId, $cv[0]);
                     }
                 } catch (_e) { /* ignore */ }
 
@@ -784,7 +796,7 @@ var ConversationManager = {
                     msgList.forEach(function(msg) {
                         if (msg.message_id) { _msgMap[String(msg.message_id)] = msg; }
                     });
-                    $('#chatView').find('.message-card').each(function() {
+                    $chatView(conversationId).find('.message-card').each(function() {
                         var $card = $(this);
                         var msgId = $card.find('.history-message-checkbox').attr('message-id');
                         var msg = _msgMap[String(msgId)];
@@ -1196,7 +1208,7 @@ function getTextAfterLastBreakpoint(text) {
 
 function renderStreamingResponse(streamingResponse, conversationId, messageText, history_message_ids) {
     // Remove any existing suggestions when starting a new response
-    $('#chatView .next-question-suggestions').remove();
+    $chatView(conversationId).find('.next-question-suggestions').remove();
     
     // Show stop button and hide send button
     $('#stopResponseButton').show();
@@ -1667,7 +1679,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
             var _streamScrollChatView = null;
             var _streamScrollTopBeforeDone = 0; // Raw scrollTop before any DOM changes
             try {
-                _streamScrollChatView = $('#chatView');
+                _streamScrollChatView = $chatView(conversationId);
                 if (_streamScrollChatView && _streamScrollChatView.length > 0) {
                     _streamScrollTopBeforeDone = _streamScrollChatView.scrollTop() || 0;
                     var _lastCard = _streamScrollChatView.find('.card.message-card').last();
@@ -2004,7 +2016,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
 function stopCurrentResponse() {
     if (currentStreamingController) {
         // Provide immediate visual feedback
-        var card = $('#chatView .card').last();
+        var card = $chatView(currentStreamingController.conversationId).find('.card').last();
         if (card.length > 0) {
             var statusDiv = card.find('.status-div');
             statusDiv.find('.status-text').html('Stopping response...');
@@ -2339,8 +2351,8 @@ var ChatManager = {
                     ChatManager.renderMessages(conversationId, messages, true);
                     $('#loader').hide(); 
                     // Auto-scroll after deleting last message 
-                    var $chatView = $('#chatView');
-                    $chatView.animate({ scrollTop: $chatView.prop("scrollHeight") }, "fast");
+                    var $cv = $chatView();
+                    $cv.animate({ scrollTop: $cv.prop("scrollHeight") }, "fast");
                     $('#messageText').focus();
 
                 });
@@ -2426,7 +2438,7 @@ var ChatManager = {
     },
     renderMessages: function (conversationId, messages, shouldClearChatView, initialize_voting = true, history_message_ids = [], skip_one = false) {
         if (shouldClearChatView) {
-            $('#chatView').empty();  // Clear the chat view first
+            $chatView(conversationId).empty();  // Clear the chat view first
             cleanupMessageObservers();
         }
         
@@ -2445,7 +2457,7 @@ var ChatManager = {
             // which corrupts message-index and causes edits to apply to the wrong message.
             //
             // Count only actual message cards inside the chat view.
-            var card_elements_count = $('#chatView').find('.message-card').length;
+            var card_elements_count = $chatView(conversationId).find('.message-card').length;
             var index = card_elements_count;
             // Track whether this is the last message in the batch for MathJax priority.
             // originalIndex is the forEach iterator; index is the card position in the DOM.
@@ -2631,7 +2643,7 @@ var ChatManager = {
             messageElement.append(statusDiv);
             if (history_message_ids.length > 0 && renderCloseToSource) {
                 // get all the "card message-card" and their message-id , then append the messageElement (new card) after the last card of the history_message_ids, if skip_one is true then skip one card further and then append the messageElement
-                var cards = $('#chatView').find('.card.message-card');
+                var cards = $chatView(conversationId).find('.card.message-card');
                     var lastCard = null;
                     for (var i = 0; i < cards.length; i++) {
                         var card = cards[i];
@@ -2647,11 +2659,11 @@ var ChatManager = {
                             $(lastCard).after(messageElement);
                         }
                     } else {
-                        $('#chatView').append(messageElement);
+                        $chatView(conversationId).append(messageElement);
                     }
             }
             else {
-                $('#chatView').append(messageElement);
+                $chatView(conversationId).append(messageElement);
             }
             // $('#chatView').append(messageElement);
 
@@ -2960,7 +2972,7 @@ var ChatManager = {
             if (data && data.pinned_messages) {
                 data.pinned_messages.forEach(function (p) { self._pinnedMessageIds.add(p.message_id); });
                 // Highlight pinned stars
-                $('#chatView .pin-message-btn').each(function () {
+                $chatView().find('.pin-message-btn').each(function () {
                     var msgId = $(this).data('message-id');
                     if (self._pinnedMessageIds.has(String(msgId))) {
                         $(this).find('i').removeClass('bi-star').addClass('bi-star-fill text-warning');
@@ -3025,7 +3037,7 @@ $(document).on('click', '.starred-msg-goto', function (e) {
     e.preventDefault();
     var msgId = $(this).data('message-id');
     $('#starred-messages-modal').modal('hide');
-    var target = $('#chatView .card-header[message-id="' + msgId + '"]');
+    var target = $chatView().find('.card-header[message-id="' + msgId + '"]');
     if (target.length) {
         target[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
         target.closest('.message-card').addClass('highlight-flash');
@@ -3037,7 +3049,7 @@ $(document).on('click', '.starred-msg-goto', function (e) {
 $(document).on('click', '.starred-msg-view', function (e) {
     e.preventDefault();
     var msgId = $(this).data('message-id');
-    var card = $('#chatView .card-header[message-id="' + msgId + '"]').closest('.message-card');
+    var card = $chatView().find('.card-header[message-id="' + msgId + '"]').closest('.message-card');
     if (card.length) {
         var content = card.find('.actual-card-text').html();
         var viewer = $('#starred-messages-body');
@@ -3289,7 +3301,7 @@ function openAsideChatModal(questionText) {
 
 function sendMessageCallback(skipAutoClarify) {
     // Remove any existing suggestions when sending a new message
-    $('#chatView .next-question-suggestions').remove();
+    $chatView().find('.next-question-suggestions').remove();
     skipAutoClarify = !!skipAutoClarify;
     
     already_rendering = $('#messageText').prop('working')
@@ -3569,22 +3581,22 @@ function sendMessageCallback(skipAutoClarify) {
         console.error('Error sending message:', error);
         alert('Error sending message: ' + error.message);
     });
-    var chatView = $('#chatView');
+    var chatView = $chatView();
     // chatView.scrollTop(chatView.prop('scrollHeight'));
 }
 
 function scrollToBottom() {
-    var $chatView = $('#chatView');
     var $scrollToBottomBtn = $('#scrollToBottomBtn');
     var $messageText = $('#messageText');
 
 
     // Function to check the scroll position
     function checkScroll() {
+        var $cv = $chatView();
         // Calculate the distance from the bottom
-        var scrollTop = $chatView.scrollTop();
-        var scrollHeight = $chatView.prop('scrollHeight');
-        var chatViewHeight = $chatView.innerHeight();
+        var scrollTop = $cv.scrollTop();
+        var scrollHeight = $cv.prop('scrollHeight');
+        var chatViewHeight = $cv.innerHeight();
         var distanceFromBottom = scrollHeight - (scrollTop + chatViewHeight);
 
         // Show button if more than 400 pixels from the bottom, otherwise hide and it is chat context
@@ -3602,24 +3614,20 @@ function scrollToBottom() {
     }
 
     checkScroll();
-    // Scroll event
-    $chatView.on('scroll', function () {
-        checkScroll();
-    });
-
-    $chatView.on('change', function () {
-        checkScroll();
-    });
-
-    // check for any dom node change or insert or edit or inner html change in $chatView
-    $chatView.on('DOMSubtreeModified', function () {
-        checkScroll();
-    });
+    // Scroll event — bind directly to the container (scroll events from child panes bubble as scroll on the pane itself)
+    // We use a capturing listener on the container to catch scroll from any pane
+    var container = document.getElementById('chatView-container');
+    if (container) {
+        container.addEventListener('scroll', checkScroll, true); // capture phase
+    }
+    // Periodic fallback for DOM changes during streaming
+    setInterval(checkScroll, 2000);
 
 
     // Click event for the button
     $scrollToBottomBtn.click(function () {
-        $chatView.animate({ scrollTop: $chatView.prop("scrollHeight") }, "fast");
+        var $cv = $chatView();
+        $cv.animate({ scrollTop: $cv.prop("scrollHeight") }, "fast");
     });
 
     // Initial check in case the page is loaded in a scrolled state
@@ -3633,7 +3641,7 @@ function renderNextQuestionSuggestions(conversationId, retryCount = 0) {
     const REDUCED_FONT_SIZE = true; // Set to true to use smaller fonts for better fit
     
     // Remove any existing suggestions first
-    $('#chatView .next-question-suggestions').remove();
+    $chatView().find('.next-question-suggestions').remove();
     
     // Don't retry more than 2 times (initial + 5s + 10s)
     if (retryCount > 2) {
@@ -3803,14 +3811,14 @@ function renderNextQuestionSuggestions(conversationId, retryCount = 0) {
                     sendMessageCallback();
                     
                     // Remove suggestions after sending
-                    $('#chatView .next-question-suggestions').remove();
+                    $chatView().find('.next-question-suggestions').remove();
                 });
                 
                 pillsContainer.append(pill);
             });
             
             // Append to chatView
-            $('#chatView').append(suggestionsContainer);
+            $chatView().append(suggestionsContainer);
             
             // Ensure suggestions are visible after adding them
             ensureSuggestionsVisible();
@@ -5090,10 +5098,10 @@ var MultiSelectManager = {
         if (n > 0) {
             bar.find('.ms-count').text(n + ' selected');
             bar.removeClass('d-none');
-            $('#chatView').addClass('has-selection-bar');
+            $chatView().addClass('has-selection-bar');
         } else {
             bar.addClass('d-none');
-            $('#chatView').removeClass('has-selection-bar');
+            $chatView().removeClass('has-selection-bar');
         }
     },
 
@@ -5138,7 +5146,7 @@ var MultiSelectManager = {
             '<button class="btn btn-sm btn-outline-dark ms-dismiss" title="Dismiss" aria-label="Dismiss selection">&times;</button>' +
         '</div>';
         // Insert bar above chatView
-        $('#chatView').before(barHtml);
+        $chatView().before(barHtml);
 
         // Checkbox change → update state + visual
         $(document).on('change', '.history-message-checkbox', function () {
@@ -5345,7 +5353,7 @@ var MultiSelectManager = {
                 self._ids = [];
                 self._indices = [];
                 $('#multi-select-bar').addClass('d-none');
-                $('#chatView').removeClass('has-selection-bar');
+                $chatView().removeClass('has-selection-bar');
                 break;
 
             case 'ask':
@@ -5355,7 +5363,7 @@ var MultiSelectManager = {
                 self._ids = [];
                 self._indices = [];
                 $('#multi-select-bar').addClass('d-none');
-                $('#chatView').removeClass('has-selection-bar');
+                $chatView().removeClass('has-selection-bar');
                 break;
 
             case 'fork':
