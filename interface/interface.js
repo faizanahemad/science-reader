@@ -170,6 +170,7 @@ function interface_readiness() {
 
     // Action items delegate to existing handlers
     $('#gear-new-temp-chat').on('click', function(e) { e.preventDefault(); $('#new-temp-chat').trigger('click'); });
+    $('#gear-aside-chat').on('click', function(e) { e.preventDefault(); openAsideChatModal($('#messageText').val().trim()); });
     $('#gear-get-chat-transcript').on('click', function(e) { e.preventDefault(); $('#get-chat-transcript').trigger('click'); });
     $('#gear-share-chat').on('click', function(e) { e.preventDefault(); $('#share-chat').trigger('click'); });
     $('#gear-conversation-docs').on('click', function(e) { e.preventDefault(); $('#conversation-docs-button').trigger('click'); });
@@ -179,6 +180,7 @@ function interface_readiness() {
     // Floating gear menu (compact-nav mode) — same delegation
     $('#gear-floating-show-sidebar').on('click', function(e) { e.preventDefault(); toggleSidebar(); });
     $('#gear-floating-new-temp-chat').on('click', function(e) { e.preventDefault(); $('#new-temp-chat').trigger('click'); });
+    $('#gear-floating-aside-chat').on('click', function(e) { e.preventDefault(); openAsideChatModal($('#messageText').val().trim()); });
     $('#gear-floating-transcript').on('click', function(e) { e.preventDefault(); $('#get-chat-transcript').trigger('click'); });
     $('#gear-floating-share').on('click', function(e) { e.preventDefault(); $('#share-chat').trigger('click'); });
     $('#gear-floating-docs').on('click', function(e) { e.preventDefault(); $('#conversation-docs-button').trigger('click'); });

@@ -2931,6 +2931,15 @@ var PKBManager = (function() {
         
         if (approved.length === 0) {
             $('#memory-proposal-modal').modal('hide');
+            // Record all as rejected
+            if (planId) {
+                $.ajax({
+                    url: '/pkb/reject_proposals',
+                    method: 'POST',
+                    contentType: 'application/json',
+                    data: JSON.stringify({ plan_id: planId, rejected_indices: 'all' })
+                });
+            }
             return;
         }
         
@@ -3561,6 +3570,18 @@ var PKBManager = (function() {
         // Memory proposal save button
         $(document).on('click', '#memory-proposal-save', function() {
             saveSelectedProposals();
+        });
+
+        // Memory proposal cancel — record all unchecked items as rejections
+        $(document).on('click', '#memory-proposal-skip', function() {
+            var planId = $('#memory-proposal-plan-id').val();
+            if (!planId) return;
+            $.ajax({
+                url: '/pkb/reject_proposals',
+                method: 'POST',
+                contentType: 'application/json',
+                data: JSON.stringify({ plan_id: planId, rejected_indices: 'all' })
+            });
         });
         
         // Bulk Add tab handlers

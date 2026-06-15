@@ -152,6 +152,12 @@ class ConversationDistiller:
         if not candidates and not short_term_candidates:
             return MemoryUpdatePlan(user_prompt="No memorable facts found.", requires_user_confirmation=False)
         
+        # Filter out candidates recently rejected by the user (TTL: 7 days)
+        candidates = self._filter_recently_rejected(candidates)
+
+        if not candidates and not short_term_candidates:
+            return MemoryUpdatePlan(user_prompt="No memorable facts found.", requires_user_confirmation=False)
+
         matches = []
         for candidate in candidates:
             existing = self._find_existing_matches(candidate)
@@ -557,6 +563,86 @@ Response:"""
             logger.error(f"Short-term memory extraction failed: {e}")
             return []
     
+    def _filter_recently_rejected(self, candidates: List[CandidateClaim]) -> List[CandidateClaim]:
+        """Remove candidates that match statements rejected by the user within the last 7 days."""
+        if not candidates:
+            return candidates
+        try:
+            rows = self.api.db.fetchall(
+                "SELECT action_payload FROM pkb_notifications "
+                "WHERE user_email = ? AND action_taken IN ('reject', 'dismiss') "
+                "AND created_at > datetime('now', '-7 days')",
+                (self.api.user_email,)
+            )
+            if not rows:
+                return candidates
+            rejected_statements = []
+            import json as _json
+            for (payload_str,) in rows:
+                try:
+                    payload = _json.loads(payload_str) if payload_str else {}
+                    stmt = payload.get("statement", "")
+                    if stmt:
+                        rejected_statements.append(stmt.strip())
+                except Exception:
+                    continue
+            if not rejected_statements:
+                return candidates
+
+            # Compute embeddings for rejected statements and compare via cosine similarity
+            try:
+                from code_common.call_llm import get_query_embedding, get_document_embeddings
+                import numpy as np
+                _emb_model = getattr(self.config, "embedding_model", None)
+                # Batch embed all rejected statements in one call
+                rej_embs_array = get_document_embeddings(rejected_statements, self.keys, model=_emb_model)
+                if rej_embs_array is None or len(rej_embs_array) == 0:
+                    raise ValueError("No embeddings computed")
+                rejected_embs = list(zip(rejected_statements, rej_embs_array))
+
+                # Get LLM helper for contradiction detection on high-similarity matches
+                llm = getattr(self.api, "llm", None)
+
+                filtered = []
+                for candidate in candidates:
+                    cand_emb = get_query_embedding(candidate.statement, self.keys, model=_emb_model)
+                    if cand_emb is None:
+                        filtered.append(candidate)
+                        continue
+                    # Find the most similar rejected statement
+                    best_sim, best_stmt = 0.0, ""
+                    for rej_stmt, rej_emb in rejected_embs:
+                        sim = float(np.dot(cand_emb, rej_emb) / (np.linalg.norm(cand_emb) * np.linalg.norm(rej_emb) + 1e-9))
+                        if sim > best_sim:
+                            best_sim, best_stmt = sim, rej_stmt
+                    if best_sim > 0.92:
+                        # High similarity — but check if it's actually a temporal update/contradiction
+                        # If so, allow it through (it's a new distinct fact, not the same rejected claim)
+                        relation = "none"
+                        if llm and best_stmt:
+                            try:
+                                relation = llm.detect_contradiction(candidate.statement, best_stmt)
+                            except Exception:
+                                pass
+                        if relation in ("supersedes", "temporal_update"):
+                            filtered.append(candidate)  # Allow through — it's meaningfully different
+                        else:
+                            logger.info("rejection_cache:filtered sim=%.3f %s", best_sim, candidate.statement[:60])
+                    else:
+                        filtered.append(candidate)
+                return filtered
+            except Exception:
+                # Fallback: exact string match (case-insensitive)
+                rejected_lower = {s.lower() for s in rejected_statements}
+                filtered = []
+                for c in candidates:
+                    if c.statement.lower().strip() not in rejected_lower:
+                        filtered.append(c)
+                return filtered
+        except Exception as e:
+            logger.warning("Rejection cache check failed, proceeding without filter: %s", e)
+            return candidates
+
     def _find_existing_matches(self, candidate: CandidateClaim) -> List[Tuple[Claim, str]]:
         """Search for existing claims that match the candidate using embedding cosine similarity."""
         from ..search.base import SearchFilters
@@ -602,7 +688,7 @@ Response:"""
 
         For each matched existing claim (capped to the top few to bound LLM
         cost), ask the LLM whether the candidate updates/replaces it; if so, mark
-        the relation as "contradicts". Gated by config
+        the relation as "contradicts" or "temporal_update". Gated by config
         ``distiller_detect_contradictions`` and LLM availability — a no-op
         otherwise, preserving the prior duplicate/related behavior.
         """
@@ -620,8 +706,12 @@ Response:"""
         for idx, (claim, rel) in enumerate(matches):
             if idx < check_cap:
                 try:
-                    if llm.detect_contradiction(candidate.statement, claim.statement):
+                    result = llm.detect_contradiction(candidate.statement, claim.statement)
+                    if result == "supersedes":
                         upgraded.append((claim, "contradicts"))
+                        continue
+                    elif result == "temporal_update":
+                        upgraded.append((claim, "temporal_update"))
                         continue
                 except Exception as e:
                     logger.warning(f"Contradiction detection failed: {e}")
@@ -638,14 +728,19 @@ Response:"""
         # Map a contradicting candidate's statement -> the existing claim it
         # replaces, so we can propose a supersede (D1 follow-up).
         contradicts_of: Dict[str, Claim] = {}
+        # Map a temporal_update candidate -> the existing claim (keep both)
+        temporal_update_of: Dict[str, Claim] = {}
         for cand, claim, rel in matches:
             if rel == "contradicts" and cand.statement not in contradicts_of:
                 contradicts_of[cand.statement] = claim
+            elif rel == "temporal_update" and cand.statement not in temporal_update_of:
+                temporal_update_of[cand.statement] = claim
             elif rel == "duplicate" and cand.statement not in duplicate_of:
                 duplicate_of[cand.statement] = claim
 
         for candidate in candidates:
             contradicted = contradicts_of.get(candidate.statement)
+            temporal = temporal_update_of.get(candidate.statement)
             existing = duplicate_of.get(candidate.statement)
             if contradicted is not None:
                 # D1 follow-up: the new claim replaces a conflicting existing
@@ -656,6 +751,12 @@ Response:"""
                     existing_claim=contradicted, relation="contradicts",
                     reason=f"Updates/replaces existing claim {contradicted.claim_id[:8]} "
                            f"(\"{contradicted.statement[:40]}\")"))
+            elif temporal is not None:
+                # Temporal update: both are valid at their respective times.
+                # Add as new claim (keep both).
+                actions.append(ProposedAction(action="add", candidate=candidate,
+                                             existing_claim=temporal, relation="temporal_update",
+                                             reason=f"New data point (existing: \"{temporal.statement[:40]}\")"))
             elif existing is not None:
                 # H3: duplicate (score > 0.9). Silently reinforce — no need to
                 # ask the user about an exact duplicate they already have.

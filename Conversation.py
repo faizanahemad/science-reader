@@ -1464,9 +1464,10 @@ Compact list of bullet points:
         if hasattr(self, "_running_summary"):
             return self._running_summary
         self.set_memory_if_None()
-        if len(self.get_field("memory")["running_summary"]) == 0:
+        running_summary_list = self.get_field("memory").get("running_summary", [])
+        if len(running_summary_list) == 0:
             return ""
-        running_summary = "".join(self.get_field("memory")["running_summary"][-1:])
+        running_summary = "".join(running_summary_list[-1:])
         setattr(self, "_running_summary", running_summary)
         return running_summary
 
@@ -3533,7 +3534,8 @@ Now return JSON with 'ops' and 'notes'.
 
     @timer
     def retrieve_prior_context(
-        self, query, past_message_ids=[], required_message_lookback=18
+        self, query, past_message_ids=[], required_message_lookback=18,
+        pinned_message_ids=None,
     ):
         # Lets get the previous 2 messages, upto 1000 tokens
         st = time.time()
@@ -3581,6 +3583,66 @@ Now return JSON with 'ops' and 'notes'.
             if word_count < token_limit_very_long:
                 previous_messages_very_long = previous_messages_text
             message_lookback += 2
+
+        # --- Inject pinned message turns (auto mode only) ---
+        # pinned_message_ids: set of assistant message_ids that are pinned.
+        # For each, include the preceding user message (truncated) + the assistant message.
+        # Max 5 turns (10 messages). Placed at chronological position.
+        if pinned_message_ids:
+            # Find which pinned messages are NOT already in the window
+            window_size = message_lookback - 2  # last successful lookback
+            windowed_msgs = messages[-window_size:] if window_size > 0 else []
+            windowed_ids = {m["message_id"] for m in windowed_msgs}
+            missing_pinned = [mid for mid in pinned_message_ids if mid not in windowed_ids]
+            if missing_pinned:
+                from common import get_first_last_parts
+                # Build pinned turns text and insert at correct chronological position
+                # Collect (position_in_messages, turn_text) for missing pinned msgs
+                msg_id_to_idx = {m["message_id"]: i for i, m in enumerate(messages)}
+                pinned_turns = []
+                for mid in missing_pinned:
+                    idx = msg_id_to_idx.get(mid)
+                    if idx is None:
+                        continue
+                    msg = messages[idx]
+                    if msg.get("sender") != "model":
+                        continue
+                    assistant_text = extract_user_answer(msg["text"])
+                    # Find preceding user message
+                    user_text = ""
+                    if idx > 0 and messages[idx - 1].get("sender") == "user":
+                        raw_user = extract_user_answer(messages[idx - 1]["text"])
+                        user_text = get_first_last_parts(raw_user, first_n=200, last_n=200)
+                    pinned_turns.append((idx, user_text, assistant_text))
+                # Sort by position (chronological)
+                pinned_turns.sort(key=lambda x: x[0])
+                # Cap at 5 turns
+                pinned_turns = pinned_turns[:5]
+                # Build text
+                pinned_parts = []
+                for _, user_text, assistant_text in pinned_turns:
+                    if user_text:
+                        pinned_parts.append(f"<user>\n{user_text}\n</user>")
+                    pinned_parts.append(f"<model>\n{assistant_text}\n</model>")
+                pinned_text = "\n\n".join(pinned_parts)
+                # Prepend pinned turns before the windowed messages (they are older)
+                if pinned_text:
+                    if previous_messages_very_short:
+                        previous_messages_very_short = pinned_text + "\n\n" + previous_messages_very_short
+                    else:
+                        previous_messages_very_short = pinned_text
+                    if previous_messages_short:
+                        previous_messages_short = pinned_text + "\n\n" + previous_messages_short
+                    else:
+                        previous_messages_short = pinned_text
+                    if previous_messages_long:
+                        previous_messages_long = pinned_text + "\n\n" + previous_messages_long
+                    else:
+                        previous_messages_long = pinned_text
+                    if previous_messages_very_long:
+                        previous_messages_very_long = pinned_text + "\n\n" + previous_messages_very_long
+                    else:
+                        previous_messages_very_long = pinned_text
 
         running_summary = self.running_summary
         # older_extensive_summary = find_nearest_divisible_by_three(memory["running_summary"])
@@ -8555,11 +8617,25 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             # reduce message lookback to 2
             message_lookback = 2
 
+        # Fetch pinned message IDs for auto mode (pins always in LLM context)
+        _pinned_msg_ids = None
+        if (enablePreviousMessages.startswith("auto-")
+                and len(past_message_ids) == 0):
+            try:
+                from database.pinned_messages import get_pinned_messages as _get_pins
+                _pins = _get_pins(conversation_id=self.conversation_id)
+                if _pins:
+                    # Most recent pins first (already ordered by created_at DESC)
+                    _pinned_msg_ids = [p["message_id"] for p in _pins[:5]]
+            except Exception:
+                _pinned_msg_ids = None
+
         prior_context_future = get_async_future(
             self.retrieve_prior_context,
             query["messageText"],
             past_message_ids=past_message_ids,
             required_message_lookback=message_lookback,
+            pinned_message_ids=_pinned_msg_ids,
         )
         # Generate user_ask_tldr async in parallel — zero latency since it resolves
         # during streaming and is collected in persist_current_turn.
@@ -10299,6 +10375,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 _auto_assembled = assemble_auto_context(
                     self, _classifier_result, _agent_result,
                     prior_context_llm_based_context, _auto_context_mode,
+                    pinned_message_ids=_pinned_msg_ids,
                 )
                 # Override: auto context replaces the raw previous_messages + llm_based context
                 previous_messages = _auto_assembled
@@ -13325,7 +13402,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
     def clear_doubt(
         self, message_id, doubt_text="", doubt_history=None, reward_level=0,
-        selected_text="", with_context=False, preamble_options=None
+        selected_text="", with_context=False, preamble_options=None, tools_enabled=False
     ):
         """Clear a doubt about a specific message - streaming response"""
         from call_llm import CallLLm
@@ -13422,10 +13499,7 @@ Please provide your explanation or answer to the user's doubt in a clear, struct
             # Initialize the LLM with appropriate model
             api_keys = self.get_api_keys()
             doubt_model = self.get_model_override(
-                "quick_action_model", SUPERFAST_LLM[0]
-            )
-            llm = CallLLm(
-                api_keys, model_name=doubt_model, use_gpt4=False, use_16k=False
+                "quick_action_model", QUICK_ACTION_LLM
             )
 
             base_system = "You are a helpful AI assistant specializing in clarifying doubts and explaining complex concepts clearly and thoroughly. When using markdown headings you can use only level 4 headers (`####`). Write with the intention to help the user learn and understand better and expand their Knowledge boundaries. Avoid using tables in doubt and LLM temp answers, and if necessary use tables with max 2 columns."
@@ -13439,27 +13513,54 @@ Please provide your explanation or answer to the user's doubt in a clear, struct
             else:
                 system = base_system
 
-            # Generate streaming response
-            response_stream = llm(
-                doubt_prompt,
-                images=[],
-                temperature=0.3,
-                stream=True,
-                max_tokens=2000,
-                system=system,
-            )
+            if tools_enabled:
+                from code_common.tools import TIER_1_TOOLS, TOOL_REGISTRY
+                if TOOL_REGISTRY:
+                    tools_config = TOOL_REGISTRY.get_openai_tools_param(TIER_1_TOOLS)
+                    for chunk_dict in self._run_tool_loop(
+                        prompt=doubt_prompt,
+                        preamble=system,
+                        images=[],
+                        model_name=doubt_model,
+                        keys=api_keys,
+                        tools_config=tools_config,
+                        max_iterations=3,
+                        conversation_id=self.conversation_id,
+                        user_email=self.user_id or "",
+                    ):
+                        if self.is_doubt_clearing_cancelled():
+                            yield "\n\n**Doubt clearing was cancelled by user**"
+                            break
+                        text = chunk_dict.get("text", "")
+                        if text:
+                            yield text
+                else:
+                    tools_enabled = False
 
-            # Stream the response
-            for chunk in response_stream:
-                # Check for cancellation before processing each chunk
-                if self.is_doubt_clearing_cancelled():
-                    logger.info(
-                        f"Doubt clearing cancelled for conversation {self.conversation_id}"
-                    )
-                    yield "\n\n**Doubt clearing was cancelled by user**"
-                    break
-                if chunk:
-                    yield chunk
+            if not tools_enabled:
+                llm = CallLLm(
+                    api_keys, model_name=doubt_model, use_gpt4=False, use_16k=False
+                )
+                # Generate streaming response
+                response_stream = llm(
+                    doubt_prompt,
+                    images=[],
+                    temperature=0.3,
+                    stream=True,
+                    max_tokens=2000,
+                    system=system,
+                )
+
+                # Stream the response
+                for chunk in response_stream:
+                    if self.is_doubt_clearing_cancelled():
+                        logger.info(
+                            f"Doubt clearing cancelled for conversation {self.conversation_id}"
+                        )
+                        yield "\n\n**Doubt clearing was cancelled by user**"
+                        break
+                    if chunk:
+                        yield chunk
 
             # Process reward evaluation if it was initiated
             if reward_future is not None:
@@ -13715,29 +13816,59 @@ Your summary:""",
             # Initialize LLM
             api_keys = self.get_api_keys()
             context_action_model = self.get_model_override(
-                "quick_action_model", SUPERFAST_LLM[0]
-            )
-            llm = CallLLm(
-                api_keys,
-                model_name=context_action_model,
-                use_gpt4=False,
-                use_16k=False,
+                "quick_action_model", QUICK_ACTION_LLM
             )
 
-            # Generate streaming response
-            response_stream = llm(
-                prompt,
-                images=[],
-                temperature=0.4,
-                stream=True,
-                max_tokens=2000,
-                system="You are a helpful, clear, and engaging assistant. Respond concisely and in brief. Avoid using LaTeX or math notation. Avoid using tables in doubt and LLM temp answers, and if necessary use tables with max 2 columns.",
-            )
+            # Build system prompt with preamble_options and length
+            preamble_options = kwargs.get("preamble_options", []) or []
+            length = kwargs.get("length", "Medium")
+            tools_enabled = kwargs.get("tools_enabled", False)
+            base_system = "You are a helpful, clear, and engaging assistant. Respond concisely and in brief. Avoid using LaTeX or math notation. Avoid using tables in doubt and LLM temp answers, and if necessary use tables with max 2 columns."
+            if length == "Short":
+                base_system += "\n\nBe very brief and concise. Answer in a few sentences only."
+            elif length == "Long":
+                base_system += "\n\nProvide a thorough, detailed response with examples and nuances."
+            if preamble_options:
+                extra_preamble, _ = self.get_preamble(preamble_options, None)
+                base_system += "\n\n" + extra_preamble
 
-            # Stream the response
-            for chunk in response_stream:
-                if chunk:
-                    yield chunk
+            max_tokens = {"Short": 800, "Medium": 2000, "Long": 4000}.get(length, 2000)
+
+            if tools_enabled:
+                # Tool-calling mode: use tiered tools + _run_tool_loop
+                from code_common.tools import TIER_1_TOOLS, TOOL_REGISTRY
+                if TOOL_REGISTRY:
+                    tools_config = TOOL_REGISTRY.get_openai_tools_param(TIER_1_TOOLS)
+                    for chunk_dict in self._run_tool_loop(
+                        prompt=prompt,
+                        preamble=base_system,
+                        images=[],
+                        model_name=context_action_model,
+                        keys=api_keys,
+                        tools_config=tools_config,
+                        max_iterations=3,
+                        conversation_id=self.conversation_id,
+                        user_email=self.user_id or "",
+                    ):
+                        text = chunk_dict.get("text", "")
+                        if text:
+                            yield text
+                else:
+                    tools_enabled = False  # fallback
+
+            if not tools_enabled:
+                # Simple mode: direct LLM call
+                llm = CallLLm(
+                    api_keys, model_name=context_action_model,
+                    use_gpt4=False, use_16k=False,
+                )
+                response_stream = llm(
+                    prompt, images=[], temperature=0.4,
+                    stream=True, max_tokens=max_tokens, system=base_system,
+                )
+                for chunk in response_stream:
+                    if chunk:
+                        yield chunk
 
         except Exception as e:
             error_msg = f"Error in temporary LLM action: {str(e)}"

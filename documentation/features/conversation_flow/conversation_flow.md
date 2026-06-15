@@ -220,6 +220,27 @@ All Basic Options settings share a single serialisation path. When adding or deb
 
 **CHECKPOINT-C deferral**: The LLM-based context extraction future resolves early only when auto-context mode needs it (rare). For the common path, resolution is deferred ~800 lines to just before prompt assembly, allowing more parallel overlap.
 
+### Pinned Messages in LLM Context
+
+When the history mode is any `auto-*` mode (auto-light, auto-medium, auto-deep), starred/pinned assistant messages are always included in the LLM context window — they survive truncation regardless of how far back in history they are.
+
+**Rules:**
+- Max 5 most-recently-pinned turns (ordered by pin creation date DESC)
+- Each turn = user message (truncated to 200+200 tokens via `get_first_last_parts`) + assistant message (verbatim)
+- Injected at chronological position (before the recent message window)
+- Pins already within the normal lookback window are not duplicated
+
+**Exclusion conditions** (pins are NOT injected when):
+- History mode is `infinite`, `∅` (-1), or any numeric value
+- Manual message selection is active (`history_message_ids` non-empty)
+- No pinned messages exist for the conversation
+
+**Two code paths handle this:**
+1. **Standard windowed path** (`retrieve_prior_context`): after building the tiered message windows, missing pinned turns are prepended to all tier outputs.
+2. **Auto-context assembly path** (`assemble_auto_context` in `code_common/auto_context.py`): pinned assistant messages are injected as "verbatim" decisions, their user messages as "pinned_user" (truncated). This ensures they survive the classifier/agent-based context selection.
+
+**Key files:** `Conversation.py` (reply ~L8621, retrieve_prior_context ~L3585), `code_common/auto_context.py` (assemble_auto_context), `database/pinned_messages.py` (get_pinned_messages).
+
 ## Sidebar Conversation Selection (pre-chat)
 
 Before any chat message can be sent, a conversation must be selected in the sidebar. The sidebar is rendered by `WorkspaceManager` (`interface/workspace-manager.js`) using **jsTree** (jQuery tree plugin).

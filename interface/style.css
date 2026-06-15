@@ -523,6 +523,7 @@ bi bi-trash-fill {
 .message-card .card-body {
     overflow: visible !important;
     min-height: auto;
+    margin-top: 5px;
 }
 
 /* Ensure slide containers don't get clipped */
@@ -907,6 +908,20 @@ table, tr, thead, th, td {
         max-height: calc(100vh - 7px) !important;
     }
 
+    .message-card .card-body {
+        margin-top: 2px;
+        margin-right: 4px;
+        padding: 0.25rem 0.5rem;
+    }
+
+    .message-card .card-header {
+        padding: 0.1rem 0.4rem;
+    }
+
+    .message-card {
+        margin-bottom: 0.35rem !important;
+        margin-top: 0.1rem !important;
+    }
 
 }
 

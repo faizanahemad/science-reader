@@ -963,14 +963,78 @@ User chat turn
     ↓
 Extract candidates (LLM)
     ↓
-Search existing (hybrid)
+Filter recently rejected (rejection cache, 7-day TTL)
     ↓
-Propose actions (add/update/skip/conflict)
+Search existing (embedding similarity)
     ↓
-User confirmation
+Classify relationship (LLM contradiction detection)
+    ↓
+Route: auto-save / confirm / skip (tiered persistence)
+    ↓
+Propose actions (add/supersede/temporal_update/skip)
+    ↓
+User confirmation (for CONFIRM-routed items)
     ↓
 Execute approved actions (StructuredAPI.add_claim, etc.)
 ```
+
+**Rejection Cache (`_filter_recently_rejected`):**
+
+Prevents re-proposing claims the user already rejected or dismissed. Queries `pkb_notifications` for rejected/dismissed items within the last 7 days, computes embedding similarity between each candidate and rejected statements, and suppresses candidates with cosine similarity > 0.92.
+
+Before suppressing, runs an LLM contradiction check (`detect_contradiction`) to avoid incorrectly filtering temporal updates or superseding facts. If the LLM returns `"supersedes"` or `"temporal_update"`, the candidate passes through despite high similarity to a rejected statement.
+
+```
+Candidate: "Weight is 75kg in July"
+Rejected (3 days ago): "Weight is 75kg in June"
+Similarity: 0.94 (>0.92 threshold)
+LLM check: "temporal_update" → ALLOW through (different time point)
+```
+
+Key details:
+- TTL: 7 days (configurable via query `created_at > datetime('now', '-7 days')`)
+- Source: `pkb_notifications` table where `action_taken IN ('reject', 'dismiss')`
+- Embedding model: uses `config.embedding_model` (same as PKB EmbeddingStore)
+- Fallback: exact case-insensitive string match if embeddings fail
+- Non-blocking: failures don't break the extraction pipeline
+
+**Contradiction Detection (`detect_contradiction` in `llm_helpers.py`):**
+
+An LLM-based classifier that distinguishes three relationship types between a new statement and an existing one:
+
+| Relation | Meaning | Example | Action |
+|----------|---------|---------|--------|
+| `"supersedes"` | Old is wrong/outdated | "I live in Mumbai" → "I live in Bengaluru" | Supersede (retire old, save new) |
+| `"temporal_update"` | Both valid at different times | "Weight 75kg June" → "Weight 75kg July" | Add new (keep both) |
+| `"none"` | Not a contradiction | "I like coffee" → "I work in tech" | Keep original relation |
+
+Used in two places:
+1. **`_detect_contradictions()`** — called after `_find_existing_matches()` to reclassify high-similarity matches. Upgrades `"duplicate"` or `"related"` matches to `"contradicts"` or `"temporal_update"` where appropriate.
+2. **`_filter_recently_rejected()`** — called when a candidate matches a rejected statement (similarity >0.92) to determine if it should still be allowed through.
+
+LLM: `config.llm_model` (default: `google/gemini-3.1-flash-lite-preview`)
+
+Prompt returns JSON: `{"relation": "supersedes"|"temporal_update"|"none", "reason": "brief explanation"}`
+
+**Duplicate Detection Thresholds (`_find_existing_matches`):**
+
+| Cosine Similarity | Classification | Behavior |
+|-------------------|---------------|----------|
+| > 0.92 | Exact duplicate | Silent reinforce (unless LLM says otherwise) |
+| 0.9 – 0.92 | Near duplicate | LLM contradiction check → may upgrade to supersede/temporal |
+| 0.7 – 0.9 | Related | LLM contradiction check → propose as related or supersede |
+| < 0.7 | New | Add as new claim |
+
+**Tiered Persistence Routing (`routing.py`):**
+
+After `_propose_actions` determines the action, tiered routing decides the delivery mechanism:
+
+| Route | When | User sees |
+|-------|------|-----------|
+| SAVE | High confidence + safe type + stated/extracted | Auto-saved notification (with undo) |
+| CONFIRM | Sensitive domain, inferred, high-stakes type, conflicts | Confirmation required notification |
+| SKIP | Duplicate (sim ≥ 0.92) or very low confidence (< 0.45) | Nothing (silently dropped) |
+
 
 **TextIngestionDistiller (`interface/text_ingestion.py`):**
 

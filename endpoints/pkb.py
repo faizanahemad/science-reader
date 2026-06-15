@@ -2555,11 +2555,15 @@ def pkb_execute_updates_route():
 
             action = "add"
             existing_claim_id = None
-            if plan.proposed_actions and idx < len(plan.proposed_actions):
-                pa = plan.proposed_actions[idx]
-                action = pa.action  # ProposedAction.action is the string
-                if pa.existing_claim:
-                    existing_claim_id = pa.existing_claim.claim_id
+            if plan.proposed_actions:
+                # Match by candidate statement since proposed_actions indices don't
+                # correspond to plan.candidates indices after tiered routing.
+                pa = next((p for p in plan.proposed_actions
+                           if p.candidate.statement == statement), None)
+                if pa:
+                    action = pa.action
+                    if pa.existing_claim:
+                        existing_claim_id = pa.existing_claim.claim_id
 
             if action == "edit" and existing_claim_id:
                 result = api.edit_claim(
@@ -2632,6 +2636,34 @@ def pkb_execute_updates_route():
 
         del _memory_update_plans[plan_id]
 
+        # Record non-approved candidates as rejections (feeds rejection cache)
+        # Only consider candidates that were presented to the user (have a ProposedAction).
+        # Silently-reinforced duplicates must NOT be recorded as rejections.
+        approved_idx_set = {item["index"] for item in items_to_process}
+        pa_statements = {pa.candidate.statement for pa in plan.proposed_actions} if plan.proposed_actions else set()
+        try:
+            import uuid as _uuid
+            import json as _json_rej
+            from truth_management_system.utils import now_iso as _now_rej
+            conn = api.db.connect()
+            _ts = _now_rej()
+            for idx, candidate in enumerate(plan.candidates):
+                if idx not in approved_idx_set and candidate.statement in pa_statements:
+                    conn.execute(
+                        "INSERT INTO pkb_notifications (notification_id, user_email, priority, "
+                        "category, title, body, object_type, action_required, "
+                        "action_payload, action_taken, resolved_at, source, created_at) "
+                        "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        (str(_uuid.uuid4()), email, "low", "confirm_required",
+                         f"Rejected: {candidate.statement[:80]}",
+                         candidate.statement, "claim", 0,
+                         _json_rej.dumps({"statement": candidate.statement}),
+                         "reject", _ts, "modal_reject", _ts)
+                    )
+            conn.commit()
+        except Exception:
+            pass
+
         # One consolidated overview update for all successfully modified claims
         successful_claim_ids = [r["claim_id"] for r in results if r["success"] and r.get("claim_id")]
         if successful_claim_ids:
@@ -2658,6 +2690,64 @@ def pkb_execute_updates_route():
         return json_error(
             f"An error occurred: {str(e)}", status=500, code="internal_error"
         )
+
+
+@pkb_bp.route("/pkb/reject_proposals", methods=["POST"])
+@limiter.limit("10 per minute")
+@login_required
+def pkb_reject_proposals_route():
+    """Record rejected/cancelled proposals so the rejection cache can suppress them."""
+    if not PKB_AVAILABLE:
+        return json_error("PKB not available", status=503, code="pkb_unavailable")
+    email, _name, loggedin = get_session_identity()
+    if not loggedin:
+        return json_error("Not logged in", status=401, code="unauthorized")
+    try:
+        data = request.get_json()
+        plan_id = data.get("plan_id")
+        plan = _memory_update_plans.get(plan_id)
+        if not plan:
+            return jsonify({"status": "not_found"})
+
+        keys = keyParser(session)
+        api = get_pkb_api_for_user(email, keys)
+        if api is None:
+            return jsonify({"status": "error"})
+
+        rejected_indices = data.get("rejected_indices", "all")
+        candidates = plan.candidates
+        # Only reject candidates that were shown to the user (have a ProposedAction).
+        pa_statements = {pa.candidate.statement for pa in plan.proposed_actions} if plan.proposed_actions else set()
+        shown_candidates = [c for c in candidates if c.statement in pa_statements]
+        if rejected_indices == "all":
+            to_reject = shown_candidates
+        else:
+            to_reject = [candidates[i] for i in rejected_indices
+                         if 0 <= i < len(candidates) and candidates[i].statement in pa_statements]
+
+        import uuid as _uuid
+        import json as _json_rej
+        from truth_management_system.utils import now_iso as _now_rej
+        conn = api.db.connect()
+        _ts = _now_rej()
+        for candidate in to_reject:
+            conn.execute(
+                "INSERT INTO pkb_notifications (notification_id, user_email, priority, "
+                "category, title, body, object_type, action_required, "
+                "action_payload, action_taken, resolved_at, source, created_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (str(_uuid.uuid4()), email, "low", "confirm_required",
+                 f"Rejected: {candidate.statement[:80]}",
+                 candidate.statement, "claim", 0,
+                 _json_rej.dumps({"statement": candidate.statement}),
+                 "reject", _ts, "modal_reject", _ts)
+            )
+        conn.commit()
+        _memory_update_plans.pop(plan_id, None)
+        return jsonify({"status": "ok", "rejected_count": len(to_reject)})
+    except Exception as e:
+        logger.error(f"Error in pkb_reject_proposals: {e}")
+        return jsonify({"status": "error"})
 
 
 # =============================================================================

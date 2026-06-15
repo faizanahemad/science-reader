@@ -1010,12 +1010,12 @@ class OpenAIEmbeddingsParallel:
         return self._embed_documents(texts)
 
 
-def get_embedding_model(keys):
+def get_embedding_model(keys, model=None):
     openai_key = keys["OPENROUTER_API_KEY"]
     assert openai_key
     openai_embed = OpenAIEmbeddingsParallel(
         openai_api_key=openai_key,
-        model="openai/text-embedding-3-small",
+        model=model or "openai/text-embedding-3-small",
         chunk_size=2000,
     )
     return openai_embed
@@ -1024,22 +1024,22 @@ def get_embedding_model(keys):
 # The below functions are the main functions to get the embedding of a text or a list of texts.
 
 
-def get_query_embedding(text, keys):
-    openai_embed = get_embedding_model(keys)
+def get_query_embedding(text, keys, model=None):
+    openai_embed = get_embedding_model(keys, model=model)
     embedding = openai_embed.embed_query(text)
     embedding = np.array(embedding)
     return embedding
 
 
-def get_document_embedding(text, keys):
-    openai_embed = get_embedding_model(keys)
+def get_document_embedding(text, keys, model=None):
+    openai_embed = get_embedding_model(keys, model=model)
     embedding = openai_embed.embed_documents([text])
     embedding = np.array(embedding[0])
     return embedding
 
 
-def get_document_embeddings(texts, keys):
-    openai_embed = get_embedding_model(keys)
+def get_document_embeddings(texts, keys, model=None):
+    openai_embed = get_embedding_model(keys, model=model)
     embedding = openai_embed.embed_documents(texts)
     embedding = np.array(embedding)
     return embedding

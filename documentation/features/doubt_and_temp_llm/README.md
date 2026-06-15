@@ -196,9 +196,17 @@ The endpoint tries to load the conversation first:
 
 **History formatting:** `_format_temp_history(history)` — takes last 6 messages, truncates each to 1000 chars, formats as `**User:** / **Assistant:**` blocks injected into the `ask_temp` prompt.
 
-**Model:** `quick_action_model` override, defaulting to `SUPERFAST_LLM[0]`  
-**LLM call:** `temperature=0.4`, `max_tokens=2000`, streaming  
+**Model:** `quick_action_model` override, defaulting to `QUICK_ACTION_LLM` (`anthropic/claude-sonnet-4.6`)  
+**LLM call:** `temperature=0.4`, `max_tokens=2000` (adjustable: Short=800, Long=4000), streaming  
 **System prompt:** "You are a helpful, clear, and engaging assistant. Respond concisely and in brief. Avoid using LaTeX or math notation."
+**Tool support:** When tools toggle is active, uses `_run_tool_loop` with `TIER_1_TOOLS` (max 3 iterations) instead of a direct single-shot LLM call.
+
+**Temp LLM modal header controls (same as doubt modal):**
+- Length dropdown (S/M/L) — adjusts max_tokens and system prompt instructions
+- Tools toggle (🔧) — enables tiered tool calling
+- Preamble dropdown (multi-select) — appended to system prompt via `get_preamble()`
+- Copy Thread button — copies entire thread as markdown
+- Summarize button — sends thread to LLM for concise summary
 
 ### Fallback: `direct_temporary_llm_action()`
 
@@ -241,7 +249,8 @@ Used when no conversation context is available. Builds the same action prompts b
 | Threaded follow-ups | Yes — linked list via `parent_doubt_id` | Yes — `currentHistory` array (lost on close) |
 | Context modes | Target message only / full context | Message context / full context |
 | Selected text support | Yes — injected into prompt | Yes — primary input |
-| Model | `EXPENSIVE_LLM` (doubt model) | `SUPERFAST_LLM` via `quick_action_model` override |
+| Model | `QUICK_ACTION_LLM` (`anthropic/claude-sonnet-4.6`) | `QUICK_ACTION_LLM` via `quick_action_model` override |
+| Tools | Optional — tiered (TIER_1_TOOLS, max 3 iters) | Optional — same tiered mode |
 | Entry point | Right-click → "Ask a Doubt" | Right-click → explain/critique/expand/eli5/ask |
 | View history | Yes — "View Doubts" button on message | No |
 
@@ -362,13 +371,16 @@ Added to `DoubtsClearing` table:
 - Updates `doubt_answer` in DB without creating a new record
 - Warning toast if the doubt has children (follow-ups based on old answer)
 
-### Feature: Inline Length/Preamble Controls
+### Feature: Inline Length/Preamble/Tools Controls
 
-- Control bar at top of doubt chat modal with:
-  - Length toggle: Short / Medium / Long (pill buttons)
-  - Preamble selector: same options as settings modal doubt preamble
-- Length maps to preamble: Short adds "Short", Long adds "Long", Medium = neither
-- Overrides the settings modal values for the current session
+- Control bar at top of both doubt chat modal and temp LLM modal with:
+  - **Length dropdown**: Single button showing S/M/L label; click reveals Short/Medium/Long options. Replaces the old 3-button pill group to save space.
+  - **Tools toggle**: 🔧 button — click to activate (turns blue). When active, enables tiered tool calling (`TIER_1_TOOLS`: 12 tools including perplexity_search, jina_search, document_lookup, pkb_search, delegate_task, request_tools). Uses `_run_tool_loop` with max 3 iterations. Off by default.
+  - **Preamble selector**: multi-select dropdown, same options as settings modal doubt preamble
+- Length maps to preamble in doubt: Short adds "Short", Long adds "Long", Medium = neither
+- Length maps to max_tokens in temp LLM: Short=800, Medium=2000, Long=4000
+- Preamble options in temp LLM: appended to system prompt via `get_preamble()`
+- Tools: when enabled, the backend loads `TIER_1_TOOLS` via `TOOL_REGISTRY.get_openai_tools_param()` and calls `_run_tool_loop()` — the same tool-calling loop as the main conversation flow. `request_tools` meta-tool allows on-demand expansion to the full tool registry (free, no iteration cost).
 
 ### Feature: Copy Thread
 
@@ -457,6 +469,20 @@ Added to `DoubtsClearing` table:
 | `endpoints/conversations.py` | `_AUTO_DOUBT_DISPATCH` dict, `auto_doubt_categories` validation, model override |
 | `database/doubts.py` | `update_doubt_pinned()`, `update_doubt_bookmarked()`, `update_doubt_answer()`, `get_all_doubts_for_user()` |
 | `database/connection.py` | `pinned` + `bookmarked` column migrations |
+
+
+### Feature: Responsive Table Rendering
+
+- All markdown tables in chat messages, doubt answers, and temp LLM responses are wrapped in `<div class="table-responsive" style="overflow-x:auto;">` via a `markdownParser.table` renderer override in `interface/common.js`.
+- Prevents wide tables from causing horizontal scrolling on the entire page — tables scroll independently within their container.
+- Single override covers all rendering paths (main messages via `renderInnerContentAsMarkdown`, doubt `marked.parse`, temp LLM `marked.parse`, streaming updates) since all go through the same global `markdownParser` renderer.
+
+### Feature: Quick Action Model Constant
+
+- `QUICK_ACTION_LLM = "anthropic/claude-sonnet-4.6"` defined in `common.py` alongside other model constants.
+- Used as default by both `clear_doubt()` and `temporary_llm_action()` via `self.get_model_override("quick_action_model", QUICK_ACTION_LLM)`.
+- Overridable per-conversation via model overrides settings.
+- Separate from `SUPERFAST_LLM` (used for internal conversation operations like summarization, keyword extraction).
 
 
 ### Feature: Progressive Disclosure (TL;DR / Explanation / Deep Dive)

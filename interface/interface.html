@@ -406,6 +406,7 @@
                                               </div>
                                               <div class="dropdown-divider"></div>
                                               <a class="dropdown-item" href="#" id="gear-new-temp-chat"><i class="fa fa-eye-slash mr-2"></i>New Temp Chat</a>
+                                              <a class="dropdown-item d-sm-none" href="#" id="gear-aside-chat"><i class="fa fa-comments-o mr-2"></i>Aside Chat</a>
                                               <a class="dropdown-item" href="#" id="gear-get-chat-transcript"><i class="fa fa-download mr-2"></i>Download Transcript</a>
                                               <a class="dropdown-item" href="#" id="gear-share-chat"><i class="fa fa-share-alt mr-2"></i>Share Chat</a>
                                               <div class="dropdown-divider"></div>
@@ -435,6 +436,7 @@
                                       </div>
                                       <div class="dropdown-divider"></div>
                                       <a class="dropdown-item" href="#" id="gear-floating-new-temp-chat"><i class="fa fa-eye-slash mr-2"></i>New Temp Chat</a>
+                                      <a class="dropdown-item d-sm-none" href="#" id="gear-floating-aside-chat"><i class="fa fa-comments-o mr-2"></i>Aside Chat</a>
                                       <a class="dropdown-item" href="#" id="gear-floating-transcript"><i class="fa fa-download mr-2"></i>Download Transcript</a>
                                       <a class="dropdown-item" href="#" id="gear-floating-share"><i class="fa fa-share-alt mr-2"></i>Share Chat</a>
                                       <div class="dropdown-divider"></div>
@@ -2137,11 +2139,19 @@
                         <i class="bi bi-chat-dots"></i>&nbsp;💬 Doubt Conversation
                     </h5>
                     <span class="ml-auto d-flex align-items-center" style="gap: 4px;">
-                        <div class="btn-group btn-group-sm" role="group" aria-label="Length control">
-                            <button class="btn btn-outline-secondary doubt-length-btn" data-length="short">S</button>
-                            <button class="btn btn-outline-secondary doubt-length-btn active" data-length="medium">M</button>
-                            <button class="btn btn-outline-secondary doubt-length-btn" data-length="long">L</button>
+                        <div class="dropdown d-inline-block">
+                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="doubt-length-dropdown-btn" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="Response length">
+                                M
+                            </button>
+                            <div class="dropdown-menu dropdown-menu-right" aria-labelledby="doubt-length-dropdown-btn">
+                                <a class="dropdown-item doubt-length-option" data-length="short" data-label="S" href="#">Short</a>
+                                <a class="dropdown-item doubt-length-option active" data-length="medium" data-label="M" href="#">Medium</a>
+                                <a class="dropdown-item doubt-length-option" data-length="long" data-label="L" href="#">Long</a>
+                            </div>
                         </div>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="doubt-tools-toggle-btn" title="Enable Tools">
+                            <i class="bi bi-tools"></i>
+                        </button>
                         <div class="dropdown d-inline-block">
                             <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="doubt-preamble-dropdown-btn" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="Preamble">
                                 <i class="bi bi-sliders"></i>
@@ -2328,6 +2338,43 @@
                     <h5 class="modal-title" style="color: #333;">
                         <i class="bi bi-chat-dots"></i>&nbsp;💬 <span id="temp-llm-modal-title">Temporary Chat</span>
                     </h5>
+                    <span class="ml-auto d-flex align-items-center" style="gap: 4px;">
+                        <div class="dropdown d-inline-block">
+                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="temp-llm-length-dropdown-btn" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="Response length">
+                                M
+                            </button>
+                            <div class="dropdown-menu dropdown-menu-right" aria-labelledby="temp-llm-length-dropdown-btn">
+                                <a class="dropdown-item temp-llm-length-option" data-length="short" data-label="S" href="#">Short</a>
+                                <a class="dropdown-item temp-llm-length-option active" data-length="medium" data-label="M" href="#">Medium</a>
+                                <a class="dropdown-item temp-llm-length-option" data-length="long" data-label="L" href="#">Long</a>
+                            </div>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="temp-llm-tools-toggle-btn" title="Enable Tools">
+                            <i class="bi bi-tools"></i>
+                        </button>
+                        <div class="dropdown d-inline-block">
+                            <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="temp-llm-preamble-dropdown-btn" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="Preamble">
+                                <i class="bi bi-sliders"></i>
+                            </button>
+                            <div class="dropdown-menu dropdown-menu-right" aria-labelledby="temp-llm-preamble-dropdown-btn" id="temp-llm-preamble-dropdown-menu">
+                                <a class="dropdown-item temp-llm-preamble-option" data-value="" href="#">None</a>
+                                <a class="dropdown-item temp-llm-preamble-option" data-value="Wife Prompt" href="#">Wife Prompt</a>
+                                <a class="dropdown-item temp-llm-preamble-option" data-value="Short" href="#">Short</a>
+                                <a class="dropdown-item temp-llm-preamble-option" data-value="Deep Learn" href="#">Deep Learn</a>
+                                <a class="dropdown-item temp-llm-preamble-option" data-value="Software and ML Learning" href="#">Software and ML Learning</a>
+                                <a class="dropdown-item temp-llm-preamble-option" data-value="Senior Engineer Summary" href="#">Senior Engineer Summary</a>
+                                <a class="dropdown-item temp-llm-preamble-option" data-value="Senior Engineer Mental Models" href="#">Senior Engineer Mental Models</a>
+                                <a class="dropdown-item temp-llm-preamble-option" data-value="Argumentative" href="#">Argumentative</a>
+                                <a class="dropdown-item temp-llm-preamble-option" data-value="No AI" href="#">No AI</a>
+                            </div>
+                        </div>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="temp-llm-summarize-btn" title="Summarize Thread">
+                            <i class="bi bi-journal-text"></i>
+                        </button>
+                        <button type="button" class="btn btn-sm btn-outline-secondary" id="temp-llm-copy-thread-btn" title="Copy Thread as Markdown">
+                            <i class="bi bi-clipboard"></i>
+                        </button>
+                    </span>
                     <button type="button" class="close" data-dismiss="modal" aria-label="Close" style="color: #aaa; font-size: 28px; font-weight: bold; line-height: 1;">
                         <span aria-hidden="true">&times;</span>
                     </button>
