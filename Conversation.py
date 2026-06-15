@@ -3588,7 +3588,6 @@ Now return JSON with 'ops' and 'notes'.
         # For each, include the preceding user message (truncated) + the assistant message.
         # Max 5 turns (10 messages). Placed at chronological position.
         if pinned_message_ids:
-            pinned_set = set(pinned_message_ids)
             # Find which pinned messages are NOT already in the window
             window_size = message_lookback - 2  # last successful lookback
             windowed_msgs = messages[-window_size:] if window_size > 0 else []
