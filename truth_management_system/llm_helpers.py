@@ -465,9 +465,9 @@ Result:"""
 
     def detect_contradiction(
         self, new_statement: str, existing_statement: str
-    ) -> bool:
+    ) -> str:
         """
-        Decide whether ``new_statement`` contradicts/replaces ``existing_statement``.
+        Classify the relationship between ``new_statement`` and ``existing_statement``.
 
         Unlike ``_classify_relation`` (which only checks for a contradiction in a
         narrow embedding-similarity band, and treats very-high similarity as a
@@ -482,20 +482,22 @@ Result:"""
             existing_statement: An existing stored claim it may replace.
 
         Returns:
-            True if the new claim updates/replaces the existing one.
+            One of: "supersedes", "temporal_update", or "none".
+            - "supersedes": old claim is now wrong/outdated (e.g. changed city)
+            - "temporal_update": both are valid at their respective times (e.g. weight in different months)
+            - "none": not a contradiction or replacement
         """
-        prompt = f"""Does the NEW statement contradict or replace the EXISTING statement?
+        prompt = f"""Classify the relationship between the NEW and EXISTING statements.
 
 EXISTING: "{existing_statement}"
 NEW: "{new_statement}"
 
-Answer true ONLY if both concern the SAME subject and the SAME attribute but
-assert different or incompatible values, so the NEW one updates/replaces the
-EXISTING one (e.g. a changed home city, job title, relationship status, or a
-reversed preference). Answer false if they are merely related, are about
-different things, or are fully consistent with each other.
+Choose ONE of these relations:
+- "supersedes": The NEW statement makes the EXISTING one obsolete/wrong. They concern the SAME subject and attribute but the value has CHANGED (e.g. moved cities, changed job, reversed a preference). The old one should be retired.
+- "temporal_update": Both are valid measurements/observations at DIFFERENT points in time. The EXISTING one was true when recorded and the NEW one is true now (e.g. weight in June vs weight in July, quarterly earnings, progress updates). Both should be kept.
+- "none": They are merely related, about different things, or fully consistent/identical.
 
-Return ONLY JSON: {{"contradicts": true/false, "reason": "brief explanation"}}
+Return ONLY JSON: {{"relation": "supersedes"|"temporal_update"|"none", "reason": "brief explanation"}}
 
 Result:"""
 
@@ -509,12 +511,12 @@ Result:"""
 
                 m = re.search(r"\{.*\}", text, re.DOTALL)
                 if not m:
-                    return False
+                    return "none"
                 result = json.loads(m.group())
-            return bool(result.get("contradicts", False))
+            return result.get("relation", "none") if result.get("relation") in ("supersedes", "temporal_update", "none") else "none"
         except Exception as e:
             logger.error(f"Contradiction detection failed: {e}")
-            return False
+            return "none"
 
     def judge_duplicates(self, items: List[str], kind: str = "claim") -> Dict[str, Any]:
         """

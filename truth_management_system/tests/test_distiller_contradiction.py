@@ -29,7 +29,11 @@ class FakeLLMContra:
 
     def detect_contradiction(self, new_statement, existing_statement):
         self.calls += 1
-        return self._contradicts
+        if self._contradicts is True:
+            return "supersedes"
+        elif self._contradicts == "temporal_update":
+            return "temporal_update"
+        return "none"
 
 
 def _api(detect=True, email="distill@example.com"):

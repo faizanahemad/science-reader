@@ -583,7 +583,7 @@ Response:"""
                     payload = _json.loads(payload_str) if payload_str else {}
                     stmt = payload.get("statement", "")
                     if stmt:
-                        rejected_statements.append(stmt.lower().strip())
+                        rejected_statements.append(stmt.strip())
                 except Exception:
                     continue
             if not rejected_statements:
@@ -619,24 +619,25 @@ Response:"""
                     if best_sim > 0.92:
                         # High similarity — but check if it's actually a temporal update/contradiction
                         # If so, allow it through (it's a new distinct fact, not the same rejected claim)
-                        is_contradiction = False
+                        relation = "none"
                         if llm and best_stmt:
                             try:
-                                is_contradiction = llm.detect_contradiction(candidate.statement, best_stmt)
+                                relation = llm.detect_contradiction(candidate.statement, best_stmt)
                             except Exception:
                                 pass
-                        if is_contradiction:
-                            filtered.append(candidate)  # Allow through — it's a temporal update
+                        if relation in ("supersedes", "temporal_update"):
+                            filtered.append(candidate)  # Allow through — it's meaningfully different
                         else:
                             logger.info("rejection_cache:filtered sim=%.3f %s", best_sim, candidate.statement[:60])
                     else:
                         filtered.append(candidate)
                 return filtered
             except Exception:
-                # Fallback: exact string match
+                # Fallback: exact string match (case-insensitive)
+                rejected_lower = {s.lower() for s in rejected_statements}
                 filtered = []
                 for c in candidates:
-                    if c.statement.lower().strip() not in rejected_statements:
+                    if c.statement.lower().strip() not in rejected_lower:
                         filtered.append(c)
                 return filtered
         except Exception as e:
@@ -688,7 +689,7 @@ Response:"""
 
         For each matched existing claim (capped to the top few to bound LLM
         cost), ask the LLM whether the candidate updates/replaces it; if so, mark
-        the relation as "contradicts". Gated by config
+        the relation as "contradicts" or "temporal_update". Gated by config
         ``distiller_detect_contradictions`` and LLM availability — a no-op
         otherwise, preserving the prior duplicate/related behavior.
         """
@@ -706,8 +707,12 @@ Response:"""
         for idx, (claim, rel) in enumerate(matches):
             if idx < check_cap:
                 try:
-                    if llm.detect_contradiction(candidate.statement, claim.statement):
+                    result = llm.detect_contradiction(candidate.statement, claim.statement)
+                    if result == "supersedes":
                         upgraded.append((claim, "contradicts"))
+                        continue
+                    elif result == "temporal_update":
+                        upgraded.append((claim, "temporal_update"))
                         continue
                 except Exception as e:
                     logger.warning(f"Contradiction detection failed: {e}")
@@ -724,14 +729,19 @@ Response:"""
         # Map a contradicting candidate's statement -> the existing claim it
         # replaces, so we can propose a supersede (D1 follow-up).
         contradicts_of: Dict[str, Claim] = {}
+        # Map a temporal_update candidate -> the existing claim (keep both)
+        temporal_update_of: Dict[str, Claim] = {}
         for cand, claim, rel in matches:
             if rel == "contradicts" and cand.statement not in contradicts_of:
                 contradicts_of[cand.statement] = claim
+            elif rel == "temporal_update" and cand.statement not in temporal_update_of:
+                temporal_update_of[cand.statement] = claim
             elif rel == "duplicate" and cand.statement not in duplicate_of:
                 duplicate_of[cand.statement] = claim
 
         for candidate in candidates:
             contradicted = contradicts_of.get(candidate.statement)
+            temporal = temporal_update_of.get(candidate.statement)
             existing = duplicate_of.get(candidate.statement)
             if contradicted is not None:
                 # D1 follow-up: the new claim replaces a conflicting existing
@@ -742,6 +752,12 @@ Response:"""
                     existing_claim=contradicted, relation="contradicts",
                     reason=f"Updates/replaces existing claim {contradicted.claim_id[:8]} "
                            f"(\"{contradicted.statement[:40]}\")"))
+            elif temporal is not None:
+                # Temporal update: both are valid at their respective times.
+                # Add as new claim (keep both).
+                actions.append(ProposedAction(action="add", candidate=candidate,
+                                             existing_claim=temporal, relation="temporal_update",
+                                             reason=f"New data point (existing: \"{temporal.statement[:40]}\")"))
             elif existing is not None:
                 # H3: duplicate (score > 0.9). Silently reinforce — no need to
                 # ask the user about an exact duplicate they already have.
