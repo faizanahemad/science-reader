@@ -523,6 +523,7 @@ def docs_autocomplete():
 
     conversation_id = request.args.get("conversation_id", "").strip()
     prefix = request.args.get("prefix", "").strip().lower()
+    scope = request.args.get("scope", "all")  # 'all', 'local', 'global'
     try:
         limit = min(int(request.args.get("limit", "10")), 20)
     except (ValueError, TypeError):
@@ -531,7 +532,7 @@ def docs_autocomplete():
     results = []
 
     # --- Conversation (local) documents (reverse: most recently added first) ---
-    if conversation_id and conversation_id in state.conversation_cache:
+    if scope in ("all", "local") and conversation_id and conversation_id in state.conversation_cache:
         try:
             conversation = attach_keys(
                 state.conversation_cache[conversation_id], keys
@@ -572,35 +573,36 @@ def docs_autocomplete():
             logger.exception("docs_autocomplete: error loading conversation docs")
 
     # --- Global documents ---
-    try:
-        from database.global_docs import list_global_docs
+    if scope in ("all", "global"):
+        try:
+            from database.global_docs import list_global_docs
 
-        global_rows = list_global_docs(
-            users_dir=state.users_dir, user_email=email
-        )
-        for idx, row in enumerate(global_rows):
-            display_name = row.get("display_name", "") or ""
-            title = row.get("title", "") or ""
-            doc_id = row.get("doc_id", "")
-            short_summary = row.get("short_summary", "") or ""
+            global_rows = list_global_docs(
+                users_dir=state.users_dir, user_email=email
+            )
+            for idx, row in enumerate(global_rows):
+                display_name = row.get("display_name", "") or ""
+                title = row.get("title", "") or ""
+                doc_id = row.get("doc_id", "")
+                short_summary = row.get("short_summary", "") or ""
 
-            match_text = (
-                title + " " + display_name + " " + doc_id + " " + short_summary
-            ).lower()
-            if prefix and prefix not in match_text:
-                continue
+                match_text = (
+                    title + " " + display_name + " " + doc_id + " " + short_summary
+                ).lower()
+                if prefix and prefix not in match_text:
+                    continue
 
-            results.append({
-                "type": "global",
-                "index": idx + 1,
-                "doc_id": doc_id,
-                "title": title,
-                "display_name": display_name or title,
-                "short_summary": short_summary,
-                "ref": f"#gdoc_{idx + 1}",
-            })
-    except Exception:
-        logger.exception("docs_autocomplete: error loading global docs")
+                results.append({
+                    "type": "global",
+                    "index": idx + 1,
+                    "doc_id": doc_id,
+                    "title": title,
+                    "display_name": display_name or title,
+                    "short_summary": short_summary,
+                    "ref": f"#gdoc_{idx + 1}",
+                })
+        except Exception:
+            logger.exception("docs_autocomplete: error loading global docs")
 
     return jsonify({"status": "ok", "docs": results[:limit]})
 

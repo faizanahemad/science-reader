@@ -4053,6 +4053,11 @@ function initializeChatControlsToggleHandler() {
             }, 200);
             return;
         }
+        // Clear stale hash timer if pattern no longer matches
+        if (autocompleteState.hashDebounceTimer) {
+            clearTimeout(autocompleteState.hashDebounceTimer);
+            autocompleteState.hashDebounceTimer = null;
+        }
 
         // Find the @ character before cursor
         var lastAtIndex = textBeforeCursor.lastIndexOf('@');
@@ -4908,14 +4913,24 @@ function initializeChatControlsToggleHandler() {
         var cursorPos = textarea.selectionStart;
         var textBeforeCursor = val.substring(0, cursorPos);
 
-        var match = textBeforeCursor.match(/(^|\s)@doc\/([^\s]*)$/);
+        // Match @doc/, #doc, or #gdoc triggers
+        var match = textBeforeCursor.match(/(^|\s)(@doc\/|#gdoc|#doc)([^\s]*)$/);
         if (!match) {
             hideDocAutocomplete();
             return;
         }
 
-        var prefix = match[2];
-        var triggerPos = textBeforeCursor.lastIndexOf('@doc/');
+        var trigger = match[2];  // '@doc/', '#doc', or '#gdoc'
+        var prefix = match[3];
+        // Skip if prefix looks like an already-resolved ref (e.g., #doc_1, #gdoc_12)
+        if (/^_\d+$/.test(prefix)) {
+            hideDocAutocomplete();
+            return;
+        }
+        var triggerPos = textBeforeCursor.lastIndexOf(trigger);
+        // scope: 'local' for #doc, 'global' for #gdoc, 'all' for @doc/
+        docAutocompleteState.scope = trigger === '#doc' ? 'local' : (trigger === '#gdoc' ? 'global' : 'all');
+        docAutocompleteState.trigger = trigger;
         docAutocompleteState.triggerPosition = triggerPos;
         docAutocompleteState.query = prefix;
 
@@ -4929,8 +4944,10 @@ function initializeChatControlsToggleHandler() {
 
     function fetchDocAutocomplete(prefix, textarea) {
         var conversationId = ConversationManager.activeConversationId || '';
+        var scope = docAutocompleteState.scope || 'all';
         var url = '/docs/autocomplete?conversation_id=' + encodeURIComponent(conversationId) +
                   '&prefix=' + encodeURIComponent(prefix) +
+                  '&scope=' + scope +
                   '&limit=10';
         $.getJSON(url, function(resp) {
             if (resp && resp.docs) {
