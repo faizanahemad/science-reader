@@ -22,11 +22,43 @@
 
 ## Screen Layout
 
-### Default (Compact) — Mobile & Small Screens
+### Architecture: Two Tabs (Chat + Writing)
+
+The writing system lives across two tabs in the multi-conversation tab bar:
+- **Chat tab**: Full conversation with LLM tools for artefact editing. Upload docs, discuss strategy, run writing agents via natural language. Edits proposed here show as diff cards with Accept/Reject.
+- **Writing tab**: Structure panel + Editor. Cmd+K for inline edits. No AI panel — the chat tab serves that role.
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│ [💬 Chat: Q3 Strategy] [✍️ Write: One-Pager]  [+]           │  ← tab bar
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│  Chat Tab (when focused):         Writing Tab (when focused):│
+│  - Full conversation              - Structure + Editor       │
+│  - Tool-based artefact editing    - Cmd+K inline edits       │
+│  - Diff cards with Accept/Reject  - Ghost text completion    │
+│  - Upload docs, discuss, research - Inline diffs (⌘Y/⌘N)    │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Writing Tab — Desktop Layout (Two Panels)
+
+```
+┌────────────────┬─────────────────────────────────────────────┐
+│  Structure     │  Editor                                     │
+│  (collapsible) │  (always present)                           │
+│  ~250px        │  flex                                       │
+├────────────────┴─────────────────────────────────────────────┤
+│  Status bar: constraints + version indicator + save status    │
+└──────────────────────────────────────────────────────────────┘
+```
+
+### Writing Tab — Mobile & Small Screens
 
 ```
 ┌─────────────────────────────────┐
-│  [≡ Structure] [Editor] [◉ AI]  │  ← tab bar (only one panel visible)
+│  [≡ Structure] [Editor]         │  ← tab bar (only one panel visible)
 ├─────────────────────────────────┤
 │                                 │
 │        Active panel content     │
@@ -34,18 +66,6 @@
 ├─────────────────────────────────┤
 │  Constraint bar (always visible)│  ← single row: "1,423 words | Grade 9 | ✓ 5/5 sections"
 └─────────────────────────────────┘
-```
-
-### Desktop (Full) — Three Panels
-
-```
-┌────────────────┬──────────────────────────┬──────────────────┐
-│  Structure     │  Editor                  │  AI Panel        │
-│  (collapsible) │  (always present)        │  (collapsible)   │
-│  ~250px        │  flex                    │  ~350px          │
-├────────────────┴──────────────────────────┴──────────────────┤
-│  Status bar: constraints + version indicator + save status    │
-└──────────────────────────────────────────────────────────────┘
 ```
 
 ## Panel Details
@@ -219,68 +239,75 @@ v1 ── 25 min ago ──────────────────
 └──────────────────────────────────────────────┘
 ```
 
-### Right Panel: AI Panel
+### Chat Tab: AI-Powered Writing (via Tool Calls)
 
-**Tabs at top:** Chat | Brief | Config
+There is no AI panel in the writing studio. The **chat tab** serves as the AI interface. The LLM has tools to read, edit, and analyze the artefact. Edits proposed from chat appear as diff cards with Accept/Reject.
 
-#### Chat Tab (default)
+#### How Chat Edits Appear
 
-Context-aware conversational interface. Always knows what document you're editing, what's selected, what version you're on.
+When the user asks the LLM to edit the artefact in chat (e.g., "make the intro more concise" or "run a style check"), the LLM uses tools and the result renders as a diff card:
 
 ```
-┌──────────────────────────────────┐
-│  💬 Writing Assistant            │
-│                                  │
-│  ┌──────────────────────────┐    │
-│  │ 🤖 I notice section 3 is │    │
-│  │ over its word budget by   │    │
-│  │ 120 words. Want me to     │    │
-│  │ tighten it?               │    │
-│  │                           │    │
-│  │ [Yes, reduce] [Show me    │    │
-│  │  what you'd cut first]    │    │
-│  └──────────────────────────┘    │
-│                                  │
-│  ┌──────────────────────────┐    │
-│  │ 👤 Can you also check if │    │
-│  │ the tone matches my       │    │
-│  │ exemplars? The intro      │    │
-│  │ feels too casual.         │    │
-│  └──────────────────────────┘    │
-│                                  │
-│  ┌──────────────────────────┐    │
-│  │ 🤖 Running Stylist on    │    │
-│  │ the intro...              │    │
-│  │                           │    │
-│  │ Found 3 tone issues:      │    │
-│  │ • L5: "pretty much" →    │    │
-│  │   "substantially"         │    │
-│  │ • L8: "gonna" → "will"   │    │
-│  │ • L12: casual metaphor   │    │
-│  │                           │    │
-│  │ [Apply all] [Review in    │    │
-│  │  diff view]               │    │
-│  └──────────────────────────┘    │
-│                                  │
-│  ┌────────────────────────────┐  │
-│  │ Type a writing instruction │  │
-│  │ or ask for feedback...     │  │
-│  └────────────────────────────┘  │
-│  [📋 Run full edit pass]         │
-│  [👁 Simulate reader]            │
-│  [✅ Check constraints]          │
-└──────────────────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│ 🤖 I've tightened the intro from 142 to 89 words.  │
+│                                                     │
+│ ┌─────────────────────────────────────────────────┐ │
+│ │ 📝 Proposed Edit                                │ │
+│ │                                                 │ │
+│ │ Lines 4-8 → replaced with 2 lines              │ │
+│ │ -52 words                                       │ │
+│ │                                                 │ │
+│ │ [View Diff]  [Accept ✓]  [Reject ✗]           │ │
+│ └─────────────────────────────────────────────────┘ │
+│                                                     │
+│ Want me to also check the tone?                     │
+└─────────────────────────────────────────────────────┘
 ```
 
-**Quick actions (bottom of chat):**
-- "Run full edit pass" → triggers orchestrator loop, streams progress
-- "Simulate reader" → opens audience selector, then runs simulation
-- "Check constraints" → instant deterministic check, shows dashboard
+"View Diff" opens a modal:
+```
+┌─────────────────────────────────────────────────────┐
+│ Diff: One-Pager.md (lines 4-8)                     │
+│                                                     │
+│ - The current infrastructure, which was built in    │
+│ - 2019, handles approximately 10,000 requests per   │
+│ - second. However, our projections for Q4 indicate  │
+│ - that we will need to handle roughly 45,000 req/s, │
+│ - representing a 4.5x increase over current.        │
+│ + Current: 10K req/s (2019).                        │
+│ + Q4 projected: 45K req/s — a 4.5x capacity gap.   │
+│                                                     │
+│ [Accept ✓]  [Reject ✗]  [Edit & Retry ↻]          │
+└─────────────────────────────────────────────────────┘
+```
 
-#### Brief Tab
+**Accept** → change applied immediately to artefact. Writing tab refreshes to show new content.
+**Reject** → discarded. LLM informed. Optionally adds standing directive ("don't shorten the intro").
 
-The persistent "north star" for this document. Visible to all agents on every pass.
+#### What Users Do in Each Tab
 
+| Action | Tab |
+|--------|-----|
+| "Make the intro shorter" | Chat (LLM uses propose_edit tool) |
+| "Run a style check against my exemplars" | Chat (LLM uses run_writing_agent tool) |
+| "Simulate VP reading this" | Chat (LLM uses run_writing_agent tool) |
+| "Check constraints" | Chat (LLM uses check_constraints tool) |
+| Upload a source PDF | Chat (existing doc upload) |
+| Discuss strategy, ask questions | Chat (normal conversation) |
+| Quick inline edit (select → rewrite) | Writing tab (Cmd+K) |
+| Review document structure | Writing tab (Structure panel) |
+| Manual typing/editing | Writing tab (Editor) |
+| Review constraint status | Writing tab (Status bar) |
+
+#### Brief & Config (Moved to Structure Panel)
+
+Since there's no AI panel, Brief and Config live as tabs in the Structure panel:
+
+```
+Structure Panel Tabs: [Outline] [Sources] [Versions] [Brief] [Config]
+```
+
+Brief tab:
 ```
 ┌──────────────────────────────────┐
 │  📋 Brief                        │
@@ -308,12 +335,7 @@ The persistent "north star" for this document. Visible to all agents on every pa
 └──────────────────────────────────┘
 ```
 
-**Key messages** auto-check: system scans document to confirm each key message appears. Shows ✓/✗ in real-time.
-
-#### Config Tab
-
-Settings that persist with the document.
-
+Config tab:
 ```
 ┌──────────────────────────────────┐
 │  ⚙️ Writing Config               │

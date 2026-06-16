@@ -153,6 +153,166 @@ interface/writing-studio/
 - Completely isolated from main jQuery app — no shared bundles, no conflicts
 - Development: `vite dev` with proxy to Flask backend (hot reload)
 
+### Chat Tab: LLM Tools for Artefact Editing
+
+The chat LLM (in the chat tab) edits artefacts via tool calls. Two editing paths:
+
+#### Path 1 (Primary): `propose_artefact_edit` Tool
+
+Reuses the existing `propose_edits` logic. Single tool call → structured ops + diff.
+
+```
+Tool: propose_artefact_edit
+Parameters:
+  - artefact_id: string (required)
+  - instruction: string (required) — what to change
+  - selection: { start_line, end_line } (optional) — scope the edit
+  - include_context: bool (default true) — inject summary + recent messages
+
+Returns to chat:
+  - diff_text (unified diff)
+  - proposed_ops (JSON ops array)
+  - base_hash (for stale check)
+
+UI rendering:
+  - Diff card in chat message with syntax-highlighted unified diff
+  - [Accept] button → calls apply_edits → change appears in writing tab immediately
+  - [Reject] button → discards, optionally adds standing directive
+  - [Edit instruction] → re-run with modified instruction
+```
+
+#### Path 2 (Secondary): Sandboxed Terminal on Shadow Copy
+
+For complex multi-step edits where structured ops are insufficient. LLM gets terminal access but sandboxed to a shadow copy.
+
+```
+Tool: artefact_terminal
+Parameters:
+  - artefact_id: string (required)
+  - command: string (required) — shell command to execute
+
+Sandbox rules:
+  - Working directory: storage/conversations/<conv_id>/artefacts/
+  - Shadow file: <filename>.proposed (auto-created as copy on first command)
+  - All commands execute against .proposed only (paths rewritten)
+  - LLM can issue multiple sequential commands in one session
+  - Session ends when LLM calls `artefact_terminal_done` tool
+
+Validation (pre-execution, every command):
+  1. Artefact filename (or .proposed variant) MUST appear in command → else REJECT
+  2. No blocked commands: rm, mv, chmod, chown, curl, wget, nc, ssh, scp, rsync,
+     any network/socket operation
+  3. No path traversal: resolve realpath, must stay within artefacts dir
+  4. No ".." in any path argument
+  5. Command string cannot contain pipe to network tools or redirection outside dir
+
+Allowed commands:
+  cat, head, tail, grep, sed, awk, wc, echo, printf, sort, uniq, tr, cut,
+  paste, diff, patch, tee, cp (within dir), python -c (one-liners for text processing)
+
+Lifecycle:
+  1. First command in session → auto: cp <filename> <filename>.proposed
+  2. Execute commands against .proposed (rewrite <filename> → <filename>.proposed in command)
+  3. LLM calls artefact_terminal_done when finished
+  4. System generates: diff <filename> <filename>.proposed (unified diff)
+  5. Diff card shown in chat: [Accept] / [Reject]
+  6. Accept → mv .proposed to original, update artefact metadata, update writing tab
+  7. Reject → rm .proposed
+
+Tool: artefact_terminal_done
+Parameters:
+  - artefact_id: string (required)
+  - summary: string (optional) — what was changed (for version intent)
+Returns: unified diff for display
+```
+
+#### Other Chat Tools (Read-Only / Agents)
+
+```
+Tool: read_artefact
+Parameters:
+  - artefact_id: string (required)
+  - section: string (optional) — heading text to scope read
+  - lines: { start, end } (optional)
+Returns: file content (or section content)
+
+Tool: check_constraints
+Parameters:
+  - artefact_id: string (required)
+Returns: constraint dashboard results (pass/fail per rule)
+
+Tool: run_writing_agent
+Parameters:
+  - artefact_id: string (required)
+  - agent: "critic" | "stylist" | "reducer" | "fact_checker" | "reader_sim"
+  - scope: { start_line, end_line } (optional)
+  - audience_profile: {...} (optional, for reader_sim)
+Returns: agent results (suggestions list, or simulation text)
+  - If agent produces edit suggestions → rendered as diff card with Accept/Reject
+
+Tool: list_artefact_sources
+Parameters:
+  - artefact_id: string (required)
+Returns: conversation docs + global docs + linked claims + unsourced claims
+```
+
+#### Diff Card Rendering in Chat
+
+When any tool produces a proposed edit, it renders as:
+
+```
+┌─────────────────────────────────────────────┐
+│ 📝 Proposed Edit: "Make intro more concise" │
+│                                             │
+│ Summary: Replaced 5 lines with 2 lines      │
+│ Lines affected: 4-8                         │
+│                                             │
+│ [View Diff]  [Accept ✓]  [Reject ✗]       │
+└─────────────────────────────────────────────┘
+```
+
+Clicking "View Diff" opens a modal with syntax-highlighted unified diff:
+```
+┌─────────────────────────────────────────────┐
+│ Diff: One-Pager.md (lines 4-8)             │
+│                                             │
+│ - The current infrastructure, which was     │
+│ - built in 2019, handles approximately      │
+│ - 10,000 requests per second. However,      │
+│ - our projections for Q4 indicate that      │
+│ - we will need roughly 45,000 req/s.        │
+│ + Current: 10K req/s (2019).                │
+│ + Q4 projected: 45K req/s (4.5x gap).      │
+│                                             │
+│ [Accept ✓]  [Reject ✗]  [Edit & Retry ↻]  │
+└─────────────────────────────────────────────┘
+```
+
+Accepting: change applies immediately to the artefact file. If the writing tab is open, it refreshes to show the new content.
+
+### References in Cmd+K and Chat
+
+Both the Cmd+K instruction input (writing tab) and chat messages support references:
+
+```
+Reference formats:
+  @section:Summary         → injects that section's content as context
+  @section:Problem         → heading match (case-insensitive, partial match ok)
+  "the intro"             → LLM interprets naturally (resolves to first section)
+  #doc_1, #doc_2          → conversation docs (uploaded PDFs/files)
+  #gdoc_all               → all global docs
+  #folder:research        → global docs in folder
+  #tag:Q3                 → global docs with tag
+  @artefact_2             → another artefact in the same conversation
+
+Resolution:
+  - @section: references resolved by scanning markdown headings (h1-h4)
+  - #doc_N / #gdoc references resolved via existing doc resolution in Conversation.py
+  - Content injected into the LLM prompt as additional context
+  - For Cmd+K: resolved server-side by the propose_edits endpoint
+  - For chat: resolved as part of the normal reference resolution in reply()
+```
+
 ### Backend (New Endpoints)
 
 ```python
