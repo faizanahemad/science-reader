@@ -927,3 +927,160 @@ Friction log:
 
 If total friction events > 10 in 2 weeks → build Option 1.
 If total friction events < 5 → Option 0 is enough. Revisit in a month.
+
+---
+
+## Design Decisions: Q&A Log
+
+All UX and architecture questions discussed during planning, with final decisions.
+
+### Organizational Model
+
+**Q: Should writing artefacts belong to a conversation or be top-level entities?**
+
+A: **Conversation-scoped.** Each writing artefact belongs to a conversation. The conversation is marked `is_writing_project: true` and shows with a document icon in the sidebar. This gives free source/doc management (upload PDFs to the conversation), chat history as context, PKB claims as sources, workspace hierarchy for organization. Global docs accessible via `#gdoc_all`, `#tag:`, `#folder:`.
+
+### Multi-Tab Integration
+
+**Q: How should the writing studio open relative to chat?**
+
+A: **As a tab pane beside chat.** Uses the `feat/multi-conversation-tabs` TabManager. Writing studio loads in an iframe (`/write/<artefact_id>?embedded=true`) within a tab pane. User can flip between chat (upload docs, discuss, research) and writing (edit) instantly. Same conversation, two views.
+
+**Q: Why not full-page navigation?**
+
+A: Loses multi-tab context. Can't see chat + writing side by side. Can't upload a PDF mid-writing without leaving the editor. Can't stream chat responses while in writing tab.
+
+### AI Panel
+
+**Q: Does the writing studio need an AI panel (right sidebar for chat with the LLM)?**
+
+A: **No.** Since we have two tabs (chat + writing), an AI panel would be redundant and confusing (two places to send messages). The chat tab IS the AI interface. The writing tab has only Structure panel + Editor.
+
+**Q: How do AI-initiated edits work without an AI panel?**
+
+A: The LLM in chat has tools (`propose_artefact_edit`, `artefact_terminal`, `run_writing_agent`, etc.). When it proposes an edit, a diff card appears in chat with Accept/Reject. Accepting applies the change immediately to the artefact — writing tab refreshes to show new content.
+
+### Edit Suggestions Display
+
+**Q: How should edit suggestions appear in the editor?**
+
+A: **Cursor-style inline diff.** Old text dimmed/struck, new text in green. Accept (⌘Y) / Reject (⌘N) without leaving the editor. Follow-up prompts allowed to modify the suggestion.
+
+### Context for Instructions
+
+**Q: When the user types a Cmd+K instruction, what context should it use?**
+
+A: **Document + writing config + conversation docs + global docs + recent chat context.** Full reference system available: `#doc_1`, `#gdoc_all`, `#folder:`, `#tag:`, `@section:`, `@artefact_N`. Also supports natural language references ("the intro"). System auto-retrieves relevant chat context when instruction seems to reference a discussion.
+
+### @ References
+
+**Q: Should the writing system support @section references?**
+
+A: **Yes.** `@section:Summary` (or `@section:Problem`) resolves by scanning markdown headings h1-h4. Injects that section's content as additional context. Can also scope edits: `@section:Problem` after selection means "edit my selection with section Problem as context." Natural language ("the intro") also works — LLM resolves it.
+
+### AI Panel Persistence
+
+**Q: Should AI results persist across sessions?**
+
+A: **N/A** — no AI panel. Chat history persists naturally (it's a conversation). Standing directives persist on the artefact. Version timeline tracks what was done.
+
+### Editor Inline Edit Initiation
+
+**Q: How should the user initiate an edit from within the editor?**
+
+A: **Both floating toolbar + Cmd+K.** Floating toolbar for common one-click actions (Rewrite, Shorten, Expand, Restyle, Annotate, Freeze). Cmd+K for custom typed instructions. Cursor-style.
+
+### Brief Location
+
+**Q: Where should the Brief live in the UI?**
+
+A: **In the Structure panel as a tab** (alongside Outline, Sources, Versions, Config). Always accessible but not competing with the editor. The LLM always has access to it via writing_config.
+
+### Constraint Violations
+
+**Q: What happens when a constraint is violated?**
+
+A: **Status bar turns red + editor highlights the offending region** (red underline on forbidden term, colored section for over-budget). Clicking the status bar constraint scrolls to the violation. No proactive AI suggestions (that would require an AI panel). User can ask in chat: "fix constraint violations."
+
+### Version Snapshots
+
+**Q: When should version snapshots be created?**
+
+A: **Both auto + agent-triggered.** Auto-save for user manual edits (debounced, after 30s of no typing). Agent-triggered version when an Accept applies a tool-proposed change. Different version types (`user_edit` vs `agent_edit`) in timeline. Each version records intent.
+
+### Opening Writing Studio
+
+**Q: How should "Open Writing Studio" work?**
+
+A: **Button in chat header/toolbar** when a writing-project artefact exists (✍️ icon). Also available in artefact modal ("Open in Studio"). Creates a new tab with `type: "write"`.
+
+### Structure Panel Control
+
+**Q: How much control should the outline give the user?**
+
+A: **Full structural editing (Phase 5 feature)** — drag to reorder, right-click for operations (split, merge, expand, compress, delete), agent auto-adjusts transitions. Start with read-only outline (auto-generated from headings, click to jump) in Phase 1.
+
+### Source Document Integration
+
+**Q: How should sources integrate with the editor?**
+
+A: **Sources listed in panel + hover-to-verify for inline claims.** Sources listed in Structure panel Sources tab. Hover over a sourced claim → tooltip shows source excerpt. Unsourced claims flagged with orange underline. No auto-suggestions while typing (too noisy).
+
+### Accept/Reject Model (Cmd+K)
+
+**Q: For Cmd+K inline edits, which accept/reject model?**
+
+A: **Cursor style (A).** Diff shown inline (green/red lines), ⌘Y accept / ⌘N reject / ⌘R regenerate. Also allows follow-up prompts to modify the edit. Not Zed-style direct replacement.
+
+### Chat "Apply" Behavior
+
+**Q: Should chat tool Apply button show diff for review or directly apply?**
+
+A: **Show diff in a modal (B).** Never apply directly. User clicks "View Diff" on the diff card in chat → modal shows syntax-highlighted unified diff → Accept/Reject/Edit & Retry in the modal.
+
+### Ghost Text
+
+**Q: Should there be ghost text in the writing editor?**
+
+A: **Yes, conservative sentence-completion only (B).** After 3+ seconds pause, at end of paragraph only. Easy to dismiss (keep typing). Aware of writing config (brief + style exemplars) for better alignment — uses surrounding text + brief + exemplars as prompt context.
+
+### Chat Results Styling
+
+**Q: How should agent/tool results appear in chat?**
+
+A: **N/A** — no separate AI panel. Results appear as normal chat messages from the LLM, with diff cards embedded (structured cards with View Diff / Accept / Reject buttons). Feels like a natural conversation where the AI shows its work.
+
+### LLM Editing Autonomy
+
+**Q: Should the LLM autonomously suggest edits or only when asked?**
+
+A: **Only when asked.** The LLM does not proactively propose edits. It uses tools to edit only when the user explicitly requests it. No unsolicited suggestions.
+
+### Editing Tools
+
+**Q: What tools should the chat LLM have for editing artefacts?**
+
+A: **Two paths:**
+- **Primary**: `propose_artefact_edit` — wraps existing `propose_edits` endpoint. Structured ops + diff. Single tool call.
+- **Secondary**: `artefact_terminal` — sandboxed shell on a shadow copy. For complex multi-step edits where structured ops are insufficient.
+
+**Terminal sandbox rules:**
+- Commands must contain the artefact filename, else rejected
+- Blocked: rm, mv, chmod, chown, curl, wget, nc, ssh, scp, rsync, any network command
+- No path traversal (no `..`, realpath must stay within artefacts dir)
+- Edits go to `<filename>.proposed` (shadow copy)
+- After session: diff shown as card in chat → Accept (swap files) / Reject (delete .proposed)
+
+### Cursor/Zed vs. Building
+
+**Q: Should we even build this given Cursor/Zed exist?**
+
+A: **Start with zero-build (two-prompt workflow).** Evaluate after 2 weeks of real usage. Build only if friction signals exceed threshold (>10 events in 2 weeks). If building, start with Option 1 (constraint engine + writing_config + standing directives + chat tools, 2-3 weeks). Full studio (Option 2) only when spatial/inline/source/iteration needs emerge from actual usage.
+
+**What Cursor can't do** (justification for eventual build):
+- Persistent per-document writing config
+- Deterministic constraint checking (no LLM tokens)
+- Standing directives (remembered across sessions)
+- Source/citation tracking and fact-checking
+- Integrated with our chat/PKB/conversation docs ecosystem
+- Version timeline with editorial intent
