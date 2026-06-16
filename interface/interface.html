@@ -1850,6 +1850,20 @@
           cursor: pointer;
           margin-right: 8px;
         }
+        /* Response Diffing (compare-manager) */
+        .compare-diff-add {
+          background: rgba(25, 135, 84, 0.15);
+          text-decoration: none;
+        }
+        .compare-diff-remove {
+          background: rgba(220, 53, 69, 0.15);
+          text-decoration: line-through;
+        }
+        .compare-diff-container {
+          white-space: pre-wrap;
+          word-wrap: break-word;
+          line-height: 1.7;
+        }
       </style>
       <div class="modal-dialog modal-xl">
         <div class="modal-content">
@@ -5032,6 +5046,7 @@ greet("World");</code></pre>
     <script src="interface/script-manager.js"></script>
     <script src="interface/image-gen-manager.js?v=1"></script>
     <script src="interface/cross-conversation-search.js?v=1"></script>
+    <script src="interface/compare-manager.js"></script>
     <script src="interface/file-browser-manager.js?v=27"></script>
 
     <!-- Desktop (Electron) Bridge Integration -->

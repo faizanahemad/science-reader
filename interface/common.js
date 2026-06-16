@@ -1953,6 +1953,36 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
         });
         
         voteDropdown.append($('<div class="dropdown-divider"></div>'), editItem, editAsArtefactItem, saveToMemoryItem);
+
+        // "Compare with…" item — only for assistant messages
+        if (!disable_voting) {
+            var compareItem = $('<a class="dropdown-item" href="#"><i class="bi bi-arrow-left-right mr-2"></i>Compare with\u2026</a>');
+            compareItem.click(function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                try {
+                    var $dropdown = $(this).closest('.dropdown');
+                    if ($dropdown.length > 0) $dropdown.find('[data-toggle="dropdown"]').dropdown('hide');
+                } catch (err) { /* ignore */ }
+                var messageId = cardElem.find('.card-header').last().attr('message-id');
+                if (!messageId || messageId === 'undefined') {
+                    showToast('Message is still loading. Try again once the response finishes.', 'warning');
+                    return;
+                }
+                if (typeof CompareManager === 'undefined') {
+                    showToast('Compare manager is not available', 'error');
+                    return;
+                }
+                // Fetch persisted text to avoid stale closure after edits
+                var convId = ConversationManager.activeConversationId;
+                $.get('/get_message_text/' + convId + '/' + messageId, function(data) {
+                    CompareManager.open(convId, messageId, data.text || text);
+                }).fail(function() {
+                    CompareManager.open(convId, messageId, text);
+                });
+            });
+            voteDropdown.append($('<div class="dropdown-divider"></div>'), compareItem);
+        }
         
     } else {
         // Fallback to old vote box if dropdown not found

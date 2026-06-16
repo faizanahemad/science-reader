@@ -51,6 +51,7 @@ def register_blueprints(app: Flask) -> None:
     from .doc_folders import doc_folders_bp
     from .image_gen import image_gen_bp
     from .slash_commands import slash_commands_bp
+    from .compare import compare_bp
     # OpenCode terminal (WebSocket-based PTY)
     try:
         from .terminal import terminal_bp, sock as terminal_sock
@@ -82,3 +83,4 @@ def register_blueprints(app: Flask) -> None:
     app.register_blueprint(doc_folders_bp)
     app.register_blueprint(image_gen_bp)
     app.register_blueprint(slash_commands_bp)
+    app.register_blueprint(compare_bp)
