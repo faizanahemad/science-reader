@@ -1864,6 +1864,13 @@
           word-wrap: break-word;
           line-height: 1.7;
         }
+        .compare-pane { width: 50%; }
+        @media (max-width: 767px) {
+          #compare-side-by-side { flex-direction: column !important; overflow-y: auto !important; height: 100% !important; }
+          .compare-pane { width: 100% !important; border-right: none !important; border-bottom: 1px solid #dee2e6; flex: none !important; }
+          .compare-pane-header { user-select: none; }
+          #compare-left-pane, #compare-right-pane { max-height: 70vh; overflow-y: auto; }
+        }
       </style>
       <div class="modal-dialog modal-xl">
         <div class="modal-content">

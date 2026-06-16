@@ -51,7 +51,7 @@ var CompareManager = (function () {
         const html = `
         <div id="compare-modal" class="modal fade" tabindex="-1" aria-hidden="true" style="z-index:1086;">
             <div class="modal-dialog modal-xl modal-dialog-scrollable" style="max-width:95vw;">
-                <div class="modal-content" style="height:85vh;">
+                <div class="modal-content" style="height:90vh;">
                     <div class="modal-header py-2">
                         <h6 class="modal-title mb-0"><i class="bi bi-arrow-left-right mr-1"></i>Response Comparison</h6>
                         <button type="button" class="close" data-dismiss="modal">&times;</button>
@@ -78,20 +78,24 @@ var CompareManager = (function () {
                             <span id="compare-status" class="small text-muted ml-2"></span>
                         </div>
                         <!-- Content area -->
-                        <div id="compare-content" class="flex-grow-1 d-flex" style="overflow:hidden;">
-                            <!-- Side by side view -->
-                            <div id="compare-side-by-side" class="w-100" style="display:flex;overflow:hidden;">
-                                <div class="w-50 border-right d-flex flex-column" style="overflow:hidden;">
-                                    <div class="px-2 py-1 bg-light border-bottom small font-weight-bold">Original <span id="compare-original-model" class="text-muted font-weight-normal"></span></div>
+                        <div id="compare-content" class="flex-grow-1" style="overflow:hidden;position:relative;">
+                            <!-- Side by side view (flex on desktop, stacked accordion on mobile) -->
+                            <div id="compare-side-by-side" class="w-100 h-100" style="display:flex;overflow:hidden;">
+                                <div class="compare-pane border-right d-flex flex-column" style="overflow:hidden;">
+                                    <div class="compare-pane-header px-2 py-1 bg-light border-bottom small font-weight-bold" data-target="compare-left-pane" style="cursor:pointer;">
+                                        ▾ Original <span id="compare-original-model" class="text-muted font-weight-normal"></span>
+                                    </div>
                                     <div id="compare-left-pane" class="flex-grow-1 p-3" style="overflow-y:auto;font-size:0.9rem;"></div>
                                 </div>
-                                <div class="w-50 d-flex flex-column" style="overflow:hidden;">
-                                    <div class="px-2 py-1 bg-light border-bottom small font-weight-bold">New <span id="compare-new-model" class="text-muted font-weight-normal"></span></div>
+                                <div class="compare-pane d-flex flex-column" style="overflow:hidden;">
+                                    <div class="compare-pane-header px-2 py-1 bg-light border-bottom small font-weight-bold" data-target="compare-right-pane" style="cursor:pointer;">
+                                        ▾ New <span id="compare-new-model" class="text-muted font-weight-normal"></span>
+                                    </div>
                                     <div id="compare-right-pane" class="flex-grow-1 p-3" style="overflow-y:auto;font-size:0.9rem;"></div>
                                 </div>
                             </div>
                             <!-- Diff view (hidden by default) -->
-                            <div id="compare-diff-view" class="w-100 p-3" style="overflow-y:auto;font-size:0.9rem;display:none;"></div>
+                            <div id="compare-diff-view" class="w-100 p-3" style="overflow-y:auto;font-size:0.9rem;display:none;position:absolute;top:0;bottom:0;left:0;right:0;"></div>
                         </div>
                     </div>
                 </div>
@@ -104,6 +108,20 @@ var CompareManager = (function () {
     function bindModalEvents() {
         $('#compare-temp-slider').on('input', function () {
             $('#compare-temp-value').text($(this).val());
+        });
+
+        // Accordion toggle for mobile — clicking pane header collapses/expands pane body
+        $(document).on('click', '.compare-pane-header', function () {
+            if (window.innerWidth >= 768) return; // only on mobile
+            var $pane = $(this).closest('.compare-pane');
+            var $body = $pane.find('#compare-left-pane, #compare-right-pane');
+            if ($body.is(':visible')) {
+                $body.slideUp(200);
+                $(this).html($(this).html().replace('▾', '▸'));
+            } else {
+                $body.slideDown(200);
+                $(this).html($(this).html().replace('▸', '▾'));
+            }
         });
 
         // View toggle — use document-level delegation to guarantee it fires
