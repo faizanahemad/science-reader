@@ -349,35 +349,133 @@ CREATE TABLE writing_source_links (
 
 ## Multi-Tab Integration
 
-### How Writing Studio Opens
+### Decision: Writing Studio as a Tab Pane (iframe)
+
+The writing studio opens as a **tab beside the chat** in the existing `feat/multi-conversation-tabs` tab bar — not as a full-page navigation. This lets users flip between chat (for discussing the document, uploading PDFs, asking questions) and the writing studio (for editing), sharing the same conversation context.
 
 ```
-Sidebar interaction:
-├── Normal click on writing-project conversation:
-│   → If current tab, replace with writing studio (full page navigation to /write/<id>)
-│   → Or: load writing studio SPA into the chat pane (iframe or dynamic import)
-│
-├── Ctrl+click on writing-project conversation:
-│   → Open new tab with type: "write"
-│   → TabManager.tabs.push({conversationId, title, type: "write"})
-│
-└── Context menu → "Open in New Tab":
-    → Same as Ctrl+click
-
-Tab rendering:
-├── type: undefined/null → render chat view (existing behavior)
-└── type: "write" → render writing studio (iframe to /write/<artefact_id> or SPA mount)
+┌──────────────────────────────────────────────────────────────┐
+│ [💬 Chat: Q3 Strategy] [✍️ Write: One-Pager]  [+]           │  ← tab bar
+├──────────────────────────────────────────────────────────────┤
+│                                                              │
+│   Active pane content (chat or writing studio)               │
+│                                                              │
+└──────────────────────────────────────────────────────────────┘
 ```
 
-### Iframe vs. SPA Mount
+### Why Tab Pane Over Full-Page Navigation
 
-| Approach | Pros | Cons |
-|----------|------|------|
-| **iframe** to `/write/<id>` | Complete isolation, own JS context, can't conflict with main app | Cross-frame communication awkward, no shared auth state without postMessage, heavier |
-| **Dynamic import** of Svelte bundle | Lighter, shares auth token, can communicate with TabManager directly | Must avoid global CSS conflicts (use scoped styles or shadow DOM), bundle loaded into main page context |
-| **Full page navigation** | Simplest. Back button returns to chat. No integration complexity | Loses multi-tab context, can't see chat + writing side by side |
+| Concern | Full-page nav | Tab pane (iframe) |
+|---------|---------------|-------------------|
+| Chat + writing side-by-side switching | ❌ Must navigate between pages | ✅ Instant tab flip |
+| Upload PDF mid-writing | ❌ Leave writing studio, upload, come back | ✅ Switch to chat tab, upload, switch back |
+| Chat context while editing | ❌ Lost | ✅ One click away, same conversation |
+| Stream response in background | ❌ Not possible | ✅ Chat tab streams while you write |
+| Isolation from jQuery app | ✅ Total | ✅ iframe = total isolation |
+| Implementation complexity | Simple route | iframe in pane div (trivial) |
 
-**Recommendation**: Start with **full page navigation** (`window.location = /write/<id>`). The writing studio is a full-screen experience anyway. If multi-tab coexistence proves important, migrate to iframe later. The Svelte app is already self-contained — either serving model works without code changes.
+### How It Works (TabManager Extension)
+
+The `feat/multi-conversation-tabs` branch already has:
+- `TabManager.tabs = [{conversationId, title}]` — max 5 tabs
+- `_createPane(conversationId)` creates a `<div id="chatView-{conversationId}">` inside `#chatView-container`
+- Focus toggles `.active` class on panes (CSS show/hide, no re-render)
+- Persistence to localStorage
+
+Extension needed:
+
+```js
+// Tab entry gains optional type + artefactId
+// tabs: [{conversationId, title, type?, artefactId?}]
+
+TabManager.openWritingTab = function(conversationId, artefactId, title) {
+    var tabId = conversationId + '-write';
+    if (this.hasTab(tabId)) { this.focusTab(tabId); return; }
+    if (this.tabs.length >= MAX_TABS) { showToast('Max tabs reached', 'warning'); return; }
+    this.tabs.push({ conversationId: tabId, title: '✍️ ' + (title || 'Writing'), type: 'write', artefactId: artefactId, parentConvId: conversationId });
+    this.focusTab(tabId);
+    this.persist();
+};
+
+// In _createPane, check type:
+_createPane: function(conversationId) {
+    var tab = this.getTab(conversationId);
+    var $container = $('#chatView-container');
+    var $pane = $('<div>').attr('id', 'chatView-' + conversationId)
+        .addClass('chatView-pane row flex-grow-1 overflow-hidden');
+    
+    if (tab && tab.type === 'write') {
+        // Load Svelte writing studio in iframe (complete isolation)
+        var $iframe = $('<iframe>')
+            .attr('src', '/write/' + tab.artefactId + '?embedded=true&conversation_id=' + tab.parentConvId)
+            .css({ width: '100%', height: '100%', border: 'none' });
+        $pane.append($iframe);
+    }
+    
+    $container.append($pane);
+    return $pane;
+}
+```
+
+### Writing Studio `?embedded=true` Mode
+
+The Svelte SPA at `/write/<artefact_id>` accepts query params:
+- `?embedded=true` — hides any top-level navigation chrome (no header, no back button) since the tab bar handles navigation
+- `&conversation_id=<id>` — tells the AI panel which conversation to send messages to
+
+The SPA is identical whether accessed standalone (`/write/<id>`) or embedded in a tab. The `embedded` flag only removes redundant chrome.
+
+### User Flows with Tabs
+
+```
+Flow A: Open writing studio from chat
+─────────────────────────────────────
+1. User is chatting about a document
+2. Opens artefact modal → clicks "Open in Writing Studio"
+3. New tab appears: [✍️ Write: <name>] next to [💬 Chat: <conv>]
+4. Writing studio loads in the new tab pane (iframe)
+5. User can flip between tabs instantly
+
+Flow B: Open writing project from sidebar  
+───────────────────────────────────────────
+1. Conversation marked is_writing_project in sidebar (document icon)
+2. Normal click → opens chat tab as usual
+3. "Open Writing Studio" button in chat header → opens writing tab
+4. Or: Ctrl+click → opens writing tab directly
+
+Flow C: Working across both tabs
+────────────────────────────────
+1. User is in writing tab, needs to upload a source PDF
+2. Clicks chat tab → uploads PDF via paperclip/docs modal
+3. Clicks writing tab → source panel now shows the new doc
+4. (Source panel calls GET /get_docs_list/<conversation_id> which includes the just-uploaded doc)
+
+Flow D: Chat streams while writing
+───────────────────────────────────
+1. User sends a research question in chat tab
+2. Switches to writing tab while LLM streams response
+3. TabManager.streamControllers keeps the stream alive in background
+4. When user switches back to chat tab, full response is rendered
+```
+
+### Communication Between Tabs and Writing Studio
+
+Since the writing studio is in an iframe:
+- **Auth**: shares session cookie (same domain) — no extra auth needed
+- **Conversation ID**: passed via URL param
+- **Events from main app → iframe**: `postMessage` for tab-focus/blur notifications (optional, for pausing animations)
+- **Events from iframe → main app**: `postMessage` for "open chat tab" requests (e.g., "Upload a doc" button in source panel)
+
+Minimal postMessage API:
+```js
+// From main app to iframe:
+{ type: 'tab-focused' }   // writing tab gained focus
+{ type: 'tab-blurred' }   // writing tab lost focus
+
+// From iframe to main app:
+{ type: 'switch-to-chat' }        // user wants chat tab
+{ type: 'update-title', title }   // artefact renamed
+```
 
 ## Implementation Phases
 
@@ -438,10 +536,12 @@ Tab rendering:
 
 ### Phase 6: Multi-Tab Integration (1 week)
 
-- [ ] `type: "write"` support in TabManager
-- [ ] Full page navigation to `/write/<id>` from sidebar
-- [ ] Back-to-chat navigation from writing studio
-- [ ] Tab title sync with artefact name
+- [ ] Extend `TabManager` with `openWritingTab()` and `type: "write"` pane creation (iframe)
+- [ ] `?embedded=true` mode in Svelte SPA (hide redundant chrome)
+- [ ] "Open in Writing Studio" button in chat header / artefact modal → opens writing tab
+- [ ] `postMessage` bridge: `switch-to-chat`, `update-title`, `tab-focused`/`tab-blurred`
+- [ ] Tab title sync with artefact name (via postMessage from iframe)
+- [ ] Source panel refresh on tab focus (picks up docs uploaded in chat tab)
 
 **Total: ~11 weeks (~3 months)**
 
