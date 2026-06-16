@@ -7356,6 +7356,15 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 # No config but mode is manual — enable all
                 enabled_names = [t.name for t in TOOL_REGISTRY.get_all_tools()]
 
+        # Auto-include artefact tools if conversation has artefacts
+        try:
+            if self.list_artefacts():
+                for name in ("read_artefact", "propose_artefact_edit", "create_or_delete_artefact", "artefacts_list"):
+                    if name not in enabled_names:
+                        enabled_names.append(name)
+        except Exception:
+            pass
+
         if not enabled_names:
             logger.warning("[_get_enabled_tools] No enabled tool names found")
             return None
