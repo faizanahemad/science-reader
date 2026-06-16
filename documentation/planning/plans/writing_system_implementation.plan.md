@@ -1084,3 +1084,201 @@ A: **Start with zero-build (two-prompt workflow).** Evaluate after 2 weeks of re
 - Source/citation tracking and fact-checking
 - Integrated with our chat/PKB/conversation docs ecosystem
 - Version timeline with editorial intent
+
+---
+
+## Requirement: Preview Mode + Edit-in-Preview
+
+### Need
+
+The writing editor must support:
+1. **Live preview** — rendered markdown alongside or instead of raw source (like our file browser's Raw/Preview/WYSIWYG toggle)
+2. **Edit in preview mode** — click on rendered text to edit it inline (WYSIWYG), not just in raw markdown
+
+### How Our System Already Does This
+
+- File Browser: `.md` files have a **Raw / Preview / WYSIWYG** selector. WYSIWYG uses EasyMDE. CodeMirror is source of truth.
+- Artefact modal: Code tab (raw) + Preview tab (rendered markdown)
+- Message edit modal: edit raw text, preview rendered below
+
+### Is Edit-in-Preview Possible with ProseMirror?
+
+**Yes — ProseMirror is designed for this.** Unlike CodeMirror (code editor), ProseMirror is a rich-text/structured-content editor. It can render markdown as formatted rich text (headings, bold, lists, links) while still being editable. This is its primary use case.
+
+Options:
+- **ProseMirror with prosemirror-markdown** — parse markdown → ProseMirror doc → edit rich text → serialize back to markdown. Users edit in what looks like rendered markdown. This is how Notion, Outline, and many markdown editors work.
+- **Split view** — raw markdown on left, live preview on right (synced). Edit in either.
+- **Toggle** — switch between raw (CodeMirror) and WYSIWYG (ProseMirror). Source of truth is the markdown string.
+
+**Recommendation**: ProseMirror in WYSIWYG mode as default (edit rendered markdown directly). Toggle to raw mode for users who want source control. This is superior to our current EasyMDE approach (EasyMDE is limited; ProseMirror is production-grade).
+
+---
+
+## Alternative: Folder-Based Workflow with External Agentic Tools
+
+### The Idea
+
+Instead of building a custom writing studio, create a **folder convention** that any agentic tool (Claude Code, Cursor, Kiro, Aider) can understand:
+
+```
+writing-projects/
+└── q3-strategy-one-pager/
+    ├── agents.md           ← instructions for the AI agent (workflow, orchestration)
+    ├── guidelines.md       ← style guide, tone, checks, constraints, exemplars
+    ├── brief.md            ← document objective, audience, key messages
+    ├── output.md           ← the actual document being written
+    ├── supporting_docs/
+    │   ├── q2_revenue.pdf
+    │   ├── competitor_analysis.md
+    │   └── vp_feedback.txt
+    └── .writing_config.json  ← machine-readable constraints (word count, required sections)
+```
+
+### `agents.md` Content
+
+```markdown
+# Writing Agent Instructions
+
+## Your Role
+You are a writing assistant helping produce `output.md` based on the brief, 
+guidelines, and supporting documents in this folder.
+
+## Workflow (Multi-Pass)
+
+### Pass 0: Setup (only if guidelines.md is incomplete)
+1. Read brief.md to understand the document objective
+2. If guidelines.md is missing or has TODO markers:
+   - Ask the user about their writing style preferences
+   - Ask about tone, audience expectations, formatting conventions
+   - Ask about do's and don'ts
+   - Update guidelines.md with their answers
+3. If guidelines.md exists and is complete, proceed to Pass 1
+
+### Pass 1: Structure
+1. Read brief.md (objective, audience, key messages)
+2. Read guidelines.md (style, tone, constraints)
+3. Read supporting_docs/ for data and evidence
+4. Generate an outline in output.md with section headings + bullet points per section
+5. Ask user to review/approve structure before proceeding
+
+### Pass 2: Draft
+1. Fill each section with prose following guidelines.md
+2. Cite supporting_docs where relevant
+3. Respect constraints in .writing_config.json (word limits, required sections)
+
+### Pass 3: Verify
+1. Check output.md against every rule in guidelines.md
+2. Check against .writing_config.json constraints:
+   - Word count within limits?
+   - All required sections present?
+   - No forbidden terms?
+   - Reading level appropriate?
+3. List all violations with line numbers
+4. Propose fixes for each violation
+
+### Pass 4: Revise
+1. Apply fixes from Pass 3 (show diff, get approval)
+2. Re-run Pass 3 to confirm all violations resolved
+3. If clean, declare done
+
+## Standing Directives
+- Read this section before every edit. These are user decisions that must be respected.
+- [Directives added here during the writing process]
+
+## Rules
+- Never edit guidelines.md without user permission
+- Never delete content from supporting_docs/
+- Always show diffs before applying changes to output.md
+- Ask clarifying questions rather than guessing intent
+- Maximum 5 passes. If not converging, ask user for guidance.
+```
+
+### `guidelines.md` Template
+
+```markdown
+# Writing Guidelines
+
+## Style & Tone
+- [Voice description or "TODO: ask user"]
+- [Exemplar paragraphs or "TODO: ask user for 2-3 sample paragraphs"]
+
+## Audience
+- Primary: [e.g., VP-level, 2-minute reader]
+- Secondary: [e.g., Engineering lead, 10-minute reader]
+
+## Format
+- Genre: [e.g., Business one-pager, Technical RFC, Blog post]
+- Structure: [e.g., Summary → Problem → Proposal → Risks → Ask]
+
+## Constraints
+- Max words: [e.g., 1500]
+- Reading level: [e.g., Grade 10]
+- Required sections: [list]
+- Forbidden terms: [list]
+
+## Do's
+- [e.g., Lead with data, use active voice, cite sources]
+
+## Don'ts
+- [e.g., No hedge words, no passive voice in claims, no jargon without definition]
+
+## Checks (run after every draft)
+- [ ] Word count within limit
+- [ ] All required sections present
+- [ ] No forbidden terms
+- [ ] Every claim has a source or is marked as opinion
+- [ ] Tone matches exemplars
+- [ ] BLUF in first 2 sentences
+```
+
+### Will This Work with External Agentic Tools?
+
+| Tool | Can it do this? | Limitations |
+|------|----------------|-------------|
+| **Claude Code (Kiro CLI)** | ✅ Yes. Reads all files, follows agents.md, multi-pass with user confirmation, shows diffs. | No live preview/WYSIWYG. Terminal-only. No constraint dashboard. Must trust agent to self-check. |
+| **Cursor (Composer mode)** | ✅ Yes. Reads project files, @file references, multi-file edits with diffs. Can follow agents.md. | No autonomous multi-pass (user must prompt each pass). No deterministic constraint engine. No preview in-editor for .md. |
+| **Cursor (Cmd+K)** | ⚠️ Partial. Per-edit only. Can reference guidelines.md via @file. | No multi-pass orchestration. Single edit at a time. |
+| **Aider** | ✅ Yes. Reads repo, follows instructions, shows diffs, multi-file edits. | CLI-only. No preview. No interactive approval per-hunk. |
+| **Windsurf** | ✅ Yes. Similar to Cursor Composer. | Same limitations as Cursor. |
+
+### Honest Assessment: Are External Tools Fully At Par?
+
+**What they DO give you (for free):**
+- ✅ Multi-file awareness (agents.md + guidelines.md + output.md + supporting_docs)
+- ✅ Diff-based editing with accept/reject
+- ✅ Cmd+K inline edits
+- ✅ Agent can read guidelines and follow them
+- ✅ Terminal access for verification scripts
+- ✅ Git versioning
+
+**What they DON'T give you:**
+
+| Gap | Impact |
+|-----|--------|
+| **No deterministic constraint engine** | Agent "checks" constraints by asking the LLM. LLM can miss word count by 50 or overlook a forbidden term. Not reliable for hard rules. |
+| **No persistent standing directives that survive context loss** | Claude Code/Cursor context windows fill up. After 50+ messages, earlier "don't touch section X" is lost. agents.md helps but isn't actively enforced. |
+| **No live constraint dashboard** | You don't know you're over word count until you ask. No real-time status bar. |
+| **No structured version timeline with intent** | Git gives you what changed but not why. No "this was a style pass" vs "this was a reduction pass" metadata. |
+| **No audience simulation** | Must manually prompt "read as a VP." No saved audience profiles. |
+| **No source-claim linking** | Agent can read supporting_docs but doesn't track which claims are sourced. No "unsourced claims" flagging. |
+| **No rendered preview with inline editing** | All tools show raw markdown. No WYSIWYG. For business users who think in formatted text, this is a friction point. |
+| **No integration with our PKB/chat/conversation docs** | Supporting docs must be manually placed in the folder. No access to globally uploaded docs, PKB claims, or prior chat context about this project. |
+
+### Verdict
+
+**The folder-based approach with external tools is 70-80% as good as the full custom solution.** The missing 20-30% is:
+- Deterministic constraints (reliable, instant, free)
+- Persistent memory that doesn't degrade with context length
+- Live preview/WYSIWYG editing
+- Integration with our existing ecosystem (PKB, conversation docs, chat history)
+
+**For a solo writer who's comfortable in terminal/Cursor**: the folder approach is probably sufficient. The `agents.md` file is the orchestrator.
+
+**For a system that must be reliable** (constraints always enforced, no LLM hallucination on word count) **or integrated** (needs PKB claims, conversation docs, chat context): build Option 1 minimum.
+
+### Recommendation
+
+1. **Start today**: Create the folder structure + `agents.md` + `guidelines.md` template. Use with Claude Code or Cursor.
+2. **Track friction**: Use the friction log from the evaluation framework above.
+3. **Build Option 1 when**: Constraint checking fails you (LLM misses violations) or context loss causes repeated "I told you not to change X" frustration.
+4. **Build full studio when**: You need preview/WYSIWYG, or non-technical users need to use the system, or you're producing high volume (3+ docs/week).
