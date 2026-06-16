@@ -1282,3 +1282,143 @@ guidelines, and supporting documents in this folder.
 2. **Track friction**: Use the friction log from the evaluation framework above.
 3. **Build Option 1 when**: Constraint checking fails you (LLM misses violations) or context loss causes repeated "I told you not to change X" frustration.
 4. **Build full studio when**: You need preview/WYSIWYG, or non-technical users need to use the system, or you're producing high volume (3+ docs/week).
+
+---
+
+## Final Decision: Folder-Based Convention (No Custom Build)
+
+### Conclusion
+
+After analyzing all gaps, every limitation of the folder-based approach has a solution within existing agentic tooling:
+
+| Original gap | Solution |
+|---|---|
+| Context window exhaustion | `worklog.md` + `learnings.md` as running files. Agent re-reads on each pass. |
+| Persistent directives | `directives.md` (re-read before every edit). Cursor slash commands for enforcement. |
+| No PKB/chat history integration | PKB exposed as MCP server. Agent queries it directly. |
+| Manual orchestration | agents.md instructs "complete all passes." One prompt triggers full workflow. |
+| No audience simulation | Slash command: `/simulate-reader` → expands to structured prompt. |
+| Folder management overhead | Template folder copied per project. Keeps flexibility, prevents rigidity. |
+| No deterministic constraints | `check.py` script in folder. Agent runs via terminal. Reliable, instant. |
+| WYSIWYG / preview | Cursor/VS Code split preview pane. |
+| Per-hunk diff accept/reject | Cursor has this natively. |
+| Live constraint status bar | File watcher script or VS Code extension updating `constraints_status.md`. Nice-to-have. |
+
+### Why Not Build
+
+The custom tool's only advantage is **integrated UX polish for non-technical users**. For a technical user comfortable with agentic tools:
+
+1. **Flexibility** — folder convention grows with every LLM improvement. Custom tool stays static until you update code.
+2. **Zero maintenance** — no bugs, no dependency upgrades, no frontend framework churn.
+3. **Tool-agnostic** — works with Claude Code today, whatever tool is best next year.
+4. **Customizable per project** — edit any `.md` file. No UI limitations.
+5. **Evolvable** — as agentic orchestration improves (better multi-pass, better tool use), the folder approach automatically benefits.
+
+### When to Reconsider Building
+
+Only build the custom writing studio if:
+- [ ] Non-technical users need to use the system (need polished UI)
+- [ ] You need real-time collaborative writing (multiple authors, live sync)
+- [ ] PKB MCP integration proves insufficient (structured source-claim linking needed beyond what MCP queries provide)
+- [ ] Volume exceeds what folder management can handle (10+ concurrent writing projects)
+
+### The Complete Folder Convention
+
+```
+writing-projects/
+└── <project-name>/
+    ├── agents.md              ← orchestration (multi-pass workflow, rules, automation)
+    ├── guidelines.md          ← style, tone, audience, do's/don'ts, exemplars
+    ├── brief.md               ← objective, key messages, data to include
+    ├── directives.md          ← standing editorial decisions (re-read before every edit)
+    ├── output.md              ← the document being written
+    ├── worklog.md             ← running log of actions taken, decisions made
+    ├── learnings.md           ← accumulated insights about this doc/style
+    ├── check.py               ← deterministic constraint checker (run via terminal)
+    ├── constraints_status.md  ← auto-updated by check.py or file watcher
+    └── supporting_docs/
+        ├── *.pdf, *.md, *.txt
+        └── (source materials)
+```
+
+### `check.py` (Deterministic Constraints)
+
+```python
+#!/usr/bin/env python3
+"""Run: python check.py output.md — prints constraint status."""
+import sys, re, json
+
+def check(filepath):
+    with open(filepath) as f:
+        content = f.read()
+    
+    words = content.split()
+    word_count = len(words)
+    
+    # Load config
+    config = {}
+    try:
+        with open('.writing_config.json') as f:
+            config = json.load(f)
+    except FileNotFoundError:
+        config = {"max_words": 1500, "forbidden_terms": [], "required_sections": []}
+    
+    results = []
+    
+    # Word count
+    max_w = config.get("max_words", 1500)
+    status = "✅" if word_count <= max_w else "❌"
+    results.append(f"{status} Words: {word_count} / {max_w}")
+    
+    # Forbidden terms
+    forbidden = config.get("forbidden_terms", [])
+    for term in forbidden:
+        matches = [(i+1, line) for i, line in enumerate(content.splitlines()) if term.lower() in line.lower()]
+        if matches:
+            results.append(f"❌ Forbidden term '{term}' at line(s): {[m[0] for m in matches]}")
+    if not any("Forbidden" in r for r in results):
+        results.append("✅ No forbidden terms")
+    
+    # Required sections
+    headings = re.findall(r'^#{1,4}\s+(.+)', content, re.MULTILINE)
+    required = config.get("required_sections", [])
+    for section in required:
+        found = any(section.lower() in h.lower() for h in headings)
+        status = "✅" if found else "❌"
+        results.append(f"{status} Section '{section}': {'present' if found else 'MISSING'}")
+    
+    # Hedge words
+    hedge_words = ["might", "perhaps", "arguably", "somewhat", "possibly", "maybe"]
+    hedge_count = sum(content.lower().count(w) for w in hedge_words)
+    hedge_pct = (hedge_count / max(word_count, 1)) * 100
+    status = "✅" if hedge_pct <= 3 else "⚠️"
+    results.append(f"{status} Hedge words: {hedge_pct:.1f}% ({hedge_count} occurrences)")
+    
+    print("\n".join(results))
+    
+    # Write to status file
+    with open("constraints_status.md", "w") as f:
+        f.write("# Constraint Status\n\n" + "\n".join(results) + "\n")
+
+if __name__ == "__main__":
+    check(sys.argv[1] if len(sys.argv) > 1 else "output.md")
+```
+
+### Slash Commands (for Cursor/Agentic Tools)
+
+```
+/verify        → "Run python check.py output.md and report results. If violations found, propose fixes."
+/simulate-reader → "Read output.md as the audience described in guidelines.md. Report: key takeaway, what confused you, questions you'd ask, verdict."
+/style-check   → "Compare output.md tone against the exemplars in guidelines.md. Flag any paragraphs that drift from the target voice."
+/full-pass     → "Execute the complete workflow from agents.md (Pass 1-4). Stop only if you need clarification."
+```
+
+### Migration Path
+
+If this approach proves insufficient later:
+1. The folder structure maps directly to `writing_config` (brief.md → brief field, guidelines.md → guidelines + exemplars, directives.md → standing directives)
+2. `check.py` logic maps directly to `ConstraintEngine`
+3. `agents.md` workflow maps to `WritingOrchestrator`
+4. Supporting docs map to conversation docs
+
+Nothing is wasted. The folder convention is the spec for a custom tool, expressed as text files instead of code.
