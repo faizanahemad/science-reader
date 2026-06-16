@@ -1841,6 +1841,11 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
         // Clear existing content
         voteDropdown.empty();
         
+        // Word count info item
+        var wordCount = text ? text.trim().split(/\s+/).filter(Boolean).length : 0;
+        var wcItem = $('<span class="dropdown-item-text text-muted" style="font-size:0.7rem;padding:2px 12px;">' + wordCount.toLocaleString() + ' words</span>');
+        voteDropdown.append(wcItem);
+        
         // Add TTS buttons as dropdown items
         let shortTtsItem = $('<a class="dropdown-item" href="#"><i class="bi bi-volume-up mr-2"></i>Short TTS</a>');
         let ttsItem = $('<a class="dropdown-item" href="#"><i class="bi bi-music-note mr-2"></i>Full TTS</a>');
