@@ -530,14 +530,15 @@ def docs_autocomplete():
 
     results = []
 
-    # --- Conversation (local) documents ---
+    # --- Conversation (local) documents (reverse: most recently added first) ---
     if conversation_id and conversation_id in state.conversation_cache:
         try:
             conversation = attach_keys(
                 state.conversation_cache[conversation_id], keys
             )
             doc_list = conversation.get_field("uploaded_documents_list") or []
-            for idx, entry in enumerate(doc_list):
+            for idx in range(len(doc_list) - 1, -1, -1):
+                entry = doc_list[idx]
                 doc_id = entry[0]
                 doc_storage = entry[1]
                 display_name = entry[3] if len(entry) > 3 and entry[3] else ""

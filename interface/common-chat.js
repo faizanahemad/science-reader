@@ -4193,7 +4193,10 @@ function initializeChatControlsToggleHandler() {
                   + '&prefix=' + encodeURIComponent(prefix);
         $.getJSON(url, function(resp) {
             var items = refType === 'folder' ? (resp.folders || []) : (resp.tags || []);
-            if (!items.length) { hideAutocomplete(); return; }
+            if (!items.length) {
+                showHashAutocompleteEmpty(refType, textarea);
+                return;
+            }
             showHashAutocompleteDropdown(items, refType, prefix, textarea);
         }).fail(function() { hideAutocomplete(); });
     }
@@ -4206,6 +4209,22 @@ function initializeChatControlsToggleHandler() {
      * @param {string} prefix - text typed after the colon
      * @param {HTMLElement} textarea - the chat textarea
      */
+    function showHashAutocompleteEmpty(refType, textarea) {
+        hideAutocomplete();
+        var label = refType === 'folder' ? 'No folders' : 'No tags';
+        var $dropdown = $('<div class="autocomplete-dropdown"></div>')
+            .css({ position: 'absolute', zIndex: 9999, background: '#fff',
+                   border: '1px solid #ccc', borderRadius: '4px', padding: '8px 12px',
+                   minWidth: '200px', color: '#6c757d', fontSize: '13px' })
+            .text(label + ' found. Create them in Global Docs settings.');
+        var $textarea = $(textarea);
+        var offset = $textarea.offset();
+        $dropdown.css({ left: offset.left, top: offset.top - 44 });
+        $('body').append($dropdown);
+        autocompleteState.hashDropdown = $dropdown;
+        setTimeout(function() { $dropdown.remove(); autocompleteState.hashDropdown = null; }, 3000);
+    }
+
     function showHashAutocompleteDropdown(items, refType, prefix, textarea) {
         hideAutocomplete();
         var label = refType === 'folder' ? 'Folders' : 'Tags';
