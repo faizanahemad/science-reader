@@ -730,3 +730,200 @@ Minimal postMessage API:
 | Writing config schema evolving | Store as JSON blob in SQLite. Validate on read with Pydantic. Backwards-compatible by design. |
 | Pipeline timeouts for long docs | SSE with heartbeat. Client reconnects. Server-side timeout per agent (60s). |
 | Large documents in ProseMirror | ProseMirror handles docs up to ~100K chars well. For longer: paginate by section. |
+
+## Build vs. Don't Build: Evaluation Framework
+
+### Option 0: Zero-Build (Two-Prompt Workflow)
+
+Use existing tools (Cursor/Zed, or our own chat with `PromptWorkflowAgent`) with two well-crafted prompts. No new code.
+
+#### Prompt 1: Style-Aware Writer
+
+```markdown
+You are writing a document for me. Follow these rules strictly:
+
+## My Writing Style
+- [2-3 paragraphs of exemplar text in target voice]
+- Tone: [e.g., confident, data-driven, concise, no hedge words]
+- Audience: [e.g., VP-level, 2-minute reader, expects BLUF]
+- Format: [e.g., Amazon 6-pager structure: Summary → Problem → Proposal → Risks → Ask]
+
+## Constraints
+- Maximum words: 1500
+- Reading level: Grade 10 or below
+- Required sections: [Summary, Problem, Proposal, Risks, Ask]
+- Forbidden terms: [synergy, leverage, paradigm, "it's worth noting"]
+- Every quantitative claim must cite a source
+
+## Data/Content to Include
+- [Key messages, data points, arguments to make]
+- [Reference material: paste or @file relevant sources]
+
+## Frozen Sections (do not modify)
+- [Any text marked <!-- FROZEN --> must be preserved exactly]
+
+## Task
+[Write/rewrite/edit instruction here]
+```
+
+#### Prompt 2: Verifier
+
+```markdown
+Review the following document against these criteria. For each violation, state the line, the issue, and a suggested fix.
+
+## Checks
+1. Word count ≤ 1500
+2. Reading level ≤ Grade 10 (estimate Flesch-Kincaid)
+3. All required sections present: [Summary, Problem, Proposal, Risks, Ask]
+4. No forbidden terms: [synergy, leverage, paradigm, "it's worth noting"]
+5. No hedge words (might, perhaps, arguably, somewhat) — flag if > 3% of words
+6. No passive voice in key claims
+7. Every quantitative claim has a cited source
+8. Tone matches exemplars (confident, not tentative)
+9. BLUF present in first 2 sentences
+10. Frozen sections unmodified
+
+## Document
+[paste document]
+
+## Output Format
+For each violation:
+- Line N: [issue] → Suggested fix: [fix]
+
+If all checks pass, state "✓ All constraints satisfied."
+```
+
+#### How to Use
+
+**In Cursor/Zed**: Save Prompt 1 as `.cursorrules` or a project-level system prompt. Use Cmd+K with writing instructions. Run Prompt 2 manually after each draft pass.
+
+**In our chat app**: Use `PromptWorkflowAgent` with `workflow_prompts=[prompt_1, prompt_2]` and `user_query=<brief + data>`. Two-step automatic pipeline.
+
+**Limitation**: Must re-paste guidelines every session (Cursor) or per-conversation (our chat). No persistence across sessions, no standing directives, no deterministic constraint checking.
+
+---
+
+### Option 1: Minimum Viable Enhancement (2-3 weeks)
+
+Build only what Cursor/Zed cannot provide. No new UI — just backend + chat tools.
+
+#### What to Build
+
+| Component | Effort | Value |
+|-----------|--------|-------|
+| `writing_config` field on artefacts (JSON blob: brief, constraints, audience, exemplars, directives) | 2 days | Config persists per document. Auto-injected into propose_edits. |
+| `ConstraintEngine` class (pure Python: word count, readability, forbidden terms, required sections, passive voice, hedge words) | 3 days | Deterministic, instant, free (no LLM tokens). Exposed as chat tool. |
+| Standing directives CRUD (simple JSON list on artefact, injected into every LLM call) | 1 day | "Don't touch the intro" survives across sessions. |
+| Writing presets for `PromptWorkflowAgent` (style-first-draft, edit-pass, fact-check) | 2 days | One-command full pipeline from chat. |
+| `propose_artefact_edit` as a chat tool (wraps existing endpoint) | 1 day | LLM can edit artefacts from chat with diff/accept/reject. |
+| `check_constraints` as a chat tool | 0.5 day | "Check my doc" → instant structured results in chat. |
+
+**Total: ~2 weeks**
+
+#### What This Gives You Over Zero-Build
+
+- Constraints checked deterministically (not LLM-guessed)
+- Writing config persists per artefact (no re-pasting)
+- Standing directives remembered across sessions
+- Pipeline runnable from chat as one command
+- Diff-based accept/reject for AI edits (already exists, just exposed as tool)
+
+#### What's Still Missing vs. Full Spec
+
+- No dedicated writing tab/editor (use artefact modal or Cursor)
+- No Cmd+K in our editor (use Cursor for that)
+- No structure panel, outline, source linking
+- No audience simulation (but can approximate with a prompt)
+- No version timeline with intent (just git/file saves)
+- No ghost text
+
+---
+
+### Option 2: Full Writing Studio (3+ months)
+
+The complete spec as documented above. Dedicated Svelte SPA, ProseMirror editor, tab integration, multi-agent pipeline, constraint dashboard, source management, etc.
+
+---
+
+## When to Escalate from Option 0 → 1 → 2
+
+### Escalate from Zero-Build to Option 1 when:
+
+You notice ANY of these friction patterns repeatedly (3+ times):
+
+- [ ] **Re-pasting context**: You keep pasting the same style guidelines, exemplars, or brief into prompts. You wish the system just "knew" your style for this doc.
+- [ ] **Constraint misses**: The LLM says "looks good" but you find it's 200 words over limit, or has a forbidden term. You want deterministic checking.
+- [ ] **Forgotten directives**: You told the AI "don't touch section X" last session, but this session it rewrites it again. You need persistent memory.
+- [ ] **Manual verification fatigue**: You're running Prompt 2 manually every time and it's tedious. You want it automated/instant.
+- [ ] **Tool switching cost**: Copy-pasting between Cursor and your chat app (for PKB, source docs, discussion context) is slowing you down.
+
+### Escalate from Option 1 to Full Studio when:
+
+You notice ANY of these patterns repeatedly:
+
+- [ ] **Spatial frustration**: You want to see the outline + document + constraints simultaneously. The artefact modal is too cramped. You're constantly scrolling.
+- [ ] **Inline edit desire**: You want Cmd+K in your own editor (not switching to Cursor) because the context (writing_config, directives, conversation docs) isn't available there.
+- [ ] **Source tracking need**: You're writing docs with 5+ source PDFs and losing track of which claims are supported. You need a source panel.
+- [ ] **Iteration depth**: You do 5+ editing passes on a single doc and wish you could see the evolution, revert sections, branch alternatives.
+- [ ] **Audience-specific feedback**: You're manually writing "read this as a VP" prompts and want it to be one button.
+- [ ] **Team/process need**: Others will use this system and need a polished, self-explanatory UI (not chat commands).
+- [ ] **Volume**: You're producing 3+ serious documents per week and the workflow overhead of Option 1 is noticeable.
+
+### Decision Log
+
+| Date | Decision | Rationale |
+|------|----------|-----------|
+| 2026-06-16 | Start with Option 0 (two-prompt workflow) | Test hypothesis with zero investment. Evaluate after 2 weeks of actual usage. |
+| | | |
+| | | |
+
+---
+
+## Quick Start: Using Option 0 Today
+
+### In Our Chat App (with existing PromptWorkflowAgent)
+
+```
+/write
+
+Brief: Convince VP to fund $2M platform investment
+Audience: VP, 2-minute reader
+Genre: Business one-pager
+
+Data:
+- Current capacity: 10K req/s
+- Q4 projected: 45K req/s
+- Estimated savings: 40% operational cost reduction
+- Timeline: 6 months
+
+Style: Confident, data-first, no hedging. See attached exemplar.
+
+Constraints: ≤1500 words, Grade 10 reading level, must include Summary/Problem/Proposal/Risks/Ask sections.
+```
+
+The `PromptWorkflowAgent` runs with preset prompts (writer → verifier) and streams results.
+
+### In Cursor
+
+1. Create `.cursorrules` with Prompt 1 content (your style + constraints)
+2. Create the document as a `.md` file
+3. Use Cmd+K for edits: "make this section shorter" / "add data from the Q2 report"
+4. Periodically open a new Cursor chat, paste Prompt 2 + document for verification
+5. Apply fixes via Cmd+K
+
+### Evaluating
+
+After 2 weeks of using Option 0, fill out:
+
+```
+Friction log:
+- How many times did I re-paste guidelines? ___
+- How many times did the verifier miss something deterministic? ___
+- How many times did I forget/re-state a directive? ___
+- How many times did I switch between apps for context? ___
+- Am I writing enough docs to justify building? (docs/week) ___
+- What's my biggest single pain point? ___
+```
+
+If total friction events > 10 in 2 weeks → build Option 1.
+If total friction events < 5 → Option 0 is enough. Revisit in a month.
