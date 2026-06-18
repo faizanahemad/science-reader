@@ -1199,8 +1199,7 @@ Important Guidelines:
 - Do not try to respond to the user query or the system response. Only extract the information.
 - Write the new extracted information below in bullet points.
 
-Write new information below in bullet points below:
-"""
+Write new information below in bullet points below:"""
         internal_model = self.get_model_override(
             "conversation_internal_model", SUPERFAST_LLM[0]
         )
