@@ -1440,6 +1440,21 @@ function showMore(parentElem, text = null, textElem = null, as_html = false, sho
             } catch (e) { /* ignore */ }
         }
 
+        // Sync TOC visibility with message collapse state
+        try {
+            var $tocCard = textElem.closest('.card.message-card');
+            if ($tocCard.length) {
+                var $tocContainer = $tocCard.find('.message-toc-container').first();
+                if ($tocContainer.length) {
+                    if (moreText.is(':visible')) {
+                        $tocContainer.show();
+                    } else {
+                        $tocContainer.hide();
+                    }
+                }
+            }
+        } catch (e) { /* ignore */ }
+
         // if server_side is an object then call the server side flask api and save the state of whether we should show or hide the text
         if (server_side && typeof server_side === 'object' && api_call_trigger) {
             var show_hide = moreText.is(':visible') ? 'show' : 'hide';
@@ -2370,6 +2385,22 @@ window.decorateMessageCardNav = function(cardElem, showHide) {
             $hide.text(collapsed ? '[show]' : '[hide]').show();
         }
     }
+
+    // Sync TOC visibility with the initial persisted collapse state.
+    // When the message loads collapsed (show_hide === 'hide'), the TOC container
+    // must also be hidden so it doesn't float above folded content.
+    // Guard: only show a non-empty container — tabbed messages leave the container
+    // hidden and empty, and re-showing an empty div would reveal stale markup.
+    try {
+        var $tocContainer = $card.find('.message-toc-container').first();
+        if ($tocContainer.length) {
+            if (showHide === 'hide') {
+                $tocContainer.hide();
+            } else if ($tocContainer.children().length > 0) {
+                $tocContainer.show();
+            }
+        }
+    } catch (e) { /* ignore */ }
 };
 
 // Delegated handler for show-more toggle links
