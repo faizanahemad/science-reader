@@ -340,8 +340,9 @@ Location: `interface/common-chat.js`
 
 - Builds a `.message-card` for each message.
 - Uses `renderInnerContentAsMarkdown()` to convert markdown to HTML.
-- Adds action dropdown (doubts, move, artefacts, delete) and vote UI.
+- Adds action dropdown (doubts, move, artefacts, delete, move-pair-as-doubt) and vote UI.
   - The artefacts entry (`.open-artefacts-button`) is an important ingress to the artefacts modal.
+  - **"Move Pair as Doubt"** (`.move-pair-as-doubt-button`, amber `text-warning`): promotes the user+assistant pair to a doubt on the preceding assistant message. Hidden (`display:none`) at render time when `user_index < 1` (no preceding assistant possible). Handled by a delegated handler in `interface/common.js`. On success removes both cards, calls `reindexMessageCards()`, reveals the `.has-doubts-btn` on the target card, and shows a toast. See `documentation/features/doubt_and_temp_llm/README.md` for full details.
 - The right-side triple-dot menu comes from `initialiseVoteBank()` (in `interface/common.js`).
   - This menu can expose edit actions for user/assistant messages (and other vote-related actions).
   - It also includes "Edit as Artefact" for assistant answers, creating an artefact that syncs back on save.

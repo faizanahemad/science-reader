@@ -2484,6 +2484,64 @@ $(document).on('click', '.delete-pair-button', function(e) {
     });
 });
 
+// Delegated handler for move-pair-as-doubt-button (survives re-renders)
+$(document).on('click', '.move-pair-as-doubt-button', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    var $btn = $(this);
+    var messageId = $btn.attr('message-id');
+    var messageIndex = $btn.attr('message-index');
+    var sender = $btn.attr('message-sender');
+    var conversationId = (typeof ConversationManager !== 'undefined' && ConversationManager.activeConversationId)
+        ? ConversationManager.activeConversationId : null;
+    if (!conversationId) { console.error('No active conversation for move pair as doubt'); return; }
+
+    var $clickedCard = $btn.closest('.card.message-card');
+
+    // Find partner card (same sibling logic as delete-pair)
+    var $partnerCard;
+    if (sender === 'user') {
+        $partnerCard = $clickedCard.next('.card.message-card');
+    } else {
+        $partnerCard = $clickedCard.prev('.card.message-card');
+    }
+
+    // Find the preceding card (target assistant message whose doubt list we attach to)
+    // The user card is always the earlier of the two; we need the card before it.
+    var $userCard = (sender === 'user') ? $clickedCard : $partnerCard;
+    var $targetCard = $userCard.prev('.card.message-card');
+
+    $.ajax({
+        url: '/move_pair_as_doubt/' + conversationId + '/' + messageId + '/' + messageIndex,
+        type: 'POST',
+        success: function(response) {
+            // Remove both pair cards from the DOM
+            $clickedCard.remove();
+            if ($partnerCard && $partnerCard.length) $partnerCard.remove();
+            reindexMessageCards();
+
+            // Reveal the doubts indicator on the target (preceding assistant) card
+            var targetMessageId = response.target_message_id;
+            if (targetMessageId && $targetCard && $targetCard.length) {
+                $targetCard.find('.has-doubts-btn[message-id="' + targetMessageId + '"]').show();
+            }
+
+            if (typeof showToast === 'function') {
+                showToast('Pair moved to doubts', 'success');
+            }
+        },
+        error: function(xhr) {
+            var msg = 'Failed to move pair as doubt';
+            try { msg = JSON.parse(xhr.responseText).error || msg; } catch(_) {}
+            if (typeof showToast === 'function') {
+                showToast(msg, 'danger');
+            } else {
+                alert(msg);
+            }
+        }
+    });
+});
+
 // Delegated handler for has-doubts-btn (survives re-renders)
 $(document).on('click', '.has-doubts-btn', function(e) {
     e.preventDefault();

@@ -187,22 +187,35 @@ Server-side injection:
 **What it does**
 - Edit a message text in-place.
 - Delete a specific message (by `message_id` and/or index).
+- Delete a user+assistant pair in one action.
 - Delete the last message, delete the whole conversation.
 - Move selected messages up/down (re-order history).
 - Show/hide messages (UI-driven visibility behavior).
+- **Promote a pair as a doubt** — move a user+assistant pair out of the main chat history and into the doubts layer of the preceding assistant message, preserving its content.
 
 **API**
 - `POST /edit_message_from_conversation/<conversation_id>/<message_id>/<index>`
 - `POST /move_messages_up_or_down/<conversation_id>`
 - `POST /show_hide_message_from_conversation/<conversation_id>/<message_id>/<index>`
 - `DELETE /delete_message_from_conversation/<conversation_id>/<message_id>/<index>`
+- `DELETE /delete_message_pair/<conversation_id>/<message_id>/<index>`
 - `DELETE /delete_last_message/<conversation_id>`
 - `DELETE /delete_conversation/<conversation_id>`
 - `POST /clone_conversation/<conversation_id>`
+- `POST /move_pair_as_doubt/<conversation_id>/<message_id>/<index>` — promotes a user+assistant pair as a doubt on the preceding assistant message, then removes both from history
 
 **Persistence**
 - Message list is persisted per conversation in the conversation folder.
 - Deleting a conversation also cleans DB mappings via `database.conversations.cleanup_deleted_conversations(...)` and deletes local conversation storage.
+- **Doubt cleanup on delete**: all four delete endpoints (`delete_message_from_conversation`, `delete_message_pair`, `delete_last_message`, `move_pair_as_doubt`) now delete any `DoubtsClearing` rows attached to the removed message IDs after deletion succeeds. This prevents orphaned doubt records accumulating for messages that no longer exist. Cleanup is non-fatal — logged on failure but does not block the delete response. See `documentation/features/doubt_and_temp_llm/README.md` for details.
+
+**Triple-dot dropdown menu items (per message card)**
+- Show Doubts / Ask New Doubt
+- Move Up / Move Down
+- Artefacts / Fork from here
+- Delete Message
+- Delete Pair
+- **Move Pair as Doubt** (hidden when no valid preceding assistant message exists)
 
 ---
 
@@ -1018,6 +1031,7 @@ The `@pkb:claim_id` prefix is supported as a legacy alias alongside `@memory:` a
 - `POST /summarize_doubt_thread/<doubt_id>` — summarize thread, save as child
 - `POST /create_conversation_from_doubt_thread/<doubt_id>` — seed new conversation
 - `GET /get_all_doubts?page=&page_size=&search=&filter=` — cross-conversation paginated view
+- `POST /move_pair_as_doubt/<conversation_id>/<message_id>/<index>` — promote a user+assistant chat pair as a doubt on the preceding assistant message (see section 3)
 
 **Persistence**
 - `users.db` table: `DoubtsClearing` (columns: doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer, parent_doubt_id, is_root_doubt, show_hide, with_context, pinned, bookmarked, created_at, updated_at)
@@ -1041,6 +1055,8 @@ The `@pkb:claim_id` prefix is supported as a legacy alias alongside `@memory:` a
 - **Compact length dropdown** — S/M/L button group replaced with a single dropdown button (shows current label, click reveals Short/Medium/Long). Saves header space for the tools toggle.
 - **Responsive tables** — All markdown tables in chat messages, doubts, and temp LLM are wrapped in `<div class="table-responsive">` via `markdownParser.table` override, preventing page-level horizontal scroll from wide tables.
 - **Quick action model** — `QUICK_ACTION_LLM` constant in `common.py` (default: `anthropic/claude-sonnet-4.6`). Used by both `clear_doubt` and `temporary_llm_action` as the default model (overridable via `quick_action_model` setting).
+- **Move Pair as Doubt** — "Move Pair as Doubt" item in the per-message triple-dot dropdown. Promotes a user+assistant pair to a doubt on the preceding assistant message; user text becomes `doubt_text` with a `[Promoted from Chat]` prefix; assistant text becomes `doubt_answer` (no LLM call). Both messages are removed from chat history. Any existing doubts on the promoted messages are also deleted to avoid orphans. Button hidden when no valid preceding assistant message exists.
+- **Doubt cleanup on message delete** — all delete endpoints (`delete_message_from_conversation`, `delete_message_pair`, `delete_last_message`) now automatically delete `DoubtsClearing` rows for every removed message, preventing orphaned doubt records.
 
 ---
 

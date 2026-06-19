@@ -1015,6 +1015,31 @@ def delete_message_from_conversation(conversation_id: str, message_id: str, inde
             "Failed to delete message", status=500, code="delete_message_failed"
         )
 
+    # Delete doubts attached to the removed message (non-fatal).
+    if message_id and message_id not in ("undefined", "None", "nan", ""):
+        try:
+            from database.doubts import delete_doubt, get_doubts_for_message
+            existing_doubts = get_doubts_for_message(
+                conversation_id=conversation_id,
+                message_id=str(message_id),
+                user_email=email,
+                users_dir=state.users_dir,
+                logger=logger,
+            )
+            for d in existing_doubts:
+                try:
+                    delete_doubt(doubt_id=d["doubt_id"], users_dir=state.users_dir, logger=logger)
+                except Exception:
+                    logger.exception(
+                        f"Failed to delete doubt {d['doubt_id']} for deleted message "
+                        f"conversation_id={conversation_id}, message_id={message_id}"
+                    )
+        except Exception:
+            logger.exception(
+                f"Failed to fetch doubts for deleted message "
+                f"conversation_id={conversation_id}, message_id={message_id}"
+            )
+
     # Some clients send "undefined" for message_id; include index for clarity.
     return jsonify(
         {"message": f"Message deleted", "message_id": message_id, "index": index}
@@ -1077,9 +1102,251 @@ def delete_message_pair(conversation_id: str, message_id: str, index: str):
                 f"Failed to delete artefact link for conversation_id={conversation_id}, message_id={mid}"
             )
 
+    # Delete doubts attached to each deleted message (non-fatal).
+    try:
+        from database.doubts import delete_doubt, get_doubts_for_message
+        for mid in deleted_message_ids:
+            if not mid:
+                continue
+            try:
+                existing_doubts = get_doubts_for_message(
+                    conversation_id=conversation_id,
+                    message_id=mid,
+                    user_email=email,
+                    users_dir=state.users_dir,
+                    logger=logger,
+                )
+                for d in existing_doubts:
+                    try:
+                        delete_doubt(doubt_id=d["doubt_id"], users_dir=state.users_dir, logger=logger)
+                    except Exception:
+                        logger.exception(
+                            f"Failed to delete doubt {d['doubt_id']} for deleted pair message "
+                            f"conversation_id={conversation_id}, message_id={mid}"
+                        )
+            except Exception:
+                logger.exception(
+                    f"Failed to fetch doubts for deleted pair message "
+                    f"conversation_id={conversation_id}, message_id={mid}"
+                )
+    except Exception:
+        logger.exception(
+            f"Failed to import doubt cleanup utilities for conversation_id={conversation_id}"
+        )
+
     return jsonify(
         {
             "message": "Message pair deleted",
+            "deleted_message_ids": deleted_message_ids,
+        }
+    )
+
+
+@conversations_bp.route(
+    "/move_pair_as_doubt/<conversation_id>/<message_id>/<index>",
+    methods=["POST"],
+)
+@limiter.limit("60 per minute")
+@login_required
+def move_pair_as_doubt(conversation_id: str, message_id: str, index: str):
+    """Promote a user+assistant message pair to a doubt on the preceding assistant message.
+
+    Finds the user/assistant pair at the given index, locates the assistant message
+    immediately above it, creates a doubt record with the pair's text, then deletes
+    both pair messages from the conversation history.
+
+    Returns the new doubt_id and the target_message_id (preceding assistant) so the
+    UI can reveal the doubts indicator on that card.
+    """
+    from database.doubts import add_doubt, delete_doubt, get_doubts_for_message
+
+    email, _name, _loggedin = get_session_identity()
+    keys = keyParser(session)
+    state = get_state()
+
+    if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
+        return json_error(
+            "Conversation not found", status=404, code="conversation_not_found"
+        )
+
+    conversation = get_conversation_with_keys(
+        state, conversation_id=conversation_id, keys=keys
+    )
+
+    # --- Resolve index and validate pair ---
+    try:
+        index_int = int(index)
+    except (ValueError, TypeError):
+        return json_error("Invalid index", status=400, code="invalid_index")
+
+    messages = conversation.get_field("messages") or []
+
+    if index_int < 0 or index_int >= len(messages):
+        return json_error("Message index out of range", status=400, code="invalid_index")
+
+    clicked_msg = messages[index_int]
+    clicked_sender = clicked_msg.get("sender", "")
+
+    # Determine which message is user and which is assistant in the pair
+    if clicked_sender == "user":
+        user_index = index_int
+        assistant_index = index_int + 1
+    elif clicked_sender in ("server", "assistant", "model"):
+        assistant_index = index_int
+        user_index = index_int - 1
+    else:
+        return json_error(
+            f"Unknown sender type: {clicked_sender!r}",
+            status=400,
+            code="unknown_sender",
+        )
+
+    # Validate the pair exists and is well-formed
+    if user_index < 0 or assistant_index >= len(messages):
+        return json_error(
+            "No valid pair found at this index", status=400, code="no_pair_found"
+        )
+    if messages[user_index].get("sender", "") != "user":
+        return json_error(
+            "Expected a user message at the user index", status=400, code="no_pair_found"
+        )
+    if messages[assistant_index].get("sender", "") not in ("server", "assistant", "model"):
+        return json_error(
+            "Expected an assistant message at the assistant index",
+            status=400,
+            code="no_pair_found",
+        )
+
+    # --- Find the preceding assistant message (target for the doubt) ---
+    # The target is the assistant message immediately before the user message of the pair.
+    target_index = user_index - 1
+    if target_index < 0:
+        return json_error(
+            "No preceding message to attach the doubt to",
+            status=400,
+            code="no_preceding_message",
+        )
+    target_msg = messages[target_index]
+    if target_msg.get("sender", "") not in ("server", "assistant", "model"):
+        return json_error(
+            "The message above this pair is not an assistant message",
+            status=400,
+            code="no_preceding_assistant",
+        )
+
+    target_message_id = str(target_msg.get("message_id", ""))
+    if not target_message_id:
+        return json_error(
+            "Preceding assistant message has no message_id",
+            status=500,
+            code="missing_message_id",
+        )
+
+    # --- Extract text from the pair ---
+    user_text = messages[user_index].get("text", "").strip()
+    assistant_text = messages[assistant_index].get("text", "").strip()
+
+    doubt_text = f"[Promoted from Chat] {user_text}" if user_text else "[Promoted from Chat]"
+    doubt_answer = assistant_text
+
+    # --- Persist the doubt ---
+    try:
+        doubt_id = add_doubt(
+            conversation_id=conversation_id,
+            user_email=email,
+            message_id=target_message_id,
+            doubt_text=doubt_text,
+            doubt_answer=doubt_answer,
+            parent_doubt_id=None,
+            with_context=False,
+            users_dir=state.users_dir,
+            logger=logger,
+        )
+    except Exception:
+        logger.exception(
+            f"Failed to add doubt for conversation_id={conversation_id}, "
+            f"target_message_id={target_message_id}"
+        )
+        return json_error("Failed to create doubt record", status=500, code="doubt_creation_failed")
+
+    # --- Delete the pair from conversation history ---
+    # We reuse delete_message_pair so the deletion path (JSON vs SQLite) is consistent.
+    try:
+        deleted_message_ids = conversation.delete_message_pair(str(user_index))
+    except ValueError as e:
+        # Doubt was already saved; log the inconsistency but still return the doubt_id
+        # so the UI can surface it. The pair will persist in chat history in this unlikely case.
+        logger.error(
+            f"Doubt saved (id={doubt_id}) but pair deletion failed for "
+            f"conversation_id={conversation_id}, index={user_index}: {e}"
+        )
+        return json_error(
+            f"Doubt created but pair deletion failed: {e}",
+            status=500,
+            code="pair_deletion_failed",
+        )
+    except Exception:
+        logger.exception(
+            f"Doubt saved (id={doubt_id}) but pair deletion raised an unexpected error "
+            f"for conversation_id={conversation_id}, index={user_index}"
+        )
+        return json_error(
+            "Doubt created but pair deletion failed unexpectedly",
+            status=500,
+            code="pair_deletion_failed",
+        )
+
+    # Clean up artefact links for the deleted messages (non-fatal)
+    for mid in deleted_message_ids:
+        try:
+            conversation.delete_artefact_message_link(mid)
+        except Exception:
+            logger.exception(
+                f"Failed to delete artefact link for conversation_id={conversation_id}, "
+                f"message_id={mid}"
+            )
+
+    # Delete any doubts that were attached to the promoted pair's own messages.
+    # Since those messages no longer exist in the conversation, their doubts would
+    # become orphans. We delete all root-doubt trees for both messages (non-fatal).
+    pair_message_ids = [
+        str(messages[user_index].get("message_id", "")),
+        str(messages[assistant_index].get("message_id", "")),
+    ]
+    for pair_mid in pair_message_ids:
+        if not pair_mid:
+            continue
+        try:
+            existing_doubts = get_doubts_for_message(
+                conversation_id=conversation_id,
+                message_id=pair_mid,
+                user_email=email,
+                users_dir=state.users_dir,
+                logger=logger,
+            )
+            for d in existing_doubts:
+                try:
+                    delete_doubt(
+                        doubt_id=d["doubt_id"],
+                        users_dir=state.users_dir,
+                        logger=logger,
+                    )
+                except Exception:
+                    logger.exception(
+                        f"Failed to delete doubt {d['doubt_id']} for promoted pair message "
+                        f"conversation_id={conversation_id}, message_id={pair_mid}"
+                    )
+        except Exception:
+            logger.exception(
+                f"Failed to fetch doubts for promoted pair message "
+                f"conversation_id={conversation_id}, message_id={pair_mid}"
+            )
+
+    return jsonify(
+        {
+            "message": "Pair moved to doubts",
+            "doubt_id": doubt_id,
+            "target_message_id": target_message_id,
             "deleted_message_ids": deleted_message_ids,
         }
     )
@@ -1102,6 +1369,15 @@ def delete_last_message(conversation_id: str):
     conversation: Conversation = get_conversation_with_keys(
         state, conversation_id=conversation_id, keys=keys
     )
+
+    # Snapshot the last two message IDs before deletion so we can clean up their doubts.
+    messages_before = conversation.get_field("messages") or []
+    last_turn_message_ids = [
+        str(m.get("message_id", ""))
+        for m in messages_before[-2:]
+        if m.get("message_id")
+    ]
+
     try:
         conversation.delete_last_turn()
     except json.JSONDecodeError:
@@ -1124,6 +1400,37 @@ def delete_last_message(conversation_id: str):
             status=500,
             code="delete_last_message_failed",
         )
+
+    # Delete doubts attached to the removed messages (non-fatal).
+    try:
+        from database.doubts import delete_doubt, get_doubts_for_message
+        for mid in last_turn_message_ids:
+            try:
+                existing_doubts = get_doubts_for_message(
+                    conversation_id=conversation_id,
+                    message_id=mid,
+                    user_email=email,
+                    users_dir=state.users_dir,
+                    logger=logger,
+                )
+                for d in existing_doubts:
+                    try:
+                        delete_doubt(doubt_id=d["doubt_id"], users_dir=state.users_dir, logger=logger)
+                    except Exception:
+                        logger.exception(
+                            f"Failed to delete doubt {d['doubt_id']} for last-turn message "
+                            f"conversation_id={conversation_id}, message_id={mid}"
+                        )
+            except Exception:
+                logger.exception(
+                    f"Failed to fetch doubts for last-turn message "
+                    f"conversation_id={conversation_id}, message_id={mid}"
+                )
+    except Exception:
+        logger.exception(
+            f"Failed to import doubt cleanup utilities for conversation_id={conversation_id}"
+        )
+
     return jsonify({"message": f"Message {message_id} deleted"})
 
 

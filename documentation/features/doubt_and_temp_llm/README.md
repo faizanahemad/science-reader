@@ -485,6 +485,68 @@ Added to `DoubtsClearing` table:
 - Separate from `SUPERFAST_LLM` (used for internal conversation operations like summarization, keyword extraction).
 
 
+### Feature: Move Pair as Doubt
+
+A message pair (user + assistant) anywhere in the conversation history can be promoted to a doubt on the **preceding assistant message** without losing the content.
+
+**Motivation:** Sometimes a follow-up exchange in the main chat thread is really a clarification/side-question that belongs in the doubts layer rather than the primary conversation log. Moving it keeps the main thread clean while preserving the Q&A.
+
+**UI entry point:** "Move Pair as Doubt" item in the per-message triple-dot dropdown menu, placed immediately after "Delete Pair". Uses the amber `text-warning` color to distinguish it from the red danger actions. The item is **hidden** (`display:none`) when no valid preceding assistant message exists (user message at index 0, or assistant message at index 0 or 1).
+
+**Flow:**
+1. User clicks "Move Pair as Doubt" on either card of the pair.
+2. Client POSTs `POST /move_pair_as_doubt/<conversation_id>/<message_id>/<index>`.
+3. Backend validates the pair, locates the preceding assistant message (the "target"), creates a doubt record with:
+   - `doubt_text` = `[Promoted from Chat] <user message text>`
+   - `doubt_answer` = assistant message text (verbatim, no LLM call)
+   - `message_id` = the preceding assistant message's ID
+4. Backend calls `conversation.delete_message_pair()` to remove both messages from chat history.
+5. Backend deletes any existing doubts attached to the two promoted messages (they would otherwise become orphans with no card to attach to).
+6. Response: `{ doubt_id, target_message_id, deleted_message_ids }`.
+7. Client removes both cards from the DOM, calls `reindexMessageCards()`, reveals the `.has-doubts-btn` on the target card, shows a "Pair moved to doubts" success toast.
+
+**`[Promoted from Chat]` prefix** appears in the `doubt_text` (question side only) so that when you open the doubts overview for the target message you can immediately see which entries came from the main chat vs. ones you typed directly.
+
+**Backend:** `POST /move_pair_as_doubt/<conversation_id>/<message_id>/<index>` in `endpoints/conversations.py`. Rate-limited to 60/min. Requires login.
+
+**Error states:**
+- No valid pair at the index → 400 `no_pair_found`
+- No preceding message → 400 `no_preceding_message`
+- Preceding message is not an assistant message → 400 `no_preceding_assistant`
+- `add_doubt` fails → 500 `doubt_creation_failed` (no messages deleted)
+- Pair deletion fails after doubt created → 500 `pair_deletion_failed` (inconsistency logged; doubt exists but pair remains in history)
+
+**Files modified:**
+- `endpoints/conversations.py` — `move_pair_as_doubt` route
+- `interface/common-chat.js` — "Move Pair as Doubt" item in `actionDropdown` template
+- `interface/common.js` — delegated `.move-pair-as-doubt-button` click handler
+
+---
+
+### Doubt Cleanup on Message Deletion
+
+When a message is deleted from conversation history, any doubts attached to that `message_id` in `DoubtsClearing` would previously become **orphaned rows** — still in the DB, but no longer reachable from any message card in the UI.
+
+All four delete endpoints now clean up doubts for every deleted message after the deletion succeeds (non-fatal: logged but does not fail the request):
+
+| Endpoint | Which message IDs are cleaned |
+|---|---|
+| `DELETE /delete_message_from_conversation/<cid>/<mid>/<idx>` | The single `message_id` from the URL (skipped if value is `"undefined"`, `"None"`, `"nan"`, or `""`) |
+| `DELETE /delete_message_pair/<cid>/<mid>/<idx>` | All IDs returned by `conversation.delete_message_pair()` (0–2 IDs) |
+| `DELETE /delete_last_message/<cid>` | Last 2 message IDs snapshotted from the message list **before** `delete_last_turn()` is called |
+| `POST /move_pair_as_doubt/<cid>/<mid>/<idx>` | Both messages in the promoted pair (their doubts would be unreachable since the messages are removed) |
+
+**Cleanup logic** (same pattern in all four):
+1. Call `get_doubts_for_message(conversation_id, message_id, user_email)` to fetch all root doubts for the message.
+2. For each root doubt, call `delete_doubt(doubt_id)` which BFS-walks and bulk-deletes the entire subtree.
+3. Both calls are wrapped in individual `try/except` blocks so a failure on one message or one doubt does not prevent the rest from being cleaned up.
+
+**Whole-conversation delete** (`DELETE /delete_conversation`) already issued `DELETE FROM DoubtsClearing WHERE conversation_id IN (...)` — that path is unchanged.
+
+**Files modified:** `endpoints/conversations.py` — all four delete routes.
+
+---
+
 ### Feature: Progressive Disclosure (TL;DR / Explanation / Deep Dive)
 
 **Motivation:** Auto-doubt answers are long but users often only need the gist. Progressive disclosure structures answers into 3 collapsible tiers so users can skim the TL;DR and expand only what interests them.

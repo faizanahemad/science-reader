@@ -2489,6 +2489,11 @@ var ChatManager = {
                         <a class="dropdown-item delete-pair-button text-danger" href="#" message-index="${index}" message-id="${message.message_id}" message-sender="${message.sender}">
                             <i class="bi bi-trash mr-2"></i>Delete Pair
                         </a>
+                        <a class="dropdown-item move-pair-as-doubt-button text-warning" href="#"
+                            message-index="${index}" message-id="${message.message_id}" message-sender="${message.sender}"
+                            style="${(message.sender === 'user' ? index < 1 : index < 2) ? 'display:none;' : ''}">
+                            <i class="bi bi-arrow-up-right-circle mr-2"></i>Move Pair as Doubt
+                        </a>
                     </div>
                 </div>`;
             
