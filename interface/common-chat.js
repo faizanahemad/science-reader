@@ -2733,6 +2733,7 @@ var ChatManager = {
             var messageId = $(this).attr('message-id');
             var messageIndex = $(this).attr('message-index');
             $(this).closest('.card').remove();
+            if (typeof reindexMessageCards === 'function') reindexMessageCards();
             ChatManager.deleteMessage(conversationId, messageId, messageIndex);
         });
         $(".move-message-up-button").off().on("click", function (event) {

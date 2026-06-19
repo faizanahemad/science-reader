@@ -2395,6 +2395,14 @@ $(document).on('click', '.show-more', function(e) {
     } catch (e) { /* ignore */ }
 });
 
+// Re-stamps message-index on every remaining card after an in-place DOM removal.
+// This keeps fork, pair-delete, TTS, and edit from using stale positional indices.
+function reindexMessageCards() {
+    $('#chatView .card.message-card').each(function(i) {
+        $(this).find('[message-index]').attr('message-index', i);
+    });
+}
+
 // Delegated handler for delete-message-button (survives snapshot restore)
 $(document).on('click', '.delete-message-button', function(e) {
     e.preventDefault();
@@ -2405,6 +2413,7 @@ $(document).on('click', '.delete-message-button', function(e) {
         ? ConversationManager.activeConversationId : null;
     if (!conversationId) { console.error('No active conversation for delete'); return; }
     $(this).closest('.card').remove();
+    reindexMessageCards();
     ChatManager.deleteMessage(conversationId, messageId, messageIndex);
 });
 
@@ -2428,6 +2437,7 @@ $(document).on('click', '.delete-pair-button', function(e) {
         }
         $clickedCard.remove();
         if ($partnerCard && $partnerCard.length) $partnerCard.remove();
+        reindexMessageCards();
     }).fail(function(xhr) {
         var msg = 'Failed to delete message pair';
         try { msg = JSON.parse(xhr.responseText).error || msg; } catch(_) {}
