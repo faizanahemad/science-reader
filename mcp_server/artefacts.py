@@ -495,15 +495,18 @@ def create_artefacts_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[ASG
                 message_text = "\n".join(f"{m.get('role','')}: {(m.get('content','') or '')[:200]}" for m in recent)
 
             numbered = "\n".join(f"{i+1}: {l}" for i, l in enumerate(content.splitlines()))
+            selection_block = "Selection (lines {}-{}):\n{}".format(start_line, end_line, selection_text) if selection_text else ""
+            summary_block = "Conversation summary:\n{}".format(summary_text) if summary_text else ""
+            messages_block = "Recent messages:\n{}".format(message_text) if message_text else ""
             prompt = f"""You are editing a file. Produce ONLY a JSON array of edit operations.
 
 Instruction: {instruction}
 
 File: {artefact.get("name", "")} ({artefact.get("file_type", "")})
 
-{f"Selection (lines {start_line}-{end_line}):\\n{selection_text}" if selection_text else ""}
-{f"Conversation summary:\\n{summary_text}" if summary_text else ""}
-{f"Recent messages:\\n{message_text}" if message_text else ""}
+{selection_block}
+{summary_block}
+{messages_block}
 
 File content with line numbers:
 {numbered}
