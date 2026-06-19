@@ -1,7 +1,7 @@
 """
 MCP artefacts server application.
 
-Creates a ``FastMCP`` instance that exposes 9 artefact management tools
+Creates a ``FastMCP`` instance that exposes 11 artefact management tools
 over the streamable-HTTP transport on port 8103.
 
 Artefacts are the ONLY file creation mechanism in the system. The model
@@ -361,6 +361,232 @@ def create_artefacts_mcp_app(jwt_secret: str, rate_limit: int = 10) -> tuple[ASG
             return json.dumps(resp.json())
         except Exception as exc:
             logger.exception("artefacts_apply_edits error: %s", exc)
+            return json.dumps({"error": str(exc)})
+
+    # -----------------------------------------------------------------
+    # Tool 9: read_artefact (with query, line range, and map view)
+    # -----------------------------------------------------------------
+
+    @mcp.tool()
+    def read_artefact(
+        user_email: str,
+        conversation_id: str,
+        artefact_id: str,
+        map_view: bool = False,
+        query: Optional[str] = None,
+        start_line: Optional[int] = None,
+        end_line: Optional[int] = None,
+    ) -> str:
+        """Read an artefact with four modes (checked in order):
+
+        1. map_view=true: structural map (headers, table columns, bold openers) with line numbers.
+        2. query provided: artefact + query sent to LLM, answer returned.
+        3. start_line/end_line: returns that line range with line numbers.
+        4. Otherwise: full content.
+
+        Args:
+            user_email: Email of the requesting user.
+            conversation_id: Conversation containing the artefact.
+            artefact_id: Unique identifier of the artefact.
+            map_view: If true, return bird's-eye structural map.
+            query: Question about the artefact (LLM answers).
+            start_line: Start line (1-indexed) for partial read.
+            end_line: End line (1-indexed) for partial read.
+        """
+        import re
+        try:
+            conv = _load_conversation(conversation_id)
+            artefact = conv.get_artefact(artefact_id)
+            content = artefact.get("content", "")
+            name = artefact.get("name", "")
+            file_type = artefact.get("file_type", "")
+
+            if map_view:
+                lines = content.splitlines()
+                landmarks = []
+                for i, line in enumerate(lines, 1):
+                    stripped = line.strip()
+                    if re.match(r'^#{1,4}\s+', stripped):
+                        landmarks.append(f"L{i}: {stripped}")
+                    elif '|' in stripped and i < len(lines) and re.match(r'^[\s|:-]+$', lines[i].strip() if i < len(lines) else ""):
+                        landmarks.append(f"L{i}: [table] {stripped}")
+                    elif re.match(r'^(\*\*|__).+?(\*\*|__)', stripped):
+                        landmarks.append(f"L{i}: {stripped[:80]}")
+                    elif re.match(r'^<h[1-4]', stripped, re.IGNORECASE):
+                        landmarks.append(f"L{i}: {stripped[:80]}")
+                return json.dumps({"artefact_id": artefact_id, "name": name, "total_lines": len(lines), "map": "\n".join(landmarks)})
+
+            elif query:
+                import requests
+                url = f"http://localhost:{FLASK_PORT}/artefacts/{conversation_id}/{artefact_id}/propose_edits"
+                # Use a lightweight LLM call via the propose_edits infra isn't right — call directly
+                from code_common.call_llm import CallLLm
+                from code_common.utils import EXPENSIVE_LLM
+                from endpoints.utils import keyParser
+                keys = keyParser()
+                llm = CallLLm(keys, model_name=EXPENSIVE_LLM[2], use_gpt4=False, use_16k=False)
+                prompt = f"Document: {name} ({file_type})\n\nContent:\n{content}\n\nQuestion: {query}\n\nAnswer concisely based on the document."
+                response = llm(prompt, stream=False, temperature=0.1, max_tokens=1500)
+                answer = response if isinstance(response, str) else "".join(response) if hasattr(response, "__iter__") else str(response)
+                return json.dumps({"artefact_id": artefact_id, "name": name, "query": query, "answer": answer.strip()})
+
+            elif start_line and end_line:
+                lines = content.splitlines()
+                s = max(1, int(start_line)) - 1
+                e = min(int(end_line), len(lines))
+                excerpt = "\n".join(f"{i+s+1}: {lines[i+s]}" for i in range(e - s))
+                return json.dumps({"artefact_id": artefact_id, "name": name, "total_lines": len(lines), "lines": f"{start_line}-{end_line}", "content": excerpt})
+
+            else:
+                return json.dumps({"artefact_id": artefact_id, "name": name, "file_type": file_type, "total_lines": len(content.splitlines()), "content": content})
+
+        except Exception as exc:
+            logger.exception("read_artefact error: %s", exc)
+            return json.dumps({"error": str(exc)})
+
+    # -----------------------------------------------------------------
+    # Tool 10: propose_artefact_edit (direct LLM, with context)
+    # -----------------------------------------------------------------
+
+    @mcp.tool()
+    def propose_artefact_edit(
+        user_email: str,
+        conversation_id: str,
+        artefact_id: str,
+        instruction: str,
+        start_line: Optional[int] = None,
+        end_line: Optional[int] = None,
+        include_context: bool = False,
+    ) -> str:
+        """Propose edits to an artefact using natural language instruction.
+
+        LLM generates edit operations and returns a unified diff.
+        Use include_context=true to inject conversation summary and recent messages.
+
+        Args:
+            user_email: Email of the requesting user.
+            conversation_id: Conversation containing the artefact.
+            artefact_id: Unique identifier of the artefact.
+            instruction: Natural language edit instruction.
+            start_line: Optional focus start line (1-indexed).
+            end_line: Optional focus end line (1-indexed).
+            include_context: Include conversation summary and recent messages.
+        """
+        import hashlib
+        from difflib import unified_diff
+        try:
+            conv = _load_conversation(conversation_id)
+            artefact = conv.get_artefact(artefact_id)
+            content = artefact.get("content", "")
+            base_hash = hashlib.sha256(content.encode()).hexdigest()
+
+            selection_text = ""
+            if start_line and end_line:
+                lines = content.splitlines()
+                s = max(1, int(start_line)) - 1
+                e = min(int(end_line), len(lines))
+                selection_text = "\n".join(lines[s:e])
+
+            summary_text, message_text = "", ""
+            if include_context:
+                summary_text = getattr(conv, "running_summary", "") or ""
+                msgs = conv.get_message_list() or []
+                recent = msgs[-10:]
+                message_text = "\n".join(f"{m.get('role','')}: {(m.get('content','') or '')[:200]}" for m in recent)
+
+            numbered = "\n".join(f"{i+1}: {l}" for i, l in enumerate(content.splitlines()))
+            prompt = f"""You are editing a file. Produce ONLY a JSON array of edit operations.
+
+Instruction: {instruction}
+
+File: {artefact.get("name", "")} ({artefact.get("file_type", "")})
+
+{f"Selection (lines {start_line}-{end_line}):\\n{selection_text}" if selection_text else ""}
+{f"Conversation summary:\\n{summary_text}" if summary_text else ""}
+{f"Recent messages:\\n{message_text}" if message_text else ""}
+
+File content with line numbers:
+{numbered}
+
+Allowed operations:
+[
+  {{"op": "replace_range", "start_line": 1, "end_line": 3, "text": "new text"}},
+  {{"op": "insert_at", "start_line": 2, "text": "inserted text"}},
+  {{"op": "append", "text": "text to append"}},
+  {{"op": "delete_range", "start_line": 4, "end_line": 6}}
+]
+Return ONLY the JSON array."""
+
+            from code_common.call_llm import CallLLm
+            from code_common.utils import EXPENSIVE_LLM
+            from endpoints.utils import keyParser
+            import re
+            keys = keyParser()
+            model_name = conv.get_model_override("artefact_propose_edits_model", EXPENSIVE_LLM[2]) if hasattr(conv, "get_model_override") else EXPENSIVE_LLM[2]
+            llm = CallLLm(keys, model_name=model_name, use_gpt4=False, use_16k=False)
+            response = llm(prompt, stream=False, temperature=0.2, max_tokens=2000, system="Return ONLY JSON.")
+            response_text = response if isinstance(response, str) else "".join(response) if hasattr(response, "__iter__") else str(response)
+
+            json_match = re.search(r'\[.*\]', response_text, re.DOTALL)
+            ops = json.loads(json_match.group()) if json_match else []
+
+            from endpoints.artefacts import _apply_ops
+            new_content = _apply_ops(content, ops)
+            diff_text = "\n".join(unified_diff(
+                content.splitlines(), new_content.splitlines(),
+                fromfile="before", tofile="after", lineterm="",
+            ))
+            return json.dumps({"proposed_ops": ops, "diff_text": diff_text, "base_hash": base_hash, "new_hash": hashlib.sha256(new_content.encode()).hexdigest()})
+
+        except Exception as exc:
+            logger.exception("propose_artefact_edit error: %s", exc)
+            return json.dumps({"error": str(exc)})
+
+    # -----------------------------------------------------------------
+    # Tool 11: create_or_delete_artefact (combined)
+    # -----------------------------------------------------------------
+
+    @mcp.tool()
+    def create_or_delete_artefact(
+        user_email: str,
+        conversation_id: str,
+        action: str,
+        artefact_id: Optional[str] = None,
+        name: Optional[str] = None,
+        file_type: Optional[str] = None,
+        initial_content: str = "",
+    ) -> str:
+        """Create or delete an artefact in one tool.
+
+        action='create': creates a new artefact (name and file_type required).
+        action='delete': deletes the artefact (artefact_id required).
+
+        Args:
+            user_email: Email of the requesting user.
+            conversation_id: Conversation to operate on.
+            action: 'create' or 'delete'.
+            artefact_id: Required for delete.
+            name: Required for create: display name.
+            file_type: Required for create: file extension (md, txt, py, etc.).
+            initial_content: Optional for create: starting content.
+        """
+        try:
+            conv = _load_conversation(conversation_id)
+            if action == "create":
+                if not name:
+                    return json.dumps({"error": "'name' is required for create"})
+                result = conv.create_artefact(name, file_type or "txt", initial_content)
+                result["file_path"] = os.path.join(conv.artefacts_path, result["file_name"])
+                return json.dumps(result)
+            elif action == "delete":
+                if not artefact_id:
+                    return json.dumps({"error": "'artefact_id' is required for delete"})
+                conv.delete_artefact(artefact_id)
+                return json.dumps({"status": "deleted", "artefact_id": artefact_id})
+            else:
+                return json.dumps({"error": f"Unknown action: {action}. Use 'create' or 'delete'."})
+        except Exception as exc:
+            logger.exception("create_or_delete_artefact error: %s", exc)
             return json.dumps({"error": str(exc)})
 
     # -----------------------------------------------------------------

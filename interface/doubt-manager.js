@@ -581,6 +581,7 @@ const DoubtManager = {
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <span class="doubt-card-sender">${senderText}</span>
                     <span class="doubt-card-actions d-flex align-items-center">
+                        <span class="text-muted mr-1" style="font-size:0.6rem;">${text ? text.trim().split(/\\s+/).filter(Boolean).length.toLocaleString() + 'w' : ''}</span>
                         <button class="btn btn-sm p-1 scroll-to-bottom-btn doubt-scroll-bottom" title="Jump to the bottom of this message" style="display:none;">Bottom <i class="bi bi-arrow-down-short"></i></button>
                         ${regenBtn}
                         ${bookmarkBtn}
@@ -1482,6 +1483,12 @@ const DoubtManager = {
                         // Scroll to bottom after completion
                         // const messagesContainer = $('#doubt-chat-messages');
                         // messagesContainer.scrollTop(messagesContainer[0].scrollHeight);
+                        
+                        // Update word count in header
+                        if (accumulatedText && assistantCard && assistantCard.length) {
+                            var wc = accumulatedText.trim().split(/\s+/).filter(Boolean).length;
+                            assistantCard.find('.doubt-card-actions .text-muted').first().text(wc.toLocaleString() + 'w');
+                        }
                         
                         return;
                     }

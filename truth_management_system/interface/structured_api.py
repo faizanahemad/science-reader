@@ -3879,15 +3879,17 @@ class StructuredAPI:
             try:
                 from ..utils import domain_to_friendly_id
 
+                prefix_lower = prefix.lower()
                 all_domains = self.domain_catalog.list()
                 for d in all_domains:
                     fid = domain_to_friendly_id(d["domain_name"])
-                    if fid.startswith(prefix):
+                    display = d.get("display_name", "")
+                    if fid.startswith(prefix_lower) or prefix_lower in display.lower() or prefix_lower in d["domain_name"].lower():
                         domains.append(
                             {
                                 "friendly_id": fid,
                                 "domain_name": d["domain_name"],
-                                "display_name": d["display_name"],
+                                "display_name": display,
                             }
                         )
                         if len(domains) >= limit:

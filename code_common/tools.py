@@ -3643,6 +3643,288 @@ def handle_artefacts_apply_edits(args: dict, context: ToolContext) -> ToolCallRe
 
 
 # ---------------------------------------------------------------------------
+# Enhanced Artefact Chat Tools (propose_artefact_edit, read_artefact, create_or_delete_artefact)
+# ---------------------------------------------------------------------------
+
+
+@register_tool(
+    name="propose_artefact_edit",
+    description=(
+        "Propose edits to an artefact using natural language instruction. "
+        "The LLM generates edit operations and returns a unified diff. "
+        "Use include_context=true to inject conversation summary and recent messages for better edits."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "conversation_id": {"type": "string", "description": "Conversation containing the artefact"},
+            "artefact_id": {"type": "string", "description": "Unique identifier of the artefact"},
+            "instruction": {"type": "string", "description": "Natural language edit instruction"},
+            "start_line": {"type": "integer", "description": "Optional: focus edit on lines starting here (1-indexed)"},
+            "end_line": {"type": "integer", "description": "Optional: focus edit on lines ending here (1-indexed)"},
+            "include_context": {"type": "boolean", "description": "If true, include conversation summary and recent messages for context-aware edits", "default": False},
+        },
+        "required": ["conversation_id", "artefact_id", "instruction"],
+    },
+    is_interactive=False,
+    category="artefacts",
+)
+def handle_propose_artefact_edit(args: dict, context: ToolContext) -> ToolCallResult:
+    """Propose LLM-generated edits to an artefact directly (no HTTP round-trip)."""
+    import json as _json
+    import hashlib
+    from difflib import unified_diff
+
+    conversation_id = args.get("conversation_id", "") or context.conversation_id
+    artefact_id = args.get("artefact_id", "")
+    instruction = args.get("instruction", "").strip()
+    start_line = args.get("start_line")
+    end_line = args.get("end_line")
+    include_context = args.get("include_context", False)
+
+    if not instruction:
+        return ToolCallResult(tool_id="", tool_name="propose_artefact_edit", error="instruction is required")
+
+    try:
+        conv = _art_load_conversation(conversation_id)
+        artefact = conv.get_artefact(artefact_id)
+        content = artefact.get("content", "")
+        base_hash = hashlib.sha256(content.encode()).hexdigest()
+
+        # Build selection text
+        selection_text = ""
+        if start_line and end_line:
+            lines = content.splitlines()
+            s = max(1, int(start_line)) - 1
+            e = min(int(end_line), len(lines))
+            selection_text = "\n".join(lines[s:e])
+
+        # Context injection
+        summary_text = ""
+        message_text = ""
+        if include_context:
+            summary_text = getattr(conv, "running_summary", "") or ""
+            msgs = conv.get_message_list() or []
+            recent = msgs[-10:] if len(msgs) > 10 else msgs
+            message_text = "\n".join(
+                f"{m.get('role','')}: {(m.get('content','') or '')[:200]}" for m in recent
+            )
+
+        # Line-numbered content
+        numbered = "\n".join(f"{i+1}: {l}" for i, l in enumerate(content.splitlines()))
+
+        prompt = f"""You are editing a file. Produce ONLY a JSON array of edit operations.
+
+Instruction: {instruction}
+
+File: {artefact.get("name", "")} ({artefact.get("file_type", "")})
+
+{f"Selection (lines {start_line}-{end_line}):{chr(10)}{selection_text}" if selection_text else ""}
+{f"Conversation summary:{chr(10)}{summary_text}" if summary_text else ""}
+{f"Recent messages:{chr(10)}{message_text}" if message_text else ""}
+
+File content with line numbers:
+{numbered}
+
+Allowed operations:
+[
+  {{"op": "replace_range", "start_line": 1, "end_line": 3, "text": "new text"}},
+  {{"op": "insert_at", "start_line": 2, "text": "inserted text"}},
+  {{"op": "append", "text": "text to append"}},
+  {{"op": "delete_range", "start_line": 4, "end_line": 6}}
+]
+Return ONLY the JSON array."""
+
+        from code_common.call_llm import CallLLm
+        from code_common.utils import EXPENSIVE_LLM
+        model_name = conv.get_model_override("artefact_propose_edits_model", EXPENSIVE_LLM[2]) if hasattr(conv, "get_model_override") else EXPENSIVE_LLM[2]
+        llm = CallLLm(context.keys, model_name=model_name, use_gpt4=False, use_16k=False)
+        response = llm(prompt, stream=False, temperature=0.2, max_tokens=2000, system="Return ONLY JSON.")
+
+        # Consume response
+        response_text = response if isinstance(response, str) else "".join(response) if hasattr(response, "__iter__") else str(response)
+
+        # Parse JSON ops
+        import re
+        json_match = re.search(r'\[.*\]', response_text, re.DOTALL)
+        ops = _json.loads(json_match.group()) if json_match else []
+
+        # Apply ops to generate diff
+        from endpoints.artefacts import _apply_ops
+        new_content = _apply_ops(content, ops)
+        diff_text = "\n".join(unified_diff(
+            content.splitlines(), new_content.splitlines(),
+            fromfile="before", tofile="after", lineterm="",
+        ))
+
+        result = {
+            "proposed_ops": ops,
+            "diff_text": diff_text,
+            "base_hash": base_hash,
+            "new_hash": hashlib.sha256(new_content.encode()).hexdigest(),
+        }
+        return ToolCallResult(tool_id="", tool_name="propose_artefact_edit", result=_truncate_result(_json.dumps(result)))
+    except Exception as exc:
+        return ToolCallResult(tool_id="", tool_name="propose_artefact_edit", error=f"propose_artefact_edit failed: {exc}")
+
+
+@register_tool(
+    name="read_artefact",
+    description=(
+        "Read an artefact's content. Four modes (checked in order): "
+        "(1) map_view=true: returns a structural map (headers, table columns, bold paragraph openers) with line numbers. "
+        "(2) If 'query' is provided, the artefact content + query are sent to the LLM and the answer is returned. "
+        "(3) If 'start_line'/'end_line' are provided, returns only that line range. "
+        "(4) Otherwise returns full artefact content as string."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "conversation_id": {"type": "string", "description": "Conversation containing the artefact"},
+            "artefact_id": {"type": "string", "description": "Unique identifier of the artefact"},
+            "map_view": {"type": "boolean", "description": "If true, return a bird's-eye structural map of the artefact (headers, table headers, bold openers)"},
+            "query": {"type": "string", "description": "Optional: question about the artefact. LLM will read the artefact and answer."},
+            "start_line": {"type": "integer", "description": "Optional: start line (1-indexed) for partial read"},
+            "end_line": {"type": "integer", "description": "Optional: end line (1-indexed) for partial read"},
+        },
+        "required": ["conversation_id", "artefact_id"],
+    },
+    is_interactive=False,
+    category="artefacts",
+)
+def handle_read_artefact(args: dict, context: ToolContext) -> ToolCallResult:
+    """Read artefact content, optionally querying it with LLM or returning a line range."""
+    import json as _json
+    import re as _re
+
+    conversation_id = args.get("conversation_id", "") or context.conversation_id
+    artefact_id = args.get("artefact_id", "")
+    map_view = args.get("map_view", False)
+    query = (args.get("query") or "").strip()
+    start_line = args.get("start_line")
+    end_line = args.get("end_line")
+
+    try:
+        conv = _art_load_conversation(conversation_id)
+        artefact = conv.get_artefact(artefact_id)
+        content = artefact.get("content", "")
+        name = artefact.get("name", "")
+        file_type = artefact.get("file_type", "")
+
+        if map_view:
+            # Mode 0: Structural map — headers, table header rows, bold paragraph openers
+            lines = content.splitlines()
+            landmarks = []
+            for i, line in enumerate(lines, 1):
+                stripped = line.strip()
+                # Markdown headers (# through ####)
+                if _re.match(r'^#{1,4}\s+', stripped):
+                    landmarks.append(f"L{i}: {stripped}")
+                # Table header row (first row with | separators, followed by |---|)
+                elif '|' in stripped and i < len(lines) and _re.match(r'^[\s|:-]+$', lines[i].strip() if i < len(lines) else ""):
+                    landmarks.append(f"L{i}: [table] {stripped}")
+                # Bold at paragraph start (**word** or __word__ at line beginning)
+                elif _re.match(r'^(\*\*|__).+?(\*\*|__)', stripped):
+                    landmarks.append(f"L{i}: {stripped[:80]}")
+                # HTML-style headers
+                elif _re.match(r'^<h[1-4]', stripped, _re.IGNORECASE):
+                    landmarks.append(f"L{i}: {stripped[:80]}")
+            result = {"artefact_id": artefact_id, "name": name, "total_lines": len(lines), "map": "\n".join(landmarks)}
+            return ToolCallResult(tool_id="", tool_name="read_artefact", result=_truncate_result(_json.dumps(result)))
+
+        elif query:
+            # Mode 1: LLM answers a question about the artefact
+            from code_common.call_llm import CallLLm
+            from code_common.utils import EXPENSIVE_LLM
+            model_name = EXPENSIVE_LLM[2]
+            llm = CallLLm(context.keys, model_name=model_name, use_gpt4=False, use_16k=False)
+            prompt = f"""Document: {name} ({file_type})
+
+Content:
+{content}
+
+Question: {query}
+
+Answer the question based on the document content above. Be concise and precise."""
+            response = llm(prompt, stream=False, temperature=0.1, max_tokens=1500)
+            answer = response if isinstance(response, str) else "".join(response) if hasattr(response, "__iter__") else str(response)
+            result = {"artefact_id": artefact_id, "name": name, "query": query, "answer": answer.strip()}
+            return ToolCallResult(tool_id="", tool_name="read_artefact", result=_truncate_result(_json.dumps(result)))
+
+        elif start_line and end_line:
+            # Mode 2: Return line range
+            lines = content.splitlines()
+            s = max(1, int(start_line)) - 1
+            e = min(int(end_line), len(lines))
+            excerpt = "\n".join(f"{i+s+1}: {lines[i+s]}" for i in range(e - s))
+            result = {"artefact_id": artefact_id, "name": name, "total_lines": len(lines), "lines": f"{start_line}-{end_line}", "content": excerpt}
+            return ToolCallResult(tool_id="", tool_name="read_artefact", result=_truncate_result(_json.dumps(result)))
+
+        else:
+            # Mode 3: Full content
+            result = {"artefact_id": artefact_id, "name": name, "file_type": file_type, "total_lines": len(content.splitlines()), "content": content}
+            return ToolCallResult(tool_id="", tool_name="read_artefact", result=_truncate_result(_json.dumps(result)))
+
+    except Exception as exc:
+        return ToolCallResult(tool_id="", tool_name="read_artefact", error=f"read_artefact failed: {exc}")
+
+
+@register_tool(
+    name="create_or_delete_artefact",
+    description=(
+        "Create or delete an artefact. "
+        "action='create': creates a new artefact with name, file_type, and optional initial_content. "
+        "action='delete': deletes the artefact by artefact_id."
+    ),
+    parameters={
+        "type": "object",
+        "properties": {
+            "conversation_id": {"type": "string", "description": "Conversation to operate on"},
+            "action": {"type": "string", "enum": ["create", "delete"], "description": "Whether to create or delete"},
+            "artefact_id": {"type": "string", "description": "Required for delete: artefact to remove"},
+            "name": {"type": "string", "description": "Required for create: display name"},
+            "file_type": {"type": "string", "description": "Required for create: file extension (md, txt, py, etc.)"},
+            "initial_content": {"type": "string", "description": "Optional for create: starting content"},
+        },
+        "required": ["conversation_id", "action"],
+    },
+    is_interactive=False,
+    category="artefacts",
+)
+def handle_create_or_delete_artefact(args: dict, context: ToolContext) -> ToolCallResult:
+    """Create or delete an artefact in one tool."""
+    import json as _json
+
+    conversation_id = args.get("conversation_id", "") or context.conversation_id
+    action = args.get("action", "")
+
+    try:
+        conv = _art_load_conversation(conversation_id)
+
+        if action == "create":
+            name = args.get("name", "")
+            file_type = args.get("file_type", "txt")
+            initial_content = args.get("initial_content", "")
+            if not name:
+                return ToolCallResult(tool_id="", tool_name="create_or_delete_artefact", error="'name' is required for create")
+            result = conv.create_artefact(name, file_type, initial_content)
+            return ToolCallResult(tool_id="", tool_name="create_or_delete_artefact", result=_truncate_result(_json.dumps(result)))
+
+        elif action == "delete":
+            artefact_id = args.get("artefact_id", "")
+            if not artefact_id:
+                return ToolCallResult(tool_id="", tool_name="create_or_delete_artefact", error="'artefact_id' is required for delete")
+            conv.delete_artefact(artefact_id)
+            return ToolCallResult(tool_id="", tool_name="create_or_delete_artefact", result=_json.dumps({"status": "deleted", "artefact_id": artefact_id}))
+
+        else:
+            return ToolCallResult(tool_id="", tool_name="create_or_delete_artefact", error=f"Unknown action: {action}. Use 'create' or 'delete'.")
+
+    except Exception as exc:
+        return ToolCallResult(tool_id="", tool_name="create_or_delete_artefact", error=f"create_or_delete_artefact failed: {exc}")
+
+
+# ---------------------------------------------------------------------------
 # MCP Prompts & Actions Tools (category: prompts)
 # ---------------------------------------------------------------------------
 

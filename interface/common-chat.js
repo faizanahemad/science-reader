@@ -4054,6 +4054,11 @@ function initializeChatControlsToggleHandler() {
             }, 200);
             return;
         }
+        // Clear stale hash timer if pattern no longer matches
+        if (autocompleteState.hashDebounceTimer) {
+            clearTimeout(autocompleteState.hashDebounceTimer);
+            autocompleteState.hashDebounceTimer = null;
+        }
 
         // Find the @ character before cursor
         var lastAtIndex = textBeforeCursor.lastIndexOf('@');
@@ -4194,7 +4199,10 @@ function initializeChatControlsToggleHandler() {
                   + '&prefix=' + encodeURIComponent(prefix);
         $.getJSON(url, function(resp) {
             var items = refType === 'folder' ? (resp.folders || []) : (resp.tags || []);
-            if (!items.length) { hideAutocomplete(); return; }
+            if (!items.length) {
+                showHashAutocompleteEmpty(refType, textarea);
+                return;
+            }
             showHashAutocompleteDropdown(items, refType, prefix, textarea);
         }).fail(function() { hideAutocomplete(); });
     }
@@ -4207,6 +4215,22 @@ function initializeChatControlsToggleHandler() {
      * @param {string} prefix - text typed after the colon
      * @param {HTMLElement} textarea - the chat textarea
      */
+    function showHashAutocompleteEmpty(refType, textarea) {
+        hideAutocomplete();
+        var label = refType === 'folder' ? 'No folders' : 'No tags';
+        var $dropdown = $('<div class="autocomplete-dropdown"></div>')
+            .css({ position: 'absolute', zIndex: 9999, background: '#fff',
+                   border: '1px solid #ccc', borderRadius: '4px', padding: '8px 12px',
+                   minWidth: '200px', color: '#6c757d', fontSize: '13px' })
+            .text(label + ' found. Create them in Global Docs settings.');
+        var $textarea = $(textarea);
+        var offset = $textarea.offset();
+        $dropdown.css({ left: offset.left, top: offset.top - 44 });
+        $('body').append($dropdown);
+        autocompleteState.hashDropdown = $dropdown;
+        setTimeout(function() { $dropdown.remove(); autocompleteState.hashDropdown = null; }, 3000);
+    }
+
     function showHashAutocompleteDropdown(items, refType, prefix, textarea) {
         hideAutocomplete();
         var label = refType === 'folder' ? 'Folders' : 'Tags';
@@ -4890,14 +4914,24 @@ function initializeChatControlsToggleHandler() {
         var cursorPos = textarea.selectionStart;
         var textBeforeCursor = val.substring(0, cursorPos);
 
-        var match = textBeforeCursor.match(/(^|\s)@doc\/([^\s]*)$/);
+        // Match @doc/, #doc, or #gdoc triggers
+        var match = textBeforeCursor.match(/(^|\s)(@doc\/|#gdoc|#doc)([^\s]*)$/);
         if (!match) {
             hideDocAutocomplete();
             return;
         }
 
-        var prefix = match[2];
-        var triggerPos = textBeforeCursor.lastIndexOf('@doc/');
+        var trigger = match[2];  // '@doc/', '#doc', or '#gdoc'
+        var prefix = match[3];
+        // Skip if prefix looks like an already-resolved ref (e.g., #doc_1, #gdoc_12)
+        if (/^_\d+$/.test(prefix)) {
+            hideDocAutocomplete();
+            return;
+        }
+        var triggerPos = textBeforeCursor.lastIndexOf(trigger);
+        // scope: 'local' for #doc, 'global' for #gdoc, 'all' for @doc/
+        docAutocompleteState.scope = trigger === '#doc' ? 'local' : (trigger === '#gdoc' ? 'global' : 'all');
+        docAutocompleteState.trigger = trigger;
         docAutocompleteState.triggerPosition = triggerPos;
         docAutocompleteState.query = prefix;
 
@@ -4911,8 +4945,10 @@ function initializeChatControlsToggleHandler() {
 
     function fetchDocAutocomplete(prefix, textarea) {
         var conversationId = ConversationManager.activeConversationId || '';
+        var scope = docAutocompleteState.scope || 'all';
         var url = '/docs/autocomplete?conversation_id=' + encodeURIComponent(conversationId) +
                   '&prefix=' + encodeURIComponent(prefix) +
+                  '&scope=' + scope +
                   '&limit=10';
         $.getJSON(url, function(resp) {
             if (resp && resp.docs) {

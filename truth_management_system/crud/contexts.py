@@ -188,7 +188,7 @@ class ContextCRUD(BaseCRUD[Context]):
     
     def search_friendly_ids(self, prefix: str, limit: int = 10) -> List[Context]:
         """
-        Search contexts by friendly_id prefix (for autocomplete).
+        Search contexts by friendly_id prefix OR name substring (for autocomplete).
         
         Args:
             prefix: The prefix to search for.
@@ -200,15 +200,18 @@ class ContextCRUD(BaseCRUD[Context]):
         if not prefix:
             return []
         
+        prefix_lower = prefix.lower()
         if self.user_email:
             rows = self.db.fetchall(
-                "SELECT * FROM contexts WHERE friendly_id LIKE ? AND user_email = ? ORDER BY friendly_id LIMIT ?",
-                (f"{prefix}%", self.user_email, limit)
+                "SELECT * FROM contexts WHERE (friendly_id LIKE ? OR name LIKE ?) AND user_email = ? "
+                "ORDER BY CASE WHEN friendly_id LIKE ? THEN 0 ELSE 1 END, friendly_id LIMIT ?",
+                (f"{prefix_lower}%", f"%{prefix_lower}%", self.user_email, f"{prefix_lower}%", limit)
             )
         else:
             rows = self.db.fetchall(
-                "SELECT * FROM contexts WHERE friendly_id LIKE ? ORDER BY friendly_id LIMIT ?",
-                (f"{prefix}%", limit)
+                "SELECT * FROM contexts WHERE (friendly_id LIKE ? OR name LIKE ?) "
+                "ORDER BY CASE WHEN friendly_id LIKE ? THEN 0 ELSE 1 END, friendly_id LIMIT ?",
+                (f"{prefix_lower}%", f"%{prefix_lower}%", f"{prefix_lower}%", limit)
             )
         return [Context.from_row(row) for row in rows]
     

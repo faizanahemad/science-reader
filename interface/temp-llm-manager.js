@@ -398,6 +398,7 @@ const TempLLMManager = {
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <span class="temp-llm-card-sender">${senderText}</span>
                     <span class="temp-llm-card-actions d-flex align-items-center">
+                        <span class="text-muted mr-1 temp-llm-wc" style="font-size:0.6rem;">${text ? text.trim().split(/\\s+/).filter(Boolean).length.toLocaleString() + 'w' : ''}</span>
                         <button class="temp-llm-copy-btn btn btn-sm p-1" title="Copy text"><i class="bi bi-clipboard"></i></button>
                     </span>
                 </div>
@@ -532,6 +533,8 @@ const TempLLMManager = {
                     // Preserve the original markdown for the copy button.
                     if (accumulatedText) {
                         assistantCard.data('rawText', accumulatedText);
+                        var wc = accumulatedText.trim().split(/\s+/).filter(Boolean).length;
+                        assistantCard.find('.temp-llm-wc').text(wc.toLocaleString() + 'w');
                     }
                     
                     // Add to history (guard against double-push from completed chunk)
@@ -608,6 +611,11 @@ const TempLLMManager = {
                             $('#stop-temp-llm-button').hide();
                             self.currentStreamingController = null;
                             self.isStreaming = false;
+                            if (accumulatedText) {
+                                assistantCard.data('rawText', accumulatedText);
+                                var wc = accumulatedText.trim().split(/\s+/).filter(Boolean).length;
+                                assistantCard.find('.temp-llm-wc').text(wc.toLocaleString() + 'w');
+                            }
                             
                             // Add to history (guard against double-push from done branch)
                             if (accumulatedText && !assistantCard.data('historyPushed')) {

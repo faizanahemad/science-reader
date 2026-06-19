@@ -402,10 +402,11 @@ class ClaimCRUD(BaseCRUD[Claim]):
     
     def search_friendly_ids(self, prefix: str, limit: int = 10) -> List[Claim]:
         """
-        Search claims by friendly_id prefix (for autocomplete).
+        Search claims by friendly_id prefix OR statement substring (for autocomplete).
         
         Returns claims whose friendly_id starts with the given prefix,
-        scoped to the current user if user_email is set.
+        or whose statement contains the prefix as a substring.
+        Friendly_id prefix matches are returned first.
         
         Args:
             prefix: The prefix to search for.
@@ -417,15 +418,18 @@ class ClaimCRUD(BaseCRUD[Claim]):
         if not prefix:
             return []
         
+        prefix_lower = prefix.lower()
         if self.user_email:
             rows = self.db.fetchall(
-                "SELECT * FROM claims WHERE friendly_id LIKE ? AND user_email = ? AND status != ? ORDER BY friendly_id LIMIT ?",
-                (f"{prefix}%", self.user_email, ClaimStatus.RETRACTED.value, limit)
+                "SELECT * FROM claims WHERE (friendly_id LIKE ? OR statement LIKE ?) AND user_email = ? AND status != ? "
+                "ORDER BY CASE WHEN friendly_id LIKE ? THEN 0 ELSE 1 END, friendly_id LIMIT ?",
+                (f"{prefix_lower}%", f"%{prefix_lower}%", self.user_email, ClaimStatus.RETRACTED.value, f"{prefix_lower}%", limit)
             )
         else:
             rows = self.db.fetchall(
-                "SELECT * FROM claims WHERE friendly_id LIKE ? AND status != ? ORDER BY friendly_id LIMIT ?",
-                (f"{prefix}%", ClaimStatus.RETRACTED.value, limit)
+                "SELECT * FROM claims WHERE (friendly_id LIKE ? OR statement LIKE ?) AND status != ? "
+                "ORDER BY CASE WHEN friendly_id LIKE ? THEN 0 ELSE 1 END, friendly_id LIMIT ?",
+                (f"{prefix_lower}%", f"%{prefix_lower}%", ClaimStatus.RETRACTED.value, f"{prefix_lower}%", limit)
             )
         return [Claim.from_row(row) for row in rows]
     
