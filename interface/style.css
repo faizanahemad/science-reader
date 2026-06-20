@@ -950,6 +950,10 @@ table, tr, thead, th, td {
     border: 1px solid grey;
 }
 
+.chat-controls {
+    margin-bottom: 5px;
+}
+
 
 @media screen and (max-width: 768px) and (pointer: coarse) and (max-height: 768px) {
     
