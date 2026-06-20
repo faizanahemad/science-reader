@@ -57,6 +57,30 @@ body.dark-mode .card-footer {
     border-color: #30363d;
 }
 
+/* ── Message cards — override inline background-color set by JS ───────────
+   common-chat.js sets style="background-color:#fdfdfd/#ffffff" directly on
+   each .message-card element via jQuery .css(), producing an inline style
+   that defeats any non-!important class rule. Scoping to .message-card keeps
+   the !important contained and away from modals/other cards.           */
+body.dark-mode .message-card {
+    background-color: #161b22 !important;
+    color: #c9d1d9;
+}
+body.dark-mode .message-card .card-body.chat-card-body {
+    background-color: #161b22;
+    color: #c9d1d9;
+}
+
+/* ── show-more / show-less toggle links ──────────────────────────────────
+   style.css hardcodes .show-more { color:#000 } and :visited { color:#551A8B }
+   which beats the generic body.dark-mode a rule. Override explicitly.  */
+body.dark-mode .show-more,
+body.dark-mode .show-more:link,
+body.dark-mode .show-more:visited,
+body.dark-mode .show-more:hover {
+    color: #58a6ff;
+}
+
 /* ── Bootstrap Modals ────────────────────────────────────────────────── */
 body.dark-mode .modal-content {
     background-color: #161b22;
