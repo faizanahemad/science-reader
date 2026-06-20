@@ -196,32 +196,45 @@ function interface_readiness() {
     });
 
     // Compact message card merged menu — populate dynamic state before Bootstrap opens it.
-    // Reads word count and current show/hide label from the hidden original elements so the
-    // menu always reflects actual card state.
+    // Reads live card state (word count, show/hide label, inline display styles) so items
+    // are only visible when their underlying action is actually available for that card.
     $(document).on('click', '.compact-message-menu-toggle', function() {
         var $card = $(this).closest('.message-card');
         var $menu = $card.find('.compact-message-dropdown-menu');
 
-        // Word count — only present for assistant messages after initialiseVoteBank runs
+        // Word count — populated by initialiseVoteBank for all cards
         var wcText = $card.find('.vote-dropdown-menu .dropdown-item-text').first().text().trim();
         $menu.find('.compact-word-count').text(wcText).toggle(!!wcText);
         $menu.find('.compact-word-count-divider').toggle(!!wcText);
 
-        // Edit Message — only present for assistant messages
+        // Edit Message — present for all cards after initialiseVoteBank runs
         var hasEdit = $card.find('.vote-dropdown-menu a').filter(function() {
             return $(this).text().trim().indexOf('Edit Message') !== -1;
         }).length > 0;
         $menu.find('.compact-proxy-edit-message').toggle(hasEdit);
-        // Hide the divider after edit if neither word count nor edit is present
-        $menu.find('.compact-proxy-edit-message').next('.dropdown-divider').toggle(hasEdit || !!wcText);
+        // Divider below edit section only when Edit Message itself is shown (S2-B: was hasEdit||!!wcText)
+        $menu.find('.compact-proxy-edit-message').next('.dropdown-divider').toggle(hasEdit);
 
-        // Show/hide toggle — mirror current label ([hide] or [show])
-        var hideText = $card.find('.header-hide-toggle').text().trim();
-        $menu.find('.compact-proxy-show-hide').html(
-            '<i class="bi bi-eye mr-2"></i>' + (hideText || '[show/hide]')
-        );
+        // Bottom — only active when decorateMessageCardNav has shown the button.
+        // Check the inline style directly (not computed) so body.compact-nav !important
+        // hiding the element does not give a false negative.
+        var $bottomBtn = $card.find('.scroll-to-bottom-btn').first();
+        var bottomActive = $bottomBtn.length > 0 && $bottomBtn[0].style.display !== 'none';
+        $menu.find('.compact-proxy-bottom').toggle(bottomActive);
 
-        // Move Pair as Doubt — mirror the original item's visibility (index-based)
+        // Show/hide toggle — only active when decorateMessageCardNav has revealed the link.
+        // Same inline-style check: template starts it at display:none; decorateMessageCardNav
+        // calls .show() which clears that inline value (style.display === '').
+        var $hideToggle = $card.find('.header-hide-toggle').first();
+        var hideActive = $hideToggle.length > 0 && $hideToggle[0].style.display !== 'none';
+        $menu.find('.compact-proxy-show-hide').toggle(hideActive);
+        if (hideActive) {
+            $menu.find('.compact-proxy-show-hide').html(
+                '<i class="bi bi-eye mr-2"></i>' + ($hideToggle.text().trim() || '[show/hide]')
+            );
+        }
+
+        // Move Pair as Doubt — mirror the original item's index-based visibility
         var movePairHidden = $card.find('.move-pair-as-doubt-button').is(':hidden');
         $menu.find('.compact-proxy-move-pair').toggle(!movePairHidden);
     });
