@@ -325,7 +325,16 @@ function renderMessageToc($tocContainer, items, tocPrefix, expanded) {
     html += `  </div>`;
     html += `</div>`;
 
-    $tocContainer.html(html).show();
+    // Only reveal the container when the message body is not currently collapsed.
+    // If .more-text exists in the same card body and is hidden, the message is
+    // collapsed — set the HTML but keep the container hidden so it doesn't float
+    // above folded content when renderMessageToc is called from any path.
+    var $moreText = $tocContainer.closest('.card-body').find('.more-text').first();
+    if ($moreText.length > 0 && !$moreText.is(':visible')) {
+        $tocContainer.html(html); // update content only, stay hidden
+    } else {
+        $tocContainer.html(html).show();
+    }
 }
 
 function updateMessageTocForElement(elem_to_render_in, rawMarkdown, continuous = false) {
@@ -2420,6 +2429,13 @@ $(document).on('click', '.show-more', function(e) {
         $moreText.hide();
         if ($lessText.length) $lessText.show();
         $textElem.find('.show-more').each(function() { $(this).text('[show]'); });
+        // Sync TOC visibility — hide when message collapses
+        try {
+            var $tocCard = $link.closest('.card.message-card');
+            if ($tocCard.length) {
+                $tocCard.find('.message-toc-container').first().hide();
+            }
+        } catch (e) { /* ignore */ }
     } else {
         $moreText.show();
         if ($lessText.length) $lessText.hide();
@@ -2430,7 +2446,7 @@ $(document).on('click', '.show-more', function(e) {
                 applyModelResponseTabs($moreText);
             }
         } catch (e) { /* ignore */ }
-        // Update ToC after expanding
+        // Update ToC after expanding (renderMessageToc will show but only if moreText visible)
         try {
             if (typeof updateMessageTocForElement === 'function') {
                 updateMessageTocForElement($moreText, $moreText.html(), false);
@@ -4368,10 +4384,19 @@ function applyConversationUIState(section_details, message_show_hide, elem_to_re
                 $moreText.show();
                 $lessText.hide();
                 $showMoreLinks.each(function() { $(this).text('[hide]'); });
+                // Sync TOC: show only if the container has content
+                try {
+                    var $toc = $card.find('.message-toc-container').first();
+                    if ($toc.length && $toc.children().length > 0) { $toc.show(); }
+                } catch (e) { /* ignore */ }
             } else if (showHide === 'hide') {
                 $moreText.hide();
                 $lessText.show();
                 $showMoreLinks.each(function() { $(this).text('[show]'); });
+                // Sync TOC: hide with message
+                try {
+                    $card.find('.message-toc-container').first().hide();
+                } catch (e) { /* ignore */ }
             }
         });
     }
