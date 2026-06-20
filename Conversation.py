@@ -3819,21 +3819,13 @@ Now return JSON with 'ops' and 'notes'.
         self, query, response, previous_messages_text, previous_summary
     ):
         system = f"""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
-You will write a list of next question/response suggestions that the human can ask to the AI after the current user query and system response to continue the conversation.
-The next question/response suggestions should be in the form of a list of questions and the questions should be short and concise.
-
-The next question/response suggestions can either be a question or a response that the user can tap on in the chat interface to continue the conversation.
+You will write a new summary for this conversation which takes the last 2 recent messages into account. 
+You will also write a very short title for this conversation.
+Write in brief and concise manner.
 
 Your response will be in below xml style format:
-<next_question_suggestions>
-    <suggestion>question/response suggestion 1</suggestion>
-    <suggestion>question/response suggestion 2</suggestion>
-    <suggestion>question/response suggestion 3</suggestion>
-    ...
-</next_question_suggestions>
-
-Give 4 suggestions.
-"""
+<summary> {Conversation Summary with salient, important and noteworthy aspects and details. Conversation details about the user's query, intent and the direction of the conversation. We will use this summary to generate the next question/response suggestions and help guide intent detection and other AI assistant actions.} </summary>
+<title> {Very short title for the conversation. A title that captures the essence of the conversation and the direction of the conversation.} </title>"""
 
         next_question_suggestions_prompt = (
             prompts.next_question_suggestions_prompt.format(
