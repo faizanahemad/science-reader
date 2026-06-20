@@ -44,6 +44,72 @@ body.compact-nav #gear-menu-floating .gear-sidebar-item {
 }
 
 /* ==========================================================================
+   Compact Nav — message card header compaction
+   In compact mode the two triple-dot menus (left Message Actions + right More
+   Options) and the standalone header buttons are hidden and replaced by a
+   single merged .compact-message-menu-container dropdown on the right.
+   ========================================================================== */
+
+/* Hidden by default; shown only when compact-nav is active */
+.compact-message-menu-container {
+    display: none;
+}
+
+/* Elements to hide in compact mode */
+body.compact-nav .message-card .history-message-checkbox,
+body.compact-nav .message-card .message-ref-badge,
+body.compact-nav .message-card .message-action-dropdown,
+body.compact-nav .message-card .has-doubts-btn,
+body.compact-nav .message-card .scroll-to-bottom-btn,
+body.compact-nav .message-card .header-hide-toggle,
+body.compact-nav .message-card .copy-btn-header,
+body.compact-nav .message-card .pin-message-btn,
+body.compact-nav .message-card .vote-menu-dropdown-container {
+    display: none !important;
+}
+
+/* Show merged menu in compact mode */
+body.compact-nav .message-card .compact-message-menu-container {
+    display: inline-block !important;
+}
+
+/* Tighter line-height for card text in compact mode (default inherited 1.5) */
+body.compact-nav .message-card .card-body {
+    line-height: 1.2;
+}
+
+/* Remove card spacing and border in compact mode */
+body.compact-nav .message-card {
+    margin: 0 !important;
+    border: none !important;
+}
+
+/* Auto-mobile: mirror the same rules for touch/narrow viewports */
+@media (max-width: 768px) and (pointer: coarse) and (max-height: 768px) {
+    body:not(.compact-nav-off) .message-card .history-message-checkbox,
+    body:not(.compact-nav-off) .message-card .message-ref-badge,
+    body:not(.compact-nav-off) .message-card .message-action-dropdown,
+    body:not(.compact-nav-off) .message-card .has-doubts-btn,
+    body:not(.compact-nav-off) .message-card .scroll-to-bottom-btn,
+    body:not(.compact-nav-off) .message-card .header-hide-toggle,
+    body:not(.compact-nav-off) .message-card .copy-btn-header,
+    body:not(.compact-nav-off) .message-card .pin-message-btn,
+    body:not(.compact-nav-off) .message-card .vote-menu-dropdown-container {
+        display: none !important;
+    }
+    body:not(.compact-nav-off) .message-card .compact-message-menu-container {
+        display: inline-block !important;
+    }
+    body:not(.compact-nav-off) .message-card .card-body {
+        line-height: 1.2;
+    }
+    body:not(.compact-nav-off) .message-card {
+        margin: 0 !important;
+        border: none !important;
+    }
+}
+
+/* ==========================================================================
    Gear Menu — replaces top navbar. Domain selector + actions in one dropdown.
    ========================================================================== */
 #pdf-details-tab {

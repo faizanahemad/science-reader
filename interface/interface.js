@@ -194,6 +194,81 @@ function interface_readiness() {
         var isCompact = document.body.classList.contains('compact-nav');
         $('#settings-compact_nav').prop('checked', !isCompact).trigger('change');
     });
+
+    // Compact message card merged menu — populate dynamic state before Bootstrap opens it.
+    // Reads word count and current show/hide label from the hidden original elements so the
+    // menu always reflects actual card state.
+    $(document).on('click', '.compact-message-menu-toggle', function() {
+        var $card = $(this).closest('.message-card');
+        var $menu = $card.find('.compact-message-dropdown-menu');
+
+        // Word count — only present for assistant messages after initialiseVoteBank runs
+        var wcText = $card.find('.vote-dropdown-menu .dropdown-item-text').first().text().trim();
+        $menu.find('.compact-word-count').text(wcText).toggle(!!wcText);
+        $menu.find('.compact-word-count-divider').toggle(!!wcText);
+
+        // Edit Message — only present for assistant messages
+        var hasEdit = $card.find('.vote-dropdown-menu a').filter(function() {
+            return $(this).text().trim().indexOf('Edit Message') !== -1;
+        }).length > 0;
+        $menu.find('.compact-proxy-edit-message').toggle(hasEdit);
+        // Hide the divider after edit if neither word count nor edit is present
+        $menu.find('.compact-proxy-edit-message').next('.dropdown-divider').toggle(hasEdit || !!wcText);
+
+        // Show/hide toggle — mirror current label ([hide] or [show])
+        var hideText = $card.find('.header-hide-toggle').text().trim();
+        $menu.find('.compact-proxy-show-hide').html(
+            '<i class="bi bi-eye mr-2"></i>' + (hideText || '[show/hide]')
+        );
+
+        // Move Pair as Doubt — mirror the original item's visibility (index-based)
+        var movePairHidden = $card.find('.move-pair-as-doubt-button').is(':hidden');
+        $menu.find('.compact-proxy-move-pair').toggle(!movePairHidden);
+    });
+
+    // Proxy handlers — each delegates to the original (hidden) element in the same card.
+    $(document).on('click', '.compact-proxy-edit-message', function(e) {
+        e.preventDefault();
+        $(this).closest('.message-card').find('.vote-dropdown-menu a').filter(function() {
+            return $(this).text().trim().indexOf('Edit Message') !== -1;
+        }).trigger('click');
+    });
+    $(document).on('click', '.compact-proxy-bottom', function(e) {
+        e.preventDefault();
+        $(this).closest('.message-card').find('.scroll-to-bottom-btn').trigger('click');
+    });
+    $(document).on('click', '.compact-proxy-show-hide', function(e) {
+        e.preventDefault();
+        $(this).closest('.message-card').find('.header-hide-toggle').trigger('click');
+    });
+    $(document).on('click', '.compact-proxy-copy', function(e) {
+        e.preventDefault();
+        $(this).closest('.message-card').find('.copy-btn-header').trigger('click');
+    });
+    $(document).on('click', '.compact-proxy-show-doubts', function(e) {
+        e.preventDefault();
+        $(this).closest('.message-card').find('.show-doubts-button').trigger('click');
+    });
+    $(document).on('click', '.compact-proxy-ask-doubt', function(e) {
+        e.preventDefault();
+        $(this).closest('.message-card').find('.ask-doubt-button').trigger('click');
+    });
+    $(document).on('click', '.compact-proxy-fork', function(e) {
+        e.preventDefault();
+        $(this).closest('.message-card').find('.fork-from-here-button').trigger('click');
+    });
+    $(document).on('click', '.compact-proxy-delete-message', function(e) {
+        e.preventDefault();
+        $(this).closest('.message-card').find('.delete-message-button').trigger('click');
+    });
+    $(document).on('click', '.compact-proxy-delete-pair', function(e) {
+        e.preventDefault();
+        $(this).closest('.message-card').find('.delete-pair-button').trigger('click');
+    });
+    $(document).on('click', '.compact-proxy-move-pair', function(e) {
+        e.preventDefault();
+        $(this).closest('.message-card').find('.move-pair-as-doubt-button').trigger('click');
+    });
     // =================================================================
 
     $('#show-sidebar').on('click', toggleSidebar);

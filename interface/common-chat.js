@@ -2457,7 +2457,7 @@ var ChatManager = {
             if (userHidden) messageElement.css('display', 'none').addClass('message-user-hidden');
             // Create action dropdown for left side (doubts, delete, move)
             var actionDropdown = `
-                <div class="dropdown d-inline-block">
+                <div class="dropdown d-inline-block message-action-dropdown">
                     <button class="btn btn-sm p-1 dropdown-toggle-no-caret" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="Message Actions">
                         <i class="bi bi-three-dots-vertical"></i>
                     </button>
@@ -2516,12 +2516,35 @@ var ChatManager = {
                     <button class="btn btn-sm p-1 pin-message-btn" title="Pin/Unpin Message" data-message-id="${message.message_id || ''}" style="${message.sender === 'user' ? 'display:none;' : ''}">
                         <i class="bi bi-star"></i>
                     </button>
-                    <div class="dropdown d-inline-block">
+                    <div class="dropdown d-inline-block vote-menu-dropdown-container">
                         <button class="btn btn-sm p-1 dropdown-toggle-no-caret vote-menu-toggle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="More Options">
                             <i class="bi bi-three-dots-vertical"></i>
                         </button>
                         <div class="dropdown-menu dropdown-menu-right vote-dropdown-menu">
                             <!-- Vote buttons will be inserted here by initialiseVoteBank -->
+                        </div>
+                    </div>
+                    <div class="dropdown d-inline-block compact-message-menu-container">
+                        <button class="btn btn-sm p-1 dropdown-toggle-no-caret compact-message-menu-toggle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="Options">
+                            <i class="bi bi-three-dots-vertical"></i>
+                        </button>
+                        <div class="dropdown-menu dropdown-menu-right compact-message-dropdown-menu">
+                            <span class="dropdown-item-text text-muted compact-word-count" style="font-size:0.7rem;padding:2px 12px;"></span>
+                            <div class="dropdown-divider compact-word-count-divider"></div>
+                            <a class="dropdown-item compact-proxy-edit-message" href="#"><i class="bi bi-pencil mr-2"></i>Edit Message</a>
+                            <div class="dropdown-divider"></div>
+                            <a class="dropdown-item compact-proxy-bottom" href="#"><i class="bi bi-arrow-down-short mr-2"></i>Bottom</a>
+                            <a class="dropdown-item compact-proxy-show-hide" href="#"></a>
+                            <a class="dropdown-item compact-proxy-copy" href="#"><i class="bi bi-clipboard mr-2"></i>Copy</a>
+                            <div class="dropdown-divider"></div>
+                            <a class="dropdown-item compact-proxy-show-doubts" href="#"><i class="bi bi-question-circle mr-2"></i>Show Doubts</a>
+                            <a class="dropdown-item compact-proxy-ask-doubt" href="#"><i class="bi bi-plus-circle mr-2"></i>Ask New Doubt</a>
+                            <div class="dropdown-divider"></div>
+                            <a class="dropdown-item compact-proxy-fork" href="#"><i class="bi bi-signpost-split mr-2"></i>Fork from here</a>
+                            <div class="dropdown-divider"></div>
+                            <a class="dropdown-item text-danger compact-proxy-delete-message" href="#"><i class="bi bi-trash-fill mr-2"></i>Delete Message</a>
+                            <a class="dropdown-item text-danger compact-proxy-delete-pair" href="#"><i class="bi bi-trash mr-2"></i>Delete Pair</a>
+                            <a class="dropdown-item text-warning compact-proxy-move-pair" href="#"><i class="bi bi-arrow-up-right-circle mr-2"></i>Move Pair as Doubt</a>
                         </div>
                     </div>
                 </div>

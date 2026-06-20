@@ -11,9 +11,26 @@ function applyCompactNav(enabled) {
     if (enabled) {
         document.body.classList.add('compact-nav');
         document.body.classList.remove('compact-nav-off');
+        // Hide all TOC containers — they are not useful in compact mode and
+        // take up vertical space above collapsed/short messages.
+        try {
+            $('.message-toc-container').hide();
+        } catch (e) { /* ignore */ }
     } else {
         document.body.classList.remove('compact-nav');
         document.body.classList.add('compact-nav-off');
+        // Restore TOC containers: only show when the container has content
+        // and the message body is currently expanded (mirrors renderMessageToc logic).
+        try {
+            $('.message-toc-container').each(function() {
+                var $toc = $(this);
+                if ($toc.children().length === 0) return; // empty placeholder — leave hidden
+                var $moreText = $toc.closest('.card-body').find('.more-text').first();
+                if ($moreText.length === 0 || $moreText.is(':visible')) {
+                    $toc.show();
+                }
+            });
+        } catch (e) { /* ignore */ }
     }
 }
 $(function() {
