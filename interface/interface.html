@@ -184,6 +184,7 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-select@1.13.18/dist/css/bootstrap-select.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
     <link rel="stylesheet" href="interface/style.css?v=29">
+    <link rel="stylesheet" href="interface/dark-mode.css">
 
     <title>Document Index Interface</title>
 </head>
@@ -411,8 +412,9 @@
                                               <a class="dropdown-item" href="#" id="gear-conversation-docs"><i class="fa fa-file mr-2"></i>Docs</a>
                                               <a class="dropdown-item" href="#" id="gear-global-docs"><i class="fa fa-globe mr-2"></i>Global Docs</a>
                                               <div class="dropdown-divider"></div>
-                                              <a class="dropdown-item d-flex align-items-center" href="#" id="gear-compact-nav-toggle"><i class="fa fa-compress mr-2"></i>Compact Mode<span class="ml-auto gear-compact-check"></span></a>
-                                              <a class="dropdown-item" href="#" id="gear-logout"><i class="fa fa-sign-out mr-2"></i>Logout</a>
+                                              <a class="dropdown-item d-flex align-items-center" href="#" id="gear-dark-mode-toggle"><i class="fa fa-moon-o mr-2"></i>Dark Mode<span class="ml-auto gear-dark-check"></span></a>
+                                               <a class="dropdown-item d-flex align-items-center" href="#" id="gear-compact-nav-toggle"><i class="fa fa-compress mr-2"></i>Compact Mode<span class="ml-auto gear-compact-check"></span></a>
+                                               <a class="dropdown-item" href="#" id="gear-logout"><i class="fa fa-sign-out mr-2"></i>Logout</a>
                                           </div>
                                       </div>
                                   </div>
@@ -439,8 +441,9 @@
                                       <a class="dropdown-item" href="#" id="gear-floating-docs"><i class="fa fa-file mr-2"></i>Docs</a>
                                       <a class="dropdown-item" href="#" id="gear-floating-global-docs"><i class="fa fa-globe mr-2"></i>Global Docs</a>
                                       <div class="dropdown-divider"></div>
-                                      <a class="dropdown-item d-flex align-items-center" href="#" id="gear-floating-compact-toggle"><i class="fa fa-compress mr-2"></i>Compact Mode<span class="ml-auto gear-compact-check"></span></a>
-                                      <a class="dropdown-item" href="#" id="gear-floating-logout"><i class="fa fa-sign-out mr-2"></i>Logout</a>
+                                      <a class="dropdown-item d-flex align-items-center" href="#" id="gear-floating-dark-mode-toggle"><i class="fa fa-moon-o mr-2"></i>Dark Mode<span class="ml-auto gear-dark-check"></span></a>
+                                       <a class="dropdown-item d-flex align-items-center" href="#" id="gear-floating-compact-toggle"><i class="fa fa-compress mr-2"></i>Compact Mode<span class="ml-auto gear-compact-check"></span></a>
+                                       <a class="dropdown-item" href="#" id="gear-floating-logout"><i class="fa fa-sign-out mr-2"></i>Logout</a>
                                   </div>
                               </div>
                               <div id="chatView" class="row flex-grow-1 overflow-auto">
@@ -6146,6 +6149,48 @@ greet("World");</code></pre>
         });
         console.log('[MainUI] All extension init done. Waiting for extension detection...');
     });
+    </script>
+
+    <!-- Dark Mode: init from localStorage (or OS preference), wire toggle -->
+    <script>
+    (function () {
+        var HL_LIGHT = 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/default.min.css';
+        var HL_DARK  = 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css';
+
+        function setHighlightTheme(dark) {
+            var el = document.getElementById('highlight-theme');
+            if (el) el.href = dark ? HL_DARK : HL_LIGHT;
+        }
+
+        function applyDarkMode(dark) {
+            document.body.classList.toggle('dark-mode', dark);
+            setHighlightTheme(dark);
+            try { localStorage.setItem('darkMode', dark ? 'true' : 'false'); } catch(e) {}
+            // re-highlight any visible code blocks
+            if (window.hljs) {
+                setTimeout(function () {
+                    document.querySelectorAll('pre code').forEach(function (block) {
+                        hljs.highlightElement(block);
+                    });
+                }, 50);
+            }
+        }
+
+        // Restore saved preference, fall back to OS setting
+        var saved = null;
+        try { saved = localStorage.getItem('darkMode'); } catch(e) {}
+        var prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        var isDark = (saved !== null) ? (saved === 'true') : prefersDark;
+        applyDarkMode(isDark);
+
+        // Wire toggle buttons (both desktop and floating gear menus)
+        $(document).on('click', '#gear-dark-mode-toggle, #gear-floating-dark-mode-toggle', function (e) {
+            e.preventDefault();
+            applyDarkMode(!document.body.classList.contains('dark-mode'));
+            // close the dropdown so user can see the checkmark state next time it opens
+            $(this).closest('.dropdown-menu').parent().find('[data-toggle="dropdown"]').dropdown('toggle');
+        });
+    })();
     </script>
 </body>
 </html>

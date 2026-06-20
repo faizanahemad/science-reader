@@ -1,0 +1,615 @@
+/* ==========================================================================
+   DARK MODE — scoped to body.dark-mode
+   All rules here are overrides; the page remains fully functional in light mode
+   when body.dark-mode is absent.
+
+   Color palette (GitHub Dark-inspired):
+     --dm-bg:        #0d1117   body / page background
+     --dm-bg-2:      #161b22   cards, modals, panels
+     --dm-bg-3:      #21262d   inputs, table headers, secondary backgrounds
+     --dm-text:      #c9d1d9   primary text
+     --dm-muted:     #8b949e   secondary / muted text
+     --dm-border:    #30363d   borders & dividers
+     --dm-accent:    #58a6ff   links, focus rings, active states
+   ========================================================================== */
+
+/* ── Checkmark indicator for the gear menu item ─────────────────────── */
+.gear-dark-check::after {
+    content: '';
+}
+body.dark-mode .gear-dark-check::after {
+    content: '✓';
+    font-weight: 700;
+    color: #58a6ff;
+}
+
+/* ── Base ────────────────────────────────────────────────────────────── */
+body.dark-mode {
+    background-color: #0d1117;
+    color: #c9d1d9;
+}
+
+body.dark-mode a {
+    color: #58a6ff;
+}
+body.dark-mode a:hover {
+    color: #79b8ff;
+}
+
+/* ── Toolbar row ─────────────────────────────────────────────────────── */
+body.dark-mode #chat-toolbar-row {
+    background-color: #0d1117;
+}
+
+/* ── Bootstrap Cards ─────────────────────────────────────────────────── */
+body.dark-mode .card {
+    background-color: #161b22;
+    border-color: #30363d;
+    color: #c9d1d9;
+}
+body.dark-mode .card-header {
+    background-color: #21262d;
+    border-color: #30363d;
+    color: #c9d1d9;
+}
+body.dark-mode .card-footer {
+    background-color: #21262d;
+    border-color: #30363d;
+}
+
+/* ── Bootstrap Modals ────────────────────────────────────────────────── */
+body.dark-mode .modal-content {
+    background-color: #161b22;
+    border-color: #30363d;
+    color: #c9d1d9;
+}
+body.dark-mode .modal-header {
+    background-color: #21262d;
+    border-color: #30363d;
+    color: #c9d1d9;
+}
+body.dark-mode .modal-footer {
+    background-color: #21262d;
+    border-color: #30363d;
+}
+body.dark-mode .modal-header .close {
+    color: #8b949e;
+}
+body.dark-mode .modal-backdrop {
+    background-color: #000;
+}
+
+/* ── Forms ───────────────────────────────────────────────────────────── */
+body.dark-mode .form-control,
+body.dark-mode textarea.form-control,
+body.dark-mode input.form-control {
+    background-color: #0d1117;
+    border-color: #30363d;
+    color: #c9d1d9;
+}
+body.dark-mode .form-control:focus,
+body.dark-mode textarea.form-control:focus,
+body.dark-mode input.form-control:focus {
+    background-color: #0d1117;
+    border-color: #58a6ff;
+    color: #c9d1d9;
+    box-shadow: 0 0 0 0.2rem rgba(88, 166, 255, 0.25);
+}
+body.dark-mode .form-control::placeholder,
+body.dark-mode textarea.form-control::placeholder {
+    color: #8b949e;
+}
+body.dark-mode .form-control:disabled,
+body.dark-mode .form-control[readonly] {
+    background-color: #21262d;
+    color: #8b949e;
+}
+body.dark-mode select.form-control,
+body.dark-mode .custom-select {
+    background-color: #0d1117;
+    border-color: #30363d;
+    color: #c9d1d9;
+}
+body.dark-mode .input-group-text {
+    background-color: #21262d;
+    border-color: #30363d;
+    color: #c9d1d9;
+}
+/* remove the inline background-color:transparent on voice/file spans */
+body.dark-mode #chat-file-upload-span,
+body.dark-mode #voice-record-span {
+    background-color: transparent !important;
+    border-color: #30363d;
+}
+
+/* ── Bootstrap-select (dropdown-based select) ───────────────────────── */
+body.dark-mode .bootstrap-select .dropdown-toggle,
+body.dark-mode .bootstrap-select .dropdown-toggle:focus {
+    background-color: #0d1117 !important;
+    border-color: #30363d !important;
+    color: #c9d1d9 !important;
+}
+body.dark-mode .bootstrap-select .bs-searchbox .form-control {
+    background-color: #0d1117;
+    border-color: #30363d;
+    color: #c9d1d9;
+}
+
+/* ── Dropdowns ───────────────────────────────────────────────────────── */
+body.dark-mode .dropdown-menu {
+    background-color: #161b22;
+    border-color: #30363d;
+}
+body.dark-mode .dropdown-item {
+    color: #c9d1d9;
+}
+body.dark-mode .dropdown-item:hover,
+body.dark-mode .dropdown-item:focus {
+    background-color: #21262d;
+    color: #c9d1d9;
+}
+body.dark-mode .dropdown-item.active,
+body.dark-mode .dropdown-item:active {
+    background-color: #0d419d;
+}
+body.dark-mode .dropdown-item.disabled,
+body.dark-mode .dropdown-item:disabled {
+    color: #8b949e;
+}
+body.dark-mode .dropdown-divider {
+    border-color: #30363d;
+}
+body.dark-mode .dropdown-header {
+    color: #8b949e;
+}
+
+/* ── Buttons — outline variants need re-theming ─────────────────────── */
+body.dark-mode .btn-outline-secondary {
+    color: #8b949e;
+    border-color: #30363d;
+}
+body.dark-mode .btn-outline-secondary:hover,
+body.dark-mode .btn-outline-secondary:focus {
+    color: #c9d1d9;
+    background-color: #21262d;
+    border-color: #8b949e;
+}
+body.dark-mode .btn-light {
+    background-color: #21262d;
+    border-color: #30363d;
+    color: #c9d1d9;
+}
+body.dark-mode .btn-light:hover {
+    background-color: #30363d;
+}
+/* Light/white badge-like buttons used in PKB etc */
+body.dark-mode .btn-white {
+    background-color: #21262d;
+    border-color: #30363d;
+    color: #c9d1d9;
+}
+
+/* ── Nav tabs ────────────────────────────────────────────────────────── */
+body.dark-mode .nav-tabs {
+    border-color: #30363d;
+}
+body.dark-mode .nav-tabs .nav-link {
+    color: #8b949e;
+    border-color: transparent;
+}
+body.dark-mode .nav-tabs .nav-link:hover {
+    color: #c9d1d9;
+    border-color: #30363d;
+}
+body.dark-mode .nav-tabs .nav-link.active,
+body.dark-mode .nav-tabs .nav-item.show .nav-link {
+    background-color: #161b22;
+    border-color: #30363d #30363d #161b22;
+    color: #c9d1d9;
+}
+body.dark-mode .tab-content {
+    background-color: #0d1117;
+}
+
+/* ── List groups ─────────────────────────────────────────────────────── */
+body.dark-mode .list-group-item {
+    background-color: #161b22;
+    border-color: #30363d;
+    color: #c9d1d9;
+}
+body.dark-mode .list-group-item-action:hover,
+body.dark-mode .list-group-item-action:focus {
+    background-color: #21262d;
+    color: #c9d1d9;
+}
+body.dark-mode .list-group-item-action.active {
+    background-color: #0d419d;
+    border-color: #0d419d;
+    color: #fff;
+}
+
+/* ── Tables ──────────────────────────────────────────────────────────── */
+body.dark-mode table,
+body.dark-mode tr,
+body.dark-mode thead,
+body.dark-mode th,
+body.dark-mode td {
+    border-color: #30363d;
+    color: #c9d1d9;
+}
+body.dark-mode thead th {
+    background-color: #21262d;
+}
+body.dark-mode tbody tr:nth-child(odd) {
+    background-color: #0d1117;
+}
+body.dark-mode tbody tr:nth-child(even) {
+    background-color: #161b22;
+}
+/* DataTables */
+body.dark-mode .dataTables_wrapper .dataTables_paginate .paginate_button {
+    color: #c9d1d9 !important;
+}
+body.dark-mode .dataTables_wrapper .dataTables_paginate .paginate_button.current {
+    background: #21262d !important;
+    border-color: #30363d !important;
+    color: #58a6ff !important;
+}
+body.dark-mode .dataTables_wrapper .dataTables_info {
+    color: #8b949e;
+}
+body.dark-mode .dataTables_wrapper .dataTables_length label,
+body.dark-mode .dataTables_wrapper .dataTables_filter label {
+    color: #c9d1d9;
+}
+
+/* ── Badges ──────────────────────────────────────────────────────────── */
+body.dark-mode .badge-light,
+body.dark-mode .badge-secondary {
+    background-color: #21262d;
+    color: #c9d1d9;
+}
+body.dark-mode .badge-dark {
+    background-color: #30363d;
+}
+
+/* ── Collapse / Accordion toggle ─────────────────────────────────────── */
+body.dark-mode [data-toggle='collapse'] {
+    background: #21262d;
+    color: #c9d1d9;
+}
+
+/* ── Alerts ──────────────────────────────────────────────────────────── */
+body.dark-mode .alert-secondary {
+    background-color: #21262d;
+    border-color: #30363d;
+    color: #c9d1d9;
+}
+body.dark-mode .alert-info {
+    background-color: #0d2a3f;
+    border-color: #0c4a6e;
+    color: #38bdf8;
+}
+body.dark-mode .alert-warning {
+    background-color: #2d1f00;
+    border-color: #854d0e;
+    color: #fbbf24;
+}
+
+/* ── Custom control (checkbox, switch) ───────────────────────────────── */
+body.dark-mode .custom-control-label {
+    color: #c9d1d9;
+}
+body.dark-mode .custom-control-label::before {
+    background-color: #21262d;
+    border-color: #30363d;
+}
+
+/* ── Gear menu: domain active item ───────────────────────────────────── */
+body.dark-mode .gear-domain-item.active {
+    background-color: rgba(88, 166, 255, 0.15);
+    border-left-color: #58a6ff;
+    color: #58a6ff;
+}
+
+/* ── Attachment preview area ─────────────────────────────────────────── */
+body.dark-mode .attachment-preview {
+    background: #161b22;
+    border-color: #30363d;
+}
+body.dark-mode .att-preview {
+    border-color: #30363d;
+}
+body.dark-mode .att-preview.att-file {
+    background: #21262d;
+    color: #8b949e;
+}
+body.dark-mode .msg-att-badge {
+    background: #21262d;
+    border-color: #30363d;
+    color: #c9d1d9;
+}
+body.dark-mode .att-context-menu {
+    background: #161b22;
+    border-color: #30363d;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+}
+body.dark-mode .att-ctx-item:hover {
+    background: #21262d;
+}
+body.dark-mode .att-ctx-item i {
+    color: #8b949e;
+}
+body.dark-mode .att-ctx-disabled {
+    color: #30363d;
+}
+
+/* ── Message selection ───────────────────────────────────────────────── */
+body.dark-mode .message-selected {
+    background-color: #0d2a3f;
+    border-left-color: #58a6ff;
+}
+
+/* ── Message Table of Contents ───────────────────────────────────────── */
+body.dark-mode .message-toc {
+    background: #161b22;
+    border-color: #30363d;
+}
+
+/* ── Floating ToC panel ──────────────────────────────────────────────── */
+body.dark-mode .floating-toc-panel {
+    background: #1f2937;
+    border-color: #374151;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+}
+body.dark-mode .floating-toc-header {
+    background: #111827;
+    border-color: #374151;
+}
+body.dark-mode .floating-toc-close:hover {
+    background: #374151;
+}
+body.dark-mode .floating-toc-link {
+    color: #d1d5db;
+}
+body.dark-mode .floating-toc-link:hover {
+    background: #374151;
+    color: #f9fafb;
+}
+
+/* ── Page context panel ──────────────────────────────────────────────── */
+body.dark-mode .page-context-header {
+    background: #161b22;
+    border-color: #30363d;
+    color: #c9d1d9;
+}
+body.dark-mode #page-context-body {
+    background: #0d1117;
+    border-color: #30363d;
+    color: #8b949e;
+}
+
+/* ── Message edit modal ──────────────────────────────────────────────── */
+body.dark-mode #message-edit-preview {
+    background: #0d1117;
+    color: #c9d1d9;
+}
+body.dark-mode #message-edit-preview th {
+    background: #21262d;
+}
+body.dark-mode #message-edit-preview td {
+    border-color: #30363d;
+}
+body.dark-mode #message-edit-tabs {
+    background: #21262d;
+    border-color: #30363d;
+}
+body.dark-mode #message-edit-tabs .nav-link {
+    color: #8b949e;
+}
+body.dark-mode #message-edit-tabs .nav-link.active {
+    background-color: #161b22;
+    color: #c9d1d9;
+    border-color: #30363d #30363d #161b22;
+}
+body.dark-mode #message-edit-milkdown-container {
+    background: #0d1117;
+    color: #c9d1d9;
+}
+body.dark-mode #message-edit-milkdown-container .wysiwyg-toolbar {
+    background: #21262d;
+}
+body.dark-mode #message-edit-milkdown-container .wysiwyg-editor pre,
+body.dark-mode #message-edit-milkdown-container .wysiwyg-editor code {
+    background: #161b22;
+    color: #c9d1d9;
+}
+
+/* ── File Browser modal ──────────────────────────────────────────────── */
+body.dark-mode .fb-sidebar {
+    background: #161b22;
+    border-color: #30363d;
+}
+body.dark-mode .fb-tree li:hover {
+    background: #21262d;
+}
+body.dark-mode .fb-tree li {
+    color: #c9d1d9;
+}
+body.dark-mode .fb-preview-container {
+    background: #0d1117;
+    color: #c9d1d9;
+}
+body.dark-mode .fb-tab-bar {
+    background: #21262d;
+    border-color: #30363d;
+}
+body.dark-mode .fb-wysiwyg-container {
+    background: #161b22;
+}
+body.dark-mode .fb-context-menu .dropdown-menu {
+    background-color: #161b22;
+}
+body.dark-mode .fb-move-dir-item:hover {
+    background: #21262d;
+    color: #c9d1d9;
+}
+body.dark-mode .fb-move-dir-item.fb-move-selected {
+    background: #0d419d;
+    color: #fff;
+}
+body.dark-mode .fb-move-root-item {
+    border-color: #30363d;
+}
+
+/* ── AI Diff view ────────────────────────────────────────────────────── */
+body.dark-mode .ai-diff-add {
+    background: rgba(25, 135, 84, 0.25);
+    color: #3fb950;
+}
+body.dark-mode .ai-diff-del {
+    background: rgba(220, 53, 69, 0.25);
+    color: #f85149;
+}
+body.dark-mode .ai-diff-hunk {
+    background: rgba(88, 166, 255, 0.12);
+    color: #58a6ff;
+}
+body.dark-mode .ai-diff-header {
+    color: #8b949e;
+}
+
+/* ── Cross-conversation search ───────────────────────────────────────── */
+body.dark-mode .cross-conv-result-item {
+    background-color: #161b22;
+    border-color: #30363d;
+}
+body.dark-mode .cross-conv-result-item:hover {
+    background-color: #21262d;
+    border-color: #58a6ff;
+}
+body.dark-mode .cross-conv-result-title {
+    color: #c9d1d9;
+}
+body.dark-mode .cross-conv-result-snippet {
+    color: #8b949e;
+}
+body.dark-mode .cross-conv-result-snippet b {
+    background-color: rgba(251, 191, 36, 0.2);
+    color: #fbbf24;
+}
+
+/* ── Scrollbars (webkit) ─────────────────────────────────────────────── */
+body.dark-mode ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+body.dark-mode ::-webkit-scrollbar-track {
+    background: #0d1117;
+}
+body.dark-mode ::-webkit-scrollbar-thumb {
+    background: #30363d;
+    border-radius: 4px;
+}
+body.dark-mode ::-webkit-scrollbar-thumb:hover {
+    background: #58a6ff;
+}
+
+/* ── pre / code blocks (non-hljs, e.g. inline code in messages) ──────── */
+body.dark-mode pre {
+    background-color: #161b22;
+    border: 1px solid #30363d;
+    color: #c9d1d9;
+}
+body.dark-mode code:not(.hljs):not([class*="language-"]) {
+    background-color: #21262d;
+    color: #e06c75;
+    padding: 0.1em 0.3em;
+    border-radius: 3px;
+}
+
+/* ── jQuery UI widgets ───────────────────────────────────────────────── */
+body.dark-mode .ui-widget-content {
+    background: #161b22;
+    border-color: #30363d;
+    color: #c9d1d9;
+}
+body.dark-mode .ui-widget-header {
+    background: #21262d;
+    border-color: #30363d;
+    color: #c9d1d9;
+}
+body.dark-mode .ui-menu-item:hover,
+body.dark-mode .ui-menu-item.ui-state-focus {
+    background: #21262d;
+}
+body.dark-mode .ui-autocomplete {
+    background-color: #161b22;
+    border-color: #30363d;
+}
+
+/* ── jstree context menu overrides ─────────────────────────────────────
+   workspace-styles.css already sets these to dark, but just in case
+   they differ slightly in light mode builds: */
+body.dark-mode .vakata-context {
+    background: #252526;
+    border-color: #454545;
+}
+
+/* ── EasyMDE (Markdown editor toolbar) ──────────────────────────────── */
+body.dark-mode .editor-toolbar {
+    border-color: #30363d;
+    background: #21262d;
+}
+body.dark-mode .editor-toolbar button,
+body.dark-mode .editor-toolbar a {
+    color: #c9d1d9 !important;
+}
+body.dark-mode .editor-toolbar button:hover,
+body.dark-mode .editor-toolbar a:hover {
+    background: #30363d;
+    border-color: #30363d;
+}
+body.dark-mode .editor-toolbar.disabled-for-preview button,
+body.dark-mode .editor-toolbar.disabled-for-preview button:hover {
+    background: transparent;
+}
+body.dark-mode .CodeMirror.cm-s-default {
+    background-color: #0d1117;
+    color: #c9d1d9;
+}
+
+/* ── Toast / notification ────────────────────────────────────────────── */
+body.dark-mode .toast {
+    background-color: #161b22;
+    border-color: #30363d;
+    color: #c9d1d9;
+}
+body.dark-mode .toast-header {
+    background-color: #21262d;
+    border-color: #30363d;
+    color: #c9d1d9;
+}
+
+/* ── Horizontal rule ─────────────────────────────────────────────────── */
+body.dark-mode hr {
+    border-color: #30363d;
+}
+
+/* ── Strong / small / muted text ─────────────────────────────────────── */
+body.dark-mode .text-muted {
+    color: #8b949e !important;
+}
+body.dark-mode .text-dark {
+    color: #c9d1d9 !important;
+}
+
+/* ── Status text (blue link color) ──────────────────────────────────── */
+body.dark-mode .status-text {
+    color: #58a6ff;
+}
+
+/* ── Loading indicator ───────────────────────────────────────────────── */
+body.dark-mode .loading-indicator {
+    color: #8b949e;
+}
