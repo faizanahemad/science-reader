@@ -637,3 +637,60 @@ body.dark-mode .status-text {
 body.dark-mode .loading-indicator {
     color: #8b949e;
 }
+
+/* ── Doubt chat modal ─────────────────────────────────────────────────────
+   The modal has several inline styles set directly in the HTML that override
+   generic class-based rules; !important is required to beat them.
+
+   Affected inline styles:
+     • #doubt-chat-messages        background-color: #f8f9fa  (HTML attr)
+     • #doubt-chat-input-area      background-color: white    (HTML attr)
+     • #doubt-voice-record-span    background-color: transparent (HTML attr,
+                                   inherits white from input-area)
+     • .modal-header               border-bottom: 1px solid #ddd (HTML attr)
+     • .modal-title h5             color: #333                (HTML attr)
+   ────────────────────────────────────────────────────────────────────── */
+
+/* Message history area */
+body.dark-mode #doubt-chat-messages {
+    background-color: #0d1117 !important;
+}
+
+/* Input strip at the bottom of the modal */
+body.dark-mode #doubt-chat-input-area {
+    background-color: #161b22 !important;
+    border-top-color: #30363d !important;
+}
+
+/* Microphone icon span — override transparent bg that inherits input-area white */
+body.dark-mode #doubt-voice-record-span {
+    background-color: #161b22 !important;
+    border-right-color: #30363d !important;
+    color: #c9d1d9 !important;
+}
+
+/* Modal header inline border + title inline color */
+body.dark-mode #doubt-chat-modal .modal-header {
+    border-bottom-color: #30363d !important;
+}
+body.dark-mode #doubt-chat-modal .modal-title {
+    color: #c9d1d9 !important;
+}
+
+/* Doubt conversation cards (built by doubt-manager.js createDoubtChatCard).
+   The .card rule above covers background, but these also share the container
+   background and should visually separate from it. */
+body.dark-mode .doubt-conversation-card {
+    background-color: #161b22;
+    border-color: #30363d;
+    color: #c9d1d9;
+}
+body.dark-mode .doubt-conversation-card .card-header {
+    background-color: #21262d;
+    border-color: #30363d;
+    color: #c9d1d9;
+}
+body.dark-mode .doubt-conversation-card .card-body {
+    background-color: #161b22;
+    color: #c9d1d9;
+}
