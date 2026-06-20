@@ -325,12 +325,11 @@ function renderMessageToc($tocContainer, items, tocPrefix, expanded) {
     html += `  </div>`;
     html += `</div>`;
 
-    // Only reveal the container when the message body is not currently collapsed.
-    // If .more-text exists in the same card body and is hidden, the message is
-    // collapsed — set the HTML but keep the container hidden so it doesn't float
-    // above folded content when renderMessageToc is called from any path.
+    // Only reveal the container when the message body is not currently collapsed
+    // and compact-nav mode is not active.
     var $moreText = $tocContainer.closest('.card-body').find('.more-text').first();
-    if ($moreText.length > 0 && !$moreText.is(':visible')) {
+    var _tocCompact = document.body.classList.contains('compact-nav');
+    if (_tocCompact || ($moreText.length > 0 && !$moreText.is(':visible'))) {
         $tocContainer.html(html); // update content only, stay hidden
     } else {
         $tocContainer.html(html).show();
@@ -2403,7 +2402,8 @@ window.decorateMessageCardNav = function(cardElem, showHide) {
     try {
         var $tocContainer = $card.find('.message-toc-container').first();
         if ($tocContainer.length) {
-            if (showHide === 'hide') {
+            var _decCompact = document.body.classList.contains('compact-nav');
+            if (showHide === 'hide' || _decCompact) {
                 $tocContainer.hide();
             } else if ($tocContainer.children().length > 0) {
                 $tocContainer.show();
@@ -4384,10 +4384,11 @@ function applyConversationUIState(section_details, message_show_hide, elem_to_re
                 $moreText.show();
                 $lessText.hide();
                 $showMoreLinks.each(function() { $(this).text('[hide]'); });
-                // Sync TOC: show only if the container has content
+                // Sync TOC: show only if the container has content and compact-nav is off
                 try {
                     var $toc = $card.find('.message-toc-container').first();
-                    if ($toc.length && $toc.children().length > 0) { $toc.show(); }
+                    var _uiCompact = document.body.classList.contains('compact-nav');
+                    if (!_uiCompact && $toc.length && $toc.children().length > 0) { $toc.show(); }
                 } catch (e) { /* ignore */ }
             } else if (showHide === 'hide') {
                 $moreText.hide();

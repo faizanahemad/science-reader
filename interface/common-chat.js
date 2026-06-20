@@ -2524,7 +2524,7 @@ var ChatManager = {
                             <!-- Vote buttons will be inserted here by initialiseVoteBank -->
                         </div>
                     </div>
-                    <div class="dropdown d-inline-block compact-message-menu-container">
+                    <div class="dropdown compact-message-menu-container">
                         <button class="btn btn-sm p-1 dropdown-toggle-no-caret compact-message-menu-toggle" type="button" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" title="Options">
                             <i class="bi bi-three-dots-vertical"></i>
                         </button>

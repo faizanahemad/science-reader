@@ -730,7 +730,13 @@ function setModalFromState(state) {
     $('#settings-tool_mode').val(toolMode);
     $('#tool-use-options').toggle(toolMode === 'manual');
     $('#settings-compact_nav').prop('checked', !!state.compact_nav);
-    applyCompactNav(!!state.compact_nav);
+    // Only call applyCompactNav when compact_nav is explicitly present in the state.
+    // States built by computeDefaultStateForTab do not carry compact_nav, so omitting
+    // the call here prevents a shown.bs.tab event during init from resetting body.compact-nav
+    // back to false after initializeSettingsState has already enabled it.
+    if (Object.prototype.hasOwnProperty.call(state, 'compact_nav')) {
+        applyCompactNav(!!state.compact_nav);
+    }
     $('#settings-default_temp_chat').prop('checked', !!state.default_temp_chat);
     var recentCount = (state.recent_conversations_count !== undefined && state.recent_conversations_count !== null)
         ? state.recent_conversations_count
