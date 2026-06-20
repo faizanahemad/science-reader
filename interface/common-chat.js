@@ -1844,7 +1844,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                 if (typeof window.decorateMessageCardNav === 'function') {
                     window.decorateMessageCardNav(card, 'show');
                 } else if (typeof window.addScrollToTopButton === 'function') {
-                    window.addScrollToTopButton(card, '↑ Top of Answer', 'chat-scroll-top');
+                    window.addScrollToTopButton(card, 'Top ↑', 'chat-scroll-top');
                 }
             }
 

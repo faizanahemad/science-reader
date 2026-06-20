@@ -1035,12 +1035,15 @@ table, tr, thead, th, td {
         max-height: 100% !important;
     }
     #chat-assistant {
-        height: calc(100vh - 35px) !important;
-        max-height: calc(100vh - 35px) !important;
+        height: calc(100vh) !important;
+        /* max-height: calc(100vh - 35px) !important; */
     }
     #chat-assistant-sidebar {
-        height: calc(100vh - 35px) !important;
-        max-height: calc(100vh - 35px) !important;
+        height: calc(100vh) !important;
+        /* max-height: calc(100vh - 35px) !important; */
+    }
+    .chat-controls {
+        margin-bottom: 15px;
     }
 }
 

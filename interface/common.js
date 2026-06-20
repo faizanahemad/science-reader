@@ -2425,7 +2425,7 @@ window.decorateMessageCardNav = function(cardElem, showHide) {
 
     // Top button (absolute, bottom-right) — now on user cards too.
     if ($card.find('.scroll-to-top-btn').length === 0 && typeof window.addScrollToTopButton === 'function') {
-        window.addScrollToTopButton($card, '\u2191 Top of Answer', 'chat-scroll-top');
+        window.addScrollToTopButton($card, 'Top \u2191', 'chat-scroll-top');
     }
 
     // Header hide toggle — only for NON-tabbed answers that actually have an
@@ -4063,7 +4063,7 @@ function positionTabsBottomToggle($card) {
     if (!$btn.length) return;
     var $scrollBtn = $card.find('> .scroll-to-top-btn').first();
     // Fallback (used only momentarily before the scroll button exists/measures);
-    // generous enough to clear the wide "↑ Top of Answer" button.
+    // generous enough to clear the "Top ↑" button.
     var rightOffset = 150;
     if ($scrollBtn.length) {
         // 5px = scroll button's own right offset; +10px gap between the two.
