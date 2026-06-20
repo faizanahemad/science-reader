@@ -168,4 +168,4 @@ Each `shown.bs.tab` handler now fires `$(document).trigger('domainChanged')`. Th
 ## Related
 
 - Domain system docs: domains are a UI-level namespace (assistant/search/finchat). Backend behavior is identical across all three.
-- Old compact_nav approach: superseded by this change. The `body.compact-nav` class and `applyCompactNav()` still exist but have no visible effect.
+- **Compact card mode**: `body.compact-nav` also triggers message-card header compaction — merged triple-dot menu, hidden header controls, tighter spacing, TOC collapse. See **[compact_card_mode.md](compact_card_mode.md)** for full implementation details.
