@@ -1218,21 +1218,23 @@ def move_pair_as_doubt(conversation_id: str, message_id: str, index: str):
         )
 
     # --- Find the preceding assistant message (target for the doubt) ---
-    # The target is the assistant message immediately before the user message of the pair.
+    # Search backwards from just before the user message of the pair to find the
+    # nearest assistant message — it doesn't have to be immediately adjacent.
     target_index = user_index - 1
+    while target_index >= 0 and messages[target_index].get("sender", "") not in (
+        "server",
+        "assistant",
+        "model",
+    ):
+        target_index -= 1
+
     if target_index < 0:
         return json_error(
-            "No preceding message to attach the doubt to",
-            status=400,
-            code="no_preceding_message",
-        )
-    target_msg = messages[target_index]
-    if target_msg.get("sender", "") not in ("server", "assistant", "model"):
-        return json_error(
-            "The message above this pair is not an assistant message",
+            "No preceding assistant message to attach the doubt to",
             status=400,
             code="no_preceding_assistant",
         )
+    target_msg = messages[target_index]
 
     target_message_id = str(target_msg.get("message_id", ""))
     if not target_message_id:
