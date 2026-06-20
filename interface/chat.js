@@ -11,22 +11,33 @@ function applyCompactNav(enabled) {
     if (enabled) {
         document.body.classList.add('compact-nav');
         document.body.classList.remove('compact-nav-off');
-        // Hide all TOC containers — they are not useful in compact mode and
-        // take up vertical space above collapsed/short messages.
+        // Collapse all TOC bodies (keep header bar visible) for each rendered card.
+        // Uses _tocCollapseForCompact from common.js; no-ops if cards haven't rendered yet
+        // (renderMessageToc / decorateMessageCardNav handle that path instead).
         try {
-            $('.message-toc-container').hide();
+            $('.message-toc-container').each(function() {
+                if (typeof _tocCollapseForCompact === 'function') {
+                    _tocCollapseForCompact($(this));
+                }
+            });
         } catch (e) { /* ignore */ }
     } else {
         document.body.classList.remove('compact-nav');
         document.body.classList.add('compact-nav-off');
-        // Restore TOC containers: only show when the container has content
-        // and the message body is currently expanded (mirrors renderMessageToc logic).
+        // Restore TOC bodies that were auto-collapsed by compact mode.
+        // Only re-expands those marked data-compact-auto-collapsed; leaves
+        // user-intentional collapses and collapsed-message TOCs untouched.
         try {
             $('.message-toc-container').each(function() {
                 var $toc = $(this);
-                if ($toc.children().length === 0) return; // empty placeholder — leave hidden
-                var $moreText = $toc.closest('.card-body').find('.more-text').first();
+                if ($toc.children().length === 0) return;
+                var $cardBody = $toc.closest('.card-body');
+                var $moreText = $cardBody.find('.more-text').first();
+                // Only restore if the message body is expanded (or has no show/hide)
                 if ($moreText.length === 0 || $moreText.is(':visible')) {
+                    if (typeof _tocRestoreFromCompact === 'function') {
+                        _tocRestoreFromCompact($toc);
+                    }
                     $toc.show();
                 }
             });

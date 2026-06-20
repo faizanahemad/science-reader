@@ -329,10 +329,60 @@ function renderMessageToc($tocContainer, items, tocPrefix, expanded) {
     // and compact-nav mode is not active.
     var $moreText = $tocContainer.closest('.card-body').find('.more-text').first();
     var _tocCompact = document.body.classList.contains('compact-nav');
-    if (_tocCompact || ($moreText.length > 0 && !$moreText.is(':visible'))) {
-        $tocContainer.html(html); // update content only, stay hidden
+    if ($moreText.length > 0 && !$moreText.is(':visible')) {
+        $tocContainer.html(html); // message is collapsed — keep container hidden
+    } else if (_tocCompact) {
+        // Compact mode: show the header bar but collapse the body list
+        $tocContainer.html(html).show();
+        _tocCollapseForCompact($tocContainer);
     } else {
         $tocContainer.html(html).show();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// TOC compact-nav helpers
+// Used by renderMessageToc, decorateMessageCardNav, applyConversationUIState,
+// and applyCompactNav (chat.js) to collapse / restore TOC bodies without
+// fully hiding the container (so the "Table of Contents [Show N]" bar stays
+// visible in compact mode).
+// ---------------------------------------------------------------------------
+
+/**
+ * Collapse the TOC body while keeping the header bar visible.
+ * Marks the .message-toc with data-compact-auto-collapsed so the restore
+ * helper can tell apart user-intentional collapses from automatic ones.
+ */
+function _tocCollapseForCompact($container) {
+    if (!$container || !$container.length || $container.children().length === 0) return;
+    var $msgToc = $container.find('.message-toc').first();
+    if (!$msgToc.length) return;
+    $container.show(); // ensure container itself is visible
+    if ($msgToc.attr('data-toc-expanded') !== 'false') {
+        var n = $msgToc.find('.message-toc-item').length;
+        $msgToc.find('.message-toc-body').hide();
+        $msgToc.find('.message-toc-toggle').text('Show (' + n + ')');
+        $msgToc.attr('data-toc-expanded', 'false');
+        $msgToc.attr('data-compact-auto-collapsed', 'true');
+    } else {
+        // Already collapsed (user or prior pass) — just keep container visible
+        $container.show();
+    }
+}
+
+/**
+ * Restore a TOC that was auto-collapsed by compact mode.
+ * Only expands when data-compact-auto-collapsed is set; leaves user-intentional
+ * collapses untouched.
+ */
+function _tocRestoreFromCompact($container) {
+    if (!$container || !$container.length) return;
+    var $msgToc = $container.find('.message-toc').first();
+    if ($msgToc.length && $msgToc.attr('data-compact-auto-collapsed') === 'true') {
+        $msgToc.find('.message-toc-body').show();
+        $msgToc.find('.message-toc-toggle').text('Hide');
+        $msgToc.attr('data-toc-expanded', 'true');
+        $msgToc.removeAttr('data-compact-auto-collapsed');
     }
 }
 
@@ -2403,8 +2453,10 @@ window.decorateMessageCardNav = function(cardElem, showHide) {
         var $tocContainer = $card.find('.message-toc-container').first();
         if ($tocContainer.length) {
             var _decCompact = document.body.classList.contains('compact-nav');
-            if (showHide === 'hide' || _decCompact) {
-                $tocContainer.hide();
+            if (showHide === 'hide') {
+                $tocContainer.hide(); // message body collapsed — hide TOC entirely
+            } else if (_decCompact && $tocContainer.children().length > 0) {
+                _tocCollapseForCompact($tocContainer); // compact mode — collapse body, keep header
             } else if ($tocContainer.children().length > 0) {
                 $tocContainer.show();
             }
@@ -4384,11 +4436,17 @@ function applyConversationUIState(section_details, message_show_hide, elem_to_re
                 $moreText.show();
                 $lessText.hide();
                 $showMoreLinks.each(function() { $(this).text('[hide]'); });
-                // Sync TOC: show only if the container has content and compact-nav is off
+                // Sync TOC: show if the container has content; collapse body in compact mode
                 try {
                     var $toc = $card.find('.message-toc-container').first();
                     var _uiCompact = document.body.classList.contains('compact-nav');
-                    if (!_uiCompact && $toc.length && $toc.children().length > 0) { $toc.show(); }
+                    if ($toc.length && $toc.children().length > 0) {
+                        if (_uiCompact) {
+                            _tocCollapseForCompact($toc);
+                        } else {
+                            $toc.show();
+                        }
+                    }
                 } catch (e) { /* ignore */ }
             } else if (showHide === 'hide') {
                 $moreText.hide();

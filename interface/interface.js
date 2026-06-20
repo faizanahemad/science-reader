@@ -202,8 +202,13 @@ function interface_readiness() {
         var $card = $(this).closest('.message-card');
         var $menu = $card.find('.compact-message-dropdown-menu');
 
-        // Word count — populated by initialiseVoteBank for all cards
-        var wcText = $card.find('.vote-dropdown-menu .dropdown-item-text').first().text().trim();
+        // Word count — computed directly from rendered card text so it is immune to
+        // Bootstrap event ordering (the hidden vote-dropdown-menu is read after Bootstrap
+        // opens the dropdown, which can cause the first render to show stale content).
+        var $cardText = $card.find('.actual-card-text').first();
+        var rawWcText = $cardText.text().trim();
+        var wordCountNum = rawWcText ? rawWcText.split(/\s+/).filter(Boolean).length : 0;
+        var wcText = wordCountNum > 0 ? wordCountNum.toLocaleString() + ' words' : '';
         $menu.find('.compact-word-count').text(wcText).toggle(!!wcText);
         $menu.find('.compact-word-count-divider').toggle(!!wcText);
 
