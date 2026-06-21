@@ -1748,7 +1748,7 @@ const DoubtManager = {
                 }
             }
         });
-    }
+    },
     /**
      * Show the answer edit diff modal when propose_answer_edit tool fires.
      * @param {object} proposal - {type, message_id, conversation_id, replacements, diff_text, original_text, new_text, summary}
