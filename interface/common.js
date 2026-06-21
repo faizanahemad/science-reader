@@ -2056,6 +2056,90 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
             });
             voteDropdown.append($('<div class="dropdown-divider"></div>'), compareItem);
         }
+
+        // "Undo Last Edit" — only for assistant messages; hidden until a prior version exists.
+        // Each click reverts one edit at a time (walks back through the edit stack).
+        if (!disable_voting) {
+            var revertItem = $('<a class="dropdown-item revert-to-original-btn" href="#" style="display:none"><i class="bi bi-arrow-counterclockwise mr-2"></i>Undo Last Edit</a>');
+            revertItem.click(function(e) {
+                e.preventDefault();
+                e.stopPropagation();
+                try {
+                    var $dropdown = $(this).closest('.dropdown');
+                    if ($dropdown.length > 0) $dropdown.find('[data-toggle="dropdown"]').dropdown('hide');
+                } catch (err) { /* ignore */ }
+                var revertMsgId = cardElem.find('.card-header').last().attr('message-id');
+                var revertMsgIdx = cardElem.find('.card-header').last().attr('message-index') || '0';
+                var revertConvId = ConversationManager.activeConversationId;
+                if (!revertMsgId || revertMsgId === 'undefined') {
+                    showToast('Cannot revert: message ID not available', 'warning');
+                    return;
+                }
+                if (!confirm('Undo the most recent edit to this answer? You can keep undoing earlier edits one at a time.')) return;
+                $.ajax({
+                    url: '/revert_message_from_conversation/' + encodeURIComponent(revertConvId) + '/' + encodeURIComponent(revertMsgId) + '/' + revertMsgIdx,
+                    method: 'POST',
+                    contentType: 'application/json',
+                    success: function(resp) {
+                        var remaining = (resp && typeof resp.versions_remaining === 'number') ? resp.versions_remaining : 0;
+                        showToast(remaining > 0 ? 'Reverted one edit (' + remaining + ' earlier version' + (remaining === 1 ? '' : 's') + ' left)' : 'Reverted to original answer', 'success');
+                        var restoredText = resp.text || '';
+                        // Mark/clear the header flag so the re-init'd revert item reflects
+                        // whether further undo steps remain.
+                        var $hdr = cardElem.find('.card-header').last();
+                        if (remaining > 0) {
+                            $hdr.attr('data-has-original', 'true');
+                        } else {
+                            $hdr.removeAttr('data-has-original');
+                        }
+                        if (restoredText) {
+                            var $body = cardElem.find('.actual-card-text').last();
+                            if ($body.length && typeof renderInnerContentAsMarkdown === 'function') {
+                                renderInnerContentAsMarkdown($body, function() {}, false, restoredText);
+                            } else if ($body.length) {
+                                $body.text(restoredText);
+                            }
+                            // Re-init vote bank with restored text. The new revert item
+                            // shows immediately when versions remain (data-has-original).
+                            initialiseVoteBank(cardElem, restoredText, contentId, activeDocId, disable_voting);
+                        }
+                        // Hide this (old) item; the re-init created a fresh one.
+                        if (remaining <= 0) revertItem.hide();
+                    },
+                    error: function(xhr) {
+                        var errMsg = (xhr.responseJSON && xhr.responseJSON.error) || 'Failed to revert';
+                        showToast(errMsg, 'error');
+                    }
+                });
+            });
+            voteDropdown.append(revertItem);
+
+            // Lazily check whether a prior version exists — only when the user
+            // actually opens the triple-dot dropdown (avoids one GET per assistant
+            // card on conversation load). Cached per card via a data flag.
+            (function(item, card) {
+                var $hdr = card.find('.card-header').last();
+                // Fast path: flag set right after an in-session edit or partial revert.
+                if ($hdr.attr('data-has-original') === 'true') {
+                    item.show();
+                    return;
+                }
+                var $toggle = card.find('[data-toggle="dropdown"]');
+                if (!$toggle.length) return;
+                $toggle.off('click.revertcheck').on('click.revertcheck', function() {
+                    if (item.data('revert-checked')) return;  // only once
+                    item.data('revert-checked', true);
+                    var cId = ConversationManager.activeConversationId;
+                    var mId = card.find('.card-header').last().attr('message-id');
+                    if (!cId || !mId || mId === 'undefined') return;
+                    $.get('/get_message_text/' + encodeURIComponent(cId) + '/' + encodeURIComponent(mId), function(resp) {
+                        if (resp && resp.original_text !== null && resp.original_text !== undefined) {
+                            item.show();
+                        }
+                    }).fail(function() { /* no-op */ });
+                });
+            })(revertItem, cardElem);
+        }
         
     } else {
         // Fallback to old vote box if dropdown not found

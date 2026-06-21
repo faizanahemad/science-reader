@@ -6190,5 +6190,37 @@ greet("World");</code></pre>
         });
     })();
     </script>
+<!-- ===== Answer Edit Diff Modal ===== -->
+<div class="modal fade" id="answer-edit-diff-modal" tabindex="-1" aria-hidden="true" style="z-index: 1095;">
+    <div class="modal-dialog modal-lg" style="max-width: 800px;">
+        <div class="modal-content">
+            <div class="modal-header py-2">
+                <h6 class="modal-title mb-0"><i class="bi bi-pencil-square mr-2"></i>Proposed Answer Edit</h6>
+                <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                    <span aria-hidden="true">&times;</span>
+                </button>
+            </div>
+            <div class="modal-body p-0">
+                <!-- Summary row -->
+                <div id="answer-edit-summary" class="px-3 py-2 text-muted" style="font-size:0.85rem; border-bottom:1px solid #dee2e6;"></div>
+                <!-- Diff view -->
+                <div id="answer-edit-diff" class="artefact-diff-view p-3" style="max-height: 60vh; overflow-y: auto; font-size: 0.8rem;"></div>
+                <!-- Warnings -->
+                <div id="answer-edit-warnings" class="px-3 pt-2" style="display:none;">
+                    <div class="alert alert-warning py-1 mb-0" style="font-size:0.8rem;" id="answer-edit-warning-text"></div>
+                </div>
+            </div>
+            <div class="modal-footer py-2">
+                <span class="text-muted mr-auto" style="font-size:0.8rem;" id="answer-edit-stats"></span>
+                <button type="button" class="btn btn-sm btn-secondary" data-dismiss="modal">Reject</button>
+                <button type="button" class="btn btn-sm btn-success" id="answer-edit-accept-btn">
+                    <i class="bi bi-check2 mr-1"></i>Accept &amp; Apply
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+<!-- ===== /Answer Edit Diff Modal ===== -->
+
 </body>
 </html>

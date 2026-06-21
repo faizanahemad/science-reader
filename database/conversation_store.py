@@ -34,6 +34,8 @@ CREATE TABLE IF NOT EXISTS messages (
     answer_keywords TEXT,
     message_short_hash TEXT,
     metadata TEXT,
+    original_text TEXT,
+    edit_history TEXT,
     created_at REAL NOT NULL DEFAULT (unixepoch('subsec')),
     updated_at REAL
 );
@@ -140,6 +142,17 @@ class ConversationStore:
         if row[0] == 0:
             cur.execute("INSERT INTO schema_version VALUES (?)", (SCHEMA_VERSION,))
             self._conn.commit()
+        # Migrate: add original_text column if not present (for existing databases)
+        try:
+            cols = {r[1] for r in cur.execute("PRAGMA table_info(messages)").fetchall()}
+            if "original_text" not in cols:
+                cur.execute("ALTER TABLE messages ADD COLUMN original_text TEXT")
+                self._conn.commit()
+            if "edit_history" not in cols:
+                cur.execute("ALTER TABLE messages ADD COLUMN edit_history TEXT")
+                self._conn.commit()
+        except Exception:
+            pass
 
     def close(self):
         if self._conn:
@@ -179,6 +192,18 @@ class ConversationStore:
             d["answer_keywords"] = _json_decode(row["answer_keywords"])
         if row["message_short_hash"]:
             d["message_short_hash"] = row["message_short_hash"]
+        # Include original_text if present (for revert support)
+        try:
+            if row["original_text"] is not None:
+                d["original_text"] = row["original_text"]
+        except IndexError:
+            pass
+        # Include edit_history (version stack) if present (for multi-level revert)
+        try:
+            if row["edit_history"] is not None:
+                d["edit_history"] = _json_decode(row["edit_history"])
+        except IndexError:
+            pass
         # Merge metadata blob
         meta = _json_decode(row["metadata"])
         if meta:
@@ -261,10 +286,65 @@ class ConversationStore:
         self._conn.commit()
 
     def edit_message(self, message_id: str, text: str):
-        self._conn.execute(
-            "UPDATE messages SET text=?, updated_at=? WHERE message_id=?",
-            (text, time.time(), message_id))
+        # Push the current text onto the version stack before overwriting.
+        # original_text mirrors the bottom of the stack (the pre-first-edit text)
+        # for backward compatibility with the single-level revert UI.
+        row = self._conn.execute(
+            "SELECT original_text, edit_history, text FROM messages WHERE message_id=?",
+            (message_id,),
+        ).fetchone()
+        if row is not None:
+            history = _json_decode(row["edit_history"]) or []
+            prev_text = row["text"] if row["text"] is not None else ""
+            history.append(prev_text)
+            original = history[0]
+            self._conn.execute(
+                "UPDATE messages SET text=?, original_text=?, edit_history=?, updated_at=? "
+                "WHERE message_id=?",
+                (text, original, _json_encode(history), time.time(), message_id),
+            )
+        else:
+            self._conn.execute(
+                "UPDATE messages SET text=?, updated_at=? WHERE message_id=?",
+                (text, time.time(), message_id))
         self._conn.commit()
+
+    def get_original_text(self, message_id: str) -> Optional[str]:
+        """Return the original (pre-edit) text of a message, or None if never edited."""
+        row = self._conn.execute(
+            "SELECT original_text FROM messages WHERE message_id=?", (message_id,)
+        ).fetchone()
+        return row["original_text"] if row else None
+
+    def revert_message(self, message_id: str) -> Optional[tuple]:
+        """Pop the most recent prior version off the stack and restore it.
+
+        Returns a ``(restored_text, versions_remaining)`` tuple, or None if there
+        was nothing to revert to. ``versions_remaining`` is how many further
+        reverts are still possible after this one.
+        """
+        row = self._conn.execute(
+            "SELECT original_text, edit_history FROM messages WHERE message_id=?",
+            (message_id,),
+        ).fetchone()
+        if not row:
+            return None
+        history = _json_decode(row["edit_history"]) or []
+        # Backward compatibility: pre-stack data only has original_text.
+        if not history and row["original_text"] is not None:
+            history = [row["original_text"]]
+        if not history:
+            return None
+        restored = history.pop()
+        new_original = history[0] if history else None
+        new_history = _json_encode(history) if history else None
+        self._conn.execute(
+            "UPDATE messages SET text=?, original_text=?, edit_history=?, updated_at=? "
+            "WHERE message_id=?",
+            (restored, new_original, new_history, time.time(), message_id),
+        )
+        self._conn.commit()
+        return (restored, len(history))
 
     def delete_message(self, message_id: str):
         self._conn.execute("DELETE FROM messages WHERE message_id=?", (message_id,))

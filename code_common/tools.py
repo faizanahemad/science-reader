@@ -107,6 +107,7 @@ class ToolContext:
     recent_messages: list = field(default_factory=list)
     model_overrides: dict = field(default_factory=dict)
     workspace_id: str = ""
+    target_message_id: str = ""  # Set by doubt flow so propose_answer_edit knows which message to target
 
 
 @dataclass
@@ -2875,6 +2876,117 @@ def handle_read_message(args: dict, context: ToolContext) -> ToolCallResult:
         return ToolCallResult(
             tool_id="", tool_name="read_message",
             error=f"Error reading message: {e}",
+        )
+
+
+@register_tool(**_conv_tool_kwargs("propose_answer_edit"))
+def handle_propose_answer_edit(args: dict, context: ToolContext) -> ToolCallResult:
+    """Propose text replacements for a conversation message.
+
+    Validates each replacement (old_text must exist in current message), computes
+    a unified diff, and returns a structured proposal JSON for the frontend to display.
+    The edit is NOT applied — the user must accept the diff in the UI.
+    """
+    import difflib
+
+    conversation_id = args.get("conversation_id", "") or getattr(context, "conversation_id", "")
+    # Prefer explicit message_id from args; fall back to context target (set by clear_doubt)
+    message_id = args.get("message_id", "") or getattr(context, "target_message_id", "")
+    replacements = args.get("replacements", [])
+    summary = args.get("summary", "")
+
+    if not conversation_id:
+        return ToolCallResult(
+            tool_id="", tool_name="propose_answer_edit",
+            error="conversation_id is required",
+        )
+    if not message_id:
+        return ToolCallResult(
+            tool_id="", tool_name="propose_answer_edit",
+            error="message_id is required — provide it explicitly or check context",
+        )
+    if not replacements:
+        return ToolCallResult(
+            tool_id="", tool_name="propose_answer_edit",
+            error="replacements list is empty — at least one replacement is required",
+        )
+
+    try:
+        conv = _conv_load(conversation_id)
+        if conv is None:
+            return ToolCallResult(
+                tool_id="", tool_name="propose_answer_edit",
+                error=f"Conversation not found: {conversation_id}",
+            )
+        msg = conv.read_message(message_id=message_id)
+        if msg is None:
+            return ToolCallResult(
+                tool_id="", tool_name="propose_answer_edit",
+                error=f"Message not found: {message_id}",
+            )
+        original_text = msg.get("text", "")
+        current_text = original_text
+
+        # Apply replacements and track which ones were found
+        validated = []
+        for rep in replacements:
+            old_t = rep.get("old_text", "")
+            new_t = rep.get("new_text", "")
+            if not old_t:
+                continue
+            found = old_t in current_text
+            if found:
+                current_text = current_text.replace(old_t, new_t, 1)
+            validated.append({
+                "old_text": old_t,
+                "new_text": new_t,
+                "found": found,
+            })
+
+        # Compute unified diff for display.
+        # Use splitlines() WITHOUT keepends + lineterm="" so the join with "\n"
+        # does not produce doubled newlines (keepends would leave each line's own
+        # trailing newline, then join adds another → blank lines between each row).
+        orig_lines = original_text.splitlines()
+        new_lines = current_text.splitlines()
+        diff_lines = list(difflib.unified_diff(
+            orig_lines, new_lines,
+            fromfile="original",
+            tofile="updated",
+            lineterm="",
+        ))
+        diff_text = "\n".join(diff_lines)
+
+        found_count = sum(1 for v in validated if v["found"])
+        if found_count == 0:
+            return ToolCallResult(
+                tool_id="", tool_name="propose_answer_edit",
+                error=(
+                    "None of the old_text values were found in the message. "
+                    "Use read_message to get the exact current text and try again."
+                ),
+            )
+
+        result_payload = {
+            "proposal_type": "answer_edit",
+            "message_id": message_id,
+            "conversation_id": conversation_id,
+            "replacements": validated,
+            "original_text": original_text,
+            "new_text": current_text,
+            "diff_text": diff_text,
+            "summary": summary,
+            "found_count": found_count,
+            "total_count": len(validated),
+        }
+        return ToolCallResult(
+            tool_id="", tool_name="propose_answer_edit",
+            result=json.dumps(result_payload),
+        )
+    except Exception as e:
+        return ToolCallResult(
+            tool_id="", tool_name="propose_answer_edit",
+            error=f"Error proposing edit: {e}",
         )
 
 
@@ -6227,6 +6339,14 @@ TIER_1_TOOLS = [
     "delegate_task",
     "search_messages",
     "request_tools",
+]
+
+# Always-on tools for the doubt-clearing flow, independent of the user's
+# tools toggle. These let the doubt LLM read the target message and propose
+# edits to it (user must approve the diff before anything is saved).
+DOUBT_DEFAULT_TOOLS = [
+    "read_message",
+    "propose_answer_edit",
 ]
 
 # Minimal always-included base for adaptive tier 1

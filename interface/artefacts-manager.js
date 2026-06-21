@@ -1003,6 +1003,33 @@ var ArtefactsManager = (function () {
 
     return {
         openModal: openModal,
-        openModalForMessage: openModalForMessage
+        openModalForMessage: openModalForMessage,
+        // Exported diff utilities — shared with other modules (e.g. answer edit diff modal)
+        parseUnifiedDiff: parseUnifiedDiff,
+        buildDiffLine: buildDiffLine,
+        renderDiffInContainer: function(container, diffText) {
+            var $c = $(container);
+            $c.empty();
+            if (!diffText) return;
+            var hunks = parseUnifiedDiff(diffText);
+            var headerLines = hunks._headers || [];
+            headerLines.forEach(function(line) {
+                $c.append(buildDiffLine(line, 'artefact-diff-line artefact-diff-header'));
+            });
+            hunks.forEach(function(hunk) {
+                var headerEl = document.createElement('div');
+                headerEl.className = 'artefact-diff-line artefact-diff-hunk';
+                headerEl.textContent = hunk.header;
+                $c.append(headerEl);
+                hunk.lines.forEach(function(line) {
+                    var cls = 'artefact-diff-line';
+                    if (line.startsWith('+') && !line.startsWith('+++')) cls += ' artefact-diff-add';
+                    else if (line.startsWith('-') && !line.startsWith('---')) cls += ' artefact-diff-del';
+                    else if (line.startsWith('@@')) cls += ' artefact-diff-hunk';
+                    else if (line.startsWith('---') || line.startsWith('+++')) cls += ' artefact-diff-header';
+                    $c.append(buildDiffLine(line, cls));
+                });
+            });
+        }
     };
 })();

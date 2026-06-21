@@ -112,6 +112,7 @@ Entry points:
 - **Edit-as-Artefact reuse**: `openModalForMessage()` checks for an existing link and reopens that artefact; if missing, it creates a new artefact seeded with the answer.
 - **Linked save-through**: `saveArtefact()` reuses the link to update the original message text (falling back to `/edit_message_from_conversation/...` if no card element is available).
 - **Diff blocks**: `parseUnifiedDiff()` splits hunks into smaller blocks around change clusters to enable per-block checkboxes.
+- **Exported diff utilities**: `ArtefactsManager` exports `parseUnifiedDiff`, `buildDiffLine`, and `renderDiffInContainer(container, diffText)` so other modules can render unified diffs with the shared `.artefact-diff-*` styling. Used by the doubt flow's answer-edit diff modal (see [Doubt & Temp LLM — Edit the Answer from the Doubt Flow](../doubt_and_temp_llm/README.md#feature-edit-the-answer-from-the-doubt-flow)).
 
 ## Cmd+K Inline Edit
 

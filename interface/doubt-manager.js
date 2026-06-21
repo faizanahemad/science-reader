@@ -2,6 +2,12 @@
  * DoubtManager - Handles all doubt-related functionality
  * Provides methods for showing doubts, asking new doubts, and managing doubt conversations
  */
+
+/** Shared HTML escape helper (not available as a global elsewhere). */
+function _doubtEscapeHtml(str) {
+    return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+}
+
 const DoubtManager = {
     currentConversationId: null,
     currentMessageId: null,
@@ -1330,6 +1336,13 @@ const DoubtManager = {
                         return;
                     }
                     
+                    // Handle special answer edit proposal from propose_answer_edit tool
+                    if (part.type === 'answer_edit_proposal') {
+                        self.showAnswerEditDiffModal(part);
+                        // Don't add to accumulated text — this is a UI action, not display content
+                        continue;
+                    }
+                    
                     if (part.text) {
                         // Parse and handle gamification tags before processing (reuse from common-chat.js)
                         let processedText = part.text;
@@ -1736,10 +1749,127 @@ const DoubtManager = {
             }
         });
     }
-};
+    /**
+     * Show the answer edit diff modal when propose_answer_edit tool fires.
+     * @param {object} proposal - {type, message_id, conversation_id, replacements, diff_text, original_text, new_text, summary}
+     */
+    showAnswerEditDiffModal: function(proposal) {
+        const self = this;
+        const modal = $('#answer-edit-diff-modal');
+        if (!modal.length) {
+            showToast('Answer edit modal not found in DOM', 'error');
+            return;
+        }
+
+        // --- Store the proposal for use in the accept handler ---
+        this._pendingAnswerEditProposal = proposal;
+
+        // --- Summary bar ---
+        const foundCount = (proposal.replacements || []).filter(r => r.found).length;
+        const totalCount = (proposal.replacements || []).length;
+        const summaryText = proposal.summary
+            ? `<strong>${_doubtEscapeHtml(proposal.summary)}</strong> &mdash; `
+            : '';
+        $('#answer-edit-summary').html(
+            `${summaryText}${foundCount} of ${totalCount} replacement${totalCount !== 1 ? 's' : ''} matched`
+        );
+
+        // --- Stats ---
+        $('#answer-edit-stats').text(
+            (proposal.diff_text || '').split('\n').filter(l => l.startsWith('+') && !l.startsWith('+++')).length + ' lines added, ' +
+            (proposal.diff_text || '').split('\n').filter(l => l.startsWith('-') && !l.startsWith('---')).length + ' lines removed'
+        );
+
+        // --- Warnings --- 
+        const skipped = (proposal.replacements || []).filter(r => !r.found);
+        if (skipped.length > 0) {
+            $('#answer-edit-warning-text').text(
+                `${skipped.length} replacement${skipped.length > 1 ? 's' : ''} could not be applied (old_text not found in message).`
+            );
+            $('#answer-edit-warnings').show();
+        } else {
+            $('#answer-edit-warnings').hide();
+        }
+
+        // --- Diff rendering using ArtefactsManager utilities ---
+        const diffContainer = $('#answer-edit-diff');
+        if (typeof ArtefactsManager !== 'undefined' && ArtefactsManager.renderDiffInContainer) {
+            ArtefactsManager.renderDiffInContainer(diffContainer, proposal.diff_text || '');
+        } else {
+            // Simple fallback: show raw diff in a <pre>
+            diffContainer.html('<pre style="font-size:0.8rem;">' + _doubtEscapeHtml(proposal.diff_text || '(no diff)') + '</pre>');
+        }
+
+        // --- Wire the Accept button (re-bind each time to avoid stale closures) ---
+        const acceptBtn = $('#answer-edit-accept-btn');
+        acceptBtn.off('click.answereditaccept').on('click.answereditaccept', function() {
+            self._applyAnswerEdit(proposal, modal);
+        });
+
+        modal.modal('show');
+    },
+
+    /**
+     * Apply an accepted answer edit proposal by calling the edit API.
+     */
+    _applyAnswerEdit: function(proposal, modal) {
+        const self = this;
+        const acceptBtn = $('#answer-edit-accept-btn');
+        acceptBtn.prop('disabled', true).html('<span class="spinner-border spinner-border-sm"></span> Applying...');
+
+        const onlyFound = (proposal.replacements || []).filter(r => r.found);
+        const conversationId = proposal.conversation_id || ConversationManager.activeConversationId;
+        const messageId = proposal.message_id;
+
+        // Resolve message index from DOM (needed for the API)
+        let messageIndex = 0;
+        const $header = $(`[message-id="${messageId}"]`);
+        if ($header.length) {
+            messageIndex = parseInt($header.attr('message-index') || '0', 10) || 0;
+        }
+
+        $.ajax({
+            url: `/edit_message_from_conversation/${encodeURIComponent(conversationId)}/${encodeURIComponent(messageId)}/${messageIndex}`,
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({ replacements: onlyFound }),
+            success: function(resp) {
+                acceptBtn.prop('disabled', false).html('<i class="bi bi-check2 mr-1"></i>Accept &amp; Apply');
+                modal.modal('hide');
+                showToast('Answer updated successfully', 'success');
+
+                // Re-render the message card with the new text
+                const newText = resp.new_text || proposal.new_text || '';
+                if (newText && messageId) {
+                    // Find the card and update its content
+                    const $card = $header.closest('.card, .mb-3');
+                    const $body = $card.find('.actual-card-text').last();
+                    if ($body.length && typeof renderInnerContentAsMarkdown === 'function') {
+                        renderInnerContentAsMarkdown($body, function() {}, false, newText);
+                        // Re-init vote bank so Revert shows up (if original_text now set server-side)
+                        if (typeof initialiseVoteBank === 'function') {
+                            initialiseVoteBank($card, newText, null, conversationId);
+                        }
+                    } else if ($body.length) {
+                        // Fallback: plain text swap
+                        $body.text(newText);
+                    }
+                    // Mark card header so revert item is visible without reload
+                    $header.attr('data-has-original', 'true');
+                }
+            },
+            error: function(xhr) {
+                acceptBtn.prop('disabled', false).html('<i class="bi bi-check2 mr-1"></i>Accept &amp; Apply');
+                const msg = (xhr.responseJSON && xhr.responseJSON.error) || xhr.statusText || 'Unknown error';
+                showToast('Failed to apply edit: ' + msg, 'error');
+            }
+        });
+    },
+
+};  // end DoubtManager
 
 // Initialize when document is ready
 $(document).ready(function() {
     console.log('DoubtManager initialized');
     DoubtManager.setupGlobalDoubtsHandlers();
-}); 
+});

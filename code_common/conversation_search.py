@@ -765,6 +765,76 @@ CONVERSATION_TOOLS: Dict[str, dict] = {
             "words or ~128 lines, merging older entries."
         ),
     },
+    # ------------------------------------------------------------------
+    # propose_answer_edit
+    # ------------------------------------------------------------------
+    "propose_answer_edit": {
+        "name": "propose_answer_edit",
+        "description": (
+            "Propose text replacements for the current conversation message being discussed. "
+            "Use this ONLY when the user explicitly asks to update, edit, or modify the answer. "
+            "Takes a list of (old_text, new_text) replacement pairs and returns a diff proposal "
+            "that the user must approve before any changes are saved. "
+            "Call read_message first if you need to see the full current text."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "conversation_id": {
+                    "type": "string",
+                    "description": "Conversation containing the message to edit.",
+                },
+                "message_id": {
+                    "type": "string",
+                    "description": (
+                        "ID of the message to edit. Usually provided — "
+                        "check the context or use read_message to confirm."
+                    ),
+                },
+                "replacements": {
+                    "type": "array",
+                    "description": (
+                        "List of replacement operations to apply. "
+                        "Each operation replaces the first occurrence of old_text with new_text. "
+                        "Uses exact string matching — old_text must appear verbatim in the message."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "old_text": {
+                                "type": "string",
+                                "description": "The exact text to replace (must exist in the message).",
+                            },
+                            "new_text": {
+                                "type": "string",
+                                "description": "The replacement text.",
+                            },
+                        },
+                        "required": ["old_text", "new_text"],
+                    },
+                    "minItems": 1,
+                },
+                "summary": {
+                    "type": "string",
+                    "description": (
+                        "Brief description of what this edit changes, shown to the user "
+                        "in the diff preview (e.g. 'Fix incorrect time complexity explanation')."
+                    ),
+                },
+            },
+            "required": ["conversation_id", "message_id", "replacements"],
+        },
+        "is_interactive": False,
+        "category": _CONVERSATION_CATEGORY,
+        "usage_guidelines": (
+            "• Only call when the user explicitly asks to update or edit the answer.\n"
+            "• The edit is NOT applied immediately — the user sees a diff and must approve.\n"
+            "• Use exact verbatim text for old_text — copy it from read_message output.\n"
+            "• Multiple replacements are applied sequentially in the given order.\n"
+            "• If old_text is not found in the current message, that replacement is skipped.\n"
+            "• Keep changes targeted and minimal — don't rewrite the entire message unless asked."
+        ),
+    },
 }
 
 

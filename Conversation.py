@@ -5358,6 +5358,12 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
             index = int(index)
             for i, m in enumerate(messages):
                 if m["message_id"] == message_id or i == index:
+                    # Push current text onto the version stack before overwriting
+                    # (JSON store). original_text mirrors the bottom of the stack.
+                    history = messages[i].get("edit_history") or []
+                    history.append(messages[i].get("text", ""))
+                    messages[i]["edit_history"] = history
+                    messages[i]["original_text"] = history[0]
                     messages[i]["text"] = text
 
             self.set_messages_field(messages, overwrite=True)
@@ -5368,6 +5374,116 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
                 self._cross_conv_index.index_conversation(self)
         except Exception:
             pass
+
+    def apply_message_replacements(self, message_id, index, replacements):
+        """Apply a list of {old_text, new_text} replacements to a message.
+
+        Parameters
+        ----------
+        message_id : str
+        index : int or str
+        replacements : list[dict]
+            Each dict must have 'old_text' and 'new_text' keys.
+
+        Returns
+        -------
+        str
+            The resulting text after all replacements are applied.
+
+        Raises
+        ------
+        ValueError
+            If the message is not found.
+        """
+        # Resolve message_id if needed
+        if self._use_sqlite:
+            mid = str(message_id)
+            if mid in {"None", "", "nan", "undefined"}:
+                msgs = self.conversation_store.get_messages()
+                idx = int(index)
+                if 0 <= idx < len(msgs):
+                    mid = msgs[idx]["message_id"]
+                else:
+                    raise ValueError(f"Message index {index} out of range")
+        else:
+            mid = message_id
+
+        msg = self.read_message(message_id=mid)
+        if msg is None:
+            raise ValueError(f"Message not found: {mid}")
+
+        current_text = msg.get("text", "")
+        for rep in replacements:
+            old_t = rep.get("old_text", "")
+            new_t = rep.get("new_text", "")
+            if old_t and old_t in current_text:
+                current_text = current_text.replace(old_t, new_t, 1)
+
+        self.edit_message(mid, index, current_text)
+        return current_text
+
+    def revert_message(self, message_id, index):
+        """Revert a message one step back to its previous version.
+
+        Pops the most recent prior version off the per-message edit stack so
+        repeated reverts walk back through every edit one at a time (not jumping
+        straight to the original).
+
+        Returns
+        -------
+        dict or None
+            ``{"text": restored_text, "versions_remaining": int}`` on success, or
+            None if there was no prior version to revert to.
+        """
+        restored = None
+        versions_remaining = 0
+        if self._use_sqlite:
+            mid = str(message_id)
+            if mid in {"None", "", "nan", "undefined"}:
+                msgs = self.conversation_store.get_messages()
+                idx = int(index)
+                if 0 <= idx < len(msgs):
+                    mid = msgs[idx]["message_id"]
+            result = self.conversation_store.revert_message(mid)
+            if result is not None:
+                restored, versions_remaining = result
+        else:
+            messages = self.get_field("messages")
+            idx = int(index)
+            for i, m in enumerate(messages):
+                if m.get("message_id") == message_id or i == idx:
+                    history = messages[i].get("edit_history") or []
+                    # Backward compatibility: pre-stack data only has original_text.
+                    if not history and messages[i].get("original_text") is not None:
+                        history = [messages[i]["original_text"]]
+                    if history:
+                        restored = history.pop()
+                        messages[i]["text"] = restored
+                        if history:
+                            messages[i]["edit_history"] = history
+                            messages[i]["original_text"] = history[0]
+                        else:
+                            messages[i].pop("edit_history", None)
+                            messages[i].pop("original_text", None)
+                        versions_remaining = len(history)
+                    break
+            if restored is not None:
+                self.set_messages_field(messages, overwrite=True)
+                self.save_local()
+
+        if restored is not None:
+            get_async_future(
+                self.set_field,
+                "memory",
+                {"last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")},
+            )
+            try:
+                if hasattr(self, "_cross_conv_index") and self._cross_conv_index:
+                    self._cross_conv_index.index_conversation(self)
+            except Exception:
+                pass
+            return {"text": restored, "versions_remaining": versions_remaining}
+        return None
 
     def __call__(self, query, userData=None):
         logger.warning(
@@ -7636,6 +7752,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         tool_response_waiter=None,
         conversation_id="",
         user_email="",
+        target_message_id="",
     ):
         """Run the agentic tool loop — LLM calls with tool support.
 
@@ -7705,6 +7822,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             model_overrides=self.get_conversation_settings().get("model_overrides", {})
             if isinstance(self.get_conversation_settings(), dict)
             else {},
+            target_message_id=target_message_id,
         )
 
         # Messages array for continuation (built up across iterations)
@@ -8018,7 +8136,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     tool_total_duration,
                     tool_result_text[:100].replace("\n", " "),
                 )
-                yield {
+                _tr_chunk = {
                     "text": "",
                     "status": f"Tool {tc_name} completed (result: {result_len} chars, {tool_total_duration:.1f}s)",
                     "type": "tool_result",
@@ -8027,6 +8145,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     "result_summary": result_summary,
                     "duration_seconds": tool_total_duration,
                 }
+                if tc_name == "propose_answer_edit":
+                    _tr_chunk["result_full"] = tool_result_text
+                yield _tr_chunk
                 yield {
                     "text": "",
                     "status": f"Tool {tc_name} completed",
@@ -13516,41 +13637,73 @@ Please provide your explanation or answer to the user's doubt in a clear, struct
             is_long = preamble_options and "Long" in preamble_options
             if is_long:
                 base_system += "\n\nFormat your answer in exactly 3 sections using these markers:\n<tldr>One-sentence summary of the answer</tldr>\n<explanation>Clear explanation (2-4 paragraphs)</explanation>\n<deep_dive>Detailed examples, edge cases, connections, and nuances</deep_dive>"
+            # Always include editor tools guidance
+            base_system += (
+                "\n\nYou have two special tools available for the message you are helping with:\n"
+                "• read_message — read the full current text of the target message.\n"
+                "• propose_answer_edit — propose text replacements for the target message "
+                "(the user will see a diff and must approve before any changes are saved). "
+                "Only use propose_answer_edit if the user explicitly asks to update, fix, or edit the answer. "
+                f"The target message ID is: {message_id}"
+            )
             if preamble_options:
                 extra_preamble, _ = self.get_preamble(preamble_options, None)
                 system = base_system + "\n\n" + extra_preamble
             else:
                 system = base_system
 
-            if tools_enabled:
-                from code_common.tools import TIER_1_TOOLS, TOOL_REGISTRY
-                if TOOL_REGISTRY:
-                    tools_config = TOOL_REGISTRY.get_openai_tools_param(TIER_1_TOOLS)
-                    for chunk_dict in self._run_tool_loop(
-                        prompt=doubt_prompt,
-                        preamble=system,
-                        images=[],
-                        model_name=doubt_model,
-                        keys=api_keys,
-                        tools_config=tools_config,
-                        max_iterations=3,
-                        conversation_id=self.conversation_id,
-                        user_email=self.user_id or "",
+            # Always use tool loop so read_message and propose_answer_edit are available.
+            # DOUBT_DEFAULT_TOOLS (read_message + propose_answer_edit) are always on;
+            # TIER_1_TOOLS are added only when the user's tools toggle is enabled.
+            from code_common.tools import TIER_1_TOOLS, DOUBT_DEFAULT_TOOLS, TOOL_REGISTRY
+            if TOOL_REGISTRY:
+                tool_names = list(set(DOUBT_DEFAULT_TOOLS + (TIER_1_TOOLS if tools_enabled else [])))
+                tools_config = TOOL_REGISTRY.get_openai_tools_param(tool_names)
+                max_iters = 3 if tools_enabled else 2
+                for chunk_dict in self._run_tool_loop(
+                    prompt=doubt_prompt,
+                    preamble=system,
+                    images=[],
+                    model_name=doubt_model,
+                    keys=api_keys,
+                    tools_config=tools_config,
+                    max_iterations=max_iters,
+                    conversation_id=self.conversation_id,
+                    user_email=self.user_id or "",
+                    target_message_id=message_id,
+                ):
+                    if self.is_doubt_clearing_cancelled():
+                        yield "\n\n**Doubt clearing was cancelled by user**"
+                        break
+                    # Detect propose_answer_edit tool result — emit as special proposal dict
+                    if (
+                        chunk_dict.get("type") == "tool_result"
+                        and chunk_dict.get("tool_name") == "propose_answer_edit"
                     ):
-                        if self.is_doubt_clearing_cancelled():
-                            yield "\n\n**Doubt clearing was cancelled by user**"
-                            break
-                        text = chunk_dict.get("text", "")
-                        if text:
-                            yield text
-                else:
-                    tools_enabled = False
-
-            if not tools_enabled:
+                        try:
+                            result_data = json.loads(chunk_dict.get("result_full", "{}"))
+                            if result_data.get("proposal_type") == "answer_edit":
+                                yield {
+                                    "type": "answer_edit_proposal",
+                                    "message_id": result_data.get("message_id", message_id),
+                                    "conversation_id": result_data.get("conversation_id", self.conversation_id),
+                                    "replacements": result_data.get("replacements", []),
+                                    "original_text": result_data.get("original_text", ""),
+                                    "new_text": result_data.get("new_text", ""),
+                                    "diff_text": result_data.get("diff_text", ""),
+                                    "summary": result_data.get("summary", ""),
+                                }
+                        except Exception as _proposal_err:
+                            logger.warning("Failed to parse propose_answer_edit result: %s", _proposal_err)
+                        continue  # Don't echo tool result as text to user
+                    text = chunk_dict.get("text", "")
+                    if text:
+                        yield text
+            else:
+                # Fallback: no tools available, use plain LLM call
                 llm = CallLLm(
                     api_keys, model_name=doubt_model, use_gpt4=False, use_16k=False
                 )
-                # Generate streaming response
                 response_stream = llm(
                     doubt_prompt,
                     images=[],
@@ -13559,8 +13712,6 @@ Please provide your explanation or answer to the user's doubt in a clear, struct
                     max_tokens=2000,
                     system=system,
                 )
-
-                # Stream the response
                 for chunk in response_stream:
                     if self.is_doubt_clearing_cancelled():
                         logger.info(

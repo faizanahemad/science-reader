@@ -648,9 +648,9 @@ def edit_message_from_conversation(conversation_id: str, message_id: str, index:
     email, _name, _loggedin = get_session_identity()
     keys = keyParser(session)
 
-    message_text = (
-        request.json.get("text") if request.is_json and request.json else None
-    )
+    body = request.json if request.is_json and request.json else {}
+    message_text = body.get("text")
+    replacements = body.get("replacements")  # list of {old_text, new_text}
 
     state = get_state()
     if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
@@ -661,8 +661,54 @@ def edit_message_from_conversation(conversation_id: str, message_id: str, index:
     conversation = get_conversation_with_keys(
         state, conversation_id=conversation_id, keys=keys
     )
-    conversation.edit_message(message_id, index, message_text)
-    return jsonify({"message": f"Message {message_id} deleted"})
+
+    if replacements is not None:
+        # Apply list of text replacements to the current message text
+        try:
+            new_text = conversation.apply_message_replacements(message_id, index, replacements)
+        except ValueError as e:
+            return json_error(str(e), status=404, code="message_not_found")
+        return jsonify({"message": f"Message {message_id} updated", "new_text": new_text})
+    else:
+        conversation.edit_message(message_id, index, message_text)
+        return jsonify({"message": f"Message {message_id} updated", "new_text": message_text})
+
+
+@conversations_bp.route(
+    "/revert_message_from_conversation/<conversation_id>/<message_id>/<index>",
+    methods=["POST"],
+)
+@limiter.limit("30 per minute")
+@login_required
+def revert_message_from_conversation(conversation_id: str, message_id: str, index: str):
+    """Revert a message to its original (pre-edit) text.
+
+    Returns the restored text, or 409 if there is no original to revert to.
+    """
+    email, _name, _loggedin = get_session_identity()
+    keys = keyParser(session)
+
+    state = get_state()
+    if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
+        return json_error(
+            "Conversation not found", status=404, code="conversation_not_found"
+        )
+
+    conversation = get_conversation_with_keys(
+        state, conversation_id=conversation_id, keys=keys
+    )
+    result = conversation.revert_message(message_id, index)
+    if result is None:
+        return json_error(
+            "No prior version to revert to", status=409, code="no_original"
+        )
+    return jsonify(
+        {
+            "message": f"Message {message_id} reverted",
+            "text": result["text"],
+            "versions_remaining": result["versions_remaining"],
+        }
+    )
 
 
 @conversations_bp.route(
@@ -718,6 +764,8 @@ def get_message_text(conversation_id: str, message_id: str):
             "message_id": message_id,
             "index": index,
             "text": message.get("text", ""),
+            "original_text": message.get("original_text"),  # None if never edited
+            "edit_versions": len(message.get("edit_history") or []),  # revertable steps
         }
     )
 

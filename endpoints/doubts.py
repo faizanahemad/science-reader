@@ -133,7 +133,10 @@ def clear_doubt_route(conversation_id: str, message_id: str):
 
                 try:
                     for chunk in doubt_generator:
-                        if chunk:
+                        if isinstance(chunk, dict):
+                            # Special chunk (e.g. answer_edit_proposal) — emit as-is
+                            yield json.dumps(chunk) + "\n"
+                        elif chunk:
                             accumulated_text += chunk
                             accumulated_doubt_answer += chunk
                             yield (

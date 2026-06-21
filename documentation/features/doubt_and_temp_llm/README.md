@@ -2,6 +2,8 @@
 
 Two related but distinct systems for asking questions about message content without affecting the main conversation thread.
 
+> The doubt flow can also **edit the assistant answer** on explicit user request via the `propose_answer_edit` tool (diff preview + revert support). See [Edit the Answer from the Doubt Flow](#feature-edit-the-answer-from-the-doubt-flow).
+
 ---
 
 ## 1. Doubt Clearing System
@@ -581,3 +583,82 @@ All four delete endpoints now clean up doubts for every deleted message after th
 - `endpoints/doubts.py` — `section_states` in `/get_doubts` response via `get_all_section_hidden_details`
 - `interface/doubt-manager.js` — section parsing in `createDoubtChatCard`, post-streaming re-render, toggle handler, marker stripping during streaming
 - `interface/interface.html` — `.doubt-progressive-disclosure` CSS styling
+
+---
+
+## Feature: Edit the Answer from the Doubt Flow
+
+**Motivation:** Sometimes, while clearing a doubt about an assistant answer, the user realises the answer itself is wrong, incomplete, or could be phrased better. Instead of switching to the main edit dialog and re-typing, the user can simply ask the doubt LLM to update the answer. The doubt LLM proposes targeted text replacements, the user reviews a diff, and on approval the message is edited in place — with the original preserved so the change can be reverted.
+
+### UX Flow
+
+1. User opens a doubt on an assistant message and types something like *"update the answer to fix the time-complexity explanation"*.
+2. The doubt LLM calls the `propose_answer_edit` tool with one or more `{old_text, new_text}` replacements (it may call `read_message` first to get the exact current text).
+3. The backend validates each replacement against the current message text, computes a unified diff, and streams a special `answer_edit_proposal` chunk to the frontend.
+4. The frontend opens the **Answer Edit diff modal** (`#answer-edit-diff-modal`) showing the diff, a summary, replacement match stats, and any warnings (e.g. replacements whose `old_text` wasn't found).
+5. The user clicks **Accept & Apply** (or **Reject**). On accept, the frontend POSTs the matched replacements to the edit API.
+6. The message card re-renders with the updated text. The original text is snapshotted server-side so a **Revert to Original** option becomes available.
+
+**Important — edit only on explicit request:** The doubt system prompt instructs the LLM to call `propose_answer_edit` *only when the user explicitly asks to update/fix/edit the answer*. Normal doubt questions never trigger an edit proposal. Even when proposed, nothing is saved until the user approves the diff.
+
+### Always-On Doubt Editor Tools
+
+Two tools are **always** available in the doubt flow, independent of the 🔧 tools toggle:
+
+- `read_message` — read the full current text of the target message.
+- `propose_answer_edit` — propose text replacements for the target message (diff preview, user-approved).
+
+These are defined as `DOUBT_DEFAULT_TOOLS = ["read_message", "propose_answer_edit"]` in `code_common/tools.py`. The doubt flow always runs through `_run_tool_loop` with these tools; `TIER_1_TOOLS` are merged in **only** when `tools_enabled` is on (the user's tools toggle). `clear_doubt()` passes `target_message_id` into the tool loop so `propose_answer_edit` knows which message to target even if the LLM omits the `message_id` argument.
+
+### Tool: `propose_answer_edit`
+
+- **Definition:** `code_common/conversation_search.py` (`CONVERSATION_TOOLS["propose_answer_edit"]`).
+- **Handler:** `handle_propose_answer_edit()` in `code_common/tools.py`.
+- **Parameters:** `conversation_id`, `message_id`, `replacements: [{old_text, new_text}]`, optional `summary`.
+- **Behaviour:** Reads the target message, applies each replacement to an in-memory copy (first-occurrence exact-string match), marks each replacement `found: true/false`, computes a `difflib.unified_diff`, and returns a JSON proposal. It does **not** modify the message. If no `old_text` matched, it returns an error telling the LLM to call `read_message` for the exact text.
+- **Proposal payload:** `{ proposal_type: "answer_edit", message_id, conversation_id, replacements (validated), original_text, new_text, diff_text, summary, found_count, total_count }`.
+
+### Streaming the Proposal
+
+- `_run_tool_loop` now includes `result_full` (the untruncated tool result) in every `tool_result` chunk.
+- `clear_doubt()` detects a `tool_result` chunk whose `tool_name == "propose_answer_edit"`, parses `result_full`, and **yields a dict** `{ "type": "answer_edit_proposal", ... }` instead of plain text. The tool result is not echoed into the doubt answer text.
+- `endpoints/doubts.py` passes any dict chunk through as a raw newline-delimited JSON line (text chunks are still wrapped as `doubt_clearing`).
+- `interface/doubt-manager.js` detects `part.type === 'answer_edit_proposal'` in the streaming handler and calls `showAnswerEditDiffModal(part)`.
+
+### Edit API (replacements support)
+
+`POST /edit_message_from_conversation/<conversation_id>/<message_id>/<index>` now accepts **either**:
+- `{ "text": "<full new text>" }` — full-body replace (legacy behaviour), or
+- `{ "replacements": [{ "old_text": "...", "new_text": "..." }, ...] }` — sequential first-occurrence replacements applied to the current text.
+
+Response: `{ message, new_text }`. The replacements path calls `Conversation.apply_message_replacements()`.
+
+### Revert Support (multi-version undo stack)
+
+Reverting is **multi-level**: every edit pushes the prior text onto a per-message version stack, and each revert pops one step, walking back through edits one at a time rather than jumping straight to the original.
+
+- **Storage:** two columns on the `messages` table (`database/conversation_store.py`, each with an `ALTER TABLE … ADD COLUMN` migration for existing DBs):
+  - `edit_history` — a JSON array (stack) of all prior versions, oldest first. `edit_message()` appends the current text before overwriting.
+  - `original_text` — kept in sync with `edit_history[0]` (the pre-first-edit text). It is preserved purely for backward compatibility with the single-level UI check (`original_text != null` ⇔ "something to revert"). The JSON-store path mirrors both fields on the message dict.
+- **Revert API:** `POST /revert_message_from_conversation/<conversation_id>/<message_id>/<index>` → `Conversation.revert_message()` pops the top of `edit_history`, restores it to `text`, and updates `original_text`/`edit_history` (clearing them when the stack empties). Returns `{ message, text, versions_remaining }`, where `versions_remaining` is how many further undo steps are still possible. Returns 409 `no_original` when there is nothing left to revert. Pre-stack data (only `original_text`, no `edit_history`) is handled by seeding a single-element stack.
+- **`get_message_text`** returns `original_text` (or `null`) and `edit_versions` (the stack depth) so the UI can decide whether to show the undo option.
+- **UI:** `initialiseVoteBank()` (`interface/common.js`) adds an **Undo Last Edit** item to the assistant card's triple-dot vote menu. It is hidden by default and revealed when either the card carries `data-has-original="true"` (set after an accepted edit, or after a revert that leaves earlier versions) or a background `get_message_text` check reports a non-null `original_text`. Clicking it confirms, calls the revert API, re-renders the card, re-inits the vote bank, and—using `versions_remaining`—keeps the undo item visible while earlier versions remain (toast reports how many are left).
+
+### Diff Rendering Reuse
+
+The diff modal reuses the artefact diff renderer. `interface/artefacts-manager.js` now exports `parseUnifiedDiff`, `buildDiffLine`, and `renderDiffInContainer(container, diffText)`; `doubt-manager.js` calls `ArtefactsManager.renderDiffInContainer()` (with a `<pre>` fallback). The modal reuses the existing `.artefact-diff-*` CSS classes (add = green, del = red).
+
+### Files Modified
+
+| File | Change |
+|---|---|
+| `database/conversation_store.py` | `original_text` + `edit_history` columns + migrations; `edit_message()` pushes prior text onto the stack; `get_original_text()`, `revert_message()` (pops one version, returns `(text, versions_remaining)`); `_msg_to_dict` includes `original_text`/`edit_history` |
+| `Conversation.py` | `edit_message()` maintains the version stack (JSON path); new `apply_message_replacements()`, `revert_message()` (one-step undo, returns `{text, versions_remaining}`); `_run_tool_loop` `target_message_id` param + `result_full`; `clear_doubt()` always-on editor tools + `answer_edit_proposal` emission |
+| `code_common/conversation_search.py` | `propose_answer_edit` tool definition |
+| `code_common/tools.py` | `handle_propose_answer_edit`; `ToolContext.target_message_id`; `DOUBT_DEFAULT_TOOLS` constant |
+| `endpoints/conversations.py` | edit API `replacements` support; `/revert_message_from_conversation` returns `versions_remaining`; `original_text` + `edit_versions` in `get_message_text` |
+| `endpoints/doubts.py` | pass dict chunks through as raw JSON lines |
+| `interface/interface.html` | `#answer-edit-diff-modal` |
+| `interface/doubt-manager.js` | `answer_edit_proposal` handling, `showAnswerEditDiffModal()`, `_applyAnswerEdit()`, `_doubtEscapeHtml` |
+| `interface/artefacts-manager.js` | exported `parseUnifiedDiff`/`buildDiffLine`/`renderDiffInContainer` |
+| `interface/common.js` | "Undo Last Edit" vote-menu item in `initialiseVoteBank()` (multi-version, uses `versions_remaining`) |
