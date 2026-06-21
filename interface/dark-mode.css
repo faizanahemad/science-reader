@@ -674,9 +674,16 @@ body.dark-mode #doubt-voice-record-span {
     color: #c9d1d9 !important;
 }
 
-/* Modal header inline border + title inline color */
+/* Modal header inline border + title inline color.
+   On mobile (<768 px) a media-query rule in interface.html sets
+   `#doubt-chat-modal .modal-header { background: #fff }` with specificity
+   (0,1,1,0), which beats the generic body.dark-mode .modal-header rule
+   (0,0,2,1).  The per-modal selector here has (0,1,2,1) and with
+   !important wins on all viewport sizes.                                  */
 body.dark-mode #doubt-chat-modal .modal-header {
+    background-color: #21262d !important;
     border-bottom-color: #30363d !important;
+    color: #c9d1d9 !important;
 }
 body.dark-mode #doubt-chat-modal .modal-title {
     color: #c9d1d9 !important;
