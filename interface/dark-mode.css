@@ -89,12 +89,17 @@ body.dark-mode .modal-content {
 }
 body.dark-mode .modal-header {
     background-color: #21262d;
-    border-color: #30363d;
+    border-color: #30363d !important;  /* inline style="border-bottom:1px solid #ddd" beats plain border-color */
     color: #c9d1d9;
 }
 body.dark-mode .modal-footer {
     background-color: #21262d;
-    border-color: #30363d;
+    border-color: #30363d !important;  /* inline style="border-top:1px solid #ddd" */
+}
+/* inline style="color:#333" on <h5 class="modal-title"> beats inherited color;
+   needs explicit rule with !important to win across all modals             */
+body.dark-mode .modal-title {
+    color: #c9d1d9 !important;
 }
 body.dark-mode .modal-header .close {
     color: #8b949e;
@@ -692,5 +697,98 @@ body.dark-mode .doubt-conversation-card .card-header {
 }
 body.dark-mode .doubt-conversation-card .card-body {
     background-color: #161b22;
+    color: #c9d1d9;
+}
+
+/* ── Temporary LLM Chat Modal ──────────────────────────────────────────────
+   Powers "Explain This", "Summarize", "ELI5", "Critique", etc.
+   Affected inline styles / <style>-block rules:
+     • #temp-llm-context-display    background-color: #fff3cd (inline attr)
+     • #temp-llm-messages           background-color: #f8f9fa (inline attr)
+     • #temp-llm-input-area         background: white + border-top: #ddd (inline attrs)
+     • #temp-llm-voice-record-span  background: transparent → inherits white (inline attr)
+     • .temp-llm-card.user-message  background-color: #e3f2fd (<style> block, ID selector)
+     • .temp-llm-card.assistant-message  background: #ffffff (<style> block, ID selector)
+   ────────────────────────────────────────────────────────────────────────── */
+
+/* Selected-text context banner — convert yellow alert to muted dark amber */
+body.dark-mode #temp-llm-context-display {
+    background-color: #2d2a1a !important;
+    border-bottom-color: #665500 !important;
+    color: #c9d1d9;
+}
+
+/* Chat history area */
+body.dark-mode #temp-llm-messages {
+    background-color: #0d1117 !important;
+}
+
+/* Input strip at the bottom */
+body.dark-mode #temp-llm-input-area {
+    background-color: #161b22 !important;
+    border-top-color: #30363d !important;
+}
+
+/* Microphone icon span */
+body.dark-mode #temp-llm-voice-record-span {
+    background-color: #161b22 !important;
+    border-right-color: #30363d !important;
+    color: #c9d1d9 !important;
+}
+
+/* Chat bubble cards — the <style> block uses #temp-llm-modal (ID) so match it */
+body.dark-mode #temp-llm-modal .temp-llm-card.user-message {
+    background-color: #1c2d3a;
+}
+body.dark-mode #temp-llm-modal .temp-llm-card.assistant-message {
+    background-color: #161b22;
+}
+body.dark-mode #temp-llm-modal .temp-llm-card .card-header {
+    border-bottom-color: #30363d;
+    color: #8b949e;
+}
+
+/* ── Prompt Management Modal ───────────────────────────────────────────────
+   Affected inline + <style>-block rules:
+     • .col-md-4 left panel    background: #f8f9fa + border-right: #ddd (inline attrs)
+     • #prompt-editor-header   background: white + border-bottom: #ddd (inline attrs)
+     • #prompt-editor-content  background: #f8f9fa (inline attr)
+     • #prompt-name-input      background: #e9ecef readonly (inline attr)
+     • #prompt-list-items .list-group-item:hover  background: #f8f9fa (<style> ID rule)
+     • #old-prompts-toggle     background: #f0f8ff (<style> ID rule)
+   ────────────────────────────────────────────────────────────────────────── */
+
+/* Left sidebar panel */
+body.dark-mode #prompt-management-modal .col-md-4 {
+    background-color: #161b22 !important;
+    border-right-color: #30363d !important;
+}
+
+/* Right panel: editor header strip */
+body.dark-mode #prompt-editor-header {
+    background-color: #161b22 !important;
+    border-bottom-color: #30363d !important;
+}
+
+/* Right panel: editor body */
+body.dark-mode #prompt-editor-content {
+    background-color: #0d1117 !important;
+}
+
+/* Read-only prompt name field */
+body.dark-mode #prompt-name-input[readonly] {
+    background-color: #21262d !important;
+    color: #8b949e;
+}
+
+/* List item hover — <style> block uses #prompt-list-items (ID), match it */
+body.dark-mode #prompt-list-items .list-group-item:hover:not(.active) {
+    background-color: #21262d;
+    border-left-color: #30363d;
+}
+
+/* "Old prompts" toggle — ID-selector rule in <style> block; use !important */
+body.dark-mode #old-prompts-toggle {
+    background-color: #21262d !important;
     color: #c9d1d9;
 }
