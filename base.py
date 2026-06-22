@@ -16,8 +16,15 @@ from collections import defaultdict, Counter
 
 import openai
 from typing import Callable, Any, Generator, List, Dict, Tuple, Optional, Union
-from langchain_community.document_loaders import MathpixPDFLoader
-from langchain_text_splitters import TokenTextSplitter
+try:
+    from langchain_community.document_loaders import MathpixPDFLoader
+except (ImportError, ModuleNotFoundError, OSError):
+    MathpixPDFLoader = object  # fallback base class when langchain_community unavailable
+
+try:
+    from langchain_text_splitters import TokenTextSplitter
+except (ImportError, ModuleNotFoundError, OSError):
+    TokenTextSplitter = None  # langchain_text_splitters unavailable
 
 
 pd.options.display.float_format = "{:,.2f}".format

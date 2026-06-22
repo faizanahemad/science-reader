@@ -2529,7 +2529,10 @@ def thread_safe_tee(iterable, n=2):
     return tuple(gen(ix, q) for ix, q in enumerate(queues))
 
 
-from langchain_openai import OpenAIEmbeddings
+try:
+    from langchain_openai import OpenAIEmbeddings
+except (ImportError, ModuleNotFoundError, OSError):
+    OpenAIEmbeddings = None  # langchain_openai or a dependency (e.g. torch) unavailable
 from typing import List, Optional, Dict, Any
 import numpy as np
 import requests

@@ -9,7 +9,10 @@ import shutil
 import concurrent.futures
 import logging
 from openai import OpenAI
-from pydub import AudioSegment  # For merging audio files
+try:
+    from pydub import AudioSegment  # For merging audio files
+except (ImportError, ModuleNotFoundError):
+    AudioSegment = None  # pydub unavailable (e.g. missing pyaudioop on Python 3.13+)
 from .tts_and_podcast_agent import TTSAgent, StreamingPodcastAgent, PodcastAgent
 from .search_and_information_agents import (
     WebSearchWithAgent,

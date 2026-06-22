@@ -605,12 +605,18 @@ def call_chat_model(model, text, images, temperature, system, keys, messages=Non
         )
 
     try:
+        import httpx as _httpx
+        # Use separate connect vs read timeouts:
+        # - connect: 30s to establish the TCP connection / TLS handshake
+        # - read:   300s between streaming chunks (LLMs can be slow to return the first token,
+        #           especially via OpenRouter proxying to Gemini/Claude)
+        _timeout = _httpx.Timeout(connect=30.0, read=300.0, write=30.0, pool=10.0)
         create_kwargs = dict(
             model=model,
             messages=messages,
             temperature=temperature,
             stream=True,
-            timeout=60,
+            timeout=_timeout,
             # max_tokens=300,
             **extras_2,
         )

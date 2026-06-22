@@ -17,8 +17,12 @@ except ImportError:
     import json
 
 
-from langchain_community.vectorstores.faiss import FAISS
-from langchain_core.vectorstores import VectorStore
+try:
+    from langchain_community.vectorstores.faiss import FAISS
+    from langchain_core.vectorstores import VectorStore
+except (ImportError, ModuleNotFoundError, OSError):
+    FAISS = None  # langchain_community or a dependency (e.g. torch) unavailable
+    VectorStore = object  # fallback base class
 from common import *
 from base import *
 

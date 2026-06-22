@@ -22,9 +22,13 @@ warnings.filterwarnings("ignore")
 
   
 # Third-party imports  
-from pydub import AudioSegment  
-from pydub.effects import speedup, normalize  
-from pydub.generators import Sine  
+try:
+    from pydub import AudioSegment  
+    from pydub.effects import speedup, normalize  
+    from pydub.generators import Sine  
+except (ImportError, ModuleNotFoundError):
+    AudioSegment = None  # pydub unavailable (e.g. missing pyaudioop on Python 3.13+)
+    speedup = normalize = Sine = None
   
 # Local imports  
 try:

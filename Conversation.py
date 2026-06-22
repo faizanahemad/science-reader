@@ -2883,7 +2883,11 @@ Compact list of bullet points:
                     json_filepath, getattr(self, top_key, None), make_backup=True
                 )
             else:
-                with open(os.path.join(filepath), "wb") as f:
+                import sys as _sys
+                _fp = os.path.abspath(filepath)
+                if _sys.platform == "win32" and not _fp.startswith("\\\\?\\"):
+                    _fp = "\\\\?\\" + _fp
+                with open(_fp, "wb") as f:
                     dill.dump(getattr(self, top_key, None), f)
 
     def _atomic_write_json(
@@ -2907,6 +2911,15 @@ Compact list of bullet points:
             make_backup: Whether to write a best-effort backup of the current file.
             make_backup_suffix: Suffix for the backup file (default ".bak").
         """
+        import sys
+
+        # On Windows, use extended-length path prefix to bypass MAX_PATH (260 char) limit.
+        # The .tmp.{uuid} suffix can push paths over 260 chars causing FileNotFoundError.
+        if sys.platform == "win32":
+            abs_path = os.path.abspath(path)
+            if not abs_path.startswith("\\\\?\\"):
+                path = "\\\\?\\" + abs_path
+
         os.makedirs(os.path.dirname(path), exist_ok=True)
         tmp_path = f"{path}.tmp.{uuid.uuid4().hex}"
         bak_path = f"{path}{make_backup_suffix}"
@@ -5375,6 +5388,54 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         except Exception:
             pass
 
+    @staticmethod
+    def _locate_old_text(haystack, needle):
+        """Locate ``needle`` inside ``haystack``, tolerating whitespace drift.
+
+        LLM-proposed ``old_text`` frequently differs from the stored message by
+        insignificant whitespace — e.g. markdown table pipe spacing
+        (``| a | b |`` vs ``|a|b|``), trailing spaces, or CRLF vs LF — which
+        makes a strict ``in`` check fail and silently drops the edit. This
+        returns the *actual* substring of ``haystack`` that corresponds to
+        ``needle`` (so callers can do an exact ``str.replace``), or ``None`` if
+        there is no match.
+
+        Matching tiers:
+        1. Exact substring.
+        2. Whitespace-insensitive: every run of whitespace in ``needle`` matches
+           any run of whitespace in ``haystack``.
+
+        Both ``propose_answer_edit`` (for diff/preview) and
+        ``apply_message_replacements`` (for the real write) use this so the
+        proposed diff and the persisted result stay consistent.
+        """
+        if not needle or not haystack:
+            return None
+        if needle in haystack:
+            return needle
+
+        # Whitespace-insensitive match: strip ALL whitespace from both sides and
+        # locate the needle in that reduced space, then map the match back to the
+        # original haystack span so the caller can do an exact replace. This
+        # tolerates whitespace that exists in one side but not the other (e.g.
+        # "| a |" vs "|a|"), CRLF vs LF, and trailing spaces.
+        stripped_chars = []
+        index_map = []  # stripped position -> original haystack index
+        for i, ch in enumerate(haystack):
+            if not ch.isspace():
+                stripped_chars.append(ch)
+                index_map.append(i)
+        stripped_haystack = "".join(stripped_chars)
+        stripped_needle = "".join(ch for ch in needle if not ch.isspace())
+        if not stripped_needle:
+            return None
+        pos = stripped_haystack.find(stripped_needle)
+        if pos == -1:
+            return None
+        start = index_map[pos]
+        end = index_map[pos + len(stripped_needle) - 1] + 1
+        return haystack[start:end]
+
     def apply_message_replacements(self, message_id, index, replacements):
         """Apply a list of {old_text, new_text} replacements to a message.
 
@@ -5387,8 +5448,13 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
 
         Returns
         -------
-        str
-            The resulting text after all replacements are applied.
+        tuple[str, int]
+            ``(new_text, applied_count)`` — the resulting message text and how
+            many replacements actually matched and were applied. An
+            ``applied_count`` of 0 means nothing matched the *current* stored
+            text (e.g. the answer changed since the proposal was generated); the
+            caller should treat this as a no-op and surface it to the user rather
+            than silently persisting an unchanged message.
 
         Raises
         ------
@@ -5413,14 +5479,30 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
             raise ValueError(f"Message not found: {mid}")
 
         current_text = msg.get("text", "")
+        applied_count = 0
         for rep in replacements:
             old_t = rep.get("old_text", "")
             new_t = rep.get("new_text", "")
-            if old_t and old_t in current_text:
-                current_text = current_text.replace(old_t, new_t, 1)
+            if not old_t:
+                continue
+            matched = self._locate_old_text(current_text, old_t)
+            if matched is not None:
+                current_text = current_text.replace(matched, new_t, 1)
+                applied_count += 1
+            else:
+                logger.warning(
+                    "apply_message_replacements: old_text not found in current "
+                    "message text (conv=%s, msg=%s). len(old)=%d, len(msg)=%d. "
+                    "Edit will be a no-op for this replacement.",
+                    self.conversation_id, mid, len(old_t), len(current_text),
+                )
 
-        self.edit_message(mid, index, current_text)
-        return current_text
+        # Only write when something actually changed, so a stale/mismatched
+        # proposal does not overwrite the message with identical text (and does
+        # not push a redundant entry onto the version stack).
+        if applied_count > 0:
+            self.edit_message(mid, index, current_text)
+        return current_text, applied_count
 
     def revert_message(self, message_id, index):
         """Revert a message one step back to its previous version.
