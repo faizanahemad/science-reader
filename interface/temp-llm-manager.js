@@ -167,6 +167,15 @@ const TempLLMManager = {
             self.copyCardText($(this).closest('.temp-llm-card'));
         });
 
+        // Read Full Screen — open reading overlay for this assistant temp LLM card
+        $(document).off('click', '#temp-llm-messages .temp-llm-read-btn').on('click', '#temp-llm-messages .temp-llm-read-btn', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (typeof window.openReadingOverlay === 'function') {
+                window.openReadingOverlay($(this).closest('.temp-llm-card'));
+            }
+        });
+
         // Length dropdown
         $('#temp-llm-length-dropdown-btn').parent().find('.temp-llm-length-option').off('click').on('click', function(e) {
             e.preventDefault();
@@ -398,8 +407,9 @@ const TempLLMManager = {
                 <div class="card-header d-flex justify-content-between align-items-center">
                     <span class="temp-llm-card-sender">${senderText}</span>
                     <span class="temp-llm-card-actions d-flex align-items-center">
-                        <span class="text-muted mr-1 temp-llm-wc" style="font-size:0.6rem;">${text ? text.trim().split(/\\s+/).filter(Boolean).length.toLocaleString() + 'w' : ''}</span>
+                        <span class="text-muted mr-1 temp-llm-wc" style="font-size:0.6rem;">${text ? text.trim().split(/\s+/).filter(Boolean).length.toLocaleString() + 'w' : ''}</span>
                         <button class="temp-llm-copy-btn btn btn-sm p-1" title="Copy text"><i class="bi bi-clipboard"></i></button>
+                        ${!isUser ? '<button class="temp-llm-read-btn btn btn-sm p-1" title="Read Full Screen"><i class="bi bi-arrows-fullscreen"></i></button>' : ''}
                     </span>
                 </div>
                 <div class="card-body">

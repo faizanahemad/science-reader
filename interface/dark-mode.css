@@ -702,6 +702,10 @@ body.dark-mode .doubt-conversation-card .card-header {
     border-color: #30363d;
     color: #c9d1d9;
 }
+/* Bootstrap .btn overrides the inherited card-header color — restore visibility */
+body.dark-mode .doubt-read-btn {
+    color: #c9d1d9;
+}
 body.dark-mode .doubt-conversation-card .card-body {
     background-color: #161b22;
     color: #c9d1d9;
@@ -752,6 +756,10 @@ body.dark-mode #temp-llm-modal .temp-llm-card.assistant-message {
 }
 body.dark-mode #temp-llm-modal .temp-llm-card .card-header {
     border-bottom-color: #30363d;
+    color: #8b949e;
+}
+/* Bootstrap .btn overrides the inherited card-header color — restore visibility */
+body.dark-mode #temp-llm-modal .temp-llm-read-btn {
     color: #8b949e;
 }
 

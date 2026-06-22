@@ -2552,6 +2552,8 @@ var ChatManager = {
                             <a class="dropdown-item text-danger compact-proxy-delete-message" href="#"><i class="bi bi-trash-fill mr-2"></i>Delete Message</a>
                             <a class="dropdown-item text-danger compact-proxy-delete-pair" href="#"><i class="bi bi-trash mr-2"></i>Delete Pair</a>
                             <a class="dropdown-item text-warning compact-proxy-move-pair" href="#"><i class="bi bi-arrow-up-right-circle mr-2"></i>Move Pair as Doubt</a>
+                            <div class="dropdown-divider compact-read-divider"></div>
+                            <a class="dropdown-item compact-proxy-read" href="#"><i class="bi bi-arrows-fullscreen mr-2"></i>Read Full Screen</a>
                         </div>
                     </div>
                 </div>

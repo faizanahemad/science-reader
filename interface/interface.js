@@ -3,6 +3,61 @@ var userDetails = {
     name: null
 }
 
+// ===== Reading Overlay =====
+// Opens a full-viewport reading view for an assistant answer card.
+// Accepts a jQuery element that is the card itself or any descendant of it.
+// Supported card wrappers: .message-card, .doubt-conversation-card, .temp-llm-card
+window.openReadingOverlay = function($triggerElem) {
+    var $overlay = $('#reading-overlay');
+    var $body = $('#reading-overlay-body');
+
+    var contentHtml = '';
+
+    var $mainCard = $triggerElem.closest('.message-card');
+    var $doubtCard = $triggerElem.closest('.doubt-conversation-card');
+    var $tempCard = $triggerElem.closest('.temp-llm-card');
+
+    if ($mainCard.length) {
+        // After streaming, all content (including .more-text) lives in the sibling
+        // #message-render-space-md-render — NOT inside .actual-card-text which is
+        // hidden and empty. For server-loaded answers, .more-text lives inside
+        // .actual-card-text. We check both locations.
+        var $moreText = $mainCard.find('.actual-card-text .more-text').first();
+        if (!$moreText.length) {
+            // Streaming case: showMore() wraps content inside #message-render-space-md-render
+            $moreText = $mainCard.find('#message-render-space-md-render .more-text').first();
+        }
+        if ($moreText.length) {
+            contentHtml = $moreText.html();
+        } else {
+            // No showMore wrapping (short card) — try .actual-card-text content directly
+            contentHtml = $mainCard.find('.actual-card-text').first().html();
+            if (!contentHtml) {
+                // Short streaming card: content is directly in #message-render-space-md-render
+                contentHtml = $mainCard.find('#message-render-space-md-render').first().html();
+            }
+        }
+    } else if ($doubtCard.length) {
+        contentHtml = $doubtCard.find('.card-body').first().html();
+    } else if ($tempCard.length) {
+        contentHtml = $tempCard.find('.card-body').first().html();
+    }
+
+    if (!contentHtml) return;
+
+    $body.html(contentHtml);
+    $overlay.show();
+    $('body').addClass('reading-overlay-open');
+    $overlay[0].scrollTop = 0;
+};
+
+window.closeReadingOverlay = function() {
+    $('#reading-overlay').hide();
+    $('#reading-overlay-body').empty();
+    $('body').removeClass('reading-overlay-open');
+};
+// ===== /Reading Overlay =====
+
 function interface_readiness() {
     const options = {
         throwOnError: false,
@@ -242,6 +297,11 @@ function interface_readiness() {
         // Move Pair as Doubt — mirror the original item's index-based visibility
         var movePairHidden = $card.find('.move-pair-as-doubt-button').is(':hidden');
         $menu.find('.compact-proxy-move-pair').toggle(!movePairHidden);
+
+        // Read Full Screen — always visible; no underlying element to proxy
+        // (compact-proxy-read divider is always shown alongside it)
+        $menu.find('.compact-read-divider').show();
+        $menu.find('.compact-proxy-read').show();
     });
 
     // Proxy handlers — each delegates to the original (hidden) element in the same card.
@@ -286,6 +346,20 @@ function interface_readiness() {
     $(document).on('click', '.compact-proxy-move-pair', function(e) {
         e.preventDefault();
         $(this).closest('.message-card').find('.move-pair-as-doubt-button').trigger('click');
+    });
+    $(document).on('click', '.compact-proxy-read', function(e) {
+        e.preventDefault();
+        window.openReadingOverlay($(this).closest('.message-card'));
+    });
+
+    // Reading overlay — close button and Escape key
+    $(document).on('click', '#reading-overlay-close', function() {
+        window.closeReadingOverlay();
+    });
+    $(document).on('keydown.readingOverlay', function(e) {
+        if (e.key === 'Escape' && $('#reading-overlay').is(':visible')) {
+            window.closeReadingOverlay();
+        }
     });
     // =================================================================
 

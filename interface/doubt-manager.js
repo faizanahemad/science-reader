@@ -539,6 +539,9 @@ const DoubtManager = {
         
         // Regenerate button for assistant cards
         const regenBtn = (!isUser && doubtId) ? `<button class="btn btn-sm p-1 doubt-regen-btn" data-doubt-id="${doubtId}" title="Regenerate answer"><i class="bi bi-arrow-clockwise"></i></button>` : '';
+
+        // Read Full Screen button for assistant cards
+        const readBtn = !isUser ? `<button class="btn btn-sm p-1 doubt-read-btn" title="Read Full Screen"><i class="bi bi-arrows-fullscreen"></i></button>` : '';
         
         // Render content based on sender type
         let renderedContent;
@@ -591,6 +594,7 @@ const DoubtManager = {
                         <button class="btn btn-sm p-1 scroll-to-bottom-btn doubt-scroll-bottom" title="Jump to the bottom of this message" style="display:none;">Bottom <i class="bi bi-arrow-down-short"></i></button>
                         ${regenBtn}
                         ${bookmarkBtn}
+                        ${readBtn}
                         <button class="doubt-copy-btn btn btn-sm p-1" title="Copy text"><i class="bi bi-clipboard"></i></button>
                         ${deleteBtn}
                     </span>
@@ -966,6 +970,15 @@ const DoubtManager = {
                 cardBody.html('<p class="text-danger">Regeneration failed</p>');
                 if (typeof showToast === 'function') showToast('Regeneration failed', 'error');
             });
+        });
+
+        // Read Full Screen — open reading overlay for this assistant doubt card
+        $(document).off('click', '#doubt-chat-messages .doubt-read-btn').on('click', '#doubt-chat-messages .doubt-read-btn', function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            if (typeof window.openReadingOverlay === 'function') {
+                window.openReadingOverlay($(this).closest('.doubt-conversation-card'));
+            }
         });
     },
     

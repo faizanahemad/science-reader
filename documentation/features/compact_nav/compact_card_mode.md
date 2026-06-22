@@ -283,3 +283,50 @@ The document-level delegated populate handler (`$(document).on('click', '.compac
 - **User cards**: Edit Message appears in the compact menu. `initialiseVoteBank` adds it to all cards regardless of sender, so it is available for editing user messages.
 - **Manual TOC collapse in compact mode**: If the user clicks "Show" to expand the TOC while compact mode is on, `data-compact-auto-collapsed` remains set. When compact mode is later disabled, `_tocRestoreFromCompact` checks the marker — since the user manually expanded it the marker is still there, so `_tocRestoreFromCompact` expands the body (which was already expanded) — a harmless no-op.
 - **Compact mode on mobile**: Auto-enabled via `@media (max-width: 768px) and (pointer: coarse) and (max-height: 768px)` using `body:not(.compact-nav-off)`. Users can opt out by explicitly toggling compact mode off (which sets `body.compact-nav-off`).
+
+---
+
+## Reading Overlay (Full-Screen Read View)
+
+A full-viewport reading mode for individual assistant answer cards, doubt answer cards, and temp LLM assistant cards. Designed for focused, distraction-free reading of long responses.
+
+### Behaviour
+
+- The overlay fills 100vw × 100vh (`position: fixed`, `z-index: 2100`) and is scrollable.
+- Font size is `0.9rem` (slightly larger than the default card `0.8rem`).
+- A single `[X]` button is fixed at the top-right (`z-index: 2101`). Pressing Escape also closes.
+- `body.reading-overlay-open` is added while open, locking background scroll.
+- Section `<details>` expand/collapse works natively — clicking a summary toggles its section. State is NOT persisted back to the DB.
+- No other interactive elements exist inside the overlay — pure reading.
+- Dark mode is respected via `body.dark-mode #reading-overlay { background: #1e1e1e; color: #ddd; }`.
+
+### Content extraction
+
+Content is cloned from the already-rendered DOM:
+
+| Card type | Source element | Full-content handling |
+|---|---|---|
+| Main chat (`.message-card`) | `.actual-card-text .more-text` if present; else `.actual-card-text` | `.more-text` always contains the full rendered HTML regardless of whether the card is collapsed via `showMore()`. |
+| Doubt answer (`.doubt-conversation-card`) | `.card-body` | Cloned directly; `doubt-answer-collapsed` CSS is not inherited in the overlay. |
+| Temp LLM (`.temp-llm-card`) | `.card-body` | Cloned directly. No re-render — temp LLM cards use `marked.parse()` and have no section collapse. |
+
+### Entry points
+
+| Card type | Mode | Trigger element |
+|---|---|---|
+| Main chat | Compact mode | `compact-proxy-read` item in the compact `⋮` dropdown |
+| Main chat | Normal mode | "Read Full Screen" item in the right triple-dot vote menu (`.reading-overlay-trigger`), assistant cards only |
+| Doubt answer | Both modes | `⤢` icon button (`.doubt-read-btn`) in `.doubt-card-actions`, assistant cards only |
+| Temp LLM | Both modes | `⤢` icon button (`.temp-llm-read-btn`) in `.temp-llm-card-actions`, assistant cards only |
+
+### Files modified
+
+| File | Change |
+|---|---|
+| `interface/style.css` | Added `#reading-overlay`, `#reading-overlay-close`, `body.reading-overlay-open`, dark-mode rules |
+| `interface/interface.html` | Added `#reading-overlay` div (with `#reading-overlay-body`) before `</body>` |
+| `interface/interface.js` | Added `window.openReadingOverlay()`, `window.closeReadingOverlay()`, close button handler, Escape keydown handler, `compact-proxy-read` in populate handler, `compact-proxy-read` click handler |
+| `interface/common-chat.js` | Added `compact-proxy-read` + `.compact-read-divider` items at end of `.compact-message-dropdown-menu` template |
+| `interface/common.js` | Added `readFullScreenItem` in `initialiseVoteBank()` for assistant cards (`!disable_voting`), appended at end of vote dropdown |
+| `interface/doubt-manager.js` | Added `readBtn` template variable for `!isUser` assistant cards; added `#doubt-chat-messages .doubt-read-btn` click handler |
+| `interface/temp-llm-manager.js` | Added `temp-llm-read-btn` button inside `temp-llm-card-actions` for `!isUser`; added `#temp-llm-messages .temp-llm-read-btn` click handler |

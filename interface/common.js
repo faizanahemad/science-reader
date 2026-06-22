@@ -2147,6 +2147,21 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
                 });
             })(revertItem, cardElem);
         }
+
+        // "Read Full Screen" — open the reading overlay for this message (all cards, user and assistant)
+        var readFullScreenItem = $('<a class="dropdown-item reading-overlay-trigger" href="#"><i class="bi bi-arrows-fullscreen mr-2"></i>Read Full Screen</a>');
+        readFullScreenItem.click(function(e) {
+            e.preventDefault();
+            e.stopPropagation();
+            try {
+                var $dropdown = $(this).closest('.dropdown');
+                if ($dropdown.length > 0) $dropdown.find('[data-toggle="dropdown"]').dropdown('hide');
+            } catch (err) { /* ignore */ }
+            if (typeof window.openReadingOverlay === 'function') {
+                window.openReadingOverlay(cardElem);
+            }
+        });
+        voteDropdown.append($('<div class="dropdown-divider"></div>'), readFullScreenItem);
         
     } else {
         // Fallback to old vote box if dropdown not found
