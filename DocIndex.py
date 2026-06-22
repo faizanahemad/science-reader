@@ -3130,15 +3130,6 @@ def create_fast_document_index(pdf_url, folder, keys) -> DocIndex:
     DocIndex
         A ``FastDocIndex`` or ``FastImageDocIndex`` instance, saved to disk.
     """
-    from langchain_community.document_loaders import UnstructuredMarkdownLoader
-    from langchain_community.document_loaders import JSONLoader
-    from langchain_community.document_loaders import UnstructuredHTMLLoader
-    from langchain_community.document_loaders.csv_loader import CSVLoader
-    from langchain_community.document_loaders.tsv import UnstructuredTSVLoader
-    from langchain_community.document_loaders import UnstructuredWordDocumentLoader
-    from langchain_community.document_loaders import TextLoader
-    import pandas as pd
-
     is_image = False
     pdf_url = pdf_url.strip()
     lower_pdf_url = pdf_url.lower()
@@ -3223,9 +3214,12 @@ def create_fast_document_index(pdf_url, folder, keys) -> DocIndex:
             raise e
 
     # ---- Text extraction (same loaders as create_immediate_document_index) ----
+    # Imports are inlined per-branch to avoid pulling in transformers/torch for
+    # file types that don't need those loaders (e.g. images, PDFs, CSV).
     if is_pdf:
         doc_text = PDFReaderTool(keys)(pdf_url)
     elif pdf_url.endswith(".docx"):
+        from langchain_community.document_loaders import UnstructuredWordDocumentLoader
         doc_text = UnstructuredWordDocumentLoader(pdf_url).load()[0].page_content
     elif is_remote and not (
         pdf_url.endswith(".md")
@@ -3233,6 +3227,7 @@ def create_fast_document_index(pdf_url, folder, keys) -> DocIndex:
         or pdf_url.endswith(".csv")
         or pdf_url.endswith(".txt")
     ):
+        from langchain_community.document_loaders import UnstructuredHTMLLoader
         html = fetch_html(pdf_url, keys["zenrows"], keys["brightdataUrl"])
         html_file = os.path.join(folder, "temp_fast.html")
         with open(html_file, "w") as f:
@@ -3243,8 +3238,10 @@ def create_fast_document_index(pdf_url, folder, keys) -> DocIndex:
         except OSError:
             pass
     elif pdf_url.endswith(".html"):
+        from langchain_community.document_loaders import UnstructuredHTMLLoader
         doc_text = UnstructuredHTMLLoader(pdf_url).load()[0].page_content
     elif pdf_url.endswith(".md"):
+        from langchain_community.document_loaders import UnstructuredMarkdownLoader
         doc_text = UnstructuredMarkdownLoader(pdf_url).load()[0].page_content
     elif _is_audio_file(pdf_url):
         if is_remote:
@@ -3253,23 +3250,30 @@ def create_fast_document_index(pdf_url, folder, keys) -> DocIndex:
             )
         doc_text, pdf_url = _transcribe_audio_document(pdf_url, keys)
     elif pdf_url.endswith(".json"):
+        from langchain_community.document_loaders import JSONLoader
         doc_text = JSONLoader(pdf_url).load()[0].page_content
     elif pdf_url.endswith(".csv"):
+        import pandas as pd
         df = pd.read_csv(pdf_url, engine="python")
         doc_text = df.sample(min(len(df), 10)).to_markdown()
     elif pdf_url.endswith(".tsv"):
+        import pandas as pd
         df = pd.read_csv(pdf_url, sep="\t")
         doc_text = df.sample(min(len(df), 10)).to_markdown()
     elif pdf_url.endswith(".parquet"):
+        import pandas as pd
         df = pd.read_parquet(pdf_url)
         doc_text = df.sample(min(len(df), 10)).to_markdown()
     elif pdf_url.endswith(".xlsx") or pdf_url.endswith(".xls"):
+        import pandas as pd
         df = pd.read_excel(pdf_url, engine="openpyxl")
         doc_text = df.to_markdown()
     elif pdf_url.endswith(".jsonlines") or pdf_url.endswith(".jsonl"):
+        import pandas as pd
         df = pd.read_json(pdf_url, lines=True)
         doc_text = df.sample(min(len(df), 10)).to_markdown()
     elif pdf_url.endswith(".txt"):
+        from langchain_community.document_loaders import TextLoader
         doc_text = TextLoader(pdf_url).load()[0].page_content
     else:
         raise Exception(f"Could not find a suitable loader for the given url {pdf_url}")
