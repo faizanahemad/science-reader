@@ -599,6 +599,8 @@ All four delete endpoints now clean up doubts for every deleted message after th
 5. The user clicks **Accept & Apply** (or **Reject**). On accept, the frontend POSTs the matched replacements to the edit API.
 6. The message card re-renders with the updated text. The original text is snapshotted server-side so a **Revert to Original** option becomes available.
 
+**No false success on stale proposals:** the apply API re-validates every replacement against the *current* stored message text (not the text captured when the proposal was generated). `apply_message_replacements()` returns `(new_text, applied_count)` and only writes when `applied_count > 0`. If nothing matches — e.g. the answer changed between proposal and accept, or `old_text` differs by whitespace/markdown — the endpoint returns **HTTP 409 `no_replacements_matched`** instead of a misleading 200, the frontend shows a warning, and the card is left unchanged (so it no longer "appears edited then reverts on reload"). At the storage layer, `ConversationStore.edit_message()` raises `ValueError` if the `UPDATE` matches zero rows, converting a silent no-op into a loud failure.
+
 **Important — edit only on explicit request:** The doubt system prompt instructs the LLM to call `propose_answer_edit` *only when the user explicitly asks to update/fix/edit the answer*. Normal doubt questions never trigger an edit proposal. Even when proposed, nothing is saved until the user approves the diff.
 
 ### Always-On Doubt Editor Tools

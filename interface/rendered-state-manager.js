@@ -83,10 +83,48 @@
     return document.getElementById("chatView");
   }
 
+  // Build a content signature from a server message list. Uses
+  // `message_short_hash` (derived from message TEXT by the backend, so it
+  // changes whenever a message is edited) and falls back to message_id. This is
+  // what makes snapshot validation content-aware: identity (count + last id) is
+  // not enough because an edit keeps the same message_id but changes the text.
+  function computeSigFromMessages(messages) {
+    try {
+      if (!Array.isArray(messages)) return "";
+      return messages
+        .map(function (m) {
+          return String((m && (m.message_short_hash || m.message_id)) || "");
+        })
+        .join("|");
+    } catch (_e) {
+      return "";
+    }
+  }
+
+  // Build the same signature from the rendered DOM. Each card carries the
+  // server hash on `.message-ref-badge[data-msg-hash]`, mirroring
+  // message_short_hash at render time, so the two signatures are comparable.
+  function computeSigFromDom(chatView) {
+    try {
+      const cards = chatView.querySelectorAll(".message-card");
+      const parts = [];
+      cards.forEach(function (card) {
+        const badge = card.querySelector(".message-ref-badge[data-msg-hash]");
+        const hdr = card.querySelector(".card-header[message-id]");
+        const hash = badge ? badge.getAttribute("data-msg-hash") || "" : "";
+        const mid = hdr ? hdr.getAttribute("message-id") || "" : "";
+        parts.push(hash || mid);
+      });
+      return parts.join("|");
+    } catch (_e) {
+      return "";
+    }
+  }
+
   function readDomMeta() {
     try {
       const chatView = getChatViewEl();
-      if (!chatView) return { html: "", scrollTop: 0, lastMessageId: null, messageCount: 0 };
+      if (!chatView) return { html: "", scrollTop: 0, lastMessageId: null, messageCount: 0, contentSig: "" };
 
       const html = chatView.innerHTML || "";
       const scrollTop = chatView.scrollTop || 0;
@@ -96,10 +134,11 @@
       const lastHeader = headers && headers.length ? headers[headers.length - 1] : null;
       const lastMessageId = lastHeader ? (lastHeader.getAttribute("message-id") || null) : null;
       const messageCount = chatView.querySelectorAll(".message-card").length || 0;
+      const contentSig = computeSigFromDom(chatView);
 
-      return { html, scrollTop, lastMessageId, messageCount };
+      return { html, scrollTop, lastMessageId, messageCount, contentSig };
     } catch (_e) {
-      return { html: "", scrollTop: 0, lastMessageId: null, messageCount: 0 };
+      return { html: "", scrollTop: 0, lastMessageId: null, messageCount: 0, contentSig: "" };
     }
   }
 
@@ -130,10 +169,54 @@
       const last = messages.length ? messages[messages.length - 1] : null;
       const lastId = last ? String(last.message_id || "") : "";
       const snapLastId = snapshotMeta.lastMessageId ? String(snapshotMeta.lastMessageId) : "";
-      return lastId && snapLastId && (lastId === snapLastId);
+      if (!(lastId && snapLastId && lastId === snapLastId)) return false;
+
+      // Content-aware check: identity (count + last id) is NOT sufficient because
+      // an edited message keeps its message_id but changes its text. Compare a
+      // content signature derived from per-message hashes. Snapshots written
+      // before this field existed (no contentSig) are treated as non-matching so
+      // we safely re-render from fresh server data rather than restoring stale
+      // text (this was the "edit reverts on refresh" bug).
+      const freshSig = computeSigFromMessages(messages);
+      const snapSig = typeof snapshotMeta.contentSig === "string" ? snapshotMeta.contentSig : "";
+      if (!snapSig) return false;
+      return snapSig === freshSig;
     } catch (_e) {
       return false;
     }
+  }
+
+  // Best-effort: delete a single conversation's cached snapshot. Call this
+  // whenever a message is mutated (edited/reverted/deleted) so the next load
+  // re-renders from authoritative server data instead of stale cached HTML.
+  function invalidate(conversationId) {
+    const d = $.Deferred();
+    try {
+      const cid = String(conversationId || "");
+      if (!cid) { d.resolve(false); return d.promise(); }
+      openDb()
+        .then((db) => withStore(db, "readwrite", (store) => store.delete(keyForConversation(cid))))
+        .then(() => d.resolve(true))
+        .catch(() => d.resolve(false));
+    } catch (_e) {
+      d.resolve(false);
+    }
+    return d.promise();
+  }
+
+  // Clear ALL cached snapshots (e.g. on logout). IndexedDB is not cleared by
+  // clearing cookies/localStorage, so logout must call this explicitly.
+  function clearAll() {
+    const d = $.Deferred();
+    try {
+      openDb()
+        .then((db) => withStore(db, "readwrite", (store) => store.clear()))
+        .then(() => d.resolve(true))
+        .catch(() => d.resolve(false));
+    } catch (_e) {
+      d.resolve(false);
+    }
+    return d.promise();
   }
 
   // Debounced saves per conversation id
@@ -172,6 +255,7 @@
         scrollTop: meta.scrollTop,
         lastMessageId: meta.lastMessageId,
         messageCount: meta.messageCount,
+        contentSig: meta.contentSig || "",
       };
 
       // Wait until MathJax has flushed typesetting for a stable layout, then snapshot.
@@ -236,6 +320,7 @@
             savedAt: snapshot.savedAt,
             lastMessageId: snapshot.lastMessageId,
             messageCount: snapshot.messageCount,
+            contentSig: typeof snapshot.contentSig === "string" ? snapshot.contentSig : "",
           };
         })
         .then((meta) => d.resolve(meta))
@@ -252,6 +337,8 @@
     scheduleSave: scheduleSave,
     saveNow: saveNow,
     matchesMessages: matchesMessages,
+    invalidate: invalidate,
+    clearAll: clearAll,
   };
 })();
 

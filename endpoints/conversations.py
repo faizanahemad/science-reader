@@ -665,12 +665,35 @@ def edit_message_from_conversation(conversation_id: str, message_id: str, index:
     if replacements is not None:
         # Apply list of text replacements to the current message text
         try:
-            new_text = conversation.apply_message_replacements(message_id, index, replacements)
+            new_text, applied_count = conversation.apply_message_replacements(
+                message_id, index, replacements
+            )
         except ValueError as e:
             return json_error(str(e), status=404, code="message_not_found")
-        return jsonify({"message": f"Message {message_id} updated", "new_text": new_text})
+        if applied_count == 0:
+            # Nothing matched the *current* stored text — the proposal is stale
+            # (the answer changed since it was generated) or the old_text did not
+            # match exactly. Do not report a false success; the message was not
+            # modified and would otherwise silently revert on reload.
+            return json_error(
+                "No replacements matched the current message text, so nothing was "
+                "changed. The answer may have changed since the edit was proposed — "
+                "re-open the answer and try again.",
+                status=409,
+                code="no_replacements_matched",
+            )
+        return jsonify(
+            {
+                "message": f"Message {message_id} updated",
+                "new_text": new_text,
+                "applied_count": applied_count,
+            }
+        )
     else:
-        conversation.edit_message(message_id, index, message_text)
+        try:
+            conversation.edit_message(message_id, index, message_text)
+        except ValueError as e:
+            return json_error(str(e), status=404, code="message_not_found")
         return jsonify({"message": f"Message {message_id} updated", "new_text": message_text})
 
 

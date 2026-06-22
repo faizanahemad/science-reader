@@ -2105,6 +2105,13 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
                         }
                         // Hide this (old) item; the re-init created a fresh one.
                         if (remaining <= 0) revertItem.hide();
+                        // Invalidate the cached rendered-HTML snapshot so a reload
+                        // shows the reverted text rather than stale cached markup.
+                        try {
+                            if (window.RenderedStateManager && window.RenderedStateManager.invalidate) {
+                                window.RenderedStateManager.invalidate(revertConvId);
+                            }
+                        } catch (_e) { /* best-effort */ }
                     },
                     error: function(xhr) {
                         var errMsg = (xhr.responseJSON && xhr.responseJSON.error) || 'Failed to revert';
@@ -6213,6 +6220,22 @@ function clearSwCaches() {
             })
         );
     }
+
+    // Clear the rendered-HTML snapshot store (IndexedDB). This is NOT covered by
+    // the Cache API above, so without this a logout/login still restores stale
+    // per-conversation rendered markup (e.g. a message edit appearing to revert).
+    try {
+        if (window.RenderedStateManager && window.RenderedStateManager.clearAll) {
+            tasks.push(Promise.resolve(window.RenderedStateManager.clearAll()));
+        } else if ('indexedDB' in window && indexedDB.deleteDatabase) {
+            tasks.push(new Promise(function(resolve) {
+                try {
+                    var req = indexedDB.deleteDatabase('science-chat-rendered-state');
+                    req.onsuccess = req.onerror = req.onblocked = function() { resolve(); };
+                } catch (_e) { resolve(); }
+            }));
+        }
+    } catch (_e) { /* best-effort */ }
 
     return Promise.all(tasks)
         .then(function() { console.log('[clearSwCaches] all caches cleared'); })

@@ -2857,12 +2857,16 @@ def handle_read_message(args: dict, context: ToolContext) -> ToolCallResult:
 
     Delegates to Conversation.read_message() and returns full message data.
     """
-    conversation_id = args.get("conversation_id", "") or getattr(context, "conversation_id", "")
+    # Context conversation_id is authoritative — the doubt/chat flow sets it to
+    # the real (email-prefixed) conversation id. The LLM frequently hallucinates
+    # this value (e.g. passing the message_id), so prefer context over args.
+    conversation_id = getattr(context, "conversation_id", "") or args.get("conversation_id", "")
     try:
         conv = _conv_load(conversation_id)
         if conv is None:
             return ToolCallResult(
                 tool_id="", tool_name="read_message",
+                result="",
                 error=f"Conversation not found: {conversation_id}",
             )
         message_id = args.get("message_id", None)
@@ -2875,6 +2879,7 @@ def handle_read_message(args: dict, context: ToolContext) -> ToolCallResult:
     except Exception as e:
         return ToolCallResult(
             tool_id="", tool_name="read_message",
+            result="",
             error=f"Error reading message: {e}",
         )
 
@@ -2889,25 +2894,32 @@ def handle_propose_answer_edit(args: dict, context: ToolContext) -> ToolCallResu
     """
     import difflib
 
-    conversation_id = args.get("conversation_id", "") or getattr(context, "conversation_id", "")
-    # Prefer explicit message_id from args; fall back to context target (set by clear_doubt)
-    message_id = args.get("message_id", "") or getattr(context, "target_message_id", "")
+    # Context ids are authoritative for the doubt flow: clear_doubt sets
+    # conversation_id and target_message_id to the exact message under
+    # discussion. The LLM cannot know the internal (email-prefixed)
+    # conversation_id and routinely hallucinates it (e.g. reuses the
+    # message_id), so prefer context over the model-supplied args.
+    conversation_id = getattr(context, "conversation_id", "") or args.get("conversation_id", "")
+    message_id = getattr(context, "target_message_id", "") or args.get("message_id", "")
     replacements = args.get("replacements", [])
     summary = args.get("summary", "")
 
     if not conversation_id:
         return ToolCallResult(
             tool_id="", tool_name="propose_answer_edit",
+            result="",
             error="conversation_id is required",
         )
     if not message_id:
         return ToolCallResult(
             tool_id="", tool_name="propose_answer_edit",
+            result="",
             error="message_id is required — provide it explicitly or check context",
         )
     if not replacements:
         return ToolCallResult(
             tool_id="", tool_name="propose_answer_edit",
+            result="",
             error="replacements list is empty — at least one replacement is required",
         )
 
@@ -2916,12 +2928,14 @@ def handle_propose_answer_edit(args: dict, context: ToolContext) -> ToolCallResu
         if conv is None:
             return ToolCallResult(
                 tool_id="", tool_name="propose_answer_edit",
+                result="",
                 error=f"Conversation not found: {conversation_id}",
             )
         msg = conv.read_message(message_id=message_id)
         if msg is None:
             return ToolCallResult(
                 tool_id="", tool_name="propose_answer_edit",
+                result="",
                 error=f"Message not found: {message_id}",
             )
         original_text = msg.get("text", "")
@@ -2934,9 +2948,12 @@ def handle_propose_answer_edit(args: dict, context: ToolContext) -> ToolCallResu
             new_t = rep.get("new_text", "")
             if not old_t:
                 continue
-            found = old_t in current_text
+            # Use the same whitespace-tolerant matcher as apply_message_replacements
+            # so the proposed diff matches what will actually be persisted.
+            matched = conv._locate_old_text(current_text, old_t)
+            found = matched is not None
             if found:
-                current_text = current_text.replace(old_t, new_t, 1)
+                current_text = current_text.replace(matched, new_t, 1)
             validated.append({
                 "old_text": old_t,
                 "new_text": new_t,
@@ -2961,6 +2978,7 @@ def handle_propose_answer_edit(args: dict, context: ToolContext) -> ToolCallResu
         if found_count == 0:
             return ToolCallResult(
                 tool_id="", tool_name="propose_answer_edit",
+                result="",
                 error=(
                     "None of the old_text values were found in the message. "
                     "Use read_message to get the exact current text and try again."
@@ -2986,6 +3004,7 @@ def handle_propose_answer_edit(args: dict, context: ToolContext) -> ToolCallResu
     except Exception as e:
         return ToolCallResult(
             tool_id="", tool_name="propose_answer_edit",
+            result="",
             error=f"Error proposing edit: {e}",
         )
 

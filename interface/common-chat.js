@@ -350,6 +350,13 @@ var ConversationManager = {
                     }, false, answer);
                     initialiseVoteBank(savedCard, answer, null, ConversationManager.activeConversationId);
                 }
+                // Drop the stale rendered-HTML snapshot so a reload re-renders the
+                // edited text from the server instead of restoring old markup.
+                try {
+                    if (window.RenderedStateManager && window.RenderedStateManager.invalidate) {
+                        window.RenderedStateManager.invalidate(activeConversationId);
+                    }
+                } catch (_e) { /* best-effort */ }
             },
             error: function (result) {
                 alert('Error: ' + result.responseText);

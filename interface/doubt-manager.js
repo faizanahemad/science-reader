@@ -1570,11 +1570,25 @@ const DoubtManager = {
             showToast('Cannot delete doubt: ID not available yet', 'warning');
             return;
         }
-        
+
+        // Re-entry / double-submit guard. A delete button inside the doubt chat
+        // modal matches two overlapping delegated handlers ('.doubt-delete-btn'
+        // and '#doubt-chat-messages .doubt-delete-btn'), and users can also
+        // double-click. Without this guard deleteDoubt fires twice → two confirm
+        // dialogs and two DELETE requests (the second 404s because the first
+        // already removed the sub-tree). Keyed by doubtId and set the moment a
+        // delete is confirmed/in-flight so the second invocation bails out
+        // before showing another confirm.
+        if (!this._deletingDoubts) this._deletingDoubts = {};
+        if (this._deletingDoubts[doubtId]) {
+            return;
+        }
+
         if (!confirm('Are you sure you want to delete this doubt? This will also delete all of its follow-up doubts (its entire sub-tree). This action cannot be undone.')) {
             return;
         }
-        
+
+        this._deletingDoubts[doubtId] = true;
         const self = this;
         fetch(`/delete_doubt/${doubtId}`, {
             method: 'DELETE',
@@ -1583,6 +1597,13 @@ const DoubtManager = {
             }
         })
         .then(response => {
+            // Treat 404 as "already deleted" — a redundant request (e.g. a
+            // double-click that slipped past the guard) should not surface as an
+            // error; the doubt is gone either way, so converge on the success
+            // path and refresh the UI.
+            if (response.status === 404) {
+                return { success: true, deleted_doubt_ids: [doubtId], _alreadyGone: true };
+            }
             if (!response.ok) {
                 throw new Error(`HTTP error! status: ${response.status}`);
             }
@@ -1590,14 +1611,16 @@ const DoubtManager = {
         })
         .then(data => {
             if (data.success) {
-                showToast('Doubt deleted successfully', 'success');
-                
+                if (!data._alreadyGone) {
+                    showToast('Doubt deleted successfully', 'success');
+                }
+
                 // Refresh current view
                 if ($('#doubts-overview-modal').hasClass('show')) {
                     // Refresh overview
                     self.showDoubtsOverview(self.currentConversationId, self.currentMessageId);
                 }
-                
+
                 if ($('#doubt-chat-modal').hasClass('show')) {
                     // The backend deletes the whole sub-tree, so remove every card
                     // (question + answer) belonging to the deleted doubt ids.
@@ -1618,6 +1641,9 @@ const DoubtManager = {
         .catch(error => {
             console.error('Error deleting doubt:', error);
             showToast('Failed to delete doubt: ' + error.message, 'error');
+        })
+        .finally(() => {
+            delete self._deletingDoubts[doubtId];
         });
     },
     
@@ -1835,11 +1861,37 @@ const DoubtManager = {
             data: JSON.stringify({ replacements: onlyFound }),
             success: function(resp) {
                 acceptBtn.prop('disabled', false).html('<i class="bi bi-check2 mr-1"></i>Accept &amp; Apply');
+
+                // Defensive: the backend reports how many replacements actually
+                // matched the *current* stored text. If none matched it returns a
+                // 409 (handled by error: below), but guard here too so we never
+                // falsely claim success and render a no-op edit that "reverts" on
+                // reload.
+                if (resp && typeof resp.applied_count === 'number' && resp.applied_count === 0) {
+                    showToast('No matching text found — the answer was not changed.', 'warning');
+                    return;
+                }
+
                 modal.modal('hide');
                 showToast('Answer updated successfully', 'success');
 
-                // Re-render the message card with the new text
-                const newText = resp.new_text || proposal.new_text || '';
+                // Invalidate the cached rendered-HTML snapshot for this
+                // conversation. The edit changed a message's text (same
+                // message_id), so without this the IndexedDB snapshot — which is
+                // NOT cleared on logout — would restore the pre-edit HTML on the
+                // next page load ("edit reverts on refresh"). The backend already
+                // persisted the change; this just stops the client from showing
+                // stale cached markup.
+                try {
+                    if (window.RenderedStateManager && window.RenderedStateManager.invalidate) {
+                        window.RenderedStateManager.invalidate(conversationId);
+                    }
+                } catch (_e) { /* best-effort */ }
+
+                // Re-render the message card with the new text (authoritative
+                // server value; never fall back to the proposal's optimistic text,
+                // which can diverge from what was actually persisted).
+                const newText = (resp && typeof resp.new_text === 'string') ? resp.new_text : '';
                 if (newText && messageId) {
                     // Find the card and update its content
                     const $card = $header.closest('.card, .mb-3');

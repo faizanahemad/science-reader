@@ -298,16 +298,23 @@ class ConversationStore:
             prev_text = row["text"] if row["text"] is not None else ""
             history.append(prev_text)
             original = history[0]
-            self._conn.execute(
+            cur = self._conn.execute(
                 "UPDATE messages SET text=?, original_text=?, edit_history=?, updated_at=? "
                 "WHERE message_id=?",
                 (text, original, _json_encode(history), time.time(), message_id),
             )
         else:
-            self._conn.execute(
+            cur = self._conn.execute(
                 "UPDATE messages SET text=?, updated_at=? WHERE message_id=?",
                 (text, time.time(), message_id))
         self._conn.commit()
+        if cur.rowcount == 0:
+            # No row matched — the edit silently does nothing and will appear to
+            # "revert" on reload. Surface this loudly so callers/logs can detect it.
+            raise ValueError(
+                f"edit_message: no message row matched message_id={message_id!r}; "
+                f"nothing was persisted"
+            )
 
     def get_original_text(self, message_id: str) -> Optional[str]:
         """Return the original (pre-edit) text of a message, or None if never edited."""
