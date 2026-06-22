@@ -3,7 +3,7 @@
   "model": "openrouter/anthropic/claude-sonnet-4.6",
   "agent": {
     "compaction": {
-      "model": "openrouter/anthropic/claude-haiku-4-5"
+      "model": "openrouter/anthropic/claude-haiku-4.5"
     }
   },
   "permission": {
@@ -21,13 +21,6 @@
       "models": {},
       "options": {
         "apiKey": "{env:OPENROUTER_API_KEY}"
-      }
-    },
-    "amazon-bedrock": {
-      "models": {},
-      "options": {
-        "region": "us-east-1",
-        "apiKey": "{env:BEDROCK_API_KEY}"
       }
     }
   },
