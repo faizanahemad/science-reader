@@ -31,6 +31,22 @@ Users often want to ask follow-up questions about a specific assistant (or user)
 
 A separate **"View Doubts"** button on each message opens a doubts overview modal showing all past doubt threads for that message, rendered as nested trees. When viewing a specific doubt thread (`doubt-chat-modal`), a **← back button** in the modal header returns to the doubts overview without needing to re-click the entry point.
 
+### UI Flow — File Attachments
+
+The doubt chat modal supports the same file attachment UI as the main chat input:
+
+1. A paperclip button (📎) above the textarea opens a file picker; files can also be drag-dropped.
+2. Uploaded files appear as thumbnail badges (images) or file badges (PDFs/docs) in a preview strip.
+3. Badges can be removed before sending.
+4. On send, `display_attachments` is included in the POST body alongside `doubt_text`.
+5. After the modal closes, any unsent attachments are deleted via `DELETE /detach_doc_from_message/<conv_id>/<doc_id>` to avoid orphaned files.
+6. When reopening a saved doubt thread, attachment badges are re-rendered from the `display_attachments` array stored in the DB.
+
+**How the LLM sees attachments:**
+- **Images** (`FastImageDocIndex`): loaded via `_get_attached_doc_images()` and passed as `images=` to `_run_tool_loop` / the fallback LLM call — the actual image bytes go to the vision endpoint directly, with no tool calls needed.
+- **Text/data docs** (`FastDocIndex`): full text inlined directly into the prompt via `_get_attached_doc_texts()` as labelled `--- Attached: filename ---` sections.
+- The `#doc_N` BM25 pipeline is intentionally **not** used for doubt attachments because the doubt LLM has no `document_lookup` tool, and newly uploaded files only exist in `message_attached_documents_list` (which `document_lookup` does not search).
+
 ### API
 
 **`POST /clear_doubt/<conversation_id>/<message_id>`** (`endpoints/doubts.py`)
@@ -42,13 +58,16 @@ Request body:
   "reward_level": 0,
   "selected_text": "optional highlighted text",
   "with_context": false,
-  "parent_doubt_id": "optional, for follow-ups"
+  "parent_doubt_id": "optional, for follow-ups",
+  "display_attachments": [{"doc_id": "...", "name": "...", "type": "image|file", "thumbnail": "..."}]
 }
 ```
 
 Streaming response (newline-delimited JSON):
 - Each chunk: `{ text, status, conversation_id, message_id, type: "doubt_clearing", accumulated_text }`
 - Final chunk: `{ completed: true, doubt_id: "...", accumulated_text }`
+
+**`DELETE /detach_doc_from_message/<conversation_id>/<doc_id>`** — remove a message-attached document from the conversation (used to clean up unsent doubt/temp-LLM attachments on modal close)
 
 **`GET /get_doubts/<conversation_id>/<message_id>`** — returns all doubt trees for a message  
 **`GET /get_doubt/<doubt_id>`** — fetch a single doubt record  
@@ -60,7 +79,7 @@ Streaming response (newline-delimited JSON):
 
 (`Conversation.py`, line ~12427)
 
-Parameters: `message_id, doubt_text, doubt_history, reward_level, selected_text="", with_context=False`
+Parameters: `message_id, doubt_text, doubt_history, reward_level, selected_text="", with_context=False, display_attachments=None`
 
 **Context building logic:**
 
@@ -70,10 +89,17 @@ Parameters: `message_id, doubt_text, doubt_history, reward_level, selected_text=
 - If `selected_text` is non-empty: injects `**Selected Text the user is asking about:** "..."` into the prompt between the context block and the user's doubt question
 - If `doubt_history` is non-empty (follow-up): prepends the full prior Q&A thread as "Previous Doubt History"
 
+**Attachment handling:**
+- `_get_attached_doc_images(display_attachments)` → loads `FastImageDocIndex`/`ImageDocIndex` from `message_attached_documents_list` + `uploaded_documents_list`, returns `llm_image_source` paths
+- `_get_attached_doc_texts(display_attachments)` → loads `FastDocIndex` entries, returns full extracted text
+- Images passed as `images=_doubt_images` to `_run_tool_loop` (and fallback LLM call) — vision LLM sees them directly
+- Text docs appended inline to `doubt_text` as `--- Attached: filename ---\n{text}` sections
+- The `#doc_N` injection pipeline is not used — newly uploaded doubt files live only in `message_attached_documents_list` and the doubt LLM has no `document_lookup` tool
+
 **LLM call:** `temperature=0.3`, `max_tokens=2000`, streaming  
 **System prompt:** "You are a helpful AI assistant specializing in clarifying doubts and explaining complex concepts clearly and thoroughly. Avoid using markdown headers and avoid excessive formatting. Write with the intention to help the user learn and understand better without formatting bloat."
 
-After streaming completes, the endpoint saves the Q&A to the DB via `database.doubts.add_doubt()`.
+After streaming completes, the endpoint saves the Q&A to the DB via `database.doubts.add_doubt()`, persisting `display_attachments` as JSON.
 
 ### Storage: `DoubtsClearing` table in `users.db`
 
@@ -84,7 +110,7 @@ doubt_id          — MD5(conversation_id + message_id + doubt_text + answer + t
 conversation_id
 user_email
 message_id        — the message this doubt is about
-doubt_text        — user's question
+doubt_text        — user's question (plain text, no injected #doc_N refs)
 doubt_answer      — full LLM response (saved after streaming completes)
 parent_doubt_id   — NULL for root doubts; points to parent for follow-ups
 child_doubt_id    — forward pointer to next follow-up (singly linked)
@@ -92,6 +118,7 @@ is_root_doubt     — 1 if no parent
 show_hide         — 'show' | 'hide' collapse state of the answer card in the doubt modal (NULL/empty = expanded)
 created_at
 updated_at
+display_attachments — JSON array of {type, name, thumbnail, doc_id} for files attached to this doubt question
 ```
 
 **Tree structure:** doubts form a linked list / tree. Each independent question on a message is a root (`is_root_doubt=1`). Follow-ups chain via `parent_doubt_id`.
@@ -122,11 +149,14 @@ Assistant doubt answer cards in the doubt chat modal (`#doubt-chat-modal`) carry
 
 | File | Role |
 |---|---|
-| `interface/doubt-manager.js` | `DoubtManager` — modal, state (`selectedText`, `withContext`, `currentDoubtHistory`), API call, streaming render |
+| `interface/doubt-manager.js` | `DoubtManager` — modal, state, API call, streaming render, attachment wiring, badge rendering on reload |
 | `interface/context-menu-manager.js` | `handleAskDoubt(withContext)` — entry point from right-click menu |
-| `endpoints/doubts.py` | All doubt HTTP routes + streaming generator |
-| `Conversation.py` ~L12427 | `clear_doubt()` — context building + LLM call |
-| `database/doubts.py` | All SQLite operations on `DoubtsClearing` |
+| `interface/common-chat.js` | `uploadFileToConversation()`, `renderDisplayAttachmentBadges()` — shared upload + badge helpers |
+| `endpoints/doubts.py` | All doubt HTTP routes + streaming generator; reads `display_attachments` from request |
+| `endpoints/documents.py` | `DELETE /detach_doc_from_message/<conv_id>/<doc_id>` — cleanup of unsent attachments |
+| `Conversation.py` ~L12427 | `clear_doubt()`, `_get_attached_doc_images()`, `_get_attached_doc_texts()` |
+| `database/doubts.py` | All SQLite operations on `DoubtsClearing`; `add_doubt()` stores `display_attachments` as JSON |
+| `database/connection.py` | Migration adding `display_attachments TEXT` column to `DoubtsClearing` |
 
 ---
 
@@ -172,7 +202,8 @@ Request body:
   "message_text": "optional full message text",
   "conversation_id": "optional",
   "history": [{"role": "user|assistant", "content": "..."}],
-  "with_context": false
+  "with_context": false,
+  "display_attachments": [{"doc_id": "...", "name": "...", "type": "image|file", "thumbnail": "..."}]
 }
 ```
 
@@ -195,6 +226,12 @@ The endpoint tries to load the conversation first:
 - Injects surrounding messages with `← [SELECTED FROM THIS MESSAGE]` marker on the target
 - Also appends last 3 entries of `running_summary`
 - If `with_context=False`: only `message_context` (the raw message text) is included
+
+**Attachment handling:**
+- `_get_attached_doc_texts(display_attachments)` → inlines full extracted text for each text/data doc as `--- Attached: filename ---\n{text}` appended to the action prompt
+- Temp LLM has no doc-reading pipeline, so text is always inlined directly (no `#doc_N` tool path)
+- Image attachments are not currently inlined into temp LLM actions (temp LLM uses `images=[]`)
+- All attachments (sent and unsent) are cleaned up via `DELETE /detach_doc_from_message` when the modal closes, tracked via `_sentDocIds`
 
 **History formatting:** `_format_temp_history(history)` — takes last 6 messages, truncates each to 1000 chars, formats as `**User:** / **Assistant:**` blocks injected into the `ask_temp` prompt.
 
@@ -231,14 +268,15 @@ Used when no conversation context is available. Builds the same action prompts b
 
 | File | Role |
 |---|---|
-| `interface/temp-llm-manager.js` | `TempLLMManager` — modal, `currentHistory` array, streaming render, history append |
+| `interface/temp-llm-manager.js` | `TempLLMManager` — modal, `currentHistory` array, streaming render, history append, attachment wiring + cleanup |
 | `interface/context-menu-manager.js` | Entry points: `executeAction()` and `openTempChatModal()` calls |
-| `interface/common-chat.js` | `openAsideChatModal()` helper; `/aside`+`/btw` send intercept; aside button + `Ctrl+Shift+Space` handlers |
+| `interface/common-chat.js` | `openAsideChatModal()` helper; `/aside`+`/btw` send intercept; aside button + `Ctrl+Shift+Space` handlers; `uploadFileToConversation()`, `renderDisplayAttachmentBadges()` |
 | `interface/parseMessageForCheckBoxes.js` | `processAsideCommand()` — detects `/aside`/`/btw` tokens, sets `result.aside_request=true` |
-| `interface/interface.html` | `#asideButton` (💬) next to send button |
-| `endpoints/doubts.py` | `POST /temporary_llm_action` route + streaming generator |
+| `interface/interface.html` | `#asideButton` (💬) next to send button; attachment preview strip + paperclip in temp-LLM modal |
+| `endpoints/doubts.py` | `POST /temporary_llm_action` route + streaming generator; reads `display_attachments` from request |
+| `endpoints/documents.py` | `DELETE /detach_doc_from_message/<conv_id>/<doc_id>` — cleanup of all attachments on modal close |
 | `endpoints/slash_commands.py` | `/aside` and `/btw` entries in `ACTION_COMMANDS` catalog |
-| `Conversation.py` ~L12568 | `temporary_llm_action()` — context-aware LLM call |
+| `Conversation.py` ~L12568 | `temporary_llm_action()`, `_get_attached_doc_texts()` — context-aware LLM call with inlined doc text |
 | `endpoints/llm_actions.py` | `direct_temporary_llm_action()` — fallback without conversation |
 
 ---
@@ -251,6 +289,7 @@ Used when no conversation context is available. Builds the same action prompts b
 | Threaded follow-ups | Yes — linked list via `parent_doubt_id` | Yes — `currentHistory` array (lost on close) |
 | Context modes | Target message only / full context | Message context / full context |
 | Selected text support | Yes — injected into prompt | Yes — primary input |
+| File attachments | Yes — images sent to vision LLM; text docs inlined; persisted in `display_attachments` DB column | Yes — text docs inlined; images not currently sent; all files cleaned up on close |
 | Model | `QUICK_ACTION_LLM` (`anthropic/claude-sonnet-4.6`) | `QUICK_ACTION_LLM` via `quick_action_model` override |
 | Tools | Optional — tiered (TIER_1_TOOLS, max 3 iters) | Optional — same tiered mode |
 | Entry point | Right-click → "Ask a Doubt" | Right-click → explain/critique/expand/eli5/ask |

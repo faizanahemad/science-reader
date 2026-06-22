@@ -351,6 +351,7 @@ Location: `interface/common-chat.js`
 - Updates URL with message focus for deep-linking.
 - Message IDs drive all follow-on actions; `message-index` is computed from the number of message cards in `#chatView` (not global `.card` count).
 - When a message contains slide markup, the renderer schedules a slide resize pass after the markdown is rendered.
+- **Attachment badges**: if `message.display_attachments` is present and non-empty, calls `renderDisplayAttachmentBadges(message.display_attachments, cardBody, conversationId)` (defined in `common-chat.js`) to render image thumbnails and file badges. The same function is used by the doubt modal's `createDoubtChatCard` — single implementation, no duplication.
 
 ### `renderStreamingResponse()` (streaming)
 Location: `interface/common-chat.js`

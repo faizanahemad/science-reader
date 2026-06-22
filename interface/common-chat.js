@@ -2655,24 +2655,7 @@ var ChatManager = {
             cardBody.append(textElem);
             
             if (message.display_attachments && message.display_attachments.length > 0) {
-                var $attachContainer = $('<div class="message-attachments"></div>');
-                message.display_attachments.forEach(function(att) {
-                    var $el;
-                    if (att.type === 'image' && att.thumbnail) {
-                        $el = $('<img class="msg-att-thumb">').attr('src', att.thumbnail).attr('alt', att.name || 'Image').attr('title', att.name || 'Image');
-                    } else {
-                        var isPdf = (att.name || '').toLowerCase().endsWith('.pdf');
-                        var iconClass = isPdf ? 'fa fa-file-pdf-o' : 'fa fa-file-o';
-                        $el = $('<span class="msg-att-badge"><i class="' + iconClass + '"></i> ' + (att.name || 'File') + '</span>');
-                    }
-                    $el.addClass('msg-att-clickable');
-                    $el.on('click', function(e) {
-                        e.stopPropagation();
-                        showAttachmentContextMenu(e, att, conversationId);
-                    });
-                    $attachContainer.append($el);
-                });
-                cardBody.append($attachContainer);
+                renderDisplayAttachmentBadges(message.display_attachments, cardBody, conversationId);
             }
             
             messageElement.append(cardHeader);

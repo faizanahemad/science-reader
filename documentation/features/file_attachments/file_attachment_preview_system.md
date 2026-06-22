@@ -13,6 +13,7 @@ A unified file attachment system for both the Chrome extension UI and the main w
 - **Promotion flow** to upgrade FastDocIndex to full ImmediateDocIndex with FAISS + LLM summaries
 - **LLM reads attached document content** when generating its reply to that message
 - **Extension PDF text extraction** via pdfplumber, stored as system message and merged into LLM prompt
+- **Attachment support in Doubt and Temp LLM modals** — paperclip + preview strip in both modals; images sent natively to vision LLM; text docs inlined in prompt
 
 ## Architecture
 
@@ -153,6 +154,35 @@ The `doc_infos` property (string of `#doc_N: (Title)[source]` mappings shown to 
 - On page reload, `get_message_list()` returns messages with `display_attachments`
 - `renderMessages()` renders thumbnails/badges with context menu click handlers
 
+### Main UI — Doubt / Temp LLM Attachment Flow
+
+Both the Doubt chat modal and the Temp LLM modal support file attachment using the same upload infrastructure as the main message input.
+
+**Upload:** `uploadFileToConversation(file, conversationId, ctx)` in `common-chat.js` wraps the existing `POST /upload_doc_to_conversation/<conv_id>` endpoint. The `ctx` parameter carries `{list: pendingList, container: previewContainer}` so the same helper serves all three contexts (main input, doubt modal, temp-LLM modal).
+
+**How the LLM sees files:**
+
+| File type | Main conversation | Doubt modal | Temp LLM modal |
+|---|---|---|---|
+| Image (`FastImageDocIndex`) | `llm_image_source` → `images=[]` via `#doc_N` injection | `_get_attached_doc_images()` → `images=_doubt_images` directly to vision LLM | Not currently sent (images=[]) |
+| Text/PDF doc (`FastDocIndex`) | BM25 search via `#doc_N` pipeline | `_get_attached_doc_texts()` → inlined in prompt | `_get_attached_doc_texts()` → inlined in prompt |
+
+The doubt and temp-LLM flows intentionally bypass the `#doc_N` BM25 tool pipeline because:
+1. The doubt LLM has no `document_lookup` tool in `DOUBT_DEFAULT_TOOLS`.
+2. `document_lookup` only searches `uploaded_documents_list`, not `message_attached_documents_list` where newly uploaded files live.
+
+**Persistence:**
+- Doubt: `display_attachments` stored as JSON in the `DoubtsClearing.display_attachments` column; re-rendered as badges when a doubt thread is reopened.
+- Temp LLM: no persistence — all attachments (sent and unsent) are deleted via `DELETE /detach_doc_from_message/<conv_id>/<doc_id>` when the modal closes. Sent doc IDs are tracked in `_sentDocIds`.
+
+**Cleanup:**
+- Doubt: unsent attachments deleted on modal close; sent attachments kept (they are referenced by the saved doubt record).
+- Temp LLM: all attachments deleted on modal close regardless of whether they were sent.
+
+**Re-render on reload:**
+- Doubt: `renderDoubtHistory()` passes `doubt.display_attachments` to `createDoubtChatCard()`, which calls `renderDisplayAttachmentBadges()`.
+- Main conversation: `renderMessages()` calls `renderDisplayAttachmentBadges()` (shared function, not an inline duplicate).
+
 ### Extension — Upload
 
 1. User drops file anywhere on side panel (panel-wide drag via `handleAttachmentDrop()`)
@@ -198,16 +228,20 @@ The `doc_infos` property (string of `#doc_N: (Title)[source]` mappings shown to 
 ### Main UI
 | File | Changes |
 |------|---------|
-| `interface/interface.html` | `#attachment-preview` container div above message input |
-| `interface/common-chat.js` | `pendingAttachments[]` state; `generateThumbnailForMainUI()`, `addFileToAttachmentPreview()`, `renderAttachmentPreviews()`, `clearAttachmentPreviews()`, `getDisplayAttachmentsPayload()`, `enrichAttachmentWithDocInfo()`, `showAttachmentContextMenu()` (4 options: Preview, Download, Add to Conversation, Attach for current turn); drag-drop hooks; `sendMessage` includes `display_attachments`; `renderMessages()` renders attachments with context menu |
+| `interface/interface.html` | `#attachment-preview` container div above message input; attachment preview strip + paperclip in `#doubt-chat-modal` and `#temp-llm-modal` |
+| `interface/common-chat.js` | `pendingAttachments[]` state; `generateThumbnailForMainUI()`, `addFileToAttachmentPreview()`, `renderAttachmentPreviews()`, `clearAttachmentPreviews()`, `getDisplayAttachmentsPayload()`, `enrichAttachmentWithDocInfo()`, `uploadFileToConversation()` (shared upload helper with `ctx`), `renderDisplayAttachmentBadges()` (shared badge renderer), `showAttachmentContextMenu()` (4 options: Preview, Download, Add to Conversation, Attach for current turn); drag-drop hooks; `sendMessage` includes `display_attachments`; `renderMessages()` calls `renderDisplayAttachmentBadges()` |
+| `interface/doubt-manager.js` | `attachmentContext` property; file upload wiring in `openDoubtChatModal()`; `display_attachments` in `sendDoubt()` payload; badge rendering in `createDoubtChatCard()`; unsent cleanup on modal close |
+| `interface/temp-llm-manager.js` | `attachmentContext` property; file upload wiring in `openModal()`; `display_attachments` in `streamResponse()` payload; all-attachments cleanup on modal close via `_sentDocIds` |
 | `interface/style.css` | `.attachment-preview`, `.att-preview`, `.att-file`, `.att-remove-btn`, `.message-attachments`, `.msg-att-thumb`, `.msg-att-badge`, `.attachment-context-menu` styles |
 
 ### Backend
 | File | Changes |
 |------|---------|
 | `DocIndex.py` | `FastDocIndex` class (BM25, no FAISS/LLM); `FastImageDocIndex` class (image store only); `create_fast_document_index()` function |
-| `Conversation.py` | `message_attached_documents_list` in `store_separate`; `add_message_attached_document()`, `get_message_attached_documents()`, `promote_message_attached_document()` methods; `persist_current_turn()` accepts `display_attachments` (all 7 call sites); injection block uses combined docs list; `get_uploaded_documents_for_query()` loads from both lists |
-| `endpoints/documents.py` | Upload endpoint uses `add_message_attached_document()` (fast path); returns `doc_id`, `source`, `title`; new `POST /promote_message_doc/<conversation_id>/<document_id>` endpoint |
+| `Conversation.py` | `message_attached_documents_list` in `store_separate`; `add_message_attached_document()`, `get_message_attached_documents()`, `promote_message_attached_document()` methods; `persist_current_turn()` accepts `display_attachments` (all 7 call sites); injection block uses combined docs list; `get_uploaded_documents_for_query()` loads from both lists; `_get_attached_doc_texts()` and `_get_attached_doc_images()` helpers used by doubt and temp-LLM flows |
+| `endpoints/documents.py` | Upload endpoint uses `add_message_attached_document()` (fast path); returns `doc_id`, `source`, `title`; `POST /promote_message_doc/<conversation_id>/<document_id>`; `DELETE /detach_doc_from_message/<conversation_id>/<doc_id>` (cleanup endpoint for doubt/temp-LLM modal close) |
+| `database/doubts.py` | `add_doubt()` accepts and stores `display_attachments` as JSON; all SELECT queries deserialize it |
+| `database/connection.py` | Migration adding `display_attachments TEXT` column to `DoubtsClearing` table |
 
 ## API Endpoints
 
@@ -219,6 +253,7 @@ The `doc_infos` property (string of `#doc_N: (Title)[source]` mappings shown to 
 | POST | `/promote_message_doc/<conversation_id>/<document_id>` | Promote FastDocIndex to full ImmediateDocIndex. Returns `{status, doc_id, source, title}` |
 | POST | `/send_message/<conversation_id>` | Send message with `display_attachments` in body |
 | GET | `/download_doc_from_conversation/<conversation_id>/<doc_id>` | Download attached document |
+| DELETE | `/detach_doc_from_message/<conversation_id>/<doc_id>` | Remove a message-attached document (used to clean up unsent doubt/temp-LLM attachments on modal close) |
 
 ### Extension
 

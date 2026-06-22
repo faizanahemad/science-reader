@@ -1034,10 +1034,11 @@ The `@pkb:claim_id` prefix is supported as a legacy alias alongside `@memory:` a
 - `POST /move_pair_as_doubt/<conversation_id>/<message_id>/<index>` — promote a user+assistant chat pair as a doubt on the preceding assistant message (see section 3)
 
 **Persistence**
-- `users.db` table: `DoubtsClearing` (columns: doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer, parent_doubt_id, is_root_doubt, show_hide, with_context, pinned, bookmarked, created_at, updated_at)
+- `users.db` table: `DoubtsClearing` (columns: doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer, parent_doubt_id, is_root_doubt, show_hide, with_context, pinned, bookmarked, created_at, updated_at, **display_attachments** JSON)
 - Conversation settings keys: `auto_doubt_categories` (list), model_overrides.`auto_doubt_model` (string)
 
 **Enhanced features (2026-06)**
+- **File attachments in doubt and temp LLM modals** — paperclip button + preview strip above textarea in both modals. Same upload infrastructure as main chat (`POST /upload_doc_to_conversation`). Images sent natively to the vision LLM (not via `#doc_N` tool calls). Text/data docs inlined directly in the prompt. Doubt attachments persisted in `display_attachments` column and re-rendered as badges when thread is reopened. Temp LLM attachments cleaned up on modal close via `DELETE /detach_doc_from_message`. New endpoint: `DELETE /detach_doc_from_message/<conv_id>/<doc_id>`.
 - **Pin/star** — pin important root doubts; pinned sort first in overview. Bookmark specific answers within threads.
 - **Regeneration** — ↻ button re-runs LLM and updates answer in-place (streamed).
 - **Thread summarization** — uses `senior_engineer_summary_prompt` on the Q&A thread, saves as child doubt.
@@ -1443,7 +1444,7 @@ The Chrome extension provides an AI assistant sidepanel integrated into the brow
 | **Voice Input** | MediaRecorder + `/transcribe` endpoint. Recording state UI indicator. |
 | **Workspace Sidebar** | jsTree-based hierarchical workspace tree matching main UI. Workspace folders with color indicators. Expand/collapse. Domain switching (assistant/search/finchat). "Browser Extension" workspace auto-created per domain. |
 | **Conversation Management** | "New Chat" (permanent) + "Quick Chat" (temporary) buttons. 8-item right-click context menu: Copy Reference, Open in New Window, Clone, Toggle Stateless, Set Flag (7 colors), Move to Workspace, Save, Delete. |
-| **File Attachments** | Drag-and-drop PDF/images anywhere on sidepanel. FastDocIndex upload (BM25, 1-3s). Preview thumbnails (images) and styled badges (PDFs) above input. Persistent rendering in sent messages. |
+| **File Attachments** | Drag-and-drop PDF/images anywhere on sidepanel. FastDocIndex upload (BM25, 1-3s). Preview thumbnails (images) and styled badges (PDFs) above input. Persistent rendering in sent messages. Also supported in Doubt and Temp LLM modals — images sent natively to vision LLM; text docs inlined in prompt; doubt attachments persisted in DB. |
 | **Document Management Panel** | Overlay panel with two collapsible sections: conversation docs + global docs. Upload, download, remove operations. Accessible via toolbar button. |
 | **PKB Claims Panel** | Read-only overlay panel with debounced text search, type/domain/status filter dropdowns, paginated "Load more". Color-coded claim type badges. |
 | **Attachment Context Menu** | Right-click on rendered message attachments: Download, Promote to Conversation Doc, Promote to Global Doc, Delete. |
