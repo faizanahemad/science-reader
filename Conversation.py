@@ -2212,6 +2212,169 @@ Compact list of bullet points:
         self.set_field("message_attached_documents_list", all_docs, overwrite=True)
         self.save_local()
 
+    def _inject_display_attachments(self, display_attachments, message_text):
+        """Inject #doc_N references for display_attachments entries into message_text.
+
+        Used by reply(), clear_doubt(), and any other method that needs to feed
+        file-attachment content into the LLM prompt.  Maps each attachment's
+        doc_id to its #doc_N index in the combined uploaded + message-attached
+        documents list, and appends missing references to message_text.
+
+        Parameters
+        ----------
+        display_attachments : list[dict] or None
+            Each entry has at least {doc_id}.
+        message_text : str
+            The user message text to augment.
+
+        Returns
+        -------
+        str
+            message_text with any missing #doc_N references appended.
+        """
+        if not display_attachments:
+            return message_text
+        try:
+            _uploaded_docs_list = self.get_field("uploaded_documents_list") or []
+            _msg_attached_docs_list = self.get_field("message_attached_documents_list") or []
+            _combined = _uploaded_docs_list + _msg_attached_docs_list
+            _docid_to_idx = {
+                doc_tuple[0]: idx + 1
+                for idx, doc_tuple in enumerate(_combined)
+            }
+            _refs_to_add = []
+            for _att in display_attachments:
+                _att_doc_id = _att.get("doc_id") if isinstance(_att, dict) else None
+                if _att_doc_id and _att_doc_id in _docid_to_idx:
+                    _ref = "#doc_{}".format(_docid_to_idx[_att_doc_id])
+                    if _ref not in message_text:
+                        _refs_to_add.append(_ref)
+            if _refs_to_add:
+                message_text = message_text + " " + " ".join(_refs_to_add)
+                logger.info(
+                    "[Conversation] [_inject_display_attachments] Injected doc refs: %s",
+                    _refs_to_add,
+                )
+        except Exception as _err:
+            logger.warning(
+                "[Conversation] [_inject_display_attachments] Failed to inject doc refs: %s",
+                _err,
+            )
+        return message_text
+
+    def _get_attached_doc_texts(self, display_attachments):
+        """Load full text from FastDocIndex entries referenced by display_attachments.
+
+        Used by temporary_llm_action() to inline document content directly into
+        the prompt (since temp LLM has no doc-reading pipeline).
+
+        Parameters
+        ----------
+        display_attachments : list[dict] or None
+            Each entry has at least {doc_id, name}.
+
+        Returns
+        -------
+        list[dict]
+            Each entry: {name: str, text: str}.  Entries whose doc_id is not
+            found or whose index has no text are silently skipped.
+        """
+        if not display_attachments:
+            return []
+        results = []
+        try:
+            msg_doc_list = self.get_field("message_attached_documents_list") or []
+            uploaded_doc_list = self.get_field("uploaded_documents_list") or []
+            combined = msg_doc_list + uploaded_doc_list
+            storage_by_docid = {entry[0]: entry[1] for entry in combined}
+            for att in display_attachments:
+                if not isinstance(att, dict):
+                    continue
+                doc_id = att.get("doc_id")
+                name = att.get("name", doc_id or "attachment")
+                if not doc_id or doc_id not in storage_by_docid:
+                    continue
+                try:
+                    doc_index = DocIndex.load_local(storage_by_docid[doc_id])
+                    if doc_index is None:
+                        continue
+                    # FastDocIndex stores full text in static_data; fall back to
+                    # BM25 chunks joined together for other index types.
+                    doc_text = None
+                    if hasattr(doc_index, "get_doc_data"):
+                        doc_text = doc_index.get_doc_data("static_data", "doc_text")
+                    if not doc_text and hasattr(doc_index, "_bm25_chunks") and doc_index._bm25_chunks:
+                        doc_text = "\n\n".join(doc_index._bm25_chunks)
+                    if doc_text:
+                        results.append({"name": name, "text": doc_text})
+                except Exception as _load_err:
+                    logger.warning(
+                        "[Conversation] [_get_attached_doc_texts] Could not load doc %s: %s",
+                        doc_id, _load_err,
+                    )
+        except Exception as _err:
+            logger.warning(
+                "[Conversation] [_get_attached_doc_texts] Error: %s", _err
+            )
+        return results
+
+    def _get_attached_doc_images(self, display_attachments):
+        """Return llm_image_source paths for image docs referenced in display_attachments.
+
+        Used by clear_doubt() (and any other flow that wants to send attached images
+        directly to the vision LLM rather than via the #doc_N BM25 pipeline).
+
+        Parameters
+        ----------
+        display_attachments : list[dict] or None
+            Each entry has at least {doc_id, name}.
+
+        Returns
+        -------
+        list[str]
+            llm_image_source values (file paths or data URLs) for every attachment
+            whose loaded DocIndex is a FastImageDocIndex or ImageDocIndex.
+            Non-image docs are silently skipped (they should be handled by
+            _get_attached_doc_texts instead).
+        """
+        if not display_attachments:
+            return []
+        image_sources = []
+        try:
+            from DocIndex import FastImageDocIndex, ImageDocIndex
+            msg_doc_list = self.get_field("message_attached_documents_list") or []
+            uploaded_doc_list = self.get_field("uploaded_documents_list") or []
+            combined = msg_doc_list + uploaded_doc_list
+            storage_by_docid = {entry[0]: entry[1] for entry in combined}
+            for att in display_attachments:
+                if not isinstance(att, dict):
+                    continue
+                doc_id = att.get("doc_id")
+                if not doc_id or doc_id not in storage_by_docid:
+                    continue
+                try:
+                    doc_index = DocIndex.load_local(storage_by_docid[doc_id])
+                    if doc_index is None:
+                        continue
+                    if isinstance(doc_index, (FastImageDocIndex, ImageDocIndex)):
+                        src = doc_index.llm_image_source
+                        if src:
+                            image_sources.append(src)
+                            logger.info(
+                                "[Conversation] [_get_attached_doc_images] Loaded image source for doc %s",
+                                doc_id,
+                            )
+                except Exception as _load_err:
+                    logger.warning(
+                        "[Conversation] [_get_attached_doc_images] Could not load doc %s: %s",
+                        doc_id, _load_err,
+                    )
+        except Exception as _err:
+            logger.warning(
+                "[Conversation] [_get_attached_doc_images] Error: %s", _err
+            )
+        return image_sources
+
     def promote_message_attached_document(self, doc_id, docs_folder=None):
         """Promote a message-attached doc to a full conversation document.
 
@@ -9641,42 +9804,13 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         # When a user drag-drops a file onto the message input, it gets uploaded as
         # a conversation document and the display_attachments payload carries its
         # doc_id. However the message text won't contain #doc_N references, so the
-        # existing document-reading pipeline would skip it. Here we map each
-        # display_attachment doc_id to its #doc_N index and append the reference to
-        # the message text so the LLM reads the document content in its reply.
+        # existing document-reading pipeline would skip it. We delegate to
+        # _inject_display_attachments() which is shared with clear_doubt().
         # We save the original text so the persisted user message stays clean.
         _user_text_before_da_injection = query["messageText"]
         _da_list = query.get("display_attachments") if isinstance(query, dict) else None
         if _da_list and not all_docs_referenced:
-            try:
-                _uploaded_docs_list = self.get_field("uploaded_documents_list") or []
-                _msg_attached_docs_list = (
-                    self.get_field("message_attached_documents_list") or []
-                )
-                _combined_docs_list = _uploaded_docs_list + _msg_attached_docs_list
-                _docid_to_idx = {
-                    doc_tuple[0]: idx + 1
-                    for idx, doc_tuple in enumerate(_combined_docs_list)
-                }
-                _existing_text = query["messageText"]
-                _refs_to_add = []
-                for _att in _da_list:
-                    _att_doc_id = _att.get("doc_id") if isinstance(_att, dict) else None
-                    if _att_doc_id and _att_doc_id in _docid_to_idx:
-                        _ref = "#doc_{}".format(_docid_to_idx[_att_doc_id])
-                        if _ref not in _existing_text:
-                            _refs_to_add.append(_ref)
-                if _refs_to_add:
-                    query["messageText"] = _existing_text + " " + " ".join(_refs_to_add)
-                    logger.info(
-                        "[Conversation] [reply] Injected doc refs from display_attachments: %s",
-                        _refs_to_add,
-                    )
-            except Exception as _da_err:
-                logger.warning(
-                    "[Conversation] [reply] Failed to inject display_attachment doc refs: %s",
-                    _da_err,
-                )
+            query["messageText"] = self._inject_display_attachments(_da_list, query["messageText"])
 
         prior_chat_summary_future = None
         if all_docs_referenced:
@@ -13614,7 +13748,8 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
     def clear_doubt(
         self, message_id, doubt_text="", doubt_history=None, reward_level=0,
-        selected_text="", with_context=False, preamble_options=None, tools_enabled=False
+        selected_text="", with_context=False, preamble_options=None, tools_enabled=False,
+        display_attachments=None
     ):
         """Clear a doubt about a specific message - streaming response"""
         from call_llm import CallLLm
@@ -13683,6 +13818,27 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             if selected_text and selected_text.strip():
                 selected_text_section = f"\n**Selected Text the user is asking about:** \"{selected_text.strip()}\"\n"
 
+            # Resolve any attached files: images go to the vision LLM as raw pixels;
+            # text/data docs are inlined into the prompt directly.  We do NOT use the
+            # #doc_N BM25 pipeline here because the doubt LLM has no document_lookup
+            # tool, and newly uploaded files only live in message_attached_documents_list
+            # which the document_lookup tool does not search.
+            _doubt_images = []
+            _original_doubt_text = (doubt_text or "").strip()
+            if display_attachments:
+                _doubt_images = self._get_attached_doc_images(display_attachments)
+                _attached_texts = self._get_attached_doc_texts(display_attachments)
+                if _attached_texts:
+                    _attachment_block = "\n\n".join(
+                        "--- Attached: {} ---\n{}".format(entry["name"], entry["text"])
+                        for entry in _attached_texts
+                    )
+                    doubt_text = (doubt_text or "") + "\n\n" + _attachment_block
+
+            # Build the display text: use user question (possibly with inlined text
+            # docs appended) or fall back to a generic explanation request.
+            _doubt_display = doubt_text if _original_doubt_text or _doubt_images or doubt_text.strip() else "Please explain this message in more detail. Take care to explain ambiguity and possible confusion that might be present to help the user understand better."
+
             doubt_prompt = f"""You are an AI assistant helping to clear doubts about a specific message in a conversation. 
 
 <prior_context>
@@ -13692,7 +13848,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 # User's Doubt/Question
 The user has a specific doubt or question about the message marked as **[TARGET MESSAGE]** above:
 {selected_text_section}
-**User's Doubt:** {doubt_text if doubt_text.strip() else "Please explain this message in more detail. Take care to explain ambiguity and possible confusion that might be present to help the user understand better."}
+**User's Doubt:** {_doubt_display}
 
 # Your Task
 Please provide a clear, comprehensive explanation that addresses the user's doubt. Consider:
@@ -13745,7 +13901,7 @@ Please provide your explanation or answer to the user's doubt in a clear, struct
                 for chunk_dict in self._run_tool_loop(
                     prompt=doubt_prompt,
                     preamble=system,
-                    images=[],
+                    images=_doubt_images,
                     model_name=doubt_model,
                     keys=api_keys,
                     tools_config=tools_config,
@@ -13788,7 +13944,7 @@ Please provide your explanation or answer to the user's doubt in a clear, struct
                 )
                 response_stream = llm(
                     doubt_prompt,
-                    images=[],
+                    images=_doubt_images,
                     temperature=0.3,
                     stream=True,
                     max_tokens=2000,
@@ -13828,6 +13984,7 @@ Please provide your explanation or answer to the user's doubt in a clear, struct
         message_id=None,
         history=None,
         with_context=False,
+        display_attachments=None,
         **kwargs,
     ):
         """
@@ -14054,6 +14211,22 @@ Your summary:""",
 {selected_text}"""
             else:
                 prompt = prompts.get(action_type, prompts["explain"])
+
+            # Inline any attached document texts directly into the prompt.
+            # Temp LLM actions have no document-reading pipeline, so we append
+            # the full extracted text of each attachment as labelled sections.
+            if display_attachments:
+                attached_texts = self._get_attached_doc_texts(display_attachments)
+                if attached_texts:
+                    attachment_block = "\n\n".join(
+                        "--- Attached: {} ---\n{}".format(entry["name"], entry["text"])
+                        for entry in attached_texts
+                    )
+                    prompt = prompt + "\n\n" + attachment_block
+                    logger.info(
+                        "[Conversation] [temporary_llm_action] Inlined %d attached doc(s) into prompt",
+                        len(attached_texts),
+                    )
 
             # Initialize LLM
             api_keys = self.get_api_keys()

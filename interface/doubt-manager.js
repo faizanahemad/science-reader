@@ -14,6 +14,8 @@ const DoubtManager = {
     currentDoubtHistory: [],
     withContext: false,
     selectedText: '',
+    // Attachment context for the doubt modal — list is reset on each modal open
+    attachmentContext: null,
     
     /**
      * Show doubts overview modal for a specific message
@@ -332,6 +334,39 @@ const DoubtManager = {
         const messagesContainer = $('#doubt-chat-messages');
         const input = $('#doubt-chat-input');
         
+        // Reset attachment context for this modal session
+        this.attachmentContext = { list: [], container: $('#doubt-attachment-preview') };
+        clearAttachmentPreviews(this.attachmentContext);
+
+        // Wire file-upload input (use .off to avoid duplicate handlers)
+        const self = this;
+        $('#doubt-file-upload').off('change.doubtAttach').on('change.doubtAttach', function() {
+            const files = this.files;
+            const convId = self.currentConversationId;
+            for (let i = 0; i < files.length; i++) {
+                uploadFileToConversation(files[i], convId, self.attachmentContext);
+            }
+            // Reset so the same file can be re-selected
+            this.value = '';
+        });
+
+        // Clean up any unsent attachments when the modal is dismissed
+        $('#doubt-chat-modal').off('hidden.bs.modal.doubtAttach').on('hidden.bs.modal.doubtAttach', function() {
+            if (self.attachmentContext && self.attachmentContext.list) {
+                var pendingList = self.attachmentContext.list.slice();
+                var convId = self.currentConversationId;
+                pendingList.forEach(function(att) {
+                    if (att.doc_id && convId) {
+                        $.ajax({
+                            url: '/detach_doc_from_message/' + convId + '/' + att.doc_id,
+                            type: 'DELETE'
+                        });
+                    }
+                });
+                clearAttachmentPreviews(self.attachmentContext);
+            }
+        });
+
         // Clear and show modal
         messagesContainer.empty();
         input.val('');
@@ -430,8 +465,8 @@ const DoubtManager = {
         messagesContainer.empty();
         
         history.forEach(doubt => {
-            // Add user doubt message
-            const userCard = this.createDoubtChatCard(doubt.doubt_text, 'user', doubt.doubt_id);
+            // Add user doubt message — pass display_attachments so badges render on reload
+            const userCard = this.createDoubtChatCard(doubt.doubt_text, 'user', doubt.doubt_id, null, doubt.display_attachments || []);
             messagesContainer.append(userCard);
             
             // Add assistant answer message
@@ -525,7 +560,7 @@ const DoubtManager = {
     /**
      * Create a chat card for doubt conversation
      */
-    createDoubtChatCard: function(text, sender, doubtId, showHide) {
+     createDoubtChatCard: function(text, sender, doubtId, showHide, displayAttachments) {
         text = text || '';
         const isUser = sender === 'user';
         const senderClass = isUser ? 'user-doubt' : 'assistant-doubt';
@@ -607,6 +642,13 @@ const DoubtManager = {
         // Stash the raw text so the copy button preserves the original markdown /
         // plain text rather than the rendered HTML.
         card.data('rawText', text || '');
+
+        // Render attachment badges on user cards (shown on reload or when reloading a thread)
+        if (isUser && displayAttachments && displayAttachments.length > 0) {
+            if (typeof renderDisplayAttachmentBadges === 'function') {
+                renderDisplayAttachmentBadges(displayAttachments, card.find('.card-body'), DoubtManager.currentConversationId);
+            }
+        }
         
         // Trigger MathJax typesetting for assistant cards
         if (!isUser) {
@@ -1013,9 +1055,10 @@ const DoubtManager = {
     sendDoubt: function() {
         const input = $('#doubt-chat-input');
         const doubtText = input.val().trim();
+        const hasPendingAttachments = this.attachmentContext && this.attachmentContext.list && this.attachmentContext.list.length > 0;
         
-        if (!doubtText) {
-            showToast('Please enter your doubt', 'warning');
+        if (!doubtText && !hasPendingAttachments) {
+            showToast('Please enter your doubt or attach a file', 'warning');
             return;
         }
         
@@ -1023,8 +1066,12 @@ const DoubtManager = {
         input.prop('disabled', true);
         $('#doubt-chat-send-btn').prop('disabled', true);
         
+        // Capture pending attachments before the user card is created so we
+        // can render badges on it immediately (not just on page reload)
+        const pendingDisplayAtts = getDisplayAttachmentsPayload(this.attachmentContext) || [];
+
         // Add user message to chat immediately
-        const userCard = this.createDoubtChatCard(doubtText, 'user', null);
+        const userCard = this.createDoubtChatCard(doubtText, 'user', null, null, pendingDisplayAtts);
         $('#doubt-chat-messages').append(userCard);
         
         // Disable the delete button on the user card until we get the doubt_id
@@ -1081,6 +1128,18 @@ const DoubtManager = {
             preamble_options: this.getActiveDoubtPreambleOptions(),
             tools_enabled: $('#doubt-tools-toggle-btn').hasClass('active')
         };
+
+        // Include any pending file attachments and clear the preview strip
+        const displayAtts = getDisplayAttachmentsPayload(this.attachmentContext);
+        if (displayAtts) {
+            requestBody.display_attachments = displayAtts;
+        }
+        // Clear the preview immediately after capturing — attachments are now "sent"
+        // so they should NOT be cleaned up on modal close (they belong to the saved doubt)
+        if (this.attachmentContext) {
+            this.attachmentContext.list = [];
+            renderAttachmentPreviews(this.attachmentContext);
+        }
         
         if (parentDoubtId) {
             requestBody.parent_doubt_id = parentDoubtId;

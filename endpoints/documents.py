@@ -135,6 +135,48 @@ def attach_doc_to_message_route(conversation_id: str):
 
     return json_error("No pdf_file provided", status=400, code="bad_request")
 
+
+@documents_bp.route(
+    "/detach_doc_from_message/<conversation_id>/<doc_id>",
+    methods=["DELETE"],
+)
+@limiter.limit("100 per minute")
+@login_required
+def detach_doc_from_message_route(conversation_id: str, doc_id: str):
+    """Remove a message-attached FastDocIndex from message_attached_documents_list.
+
+    Used by the doubt and temp-LLM modals to clean up uploaded files that are
+    no longer needed (e.g. when the temp-LLM modal closes).
+
+    Returns
+    -------
+    JSON
+        ``{"status": "ok"}`` on success.
+    """
+    state, keys = get_state_and_keys()
+
+    try:
+        conversation = attach_keys(state.conversation_cache[conversation_id], keys)
+    except KeyError:
+        return json_error("Conversation not found", status=404, code="not_found")
+
+    # Check that the doc actually exists before removing it
+    msg_docs = conversation.get_field("message_attached_documents_list") or []
+    if not any(entry[0] == doc_id for entry in msg_docs):
+        return json_error(
+            "Document not found in message attachments",
+            status=400,
+            code="not_found",
+        )
+
+    try:
+        conversation.delete_message_attached_document(doc_id)
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        traceback.print_exc()
+        return json_error(str(e), status=400, code="bad_request")
+
+
 @documents_bp.route(
     "/promote_message_doc/<conversation_id>/<document_id>",
     methods=["POST"],

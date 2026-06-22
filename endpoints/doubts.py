@@ -74,6 +74,9 @@ def clear_doubt_route(conversation_id: str, message_id: str):
     tools_enabled = bool(
         request.json.get("tools_enabled", False) if request.is_json and request.json else False
     )
+    display_attachments = (
+        request.json.get("display_attachments", []) if request.is_json and request.json else []
+    ) or []
 
     try:
         if not checkConversationExists(
@@ -125,7 +128,8 @@ def clear_doubt_route(conversation_id: str, message_id: str):
                 doubt_generator = conversation.clear_doubt(
                     message_id, doubt_text, doubt_history, reward_level,
                     selected_text=selected_text, with_context=with_context,
-                    preamble_options=preamble_options, tools_enabled=tools_enabled
+                    preamble_options=preamble_options, tools_enabled=tools_enabled,
+                    display_attachments=display_attachments,
                 )
 
                 accumulated_text = ""
@@ -164,6 +168,7 @@ def clear_doubt_route(conversation_id: str, message_id: str):
                                 doubt_answer=accumulated_doubt_answer,
                                 parent_doubt_id=parent_doubt_id,
                                 with_context=with_context,
+                                display_attachments=display_attachments,
                                 users_dir=state.users_dir,
                                 logger=logger,
                             )
@@ -245,6 +250,7 @@ def temporary_llm_action_route():
         preamble_options = data.get("preamble_options", []) or []
         length = data.get("length", "Medium")
         tools_enabled = bool(data.get("tools_enabled", False))
+        display_attachments = data.get("display_attachments", []) or []
 
         logger.info(
             f"Temporary LLM action: {action_type} for user {email}, with_context: {with_context}"
@@ -286,6 +292,7 @@ def temporary_llm_action_route():
                         message_id=message_id,
                         history=history,
                         with_context=with_context,
+                        display_attachments=display_attachments,
                         preamble_name=preamble_name,
                         preamble_options=preamble_options,
                         length=length,

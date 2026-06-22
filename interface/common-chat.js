@@ -48,7 +48,9 @@ function generateThumbnailForMainUI(dataUrl, maxSize) {
     });
 }
 
-function addFileToAttachmentPreview(file) {
+function addFileToAttachmentPreview(file, ctx) {
+    // ctx (optional): { list: [], container: jQuery } — if omitted, uses globals
+    var list = (ctx && ctx.list) ? ctx.list : pendingAttachments;
     var isImage = file.type && file.type.startsWith('image/');
     var attId = Date.now() + '-' + Math.random().toString(16).slice(2);
 
@@ -56,7 +58,7 @@ function addFileToAttachmentPreview(file) {
         var reader = new FileReader();
         reader.onload = function() {
             generateThumbnailForMainUI(reader.result).then(function(thumbnail) {
-                pendingAttachments.push({
+                list.push({
                     id: attId,
                     name: file.name,
                     type: 'image',
@@ -64,12 +66,12 @@ function addFileToAttachmentPreview(file) {
                     doc_id: null,
                     source: null
                 });
-                renderAttachmentPreviews();
+                renderAttachmentPreviews(ctx);
             });
         };
         reader.readAsDataURL(file);
     } else {
-        pendingAttachments.push({
+        list.push({
             id: attId,
             name: file.name,
             type: 'file',
@@ -77,30 +79,32 @@ function addFileToAttachmentPreview(file) {
             doc_id: null,
             source: null
         });
-        renderAttachmentPreviews();
+        renderAttachmentPreviews(ctx);
     }
     return attId;
 }
 
-function enrichAttachmentWithDocInfo(attId, docId, source, title) {
-    for (var i = 0; i < pendingAttachments.length; i++) {
-        if (pendingAttachments[i].id === attId) {
-            pendingAttachments[i].doc_id = docId;
-            pendingAttachments[i].source = source;
-            if (title) pendingAttachments[i].name = title;
+function enrichAttachmentWithDocInfo(attId, docId, source, title, ctx) {
+    var list = (ctx && ctx.list) ? ctx.list : pendingAttachments;
+    for (var i = 0; i < list.length; i++) {
+        if (list[i].id === attId) {
+            list[i].doc_id = docId;
+            list[i].source = source;
+            if (title) list[i].name = title;
             break;
         }
     }
 }
 
-function renderAttachmentPreviews() {
-    var container = $('#attachment-preview');
-    if (pendingAttachments.length === 0) {
+function renderAttachmentPreviews(ctx) {
+    var list = (ctx && ctx.list) ? ctx.list : pendingAttachments;
+    var container = (ctx && ctx.container) ? ctx.container : $('#attachment-preview');
+    if (list.length === 0) {
         container.hide().empty();
         return;
     }
     container.show();
-    var html = pendingAttachments.map(function(att) {
+    var html = list.map(function(att) {
         if (att.type === 'image' && att.thumbnail) {
             return '<div class="att-preview" data-id="' + att.id + '">' +
                 '<img src="' + att.thumbnail + '" alt="' + (att.name || 'Image') + '">' +
@@ -116,21 +120,107 @@ function renderAttachmentPreviews() {
 
     container.find('.att-remove-btn').off('click').on('click', function() {
         var id = $(this).closest('.att-preview').data('id');
-        pendingAttachments = pendingAttachments.filter(function(a) { return a.id !== String(id); });
-        renderAttachmentPreviews();
+        if (ctx && ctx.list) {
+            ctx.list = ctx.list.filter(function(a) { return a.id !== String(id); });
+        } else {
+            pendingAttachments = pendingAttachments.filter(function(a) { return a.id !== String(id); });
+        }
+        renderAttachmentPreviews(ctx);
     });
 }
 
-function clearAttachmentPreviews() {
-    pendingAttachments = [];
-    renderAttachmentPreviews();
+function clearAttachmentPreviews(ctx) {
+    if (ctx && ctx.list) {
+        ctx.list.length = 0;  // mutate in place so callers holding a reference see the reset
+    } else {
+        pendingAttachments = [];
+    }
+    renderAttachmentPreviews(ctx);
 }
 
-function getDisplayAttachmentsPayload() {
-    if (pendingAttachments.length === 0) return null;
-    return pendingAttachments.map(function(a) {
+function getDisplayAttachmentsPayload(ctx) {
+    var list = (ctx && ctx.list) ? ctx.list : pendingAttachments;
+    if (list.length === 0) return null;
+    return list.map(function(a) {
         return { type: a.type, name: a.name, thumbnail: a.thumbnail, doc_id: a.doc_id || null, source: a.source || null };
     });
+}
+
+/**
+ * Upload a single file to /attach_doc_to_message and add it to the attachment
+ * preview strip.  Works for both the main chat (no ctx) and the doubt / temp-LLM
+ * modals (pass ctx = { list, container }).
+ *
+ * @param {File} file
+ * @param {string} conversationId
+ * @param {Object|null} ctx  Optional context: { list: [], container: jQuery }
+ */
+function uploadFileToConversation(file, conversationId, ctx) {
+    if (!conversationId) {
+        showToast('No active conversation — cannot attach file.', 'warning');
+        return;
+    }
+    var attId = addFileToAttachmentPreview(file, ctx);
+
+    var formData = new FormData();
+    formData.append('pdf_file', file);
+
+    $.ajax({
+        url: '/attach_doc_to_message/' + conversationId,
+        type: 'POST',
+        data: formData,
+        processData: false,
+        contentType: false,
+        success: function(resp) {
+            if (resp && resp.doc_id) {
+                enrichAttachmentWithDocInfo(attId, resp.doc_id, resp.source || null, resp.title || null, ctx);
+                renderAttachmentPreviews(ctx);
+            }
+        },
+        error: function(xhr) {
+            var msg = 'Failed to attach file.';
+            try { msg = JSON.parse(xhr.responseText).error || msg; } catch(e) {}
+            showToast(msg, 'danger');
+            // Remove the failed entry from the preview
+            if (ctx && ctx.list) {
+                ctx.list = ctx.list.filter(function(a) { return a.id !== attId; });
+            } else {
+                pendingAttachments = pendingAttachments.filter(function(a) { return a.id !== attId; });
+            }
+            renderAttachmentPreviews(ctx);
+        }
+    });
+}
+
+/**
+ * Render attachment thumbnails/badges from a display_attachments array into a
+ * jQuery container.  Used to show attachments on loaded doubt cards and message
+ * cards after reload.
+ *
+ * @param {Array} displayAttachments  Array of {type, name, thumbnail, doc_id, source}
+ * @param {jQuery} $container  Where to append the rendered elements
+ * @param {string} conversationId  For context-menu actions
+ */
+function renderDisplayAttachmentBadges(displayAttachments, $container, conversationId) {
+    if (!displayAttachments || displayAttachments.length === 0) return;
+    var $wrap = $('<div class="message-attachments"></div>');
+    displayAttachments.forEach(function(att) {
+        var $el;
+        if (att.type === 'image' && att.thumbnail) {
+            $el = $('<img class="msg-att-thumb">').attr('src', att.thumbnail).attr('alt', att.name || 'Image').attr('title', att.name || 'Image');
+        } else {
+            var isPdf = (att.name || '').toLowerCase().endsWith('.pdf');
+            var iconClass = isPdf ? 'fa fa-file-pdf-o' : 'fa fa-file-o';
+            $el = $('<span class="msg-att-badge"><i class="' + iconClass + '"></i> ' + (att.name || 'File') + '</span>');
+        }
+        $el.addClass('msg-att-clickable');
+        $el.on('click', function(e) {
+            e.stopPropagation();
+            showAttachmentContextMenu(e, att, conversationId);
+        });
+        $wrap.append($el);
+    });
+    $container.append($wrap);
 }
 
 function showAttachmentContextMenu(event, att, conversationId) {

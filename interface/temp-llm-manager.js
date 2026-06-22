@@ -20,6 +20,8 @@ const TempLLMManager = {
     isStreaming: false,
     currentStreamingController: null,
     withContext: false,  // Whether to include conversation context from backend
+    // Attachment context for the temp-LLM modal — reset on each openModal call
+    attachmentContext: null,
     
     // Action type titles for the modal
     ACTION_TITLES: {
@@ -93,6 +95,21 @@ const TempLLMManager = {
         const modalTitle = $('#temp-llm-modal-title');
         const input = $('#temp-llm-input');
         
+        // Reset attachment context for this modal session
+        this.attachmentContext = { list: [], container: $('#temp-llm-attachment-preview') };
+        clearAttachmentPreviews(this.attachmentContext);
+
+        // Wire file-upload input (use .off to avoid duplicate handlers)
+        const self = this;
+        $('#temp-llm-file-upload').off('change.tempAttach').on('change.tempAttach', function() {
+            const files = this.files;
+            const convId = self.currentMessageContext && self.currentMessageContext.conversationId;
+            for (let i = 0; i < files.length; i++) {
+                uploadFileToConversation(files[i], convId, self.attachmentContext);
+            }
+            this.value = '';
+        });
+
         // Clear previous content
         messagesContainer.empty();
         input.val('');
@@ -113,7 +130,7 @@ const TempLLMManager = {
         // Show modal
         modal.modal('show');
         
-        // Set up event handlers
+        // Set up event handlers (this also wires the modal-close cleanup)
         this.setupEventHandlers();
         
         // Initialize voice transcription if available
@@ -152,12 +169,34 @@ const TempLLMManager = {
             self.cancelStreaming();
         });
         
-        // Modal close - clear state
+        // Modal close - clear state and clean up all attachments
         $('#temp-llm-modal').off('hidden.bs.modal').on('hidden.bs.modal', function() {
             self.cancelStreaming();
             self.currentHistory = [];
             self.currentSelection = '';
+            // Note: capture convId before clearing currentMessageContext
+            var convId = self.currentMessageContext && self.currentMessageContext.conversationId;
             self.currentMessageContext = null;
+            // Clean up all uploaded docs — temp LLM results are never saved so
+            // uploaded files serve no purpose once the modal closes
+            if (self.attachmentContext) {
+                // Pending (unsent) attachments
+                var pendingList = (self.attachmentContext.list || []).slice();
+                pendingList.forEach(function(att) {
+                    if (att.doc_id && convId) {
+                        $.ajax({ url: '/detach_doc_from_message/' + convId + '/' + att.doc_id, type: 'DELETE' });
+                    }
+                });
+                // Sent attachments (already gone from list, tracked separately)
+                var sentIds = self.attachmentContext._sentDocIds || [];
+                sentIds.forEach(function(docId) {
+                    if (convId) {
+                        $.ajax({ url: '/detach_doc_from_message/' + convId + '/' + docId, type: 'DELETE' });
+                    }
+                });
+                clearAttachmentPreviews(self.attachmentContext);
+                self.attachmentContext._sentDocIds = [];
+            }
         });
 
         // Copy a card's text (user prompt or assistant answer).
@@ -336,9 +375,10 @@ const TempLLMManager = {
     sendMessage: function() {
         const input = $('#temp-llm-input');
         const userMessage = input.val().trim();
+        const hasPendingAttachments = this.attachmentContext && this.attachmentContext.list && this.attachmentContext.list.length > 0;
         
-        if (!userMessage && this.currentActionType === 'ask_temp') {
-            this.showToast('Please enter a message', 'warning');
+        if (!userMessage && this.currentActionType === 'ask_temp' && !hasPendingAttachments) {
+            this.showToast('Please enter a message or attach a file', 'warning');
             return;
         }
         
@@ -481,6 +521,27 @@ const TempLLMManager = {
             length: this.getSelectedLength(),
             tools_enabled: $('#temp-llm-tools-toggle-btn').hasClass('active')
         };
+
+        // Include any pending file attachments, then clear the preview.
+        // Sent doc_ids are tracked so the modal-close handler can delete them.
+        const displayAtts = getDisplayAttachmentsPayload(this.attachmentContext);
+        if (displayAtts) {
+            requestBody.display_attachments = displayAtts;
+            // Track sent doc IDs so modal-close cleanup can remove them
+            if (this.attachmentContext) {
+                if (!this.attachmentContext._sentDocIds) {
+                    this.attachmentContext._sentDocIds = [];
+                }
+                displayAtts.forEach(function(a) {
+                    if (a.doc_id) self.attachmentContext._sentDocIds.push(a.doc_id);
+                });
+            }
+        }
+        // Clear preview immediately after capturing
+        if (this.attachmentContext) {
+            this.attachmentContext.list = [];
+            renderAttachmentPreviews(this.attachmentContext);
+        }
         
         // Make the streaming request
         fetch('/temporary_llm_action', {

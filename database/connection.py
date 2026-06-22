@@ -305,6 +305,14 @@ def create_tables(*, users_dir: str, logger: Optional[logging.Logger] = None) ->
     except Exception:
         pass
 
+    # Add display_attachments column if it doesn't exist (stores JSON list of file attachments
+    # so attachment badges re-render on page reload, consistent with normal messages).
+    try:
+        cur.execute("ALTER TABLE DoubtsClearing ADD COLUMN display_attachments text DEFAULT NULL")
+        log.info("Added display_attachments column to DoubtsClearing table")
+    except Exception:
+        pass
+
     # create indexes for DoubtsClearing table
     cur.execute(
         "CREATE INDEX IF NOT EXISTS idx_DoubtsClearing_conversation_id ON DoubtsClearing (conversation_id)"

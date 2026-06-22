@@ -12,6 +12,7 @@ handlers.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 from datetime import datetime
 from typing import Optional
@@ -55,6 +56,7 @@ def add_doubt(
     doubt_answer: str,
     parent_doubt_id: str | None = None,
     with_context: bool = False,
+    display_attachments: list | None = None,
     users_dir: str | None = None,
     logger: logging.Logger | None = None,
 ) -> str:
@@ -80,14 +82,18 @@ def add_doubt(
 
         is_root_doubt = parent_doubt_id is None
 
+        display_attachments_json = (
+            json.dumps(display_attachments) if display_attachments else None
+        )
+
         cur.execute(
             """
             INSERT INTO DoubtsClearing
             (doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer,
-             parent_doubt_id, is_root_doubt, with_context, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             parent_doubt_id, is_root_doubt, with_context, display_attachments, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer, parent_doubt_id, is_root_doubt, with_context, now, now),
+            (doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer, parent_doubt_id, is_root_doubt, with_context, display_attachments_json, now, now),
         )
 
         if parent_doubt_id:
@@ -244,7 +250,7 @@ def get_doubt(*, doubt_id: str, users_dir: str | None = None, logger: logging.Lo
             """
             SELECT doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer,
                    parent_doubt_id, is_root_doubt, created_at, updated_at, show_hide, with_context,
-                   pinned, bookmarked
+                   pinned, bookmarked, display_attachments
             FROM DoubtsClearing
             WHERE doubt_id = ?
             """,
@@ -267,6 +273,7 @@ def get_doubt(*, doubt_id: str, users_dir: str | None = None, logger: logging.Lo
                 "with_context": bool(row[11]),
                 "pinned": bool(row[12]),
                 "bookmarked": bool(row[13]),
+                "display_attachments": json.loads(row[14]) if row[14] else [],
             }
         return None
     except Exception as e:
@@ -289,7 +296,7 @@ def get_doubt_children(*, doubt_id: str, users_dir: str | None = None, logger: l
             """
             SELECT doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer,
                    parent_doubt_id, is_root_doubt, created_at, updated_at, show_hide, with_context,
-                   pinned, bookmarked
+                   pinned, bookmarked, display_attachments
             FROM DoubtsClearing
             WHERE parent_doubt_id = ?
             ORDER BY created_at ASC
@@ -313,6 +320,7 @@ def get_doubt_children(*, doubt_id: str, users_dir: str | None = None, logger: l
                 "with_context": bool(row[11]),
                 "pinned": bool(row[12]),
                 "bookmarked": bool(row[13]),
+                "display_attachments": json.loads(row[14]) if row[14] else [],
             }
             for row in rows
         ]
@@ -371,7 +379,7 @@ def get_doubts_for_message(
                 """
                 SELECT doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer,
                        parent_doubt_id, is_root_doubt, created_at, updated_at, show_hide, with_context,
-                       pinned, bookmarked
+                       pinned, bookmarked, display_attachments
                 FROM DoubtsClearing
                 WHERE conversation_id = ? AND message_id = ? AND user_email = ? AND is_root_doubt = 1
                 ORDER BY pinned DESC, created_at DESC
@@ -383,7 +391,7 @@ def get_doubts_for_message(
                 """
                 SELECT doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer,
                        parent_doubt_id, is_root_doubt, created_at, updated_at, show_hide, with_context,
-                       pinned, bookmarked
+                       pinned, bookmarked, display_attachments
                 FROM DoubtsClearing
                 WHERE conversation_id = ? AND message_id = ? AND is_root_doubt = 1
                 ORDER BY pinned DESC, created_at DESC
@@ -408,6 +416,7 @@ def get_doubts_for_message(
                 "with_context": bool(row[11]),
                 "pinned": bool(row[12]),
                 "bookmarked": bool(row[13]),
+                "display_attachments": json.loads(row[14]) if row[14] else [],
             }
             for row in rows
         ]
@@ -441,7 +450,7 @@ def get_doubt_history(*, doubt_id: str, users_dir: str | None = None, logger: lo
                 """
                 SELECT doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer,
                        parent_doubt_id, is_root_doubt, created_at, updated_at, show_hide, with_context,
-                       pinned, bookmarked
+                       pinned, bookmarked, display_attachments
                 FROM DoubtsClearing
                 WHERE doubt_id = ?
                 """,
@@ -467,6 +476,7 @@ def get_doubt_history(*, doubt_id: str, users_dir: str | None = None, logger: lo
                     "with_context": bool(row[11]),
                     "pinned": bool(row[12]),
                     "bookmarked": bool(row[13]),
+                    "display_attachments": json.loads(row[14]) if row[14] else [],
                 }
             )
             current_doubt_id = row[6]
@@ -613,7 +623,7 @@ def get_all_doubts_for_user(
         cur.execute(
             f"""SELECT doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer,
                        parent_doubt_id, is_root_doubt, created_at, updated_at, show_hide, with_context,
-                       pinned, bookmarked
+                       pinned, bookmarked, display_attachments
                 FROM DoubtsClearing WHERE {where}
                 ORDER BY pinned DESC, created_at DESC
                 LIMIT ? OFFSET ?""",
@@ -629,6 +639,7 @@ def get_all_doubts_for_user(
                 "created_at": r[8], "updated_at": r[9],
                 "show_hide": r[10] or "show", "with_context": bool(r[11]),
                 "pinned": bool(r[12]), "bookmarked": bool(r[13]),
+                "display_attachments": json.loads(r[14]) if r[14] else [],
             }
             for r in rows
         ]
