@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import json
 import os
 import re
 import subprocess
@@ -25,20 +27,32 @@ def transcribe_audio(
     use_openai: Optional[bool] = None,
     openai_api_key: Optional[str] = None,
     assemblyai_api_key: Optional[str] = None,
+    openrouter_api_key: Optional[str] = None,
     paragraph_gap_seconds: float = 2.0,
 ) -> str:
     """Transcribe the provided audio input and return plain-text paragraphs.
+
+    Provider selection order:
+    1. OpenRouter (``openai/whisper-large-v3-turbo``) — used when an
+       ``OPENROUTER_API_KEY`` is available (explicit arg or env var).
+    2. OpenAI Whisper (``whisper-1``) — used when ``use_openai`` is True
+       and no OpenRouter key is present.
+    3. AssemblyAI — fallback when neither of the above applies.
 
     Args:
         audio_source: Either a path to a local audio file or a file-like object
             such as the `FileStorage` object returned by Flask's
             `request.files`.
-        use_openai: Flag to force OpenAI transcription. Defaults to the global
-            configuration (`USE_OPENAI_API`) when not supplied.
+        use_openai: Flag to force OpenAI transcription (skipping OpenRouter).
+            Defaults to the global configuration (`USE_OPENAI_API`) when not
+            supplied. Ignored when an OpenRouter key is available.
         openai_api_key: Optional override for the OpenAI API key. When omitted,
             the function looks for `openAIKey` in the environment.
         assemblyai_api_key: Optional override for the AssemblyAI API key. When
             omitted, the function looks for `ASSEMBLYAI_API_KEY` in the
+            environment.
+        openrouter_api_key: Optional override for the OpenRouter API key. When
+            omitted, the function looks for `OPENROUTER_API_KEY` in the
             environment.
         paragraph_gap_seconds: Minimum time gap that triggers a paragraph break
             when parsing SRT responses from OpenAI.
@@ -53,8 +67,23 @@ def transcribe_audio(
     """
     use_openai = USE_OPENAI_API if use_openai is None else use_openai
     audio_path, should_cleanup = _normalize_audio_input(audio_source)
-    prepared_audio_path, conversion_cleanup = _prepare_audio_for_transcription(audio_path)
 
+    resolved_openrouter_key = openrouter_api_key or os.environ.get("OPENROUTER_API_KEY")
+
+    if resolved_openrouter_key:
+        # OpenRouter accepts the raw audio directly (webm, mp3, wav, etc.) — no
+        # ffmpeg conversion required.
+        try:
+            return _transcribe_with_openrouter(
+                audio_path,
+                openrouter_api_key=resolved_openrouter_key,
+            )
+        finally:
+            if should_cleanup and os.path.exists(audio_path):
+                os.unlink(audio_path)
+
+    # OpenAI / AssemblyAI paths need format conversion for webm/ogg/mp4.
+    prepared_audio_path, conversion_cleanup = _prepare_audio_for_transcription(audio_path)
     try:
         if use_openai:
             return _transcribe_with_openai(
@@ -218,6 +247,66 @@ def _transcribe_with_assemblyai(
         raise RuntimeError(f"Transcription failed: {transcript.error}")
 
     return (transcript.text or "").strip()
+
+
+def _transcribe_with_openrouter(
+    file_path: str,
+    openrouter_api_key: Optional[str],
+) -> str:
+    """Transcribe audio using OpenRouter's Whisper endpoint.
+
+    Uses the ``openai/whisper-large-v3-turbo`` model via
+    ``https://openrouter.ai/api/v1/audio/transcriptions``.
+    The audio file is base64-encoded and sent as JSON.
+
+    Args:
+        file_path: Path to the audio file to transcribe (MP3 preferred).
+        openrouter_api_key: OpenRouter API key. Falls back to the
+            ``OPENROUTER_API_KEY`` environment variable when ``None``.
+
+    Returns:
+        Transcribed text string.
+
+    Raises:
+        RuntimeError: When the API key is missing or the request fails.
+    """
+    import requests  # Imported lazily to keep optional dependency optional
+
+    api_key = openrouter_api_key or os.environ.get("OPENROUTER_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "OpenRouter API key is missing. Set the OPENROUTER_API_KEY environment variable."
+        )
+
+    extension = Path(file_path).suffix.lstrip(".").lower() or "mp3"
+    with open(file_path, "rb") as audio_file:
+        base64_audio = base64.b64encode(audio_file.read()).decode("utf-8")
+
+    payload = {
+        "model": "openai/whisper-large-v3-turbo",
+        "input_audio": {
+            "data": base64_audio,
+            "format": extension,
+        },
+    }
+
+    response = requests.post(
+        url="https://openrouter.ai/api/v1/audio/transcriptions",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        data=json.dumps(payload),
+        timeout=120,
+    )
+
+    if not response.ok:
+        raise RuntimeError(
+            f"OpenRouter transcription failed ({response.status_code}): {response.text}"
+        )
+
+    result = response.json()
+    return (result.get("text") or "").strip()
 
 
 def _srt_to_paragraphs(srt_text: str, paragraph_gap_seconds: float) -> str:

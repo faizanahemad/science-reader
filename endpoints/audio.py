@@ -83,7 +83,9 @@ def transcribe_audio_route():
         return json_error("No selected file", status=400, code="bad_request")
 
     try:
-        transcription = run_transcribe_audio(audio_file)
+        _state, keys = get_state_and_keys()
+        openrouter_api_key = keys.get("OPENROUTER_API_KEY") if keys else None
+        transcription = run_transcribe_audio(audio_file, openrouter_api_key=openrouter_api_key)
         return jsonify({"transcription": transcription})
     except Exception as e:
         traceback.print_exc()
