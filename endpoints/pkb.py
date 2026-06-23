@@ -2636,6 +2636,19 @@ def pkb_execute_updates_route():
 
         del _memory_update_plans[plan_id]
 
+        # Update extraction preference profile for accepted items — run in a
+        # background daemon thread so LLM calls don't block the HTTP response.
+        _accepted_stmts = [r["statement"] for r in results if r["success"] and r.get("statement")]
+        if _accepted_stmts:
+            import threading as _threading
+            def _update_profile_accepted(_api=api, _stmts=_accepted_stmts):
+                for _stmt in _stmts:
+                    try:
+                        _api.update_extraction_profile(accepted_statement=_stmt)
+                    except Exception:
+                        pass
+            _threading.Thread(target=_update_profile_accepted, daemon=True).start()
+
         # Record non-approved candidates as rejections (feeds rejection cache)
         # Only consider candidates that were presented to the user (have a ProposedAction).
         # Silently-reinforced duplicates must NOT be recorded as rejections.
@@ -2647,6 +2660,7 @@ def pkb_execute_updates_route():
             from truth_management_system.utils import now_iso as _now_rej
             conn = api.db.connect()
             _ts = _now_rej()
+            rejected_stmts = []
             for idx, candidate in enumerate(plan.candidates):
                 if idx not in approved_idx_set and candidate.statement in pa_statements:
                     conn.execute(
@@ -2660,7 +2674,18 @@ def pkb_execute_updates_route():
                          _json_rej.dumps({"statement": candidate.statement}),
                          "reject", _ts, "modal_reject", _ts)
                     )
+                    rejected_stmts.append(candidate.statement)
             conn.commit()
+            # Update extraction preference profile for rejected items — background thread.
+            if rejected_stmts:
+                import threading as _threading
+                def _update_profile_rejected(_api=api, _stmts=rejected_stmts):
+                    for _stmt in _stmts:
+                        try:
+                            _api.update_extraction_profile(rejected_statement=_stmt)
+                        except Exception:
+                            pass
+                _threading.Thread(target=_update_profile_rejected, daemon=True).start()
         except Exception:
             pass
 
@@ -2743,6 +2768,17 @@ def pkb_reject_proposals_route():
                  "reject", _ts, "modal_reject", _ts)
             )
         conn.commit()
+        # Update extraction preference profile for bulk rejections — background thread.
+        if to_reject:
+            import threading as _threading
+            _bulk_stmts = [c.statement for c in to_reject]
+            def _update_profile_bulk(_api=api, _stmts=_bulk_stmts):
+                for _stmt in _stmts:
+                    try:
+                        _api.update_extraction_profile(rejected_statement=_stmt)
+                    except Exception:
+                        pass
+            _threading.Thread(target=_update_profile_bulk, daemon=True).start()
         _memory_update_plans.pop(plan_id, None)
         return jsonify({"status": "ok", "rejected_count": len(to_reject)})
     except Exception as e:

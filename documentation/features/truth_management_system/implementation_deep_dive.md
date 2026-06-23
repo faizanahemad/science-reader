@@ -957,13 +957,18 @@ class ConversationDistiller:
         # Execute approved actions
 ```
 
-**Data Flow:**
+ **Data Flow:**
 ```
 User chat turn
     ↓
 Extract candidates (LLM)
+  — with ICL rejected examples (≤15, 30-day window) injected into prompt
+  — with user extraction preference profile injected into prompt
+  — with value scoring (importance/novelty/usefulness, 1-5 each) in prompt
     ↓
-Filter recently rejected (rejection cache, 7-day TTL)
+Value gate: avg(importance, novelty, usefulness) > 3.0 required to pass
+    ↓
+Filter recently rejected (rejection cache, 30-day TTL, embedding similarity)
     ↓
 Search existing (embedding similarity)
     ↓
@@ -976,11 +981,13 @@ Propose actions (add/supersede/temporal_update/skip)
 User confirmation (for CONFIRM-routed items)
     ↓
 Execute approved actions (StructuredAPI.add_claim, etc.)
+    ↓
+Update extraction preference profile (fire-and-forget LLM call)
 ```
 
 **Rejection Cache (`_filter_recently_rejected`):**
 
-Prevents re-proposing claims the user already rejected or dismissed. Queries `pkb_notifications` for rejected/dismissed items within the last 7 days, computes embedding similarity between each candidate and rejected statements, and suppresses candidates with cosine similarity > 0.92.
+Prevents re-proposing claims the user already rejected or dismissed. Queries `pkb_notifications` for rejected/dismissed items within the last **30 days**, computes embedding similarity between each candidate and rejected statements, and suppresses candidates with cosine similarity > 0.92.
 
 Before suppressing, runs an LLM contradiction check (`detect_contradiction`) to avoid incorrectly filtering temporal updates or superseding facts. If the LLM returns `"supersedes"` or `"temporal_update"`, the candidate passes through despite high similarity to a rejected statement.
 
@@ -992,11 +999,55 @@ LLM check: "temporal_update" → ALLOW through (different time point)
 ```
 
 Key details:
-- TTL: 7 days (configurable via query `created_at > datetime('now', '-7 days')`)
+- TTL: **30 days** (was 7 days; extended to reduce re-surfacing of unwanted claims)
 - Source: `pkb_notifications` table where `action_taken IN ('reject', 'dismiss')`
 - Embedding model: uses `config.embedding_model` (same as PKB EmbeddingStore)
 - Fallback: exact case-insensitive string match if embeddings fail
 - Non-blocking: failures don't break the extraction pipeline
+
+**ICL Rejected Examples in Extraction Prompt (`_get_rejected_statements_for_prompt`):**
+
+Up to 15 recently rejected statements (within the 30-day window) are fetched and injected directly into the extraction prompt as a negative ICL section:
+
+```
+=== RECENTLY REJECTED MEMORIES (DO NOT re-extract these or anything semantically similar) ===
+- User prefers to keep work details private
+- User mentioned they had coffee this morning
+...
+```
+
+This lets the LLM skip similar claims at generation time rather than having the post-hoc filter catch them — saving tokens and improving prompt-level calibration. The list is de-duplicated and ordered newest-first.
+
+File: `conversation_distillation.py:_get_rejected_statements_for_prompt()`
+
+Guard: the helper returns `[]` immediately when `self.api.user_email` is `None` — preventing a SQL query that would bind `NULL` and accidentally match system/global rows instead of returning an empty list.
+
+**Extraction Preference Profile (`structured_api.py:get_extraction_profile` / `update_extraction_profile`):**
+
+A short free-text blob (3–8 bullet points, ~120 words) stored per user in `pkb_user_settings.extraction_profile`. It summarises _patterns_ of what the user tends to accept vs. reject — not specific facts about the user.
+
+- **Built incrementally**: after every modal accept or reject event, `update_extraction_profile()` makes a cheap LLM call (using `config.fast_llm_model`) to revise the existing profile with the new signal. Failures are swallowed — the profile is best-effort.
+- **Non-blocking**: all `update_extraction_profile()` calls from `endpoints/pkb.py` run in a `daemon=True` background thread so LLM calls never block the HTTP response. The accepted/rejected statement lists are captured at thread-creation time to avoid closure-over-loop-variable issues.
+- **Safe upsert**: the INSERT only writes `(email, extraction_profile, updated_at)` and uses `ON CONFLICT DO UPDATE SET extraction_profile, updated_at`. It does not touch `memory_autonomy` or `facet_overrides`, so those columns are never overwritten by this path — the DDL `DEFAULT 50` handles brand-new rows.
+- **Injected into the extraction prompt** as a `=== USER MEMORY PREFERENCES ===` section (when non-empty), so the extraction LLM can personalise its behaviour.
+- **Schema**: `pkb_user_settings.extraction_profile TEXT` (added in schema v15 / migration `_migrate_v14_to_v15`).
+- **Wired in**: `endpoints/pkb.py` fires a background thread after approved results (`accepted_statement`) and after each rejected candidate batch (`rejected_statement`), covering both the main execute-updates route and the bulk `pkb_reject_proposals` route.
+
+**Value Scoring Gate (`_VALUE_SCORING_INSTRUCTIONS` / `_extract_value_scores` / `_compute_avg_value_score`):**
+
+Each extracted claim is scored by the LLM on three dimensions (1–5 scale each), using a verbal label followed by the integer for better LLM calibration:
+
+| Dimension | Meaning | 5 = | 1 = |
+|---|---|---|---|
+| `importance_to_user` | How central to the user's life or identity | Core identity fact | Trivial noise |
+| `novelty` | How specific/unique to this person | Highly specific to this individual | Completely generic |
+| `future_usefulness` | Likelihood of being useful in a future conversation | Almost certainly useful | Will almost never matter |
+
+The average of the three scores must be **> 3.0** to pass the gate. Claims at 3.0 or below are dropped with a `value_gate:filtered` log line before the rejection-cache filter runs.
+
+- Backward-compatible: if a claim has no value scores (e.g. from an older prompt), `_compute_avg_value_score` returns `None` and no gate is applied.
+- Scores are stored on `CandidateClaim.value_scores` for future audit/tuning.
+- The LLM is instructed to emit claims it believes will cross the bar — acting as a pre-filter at generation time as well.
 
 **Contradiction Detection (`detect_contradiction` in `llm_helpers.py`):**
 
@@ -4284,6 +4335,23 @@ Extraction prompts (both relaxed and aggressive modes) now request multi-aspect 
 - **Computation:** `confidence = mean(aspects) / 10` (backward-compatible with legacy float)
 - **Storage:** `CandidateClaim.confidence_aspects: Optional[Dict[str, int]]` for audit/tuning
 
+This confidence score is used by the tiered persistence routing gate (threshold varies by autonomy dial level; see Band Table above).
+
+### Value Scoring (separate from confidence)
+
+In addition to the 4-aspect confidence score, extraction prompts request a second independent scoring pass on three value dimensions (integer 1–5 each), with a verbal label emitted before each integer for better LLM calibration:
+
+| Dimension | Meaning | 5 = | 1 = |
+|---|---|---|---|
+| `value_importance` | How central to the user's life or identity | Core identity fact | Trivial noise |
+| `value_novelty` | How specific/unique to this person | Highly specific to this individual | Completely generic |
+| `value_usefulness` | Likelihood of being useful in a future conversation | Almost certainly useful | Will almost never matter |
+
+- **Gate:** `mean(importance, novelty, usefulness) > 3.0` required to proceed. Claims at 3.0 or below are dropped with a `value_gate:filtered` log line. This gate runs before the rejection-cache filter.
+- **Backward-compatible:** if a claim has no value scores (older prompt / model did not emit them), `_compute_avg_value_score` returns `None` and no gate is applied.
+- **Storage:** `CandidateClaim.value_scores: Optional[Dict[str, int]]` for future audit/tuning.
+- **Functions:** `_extract_value_scores(item)` parses the three fields; `_compute_avg_value_score(scores)` computes the mean.
+
 ### Routing Decision Tree
 
 Source guard (hard safety floor): **conflicts can never auto-save** regardless of policy level.
@@ -4357,13 +4425,13 @@ Before enabling the feature flag:
 | `truth_management_system/autonomy.py` | NEW: derive_policy, band table |
 | `truth_management_system/routing.py` | NEW: route_candidate, RouteResult |
 | `truth_management_system/config.py` | `default_autonomy`, `tiered_persistence_enabled` |
-| `truth_management_system/schema.py` | v13: pkb_user_settings, pkb_activity_log |
-| `truth_management_system/database.py` | `_migrate_v12_to_v13` |
-| `truth_management_system/interface/structured_api.py` | for_user policy resolution, settings API, activity log API |
-| `truth_management_system/interface/conversation_distillation.py` | Confidence scoring, routing wiring, _compute_confidence |
+| `truth_management_system/schema.py` | v13: pkb_user_settings, pkb_activity_log; v14: pkb_notifications; v15: pkb_user_settings.extraction_profile column |
+| `truth_management_system/database.py` | `_migrate_v12_to_v13`, `_migrate_v13_to_v14`, `_migrate_v14_to_v15` |
+| `truth_management_system/interface/structured_api.py` | for_user policy resolution, settings API, activity log API; `get_extraction_profile()`, `update_extraction_profile()` (safe upsert, background-thread safe); `get_user_settings` extended to return `extraction_profile` |
+| `truth_management_system/interface/conversation_distillation.py` | Confidence scoring, routing wiring, `_compute_confidence`; value scoring (`_VALUE_SCORING_INSTRUCTIONS`, `_extract_value_scores`, `_compute_avg_value_score`, value gate avg>3.0); ICL rejection injection (`_get_rejected_statements_for_prompt`, 30-day TTL, user_email guard); extraction profile injection; `CandidateClaim.value_scores` field; rejection TTL 7→30 days |
 | `truth_management_system/interface/text_ingestion.py` | Mirror routing wiring |
 | `truth_management_system/constants.py` | ProvenanceChannel.MCP |
-| `endpoints/pkb.py` | 4 REST endpoints, auto_saved/skipped in response |
+| `endpoints/pkb.py` | 4 REST endpoints, auto_saved/skipped in response; `update_extraction_profile` wired at accept and reject paths via background daemon threads |
 | `mcp_server/pkb.py` | Provenance in pkb_add_claim, 2 new tools |
 
 ### Test Coverage

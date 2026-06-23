@@ -32,7 +32,27 @@ then assign the 4 integer scores. Include them in the JSON as:
   "confidence_scores": {"explicitness": N, "stability": N, "clarity": N, "usefulness": N}
 """
 
-_CONFIDENCE_EXAMPLE_FIELDS = '"confidence_verbal": "stated verbatim", "confidence_scores": {"explicitness": 9, "stability": 8, "clarity": 9, "usefulness": 8}'
+# ─── Value scoring instructions (task 4: importance/novelty/utility gate) ─────
+_VALUE_SCORING_INSTRUCTIONS = """
+VALUE SCORING — for each claim, separately score these 3 dimensions on a scale of 1 to 5.
+For each dimension, first state a brief label in words, then the integer score.
+  "importance_to_user": how central/important is this to the user's life or identity?
+    (5=core identity or major life fact, 4=clearly significant, 3=moderately relevant, 2=minor detail, 1=trivial noise)
+  "novelty": how new or non-obvious is this compared to generic background knowledge?
+    (5=highly specific and unique to this person, 4=fairly specific, 3=moderately specific, 2=somewhat generic, 1=completely generic/obvious)
+  "future_usefulness": how likely is this to be useful in a future conversation or action?
+    (5=almost certainly useful to recall, 4=likely useful, 3=possibly useful, 2=unlikely to matter, 1=will almost never be relevant)
+
+Include them in the JSON as:
+  "value_importance_label": "<words>", "value_importance": N,
+  "value_novelty_label": "<words>",    "value_novelty": N,
+  "value_usefulness_label": "<words>", "value_usefulness": N
+
+Claims with an average value score of 3 or below will be automatically filtered out.
+Only emit claims you believe cross that bar.
+"""
+
+_CONFIDENCE_EXAMPLE_FIELDS = '"confidence_verbal": "stated verbatim", "confidence_scores": {"explicitness": 9, "stability": 8, "clarity": 9, "usefulness": 8}, "value_importance_label": "major personal preference", "value_importance": 4, "value_novelty_label": "specific to this person", "value_novelty": 4, "value_usefulness_label": "likely to come up again", "value_usefulness": 4'
 
 
 @dataclass
@@ -55,6 +75,8 @@ class CandidateClaim:
     reason: Optional[str] = None
     # Multi-aspect confidence scores (1-10 each), stored for audit/tuning
     confidence_aspects: Optional[Dict[str, int]] = None
+    # Value scores (1-5 each): importance_to_user, novelty, future_usefulness
+    value_scores: Optional[Dict[str, int]] = None
 
 
 @dataclass
@@ -139,6 +161,8 @@ class ConversationDistiller:
         candidates = self._extract_claims_from_turn(
             conversation_summary, user_message, assistant_message,
             recent_turns=recent_turns or [],
+            rejected_statements=self._get_rejected_statements_for_prompt(),
+            extraction_profile=self.api.get_extraction_profile() if self.api.user_email else None,
         )
 
         # Extract short-term memories (cross-conversation context)
@@ -152,7 +176,7 @@ class ConversationDistiller:
         if not candidates and not short_term_candidates:
             return MemoryUpdatePlan(user_prompt="No memorable facts found.", requires_user_confirmation=False)
         
-        # Filter out candidates recently rejected by the user (TTL: 7 days)
+        # Filter out candidates recently rejected by the user (TTL: 30 days)
         candidates = self._filter_recently_rejected(candidates)
 
         if not candidates and not short_term_candidates:
@@ -288,9 +312,46 @@ class ConversationDistiller:
             lifecycle_changes=lifecycle_changes,
         )
     
+    def _get_rejected_statements_for_prompt(self, limit: int = 15) -> List[str]:
+        """Return up to ``limit`` recently rejected statement strings for ICL injection.
+
+        Fetches from pkb_notifications within the 30-day rejection window, newest
+        first, de-duplicated.  Returns an empty list on any failure so callers
+        never see exceptions from this helper.
+        """
+        if not self.api.user_email:
+            return []
+        try:
+            import json as _json
+            rows = self.api.db.fetchall(
+                "SELECT action_payload FROM pkb_notifications "
+                "WHERE user_email = ? AND action_taken IN ('reject', 'dismiss') "
+                "AND created_at > datetime('now', '-30 days') "
+                "ORDER BY created_at DESC LIMIT ?",
+                (self.api.user_email, limit * 2)  # over-fetch before dedup
+            )
+            seen: set = set()
+            stmts: List[str] = []
+            for (payload_str,) in rows:
+                try:
+                    payload = _json.loads(payload_str) if payload_str else {}
+                    stmt = payload.get("statement", "").strip()
+                    if stmt and stmt.lower() not in seen:
+                        seen.add(stmt.lower())
+                        stmts.append(stmt)
+                        if len(stmts) >= limit:
+                            break
+                except Exception:
+                    continue
+            return stmts
+        except Exception:
+            return []
+
     def _extract_claims_from_turn(self, conversation_summary: str, user_message: str,
                                    assistant_message: str,
-                                   recent_turns: list = None) -> List[CandidateClaim]:
+                                   recent_turns: list = None,
+                                   rejected_statements: List[str] = None,
+                                   extraction_profile: str = None) -> List[CandidateClaim]:
         """
         Use LLM to extract memorable claims from the CURRENT USER UTTERANCE only.
         recent_turns provides context so the LLM understands what is being discussed,
@@ -298,19 +359,24 @@ class ConversationDistiller:
         Prompt strategy differs by extraction_mode:
           'relaxed'    -- 1 prior turn for context; explicit concrete facts only.
           'aggressive' -- up to 2 prior turns for context; wide net.
+        rejected_statements: list of recently-rejected claim statements injected as
+          negative ICL examples so the LLM avoids re-generating similar claims.
+        extraction_profile: user-specific preference text summarising what they tend
+          to accept vs. reject, injected to personalise extraction behaviour.
         """
         try:
             from code_common.call_llm import call_llm
         except ImportError:
             return []
-        
+
         recent_turns = recent_turns or []
-        
+        rejected_statements = rejected_statements or []
+
         # Build prior-context block from the ring buffer.
         # Relaxed uses the last 1 turn; aggressive uses up to 2.
         context_depth = 1 if self.extraction_mode != 'aggressive' else 2
         prior_turns = recent_turns[-context_depth:] if recent_turns else []
-        
+
         prior_context_lines = []
         if conversation_summary:
             prior_context_lines.append(f"Conversation summary: {conversation_summary}")
@@ -321,6 +387,23 @@ class ConversationDistiller:
                 f"  Assistant: {get_first_n_words(turn.get('assistant', ''), n=800)}"
             )
         prior_context = "\n\n".join(prior_context_lines) if prior_context_lines else "(none)"
+
+        # Build optional blocks for ICL rejection examples and user preference profile
+        rejected_block = ""
+        if rejected_statements:
+            rej_lines = "\n".join(f"- {s}" for s in rejected_statements)
+            rejected_block = f"""
+=== RECENTLY REJECTED MEMORIES (DO NOT re-extract these or anything semantically similar) ===
+{rej_lines}
+"""
+
+        profile_block = ""
+        if extraction_profile and extraction_profile.strip():
+            profile_block = f"""
+=== USER MEMORY PREFERENCES (follow these when deciding what to extract) ===
+{extraction_profile.strip()}
+"""
+
         if self.extraction_mode == 'aggressive':
             prompt = f"""You are a personal memory assistant. Extract EVERYTHING worth remembering about the user from their latest message.
 
@@ -331,9 +414,7 @@ class ConversationDistiller:
 {user_message}
 
 What the assistant said this turn (may clarify meaning, do not extract from it):
-{assistant_message or '(none)'}"""
-            prompt += """
-
+{assistant_message or '(none)'}{rejected_block}{profile_block}
 Your task: extract any of the following about the USER from the CURRENT USER MESSAGE above:
 - Stated facts (job, location, age, health, diet, etc.)
 - Preferences and opinions (likes, dislikes, tastes)
@@ -357,9 +438,9 @@ IMPORTANT: Return ONLY a valid JSON array with NO additional text before or afte
 For task/reminder types, include a "valid_to" field with the deadline in YYYY-MM-DD format if mentioned.
 Include a "tags" array with relevant short keyword tags.
 Include a "reason" field — a brief quote or paraphrase (max 15 words) of what the user said that led to this claim.
-""" + _CONFIDENCE_SCORING_INSTRUCTIONS + """
+""" + _CONFIDENCE_SCORING_INSTRUCTIONS + _VALUE_SCORING_INSTRUCTIONS + """
 Example format:
-[{"statement": "User prefers dark roast coffee", "claim_type": "preference", "context_domain": "personal", """ + _CONFIDENCE_EXAMPLE_FIELDS + """, "derivation": "stated", "tags": ["coffee"], "reason": "said 'I only drink dark roast'"}, {"statement": "User needs to submit report by Friday", "claim_type": "task", "context_domain": "work", "confidence_verbal": "stated verbatim", "confidence_scores": {"explicitness": 9, "stability": 4, "clarity": 9, "usefulness": 9}, "valid_to": "2025-07-18", "derivation": "stated", "tags": ["report", "deadline"], "reason": "mentioned Friday deadline for report"}]
+[{"statement": "User prefers dark roast coffee", "claim_type": "preference", "context_domain": "personal", """ + _CONFIDENCE_EXAMPLE_FIELDS + """, "derivation": "stated", "tags": ["coffee"], "reason": "said 'I only drink dark roast'"}, {"statement": "User needs to submit report by Friday", "claim_type": "task", "context_domain": "work", "confidence_verbal": "stated verbatim", "confidence_scores": {"explicitness": 9, "stability": 4, "clarity": 9, "usefulness": 9}, "value_importance_label": "time-sensitive work obligation", "value_importance": 4, "value_novelty_label": "specific deadline", "value_novelty": 4, "value_usefulness_label": "directly actionable", "value_usefulness": 5, "valid_to": "2025-07-18", "derivation": "stated", "tags": ["report", "deadline"], "reason": "mentioned Friday deadline for report"}]
 
 If nothing at all is worth remembering from the current message, return exactly: []
 
@@ -374,8 +455,7 @@ Response:"""
 {user_message}
 
 What the assistant said this turn (may clarify meaning, do not extract from it):
-{assistant_message or '(none)'}"""
-            prompt += """
+{assistant_message or '(none)'}{rejected_block}{profile_block}
 Rules:
 - Only extract facts the user EXPLICITLY states about themselves in the CURRENT USER MESSAGE.
 - Use the context only to understand what topic is being discussed -- never extract from it.
@@ -394,9 +474,9 @@ IMPORTANT: Return ONLY a valid JSON array with NO additional text before or afte
 For task/reminder types, include a "valid_to" field with the deadline in YYYY-MM-DD format if mentioned.
 Include a "tags" array with relevant short keyword tags.
 Include a "reason" field — a brief quote or paraphrase (max 15 words) of what the user said that led to this claim.
-""" + _CONFIDENCE_SCORING_INSTRUCTIONS + """
+""" + _CONFIDENCE_SCORING_INSTRUCTIONS + _VALUE_SCORING_INSTRUCTIONS + """
 Example format:
-[{"statement": "User is vegetarian", "claim_type": "fact", "context_domain": "health", """ + _CONFIDENCE_EXAMPLE_FIELDS + """, "derivation": "stated", "tags": ["diet"], "reason": "said 'I'm vegetarian'"}, {"statement": "User has dentist appointment next Monday", "claim_type": "reminder", "context_domain": "health", "confidence_verbal": "stated verbatim", "confidence_scores": {"explicitness": 9, "stability": 3, "clarity": 9, "usefulness": 8}, "valid_to": "2025-07-21", "derivation": "stated", "tags": ["dentist", "appointment"], "reason": "mentioned dentist on Monday"}]
+[{"statement": "User is vegetarian", "claim_type": "fact", "context_domain": "health", """ + _CONFIDENCE_EXAMPLE_FIELDS + """, "derivation": "stated", "tags": ["diet"], "reason": "said 'I'm vegetarian'"}, {"statement": "User has dentist appointment next Monday", "claim_type": "reminder", "context_domain": "health", "confidence_verbal": "stated verbatim", "confidence_scores": {"explicitness": 9, "stability": 3, "clarity": 9, "usefulness": 8}, "value_importance_label": "health-related appointment", "value_importance": 4, "value_novelty_label": "specific near-term event", "value_novelty": 4, "value_usefulness_label": "useful for reminders", "value_usefulness": 4, "valid_to": "2025-07-21", "derivation": "stated", "tags": ["dentist", "appointment"], "reason": "mentioned dentist on Monday"}]
 
 If no clear personal facts to remember from the current message, return exactly: []
 
@@ -423,6 +503,15 @@ Response:"""
                         _deriv = item.get('derivation')
                         if not Derivation.is_valid(_deriv or ''):
                             _deriv = Derivation.EXTRACTED.value
+                        value_scores = self._extract_value_scores(item)
+                        # Gate: average value score must be > 3.0 to pass
+                        avg_value = self._compute_avg_value_score(value_scores)
+                        if avg_value is not None and avg_value <= 3.0:
+                            logger.info(
+                                "value_gate:filtered avg=%.2f %s",
+                                avg_value, item.get('statement', '')[:60],
+                            )
+                            continue
                         candidates.append(CandidateClaim(
                             statement=item.get('statement'),
                             claim_type=item.get('claim_type', 'fact'),
@@ -434,6 +523,7 @@ Response:"""
                             derivation=_deriv,
                             reason=item.get('reason'),
                             confidence_aspects=item.get('confidence_scores'),
+                            value_scores=value_scores,
                         ))
                 return candidates
             return []
@@ -460,6 +550,44 @@ Response:"""
             return float(item.get('confidence', 0.8))
         except (ValueError, TypeError):
             return 0.8
+
+    @staticmethod
+    def _extract_value_scores(item: dict) -> Optional[Dict[str, int]]:
+        """Extract the three value dimension scores (1-5) from a parsed LLM item.
+
+        Returns a dict with keys 'importance', 'novelty', 'usefulness' (ints 1-5),
+        or None if none of the keys are present (older LLM response without value
+        scoring, i.e. no gate applied for backward compat).
+        """
+        keys = [
+            ('value_importance', 'importance'),
+            ('value_novelty', 'novelty'),
+            ('value_usefulness', 'usefulness'),
+        ]
+        result = {}
+        for src_key, dest_key in keys:
+            raw = item.get(src_key)
+            if raw is not None:
+                try:
+                    result[dest_key] = max(1, min(5, int(raw)))
+                except (ValueError, TypeError):
+                    pass
+        return result if result else None
+
+    @staticmethod
+    def _compute_avg_value_score(value_scores: Optional[Dict[str, int]]) -> Optional[float]:
+        """Return the mean of available value dimension scores, or None if no scores.
+
+        None means the LLM did not emit value scores (pre-feature response) so no
+        gate is applied — backward-compatible with prompts that don't include the
+        value scoring instructions.
+        """
+        if not value_scores:
+            return None
+        vals = list(value_scores.values())
+        if not vals:
+            return None
+        return round(sum(vals) / len(vals), 2)
 
     def _extract_short_term_memories(
         self,
@@ -564,14 +692,14 @@ Response:"""
             return []
     
     def _filter_recently_rejected(self, candidates: List[CandidateClaim]) -> List[CandidateClaim]:
-        """Remove candidates that match statements rejected by the user within the last 7 days."""
+        """Remove candidates that match statements rejected by the user within the last 30 days."""
         if not candidates:
             return candidates
         try:
             rows = self.api.db.fetchall(
                 "SELECT action_payload FROM pkb_notifications "
                 "WHERE user_email = ? AND action_taken IN ('reject', 'dismiss') "
-                "AND created_at > datetime('now', '-7 days')",
+                "AND created_at > datetime('now', '-30 days')",
                 (self.api.user_email,)
             )
             if not rows:

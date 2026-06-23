@@ -293,6 +293,21 @@ class PKBDatabase:
         if from_version < 14 <= to_version:
             self._migrate_v13_to_v14(conn)
 
+        # Migration from v14 to v15: Add extraction_profile column to pkb_user_settings
+        if from_version < 15 <= to_version:
+            self._migrate_v14_to_v15(conn)
+
+    def _migrate_v14_to_v15(self, conn: sqlite3.Connection) -> None:
+        """Migrate from schema v14 to v15: Add extraction_profile to pkb_user_settings."""
+        logger.info("Migrating to v15: Adding extraction_profile to pkb_user_settings")
+        cursor = conn.execute("PRAGMA table_info(pkb_user_settings)")
+        cols = [row[1] for row in cursor.fetchall()]
+        if "extraction_profile" not in cols:
+            conn.execute(
+                "ALTER TABLE pkb_user_settings ADD COLUMN extraction_profile TEXT"
+            )
+        logger.info("Migration to v15 complete")
+
     def _migrate_v1_to_v2(self, conn: sqlite3.Connection) -> None:
         """
         Migrate from schema v1 to v2: Add user_email column for multi-user support.

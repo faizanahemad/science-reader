@@ -22,7 +22,8 @@ All tables use:
 """
 
 SCHEMA_VERSION = (
-    14  # v14: Added pkb_notifications table (notification system)
+    15  # v15: Added extraction_profile column to pkb_user_settings
+    # 14: Added pkb_notifications table (notification system)
     # 13: Added pkb_user_settings table (memory autonomy dial per-user)
     # 12: Added pkb_short_term_memory table + last_accessed_at on claims
     # 11: Added pkb_overview table (PKB Memory Overview feature)
@@ -314,6 +315,7 @@ CREATE TABLE IF NOT EXISTS pkb_user_settings (
     email TEXT PRIMARY KEY,
     memory_autonomy INTEGER NOT NULL DEFAULT 50,
     facet_overrides TEXT,
+    extraction_profile TEXT,
     updated_at TEXT NOT NULL
 );
 

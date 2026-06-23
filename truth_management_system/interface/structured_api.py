@@ -408,23 +408,34 @@ class StructuredAPI:
         """Get per-user memory autonomy settings.
 
         Returns dict with memory_autonomy (int 0-100), facet_overrides (dict or None),
-        updated_at. If no row exists, returns defaults (autonomy from config).
+        extraction_profile (str or None), updated_at. If no row exists, returns defaults.
         """
         email = email or self.user_email
         if not email:
             return {"memory_autonomy": getattr(self.config, "default_autonomy", 50),
-                    "facet_overrides": None, "updated_at": None}
+                    "facet_overrides": None, "extraction_profile": None, "updated_at": None}
         conn = self.db.connect()
-        row = conn.execute(
-            "SELECT memory_autonomy, facet_overrides, updated_at FROM pkb_user_settings WHERE email = ?",
-            (email,)
-        ).fetchone()
+        # extraction_profile may not exist on older schemas — fetch with fallback
+        try:
+            row = conn.execute(
+                "SELECT memory_autonomy, facet_overrides, extraction_profile, updated_at "
+                "FROM pkb_user_settings WHERE email = ?",
+                (email,)
+            ).fetchone()
+        except Exception:
+            row = conn.execute(
+                "SELECT memory_autonomy, facet_overrides, updated_at FROM pkb_user_settings WHERE email = ?",
+                (email,)
+            ).fetchone()
+            if row is not None:
+                row = (row[0], row[1], None, row[2])
         if row is None:
             return {"memory_autonomy": getattr(self.config, "default_autonomy", 50),
-                    "facet_overrides": None, "updated_at": None}
+                    "facet_overrides": None, "extraction_profile": None, "updated_at": None}
         import json as _json
         overrides = _json.loads(row[1]) if row[1] else None
-        return {"memory_autonomy": row[0], "facet_overrides": overrides, "updated_at": row[2]}
+        return {"memory_autonomy": row[0], "facet_overrides": overrides,
+                "extraction_profile": row[2], "updated_at": row[3]}
 
     def set_user_settings(self, memory_autonomy: int, facet_overrides: Dict = None,
                           email: str = None) -> Dict:
@@ -458,6 +469,97 @@ class StructuredAPI:
         )
         conn.commit()
         return {"memory_autonomy": memory_autonomy, "facet_overrides": facet_overrides, "updated_at": now}
+
+    def get_extraction_profile(self, email: str = None) -> Optional[str]:
+        """Return the user's extraction preference profile text, or None if not set.
+
+        The profile is a short free-text blob summarising what kinds of memories
+        the user tends to accept vs. reject.  It is injected into the extraction
+        prompt so the LLM can personalise its behaviour without needing to see
+        every individual rejection.
+
+        Args:
+            email: User email (defaults to self.user_email).
+
+        Returns:
+            Profile text string, or None.
+        """
+        email = email or self.user_email
+        if not email:
+            return None
+        conn = self.db.connect()
+        try:
+            row = conn.execute(
+                "SELECT extraction_profile FROM pkb_user_settings WHERE email = ?",
+                (email,)
+            ).fetchone()
+            return row[0] if row else None
+        except Exception:
+            return None
+
+    def update_extraction_profile(self, accepted_statement: str = None,
+                                  rejected_statement: str = None,
+                                  email: str = None) -> None:
+        """Incrementally update the user's extraction preference profile via an LLM call.
+
+        Called after every accept or reject event so the profile stays current.
+        Uses a cheap/fast LLM call to revise the existing profile text given the
+        new signal.  Failures are swallowed — the profile is best-effort.
+
+        Args:
+            accepted_statement: A claim statement the user just approved (or None).
+            rejected_statement: A claim statement the user just rejected (or None).
+            email: User email (defaults to self.user_email).
+        """
+        if not accepted_statement and not rejected_statement:
+            return
+        email = email or self.user_email
+        if not email:
+            return
+        try:
+            from code_common.call_llm import call_llm
+            current_profile = self.get_extraction_profile(email=email) or ""
+            signal_lines = []
+            if accepted_statement:
+                signal_lines.append(f"ACCEPTED: {accepted_statement}")
+            if rejected_statement:
+                signal_lines.append(f"REJECTED: {rejected_statement}")
+            signal_block = "\n".join(signal_lines)
+            current_block = f"Current profile:\n{current_profile}" if current_profile else "Current profile: (none yet)"
+            prompt = f"""You maintain a short user preference profile for a personal memory assistant.
+The profile summarises what kinds of memories the user tends to keep vs. skip, so future
+extraction can be personalised.  It should be concise (3-8 bullet points, plain English,
+max ~120 words).  Do NOT mention specific facts about the user — only patterns and preferences.
+
+{current_block}
+
+New signal:
+{signal_block}
+
+Update the profile to incorporate this new signal.  Keep it concise.  If the profile is
+already accurate, make only minimal changes.  Return ONLY the updated profile text, no preamble.
+
+Updated profile:"""
+            model = getattr(self.config, 'fast_llm_model', None) or getattr(self.config, 'llm_model', None)
+            updated = call_llm(self.keys, model, prompt, temperature=0.0)
+            if not updated or not updated.strip():
+                return
+            updated = updated.strip()
+            from ..utils import now_iso
+            now = now_iso()
+            conn = self.db.connect()
+            conn.execute(
+                """INSERT INTO pkb_user_settings (email, extraction_profile, updated_at)
+                   VALUES (?, ?, ?)
+                   ON CONFLICT(email) DO UPDATE SET
+                       extraction_profile = excluded.extraction_profile,
+                       updated_at = excluded.updated_at""",
+                (email, updated, now)
+            )
+            conn.commit()
+            logger.debug("extraction_profile updated for %s", email)
+        except Exception as e:
+            logger.warning("update_extraction_profile failed (non-critical): %s", e)
 
     # =========================================================================
     # Activity Log API (memory autonomy undo)
