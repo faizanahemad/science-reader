@@ -689,6 +689,11 @@ var ConversationManager = {
     },
 
     setActiveConversation: function (conversationId) {
+        var _sacT = _perfStart('setActiveConversation');
+        _perfReset();  // clear previous timings for fresh measurement
+        // Cancel any pending MathJax typesetting from the previous conversation
+        if (window._mathJaxScheduler) { _mathJaxScheduler.clear(); }
+        if (window._PERF) { window._perfFullyInteractiveStart = performance.now(); }
         function _lastConversationStorageKey() {
             /**
              * Persisted "resume last chat" key.
@@ -803,8 +808,10 @@ var ConversationManager = {
         }
 
         var messagesRequest = ChatManager.listMessages(conversationId, true);
+        var _networkT = _perfStart('networkWait');
 
         $.when(restorePromise, messagesRequest).done(function (snapshotMeta, messages) {
+            _perfEnd('networkWait', _networkT);
             // When used inside $.when, a jQuery.ajax success value becomes:
             //   messages = [data, statusText, jqXHR]
             // where `data` is either the message array (legacy shape) or, with
@@ -916,22 +923,31 @@ var ConversationManager = {
             // This fixes the existing race where async chunked render hadn't
             // finished when fetch responses arrived, silently missing later cards.
             var _r2ConvId = conversationId;  // capture for stale-response guard
+            var _doubtsNetT = _perfStart('doubtsFetch');
             var doubtsPromise = _fetchDoubtsData(conversationId);
+            doubtsPromise.then(function() { _perfEnd('doubtsFetch', _doubtsNetT); });
+            var _pinsNetT = _perfStart('pinsFetch');
             var pinsPromise = ChatManager._fetchPinsData(conversationId);
+            Promise.resolve(pinsPromise).then(function() { _perfEnd('pinsFetch', _pinsNetT); });
             Promise.all([doubtsPromise, _renderCompletePromise]).then(function (results) {
                 // Stale-response guard: if user switched conversations, discard
                 if (ConversationManager.activeConversationId !== _r2ConvId) return;
+                var _applyDT = _perfStart('applyDoubts');
                 _applyDoubtsToCards(results[0], false);
+                _perfEnd('applyDoubts', _applyDT);
             });
             // Wrap jQuery Deferred in native Promise for safe interop
             Promise.all([Promise.resolve(pinsPromise), _renderCompletePromise]).then(function () {
                 // Stale-response guard
                 if (ConversationManager.activeConversationId !== _r2ConvId) return;
+                var _applyPT = _perfStart('applyPins');
                 ChatManager._applyPinsToCards();
+                _perfEnd('applyPins', _applyPT);
             });
             // Item 3.3: hide loader — covers both the renderMessages path (which
             // hides inside _runPostRenderWork) and the snapshot-restore path.
             try { $("#loader").hide(); } catch (_e) { /* ignore */ }
+            _perfEnd('setActiveConversation', _sacT);
         }).fail(function () {
             // API call failed (e.g. 404 for deleted conversation).
             // Clear stale state and fall back gracefully.
@@ -1512,7 +1528,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                         }
                     } catch (e) { /* ignore */ }
                     
-                    console.log('Stream cancelled by user');
+                    // [DEBUG] console.log('Stream cancelled by user');
                     return;
                 }
             }
@@ -1548,7 +1564,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                 }
                 continue;
             } else if (part['type'] === 'tool_input_request') {
-                console.log('[renderStreamingResponse] tool_input_request received', {conversationId: conversationId, tool_id: part['tool_id'], tool_name: part['tool_name'], ui_schema: part['ui_schema']});
+                // [DEBUG] console.log('[renderStreamingResponse] tool_input_request received', {conversationId: conversationId, tool_id: part['tool_id'], tool_name: part['tool_name'], ui_schema: part['ui_schema']});
                 if (typeof ToolCallManager !== 'undefined') {
                     ToolCallManager.handleToolInputRequest(
                         conversationId, part['tool_id'], part['tool_name'], part['ui_schema']
@@ -1683,11 +1699,11 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                     // If open exists but no close, or breakpoint is between open and close, skip
                     if (_visCloseIdx === -1 || breakpointResult.textBeforeBreakpoint.indexOf('<answer_visual>') !== -1) {
                         _skipBreakpoint = true;
-                        console.warn('[STREAM] Skipping breakpoint split — inside answer_visual block');
+                        // [DEBUG] console.warn('[STREAM] Skipping breakpoint split — inside answer_visual block');
                     }
                 }
                 if (!_skipBreakpoint) {
-                    console.warn('[STREAM] Breakpoint WILL split | hasVisOpen:', rendered_answer.indexOf('<answer_visual>') !== -1, '| hasVisClose:', rendered_answer.indexOf('</answer_visual>') !== -1, '| beforeLen:', breakpointResult.textBeforeBreakpoint.length, '| afterLen:', breakpointResult.textAfterBreakpoint.length);
+                    // [DEBUG] console.warn('[STREAM] Breakpoint WILL split | hasVisOpen:', rendered_answer.indexOf('<answer_visual>') !== -1, '| hasVisClose:', rendered_answer.indexOf('</answer_visual>') !== -1, '| beforeLen:', breakpointResult.textBeforeBreakpoint.length, '| afterLen:', breakpointResult.textAfterBreakpoint.length);
                 }
             }
             if (breakpointResult.hasBreakpoint && !_skipBreakpoint) {
@@ -1757,7 +1773,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                 var _willRerender = elem_to_render && elem_to_render.length > 0
                     && rendered_answer.length > 0
                     && (!_section_already_rendered || rendered_answer.length !== content_length);
-                console.warn('[STREAM] </answer> detected | willRerender:', _willRerender, '| rendered_answer len:', rendered_answer.length, '| hasVisualOpen:', rendered_answer.indexOf('<answer_visual>') !== -1, '| hasVisualClose:', rendered_answer.indexOf('</answer_visual>') !== -1, '| elem_to_render id:', (elem_to_render && elem_to_render.attr ? elem_to_render.attr('id') : 'N/A'));
+                // [DEBUG] console.warn('[STREAM] </answer> detected | willRerender:', _willRerender, '| rendered_answer len:', rendered_answer.length, '| hasVisualOpen:', rendered_answer.indexOf('<answer_visual>') !== -1, '| hasVisualClose:', rendered_answer.indexOf('</answer_visual>') !== -1, '| elem_to_render id:', (elem_to_render && elem_to_render.attr ? elem_to_render.attr('id') : 'N/A'));
                 if (_willRerender) {
                     mathjax_elem = renderInnerContentAsMarkdown(elem_to_render, 
                         immediate_callback = function() {
@@ -1907,12 +1923,12 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
             // Clear cache — card rendering is done
             _cachedStatusDiv = null;
             _cachedSpinner = null;
-            console.log('Stream complete');
+            // [DEBUG] console.log('Stream complete');
             // ── Diagnostic: dump raw backend text to console ──
-            console.warn('[STREAM DIAG] Raw backend text (before newline replace):', _rawBackendText);
-            console.warn('[STREAM DIAG] Total chunks:', _rawBackendChunks.length, '| Total chars:', _rawBackendText.length);
-            console.warn('[STREAM DIAG] First 500 chars:', _rawBackendText.substring(0, 500));
-            console.warn('[STREAM DIAG] Last 500 chars:', _rawBackendText.substring(Math.max(0, _rawBackendText.length - 500)));
+            // [DEBUG] console.warn('[STREAM DIAG] Raw backend text (before newline replace):', _rawBackendText);
+            // [DEBUG] console.warn('[STREAM DIAG] Total chunks:', _rawBackendChunks.length, '| Total chars:', _rawBackendText.length);
+            // [DEBUG] console.warn('[STREAM DIAG] First 500 chars:', _rawBackendText.substring(0, 500));
+            // [DEBUG] console.warn('[STREAM DIAG] Last 500 chars:', _rawBackendText.substring(Math.max(0, _rawBackendText.length - 500)));
             // Store on window for easy console access
             window._lastStreamDiag = { rawText: _rawBackendText, chunks: _rawBackendChunks, answer: answer, rendered_answer: rendered_answer };
             // Store last 2 completed turns for PKB memory extraction context.
@@ -1948,22 +1964,22 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
             
             function show_more() {
                 if (show_more_called.value == true) {
-                    console.warn('[STREAM DONE] show_more SKIPPED (already called)');
+                    // [DEBUG] console.warn('[STREAM DONE] show_more SKIPPED (already called)');
                     return;
                 }
                 show_more_called.value = true;
                 textElem = card.find('#message-render-space')
-                console.log("Calling show_more function ...")
+                // [DEBUG] console.log("Calling show_more function ...")
                 // check if textElem is hidden by display: none
                 
                 text = card.find('#message-render-space').html()
                 var _mdRenderText = card.find('#message-render-space-md-render').html() || '';
-                console.warn('[STREAM DONE] show_more | #message-render-space len:', (text||'').length, '| #message-render-space-md-render len:', _mdRenderText.length, '| mdRender hasVisualDiv:', _mdRenderText.indexOf('data-answer-visual') !== -1);
+                // [DEBUG] console.warn('[STREAM DONE] show_more | #message-render-space len:', (text||'').length, '| #message-render-space-md-render len:', _mdRenderText.length, '| mdRender hasVisualDiv:', _mdRenderText.indexOf('data-answer-visual') !== -1);
                 if (text.length == 0) {
                     textElem = card.find('#message-render-space-md-render');
                     text = card.find('#message-render-space-md-render').html();
                 }
-                console.warn('[STREAM DONE] show_more | USING textElem:', textElem.attr('id'), '| text len:', (text||'').length, '| hasVisualDiv:', (text||'').indexOf('data-answer-visual') !== -1);
+                // [DEBUG] console.warn('[STREAM DONE] show_more | USING textElem:', textElem.attr('id'), '| text len:', (text||'').length, '| hasVisualDiv:', (text||'').indexOf('data-answer-visual') !== -1);
                 const hasSlides = (
                     !!card.find('.slide-presentation-wrapper').length ||
                     !!card.find('.slide-external-link').length ||
@@ -1984,14 +2000,14 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                 // O(N) rendered_till_now.includes(last_rendered_answer) substring scan.
                 const alreadyRendered = _section_already_rendered;
                 
-                console.warn('[STREAM DONE] lastRendered len:', (last_rendered_answer || '').length, '| alreadyRendered:', alreadyRendered, '| hasVisualTag:', (answer || '').indexOf('answer_visual') !== -1, '| data-live-stream:', card.attr('data-live-stream'));
+                // [DEBUG] console.warn('[STREAM DONE] lastRendered len:', (last_rendered_answer || '').length, '| alreadyRendered:', alreadyRendered, '| hasVisualTag:', (answer || '').indexOf('answer_visual') !== -1, '| data-live-stream:', card.attr('data-live-stream'));
                 
                 if (!alreadyRendered) {
                     renderInnerContentAsMarkdown(last_elem_to_render, 
                         immediate_callback=function() {
                             last_elem_to_render.attr('data-fully-rendered', 'true');
                             var _mdRender = card.find('#message-render-space-md-render');
-                            console.warn('[STREAM DONE] before show_more | mdRender children:', _mdRender.children().length, '| mdRender has visual div:', _mdRender.find('[data-answer-visual]').length, '| last_elem id:', last_elem_to_render.attr('id'));
+                            // [DEBUG] console.warn('[STREAM DONE] before show_more | mdRender children:', _mdRender.children().length, '| mdRender has visual div:', _mdRender.find('[data-answer-visual]').length, '| last_elem id:', last_elem_to_render.attr('id'));
                             show_more();
                             handleMessageFocus(response_message_id, conversationId);
                         }, 
@@ -2002,7 +2018,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                 } else {
                     // Content was already rendered, just call show_more
                     var _mdRender = card.find('#message-render-space-md-render');
-                    console.warn('[STREAM DONE] before show_more (alreadyRendered) | mdRender children:', _mdRender.children().length, '| mdRender has visual div:', _mdRender.find('[data-answer-visual]').length);
+                    // [DEBUG] console.warn('[STREAM DONE] before show_more (alreadyRendered) | mdRender children:', _mdRender.children().length, '| mdRender has visual div:', _mdRender.find('[data-answer-visual]').length);
                     show_more();
                     handleMessageFocus(response_message_id, conversationId);
                 }
@@ -2158,7 +2174,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
         
         } catch (error) {
             if (error.name === 'AbortError') {
-                console.log('Stream was cancelled');
+                // [DEBUG] console.log('Stream was cancelled');
                 // Update status for cancellation
                 if (card) {
                     var statusDiv = card.find('.status-div');
@@ -2223,7 +2239,7 @@ function stopCurrentResponse() {
             }
         }).then(response => {
             if (response.ok) {
-                console.log('Cancellation request sent successfully');
+                // [DEBUG] console.log('Cancellation request sent successfully');
                 // Update status to show successful cancellation
                 if (card.length > 0) {
                     var statusDiv = card.find('.status-div');
@@ -2321,11 +2337,11 @@ function stopCodingSolution() {
 function stopDoubtClearing() {
     // Check if there's actually an active streaming controller
     if (!currentDoubtStreamingController) {
-        console.log('No active doubt streaming to stop');
+        // [DEBUG] console.log('No active doubt streaming to stop');
         return;
     }
     
-    console.log('Stopping doubt clearing...');
+    // [DEBUG] console.log('Stopping doubt clearing...');
     
     // Provide immediate visual feedback - find the assistant card that's currently being streamed
     var assistantCard = $('#doubt-chat-messages .doubt-conversation-card.assistant-doubt').last();
@@ -2457,7 +2473,7 @@ function setupPaperclipAndPageDrop(conversationId) {
     function uploadFileAsAttachment(file, attId) {
         var convId = ConversationManager.activeConversationId || conversationId;
         if (!DocsManagerUtils.isValidFileType(file, $('#chat-file-upload'))) {
-            console.log('Invalid file type for attachment: ' + file.type);
+            // [DEBUG] console.log('Invalid file type for attachment: ' + file.type);
             return;
         }
         var formData = new FormData();
@@ -2642,7 +2658,7 @@ var ChatManager = {
                 direction: direction
             }),
             success: function (response) {
-                console.log(response);
+                // [DEBUG] console.log(response);
             },
             error: function (response) {
                 alert('Refresh page, move messages error, Error: ' + response.responseText);
@@ -2650,6 +2666,7 @@ var ChatManager = {
         });
     },
     renderMessages: function (conversationId, messages, shouldClearChatView, initialize_voting = true, history_message_ids = [], skip_one = false) {
+        var _renderMsgsT = _perfStart('renderMessages');
         // R2: Reset the render-complete promise so pre-fired fetches (doubts/pins)
         // wait for THIS render pass to finish before applying DOM changes.
         _resetRenderCompletePromise();
@@ -2684,6 +2701,8 @@ var ChatManager = {
         // Returns the jQuery-wrapped card element.  Side-effects: pushes onto
         // newMessageElements, calls initialiseVoteBank, renderInnerContentAsMarkdown.
         function _buildMessageCard(message, originalIndex, totalCount) {
+            var _perfT = _perfStart('buildCard#' + originalIndex);
+            var _tmplT = _perfStart('cardTemplate#' + originalIndex);
             var index = initialCardCount + originalIndex;
             var isLastInBatch = (originalIndex === totalCount - 1);
             var senderText = message.sender === 'user' ? 'You' : 'Assistant';
@@ -2788,9 +2807,13 @@ var ChatManager = {
                     </div>
                 </div>
             </div>`);
+            var _templateDone = _perfEnd('cardTemplate#' + originalIndex, _tmplT);
             var cardBody = $('<div class="card-body chat-card-body" style="font-size: 0.8rem;"></div>');
             var textElem = $('<div id="message-render-space" class="card-text actual-card-text"></div>');
-            textElem.html(message.text.replace(/\n/g, '  \n'))
+            // Note: we intentionally skip textElem.html(message.text) here — the content
+            // is set by renderInnerContentAsMarkdown below (which overwrites innerHTML).
+            // For empty messages, textElem stays empty (correct). Saves one .html() parse
+            // per card on history load.
 
             cardBody.append(textElem);
             
@@ -2806,19 +2829,36 @@ var ChatManager = {
             if (message.sender == 'user') {
                 cardElem.css('background-color', '#fdfdfd');
                 if (message.text.trim().length > 0) {
-                    msgElements = [$(cardElem)]
-                    initialiseVoteBank(cardElem, message.text, contentId = message.message_id, activeDocId = ConversationManager.activeConversationId, disable_voting = true);
+                    msgElements = [$(cardElem)];
+                    // Defer vote bank setup — user won't interact with dropdown menus
+                    // before reading the content.  setTimeout(0) runs after the chunk
+                    // yields and the browser paints the card.
+                    (function(_ce, _mt, _mid, _adid) {
+                        setTimeout(function() {
+                            initialiseVoteBank(_ce, _mt, contentId = _mid, activeDocId = _adid, disable_voting = true);
+                        }, 0);
+                    })(cardElem, message.text, message.message_id, ConversationManager.activeConversationId);
                 }
             } else {
                 if (message.text.trim().length > 0) {
-                    msgElements = [$(cardElem)]
-                    initialiseVoteBank(cardElem, message.text, contentId = message.message_id, activeDocId = ConversationManager.activeConversationId, disable_voting = !initialize_voting);
+                    msgElements = [$(cardElem)];
+                    (function(_ce, _mt, _mid, _adid, _iv) {
+                        setTimeout(function() {
+                            initialiseVoteBank(_ce, _mt, contentId = _mid, activeDocId = _adid, disable_voting = !_iv);
+                        }, 0);
+                    })(cardElem, message.text, message.message_id, ConversationManager.activeConversationId, initialize_voting);
                 }
                 cardElem.css('background-color', '#ffffff');
             }
             
             if (message.text.trim().length > 0) {
                 (function(currentMessageElement, currentMessage, currentTextElem, currentShowHide, isLastMessage) {
+                    // When the card will be collapsed by showMore() (show_hide != 'show'
+                    // and text long enough), skip applyModelResponseTabs, ToC, and UI state
+                    // restore inside renderInnerContentAsMarkdown — they're invisible behind
+                    // [show] and the delegated expand handler re-applies them on first click.
+                    // This saves 50-200ms of DOM work per collapsed card.
+                    var _willCollapse = (currentShowHide !== 'show' && currentMessage.text.length > 300);
                     renderInnerContentAsMarkdown(currentTextElem,
                         /* callback (runs after MathJax) */ null,
                         /* continuous */ false,
@@ -2848,12 +2888,18 @@ var ChatManager = {
                             }
                             
                             if (_currentMessage.text.length > 300) {
+                                // Defer navigation button setup — cosmetic aids that don't
+                                // affect content visibility (scroll-to-bottom, scroll-to-top,
+                                // header collapse sync, ToC visibility).
                                 if (typeof window.decorateMessageCardNav === 'function') {
-                                    window.decorateMessageCardNav(_currentMessageElement, _showHide);
+                                    setTimeout(function() {
+                                        window.decorateMessageCardNav(_currentMessageElement, _showHide);
+                                    }, 0);
                                 }
                             }
                         },
-                        /* defer_mathjax */ !isLastMessage
+                        /* defer_mathjax */ !isLastMessage,
+                        /* skip_deferred_formatting */ _willCollapse
                     );
                 })(cardElem, message, textElem, showHide, isLastInBatch);
             }
@@ -2868,6 +2914,7 @@ var ChatManager = {
             statusDiv.hide();
             statusDiv.find('.spinner-border').hide();
 
+            _perfEnd('buildCard#' + originalIndex, _perfT);
             return cardElem;
         }
 
@@ -2875,17 +2922,22 @@ var ChatManager = {
         // Called once after ALL cards are in the live DOM — either immediately
         // (synchronous path) or after the last chunk flushes (async path).
         function _runPostRenderWork() {
+            var _prwT = _perfStart('postRenderWork');
             setTimeout(function() {
+                var _mermT = _perfStart('mermaidRun');
                 if (typeof normalizeMermaidBlocks === 'function') {
                     normalizeMermaidBlocks(document);
                 }
                 mermaid.run({querySelector: "pre.mermaid"});
+                _perfEnd('mermaidRun', _mermT);
             }, 100);
 
             // Initialize Bootstrap 4.6 dropdowns — scoped to newly rendered cards only.
             setTimeout(function() {
+                var _ddT = _perfStart('dropdownInit');
                 var $newCards = $(newMessageElements);
                 $newCards.find('[data-toggle="dropdown"]').dropdown();
+                _perfEnd('dropdownInit', _ddT);
             }, 50);
             
             // Check if URL contains a message ID and scroll to that message
@@ -2935,10 +2987,22 @@ var ChatManager = {
             // This replaces the old blind 1s setTimeout in chat_interface_readiness().
             try { $("#loader").hide(); } catch (_e) { /* ignore */ }
 
+            _perfEnd('postRenderWork', _prwT);
+
             // R2: Signal that all cards are in the live DOM. Pre-fired network
             // fetches (doubts, pins) wait on this before applying DOM changes.
             if (typeof _renderCompleteResolve === 'function') {
                 _renderCompleteResolve();
+            }
+
+            _perfEnd('renderMessages', _renderMsgsT);
+            // Mark when deferred work (voteBank, decorateNav, doubts, pins) all completes.
+            // Use a longer timeout since these are setTimeout(0) deferred items.
+            if (window._PERF) {
+                setTimeout(function() {
+                    _perfEnd('fullyInteractive', window._perfFullyInteractiveStart || 0);
+                    _perfSummary();
+                }, 500);
             }
         }
 
@@ -2957,7 +3021,11 @@ var ChatManager = {
         // - Small batches (<=CHUNK_SIZE messages) — no benefit from chunking
         // - Incremental appends (shouldClearChatView=false) — streaming, sendMessage
         // - renderCloseToSource positional inserts — need live-DOM per card
-        var CHUNK_SIZE = 5;
+        // Render one card per chunk so the browser can paint + handle scroll events
+        // between every card build (100-400ms each).  Previously CHUNK_SIZE=5 meant
+        // the first 5 cards blocked the thread for 500-2000ms before any paint.
+        // With CHUNK_SIZE=1, the page becomes scrollable after the very first card.
+        var CHUNK_SIZE = 1;
         var usePositionalInsert = (renderCloseToSource && history_message_ids.length > 0);
         var useChunkedPath = (shouldClearChatView && messages.length > CHUNK_SIZE && !usePositionalInsert);
 
@@ -2977,6 +3045,7 @@ var ChatManager = {
                 // started a new render, abandon this stale render silently.
                 if (_renderGeneration !== renderToken) return;
 
+                var _chunkT = _perfStart('renderChunk#' + startIdx);
                 var end = Math.min(startIdx + CHUNK_SIZE, totalCount);
                 var fragment = document.createDocumentFragment();
 
@@ -2988,6 +3057,7 @@ var ChatManager = {
 
                 // Flush this chunk into the live DOM — triggers one layout recalc
                 chatViewEl.appendChild(fragment);
+                _perfEnd('renderChunk#' + startIdx, _chunkT);
 
                 if (end < totalCount) {
                     // Yield to browser (paint, handle events) then render next chunk
@@ -3780,9 +3850,9 @@ function sendMessageCallback(skipAutoClarify) {
             // Skip memory update proposal for /pkb and /memory slash commands
             // (the NL agent handles its own PKB operations directly)
             if (options && options.pkb_nl_command) {
-                console.log('[common-chat] Skipping checkMemoryUpdates for /pkb command');
+                // [DEBUG] console.log('[common-chat] Skipping checkMemoryUpdates for /pkb command');
             } else if (window.chatSettingsState && window.chatSettingsState.auto_pkb_extract === false) {
-                console.log('[common-chat] Skipping checkMemoryUpdates: auto-save facts disabled');
+                // [DEBUG] console.log('[common-chat] Skipping checkMemoryUpdates: auto-save facts disabled');
             } else {
                 setTimeout(function() {
                     var conversationSummary = '';
@@ -3938,7 +4008,7 @@ function renderNextQuestionSuggestions(conversationId, retryCount = 0) {
     
     // Don't retry more than 2 times (initial + 5s + 10s)
     if (retryCount > 2) {
-        console.log('Max retries reached for next question suggestions');
+        // [DEBUG] console.log('Max retries reached for next question suggestions');
         return;
     }
     
@@ -3955,7 +4025,7 @@ function renderNextQuestionSuggestions(conversationId, retryCount = 0) {
             // If suggestions are empty and we haven't exceeded retry limit
             if (suggestions.length === 0 && retryCount < 3) {
                 const retryDelay = retryCount === 0 ? 3000 : retryCount === 1 ? 7000 : 12000; // 3s then 7s then 12s
-                console.log(`No suggestions found, retrying in ${retryDelay/1000}s (attempt ${retryCount + 1})`);
+                // [DEBUG] console.log(`No suggestions found, retrying in ${retryDelay/1000}s (attempt ${retryCount + 1})`);
                 setTimeout(() => {
                     renderNextQuestionSuggestions(conversationId, retryCount + 1);
                 }, retryDelay);

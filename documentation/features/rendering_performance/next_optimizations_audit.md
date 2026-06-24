@@ -1645,6 +1645,7 @@ Organized into three tiers by estimated impact on perceived load time.
 | R8 | 3.9 — Artefacts diff line-by-line batching | Replace per-line `.append()` with single `.html()` using `lines.map(buildDiffLine).join('')` | <100ms in diff view (500-line diffs) | Low | Low | `artefacts-manager.js:720-754` |
 | R9 | 3.7 — File browser path suggestion Set | Maintain JS-side `Set` of paths updated incrementally on tree changes, instead of full DOM walk on every `loadTree` call | <100ms in file browser modal | Low | Low | `file-browser-manager.js:800-812` |
 | R10 | 3.1 — Dark mode conditional CSS load | Check `localStorage.getItem('darkMode')` before loading `dark-mode.css` (809 rules). Or use CSS custom properties + single class toggle. | <50ms CSS parse time for light-mode users | Low | Low — must test runtime dark mode toggle still works | `interface.html:187` |
+| R12 | Per-card chunking + collapsed card deferral | `CHUNK_SIZE=1` for per-card browser yields. `skip_deferred_formatting` skips tabs/ToC/UIState for collapsed cards. Deferred `initialiseVoteBank` + `decorateMessageCardNav` via `setTimeout(0)`. Removed wasted `textElem.html()`. | 50-200ms per collapsed card (×15-20 cards = 1-4s total); scrollable after 1st card instead of 5th | Low | Low — expand handler re-applies tabs+ToC; voteBank/decorateNav are cosmetic; streaming path unaffected (param defaults false) | `common-chat.js:2960,2806-2870`, `common.js:4940,5591-5624,5714` |
 
 ### Lower Priority / High Effort
 
@@ -1667,6 +1668,7 @@ Organized into three tiers by estimated impact on perceived load time.
 | R9 — File browser path Set | **Pending** | Low effort. |
 | R10 — Dark mode conditional CSS | **Pending** | Low effort. |
 | R11 — Web Worker markdown | **Deferred** | Only if R1-R3 insufficient. |
+| R12 — Per-card chunking + collapsed card deferral | **DONE** | Four changes: (1) `CHUNK_SIZE=1` — each card gets its own `setTimeout(0)` yield, so the browser can paint and handle scroll events between every card build. Page becomes scrollable after the first card instead of after 5. (2) `skip_deferred_formatting` parameter on `renderInnerContentAsMarkdown` — skips `applyModelResponseTabs`, `updateMessageTocForElement`, and `applyConversationUIState` for cards that will be collapsed by `showMore()` (`show_hide!='show' && text>300`). The delegated expand handler at `common.js:2570` re-applies both on first [show] click. (3) Deferred `initialiseVoteBank` and `decorateMessageCardNav` via `setTimeout(0)` — both set up dropdown menu and navigation UI that users don't interact with during initial load. (4) Removed wasted `textElem.html(message.text)` call that was immediately overwritten by `renderInnerContentAsMarkdown`. Syntax verified with `node --check`. |
 
 ### Deep Analysis: showMore() DOM Cloning (R1)
 
@@ -2006,5 +2008,6 @@ $.when(restorePromise, messagesRequest).done() ->
 3. **R3** (double marked parse) — **DONE**. Low effort, 0.5-1s savings
 4. **R7 + R8** (file browser debounce + diff batching) — Trivial 1-liners
 5. **R4** (defer ready handlers) — **DONE**. 23 handlers deferred via `deferReady()`, 100-300ms savings
-6. **R5** (batch MathJax) — Medium effort, math-conversation-specific
-7. **R9 + R10** (path Set + dark mode CSS) — Low effort, low impact
+6. **R12** (per-card chunking + collapsed card deferral) — **DONE**. CHUNK_SIZE=1, skip tabs/ToC/UIState for collapsed, defer voteBank+decorateNav, remove wasted .html()
+7. **R5** (batch MathJax) — Medium effort, math-conversation-specific
+8. **R9 + R10** (path Set + dark mode CSS) — Low effort, low impact

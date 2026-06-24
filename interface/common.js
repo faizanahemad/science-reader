@@ -32,6 +32,180 @@ window.deferReady = window.requestIdleCallback
     ? function(fn) { $(document).ready(function() { requestIdleCallback(fn, { timeout: 200 }); }); }
     : function(fn) { $(document).ready(function() { setTimeout(fn, 1); }); };
 
+// --- Performance instrumentation utility ---
+// Enable with: window._PERF = true  (in browser console before loading a conversation)
+// Or set window._PERF = true in chat.js boot sequence for always-on profiling.
+//
+// Usage:
+//   var t = _perfStart('renderMessages');   // starts a performance.mark + console.time
+//   ... do work ...
+//   _perfEnd('renderMessages', t);          // ends mark, logs duration, creates performance.measure
+//
+// In Chrome DevTools Performance tab, these show up as named measures in the "Timings" lane.
+// In console, they show up as grouped timing summaries.
+//
+// For per-card tracking:
+//   var t = _perfStart('buildCard#' + i);
+//   ... build card ...
+//   _perfEnd('buildCard#' + i, t);
+//
+// After a conversation load, call _perfSummary() to print a grouped summary table.
+window._PERF = true;  // enabled by default — set to false to silence perf logging
+window._perfTimings = {};  // collects {label: [durations...]} for summary
+
+window._perfStart = function(label) {
+    if (!window._PERF) return 0;
+    try { performance.mark('⏱' + label + '-start'); } catch(e) {}
+    return performance.now();
+};
+
+window._perfEnd = function(label, startTime) {
+    if (!window._PERF || !startTime) return;
+    var dur = performance.now() - startTime;
+    try {
+        performance.mark('⏱' + label + '-end');
+        performance.measure('⏱' + label, '⏱' + label + '-start', '⏱' + label + '-end');
+    } catch(e) {}
+    // Collect for summary
+    var base = label.replace(/#\d+$/, '');  // strip card index for grouping
+    if (!window._perfTimings[base]) window._perfTimings[base] = [];
+    window._perfTimings[base].push(dur);
+    return dur;
+};
+
+window._perfSummary = function() {
+    if (!window._perfTimings || Object.keys(window._perfTimings).length === 0) {
+        console.log('[PERF] No timings collected. Set window._PERF = true and load a conversation.');
+        return;
+    }
+    console.group('%c[PERF] Render Pipeline Summary', 'font-weight:bold;color:#2196F3');
+    var entries = Object.keys(window._perfTimings).map(function(label) {
+        var times = window._perfTimings[label];
+        var total = times.reduce(function(a,b) { return a+b; }, 0);
+        var avg = total / times.length;
+        var max = Math.max.apply(null, times);
+        var min = Math.min.apply(null, times);
+        return { label: label, count: times.length, total: total, avg: avg, min: min, max: max };
+    });
+    entries.sort(function(a,b) { return b.total - a.total; });  // sort by total time desc
+    console.table(entries.map(function(e) {
+        return {
+            Label: e.label,
+            Count: e.count,
+            'Total (ms)': Math.round(e.total),
+            'Avg (ms)': Math.round(e.avg * 10) / 10,
+            'Min (ms)': Math.round(e.min * 10) / 10,
+            'Max (ms)': Math.round(e.max * 10) / 10
+        };
+    }));
+    console.groupEnd();
+};
+
+window._perfJSON = function() {
+    if (!window._perfTimings || Object.keys(window._perfTimings).length === 0) {
+        console.log('[PERF] No timings collected.');
+        return '{}';
+    }
+    var entries = Object.keys(window._perfTimings).map(function(label) {
+        var times = window._perfTimings[label];
+        var total = times.reduce(function(a,b) { return a+b; }, 0);
+        var avg = total / times.length;
+        return {
+            label: label, count: times.length,
+            total_ms: Math.round(total),
+            avg_ms: Math.round(avg * 10) / 10,
+            min_ms: Math.round(Math.min.apply(null, times) * 10) / 10,
+            max_ms: Math.round(Math.max.apply(null, times) * 10) / 10
+        };
+    });
+    entries.sort(function(a,b) { return b.total_ms - a.total_ms; });
+    var json = JSON.stringify(entries, null, 2);
+    // Copy to clipboard — navigator.clipboard requires document focus, which is
+    // lost when typing in DevTools console.  Fall back to the legacy execCommand path.
+    try {
+        var ta = document.createElement('textarea');
+        ta.value = json;
+        ta.style.cssText = 'position:fixed;left:-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        console.log('[PERF] Copied to clipboard.');
+    } catch(e) { console.log('[PERF] Clipboard copy failed — select the return value manually.'); }
+    return json;
+};
+
+window._perfReset = function() {
+    window._perfTimings = {};
+    try { performance.clearMarks(); performance.clearMeasures(); } catch(e) {}
+    console.log('[PERF] Timings reset.');
+};
+
+// ---------------------------------------------------------------------------
+// Yielding MathJax scheduler (R5)
+// ---------------------------------------------------------------------------
+// MathJax 2's Hub.Queue processes entries back-to-back synchronously — if 40
+// Typeset calls are queued at once, the entire batch runs as one giant main-
+// thread task ("Processing Math: 100%") that freezes the page for seconds.
+//
+// This scheduler collects pending Typeset requests and drains them ONE AT A
+// TIME, yielding to the browser event loop (setTimeout(0)) between each so
+// the page stays scrollable and responsive while math renders progressively.
+//
+// Usage (drop-in replacement for MathJax.Hub.Queue(["Typeset", ...])):
+//   _mathJaxScheduler.enqueue(element, afterCallback, priority)
+//   priority = true  → prepend (for the visible/last card)
+//   priority = false → append (for deferred/off-screen cards)
+//
+// During streaming (continuous=true), callers should BYPASS the scheduler and
+// call MathJax.Hub.Queue directly — streaming already controls its own pacing.
+// ---------------------------------------------------------------------------
+window._mathJaxScheduler = (function() {
+    var _queue = [];       // [{elem, callback}, ...]
+    var _running = false;  // true while draining
+
+    function _drain() {
+        if (_queue.length === 0) {
+            _running = false;
+            return;
+        }
+        var item = _queue.shift();
+        var _t = _perfStart('mathJaxTypeset');
+        MathJax.Hub.Queue(["Typeset", MathJax.Hub, item.elem]);
+        MathJax.Hub.Queue(function() {
+            _perfEnd('mathJaxTypeset', _t);
+            if (item.callback) {
+                try { item.callback(); } catch(e) {}
+            }
+            // Yield before processing the next element — this is the key fix.
+            // setTimeout(0) lets the browser run paint, scroll, and input handlers
+            // between each card's MathJax typeset.
+            setTimeout(_drain, 0);
+        });
+    }
+
+    return {
+        enqueue: function(elem, callback, priority) {
+            if (priority) {
+                _queue.unshift({elem: elem, callback: callback});
+            } else {
+                _queue.push({elem: elem, callback: callback});
+            }
+            if (!_running) {
+                _running = true;
+                // First item: start immediately (no extra delay for the first card)
+                _drain();
+            }
+        },
+        /** Discard all pending items (e.g. on conversation switch). */
+        clear: function() {
+            _queue = [];
+        },
+        /** Number of items waiting. */
+        pending: function() { return _queue.length; }
+    };
+})();
+
 // Keep this aligned with `CACHE_VERSION` in `interface/service-worker.js` when you want
 // deterministic invalidation of cached UI assets and rendered-state snapshots.
 window.UI_CACHE_VERSION = "v24";
@@ -1176,7 +1350,7 @@ function setMaxHeightForTextbox(textboxId, height = 10) {
     } catch (e) {
         // Default to 20px line height if computation fails
         lineHeight = 20;
-        console.log("Could not compute line height, using default value of 20px");
+        // [DEBUG] console.log("Could not compute line height, using default value of 20px");
     }
 
     // Set max-height for 10 lines
@@ -1394,7 +1568,7 @@ function restoreChatViewScrollAnchor($chatView, anchor) {
 }
 
 function showMore(parentElem, text = null, textElem = null, as_html = false, show_at_start = false, server_side = null) {
-
+    var _smT = _perfStart('showMore');
     if (textElem) {
 
         if (as_html) {
@@ -1567,7 +1741,7 @@ function showMore(parentElem, text = null, textElem = null, as_html = false, sho
             apiCall(`/show_hide_message_from_conversation/${conversation_id}/${message_id}/0`, 'POST', {
                 'show_hide': show_hide
             }).done(function(data) {
-                console.log('Show/hide state saved: ' + show_hide);
+                // [DEBUG] console.log('Show/hide state saved: ' + show_hide);
             }).fail(function(xhr, status, error) {
                 alert('Failed to save show/hide state: ' + (xhr.responseJSON?.message || error || 'Unknown error'));
             });
@@ -1580,6 +1754,7 @@ function showMore(parentElem, text = null, textElem = null, as_html = false, sho
 
 
     textElem.find('.show-more').click(toggle);
+    _perfEnd('showMore', _smT);
     return toggle;
 }
 
@@ -2593,7 +2768,7 @@ $(document).on('click', '.show-more', function(e) {
                 apiCall('/show_hide_message_from_conversation/' + convId + '/' + messageId + '/0', 'POST', {
                     'show_hide': showHide
                 }).done(function() {
-                    console.log('Show/hide state saved: ' + showHide);
+                    // [DEBUG] console.log('Show/hide state saved: ' + showHide);
                 }).fail(function(xhr, status, error) {
                     console.error('Failed to save show/hide state:', error);
                 });
@@ -3511,7 +3686,7 @@ function applyModelResponseTabs(elem_to_render_in) {
 
     // DIAGNOSTIC: Log what applyModelResponseTabs found
     if (!isLiveStreaming) {
-        console.warn('[applyModelResponseTabs] $root:', $root.prop('tagName'), $root.attr('class'), '| visualWrapper:', $visualWrapper.length, '| hasVisualWrapper:', hasVisualWrapper, '| tldrWrapper:', $tldrWrapper.length, '| hasTldrWrapper:', hasTldrWrapper, '| isLiveStreaming:', isLiveStreaming);
+        // [DEBUG] console.warn('[applyModelResponseTabs] $root:', $root.prop('tagName'), $root.attr('class'), '| visualWrapper:', $visualWrapper.length, '| hasVisualWrapper:', hasVisualWrapper, '| tldrWrapper:', $tldrWrapper.length, '| hasTldrWrapper:', hasTldrWrapper, '| isLiveStreaming:', isLiveStreaming);
     }
     if ($detailsBlocks.length > 0) {
         $detailsBlocks.each(function(i) {
@@ -3704,7 +3879,7 @@ function applyModelResponseTabs(elem_to_render_in) {
     }
 
     if (!isLiveStreaming) {
-        console.warn('[applyModelResponseTabs] shouldBuildTabs:', shouldBuildTabs, '| models:', modelDetails.length, '| actuallyHasTldrContent:', actuallyHasTldrContent, '| actuallyHasVisualContent:', actuallyHasVisualContent, '| isLiveStreaming:', isLiveStreaming);
+        // [DEBUG] console.warn('[applyModelResponseTabs] shouldBuildTabs:', shouldBuildTabs, '| models:', modelDetails.length, '| actuallyHasTldrContent:', actuallyHasTldrContent, '| actuallyHasVisualContent:', actuallyHasVisualContent, '| isLiveStreaming:', isLiveStreaming);
     }
     if (!shouldBuildTabs) {
         if ($existingContainer.length > 0) {
@@ -4067,7 +4242,7 @@ function applyModelResponseTabs(elem_to_render_in) {
 
     // Hide visual source (content is now in the Visual tab)
     if (actuallyHasVisualContent) {
-        console.warn('[applyModelResponseTabs] HIDING visual source | visualDetails:', visualDetails.length, '| hasVisualWrapper:', hasVisualWrapper, '| $visualWrapper.length:', $visualWrapper.length);
+        // [DEBUG] console.warn('[applyModelResponseTabs] HIDING visual source | visualDetails:', visualDetails.length, '| hasVisualWrapper:', hasVisualWrapper, '| $visualWrapper.length:', $visualWrapper.length);
         visualDetails.forEach(function(item) { item.element.attr('data-model-tabs-hidden', 'true'); item.element[0].style.display = 'none'; });
         if (hasVisualWrapper && $visualWrapper.length > 0) {
             $visualWrapper.attr('data-model-tabs-hidden', 'true');
@@ -4801,7 +4976,7 @@ function persistSectionState(conversation_id, sectionHash, isHidden) {
             section_details: sectionDetails
         }),
         success: function(response) {
-            console.log('Section state persisted:', response);
+            // [DEBUG] console.log('Section state persisted:', response);
         },
         error: function(xhr, status, error) {
             console.error('Failed to persist section state:', error);
@@ -4937,7 +5112,8 @@ function isFenceLine(str, idx) {
     return true;
 }
 
-function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = false, html = null, immediate_callback = null, defer_mathjax = false) {
+function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = false, html = null, immediate_callback = null, defer_mathjax = false, skip_deferred_formatting = false) {
+    var _rimT = _perfStart('renderInner');
     /**
      * Render markdown/HTML content into a DOM element with MathJax typesetting,
      * model response tabs, ToC generation, and showMore() support.
@@ -4952,6 +5128,11 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
      * @param {boolean}  defer_mathjax       - When true, MathJax typesetting is deferred via
      *                                         setTimeout(0) so higher-priority cards (e.g. the last
      *                                         message) get processed first. Default: false.
+     * @param {boolean}  skip_deferred_formatting - When true, skip applyModelResponseTabs,
+     *                                         updateMessageTocForElement, and applyConversationUIState.
+     *                                         Used for cards that will be collapsed by showMore() —
+     *                                         these are invisible and get re-applied on first expand
+     *                                         via the delegated toggle handler (R1 optimization).
      *
      * Purpose:
      * Central rendering function for chat messages. Converts markdown to HTML,
@@ -5045,7 +5226,7 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
     if (html.indexOf('answer_visual') !== -1) {
         var hasOpenAnswerVisual = /<\s*answer_visual\s*>/i.test(html);
         var hasCloseAnswerVisual = /<\s*\/\s*answer_visual\s*>/i.test(html);
-        console.warn('[renderInnerContentAsMarkdown] FOUND answer_visual in input | continuous:', continuous, '| len:', html.length, '| hasOpen:', hasOpenAnswerVisual, '| hasClose:', hasCloseAnswerVisual);
+        // [DEBUG] console.warn('[renderInnerContentAsMarkdown] FOUND answer_visual in input | continuous:', continuous, '| len:', html.length, '| hasOpen:', hasOpenAnswerVisual, '| hasClose:', hasCloseAnswerVisual);
         if (hasOpenAnswerVisual && hasCloseAnswerVisual) {
             // Both tags present — safe to convert
             html = html.replace(/<\s*answer_visual\s*>/gi, '<!--ANSWER_VISUAL_OPEN-->')
@@ -5420,7 +5601,9 @@ ${innerSectionRendered}
             return workingContent;
         }
         
+        var _pcdT = _perfStart('processContentWithDetails');
         html = processContentWithDetails(html);
+        _perfEnd('processContentWithDetails', _pcdT);
     }
 
     // Check if this input contains slide presentation tags at all
@@ -5513,7 +5696,9 @@ ${innerSectionRendered}
         if (_sectionsFullyRendered) {
             htmlChunk = html; // already fully rendered HTML — no redundant parse
         } else {
+            var _markedT = _perfStart('marked.marked');
             htmlChunk = marked.marked(normalizeOverIndentedLists(html), { renderer: markdownParser });
+            _perfEnd('marked.marked', _markedT);
         }
     }
 
@@ -5521,11 +5706,11 @@ ${innerSectionRendered}
     // (done after marked so markdown inside the visual block is rendered properly)
     // Fast indexOf gate: skip when no placeholders present
     if (htmlChunk.indexOf('ANSWER_VISUAL') !== -1) {
-        console.warn('[renderInnerContentAsMarkdown] ANSWER_VISUAL comment found in htmlChunk, converting to div');
+        // [DEBUG] console.warn('[renderInnerContentAsMarkdown] ANSWER_VISUAL comment found in htmlChunk, converting to div');
         htmlChunk = htmlChunk.replace(/<!--ANSWER_VISUAL_OPEN-->/g, '<div data-answer-visual="true">')
             .replace(/<!--ANSWER_VISUAL_CLOSE-->/g, '</div>');
         if (htmlChunk.indexOf('data-answer-visual') !== -1) {
-            console.warn('[renderInnerContentAsMarkdown] SUCCESS: data-answer-visual div is in final htmlChunk');
+            // [DEBUG] console.warn('[renderInnerContentAsMarkdown] SUCCESS: data-answer-visual div is in final htmlChunk');
         }
     }
     
@@ -5558,11 +5743,13 @@ ${innerSectionRendered}
     }
     
     try {
+        var _domWriteT = _perfStart('innerHTML');
         if (targetElement.innerHTML !== undefined) {
             targetElement.innerHTML = htmlChunk;
         } else {
             $(targetElement).html(htmlChunk);
         }
+        _perfEnd('innerHTML', _domWriteT);
     } catch (error) {
         console.warn('DOM write failed, using fallback:', error);
         try { $(elem_to_render_in).html(htmlChunk); } catch (e) { /* ignore */ }
@@ -5571,7 +5758,7 @@ ${innerSectionRendered}
     // Verify visual div survived DOM insertion
     if (htmlChunk.indexOf('data-answer-visual') !== -1) {
         var _domHasIt = targetElement.innerHTML.indexOf('data-answer-visual') !== -1;
-        console.warn('[renderInnerContentAsMarkdown] POST-innerHTML | div in DOM:', _domHasIt, '| targetElement id:', targetElement.id, '| parentId:', (targetElement.parentElement||{}).id);
+        // [DEBUG] console.warn('[renderInnerContentAsMarkdown] POST-innerHTML | div in DOM:', _domHasIt, '| targetElement id:', targetElement.id, '| parentId:', (targetElement.parentElement||{}).id);
     }
 
     // Gate applyModelResponseTabs with a fast string check before touching the DOM.
@@ -5583,33 +5770,46 @@ ${innerSectionRendered}
     // .model-tabs-container. This covers re-renders where a container built by a prior
     // streaming cycle needs to be cleaned up even though the fresh htmlChunk no longer
     // contains tab markers.
-    var _needsModelTabs = htmlChunk.indexOf('data-answer-tldr') !== -1
-                       || htmlChunk.indexOf('data-answer-visual') !== -1
-                       || htmlChunk.indexOf('<details') !== -1
-                       || htmlChunk.indexOf('model-tabs-container') !== -1
-                       || (elem_to_render_in && $(elem_to_render_in).closest('.chat-card-body[data-has-tabs]').length > 0);
-    if (_needsModelTabs) {
-        try {
-            applyModelResponseTabs(elem_to_render_in);
-        } catch (e) {
-            console.warn('Model tabs render failed:', e);
+    //
+    // skip_deferred_formatting: When the card will be collapsed by showMore() (show_hide='hide'),
+    // tabs and ToC are invisible.  The delegated expand handler (R1) re-applies both on
+    // first [show] click, so we skip them here to save 50-200ms per collapsed card.
+    if (!skip_deferred_formatting) {
+        var _needsModelTabs = htmlChunk.indexOf('data-answer-tldr') !== -1
+                           || htmlChunk.indexOf('data-answer-visual') !== -1
+                           || htmlChunk.indexOf('<details') !== -1
+                           || htmlChunk.indexOf('model-tabs-container') !== -1
+                           || (elem_to_render_in && $(elem_to_render_in).closest('.chat-card-body[data-has-tabs]').length > 0);
+        if (_needsModelTabs) {
+            try {
+                var _tabsT = _perfStart('applyModelResponseTabs');
+                applyModelResponseTabs(elem_to_render_in);
+                _perfEnd('applyModelResponseTabs', _tabsT);
+            } catch (e) {
+                console.warn('Model tabs render failed:', e);
+            }
         }
-    }
 
-    // Verify visual div survived applyModelResponseTabs
-    if (htmlChunk.indexOf('data-answer-visual') !== -1) {
-        var _domHasItAfterTabs = targetElement.innerHTML.indexOf('data-answer-visual') !== -1;
-        console.warn('[renderInnerContentAsMarkdown] POST-applyTabs | div in DOM:', _domHasItAfterTabs);
+        // Verify visual div survived applyModelResponseTabs
+        if (htmlChunk.indexOf('data-answer-visual') !== -1) {
+            var _domHasItAfterTabs = targetElement.innerHTML.indexOf('data-answer-visual') !== -1;
+            // [DEBUG] console.warn('[renderInnerContentAsMarkdown] POST-applyTabs | div in DOM:', _domHasItAfterTabs);
+        }
     }
 
     // Update Table of Contents (ToC) for long answers.
     // Important: The ToC container is placed in the card-body (outside the render element),
     // so showMore() doesn't collapse it. Safe to call during streaming; internally throttled.
-    try {
-        updateMessageTocForElement(elem_to_render_in, html, continuous);
-    } catch (e) {
-        // Never break rendering due to ToC issues
-        console.warn('ToC update failed:', e);
+    // Skipped when skip_deferred_formatting=true (collapsed cards) — re-generated on expand.
+    if (!skip_deferred_formatting) {
+        try {
+            var _tocT = _perfStart('updateMessageToc');
+            updateMessageTocForElement(elem_to_render_in, html, continuous);
+            _perfEnd('updateMessageToc', _tocT);
+        } catch (e) {
+            // Never break rendering due to ToC issues
+            console.warn('ToC update failed:', e);
+        }
     }
 
     mathjax_elem = elem_to_render_in[0] || jqelem;
@@ -5622,74 +5822,57 @@ ${innerSectionRendered}
     // Patterns matched: $...$ / $$...$$  \(...\)  \[...\]  \begin{...}
     var hasMath = /(\$|\\[()\[\]]|\\begin\{)/.test(html);
 
-    // Queue MathJax typesetting.
-    // When defer_mathjax=true, wrap in setTimeout(0) so the MathJax queue item is added
-    // AFTER the current call stack completes. This allows non-deferred cards (e.g. the last
-    // message, which the user is reading) to get their MathJax processed first.
-    // This dramatically improves perceived rendering speed for the most relevant card.
-    function _queueMathJax() {
-        if (hasMath) {
-            MathJax.Hub.Queue(["Typeset", MathJax.Hub, mathjax_elem]);
-
-            // After MathJax finishes:
-            // 1. Release the min-height lock so the element can size naturally
-            // 2. Handle slide height adjustment if applicable
-            MathJax.Hub.Queue(function() {
-                // Release min-height lock set before innerHTML replacement.
-                // At this point MathJax has re-typeset the math, so the element
-                // should be at its correct natural height (or larger).
-                if (_lockedMinHeight) {
-                    try {
-                        targetElement.style.minHeight = '';
-                    } catch (e) { /* ignore */ }
+    // Build a post-typeset callback that handles min-height release, slide adjust,
+    // and the caller's callback — shared by both the streaming and scheduler paths.
+    var _postTypesetCb = function() {
+        if (_lockedMinHeight) {
+            try { targetElement.style.minHeight = ''; } catch (e) { /* ignore */ }
+        }
+        if (isSlidePresentation) {
+            requestAnimationFrame(function() {
+                try {
+                    var slideWrapper = $(elem_to_render_in).find('.slide-presentation-wrapper');
+                    if (slideWrapper && slideWrapper.length > 0) {
+                        adjustCardHeightForSlides(slideWrapper);
+                    }
+                } catch (e) {
+                    console.warn('Post-MathJax slide height adjust failed:', e);
                 }
             });
-
-            // After MathJax finishes, handle slide height adjustment
-            if (isSlidePresentation) {
-                MathJax.Hub.Queue(function() {
-                    requestAnimationFrame(function() {
-                        try {
-                            var slideWrapper = $(elem_to_render_in).find('.slide-presentation-wrapper');
-                            if (slideWrapper && slideWrapper.length > 0) {
-                                adjustCardHeightForSlides(slideWrapper);
-                            }
-                        } catch (e) {
-                            console.warn('Post-MathJax slide height adjust failed:', e);
-                        }
-                    });
-                });
-            }
-
-            if (callback) {
-                MathJax.Hub.Queue(callback);
-            }
-        } else {
-            // No math in this block — skip the MathJax queue entirely.
-            // Still release the min-height lock and fire the callback synchronously
-            // so callers behave identically regardless of whether math was present.
-            if (_lockedMinHeight) {
-                try { targetElement.style.minHeight = ''; } catch (e) { /* ignore */ }
-            }
-            if (callback) {
-                callback();
-            }
         }
-    }
+        if (callback) { callback(); }
+    };
 
-    if (defer_mathjax) {
-        // Deferred: yield to browser event loop so priority cards process first.
-        // setTimeout(0) ensures this runs after all synchronous code (including the
-        // last card's immediate MathJax queue) completes.
-        setTimeout(_queueMathJax, 0);
+    if (hasMath) {
+        if (continuous) {
+            // STREAMING PATH: call MathJax.Hub.Queue directly — streaming already
+            // controls its own pacing (render threshold + isInsideDisplayMath gate).
+            MathJax.Hub.Queue(["Typeset", MathJax.Hub, mathjax_elem]);
+            MathJax.Hub.Queue(_postTypesetCb);
+        } else {
+            // HISTORY LOAD PATH: use the yielding scheduler (R5) so the browser
+            // stays responsive between each card's typeset.  The scheduler yields
+            // via setTimeout(0) between elements instead of chaining them all in
+            // MathJax's synchronous FIFO queue.
+            //
+            // priority = !defer_mathjax → last/visible card gets typeset first.
+            _mathJaxScheduler.enqueue(mathjax_elem, _postTypesetCb, !defer_mathjax);
+        }
     } else {
-        // Immediate: add to MathJax queue now (high priority — last/visible card).
-        _queueMathJax();
+        // No math in this block — skip MathJax entirely.
+        if (_lockedMinHeight) {
+            try { targetElement.style.minHeight = ''; } catch (e) { /* ignore */ }
+        }
+        if (callback) { callback(); }
     }
 
     if (immediate_callback) {
+        var _icbT = _perfStart('immediate_callback');
         immediate_callback();
+        _perfEnd('immediate_callback', _icbT);
     }
+
+    _perfEnd('renderInner', _rimT);
 
     // Paint sections in their FINAL collapsed/expanded state synchronously — before
     // the browser paints — using the cached UI state folded into the list_messages
@@ -5697,8 +5880,11 @@ ${innerSectionRendered}
     // fetchConversationUIState (below) otherwise caused. No-op while streaming or
     // when the cache is empty (the debounced call then handles it). Scoped to the
     // card body so it also covers section clones inside a .model-tabs-container.
-    if (!continuous && !MOCK_SECTION_STATE_API) {
+    // Skipped when skip_deferred_formatting=true (collapsed cards) — section state
+    // is irrelevant when the whole card content is hidden behind [show].
+    if (!skip_deferred_formatting && !continuous && !MOCK_SECTION_STATE_API) {
         try {
+            var _uiStateT = _perfStart('applyUIState');
             var _uiConvId = (typeof ConversationManager !== 'undefined' && ConversationManager && ConversationManager.getActiveConversation && ConversationManager.getActiveConversation() != '') ? ConversationManager.getActiveConversation() : '';
             if (_uiConvId && window.ConversationUIState && window.ConversationUIState.has(_uiConvId)) {
                 var _uiEntry = window.ConversationUIState.get(_uiConvId);
@@ -5716,6 +5902,7 @@ ${innerSectionRendered}
                 applyConversationUIState(_uiEntry.section_details, _uiEntry.message_show_hide, _uiScope);
                 window.ConversationUIState.markApplied(_uiConvId);
             }
+            _perfEnd('applyUIState', _uiStateT);
         } catch (e) { /* ignore */ }
     }
 
@@ -5977,11 +6164,11 @@ function copyToClipboard(textElem, textToCopy, mode = "text") {
         if (textElem && typeof textElem.getValue === 'function') {  
             // CodeMirror 5 API  
             textToCopy = textElem.getValue();  
-            console.log("📋 Using CodeMirror 5 API for copy");  
+            // [DEBUG] console.log("📋 Using CodeMirror 5 API for copy");  
         } else if (textElem && textElem.state && textElem.state.doc) {  
             // CodeMirror 6 API  
             textToCopy = textElem.state.doc.toString();  
-            console.log("📋 Using CodeMirror 6 API for copy");  
+            // [DEBUG] console.log("📋 Using CodeMirror 6 API for copy");  
         } else {  
             console.error("❌ Invalid CodeMirror editor instance:", textElem);  
             showToast("Failed to access editor content", "error");  
@@ -6018,7 +6205,7 @@ function copyToClipboard(textElem, textToCopy, mode = "text") {
     if (navigator.clipboard && navigator.clipboard.writeText) {  
         // New Clipboard API  
         navigator.clipboard.writeText(textToCopy).then(() => {  
-            console.log("✅ Text successfully copied to clipboard");  
+            // [DEBUG] console.log("✅ Text successfully copied to clipboard");  
             showToast("Code copied to clipboard!", "success");  
         }).catch(err => {  
             console.warn("⚠️ Copy to clipboard failed.", err);  
@@ -6323,7 +6510,7 @@ function initializeSlidePresentation(container) {
         });
         
         revealInstance.initialize().then(function() {
-            console.log('Reveal.js initialized successfully for slide presentation');
+            // [DEBUG] console.log('Reveal.js initialized successfully for slide presentation');
             
             // Add navigation controls if they don't exist
             addSlideNavigationControls(slideWrapper);
@@ -6347,7 +6534,7 @@ function initializeSlidePresentation(container) {
             // Ensure the Bootstrap card grows enough to contain the slides
             setTimeout(function() {
                 adjustCardHeightForSlides(slideWrapper);
-                console.log('Initial card height adjustment completed');
+                // [DEBUG] console.log('Initial card height adjustment completed');
             }, 100);
             
             // Also adjust on window resize
@@ -6437,7 +6624,7 @@ function adjustCardHeightForSlides(slideWrapper) {
     try {
         var cardBody = slideWrapper.closest('.card-body');
         if (!cardBody.length) { 
-            console.log('No card-body found for slide adjustment');
+            // [DEBUG] console.log('No card-body found for slide adjustment');
             return; 
         }
         
@@ -6445,7 +6632,7 @@ function adjustCardHeightForSlides(slideWrapper) {
         var messageCard = cardBody.closest('.card.message-card');
         if (messageCard.length) {
             messageCard.addClass('has-slides');
-            console.log('Added has-slides class to message card');
+            // [DEBUG] console.log('Added has-slides class to message card');
         }
         
         // Calculate desired height: slide container height + controls + padding
@@ -6454,7 +6641,7 @@ function adjustCardHeightForSlides(slideWrapper) {
         var controlsHeight = controls.length ? controls.outerHeight(true) : 40;
         var desired = Math.max(600, wrapperHeight + controlsHeight + 40);
         
-        console.log('Adjusting card height - wrapper:', wrapperHeight, 'controls:', controlsHeight, 'desired:', desired);
+        // [DEBUG] console.log('Adjusting card height - wrapper:', wrapperHeight, 'controls:', controlsHeight, 'desired:', desired);
         
         // Apply min-height and ensure no clipping
         cardBody.css({ 
@@ -6539,7 +6726,7 @@ function clearSwCaches() {
         tasks.push(
             caches.keys().then(function(names) {
                 return Promise.all(names.map(function(name) {
-                    console.log('[clearSwCaches] deleting cache:', name);
+                    // [DEBUG] console.log('[clearSwCaches] deleting cache:', name);
                     return caches.delete(name);
                 }));
             })
@@ -6550,7 +6737,7 @@ function clearSwCaches() {
         tasks.push(
             navigator.serviceWorker.getRegistrations().then(function(regs) {
                 return Promise.all(regs.map(function(reg) {
-                    console.log('[clearSwCaches] unregistering SW:', reg.scope);
+                    // [DEBUG] console.log('[clearSwCaches] unregistering SW:', reg.scope);
                     return reg.unregister();
                 }));
             })
@@ -6582,6 +6769,6 @@ function clearSwCaches() {
     } catch (_e) { /* best-effort */ }
 
     return Promise.all(tasks)
-        .then(function() { console.log('[clearSwCaches] all caches cleared'); })
+        .then(function() { /* [DEBUG] console.log('[clearSwCaches] all caches cleared'); */ })
         .catch(function(err) { console.warn('[clearSwCaches] error:', err); });
 }

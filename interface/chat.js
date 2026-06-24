@@ -128,7 +128,7 @@ function saveUserDetail(text) {
         contentType: 'application/json',
         data: JSON.stringify({ 'text': text }),
         success: function(result) {
-            console.log('User details saved successfully');
+            // [DEBUG] console.log('User details saved successfully');
         },
         error: function(xhr) {
             console.error('Error saving user details:', xhr.responseText);
@@ -157,7 +157,7 @@ function saveUserPreference(text) {
         contentType: 'application/json',
         data: JSON.stringify({ 'text': text }),
         success: function(result) {
-            console.log('User preferences saved successfully');
+            // [DEBUG] console.log('User preferences saved successfully');
         },
         error: function(xhr) {
             console.error('Error saving user preferences:', xhr.responseText);
@@ -259,7 +259,7 @@ function chat_interface_readiness() {
     });
     // Chat Settings Modal Handler
     $('#chatSettingsButton').click(function () {
-        console.log('Chat settings button clicked');
+        // [DEBUG] console.log('Chat settings button clicked');
         // Ensure modal reflects latest saved state (if any)
         loadSettingsIntoModal();
         // Show the modal with proper configuration
@@ -273,18 +273,18 @@ function chat_interface_readiness() {
         // Ensure modal is properly focused and clickable
         setTimeout(function() {
             $('#chat-settings-modal').focus();
-            console.log('Chat settings modal should be visible');
+            // [DEBUG] console.log('Chat settings modal should be visible');
         }, 100);
     });
 
     // Handle modal events for debugging and auto-apply
     $('#chat-settings-modal').on('shown.bs.modal', function () {
-        console.log('Chat settings modal shown');
+        // [DEBUG] console.log('Chat settings modal shown');
         $(this).focus();
     });
 
     $('#chat-settings-modal').on('hidden.bs.modal', function () {
-        console.log('Chat settings modal hidden - auto-applying settings');
+        // [DEBUG] console.log('Chat settings modal hidden - auto-applying settings');
         // Auto-apply settings when modal closes and persist to state/localStorage
         // Use a small delay to ensure SelectPicker has synced its state to the 
         // underlying select elements, especially important on mobile devices
@@ -455,7 +455,7 @@ function chat_interface_readiness() {
 
     // Ensure modal close buttons work
     $('#chat-settings-modal .close, #chat-settings-modal [data-dismiss="modal"]').click(function() {
-        console.log('Closing chat settings modal');
+        // [DEBUG] console.log('Closing chat settings modal');
         $('#chat-settings-modal').modal('hide');
     });
 
@@ -516,7 +516,7 @@ function chat_interface_readiness() {
 
     // Open Terminal from OpenCode settings modal
     $('#opencode-open-terminal-button').click(function() {
-        console.log('[Terminal] opencode-open-terminal-button clicked');
+        // [DEBUG] console.log('[Terminal] opencode-open-terminal-button clicked');
         window._showTerminalModal();
     });
     // --- Terminal Modal (manual DOM, bypasses Bootstrap modal JS) ---
@@ -804,7 +804,7 @@ function populateCustomPromptsInDOM() {
                     .text(prompt.displayName);
                 customPromptsGroup.append(option);
             });
-            console.log(`Populated ${window.availableCustomPrompts.length} custom prompts in DOM`);
+            // [DEBUG] console.log(`Populated ${window.availableCustomPrompts.length} custom prompts in DOM`);
         }
     }
 }
@@ -899,12 +899,12 @@ function persistSettingsStateFromModal() {
     if (ENABLE_SETTINGS_PERSISTENCE) {
         try { 
             localStorage.setItem(`${tab}chatSettingsState`, JSON.stringify(state));
-            console.log('Settings persisted to localStorage for tab:', tab);
+            // [DEBUG] console.log('Settings persisted to localStorage for tab:', tab);
         } catch (e) { 
             console.error('Error saving chat settings to localStorage:', e); 
         }
     } else {
-        console.log('Settings persistence disabled, only in-memory state updated');
+        // [DEBUG] console.log('Settings persistence disabled, only in-memory state updated');
     }
 }
 
@@ -1016,14 +1016,14 @@ function loadOpencodeSettings(conversationId) {
  * opens a WebSocket connection to /ws/terminal.
  */
 window._showTerminalModal = function() {
-    console.log('[Terminal] _showTerminalModal called');
+    // [DEBUG] console.log('[Terminal] _showTerminalModal called');
     var modal = document.getElementById('terminal-modal');
     if (!modal) {
         console.error('[Terminal] terminal-modal element not found in DOM');
         return;
     }
     if (modal.classList.contains('show')) {
-        console.log('[Terminal] Modal already open, focusing');
+        // [DEBUG] console.log('[Terminal] Modal already open, focusing');
         if (typeof OpencodeTerminal !== 'undefined') OpencodeTerminal.focus();
         return;
     }
@@ -1031,11 +1031,11 @@ window._showTerminalModal = function() {
     modal.classList.add('show');
     modal.setAttribute('aria-hidden', 'false');
     document.body.classList.add('modal-open');
-    console.log('[Terminal] Modal display set to block, show class added');
+    // [DEBUG] console.log('[Terminal] Modal display set to block, show class added');
     // Init + connect xterm after modal is visible (needs dimensions)
     setTimeout(function() {
         loadXtermScripts(function() {
-            console.log('[Terminal] xterm scripts loaded, initializing');
+            // [DEBUG] console.log('[Terminal] xterm scripts loaded, initializing');
             if (!OpencodeTerminal.isInitialized()) {
                 OpencodeTerminal.init('terminal-container-modal');
             }
@@ -1051,7 +1051,7 @@ window._showTerminalModal = function() {
  * Cleans up orphan Bootstrap backdrops.
  */
 window._closeTerminalModal = function() {
-    console.log('[Terminal] _closeTerminalModal called');
+    // [DEBUG] console.log('[Terminal] _closeTerminalModal called');
     var modal = document.getElementById('terminal-modal');
     if (modal) {
         modal.classList.remove('show');
@@ -1252,7 +1252,7 @@ function cleanupDeletedCustomPrompts() {
             const tab = getCurrentActiveTab();
             try {
                 localStorage.setItem(`${tab}chatSettingsState`, JSON.stringify(window.chatSettingsState));
-                console.log('Cleaned up deleted custom prompts from saved settings');
+                // [DEBUG] console.log('Cleaned up deleted custom prompts from saved settings');
             } catch (e) {
                 console.error('Error saving cleaned settings:', e);
             }
@@ -1412,7 +1412,7 @@ function resetSettingsToDefaults() {
         $('.selectpicker').selectpicker('refresh');
     }
     
-    console.log('Settings reset to defaults');
+    // [DEBUG] console.log('Settings reset to defaults');
 }
 
 // Helper functions for tab-based defaults
@@ -1493,13 +1493,13 @@ function clearAllPersistedSettings() {
     tabs.forEach(tab => {
         try {
             localStorage.removeItem(`${tab}chatSettingsState`);
-            console.log(`Cleared persisted settings for tab: ${tab}`);
+            // [DEBUG] console.log(`Cleared persisted settings for tab: ${tab}`);
         } catch (e) {
             console.error(`Error clearing settings for tab ${tab}:`, e);
         }
     });
     window.chatSettingsState = null;
-    console.log('All persisted settings cleared. Refresh the page for defaults.');
+    // [DEBUG] console.log('All persisted settings cleared. Refresh the page for defaults.');
 }
 
 /**
@@ -1511,7 +1511,7 @@ function clearCurrentTabSettings() {
     try {
         localStorage.removeItem(`${tab}chatSettingsState`);
         window.chatSettingsState = null;
-        console.log(`Cleared persisted settings for current tab: ${tab}`);
+        // [DEBUG] console.log(`Cleared persisted settings for current tab: ${tab}`);
     } catch (e) {
         console.error('Error clearing current tab settings:', e);
     }
