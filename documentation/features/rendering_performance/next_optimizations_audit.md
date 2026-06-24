@@ -1634,7 +1634,7 @@ Organized into three tiers by estimated impact on perceived load time.
 | # | Item | Description | Estimated Savings | Effort | Risk | Key Files |
 |---|------|-------------|-------------------|--------|------|-----------|
 | R4 | Defer 23 non-critical $(document).ready handlers | `window.deferReady` utility wraps `requestIdleCallback({ timeout: 200 })` with `setTimeout(fn, 1)` fallback. 23 handlers across 18 files deferred. 3 critical handlers kept eager: `common.js:7` (hljs+mermaid), `chat.js:627` (main boot), `workspace-manager.js:2123` (sidebar). | 100-300ms boot time | Low | Low — 15 zero-risk modal handlers + 6 low-risk with <100ms vulnerability window | `common.js` (utility), all manager JS files |
-| R5 | Batch MathJax typesetting | Replace per-card `MathJax.Hub.Queue(["Typeset", MathJax.Hub, element])` with single batch typeset after all cards are in DOM (or per chunk in async path). Reduces O(N) per-pass setup/teardown to O(1). Long-term: migrate to MathJax 3 `typesetPromise([elements])`. | 200-500ms for math-heavy conversations | Medium | Medium — must handle async chunking (batch per chunk, not per card) | `common.js:5667-5684` (`_queueMathJax`) |
+| R5 | Yielding MathJax scheduler | Replace per-card `MathJax.Hub.Queue(["Typeset", ...])` chain with `_mathJaxScheduler` that drains one element at a time with `setTimeout(0)` yield between each. Priority flag for visible card. `clear()` on conversation switch. Streaming bypasses scheduler. | Page stays responsive during MathJax (69s for 4 math cards becomes non-blocking) | Medium | Low — scheduler is additive, streaming path unchanged | `common.js:134-193`, `common-chat.js:694` |
 
 ### Tier 3 — Targeted Fixes (target: <200ms each, UX improvements)
 
@@ -1661,7 +1661,7 @@ Organized into three tiers by estimated impact on perceived load time.
 | R2 — Network parallelization | **DONE** | Fetch-early / apply-late for doubts+pins. `_renderCompletePromise` signals when all cards are in DOM. Stale-response guards added. Also fixes existing race where async chunked render hadn't finished when fetch responses arrived. |
 | R3 — Double marked parse | **DONE** | `_sectionsFullyRendered` closure flag (var-hoisted to function scope). Outer first/last sections: `marked.marked(normalizeOverIndentedLists(sectionWithCode))`. `hasPlaceholder` sections: full `marked()` call after restoring details+code blocks (raw markdown around `<details>` tags now parsed). Inner `<details>` first section: parsed via `marked()` (unless it has `<summary>` tag from server). Inner last section dead-code variable assignment removed (loop already processes it as wrapped middle). Global `marked.marked()` at line ~5479 skipped when flag is true. Syntax verified with `node --check`. |
 | R4 — Defer ready handlers | **DONE** | Added `window.deferReady` utility in `common.js` — wraps `requestIdleCallback({ timeout: 200 })` with `setTimeout(fn, 1)` fallback for Safari. Replaced 23 handlers across 18 files. 3 critical handlers kept eager: `common.js:7` (hljs+mermaid), `chat.js:627` (main boot), `workspace-manager.js:2123` (sidebar). 15 zero-risk (modal features, self-deferred), 6 low-risk (delegated handlers, <100ms vulnerability window). All syntax verified. |
-| R5 — Batch MathJax | **Pending** | Medium effort. Must integrate with async chunking. |
+| R5 — Batch MathJax | **DONE** | Yielding scheduler (`_mathJaxScheduler`) at `common.js:134-193`. Drains one Typeset at a time with `setTimeout(0)` yield between each. Priority flag for last/visible card. `clear()` on conversation switch. Streaming bypasses scheduler. New `mathJaxTypeset` perf mark. Page stays responsive during 69s MathJax. Does NOT reduce total MathJax wall time — MathJax 2.7.5 HTML-CSS output is inherently slow (DOM measurement per glyph). |
 | R6 — data-has-tabs gate | **DONE** | Attribute set/removed in `applyModelResponseTabs`; 6 query sites updated. |
 | R7 — File browser debounce | **Pending** | Trivial 1-liner. |
 | R8 — Artefacts diff batching | **Pending** | Trivial 1-liner. |
@@ -1669,6 +1669,57 @@ Organized into three tiers by estimated impact on perceived load time.
 | R10 — Dark mode conditional CSS | **Pending** | Low effort. |
 | R11 — Web Worker markdown | **Deferred** | Only if R1-R3 insufficient. |
 | R12 — Per-card chunking + collapsed card deferral | **DONE** | Four changes: (1) `CHUNK_SIZE=1` — each card gets its own `setTimeout(0)` yield, so the browser can paint and handle scroll events between every card build. Page becomes scrollable after the first card instead of after 5. (2) `skip_deferred_formatting` parameter on `renderInnerContentAsMarkdown` — skips `applyModelResponseTabs`, `updateMessageTocForElement`, and `applyConversationUIState` for cards that will be collapsed by `showMore()` (`show_hide!='show' && text>300`). The delegated expand handler at `common.js:2570` re-applies both on first [show] click. (3) Deferred `initialiseVoteBank` and `decorateMessageCardNav` via `setTimeout(0)` — both set up dropdown menu and navigation UI that users don't interact with during initial load. (4) Removed wasted `textElem.html(message.text)` call that was immediately overwritten by `renderInnerContentAsMarkdown`. Syntax verified with `node --check`. |
+
+### Perf Instrumentation — Implementation Notes (DONE)
+
+**Files modified:** `interface/common.js:46-132`, `interface/common-chat.js` (multiple sites)
+
+**What was added:**
+
+1. **`_perfStart(label)`** / **`_perfEnd(label, startTime)`** — wall-clock timers that also
+   create Performance API marks/measures (visible in Chrome DevTools Performance timeline).
+   Timings grouped by base label (card index stripped via `label.replace(/#\d+$/, '')`).
+
+2. **`_perfSummary()`** — prints a `console.table` sorted by total time descending.
+   Auto-prints after `fullyInteractive` mark fires in `_runPostRenderWork`.
+
+3. **`_perfJSON()`** — returns JSON string of all timings. Uses legacy `execCommand('copy')`
+   for clipboard (avoids `navigator.clipboard.writeText` focus requirement from DevTools).
+
+4. **`_perfReset()`** — clears all collected timings + Performance API marks/measures.
+   Called at top of `setActiveConversation`.
+
+5. **`window._PERF = true`** — enabled by default for always-on profiling.
+
+**19 perf marks** placed throughout the render pipeline (see README.md for full table).
+
+**Key design decision:** Marks are zero-cost when `_PERF=false` (early return in
+`_perfStart`/`_perfEnd`). When enabled, overhead is ~0.1ms per mark pair (negligible vs
+the operations being measured).
+
+### Console Cleanup — Implementation Notes (DONE)
+
+**Files modified:** `interface/common.js`, `interface/common-chat.js`, `interface/chat.js`,
+`interface/doubt-manager.js`
+
+**131 debug `console.log`/`console.warn` calls** commented out with `// [DEBUG]` prefix:
+- `common.js`: 23 logs (applyModelResponseTabs tracing, visual/slide/copy/cache diagnostics)
+- `common-chat.js`: 27 logs (stream diagnostics, show_more debug, cancellation, suggestions)
+- `chat.js`: 21 logs (settings modal, terminal, user details, model catalog)
+- `doubt-manager.js`: 60 logs (button injection debug, thread state, streaming)
+
+No error handlers touched. Console output during profiling is now clean (only perf marks + errors).
+
+### Bug Fixes (DONE)
+
+1. **PDF.js iframe relative URL** (`interface.html:128`): Changed
+   `src="interface/pdf.js/web/viewer.html"` to `src="/interface/pdf.js/web/viewer.html"`.
+   Without leading `/`, browser resolved path relative to conversation URL
+   (`/c/abc123/interface/...`), causing 404s.
+
+2. **Missing semicolons causing IIFE parse error** (`common-chat.js:2830,2842`):
+   `msgElements = [$(cardElem)]` lacked semicolons. Next line's IIFE
+   `(function(...){...})()` was parsed as a function call on the array. Added `;`.
 
 ### Deep Analysis: showMore() DOM Cloning (R1)
 
@@ -2009,5 +2060,19 @@ $.when(restorePromise, messagesRequest).done() ->
 4. **R7 + R8** (file browser debounce + diff batching) — Trivial 1-liners
 5. **R4** (defer ready handlers) — **DONE**. 23 handlers deferred via `deferReady()`, 100-300ms savings
 6. **R12** (per-card chunking + collapsed card deferral) — **DONE**. CHUNK_SIZE=1, skip tabs/ToC/UIState for collapsed, defer voteBank+decorateNav, remove wasted .html()
-7. **R5** (batch MathJax) — Medium effort, math-conversation-specific
+7. **R5** (yielding MathJax scheduler) — **DONE**. Page stays responsive during MathJax. 69s total but non-blocking.
 8. **R9 + R10** (path Set + dark mode CSS) — Low effort, low impact
+
+### Next Steps (Post-R5)
+
+MathJax is now 90% of total wall time (69s for 4 math cards out of 80 messages).
+The scheduler keeps the page responsive but cannot reduce total typeset time.
+Two approaches remain:
+
+1. **Viewport-based MathJax deferral** — Only typeset cards visible in viewport;
+   lazy-typeset off-screen cards via IntersectionObserver. Low risk, immediate
+   perceived improvement.
+
+2. **MathJax 3 migration** — CHTML output (CSS-based, no DOM measurement), 2-5x
+   faster, Promise-based API. Requires updating 16 call sites, 3 HTML configs,
+   streaming path. Medium risk but eliminates the root cause.
