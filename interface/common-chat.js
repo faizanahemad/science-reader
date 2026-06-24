@@ -932,6 +932,8 @@ var ConversationManager = {
             Promise.all([doubtsPromise, _renderCompletePromise]).then(function (results) {
                 // Stale-response guard: if user switched conversations, discard
                 if (ConversationManager.activeConversationId !== _r2ConvId) return;
+                console.log('[DOUBTS-DIAG] Promise.all resolved, about to apply. messageIds count:', (results[0] || []).length);
+                console.log('[DOUBTS-DIAG] .has-doubts-btn count:', $('.has-doubts-btn').length);
                 var _applyDT = _perfStart('applyDoubts');
                 _applyDoubtsToCards(results[0], false);
                 _perfEnd('applyDoubts', _applyDT);
@@ -1803,6 +1805,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
             last_rendered_answer = rendered_answer;
             last_elem_to_render = elem_to_render;
             
+            var statusDiv = _cachedStatusDiv || card.find('.status-div');
             statusDiv.find('.status-text').html(part['status']);
 
             if (part['message_ids']) {
@@ -2881,7 +2884,7 @@ var ChatManager = {
                                         adjustCardHeightForSlides(slideWrapper);
                                     }
                                 }, 100);
-                            } else if (_textElem.text().length > 300) {
+                            } else if (_currentMessage.text.length > 300) {
                                 showMore(null, text = null, textElem = _textElem, as_html = true, show_at_start = _showHide === 'show', server_side = {
                                     'message_id': _currentMessage.message_id
                                 });
@@ -3021,13 +3024,15 @@ var ChatManager = {
         // - Small batches (<=CHUNK_SIZE messages) — no benefit from chunking
         // - Incremental appends (shouldClearChatView=false) — streaming, sendMessage
         // - renderCloseToSource positional inserts — need live-DOM per card
-        // Render one card per chunk so the browser can paint + handle scroll events
-        // between every card build (100-400ms each).  Previously CHUNK_SIZE=5 meant
-        // the first 5 cards blocked the thread for 500-2000ms before any paint.
-        // With CHUNK_SIZE=1, the page becomes scrollable after the very first card.
-        var CHUNK_SIZE = 1;
+        // Render the first card immediately (CHUNK_SIZE_FIRST=1) so the user sees
+        // content in <100ms.  Subsequent chunks use a moderate batch size to balance
+        // yield overhead vs layout-recalc cost.  Too large (16) causes massive reflows
+        // per batch; too small (1) causes 111 yields × ~1.5s layout thrashing.
+        // 4 cards per batch → ~28 yields, each batch layout-recalc is manageable.
+        var CHUNK_SIZE_FIRST = 1;
+        var CHUNK_SIZE_REST = 4;
         var usePositionalInsert = (renderCloseToSource && history_message_ids.length > 0);
-        var useChunkedPath = (shouldClearChatView && messages.length > CHUNK_SIZE && !usePositionalInsert);
+        var useChunkedPath = (shouldClearChatView && messages.length > CHUNK_SIZE_FIRST && !usePositionalInsert);
 
         if (useChunkedPath) {
             // ---- Async chunked path ----
@@ -3046,7 +3051,10 @@ var ChatManager = {
                 if (_renderGeneration !== renderToken) return;
 
                 var _chunkT = _perfStart('renderChunk#' + startIdx);
-                var end = Math.min(startIdx + CHUNK_SIZE, totalCount);
+                // First chunk is small (1 card) for instant paint;
+                // subsequent chunks are batched (16 cards) to reduce layout thrashing.
+                var chunkSize = (startIdx === 0) ? CHUNK_SIZE_FIRST : CHUNK_SIZE_REST;
+                var end = Math.min(startIdx + chunkSize, totalCount);
                 var fragment = document.createDocumentFragment();
 
                 for (var i = startIdx; i < end; i++) {
@@ -3419,23 +3427,39 @@ function _fetchDoubtsData(conversationId) {
 }
 
 // R2: Apply-only — shows doubts buttons on cards that already exist in the DOM.
+// Optimized: instead of N jQuery attribute-selector queries (each scanning the
+// entire DOM), build a Set of message IDs and iterate the buttons once — O(buttons).
+// Uses native DOM instead of jQuery .show()/.is(':hidden') to avoid forced
+// synchronous layout (getComputedStyle) on each button — jQuery .show() reads
+// computed styles to determine the "correct" display value, which forces a full
+// style recalc on every call when the DOM is dirty.
 function _applyDoubtsToCards(messageIds, withPulse) {
     if (!messageIds || messageIds.length === 0) return;
-    var newlyRevealed = 0;
-    messageIds.forEach(function(mid) {
-        var btn = $('.has-doubts-btn[message-id="' + mid + '"]');
-        if (btn.length && btn.is(':hidden')) {
-            btn.show();
-            if (withPulse) {
-                btn.addClass('doubt-new-pulse');
-                btn.one('animationend', function() { $(this).removeClass('doubt-new-pulse'); });
-                newlyRevealed++;
+    var _t0 = performance.now();
+    var idSet = new Set(messageIds.map(String));
+    var _t1 = performance.now();
+    var btns = document.querySelectorAll('.has-doubts-btn');
+    var btnCount = btns.length, matchCount = 0, showCount = 0;
+    for (var i = 0; i < btns.length; i++) {
+        var el = btns[i];
+        var mid = el.getAttribute('message-id');
+        if (mid && idSet.has(mid)) {
+            matchCount++;
+            var wasHidden = (el.style.display === 'none');
+            // Remove inline display:none — CSS default will take over
+            el.style.display = '';
+            showCount++;
+            if (wasHidden && withPulse) {
+                el.classList.add('doubt-new-pulse');
+                el.addEventListener('animationend', function() {
+                    this.classList.remove('doubt-new-pulse');
+                }, { once: true });
             }
-        } else {
-            btn.show();
         }
-    });
-    if (withPulse && newlyRevealed > 0 && typeof showToast === 'function') {
+    }
+    var _t2 = performance.now();
+    console.log('[DOUBTS-DIAG] Set build:', (_t1-_t0).toFixed(1) + 'ms, iterate+show:', (_t2-_t1).toFixed(1) + 'ms, btns:', btnCount, 'matched:', matchCount, 'shown:', showCount);
+    if (withPulse && showCount > 0 && typeof showToast === 'function') {
         showToast('\u2728 Learning aids ready for your last reply', 'info');
     }
 }

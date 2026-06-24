@@ -6,6 +6,7 @@
     <link rel="manifest" href="/interface/manifest.json">
     <meta name="theme-color" content="#0b0f14">
     <link rel="stylesheet" href="interface/css_patched_mobile_view.css?v=29">
+    <script>window._DISABLE_MATHJAX = true;</script>
     <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
     <script src="https://cdn.jsdelivr.net/npm/marked-katex-extension@5.1.5/lib/index.umd.js"></script>
@@ -14,7 +15,8 @@
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <script defer src="https://cdnjs.cloudflare.com/ajax/libs/uuid/8.3.2/uuid.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked@11.2.0/marked.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+    <!-- MathJax disabled: KaTeX handles all math rendering. Re-enable by setting window._DISABLE_MATHJAX=false and uncommenting this line -->
+    <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script> -->
     <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.12.1/jquery-ui.min.css" integrity="sha512-aOG0c6nPNzGk+5zjwyJaoRUgCdOrfSDhmMID2u4+OIslr0GjpLKo7Xm0Ao3xmpM4T8AmIouRkqwj1nrdVsLKEQ==" crossorigin="anonymous" />
@@ -2847,7 +2849,7 @@
                                     </div>
                                     <div class="col-md-3 col-6">
                                         <div class="form-check mb-2">
-                                            <input class="form-check-input" id="settings-auto_doubts_enabled" type="checkbox" checked>
+                                            <input class="form-check-input" id="settings-auto_doubts_enabled" type="checkbox">
                                             <label class="form-check-label" for="settings-auto_doubts_enabled">Auto-doubts</label>
                                         </div>
                                         <div id="auto-doubt-categories-group" class="ml-3 small" style="display:none;">
@@ -5037,6 +5039,9 @@ greet("World");</code></pre>
             window._enhanceGeneratedImages = enhanceGeneratedImages;
         })();
     </script>
+    <!-- MathJax config disabled: KaTeX handles all math rendering.
+         Re-enable by setting window._DISABLE_MATHJAX=false and uncommenting this block + the CDN script in <head>. -->
+    <!--
     <script type="text/x-mathjax-config">
       MathJax.Hub.Config({
         tex2jax: {
@@ -5060,7 +5065,8 @@ greet("World");</code></pre>
           linebreaks: { automatic: true, width: "container" }
       }
       });
-  </script>
+    </script>
+    -->
   <style>
     /* Model response tabs - ensure inactive panes are hidden */
     .model-tabs-container .tab-content > .tab-pane:not(.active) {

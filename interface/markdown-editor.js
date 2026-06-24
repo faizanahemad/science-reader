@@ -572,7 +572,7 @@ var MarkdownEditorManager = (function() {
             }
             
             // Render math if MathJax is available
-            if (typeof MathJax !== 'undefined' && MathJax.Hub) {
+            if (!window._DISABLE_MATHJAX && typeof MathJax !== 'undefined' && MathJax.Hub) {
                 MathJax.Hub.Queue(['Typeset', MathJax.Hub, previewPane[0]]);
             }
             

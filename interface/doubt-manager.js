@@ -650,7 +650,7 @@ const DoubtManager = {
         // Trigger MathJax typesetting for assistant cards
         if (!isUser) {
             setTimeout(function() {
-                if (typeof MathJax !== 'undefined' && MathJax.Hub) {
+                if (!window._DISABLE_MATHJAX && typeof MathJax !== 'undefined' && MathJax.Hub) {
                     MathJax.Hub.Queue(["Typeset", MathJax.Hub, card.find('.card-body')[0]]);
                 }
             }, 50);
@@ -797,7 +797,7 @@ const DoubtManager = {
                             const finalRendered = (typeof marked !== 'undefined' && marked.parse) ? marked.parse(accumulated) : accumulated.replace(/\n/g, '<br>');
                             cardBody.html(finalRendered);
                             messagesContainer.scrollTop(messagesContainer[0].scrollHeight);
-                            if (typeof MathJax !== 'undefined' && MathJax.Hub) {
+                            if (!window._DISABLE_MATHJAX && typeof MathJax !== 'undefined' && MathJax.Hub) {
                                 MathJax.Hub.Queue(["Typeset", MathJax.Hub, cardBody[0]]);
                             }
                             return;
@@ -1009,7 +1009,7 @@ const DoubtManager = {
                             const finalRendered = (typeof marked !== 'undefined' && marked.parse) ? marked.parse(accumulated) : accumulated.replace(/\n/g, '<br>');
                             cardBody.html(finalRendered);
                             // Re-render math
-                            if (typeof MathJax !== 'undefined' && MathJax.Hub) {
+                            if (!window._DISABLE_MATHJAX && typeof MathJax !== 'undefined' && MathJax.Hub) {
                                 MathJax.Hub.Queue(["Typeset", MathJax.Hub, cardBody[0]]);
                             }
                             return;
@@ -1312,7 +1312,7 @@ const DoubtManager = {
                     // Reveal doubts indicator for this message
                     $('.has-doubts-btn[message-id="' + self.currentMessageId + '"]').show();
                     // Trigger MathJax typesetting on completed response
-                    if (typeof MathJax !== 'undefined' && MathJax.Hub) {
+                    if (!window._DISABLE_MATHJAX && typeof MathJax !== 'undefined' && MathJax.Hub) {
                         MathJax.Hub.Queue(["Typeset", MathJax.Hub, assistantBody[0]]);
                     }
                     
@@ -1532,7 +1532,7 @@ const DoubtManager = {
                         // Reveal doubts indicator for this message
                         $('.has-doubts-btn[message-id="' + self.currentMessageId + '"]').show();
                         // Trigger MathJax typesetting on completed response
-                        if (typeof MathJax !== 'undefined' && MathJax.Hub) {
+                        if (!window._DISABLE_MATHJAX && typeof MathJax !== 'undefined' && MathJax.Hub) {
                             MathJax.Hub.Queue(["Typeset", MathJax.Hub, assistantBody[0]]);
                         }
                         
@@ -1556,7 +1556,7 @@ const DoubtManager = {
                                         <div class="doubt-section-content">${renderMd(deepDive)}</div>
                                     </details>
                                 </div>`);
-                            if (typeof MathJax !== 'undefined' && MathJax.Hub) {
+                            if (!window._DISABLE_MATHJAX && typeof MathJax !== 'undefined' && MathJax.Hub) {
                                 MathJax.Hub.Queue(["Typeset", MathJax.Hub, assistantBody[0]]);
                             }
                         }

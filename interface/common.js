@@ -1,5 +1,16 @@
 window.katex = katex;
 
+// ---------------------------------------------------------------------------
+// MathJax kill-switch for testing KaTeX-only rendering.
+// Set to `true` to skip ALL MathJax typesetting — KaTeX (via marked-katex-extension)
+// handles math during markdown parse, so this tests whether MathJax is needed at all.
+// Toggle from DevTools console:  window._DISABLE_MATHJAX = true  then reload.
+// The flag is set in interface.html <head> before any scripts load; respect it here.
+// ---------------------------------------------------------------------------
+if (typeof window._DISABLE_MATHJAX === 'undefined') {
+    window._DISABLE_MATHJAX = false;
+}
+
 // Deferred library initialization — hljs and mermaid are loaded with `defer`,
 // so their inline init calls were moved here.  This ready handler registers
 // first (common.js is the earliest local script) and therefore fires before
@@ -167,6 +178,13 @@ window._mathJaxScheduler = (function() {
     function _drain() {
         if (_queue.length === 0) {
             _running = false;
+            return;
+        }
+        if (typeof MathJax === 'undefined' || !MathJax.Hub) {
+            // MathJax not loaded (e.g. _DISABLE_MATHJAX=true) — flush callbacks without typesetting
+            var item = _queue.shift();
+            if (item.callback) { try { item.callback(); } catch(e) {} }
+            setTimeout(_drain, 0);
             return;
         }
         var item = _queue.shift();
@@ -1570,14 +1588,14 @@ function restoreChatViewScrollAnchor($chatView, anchor) {
 function showMore(parentElem, text = null, textElem = null, as_html = false, show_at_start = false, server_side = null) {
     var _smT = _perfStart('showMore');
     if (textElem) {
-
-        if (as_html) {
-            var text = textElem.html()
+        // For as_html=true with !show_at_start (the common lazy-collapse path),
+        // we don't need text at all — defer .html()/.text() to avoid expensive
+        // serialization on 76+ collapsed cards.
+        // For as_html=false path, we still need text extraction.
+        if (!as_html) {
+            var text = textElem.text();
         }
-        else {
-            var text = textElem.text()
-        }
-
+        // as_html + show_at_start: text extracted below only when needed
     }
     else if ((text) || (typeof text === 'string')) {
         var textElem = $('<small class="summary-text"></small>');
@@ -1586,6 +1604,38 @@ function showMore(parentElem, text = null, textElem = null, as_html = false, sho
     }
 
     if (as_html) {
+
+        // --- LAZY COLLAPSE for cards that start hidden (show_at_start=false) ---
+        // Skip ALL DOM reparenting. Instead, hide the textElem's content directly
+        // and prepend a lightweight preview + [show] link. On first expand, the
+        // delegated handler promotes to the full showMore structure.
+        if (!show_at_start) {
+            // Use textContent for the 10-char preview — much cheaper than .text()
+            // which walks jQuery internals, and we only need a short snippet.
+            var shortText = (textElem[0].textContent || '').slice(0, 10);
+            var lessText = $('<span class="less-text" style="display:block;">' + shortText + '</span>');
+            var smClick = $(' <a href="#" class="show-more">[show]</a> ');
+
+            // Mark as lazily collapsed — the delegated handler detects this.
+            textElem.attr('data-lazy-collapse', 'true');
+            if (server_side && server_side.message_id) {
+                textElem.attr('data-showmore-message-id', server_side.message_id);
+            }
+
+            // Hide content with CSS only — no DOM reparenting at all.
+            // Use direct style manipulation instead of jQuery .hide() to avoid
+            // forced synchronous layout (getComputedStyle) on each child element.
+            var _children = textElem[0].children;
+            for (var _ci = 0; _ci < _children.length; _ci++) {
+                _children[_ci].style.display = 'none';
+                _children[_ci].classList.add('lazy-hidden-child');
+            }
+            // Prepend preview + [show] link (these become the only visible children)
+            textElem.prepend(smClick).prepend(lessText);
+
+            _perfEnd('showMore', _smT);
+            return null;
+        }
 
         // --- R1 OPTIMISATION: in-place wrapAll instead of serialize→clone→destroy→rebuild ---
         // Previous code: textElem.html() → $('<span>').html(text) → textElem.empty() → rebuild
@@ -2722,6 +2772,68 @@ $(document).on('click', '.show-more', function(e) {
     if (!$textElem.length) {
         $textElem = $link.parent();
     }
+
+    // --- LAZY COLLAPSE PROMOTION ---
+    // If this card was lazily collapsed (no wrapAll during render), promote it
+    // to the full showMore structure on first expand.
+    if ($textElem.attr('data-lazy-collapse') === 'true') {
+        $textElem.removeAttr('data-lazy-collapse');
+
+        // Show the hidden children and remove the marker class
+        var $hiddenChildren = $textElem.find('.lazy-hidden-child');
+        $hiddenChildren.removeClass('lazy-hidden-child').show();
+
+        // Now wrap them into .more-text for toggle consistency going forward.
+        // This wrapAll is a one-time cost on first expand only.
+        $hiddenChildren.wrapAll('<span class="more-text"></span>');
+        var $moreText = $textElem.find('.more-text').first();
+        // Add [hide] link at the bottom
+        $moreText.append(' <a href="#" class="show-more">[hide]</a> ');
+
+        // Hide preview, update link text
+        var $lessText = $textElem.find('.less-text');
+        if ($lessText.length) $lessText.hide();
+        $link.text('[hide]');
+
+        // Apply deferred work: tabs + ToC
+        try {
+            if (typeof applyModelResponseTabs === 'function') {
+                applyModelResponseTabs($moreText);
+            }
+        } catch (e2) { /* ignore */ }
+        try {
+            if (typeof updateMessageTocForElement === 'function') {
+                updateMessageTocForElement($moreText, $moreText.html(), false);
+            }
+        } catch (e2) { /* ignore */ }
+
+        // Sync TOC visibility
+        try {
+            var $tocCard = $link.closest('.card.message-card');
+            if ($tocCard.length) {
+                $tocCard.find('.message-toc-container').first().show();
+            }
+        } catch (e2) { /* ignore */ }
+
+        // Persist state
+        try {
+            var $card = $link.closest('.card.message-card');
+            var messageId = $textElem.attr('data-showmore-message-id') || $card.find('.card-header[message-id]').attr('message-id');
+            if (messageId && typeof ConversationManager !== 'undefined' && ConversationManager) {
+                var convId = ConversationManager.activeConversationId;
+                if (convId) {
+                    if (window.ConversationUIState) {
+                        window.ConversationUIState.updateMessage(convId, messageId, 'show');
+                    }
+                    apiCall('/show_hide_message_from_conversation/' + convId + '/' + messageId + '/0', 'POST', {
+                        'show_hide': 'show'
+                    });
+                }
+            }
+        } catch (e2) { /* ignore */ }
+        return;
+    }
+
     var $moreText = $textElem.find('.more-text');
     var $lessText = $textElem.find('.less-text');
     
@@ -3064,6 +3176,17 @@ markdownParser.text = function(text) {
 const options = {
     throwOnError: false,
     nonStandard: true,
+    // Mirror the custom macros from the MathJax config (interface.html)
+    // so KaTeX can render them without MathJax fallback.
+    macros: {
+      "\\RR": "\\mathbb{R}",
+      "\\bold": "\\mathbf{#1}",
+      "\\red": "\\color{red}{#1}"
+    },
+    // When _DISABLE_MATHJAX is true, output HTML-only (no MathML annotation)
+    // so MathJax's mml2jax preprocessor has nothing to find.  When MathJax is
+    // enabled, keep htmlAndMathml so MathJax can re-typeset the MathML if desired.
+    output: window._DISABLE_MATHJAX ? 'html' : 'htmlAndMathml',
   };
 
 marked.use(markedKatex(options));
@@ -3135,6 +3258,68 @@ function normalizeOverIndentedLists(text) {
         } else if (leadingSpaces < 4) {
             // Non-indented / lightly-indented content → end the run
             deindenting = false;
+        }
+    }
+
+    return lines.join('\n');
+}
+
+/**
+ * Strip trailing whitespace that the streaming layer's `.replace(/\n/g, '  \n')`
+ * injects inside `$$ ... $$` display-math blocks.
+ *
+ * The marked-katex-extension's block regex requires `$$\n` (dollar-dollar
+ * immediately followed by newline) to recognise a display math block.  The
+ * streaming soft-break injection turns that into `$$  \n`, which breaks the
+ * regex, so `blockKatex` never matches.  The content then falls through to
+ * the custom `mathExtension` passthrough → MathJax.  When MathJax is disabled,
+ * nothing renders the block and the user sees raw LaTeX.
+ *
+ * This function:
+ *   1. Strips trailing spaces from standalone `$$` delimiter lines so the
+ *      block regex matches (`$$  \n` → `$$\n`).
+ *   2. Strips trailing spaces from every line INSIDE a `$$` block so that
+ *      LaTeX line-break commands (`\\`) are not followed by stray spaces
+ *      that could confuse KaTeX.
+ *   3. Skips fenced code blocks (``` / ~~~) entirely.
+ *
+ * Must be called BEFORE `marked.marked()`.
+ *
+ * @param {string} text  Raw markdown text (possibly with injected trailing spaces)
+ * @returns {string}     Text with display-math blocks cleaned up
+ */
+function normalizeMathBlocks(text) {
+    if (!text) return text;
+
+    var lines = text.split('\n');
+    var inCodeBlock = false;
+    var inMathBlock = false;
+
+    for (var i = 0; i < lines.length; i++) {
+        // Strip leading whitespace and blockquote markers (> ) for detection only.
+        // Blockquoted math looks like: "> $$", "> > $$", ">  \begin{align}" etc.
+        var trimmed = lines[i].replace(/^[\s>]+/, '');
+
+        // Track fenced code blocks — never touch content inside them
+        if (trimmed.startsWith('```') || trimmed.startsWith('~~~')) {
+            inCodeBlock = !inCodeBlock;
+            continue;
+        }
+        if (inCodeBlock) continue;
+
+        // Detect standalone $$ delimiter (possibly with trailing spaces)
+        var isDollarDelimiter = /^\$\$\s*$/.test(trimmed);
+
+        if (isDollarDelimiter) {
+            // Strip trailing spaces from the delimiter line itself
+            lines[i] = lines[i].replace(/\s+$/, '');
+            inMathBlock = !inMathBlock;
+            continue;
+        }
+
+        // Inside a math block, strip trailing spaces from every line
+        if (inMathBlock) {
+            lines[i] = lines[i].replace(/\s+$/, '');
         }
     }
 
@@ -5480,7 +5665,7 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
                                                 if (summaryMatch) {
                                                     innerWrapped += firstSection;
                                                 } else {
-                                                    innerWrapped += marked.marked(normalizeOverIndentedLists(firstSection), { renderer: markdownParser });
+                                                    innerWrapped += marked.marked(normalizeMathBlocks(normalizeOverIndentedLists(firstSection)), { renderer: markdownParser });
                                                 }
                                             }
                                             
@@ -5499,7 +5684,7 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
                                                     innerSectionWithCode = innerSectionWithCode.trim();
                                                     // Pre-render markdown to HTML before wrapping in <details>
                                                     // Otherwise marked.js treats content inside HTML blocks as raw text
-                                                    var innerSectionRendered = marked.marked(normalizeOverIndentedLists(innerSectionWithCode), { renderer: markdownParser });
+                                                    var innerSectionRendered = marked.marked(normalizeMathBlocks(normalizeOverIndentedLists(innerSectionWithCode)), { renderer: markdownParser });
                                                      
                                                      innerWrapped += `
 <details open class="section-details nested-section" data-section-index="${j - 1}" data-section-hash="${innerHash}" id="${innerId}">
@@ -5540,7 +5725,7 @@ ${innerSectionRendered}
                         section = restoreCodeBlocks(section, codeBlocks, codePlaceholders);
                         // R3: pre-render any raw markdown surrounding <details> blocks
                         // The <details> HTML passes through marked unchanged (sanitize: false)
-                        wrappedHtml += marked.marked(normalizeOverIndentedLists(section), { renderer: markdownParser });
+                        wrappedHtml += marked.marked(normalizeMathBlocks(normalizeOverIndentedLists(section)), { renderer: markdownParser });
                     } else {
                         // Handle sections without placeholders
                         // Only wrap if this is a middle section (not first or last)
@@ -5548,13 +5733,13 @@ ${innerSectionRendered}
                             // First section - don't wrap, but pre-render markdown (R3 optimisation)
                             if (section) {
                                 var sectionWithCode = restoreCodeBlocks(section, codeBlocks, codePlaceholders);
-                                wrappedHtml += marked.marked(normalizeOverIndentedLists(sectionWithCode), { renderer: markdownParser }) + '\n';
+                                wrappedHtml += marked.marked(normalizeMathBlocks(normalizeOverIndentedLists(sectionWithCode)), { renderer: markdownParser }) + '\n';
                             }
                         } else if (sectionIndex === sections.length - 1) {
                             // Last section - don't wrap, but pre-render markdown (R3 optimisation)
                             if (section) {
                                 var sectionWithCode = restoreCodeBlocks(section, codeBlocks, codePlaceholders);
-                                wrappedHtml += '\n' + marked.marked(normalizeOverIndentedLists(sectionWithCode), { renderer: markdownParser });
+                                wrappedHtml += '\n' + marked.marked(normalizeMathBlocks(normalizeOverIndentedLists(sectionWithCode)), { renderer: markdownParser });
                             }
                         } else {
                             // Middle section - wrap in details
@@ -5571,7 +5756,7 @@ ${innerSectionRendered}
                                 summary = summary.replace(/<answer>/g, '').replace(/<\/answer>/g, '').replace(/\*/g, '');
                                 // Pre-render markdown to HTML before wrapping in <details>
                                 // Otherwise marked.js treats content inside HTML blocks as raw text
-                                var                                 sectionRendered = marked.marked(normalizeOverIndentedLists(sectionWithCode), { renderer: markdownParser });
+                                var                                 sectionRendered = marked.marked(normalizeMathBlocks(normalizeOverIndentedLists(sectionWithCode)), { renderer: markdownParser });
                                 wrappedHtml += `
 <details open class="section-details" data-section-index="${sectionIndex - 1}" data-section-hash="${sectionHash}" id="${sectionId}">
     <summary class="section-summary"><strong>${summary}</strong></summary>
@@ -5618,7 +5803,7 @@ ${innerSectionRendered}
         for (var pi = 0; pi < split.parts.length; pi++) {
             var part = split.parts[pi];
             if (part.type === 'text') {
-                var renderedText = marked.marked(normalizeOverIndentedLists(part.content), { renderer: markdownParser });
+                var renderedText = marked.marked(normalizeMathBlocks(normalizeOverIndentedLists(part.content)), { renderer: markdownParser });
                 combined += renderedText;
             } else if (part.type === 'slide') {
                 foundSlide = true;
@@ -5697,7 +5882,7 @@ ${innerSectionRendered}
             htmlChunk = html; // already fully rendered HTML — no redundant parse
         } else {
             var _markedT = _perfStart('marked.marked');
-            htmlChunk = marked.marked(normalizeOverIndentedLists(html), { renderer: markdownParser });
+            htmlChunk = marked.marked(normalizeMathBlocks(normalizeOverIndentedLists(html)), { renderer: markdownParser });
             _perfEnd('marked.marked', _markedT);
         }
     }
@@ -5843,7 +6028,7 @@ ${innerSectionRendered}
         if (callback) { callback(); }
     };
 
-    if (hasMath) {
+    if (hasMath && !window._DISABLE_MATHJAX) {
         if (continuous) {
             // STREAMING PATH: call MathJax.Hub.Queue directly — streaming already
             // controls its own pacing (render threshold + isInsideDisplayMath gate).
@@ -5975,7 +6160,7 @@ ${innerSectionRendered}
         
         // Schedule drawio rendering during idle time
         if (drawio_rendering_needed) {
-            MathJax.Hub.Queue(function() {
+            var _drawioWork = function() {
                 scheduleIdleWork(function() {
                     // Item 7: load drawio-renderer on demand
                     var doRender = function () {
@@ -6002,7 +6187,14 @@ ${innerSectionRendered}
                         });
                     }
                 });
-            });
+            };
+            // If MathJax is active, wait for its queue to flush before drawio.
+            // Otherwise, just schedule immediately.
+            if (!window._DISABLE_MATHJAX && typeof MathJax !== 'undefined' && MathJax.Hub) {
+                MathJax.Hub.Queue(_drawioWork);
+            } else {
+                _drawioWork();
+            }
         }
     });
 
@@ -6269,7 +6461,7 @@ function getOptions(parentElementId, type) {
         opencode_enabled: $('#settings-enable_opencode').length ? $('#settings-enable_opencode').is(':checked') : false,
         enable_tool_use: $('#settings-tool_mode').length ? ($('#settings-tool_mode').val() !== 'none') : false,
         tool_mode: $('#settings-tool_mode').length ? $('#settings-tool_mode').val() : 'hybrid',
-        auto_doubts_enabled: $('#settings-auto_doubts_enabled').length ? $('#settings-auto_doubts_enabled').is(':checked') : true,
+        auto_doubts_enabled: $('#settings-auto_doubts_enabled').length ? $('#settings-auto_doubts_enabled').is(':checked') : false,
         enabled_tools: (function() {
             var $sel = $('#settings-tool-selector');
             if (!$sel.length) return [];

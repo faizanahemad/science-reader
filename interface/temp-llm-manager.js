@@ -481,7 +481,7 @@ const TempLLMManager = {
         // Trigger MathJax typesetting for assistant cards
         if (!isUser && text) {
             setTimeout(function() {
-                if (typeof MathJax !== 'undefined' && MathJax.Hub) {
+                if (!window._DISABLE_MATHJAX && typeof MathJax !== 'undefined' && MathJax.Hub) {
                     MathJax.Hub.Queue(["Typeset", MathJax.Hub, card.find('.card-body')[0]]);
                 }
             }, 50);
@@ -634,7 +634,7 @@ const TempLLMManager = {
                         }, 100);
                     }
                     // Trigger MathJax typesetting on completed response
-                    if (typeof MathJax !== 'undefined' && MathJax.Hub) {
+                    if (!window._DISABLE_MATHJAX && typeof MathJax !== 'undefined' && MathJax.Hub) {
                         MathJax.Hub.Queue(["Typeset", MathJax.Hub, assistantBody[0]]);
                     }
                     
@@ -714,7 +714,7 @@ const TempLLMManager = {
                                 }, 100);
                             }
                             // Trigger MathJax typesetting on completed response
-                            if (typeof MathJax !== 'undefined' && MathJax.Hub) {
+                            if (!window._DISABLE_MATHJAX && typeof MathJax !== 'undefined' && MathJax.Hub) {
                                 MathJax.Hub.Queue(["Typeset", MathJax.Hub, assistantBody[0]]);
                             }
                             

@@ -307,7 +307,7 @@
           .catch(() => { /* best-effort */ });
       };
 
-      if (window.MathJax && window.MathJax.Hub && window.MathJax.Hub.Queue) {
+      if (!window._DISABLE_MATHJAX && window.MathJax && window.MathJax.Hub && window.MathJax.Hub.Queue) {
         try {
           window.MathJax.Hub.Queue(write);
           return;

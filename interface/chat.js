@@ -678,7 +678,7 @@ function buildSettingsStateFromControlsOrDefaults() {
         pkb_extraction_mode: $('#settings-pkb-extraction-mode').length ? ($('#settings-pkb-extraction-mode').val() || 'relaxed') : 'relaxed',
         pkb_scope: $('#settings-pkb-scope').length ? $('#settings-pkb-scope').val().trim() : '',
         auto_pkb_extract: $('#settings-auto_pkb_extract').length ? $('#settings-auto_pkb_extract').is(':checked') : true,
-        auto_doubts_enabled: $('#settings-auto_doubts_enabled').length ? $('#settings-auto_doubts_enabled').is(':checked') : true,
+        auto_doubts_enabled: $('#settings-auto_doubts_enabled').length ? $('#settings-auto_doubts_enabled').is(':checked') : false,
         enable_custom_context_menu: defaultEnableCustomContextMenu,
         ppt_answer: $('#settings-ppt-answer').is(':checked') || false,
         depth: $('#depthSelector').length ? $('#depthSelector').val() : ($('#settings-depthSelector').val() || '2'),
@@ -713,7 +713,7 @@ function setModalFromState(state) {
     $('#settings-pkb-extraction-mode').val(state.pkb_extraction_mode || 'relaxed');
     $('#settings-pkb-scope').val(state.pkb_scope || '');
     $('#settings-auto_pkb_extract').prop('checked', state.auto_pkb_extract !== false);
-    $('#settings-auto_doubts_enabled').prop('checked', state.auto_doubts_enabled !== false);
+    $('#settings-auto_doubts_enabled').prop('checked', state.auto_doubts_enabled === true);
     $('#auto-doubt-categories-group').toggle(state.auto_doubts_enabled !== false);
     $('#settings-auto_doubts_enabled').off('change.catToggle').on('change.catToggle', function() {
         $('#auto-doubt-categories-group').toggle($(this).is(':checked'));
