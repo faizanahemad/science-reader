@@ -750,6 +750,7 @@ var GlobalDocsManager = {
     }
 };
 
-$(document).ready(function () {
+// R4: deferred — modal feature
+deferReady(function () {
     GlobalDocsManager.setup();
 });

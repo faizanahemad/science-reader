@@ -189,7 +189,8 @@ class VoiceTranscription {
 let mainChatVoice = null;
 let doubtChatVoice = null;
 
-$(document).ready(function () {
+// R4: deferred — voice is secondary feature, Ctrl+K unlikely in first 100ms
+deferReady(function () {
     // Initialize main chat voice transcription
     mainChatVoice = new VoiceTranscription('#messageText', '#voice-record', 'label[for="voice-record"] i');
     

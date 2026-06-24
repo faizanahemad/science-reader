@@ -115,11 +115,7 @@
      * Utility helpers
      * ────────────────────────────────────────────── */
 
-    function _escapeHtml(text) {
-        var div = document.createElement('div');
-        div.textContent = (text == null) ? '' : String(text);
-        return div.innerHTML;
-    }
+    // escapeHtml() is the module-level canonical function defined in common.js.
 
     function _showToastOrAlert(message, level) {
         if (typeof showToast === 'function') {
@@ -306,7 +302,7 @@
                     if (msg) {
                         $modalBody.append(
                             '<p class="text-muted mb-3" style="font-size: 0.9rem;">' +
-                            _escapeHtml(msg) + '</p>'
+                            escapeHtml(msg) + '</p>'
                         );
                     } else {
                         $modalBody.append(
@@ -319,11 +315,11 @@
                 }
             } else {
                 // Generic fallback for future tools
-                $modalTitle.html('<i class="fa fa-wrench"></i>&nbsp;Tool: ' + _escapeHtml(toolName));
+                $modalTitle.html('<i class="fa fa-wrench"></i>&nbsp;Tool: ' + escapeHtml(toolName));
                 $modalBody.html(
                     '<p class="text-muted">This tool requires your input.</p>' +
                     '<pre style="max-height:300px;overflow:auto;font-size:0.85rem;">' +
-                    _escapeHtml(JSON.stringify(uiSchema, null, 2)) +
+                    escapeHtml(JSON.stringify(uiSchema, null, 2)) +
                     '</pre>' +
                     '<div class="form-group mt-3">' +
                     '  <label for="tool-call-generic-input" class="font-weight-bold">Your response:</label>' +
@@ -470,13 +466,13 @@
                     return (
                         '<div class="form-check">' +
                         '  <input class="form-check-input" type="radio"' +
-                        '         name="' + _escapeHtml(radioName) + '"' +
-                        '         id="' + _escapeHtml(inputId) + '"' +
-                        '         value="' + _escapeHtml(opt) + '"' +
+                        '         name="' + escapeHtml(radioName) + '"' +
+                        '         id="' + escapeHtml(inputId) + '"' +
+                        '         value="' + escapeHtml(opt) + '"' +
                         '         data-qidx="' + qIdx + '"' +
                         '         data-oidx="' + oIdx + '">' +
-                        '  <label class="form-check-label" for="' + _escapeHtml(inputId) + '">' +
-                        '    ' + _escapeHtml(opt) +
+                        '  <label class="form-check-label" for="' + escapeHtml(inputId) + '">' +
+                        '    ' + escapeHtml(opt) +
                         '  </label>' +
                         '</div>'
                     );
@@ -485,7 +481,7 @@
                 var questionHtml =
                     '<div class="tool-call-question mb-3">' +
                     '  <label class="question-label font-weight-bold">' +
-                    '    Q' + (qIdx + 1) + ': ' + _escapeHtml(questionText) +
+                    '    Q' + (qIdx + 1) + ': ' + escapeHtml(questionText) +
                     '  </label>' +
                     '  <div class="ml-3">' +
                     '    ' + optionsHtml +
@@ -531,7 +527,7 @@
                     '    </div>' +
                     '    <div class="form-group mb-2">' +
                     '      <textarea class="form-control memory-prop-text" rows="2" data-idx="' + idx + '"' +
-                    '        placeholder="Memory text">' + _escapeHtml(claim.text || '') + '</textarea>' +
+                    '        placeholder="Memory text">' + escapeHtml(claim.text || '') + '</textarea>' +
                     '    </div>' +
                     '    <div class="form-row mb-2">' +
                     '      <div class="col-md-4">' +
@@ -543,30 +539,30 @@
                     '      <div class="col-md-4">' +
                     '        <label class="small text-muted">From</label>' +
                     '        <input type="date" class="form-control form-control-sm memory-prop-from" data-idx="' + idx + '"' +
-                    '          value="' + _escapeHtml(claim.valid_from || '') + '">' +
+                    '          value="' + escapeHtml(claim.valid_from || '') + '">' +
                     '      </div>' +
                     '      <div class="col-md-4">' +
                     '        <label class="small text-muted">Due / To</label>' +
                     '        <input type="date" class="form-control form-control-sm memory-prop-to" data-idx="' + idx + '"' +
-                    '          value="' + _escapeHtml(claim.valid_to || '') + '">' +
+                    '          value="' + escapeHtml(claim.valid_to || '') + '">' +
                     '      </div>' +
                     '    </div>' +
                     '    <div class="form-row mb-2">' +
                     '      <div class="col-md-6">' +
                     '        <label class="small text-muted">Tags (comma-separated)</label>' +
                     '        <input type="text" class="form-control form-control-sm memory-prop-tags" data-idx="' + idx + '"' +
-                    '          value="' + _escapeHtml(tagsVal) + '" placeholder="e.g. work, personal">' +
+                    '          value="' + escapeHtml(tagsVal) + '" placeholder="e.g. work, personal">' +
                     '      </div>' +
                     '      <div class="col-md-6">' +
                     '        <label class="small text-muted">Entities (comma-separated)</label>' +
                     '        <input type="text" class="form-control form-control-sm memory-prop-entities" data-idx="' + idx + '"' +
-                    '          value="' + _escapeHtml(entitiesVal) + '" placeholder="e.g. John, Acme Corp">' +
+                    '          value="' + escapeHtml(entitiesVal) + '" placeholder="e.g. John, Acme Corp">' +
                     '      </div>' +
                     '    </div>' +
                     '    <div class="form-group mb-0">' +
                     '      <label class="small text-muted">Context</label>' +
                     '        <input type="text" class="form-control form-control-sm memory-prop-context" data-idx="' + idx + '"' +
-                    '          value="' + _escapeHtml(claim.context || '') + '" placeholder="Source or context">' +
+                    '          value="' + escapeHtml(claim.context || '') + '" placeholder="Source or context">' +
                     '    </div>' +
                     '  </div>' +
                     '</div>';
@@ -687,7 +683,7 @@
             var statusClass = isTerminal ? (' ' + status) : '';
 
             var html =
-                '<div class="tool-call-status' + statusClass + '" id="tool-status-' + _escapeHtml(toolId) + '">' +
+                '<div class="tool-call-status' + statusClass + '" id="tool-status-' + escapeHtml(toolId) + '">' +
                 '  <span class="status-icon">' + icon + '</span>';
 
             // Show spinner for non-terminal states
@@ -696,7 +692,7 @@
             }
 
             html +=
-                '  <span class="status-text">' + _escapeHtml(message) + '</span>' +
+                '  <span class="status-text">' + escapeHtml(message) + '</span>' +
                 '</div>';
 
             return $(html);
@@ -890,7 +886,8 @@
     /* ──────────────────────────────────────────────
      * Auto-initialize on DOM ready
      * ────────────────────────────────────────────── */
-    $(document).ready(function () {
+    // R4: deferred — tool calls are server-initiated, cannot happen at page load
+    deferReady(function () {
         ToolCallManager.setupEventHandlers();
     });
 

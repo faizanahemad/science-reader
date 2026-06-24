@@ -181,7 +181,7 @@ var CrossConversationSearchManager = (function () {
 
         results.forEach(function (r) {
             var snippet = r.match_snippet || '';
-            var title = _escapeHtml(r.title || 'Untitled');
+            var title = escapeHtml(r.title || 'Untitled');
             var date = r.last_updated ? r.last_updated.substring(0, 10) : '';
             var msgCount = r.message_count || 0;
             var flag = r.flag && r.flag !== 'none' ? r.flag : '';
@@ -191,7 +191,7 @@ var CrossConversationSearchManager = (function () {
                 : '';
 
             var html = [
-                '<div class="cross-conv-result-item" data-conversation-id="' + _escapeHtml(r.conversation_id) + '">',
+                '<div class="cross-conv-result-item" data-conversation-id="' + escapeHtml(r.conversation_id) + '">',
                 '  <div class="d-flex justify-content-between align-items-start">',
                 '    <div class="cross-conv-result-title">' + flagBadge + title + '</div>',
                 '    <small class="text-muted text-nowrap ml-2">' + date + '</small>',
@@ -199,7 +199,7 @@ var CrossConversationSearchManager = (function () {
                 '  <div class="cross-conv-result-snippet">' + snippet + '</div>',
                 '  <div class="cross-conv-result-meta">',
                 '    <small class="text-muted">' + msgCount + ' messages</small>',
-                r.friendly_id ? '    <small class="text-muted ml-2">#' + _escapeHtml(r.friendly_id) + '</small>' : '',
+                r.friendly_id ? '    <small class="text-muted ml-2">#' + escapeHtml(r.friendly_id) + '</small>' : '',
                 '  </div>',
                 '</div>'
             ].join('\n');
@@ -216,10 +216,7 @@ var CrossConversationSearchManager = (function () {
         return colors[flag] || '#6c757d';
     }
 
-    function _escapeHtml(str) {
-        if (!str) return '';
-        return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    }
+    // escapeHtml() is the module-level canonical function defined in common.js.
 
     // ---------------------------------------------------------------
     // Status helpers

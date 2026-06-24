@@ -593,7 +593,7 @@ const ContextMenuManager = {
     }
 };
 
-// Initialize when document is ready
-$(document).ready(function() {
+// Initialize when document is ready (R4: deferred — right-click unlikely in first 100ms)
+deferReady(function() {
     ContextMenuManager.init();
 });

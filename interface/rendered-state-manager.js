@@ -27,6 +27,11 @@
   // Guardrail: avoid storing enormous conversations that could blow up storage.
   const MAX_HTML_CHARS = 4_000_000; // ~4MB as UTF-16-ish (rough), best-effort
 
+  // LRU eviction cap: keep at most this many snapshots in IndexedDB.
+  // Sized for 20-30 active conversations; each can be up to MAX_HTML_CHARS (~4MB).
+  // All cleared on logout via clearAll().
+  const MAX_SNAPSHOTS = 30;
+
   function openDb() {
     return new Promise((resolve, reject) => {
       try {
@@ -71,6 +76,39 @@
         };
       } catch (e) {
         reject(e);
+      }
+    });
+  }
+
+  /**
+   * Evict oldest snapshots (by savedAt) once the store exceeds MAX_SNAPSHOTS.
+   * Called after every successful put in saveNow. Best-effort: never rejects.
+   */
+  function evictOldest(db) {
+    return new Promise(function (resolve) {
+      try {
+        var tx = db.transaction([STORE], "readwrite");
+        var store = tx.objectStore(STORE);
+        var countReq = store.count();
+        countReq.onsuccess = function () {
+          var total = countReq.result || 0;
+          if (total <= MAX_SNAPSHOTS) { resolve(); return; }
+          var toEvict = total - MAX_SNAPSHOTS;
+          var idx = store.index("savedAt");
+          var cursorReq = idx.openCursor(); // ascending by savedAt (oldest first)
+          var evicted = 0;
+          cursorReq.onsuccess = function (event) {
+            var cursor = event.target.result;
+            if (!cursor || evicted >= toEvict) { return; }
+            cursor.delete();
+            evicted++;
+            cursor.continue();
+          };
+        };
+        tx.oncomplete = function () { resolve(); };
+        tx.onerror = function () { resolve(); };
+      } catch (_e) {
+        resolve();
       }
     });
   }
@@ -262,7 +300,10 @@
       // (If MathJax isn't present, just write immediately.)
       const write = () => {
         openDb()
-          .then((db) => withStore(db, "readwrite", (store) => store.put(record)))
+          .then((db) =>
+            withStore(db, "readwrite", (store) => store.put(record))
+              .then(() => evictOldest(db))
+          )
           .catch(() => { /* best-effort */ });
       };
 

@@ -225,7 +225,16 @@ var MarkdownEditorManager = (function() {
         var container = $('#message-edit-easymde-container');
         container.show();
         
-        if (!editors.easymde) {
+        if (editors.easymde) {
+            setTimeout(function() { editors.easymde.codemirror.refresh(); }, 10);
+            return;
+        }
+        // Item 7: load EasyMDE (+ CodeMirror) on demand
+        LazyLibs.loadEasyMDE().then(function () {
+            if (editors.easymde) { // guard against double-fire
+                setTimeout(function() { editors.easymde.codemirror.refresh(); }, 10);
+                return;
+            }
             editors.easymde = new EasyMDE({
                 element: document.getElementById('message-edit-text-easymde'),
                 spellChecker: false,
@@ -239,7 +248,6 @@ var MarkdownEditorManager = (function() {
                     'undo', 'redo'
                 ],
                 previewRender: function(plainText) {
-                    // Use the project's existing marked.js renderer
                     if (typeof marked !== 'undefined') {
                         return marked.parse(plainText);
                     }
@@ -247,15 +255,15 @@ var MarkdownEditorManager = (function() {
                 }
             });
             
-            // Handle scroll for sync
             editors.easymde.codemirror.on('scroll', function() {
                 saveScrollPosition('code');
             });
-        }
-        
-        setTimeout(function() {
-            editors.easymde.codemirror.refresh();
-        }, 10);
+            
+            setTimeout(function() { editors.easymde.codemirror.refresh(); }, 10);
+        }).catch(function (err) {
+            console.error('Failed to load EasyMDE:', err);
+            if (typeof showToast === 'function') showToast('Failed to load markdown editor', 'error');
+        });
     }
     
     /**
@@ -266,7 +274,16 @@ var MarkdownEditorManager = (function() {
         var container = document.getElementById('message-edit-codemirror-container');
         $(container).show();
         
-        if (!editors.codemirror) {
+        if (editors.codemirror) {
+            setTimeout(function() { editors.codemirror.refresh(); }, 10);
+            return;
+        }
+        // Item 7: load CodeMirror on demand
+        LazyLibs.loadCodeMirror().then(function () {
+            if (editors.codemirror) {
+                setTimeout(function() { editors.codemirror.refresh(); }, 10);
+                return;
+            }
             container.innerHTML = '';
             var textarea = document.createElement('textarea');
             container.appendChild(textarea);
@@ -288,18 +305,16 @@ var MarkdownEditorManager = (function() {
                 }
             });
             
-            // Handle scroll events for sync
             editors.codemirror.on('scroll', function() {
                 saveScrollPosition('code');
             });
             
-            // Set height
             editors.codemirror.setSize('100%', '100%');
-        }
-        
-        setTimeout(function() {
-            editors.codemirror.refresh();
-        }, 10);
+            setTimeout(function() { editors.codemirror.refresh(); }, 10);
+        }).catch(function (err) {
+            console.error('Failed to load CodeMirror:', err);
+            if (typeof showToast === 'function') showToast('Failed to load code editor', 'error');
+        });
     }
     
     /**
@@ -714,24 +729,28 @@ var MarkdownEditorManager = (function() {
 
             $('#' + modalId).one('shown.bs.modal.editorInit', function() {
                 var s = _getModalState(capturedModalId);
-                // Initialize CodeMirror inline for this modal
-                var container = document.getElementById(capturedPrefix + 'codemirror-container');
-                if (container && !s.editors.codemirror) {
-                    var textarea = document.createElement('textarea');
-                    container.appendChild(textarea);
-                    s.editors.codemirror = CodeMirror.fromTextArea(textarea, {
-                        mode: 'markdown',
-                        lineNumbers: false,
-                        lineWrapping: true,
-                        theme: 'default',
-                    });
-                    s.editors.codemirror.setSize('100%', '400px');
-                }
-                if (s.editors.codemirror) {
-                    s.editors.codemirror.setValue(s.currentText);
-                    setTimeout(function() { s.editors.codemirror.refresh(); }, 50);
-                }
-                s.hasEditorBeenInitialized = true;
+                // Item 7: load CodeMirror on demand
+                LazyLibs.loadCodeMirror().then(function () {
+                    var container = document.getElementById(capturedPrefix + 'codemirror-container');
+                    if (container && !s.editors.codemirror) {
+                        var textarea = document.createElement('textarea');
+                        container.appendChild(textarea);
+                        s.editors.codemirror = CodeMirror.fromTextArea(textarea, {
+                            mode: 'markdown',
+                            lineNumbers: false,
+                            lineWrapping: true,
+                            theme: 'default',
+                        });
+                        s.editors.codemirror.setSize('100%', '400px');
+                    }
+                    if (s.editors.codemirror) {
+                        s.editors.codemirror.setValue(s.currentText);
+                        setTimeout(function() { s.editors.codemirror.refresh(); }, 50);
+                    }
+                    s.hasEditorBeenInitialized = true;
+                }).catch(function (err) {
+                    console.error('Failed to load CodeMirror for modal:', err);
+                });
             });
 
             $('#' + modalId + ' [data-save-btn]').on('click.editorSave', function() {
@@ -877,7 +896,18 @@ var MarkdownEditorManager = (function() {
         var st = _getModalState(containerId);
         st.currentText = text || '';
 
-        if (!st.editors.codemirror) {
+        if (st.editors.codemirror) {
+            st.editors.codemirror.setValue(st.currentText);
+            setTimeout(function() { st.editors.codemirror.refresh(); }, 50);
+            return;
+        }
+        // Item 7: load CodeMirror on demand
+        LazyLibs.loadCodeMirror().then(function () {
+            if (st.editors.codemirror) {
+                st.editors.codemirror.setValue(st.currentText);
+                setTimeout(function() { st.editors.codemirror.refresh(); }, 50);
+                return;
+            }
             container.innerHTML = '';
             var textarea = document.createElement('textarea');
             container.appendChild(textarea);
@@ -888,9 +918,11 @@ var MarkdownEditorManager = (function() {
                 theme: 'default',
             });
             st.editors.codemirror.setSize('100%', height);
-        }
-        st.editors.codemirror.setValue(st.currentText);
-        setTimeout(function() { st.editors.codemirror.refresh(); }, 50);
+            st.editors.codemirror.setValue(st.currentText);
+            setTimeout(function() { st.editors.codemirror.refresh(); }, 50);
+        }).catch(function (err) {
+            console.error('Failed to load CodeMirror for inline editor:', err);
+        });
     }
 
     /**
@@ -922,7 +954,7 @@ var MarkdownEditorManager = (function() {
     };
 })();
 
-// Initialize when document is ready
-$(document).ready(function() {
+// Initialize when document is ready (R4: deferred — modal for message editing)
+deferReady(function() {
     MarkdownEditorManager.init();
 });

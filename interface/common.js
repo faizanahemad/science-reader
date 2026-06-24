@@ -1,5 +1,37 @@
 window.katex = katex;
 
+// Deferred library initialization — hljs and mermaid are loaded with `defer`,
+// so their inline init calls were moved here.  This ready handler registers
+// first (common.js is the earliest local script) and therefore fires before
+// all other $(document).ready handlers across the codebase.
+$(document).ready(function () {
+    // highlight.js — scan for any <pre><code> blocks present at DOM-ready.
+    // (In practice, code blocks are injected later by renderMessages, so this
+    // is usually a no-op.  Kept for forward-compatibility.)
+    if (typeof hljs !== 'undefined' && typeof hljs.highlightAll === 'function') {
+        hljs.highlightAll();
+    }
+
+    // mermaid — configure before any diagrams are rendered.
+    if (typeof mermaid !== 'undefined' && typeof mermaid.initialize === 'function') {
+        mermaid.initialize({ startOnLoad: true });
+    }
+});
+
+// --- R4 OPTIMISATION: deferReady utility for non-critical ready handlers ---
+// Instead of competing with the main boot sequence for main-thread time during
+// $(document).ready, non-critical handlers use requestIdleCallback (with a
+// setTimeout(fn, 1) fallback for Safari). The { timeout: 200 } option guarantees
+// execution within 200ms even on busy pages. This lets the 3 critical handlers
+// (hljs/mermaid config, main boot, sidebar setup) run first, reducing perceived
+// boot time by 100-300ms.
+//
+// Usage: replace `$(document).ready(function() { ... })` with `deferReady(function() { ... })`
+// ONLY for handlers classified as deferrable (see next_optimizations_audit.md R4).
+window.deferReady = window.requestIdleCallback
+    ? function(fn) { $(document).ready(function() { requestIdleCallback(fn, { timeout: 200 }); }); }
+    : function(fn) { $(document).ready(function() { setTimeout(fn, 1); }); };
+
 // Keep this aligned with `CACHE_VERSION` in `interface/service-worker.js` when you want
 // deterministic invalidation of cached UI assets and rendered-state snapshots.
 window.UI_CACHE_VERSION = "v24";
@@ -420,7 +452,7 @@ function updateMessageTocForElement(elem_to_render_in, rawMarkdown, continuous =
     // Use the entire card content (excluding ToC UI) for BOTH streaming and non-streaming.
     // This prevents "chunk-sized" word counts from keeping ToC hidden during streaming and
     // avoids ToC disappearing when later chunks are small.
-    var $tabsContainer = $cardBody.find('.model-tabs-container').first();
+    var $tabsContainer = $cardBody.attr('data-has-tabs') ? $cardBody.find('.model-tabs-container').first() : $();
     if ($tabsContainer.length > 0) {
         // ToC should not render when the tabs container is present.
         // In a tabbed response we render per-tab ToC via updateMessageTocForTabs.
@@ -765,7 +797,7 @@ function showFloatingToc($cardElem) {
     }
     
     // Determine if this is a tabbed response and get the active tab's content
-    var $tabsContainer = $cardBody.find('.model-tabs-container').first();
+    var $tabsContainer = $cardBody.attr('data-has-tabs') ? $cardBody.find('.model-tabs-container').first() : $();
     var $targetContent = $cardBody;
     var tocPrefix = getOrCreateTocPrefix($card);
     
@@ -859,8 +891,18 @@ function setupFloatingTocHandlers($panel, $card) {
         closeFloatingToc($card);
     });
     
-    // ToC link clicks - reuse existing navigation logic
-    $panel.find('.floating-toc-link').on('click', function(e) {
+    // ToC link clicks — delegated on $panel so the handler survives $body.html()
+    // replacements during streaming. updateFloatingTocIfOpen replaces .floating-toc-body
+    // innerHTML on every throttled chunk, destroying and recreating all <a> elements.
+    // A direct .find(...).on() would bind to dead nodes after the first update. By
+    // delegating on $panel (which is stable for the full panel lifetime), we set up
+    // exactly one handler at open-time and never need to rebind.
+    //
+    // Also fixes a correctness gap vs the old updateFloatingTocIfOpen handler: when
+    // targetEl is null (heading not yet in DOM during streaming), this version falls
+    // back to window.location.hash so the browser updates the URL and doesn't silently
+    // do nothing.
+    $panel.on('click', '.floating-toc-link', function(e) {
         e.preventDefault();
         e.stopPropagation();
         
@@ -879,6 +921,7 @@ function setupFloatingTocHandlers($panel, $card) {
         // Expand any <details> ancestors of the target
         var targetEl = document.getElementById(targetId);
         if (!targetEl) {
+            // Heading not in DOM yet (streaming in progress) — update hash only
             window.location.hash = targetId;
             return;
         }
@@ -898,6 +941,16 @@ function setupFloatingTocHandlers($panel, $card) {
         try { window.location.hash = targetId; } catch (err) {}
     });
     
+    // Strip any previously accumulated document-level handlers for this namespace
+    // before re-registering. closeAllFloatingTocs() also calls .off(), but the
+    // click.floatingToc handler is registered inside a setTimeout(100ms), so a
+    // rapid re-open within that window would bypass that cleanup and stack a
+    // duplicate. Calling .off() here — synchronously, before the setTimeout —
+    // closes the race window entirely. jQuery .off() on an unbound namespace is
+    // a no-op, so this is safe regardless of prior state.
+    $(document).off('click.floatingToc');
+    $(document).off('keydown.floatingToc');
+
     // Close on click outside (after a short delay to avoid closing immediately)
     setTimeout(function() {
         $(document).on('click.floatingToc', function(e) {
@@ -988,40 +1041,8 @@ function updateFloatingTocIfOpen($card, items, tocPrefix) {
     
     var $body = $panel.find('.floating-toc-body');
     $body.html(html);
-    
-    // Re-setup click handlers for new links
-    $panel.find('.floating-toc-link').off('click').on('click', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        
-        var targetId = $(this).attr('data-toc-target');
-        if (!targetId) return;
-        
-        var targetEl = document.getElementById(targetId);
-        if (targetEl) {
-            // Expand showMore() if the message is currently collapsed.
-            try {
-                var $moreText = $card.find('.more-text').first();
-                if ($moreText.length && !$moreText.is(':visible')) {
-                    var $toggle = $card.find('.show-more').first();
-                    if ($toggle.length) $toggle.trigger('click');
-                }
-            } catch (err) { /* ignore */ }
-
-            try {
-                var el = targetEl;
-                while (el) {
-                    if (el.tagName && el.tagName.toLowerCase() === 'details') {
-                        el.open = true;
-                    }
-                    el = el.parentElement;
-                }
-            } catch (err) { /* ignore */ }
-            
-            try { targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' }); } catch (err) {}
-            try { window.location.hash = targetId; } catch (err) {}
-        }
-    });
+    // Click handlers are on $panel via delegation (setupFloatingTocHandlers) — no
+    // rebinding needed after $body.html() replaces the <a> elements.
 }
 
 // Close floating ToC when switching conversations
@@ -1392,17 +1413,23 @@ function showMore(parentElem, text = null, textElem = null, as_html = false, sho
 
     if (as_html) {
 
-        var moreText = $('<span class="more-text" style="display:none;"></span>')
-        moreText.html(text)
-        moreText.find('.show-more').each(function () { $(this).remove(); })
-        shortText = moreText.text().slice(0, 10);
-        var lessText = $(`<span class="less-text" style="display:block;">${shortText}</span>`)
-        previous_sm = textElem.find('.show-more').length
-        var smClick = $(' <a href="#" class="show-more">[show]</a> ')
-        
-        // HEIGHT LOCK: Prevent scroll shift during textElem.empty() + rebuild.
-        // When we empty the text element, the card body height drops to ~0, causing a scroll jump.
-        // Lock the closest card body's min-height to its current height during DOM manipulation.
+        // --- R1 OPTIMISATION: in-place wrapAll instead of serialize→clone→destroy→rebuild ---
+        // Previous code: textElem.html() → $('<span>').html(text) → textElem.empty() → rebuild
+        //   Cost: 2 full HTML serialize/parse cycles per message (10-100KB each).
+        // New code: wrap existing children in-place → O(1) DOM reparenting, zero serialization.
+
+        // Remove any pre-existing showMore links inside textElem (prevents nested wrappers
+        // if showMore is somehow called twice on the same element).
+        textElem.find('.show-more').remove();
+
+        // Compute 10-char preview from the live text content (same result as before).
+        var shortText = textElem.text().slice(0, 10);
+        var lessText = $('<span class="less-text" style="display:block;">' + shortText + '</span>');
+        var smClick = $(' <a href="#" class="show-more">[show]</a> ');
+
+        // HEIGHT LOCK: Prevent scroll shift during DOM reparenting.
+        // Even though wrapAll is lighter than empty+rebuild, the display:none on the wrapper
+        // causes a momentary height collapse. Lock min-height during the manipulation.
         var _smHeightLockEl = null;
         var _smHeightLockValue = 0;
         try {
@@ -1414,36 +1441,50 @@ function showMore(parentElem, text = null, textElem = null, as_html = false, sho
                 }
             }
         } catch (e) { /* ignore */ }
-        
-        textElem.empty()
-        textElem.append(lessText)
-        textElem.append(smClick)
 
-        textElem.append(moreText)
+        // Wrap all existing children in-place into .more-text (hidden).
+        // This is O(n_children) DOM reparenting — no serialization, no cloning.
+        var $children = textElem.contents();
+        if ($children.length) {
+            $children.wrapAll('<span class="more-text" style="display:none;"></span>');
+        } else {
+            // Edge case: textElem is empty (shouldn't happen for >300 chars, but be safe)
+            textElem.append('<span class="more-text" style="display:none;"></span>');
+        }
+        var moreText = textElem.find('.more-text').first();
 
-        moreText.append(smClick.clone())
+        // Prepend preview text and [show] link BEFORE the .more-text wrapper.
+        moreText.before(lessText).before(smClick);
+        // Append a clone of [show] inside .more-text (appears as [hide] at bottom of expanded content).
+        moreText.append(smClick.clone());
 
-        // If the rendered message includes model tabs (Main/TLDR), showMore() rebuilds the DOM.
-        // Re-apply model tabs on the new `.more-text` wrapper so source nodes get hidden.
-        // Note: applyModelResponseTabs has its own height lock for the hide+insert swap.
-        try {
-            if (typeof applyModelResponseTabs === 'function') {
-                applyModelResponseTabs(moreText);
-            }
-        } catch (e) { /* ignore */ }
-        
-        // RELEASE HEIGHT LOCK: showMore DOM rebuild + tab re-application is complete.
+        // --- Tabs + ToC: eager for expanded, DEFERRED for collapsed messages ---
+        // For show_at_start=true (expanded): run tabs+ToC now (same cost as before, but no
+        //   serialize/parse overhead). These are needed immediately because content is visible.
+        // For show_at_start=false (collapsed, the majority on history load): DEFER tabs+ToC
+        //   to the first [show] click. The content is display:none, so the tab UI and ToC
+        //   are invisible anyway. The delegated toggle handler at common.js:2507 already
+        //   calls applyModelResponseTabs + updateMessageTocForElement on expand.
+        //   Savings: ~15 messages x (tabs + ToC) deferred = 0.5-1s additional.
+        if (show_at_start) {
+            // Eager path: content will be visible immediately.
+            try {
+                if (typeof applyModelResponseTabs === 'function') {
+                    applyModelResponseTabs(moreText);
+                }
+            } catch (e) { /* ignore */ }
+            try {
+                if (typeof updateMessageTocForElement === 'function') {
+                    updateMessageTocForElement(moreText, moreText.html(), false);
+                }
+            } catch (e) { /* ignore */ }
+        }
+        // else: collapsed — tabs+ToC deferred to first expand (delegated handler covers it).
+
+        // RELEASE HEIGHT LOCK.
         try {
             if (_smHeightLockEl && _smHeightLockValue > 0) {
                 _smHeightLockEl.style.minHeight = '';
-            }
-        } catch (e) { /* ignore */ }
-
-        // Ensure ToC is generated after showMore() rebuilds the DOM. Without this, ToC can go missing
-        // in some streaming->finalization paths where the final render happens before showMore() runs.
-        try {
-            if (typeof updateMessageTocForElement === 'function') {
-                updateMessageTocForElement(moreText, moreText.html(), false);
             }
         } catch (e) { /* ignore */ }
     }
@@ -1563,21 +1604,15 @@ function enableMainFunctionality() {
 }
 
 function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null, disable_voting = false) {
-    let copyBtn = $('<button>')
-        .addClass('vote-btn')
-        .addClass('copy-btn')
-        .text('📋');
-    let editBtn = $('<button>')
-        .addClass('vote-btn')
-        .addClass('edit-btn')
-        .text('✏️');
-    
-    copyBtn.click(function () {
+    // --- Inner helpers (closures over cardElem, text, etc.) ---
+
+    // Copy: inline the logic directly — no ghost button needed.
+    function handleCopyClick() {
         copyToClipboard(cardElem, text.replace('<answer>', '').replace('</answer>', '').trim());
-    });
-    
-    editBtn.off();
-    editBtn.click(function () {
+    }
+
+    // Edit: inline the logic directly — no ghost button needed.
+    function handleEditClick() {
         // IMPORTANT: capture per-card identifiers as locals (avoid shared globals).
         // Otherwise, opening the editor for another card can overwrite these values and
         // cause the Save action to update the wrong message.
@@ -1631,69 +1666,14 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
         } else {
             openEditorWith(fallbackText);
         }
-    });
+    }
 
-    // TTS button
-    // ... existing code ...
-    let ttsBtn = $('<button>')
-        .addClass('vote-btn')
-        .addClass('tts-btn')
-        .html('<span style="font-size:1rem;">🔊 S</span>')  // Larger icon
-        .css({
-            'border-radius': '6px',
-            'border': '1px solid',
-            'margin-right': '3px',
-            'padding': '2px 5px',
-            'font-size': '0.85rem',
-            'display': 'flex',
-            'align-items': 'center',
-            'justify-content': 'center'
-        });
+    // --- Ghost buttons removed (Item 4 perf optimization) ---
+    // The 4 TTS ghost buttons (ttsBtn, shortTtsBtn, podcastTtsBtn, shortPodcastTtsBtn)
+    // were created with full styles/handlers but NEVER appended to the DOM in the
+    // dropdown path. All dropdown items call handleTTSBtnClick() directly.
+    // copyBtn and editBtn are replaced by handleCopyClick() and handleEditClick() above.
 
-    let shortTtsBtn = $('<button>')
-        .addClass('vote-btn')
-        .addClass('short-tts-btn')
-        .html('<span style="font-size:0.7rem;">S</span><span style="font-size:0.75rem;margin-left:2px;">🔉 SS</span>')  // Smaller text and icon
-        .css({
-            'border-radius': '6px',
-            'border': '1px solid',
-            'margin-right': '3px',
-            'padding': '1px 4px',  // Even smaller padding
-            'font-size': '0.7rem',
-            'display': 'flex',
-            'align-items': 'center',
-            'justify-content': 'center'
-        });
-
-    let podcastTtsBtn = $('<button>')
-        .addClass('vote-btn')
-        .addClass('podcast-tts-btn')
-        .html('<span style="font-size:0.8rem;">P</span><span style="font-size:0.9rem;margin-left:2px;">🔉 P</span>')
-        .css({
-            'border-radius': '6px',
-            'border': '1px solid',
-            'margin-right': '3px',
-            'padding': '2px 4px',
-            'font-size': '0.8rem',
-            'display': 'flex',
-            'align-items': 'center',
-            'justify-content': 'center'
-        });
-
-    let shortPodcastTtsBtn = $('<button>')
-        .addClass('vote-btn')
-        .addClass('short-podcast-tts-btn')
-        .html('<span style="font-size:0.7rem;">SP</span><span style="font-size:0.75rem;margin-left:2px;">🔉 SP</span>')  // Smaller text and icon
-        .css({
-            'border-radius': '6px',
-            'border': '1px solid',
-            'margin-right': '3px',
-            'padding': '1px 4px',  // Even smaller padding
-            'font-size': '0.7rem',
-            'display': 'flex',
-            'align-items': 'center',
-            'justify-content': 'center'
-        });
 // ... existing code ...
 
     // We'll create a container for the audio or player
@@ -1825,31 +1805,13 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
             voteDropdown.hide();
             voteDropdown.after(audioPlayerContainer);
         } else {
-            // Fallback for old button structure
-            if (isPodcast) {
-                if (isShort) {
-                    ttsBtn.hide();
-                    shortTtsBtn.hide();
-                    podcastTtsBtn.hide();
-                    shortPodcastTtsBtn.replaceWith(audioContainer);
-                } else {
-                    ttsBtn.hide();
-                    shortTtsBtn.hide();
-                    shortPodcastTtsBtn.hide();
-                    podcastTtsBtn.replaceWith(audioContainer);
-                }
+            // Fallback for old button structure (no dropdown menu)
+            // Replace the vote-box content with the audio player
+            var $voteBox = cardElem.find('.vote-box');
+            if ($voteBox.length) {
+                $voteBox.empty().append(audioContainer);
             } else {
-                if (isShort) {
-                    ttsBtn.hide();
-                    podcastTtsBtn.hide();
-                    shortPodcastTtsBtn.hide();
-                    shortTtsBtn.replaceWith(audioContainer);
-                } else {
-                    shortTtsBtn.hide();
-                    podcastTtsBtn.hide();
-                    shortPodcastTtsBtn.hide();
-                    ttsBtn.replaceWith(audioContainer);
-                }
+                cardElem.append(audioPlayerContainer);
             }
         }
 
@@ -1880,30 +1842,14 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
                 console.error('TTS Error:', err);
             });
     }
-    ttsBtn.click(function() {
-        handleTTSBtnClick(false);  // normal TTS
-    });
 
-    shortTtsBtn.click(function() {
-        handleTTSBtnClick(true);   // short TTS
-    });
-
-    podcastTtsBtn.click(function() {
-        handleTTSBtnClick(false, true);  // podcast TTS
-    });
-
-    shortPodcastTtsBtn.click(function() {
-        handleTTSBtnClick(true, true);   // short podcast TTS
-    });
-
-
-    // Handle copy button in header
+    // Handle copy button in header — calls handleCopyClick() directly (no ghost button)
     let headerCopyBtn = cardElem.find('.copy-btn-header');
     if (headerCopyBtn.length > 0) {
         headerCopyBtn.click(function(e) {
             e.preventDefault();
             e.stopPropagation();
-            copyBtn.click();
+            handleCopyClick();
         });
     }
     
@@ -1911,8 +1857,27 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
     let voteDropdown = cardElem.find('.vote-dropdown-menu');
     
     if (voteDropdown.length > 0) {
-        // Clear existing content
+        // Perf (Item 1): Lazy-populate the dropdown on first open instead of eagerly
+        // building 12 items + handlers for every card. Building ~12 elements is <1ms,
+        // imperceptible to the user. Uses Bootstrap 4's show.bs.dropdown event via .one()
+        // so it only runs once per card.
+        var $dropdownParent = voteDropdown.closest('.dropdown');
+        
+        // On re-init (e.g. after message edit/revert), clear existing items so the
+        // lazy builder repopulates with fresh text/state.
         voteDropdown.empty();
+        // Remove any previously registered show.bs.dropdown handler to avoid duplication
+        if ($dropdownParent.length) {
+            $dropdownParent.off('show.bs.dropdown.lazyVoteBank');
+        }
+        
+        // The population function — runs once on first dropdown open.
+        function populateVoteDropdown() {
+            // Guard: if already populated by a race, skip
+            if (voteDropdown.children().length > 0) return;
+            
+            // Clear existing content
+            voteDropdown.empty();
         
         // Word count info item
         var wordCount = text ? text.trim().split(/\s+/).filter(Boolean).length : 0;
@@ -1950,7 +1915,7 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
         
         editItem.click(function(e) {
             e.preventDefault();
-            editBtn.click();
+            handleEditClick();
         });
 
         editAsArtefactItem.click(function(e) {
@@ -2121,9 +2086,10 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
             });
             voteDropdown.append(revertItem);
 
-            // Lazily check whether a prior version exists — only when the user
-            // actually opens the triple-dot dropdown (avoids one GET per assistant
-            // card on conversation load). Cached per card via a data flag.
+            // Lazily check whether a prior version exists — fires during the
+            // first dropdown open (which is now also the population event).
+            // No need for a separate click.revertcheck handler since the dropdown
+            // is lazy-populated on first show.bs.dropdown.
             (function(item, card) {
                 var $hdr = card.find('.card-header').last();
                 // Fast path: flag set right after an in-session edit or partial revert.
@@ -2131,20 +2097,15 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
                     item.show();
                     return;
                 }
-                var $toggle = card.find('[data-toggle="dropdown"]');
-                if (!$toggle.length) return;
-                $toggle.off('click.revertcheck').on('click.revertcheck', function() {
-                    if (item.data('revert-checked')) return;  // only once
-                    item.data('revert-checked', true);
-                    var cId = ConversationManager.activeConversationId;
-                    var mId = card.find('.card-header').last().attr('message-id');
-                    if (!cId || !mId || mId === 'undefined') return;
-                    $.get('/get_message_text/' + encodeURIComponent(cId) + '/' + encodeURIComponent(mId), function(resp) {
-                        if (resp && resp.original_text !== null && resp.original_text !== undefined) {
-                            item.show();
-                        }
-                    }).fail(function() { /* no-op */ });
-                });
+                // Fire the check immediately (we're inside the first dropdown open)
+                var cId = ConversationManager.activeConversationId;
+                var mId = card.find('.card-header').last().attr('message-id');
+                if (!cId || !mId || mId === 'undefined') return;
+                $.get('/get_message_text/' + encodeURIComponent(cId) + '/' + encodeURIComponent(mId), function(resp) {
+                    if (resp && resp.original_text !== null && resp.original_text !== undefined) {
+                        item.show();
+                    }
+                }).fail(function() { /* no-op */ });
             })(revertItem, cardElem);
         }
 
@@ -2162,28 +2123,91 @@ function initialiseVoteBank(cardElem, text, contentId = null, activeDocId = null
             }
         });
         voteDropdown.append($('<div class="dropdown-divider"></div>'), readFullScreenItem);
+        } // end populateVoteDropdown()
+
+        // Register the lazy builder: populate on first dropdown open.
+        // Bootstrap 4.6 fires 'show.bs.dropdown' on the .dropdown parent.
+        // .one() with namespace ensures it only runs once and can be cleaned up on re-init.
+        if ($dropdownParent.length > 0) {
+            $dropdownParent.one('show.bs.dropdown.lazyVoteBank', function() {
+                populateVoteDropdown();
+            });
+        } else {
+            // No dropdown parent found (shouldn't happen) — populate eagerly as fallback
+            populateVoteDropdown();
+        }
         
     } else {
-        // Fallback to old vote box if dropdown not found
+        // Fallback to old vote box if dropdown not found (legacy layout)
+        // Ghost buttons removed — create minimal inline buttons here instead.
         let voteBox = $('<div>')
             .addClass('vote-box')
-            .css({
-                'position': 'absolute',
-                'top': '5px',
-                'right': '30px'
-            });
+            .css({ 'position': 'absolute', 'top': '5px', 'right': '30px' });
 
-        let isWideScreen = window.innerWidth > 768;
-        if (isWideScreen) {
-            voteBox.append(shortTtsBtn, ttsBtn, shortPodcastTtsBtn, podcastTtsBtn, editBtn, copyBtn);
-        } else {
-            voteBox.append(shortTtsBtn, ttsBtn, editBtn, copyBtn);
-        }
+        let fbCopyBtn = $('<button>').addClass('vote-btn copy-btn').text('📋');
+        fbCopyBtn.click(function() { handleCopyClick(); });
+        let fbEditBtn = $('<button>').addClass('vote-btn edit-btn').text('✏️');
+        fbEditBtn.click(function() { handleEditClick(); });
+        let fbTtsBtn = $('<button>').addClass('vote-btn tts-btn').html('🔊');
+        fbTtsBtn.click(function() { handleTTSBtnClick(false); });
+        let fbShortTtsBtn = $('<button>').addClass('vote-btn short-tts-btn').html('🔉 S');
+        fbShortTtsBtn.click(function() { handleTTSBtnClick(true); });
+
+        voteBox.append(fbShortTtsBtn, fbTtsBtn, fbEditBtn, fbCopyBtn);
         cardElem.find('.vote-box').remove();
         cardElem.append(voteBox);
     }
 
     return;
+}
+
+/**
+ * Find the nearest scrollable ancestor container for a jQuery element.
+ * Prefers known chat containers; falls back to CSS overflow detection.
+ * Hoisted from addScrollToTopButton — pure utility, no outer dependencies.
+ * @param {jQuery} $elem
+ * @returns {jQuery|null}
+ */
+function getScrollableAncestor($elem) {
+    var preferredContainers = $('#doubt-chat-messages, #temp-llm-messages, #chatView');
+    for (var i = 0; i < preferredContainers.length; i++) {
+        var $container = $(preferredContainers[i]);
+        if ($container.length > 0 && $container.find($elem).length > 0) {
+            return $container;
+        }
+    }
+    var $parents = $elem.parents();
+    for (var j = 0; j < $parents.length; j++) {
+        var $parent = $($parents[j]);
+        var overflowY = ($parent.css('overflow-y') || '').toLowerCase();
+        var overflow = ($parent.css('overflow') || '').toLowerCase();
+        var isScrollable = (overflowY === 'auto' || overflowY === 'scroll' || overflow === 'auto' || overflow === 'scroll');
+        if (isScrollable && $parent[0] && $parent[0].scrollHeight > $parent[0].clientHeight) {
+            return $parent;
+        }
+    }
+    return null;
+}
+
+/**
+ * Scroll a container so the target element aligns to the top of the container viewport.
+ * Hoisted from addScrollToTopButton — pure geometry utility, no outer dependencies.
+ * @param {jQuery} $container
+ * @param {jQuery} $target
+ * @returns {boolean} True if a scroll was initiated.
+ */
+function scrollContainerToTargetTop($container, $target) {
+    if (!$container || !$container.length || !$target || !$target.length) return false;
+    var containerEl = $container[0];
+    var targetEl = $target[0];
+    if (!containerEl || !targetEl) return false;
+    var containerRect = containerEl.getBoundingClientRect();
+    var targetRect = targetEl.getBoundingClientRect();
+    var delta = targetRect.top - containerRect.top;
+    var targetScrollTop = $container.scrollTop() + delta;
+    if (!isFinite(targetScrollTop)) return false;
+    $container.animate({ scrollTop: targetScrollTop }, 300, 'swing');
+    return true;
 }
 
 /**
@@ -2236,64 +2260,7 @@ window.addScrollToTopButton = function(cardElem, buttonText = '↑ Top', buttonC
         );
     
     // Click handler to scroll to top of the card
-    /**
-     * Find the nearest scrollable ancestor for the card.
-     * @param {jQuery} $elem - The element to search from.
-     * @returns {jQuery|null} - The scrollable container or null if none found.
-     */
-    function getScrollableAncestor($elem) {
-        var preferredContainers = $('#doubt-chat-messages, #temp-llm-messages, #chatView');
-        for (var i = 0; i < preferredContainers.length; i++) {
-            var $container = $(preferredContainers[i]);
-            if ($container.length > 0 && $container.find($elem).length > 0) {
-                return $container;
-            }
-        }
-        
-        var $parents = $elem.parents();
-        for (var j = 0; j < $parents.length; j++) {
-            var $parent = $($parents[j]);
-            var overflowY = ($parent.css('overflow-y') || '').toLowerCase();
-            var overflow = ($parent.css('overflow') || '').toLowerCase();
-            var isScrollable = (overflowY === 'auto' || overflowY === 'scroll' || overflow === 'auto' || overflow === 'scroll');
-            if (isScrollable && $parent[0] && $parent[0].scrollHeight > $parent[0].clientHeight) {
-                return $parent;
-            }
-        }
-        
-        return null;
-    }
-    
-    /**
-     * Scroll a container so the target element aligns to the top of the container viewport.
-     * @param {jQuery} $container - The scrollable container.
-     * @param {jQuery} $target - The element to bring into view.
-     * @returns {boolean} - True if a scroll was initiated.
-     */
-    function scrollContainerToTargetTop($container, $target) {
-        if (!$container || !$container.length || !$target || !$target.length) {
-            return false;
-        }
-        
-        var containerEl = $container[0];
-        var targetEl = $target[0];
-        if (!containerEl || !targetEl) {
-            return false;
-        }
-        
-        var containerRect = containerEl.getBoundingClientRect();
-        var targetRect = targetEl.getBoundingClientRect();
-        var delta = targetRect.top - containerRect.top;
-        var targetScrollTop = $container.scrollTop() + delta;
-        
-        if (!isFinite(targetScrollTop)) {
-            return false;
-        }
-        
-        $container.animate({ scrollTop: targetScrollTop }, 300, 'swing');
-        return true;
-    }
-    
+    // (getScrollableAncestor and scrollContainerToTargetTop are module-level utilities)
     scrollTopBtn.click(function(e) {
         e.preventDefault();
         e.stopPropagation();
@@ -2538,7 +2505,7 @@ window.decorateMessageCardNav = function(cardElem, showHide) {
     // in-body showMore control to proxy (tabbed answers collapse via their nav
     // toggle). Reflect the persisted state; behaviour comes from the delegated
     // .header-hide-toggle proxy.
-    var isTabbed = $card.find('.model-tabs-container').length > 0;
+    var isTabbed = !!$card.find('.chat-card-body[data-has-tabs]').length;
     var hasShowMore = $card.find('.actual-card-text .show-more, .show-more').length > 0;
     var $hide = $card.find('> .card-header .header-hide-toggle').first();
     if ($hide.length) {
@@ -2844,6 +2811,36 @@ $(document).on('click', '.message-ref-badge', function(e) {
     });
 });
 
+// Delegated handler for fork-from-here-button (survives DOM replacement).
+// Previously only direct-bound inside renderMessages on every render call;
+// moving it here means it is registered once and always works regardless of
+// when the button appears in the DOM.
+$(document).on('click', '.fork-from-here-button', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    var msgIndex = parseInt($(this).attr('message-index'), 10);
+    if (isNaN(msgIndex)) return;
+    var conversationId = (typeof ConversationManager !== 'undefined' && ConversationManager.activeConversationId)
+        ? ConversationManager.activeConversationId : null;
+    if (!conversationId) return;
+    $.ajax({
+        url: '/fork_conversation/' + conversationId + '/' + msgIndex,
+        type: 'POST',
+        success: function(data) {
+            if (typeof showToast === 'function') showToast('Forked conversation', 'success');
+            if (data.conversation_id) {
+                WorkspaceManager.loadConversationsWithWorkspaces(false).done(function() {
+                    ConversationManager.setActiveConversation(data.conversation_id);
+                    WorkspaceManager.highlightActiveConversation(data.conversation_id);
+                });
+            }
+        },
+        error: function() {
+            if (typeof showToast === 'function') showToast('Fork failed', 'error');
+        }
+    });
+});
+
 const markdownParser = new marked.Renderer();
 
 // Create a marked extension for math
@@ -3094,6 +3091,36 @@ function createSlidesBlobUrl(htmlString) {
 markdownParser.codespan = function (text) {
     return '<code class="inline-code">' + text + '</code>';
 };
+// LLM alias → hljs language name map. LLMs frequently emit short aliases
+// (e.g. ```py, ```js, ```ts) that hljs doesn't recognise, causing a fallback
+// to unhighlighted plaintext. This map rescues those blocks cheaply (O(1) lookup).
+var _hljsAliasMap = {
+    'py': 'python', 'py3': 'python', 'python3': 'python',
+    'js': 'javascript', 'jsx': 'javascript', 'mjs': 'javascript', 'cjs': 'javascript',
+    'ts': 'typescript', 'tsx': 'typescript',
+    'sh': 'bash', 'zsh': 'bash', 'shell': 'bash', 'console': 'bash',
+    'yml': 'yaml',
+    'md': 'markdown',
+    'rb': 'ruby',
+    'rs': 'rust',
+    'cs': 'csharp', 'c#': 'csharp',
+    'c++': 'cpp', 'cc': 'cpp', 'cxx': 'cpp', 'h': 'cpp', 'hpp': 'cpp',
+    'objc': 'objectivec', 'objective-c': 'objectivec',
+    'kt': 'kotlin', 'kts': 'kotlin',
+    'html': 'xml', 'htm': 'xml', 'svg': 'xml', 'xhtml': 'xml',
+    'jsonc': 'json', 'json5': 'json',
+    'toml': 'ini',
+    'text': 'plaintext', 'txt': 'plaintext', 'raw': 'plaintext', 'log': 'plaintext',
+    'psql': 'sql', 'mysql': 'sql', 'sqlite': 'sql',
+    'dockerfile': 'bash',      // close-enough highlighting
+    'makefile': 'makefile',
+};
+
+// Fast HTML-escape for plaintext code blocks (no hljs call needed).
+function _escapeCodeHtml(str) {
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
 markdownParser.code = function (code, language) {
     if (code.trim().startsWith('<div class="section-footer">')) {
         return code;
@@ -3103,10 +3130,7 @@ markdownParser.code = function (code, language) {
     // The original <pre><code> source is preserved inside a <details> so the
     // copy button still has the raw source to copy.
     if (language === 'mermaid') {
-        var escapedCode = code
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;');
+        var escapedCode = _escapeCodeHtml(code);
         return '<div class="code-block mermaid-container">' +
             '<pre class="mermaid">' + code + '</pre>' +
             '<details class="mermaid-source-block">' +
@@ -3115,15 +3139,36 @@ markdownParser.code = function (code, language) {
             '</details>' +
             '</div>';
     }
-    const validLanguage = hljs.getLanguage(language) ? language : 'plaintext';
-    if (validLanguage === 'plaintext') {
-        var highlighted = hljs.highlightAuto(code).value;
-    } else {
-        var highlighted = hljs.highlight(validLanguage, code).value;
+
+    // ── Language resolution (O(1)) ──
+    // 1. Normalise to lowercase, strip leading/trailing whitespace.
+    // 2. Check alias map for common LLM shorthands (py → python, js → javascript …).
+    // 3. Verify with hljs.getLanguage(); fall back to plaintext if unknown.
+    // This replaces the old path that called hljs.highlightAuto() (~50-200 ms per block)
+    // whenever the language was unrecognised.
+    var lang = (language || '').trim().toLowerCase();
+    if (lang && _hljsAliasMap[lang]) {
+        lang = _hljsAliasMap[lang];
     }
-    number_of_lines = code.split('\n').length;
-    show_by_default = number_of_lines < 8 || (language === 'markdown' && number_of_lines < 15) || (language === 'md' && number_of_lines < 15) || (language === 'plaintext' && number_of_lines < 15);
-    // var highlighted = validLang ? hljs.highlight(code, { language }).value : code;
+    if (!lang || !hljs.getLanguage(lang)) {
+        lang = 'plaintext';
+    }
+
+    // ── Highlight ──
+    // Plaintext: skip hljs entirely — just HTML-escape. Saves the function-call overhead
+    // and, critically, avoids the old highlightAuto() auto-detection that tested against
+    // all 37 registered grammars.
+    var highlighted;
+    if (lang === 'plaintext') {
+        highlighted = _escapeCodeHtml(code);
+    } else {
+        highlighted = hljs.highlight(code, { language: lang }).value;
+    }
+
+    var number_of_lines = code.split('\n').length;
+    var show_by_default = number_of_lines < 8
+        || ((lang === 'markdown' || lang === 'md') && number_of_lines < 15)
+        || (lang === 'plaintext' && number_of_lines < 15);
     if (show_by_default) {
         return '<div class="code-block">' +
             '<pre><code class="hljs ' + (language || '') + '">' + highlighted + '</code></pre>' +
@@ -3480,6 +3525,7 @@ function applyModelResponseTabs(elem_to_render_in) {
         if ($existingContainer.length > 0) {
             $existingContainer.remove();
         }
+        $root.removeAttr('data-has-tabs');
         $root.find('[data-model-tabs-hidden="true"]').show().removeAttr('data-model-tabs-hidden');
         return;
     }
@@ -3664,6 +3710,7 @@ function applyModelResponseTabs(elem_to_render_in) {
         if ($existingContainer.length > 0) {
             $existingContainer.remove();
         }
+        $root.removeAttr('data-has-tabs');
         $root.find('[data-model-tabs-hidden="true"]').show().removeAttr('data-model-tabs-hidden');
         return;
     }
@@ -3993,6 +4040,7 @@ function applyModelResponseTabs(elem_to_render_in) {
     // This prevents the "ToC shows but content is blank" state on reload.
     try {
         if (!$container || $container.length === 0 || !$container[0] || !document.body.contains($container[0])) {
+            $root.removeAttr('data-has-tabs');
             $root.find('[data-model-tabs-hidden="true"]').show().removeAttr('data-model-tabs-hidden');
             // Release height lock before early exit
             try { if (_heightLockEl && _heightLockValue > 0) _heightLockEl.style.minHeight = ''; } catch (e2) {}
@@ -4032,9 +4080,14 @@ function applyModelResponseTabs(elem_to_render_in) {
     }
 
     // Final sanity check: never leave a message blank.
+    // Also stamp data-has-tabs on $root so callers can gate on an O(1) attribute
+    // check instead of a DOM traversal for .model-tabs-container.
     try {
         var hasTabsInRoot = $root.find('.model-tabs-container').length > 0;
-        if (!hasTabsInRoot) {
+        if (hasTabsInRoot) {
+            $root.attr('data-has-tabs', '1');
+        } else {
+            $root.removeAttr('data-has-tabs');
             $root.find('[data-model-tabs-hidden="true"]').show().removeAttr('data-model-tabs-hidden');
         }
     } catch (e) { /* ignore */ }
@@ -4305,24 +4358,67 @@ $(document).on('click', '.model-tabs-doubt-ingress-bottom', function(e) {
 // summary never reached it and the state was never persisted (only the
 // document-delegated "Close Section" button worked). A namespaced off/on keeps
 // the binding idempotent across repeated render calls.
-function attachSectionListeners(elem_to_render_in) {
-    $(document)
-        .off('click.sectionToggle', '.section-details > summary')
-        .on('click.sectionToggle', '.section-details > summary', function() {
-            var $section = $(this).closest('.section-details');
-            if (!$section.length) return;
-            var sectionHash = $section.attr('data-section-hash');
-            // Read the open state AFTER the browser applies the native toggle.
-            setTimeout(function() {
-                var isHidden = !$section.prop('open');
-                var convId = (typeof ConversationManager !== 'undefined' && ConversationManager && ConversationManager.getActiveConversation() != '') ? ConversationManager.getActiveConversation() : '';
-                if (convId && sectionHash) {
-                    persistSectionState(convId, sectionHash, isHidden);
-                }
-            }, 0);
-        });
-}
+// One-time delegated handler for section <details>/<summary> toggle persistence.
+// The native <details> `toggle` event does NOT bubble, so it cannot be delegated.
+// Instead we delegate the summary CLICK on `document` (mirroring the
+// `.close-section-btn` handler directly below) and read the post-toggle open
+// state on the next tick via setTimeout(0).
+//
+// Binding on `document` — rather than on a per-render element — is essential: it
+// fires for sections that live outside the per-render element, e.g. clones placed
+// inside a `.model-tabs-container` tab pane and snapshot-restored cards.
+//
+// Previously this was wrapped in `attachSectionListeners(elem)` and called on
+// every final render (once per message during history load). The function never
+// used its `elem` argument — the handler was always bound on `document`. Moving
+// it here registers it exactly once at module load, identical in behaviour but
+// without the per-render overhead.
+$(document)
+    .off('click.sectionToggle', '.section-details > summary')
+    .on('click.sectionToggle', '.section-details > summary', function() {
+        var $section = $(this).closest('.section-details');
+        if (!$section.length) return;
+        var sectionHash = $section.attr('data-section-hash');
+        // Read the open state AFTER the browser applies the native toggle.
+        setTimeout(function() {
+            var isHidden = !$section.prop('open');
+            var convId = (typeof ConversationManager !== 'undefined' && ConversationManager && ConversationManager.getActiveConversation() != '') ? ConversationManager.getActiveConversation() : '';
+            if (convId && sectionHash) {
+                persistSectionState(convId, sectionHash, isHidden);
+            }
+        }, 0);
+    });
 
+// One-time delegated handler for the "Close Section" button inside section <details> blocks.
+// Registered here at module load rather than inside renderInnerContentAsMarkdown so it is
+// set up exactly once. The handler reads `conversation_id` at click time — that variable is
+// a module-level global written by renderInnerContentAsMarkdown on every render, so it
+// always holds the current active conversation regardless of when this handler was registered.
+$(document).on('click', '.close-section-btn', function(e) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    var sectionId = $(this).data('section-id');
+    var detailsElement = $(document.getElementById(sectionId));
+
+    if (detailsElement.length) {
+        var sectionHash = detailsElement.attr('data-section-hash');
+
+        // Close the details element
+        detailsElement.prop('open', false);
+
+        // Programmatic changes don't fire the toggle event, so persist state manually
+        if (conversation_id && sectionHash) {
+            persistSectionState(conversation_id, sectionHash, true); // true = hidden
+        }
+
+        // Smooth scroll to the summary
+        detailsElement[0].scrollIntoView({
+            behavior: 'smooth',
+            block: 'nearest'
+        });
+    }
+});
 
 
 // Helper function to generate a summary for each section
@@ -4453,6 +4549,50 @@ function fetchAndApplySectionStates(conversation_id, elem_to_render_in) {
 // ============================================================================
 window.ConversationUIState = window.ConversationUIState || {
     _cache: {},
+    _lastUsed: {},
+    _appliedTo: {},
+    MAX_ENTRIES: 30,
+
+    /** Mark a conversation as recently used and evict the oldest if over cap. */
+    _touch: function(convId) {
+        if (!convId) return;
+        this._lastUsed[convId] = Date.now();
+        var keys = Object.keys(this._cache);
+        if (keys.length <= this.MAX_ENTRIES) return;
+        var oldestKey = null;
+        var oldestTime = Infinity;
+        for (var i = 0; i < keys.length; i++) {
+            var k = keys[i];
+            var t = this._lastUsed[k] || 0;
+            if (t < oldestTime) {
+                oldestTime = t;
+                oldestKey = k;
+            }
+        }
+        if (oldestKey) {
+            delete this._cache[oldestKey];
+            delete this._lastUsed[oldestKey];
+        }
+    },
+
+    /** Empty the cache entirely (call on logout). */
+    clear: function() {
+        this._cache = {};
+        this._lastUsed = {};
+        this._appliedTo = {};
+    },
+
+    /** Mark that applyConversationUIState already ran synchronously for this render pass. */
+    markApplied: function(convId) {
+        if (convId) { this._appliedTo[convId] = true; }
+    },
+    isApplied: function(convId) {
+        return !!(convId && this._appliedTo[convId]);
+    },
+    clearApplied: function(convId) {
+        if (convId) { delete this._appliedTo[convId]; }
+    },
+
     /** Populate from a list_messages payload: per-message show_hide + section map. */
     setFromList: function(convId, msgList, sectionDetails) {
         if (!convId) return;
@@ -4461,23 +4601,31 @@ window.ConversationUIState = window.ConversationUIState || {
             if (m && m.message_id) { messageShowHide[m.message_id] = m.show_hide || 'show'; }
         });
         this._cache[convId] = { section_details: sectionDetails || {}, message_show_hide: messageShowHide };
+        this._touch(convId);
     },
     /** Populate from an explicit {section_details, message_show_hide} (network shape). */
     set: function(convId, sectionDetails, messageShowHide) {
         if (!convId) return;
         this._cache[convId] = { section_details: sectionDetails || {}, message_show_hide: messageShowHide || {} };
+        this._touch(convId);
     },
     has: function(convId) { return !!(convId && this._cache[convId]); },
-    get: function(convId) { return this._cache[convId]; },
+    get: function(convId) {
+        if (!convId || !this._cache[convId]) return undefined;
+        this._touch(convId);
+        return this._cache[convId];
+    },
     updateSection: function(convId, sectionHash, hidden) {
         if (!convId || !sectionHash) return;
         var e = this._cache[convId] || (this._cache[convId] = { section_details: {}, message_show_hide: {} });
         e.section_details[sectionHash] = { hidden: !!hidden };
+        this._touch(convId);
     },
     updateMessage: function(convId, messageId, showHide) {
         if (!convId || !messageId) return;
         var e = this._cache[convId] || (this._cache[convId] = { section_details: {}, message_show_hide: {} });
         e.message_show_hide[messageId] = showHide;
+        this._touch(convId);
     }
 };
 
@@ -4516,14 +4664,36 @@ function applyConversationUIState(section_details, message_show_hide, elem_to_re
 
     // --- Message show/hide states ---
     if (message_show_hide) {
-        Object.keys(message_show_hide).forEach(function(messageId) {
+        // Perf optimization: when container is a single message card, extract its
+        // message-id and do a direct O(1) map lookup instead of iterating ALL keys
+        // and running a .find() for each (which wastes ~39 DOM queries on a 40-card load).
+        var _singleCardId = null;
+        if ($container.hasClass('message-card')) {
+            var _singleHeader = $container.find('.card-header[message-id]').first();
+            if (_singleHeader.length) {
+                _singleCardId = _singleHeader.attr('message-id');
+            }
+        }
+
+        if (_singleCardId && message_show_hide[_singleCardId] !== undefined) {
+            // Fast path: single card — process only the matching entry
+            var _ids = [_singleCardId];
+        } else if (_singleCardId) {
+            // Single card but no matching state — nothing to do
+            var _ids = [];
+        } else {
+            // Full-view path: process all entries (unchanged behavior)
+            var _ids = Object.keys(message_show_hide);
+        }
+        _ids.forEach(function(messageId) {
             var showHide = message_show_hide[messageId];
             var $header = $container.find('.card-header[message-id="' + messageId + '"]');
             if (!$header.length) return;
             var $card = $header.closest('.card.message-card');
             // Tabbed responses: collapse the tab CONTENT via the dedicated toggle path
             // (the #message-render-space / .more-text source is force-hidden under tabs).
-            var $tabsContainer = $card.find('.model-tabs-container').first();
+            var $tabsContainer = $card.find('.chat-card-body[data-has-tabs]').length
+                ? $card.find('.model-tabs-container').first() : $();
             if ($tabsContainer.length) {
                 if (typeof ensureTabsAnswerToggle === 'function') {
                     try { ensureTabsAnswerToggle($tabsContainer); } catch (e) { /* ignore */ }
@@ -4582,6 +4752,11 @@ function fetchConversationUIState(conversation_id, elem_to_render_in) {
 
     // Cache-first — no second backend conversation load.
     if (window.ConversationUIState && window.ConversationUIState.has(conversation_id)) {
+        // Skip the DOM walk if the synchronous per-card apply in
+        // renderInnerContentAsMarkdown already painted the final state this render pass.
+        if (window.ConversationUIState.isApplied(conversation_id)) {
+            return;
+        }
         var entry = window.ConversationUIState.get(conversation_id);
         applyConversationUIState(entry.section_details, entry.message_show_hide, elem_to_render_in);
         return;
@@ -4632,6 +4807,134 @@ function persistSectionState(conversation_id, sectionHash, isHidden) {
             console.error('Failed to persist section state:', error);
         }
     });
+}
+
+/**
+ * Lightweight djb2-style hash used to build stable, deterministic section IDs
+ * from section content. Defined at module level so it is available everywhere
+ * in this file without being re-declared inside render functions or loop bodies.
+ * Pure function — no side effects, no outer state.
+ */
+function simpleHash(str) {
+    let hash = 0;
+    if (str.length === 0) return hash.toString();
+    for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash;
+    }
+    return Math.abs(hash).toString(16).substring(0, 8);
+}
+
+/**
+ * Fuzzy-match `needle` against `haystack` with scored sequential character matching.
+ *
+ * Returns { score: number, indexes: number[] } on a match, or null if the needle
+ * cannot be matched.  Higher score = better match.  Scoring rules:
+ *   - Exact substring match:  score = nLen × bonus (2.0 start, 1.8 word-boundary, 1.5 mid) + 1/(pos+1)
+ *   - Consecutive chars:  +1.0 per char
+ *   - Word-boundary chars:  +0.8 per char
+ *   - Mid-word chars:  +0.3 − 0.005 × gap
+ *   - Length penalty:  −0.01 × (hLen − nLen)
+ *
+ * Pure function — no side effects, no outer state.
+ * Originally lived in file-browser-manager.js; ported to common.js so it can be
+ * shared with the slash-command autocomplete in common-chat.js.
+ *
+ * @param {string} needle
+ * @param {string} haystack
+ * @returns {{score: number, indexes: number[]}|null}
+ */
+function fuzzyMatch(needle, haystack) {
+    var nLower = needle.toLowerCase();
+    var hLower = haystack.toLowerCase();
+    var nLen = nLower.length;
+    var hLen = hLower.length;
+
+    if (nLen === 0) return { score: 0, indexes: [] };
+    if (nLen > hLen) return null;
+
+    // Quick substring check — best case
+    var subIdx = hLower.indexOf(nLower);
+    if (subIdx !== -1) {
+        var idxs = [];
+        for (var si = 0; si < nLen; si++) idxs.push(subIdx + si);
+        var bonus = 1.5;
+        if (subIdx === 0) bonus = 2.0;
+        else if ('/\\-_. '.indexOf(hLower[subIdx - 1]) !== -1) bonus = 1.8;
+        return { score: nLen * bonus + (1 / (subIdx + 1)), indexes: idxs };
+    }
+
+    // Sequential char matching with scoring
+    var indexes = [];
+    var score = 0;
+    var hIdx = 0;
+    var lastMatchIdx = -2;
+
+    for (var ni = 0; ni < nLen; ni++) {
+        var found = false;
+        for (var hi = hIdx; hi < hLen; hi++) {
+            if (hLower[hi] === nLower[ni]) {
+                indexes.push(hi);
+                if (hi === lastMatchIdx + 1) {
+                    score += 1.0;  // consecutive
+                } else if (hi === 0 || '/\\-_. '.indexOf(hLower[hi - 1]) !== -1) {
+                    score += 0.8;  // word boundary
+                } else {
+                    score += 0.3;  // mid-word
+                    score -= (hi - lastMatchIdx - 1) * 0.005;  // gap penalty
+                }
+                lastMatchIdx = hi;
+                hIdx = hi + 1;
+                found = true;
+                break;
+            }
+        }
+        if (!found) return null;
+    }
+
+    score -= (hLen - nLen) * 0.01;  // length penalty
+    return { score: score, indexes: indexes };
+}
+
+/**
+ * Escape a string for safe insertion into HTML text content or double/single-quoted attributes.
+ * Escapes: & < > " ' (five entities — strict superset of all local copies in this codebase).
+ * Handles null/undefined/non-string input safely.
+ *
+ * This is the single canonical HTML-escape helper for the entire UI.  All per-file copies
+ * (_escHtml, _escapeHtml, escapeDocHtml, _doubtEscapeHtml, etc.) are removed in favour of
+ * this function, which is loaded first via common.js and therefore available to every script.
+ *
+ * @param {string|null|undefined} str
+ * @returns {string}
+ */
+function escapeHtml(str) {
+    if (str == null) return '';
+    return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+}
+
+/**
+ * Returns true if the character at position `idx` in `str` is at the start of
+ * a line — i.e. every character between the preceding newline (or the string
+ * start) and `idx` is only whitespace (space or tab).
+ *
+ * Used by extractCodeBlocks to determine whether a fence token (``` or ~~~) is
+ * a genuine fenced-code-block opener rather than an inline occurrence mid-line.
+ * Defined at module level — pure function, closes over nothing.
+ */
+function isFenceLine(str, idx) {
+    var pos = idx - 1;
+    while (pos >= 0 && str[pos] !== '\n') {
+        if (str[pos] !== ' ' && str[pos] !== '\t') return false;
+        pos--;
+    }
+    return true;
 }
 
 function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = false, html = null, immediate_callback = null, defer_mathjax = false) {
@@ -4695,21 +4998,24 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
     has_end_answer_tag = html.includes('</answer>')
     html = html.replace(/<answer>/g, '').replace(/<\/answer>/g, '');
     // Convert <answer_diff> tags to divs with data attributes (persisted model comparison data)
-    var _diffOpenCount = (html.match(/<\s*answer_diff\s/gi) || []).length;
-    var _diffCloseCount = (html.match(/<\s*\/\s*answer_diff\s*>/gi) || []).length;
-    if (_diffOpenCount > 0 && _diffOpenCount === _diffCloseCount) {
-        // All blocks complete — safe to convert
-        html = html.replace(/<\s*answer_diff\s+model="([^"]*?)"\s+vs="([^"]*?)"\s*>/gi, '<div data-answer-diff="true" data-diff-model="$1" data-diff-vs="$2">')
-            .replace(/<\s*\/\s*answer_diff\s*>/gi, '</div>');
-    } else if (_diffOpenCount > _diffCloseCount) {
-        // Some blocks still streaming — convert only complete pairs, hide incomplete
-        // Convert matched pairs first
-        for (var _di = 0; _di < _diffCloseCount; _di++) {
-            html = html.replace(/<\s*answer_diff\s+model="([^"]*?)"\s+vs="([^"]*?)"\s*>/, '<div data-answer-diff="true" data-diff-model="$1" data-diff-vs="$2">');
-            html = html.replace(/<\s*\/\s*answer_diff\s*>/, '</div>');
+    // Fast indexOf gate: skip all regex work when tag is absent (~95% of messages)
+    if (html.indexOf('answer_diff') !== -1) {
+        var _diffOpenCount = (html.match(/<\s*answer_diff\s/gi) || []).length;
+        var _diffCloseCount = (html.match(/<\s*\/\s*answer_diff\s*>/gi) || []).length;
+        if (_diffOpenCount > 0 && _diffOpenCount === _diffCloseCount) {
+            // All blocks complete — safe to convert
+            html = html.replace(/<\s*answer_diff\s+model="([^"]*?)"\s+vs="([^"]*?)"\s*>/gi, '<div data-answer-diff="true" data-diff-model="$1" data-diff-vs="$2">')
+                .replace(/<\s*\/\s*answer_diff\s*>/gi, '</div>');
+        } else if (_diffOpenCount > _diffCloseCount) {
+            // Some blocks still streaming — convert only complete pairs, hide incomplete
+            // Convert matched pairs first
+            for (var _di = 0; _di < _diffCloseCount; _di++) {
+                html = html.replace(/<\s*answer_diff\s+model="([^"]*?)"\s+vs="([^"]*?)"\s*>/, '<div data-answer-diff="true" data-diff-model="$1" data-diff-vs="$2">');
+                html = html.replace(/<\s*\/\s*answer_diff\s*>/, '</div>');
+            }
+            // Hide remaining unclosed opening tags
+            html = html.replace(/<\s*answer_diff[^>]*>/gi, '<!--answer_diff_pending-->');
         }
-        // Hide remaining unclosed opening tags
-        html = html.replace(/<\s*answer_diff[^>]*>/gi, '<!--answer_diff_pending-->');
     }
     // Streaming-safety for <answer_tldr>:
     // During streaming, we may receive the opening tag before the closing tag arrives.
@@ -4717,36 +5023,40 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
     // can auto-close at the end of the container, effectively wrapping the rest of the message
     // (including the main answer) inside the TLDR wrapper. That can trigger premature tab-building
     // and hide the main answer while TLDR is still being generated.
-    var hasOpenAnswerTldr = /<\s*answer_tldr\s*>/i.test(html);
-    var hasCloseAnswerTldr = /<\s*\/\s*answer_tldr\s*>/i.test(html);
-    // console.warn('[renderInnerContentAsMarkdown] answer_tldr: open=' + hasOpenAnswerTldr + ', close=' + hasCloseAnswerTldr);
-    if (continuous && hasOpenAnswerTldr && !hasCloseAnswerTldr) {
-        // Do NOT create a wrapper div until the closing tag arrives.
-        // Remove the opening tag so inner <details> can still render, but we don't create a stable TLDR wrapper yet.
-        html = html.replace(/<\s*answer_tldr\s*>/gi, '<!--answer_tldr_pending-->');
-    } else {
-        html = html.replace(/<\s*answer_tldr\s*>/gi, '<div data-answer-tldr="true">')
-            .replace(/<\s*\/\s*answer_tldr\s*>/gi, '</div>');
+    // Fast indexOf gate: skip all regex work when tag is absent (~95% of messages)
+    if (html.indexOf('answer_tldr') !== -1) {
+        var hasOpenAnswerTldr = /<\s*answer_tldr\s*>/i.test(html);
+        var hasCloseAnswerTldr = /<\s*\/\s*answer_tldr\s*>/i.test(html);
+        // console.warn('[renderInnerContentAsMarkdown] answer_tldr: open=' + hasOpenAnswerTldr + ', close=' + hasCloseAnswerTldr);
+        if (continuous && hasOpenAnswerTldr && !hasCloseAnswerTldr) {
+            // Do NOT create a wrapper div until the closing tag arrives.
+            // Remove the opening tag so inner <details> can still render, but we don't create a stable TLDR wrapper yet.
+            html = html.replace(/<\s*answer_tldr\s*>/gi, '<!--answer_tldr_pending-->');
+        } else {
+            html = html.replace(/<\s*answer_tldr\s*>/gi, '<div data-answer-tldr="true">')
+                .replace(/<\s*\/\s*answer_tldr\s*>/gi, '</div>');
+        }
     }
 
     // Convert <answer_visual> tags: use comment placeholders so they survive marked processing
     // (marked treats <div> as HTML blocks and won't render markdown inside them).
     // The actual div conversion happens AFTER marked renders the content.
-    var hasOpenAnswerVisual = /<\s*answer_visual\s*>/i.test(html);
-    var hasCloseAnswerVisual = /<\s*\/\s*answer_visual\s*>/i.test(html);
+    // Fast indexOf gate: skip all regex work when tag is absent (~95% of messages)
     if (html.indexOf('answer_visual') !== -1) {
+        var hasOpenAnswerVisual = /<\s*answer_visual\s*>/i.test(html);
+        var hasCloseAnswerVisual = /<\s*\/\s*answer_visual\s*>/i.test(html);
         console.warn('[renderInnerContentAsMarkdown] FOUND answer_visual in input | continuous:', continuous, '| len:', html.length, '| hasOpen:', hasOpenAnswerVisual, '| hasClose:', hasCloseAnswerVisual);
-    }
-    if (hasOpenAnswerVisual && hasCloseAnswerVisual) {
-        // Both tags present — safe to convert
-        html = html.replace(/<\s*answer_visual\s*>/gi, '<!--ANSWER_VISUAL_OPEN-->')
-            .replace(/<\s*\/\s*answer_visual\s*>/gi, '<!--ANSWER_VISUAL_CLOSE-->');
-    } else if (hasOpenAnswerVisual && !hasCloseAnswerVisual) {
-        // Opening tag without closing — strip it to prevent malformed HTML during streaming
-        html = html.replace(/<\s*answer_visual\s*>/gi, '');
-    } else if (!hasOpenAnswerVisual && hasCloseAnswerVisual) {
-        // Closing tag without opening — strip it
-        html = html.replace(/<\s*\/\s*answer_visual\s*>/gi, '');
+        if (hasOpenAnswerVisual && hasCloseAnswerVisual) {
+            // Both tags present — safe to convert
+            html = html.replace(/<\s*answer_visual\s*>/gi, '<!--ANSWER_VISUAL_OPEN-->')
+                .replace(/<\s*\/\s*answer_visual\s*>/gi, '<!--ANSWER_VISUAL_CLOSE-->');
+        } else if (hasOpenAnswerVisual && !hasCloseAnswerVisual) {
+            // Opening tag without closing — strip it to prevent malformed HTML during streaming
+            html = html.replace(/<\s*answer_visual\s*>/gi, '');
+        } else if (!hasOpenAnswerVisual && hasCloseAnswerVisual) {
+            // Closing tag without opening — strip it
+            html = html.replace(/<\s*\/\s*answer_visual\s*>/gi, '');
+        }
     }
 
     // Check if we should wrap sections (you might want to make this configurable)
@@ -4760,6 +5070,10 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
         // Generate a unique session ID for this extraction run to avoid placeholder collisions
         // between nested extractions or with user content that might contain placeholder-like strings
         var extractionSessionId = Date.now().toString(36) + Math.random().toString(36).substr(2, 9);
+        
+        // R3: closure flag — set to true when processContentWithDetails fully renders all sections,
+        // allowing us to skip the redundant global marked.marked() call at the bottom.
+        var _sectionsFullyRendered = false;
         
         // Function to extract and protect code blocks before processing
         // Uses unique placeholder IDs to prevent collisions between outer/inner extractions
@@ -4782,17 +5096,6 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
             var tripleTildeRegex = /~~~[\s\S]*?~~~/g;
             workingContent = workingContent.replace(tripleBacktickRegex, replaceWithPlaceholder);
             workingContent = workingContent.replace(tripleTildeRegex, replaceWithPlaceholder);
-            
-            function isFenceLine(str, idx) {
-                var pos = idx - 1;
-                while (pos >= 0 && str[pos] !== '\n') {
-                    if (str[pos] !== ' ' && str[pos] !== '\t') {
-                        return false;
-                    }
-                    pos--;
-                }
-                return true;
-            }
             
             function protectIncompleteFence(fenceToken) {
                 var startIdx = workingContent.lastIndexOf(fenceToken);
@@ -4857,6 +5160,13 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
             var restoredContent = content;
             var originalLength = content.length;
             
+            // Pre-compute the sum of all code block lengths once — this is a constant
+            // across all loop iterations. Moving it out of the loop eliminates O(N²) work.
+            var totalCodeBlockSize = codeBlocks.reduce(function(sum, cb) {
+                return sum + (cb ? cb.length : 0);
+            }, 0);
+            var expectedMaxSize = originalLength + totalCodeBlockSize;
+            
             for (var i = 0; i < placeholders.length; i++) {
                 var placeholder = placeholders[i];
                 var codeBlock = codeBlocks[i];
@@ -4890,10 +5200,7 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
                     break;
                 }
                 
-                // Additional check: if string grew more than 10x original + total code blocks size, something is wrong
-                var expectedMaxSize = originalLength + codeBlocks.reduce(function(sum, cb) { 
-                    return sum + (cb ? cb.length : 0); 
-                }, 0);
+                // Additional check: if string grew more than 2x (original + all code blocks), something is wrong
                 if (restoredContent.length > expectedMaxSize * 2) {
                     console.warn('restoreCodeBlocks: Unexpected string growth detected, stopping restoration');
                     break;
@@ -4902,7 +5209,7 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
             
             return restoredContent;
         }
-        
+
         // Function to process sections while preserving existing details tags
         function processContentWithDetails(content) {
             // Extract code blocks first to protect them from splitting
@@ -4984,15 +5291,15 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
                                         if (innerSections.length > 1) {
                                             var innerWrapped = '';
                                             
-                                            // First section (before first ---) stays as-is
+                                            // First section (before first ---) — pre-render markdown (R3 optimisation)
                                             if (innerSections[0].trim()) {
                                                 var firstSection = restoreCodeBlocks(innerSections[0].trim(), innerCodeBlocks, innerCodePlaceholders);
-                                                // Check if it has a summary tag (from server)
+                                                // Check if it has a summary tag (from server) — pass through as-is (HTML survives marked)
                                                 var summaryMatch = firstSection.match(/<summary[^>]*>(.*?)<\/summary>/i);
                                                 if (summaryMatch) {
                                                     innerWrapped += firstSection;
                                                 } else {
-                                                    innerWrapped += firstSection;
+                                                    innerWrapped += marked.marked(normalizeOverIndentedLists(firstSection), { renderer: markdownParser });
                                                 }
                                             }
                                             
@@ -5003,17 +5310,6 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
                                                     // Restore code blocks in this section before generating summary
                                                     var innerSectionWithCode = restoreCodeBlocks(innerSection, innerCodeBlocks, innerCodePlaceholders);
                                                     var innerSummary = generateSectionSummary(innerSectionWithCode, j - 1);
-                                                    // Helper function for hashing
-                                                    function simpleHash(str) {
-                                                        let hash = 0;
-                                                        if (str.length === 0) return hash.toString();
-                                                        for (let i = 0; i < str.length; i++) {
-                                                            const char = str.charCodeAt(i);
-                                                            hash = ((hash << 5) - hash) + char;
-                                                            hash = hash & hash;
-                                                        }
-                                                        return Math.abs(hash).toString(16).substring(0, 8);
-                                                    }
                                                     var innerHash = simpleHash(innerSectionWithCode) || 
                                                         (innerSectionWithCode.length.toString() + innerSectionWithCode.replace(/[^a-zA-Z0-9]/g, '').substring(0, 4)).substring(0, 8);
                                                     var innerId = `section-details-${conversation_id}-${innerHash}`;
@@ -5023,9 +5319,8 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
                                                     // Pre-render markdown to HTML before wrapping in <details>
                                                     // Otherwise marked.js treats content inside HTML blocks as raw text
                                                     var innerSectionRendered = marked.marked(normalizeOverIndentedLists(innerSectionWithCode), { renderer: markdownParser });
-                                                    innerSectionRendered = removeEmTags(innerSectionRendered);
-                                                    
-                                                    innerWrapped += `
+                                                     
+                                                     innerWrapped += `
 <details open class="section-details nested-section" data-section-index="${j - 1}" data-section-hash="${innerHash}" id="${innerId}">
 <summary class="section-summary"><strong>${innerSummary}</strong></summary>
 
@@ -5047,9 +5342,9 @@ ${innerSectionRendered}
                                                 }
                                             }
                                             
-                                            // Last section (after last ---) stays as-is
-                                            var lastSection = innerSections[innerSections.length - 1].trim();
-                                            
+                                            // NOTE: The loop above (j=1..length-1) already processes the last section
+                                            // by wrapping it in <details>. A previous assignment here extracted the
+                                            // last section into a variable but never appended it — removed as dead code.
                                             
                                             detailsBlock = detailsOpening + innerWrapped + '</details>';
                                         }
@@ -5062,23 +5357,23 @@ ${innerSectionRendered}
                         }
                         // Restore code blocks in the section with restored details
                         section = restoreCodeBlocks(section, codeBlocks, codePlaceholders);
-                        wrappedHtml += section;
+                        // R3: pre-render any raw markdown surrounding <details> blocks
+                        // The <details> HTML passes through marked unchanged (sanitize: false)
+                        wrappedHtml += marked.marked(normalizeOverIndentedLists(section), { renderer: markdownParser });
                     } else {
                         // Handle sections without placeholders
                         // Only wrap if this is a middle section (not first or last)
                         if (sectionIndex === 0) {
-                            // First section - don't wrap
+                            // First section - don't wrap, but pre-render markdown (R3 optimisation)
                             if (section) {
-                                // Restore code blocks before adding to output
                                 var sectionWithCode = restoreCodeBlocks(section, codeBlocks, codePlaceholders);
-                                wrappedHtml += sectionWithCode + '\n';
+                                wrappedHtml += marked.marked(normalizeOverIndentedLists(sectionWithCode), { renderer: markdownParser }) + '\n';
                             }
                         } else if (sectionIndex === sections.length - 1) {
-                            // Last section - don't wrap
+                            // Last section - don't wrap, but pre-render markdown (R3 optimisation)
                             if (section) {
-                                // Restore code blocks before adding to output
                                 var sectionWithCode = restoreCodeBlocks(section, codeBlocks, codePlaceholders);
-                                wrappedHtml += '\n' + sectionWithCode;
+                                wrappedHtml += '\n' + marked.marked(normalizeOverIndentedLists(sectionWithCode), { renderer: markdownParser });
                             }
                         } else {
                             // Middle section - wrap in details
@@ -5086,17 +5381,6 @@ ${innerSectionRendered}
                                 // Restore code blocks before generating summary and wrapping
                                 var sectionWithCode = restoreCodeBlocks(section, codeBlocks, codePlaceholders);
                                 var summary = generateSectionSummary(sectionWithCode, sectionIndex - 1);
-                                // Helper function for hashing (if not already defined above)
-                                function simpleHash(str) {
-                                    let hash = 0;
-                                    if (str.length === 0) return hash.toString();
-                                    for (let i = 0; i < str.length; i++) {
-                                        const char = str.charCodeAt(i);
-                                        hash = ((hash << 5) - hash) + char;
-                                        hash = hash & hash;
-                                    }
-                                    return Math.abs(hash).toString(16).substring(0, 8);
-                                }
                                 var sectionHash = simpleHash(sectionWithCode) || 
                                     (sectionWithCode.length.toString() + sectionWithCode.replace(/[^a-zA-Z0-9]/g, '').substring(0, 4)).substring(0, 8);
                                 
@@ -5106,8 +5390,7 @@ ${innerSectionRendered}
                                 summary = summary.replace(/<answer>/g, '').replace(/<\/answer>/g, '').replace(/\*/g, '');
                                 // Pre-render markdown to HTML before wrapping in <details>
                                 // Otherwise marked.js treats content inside HTML blocks as raw text
-                                var sectionRendered = marked.marked(normalizeOverIndentedLists(sectionWithCode), { renderer: markdownParser });
-                                sectionRendered = removeEmTags(sectionRendered);
+                                var                                 sectionRendered = marked.marked(normalizeOverIndentedLists(sectionWithCode), { renderer: markdownParser });
                                 wrappedHtml += `
 <details open class="section-details" data-section-index="${sectionIndex - 1}" data-section-hash="${sectionHash}" id="${sectionId}">
     <summary class="section-summary"><strong>${summary}</strong></summary>
@@ -5123,6 +5406,8 @@ ${innerSectionRendered}
                     }
                 });
                 
+                // R3: all sections (first, middle, last) are now fully rendered HTML
+                _sectionsFullyRendered = true;
                 return wrappedHtml;
             }
             
@@ -5138,33 +5423,6 @@ ${innerSectionRendered}
         html = processContentWithDetails(html);
     }
 
-    // For the close button, we need to manually track the state change
-    $(document).off('click', '.close-section-btn').on('click', '.close-section-btn', function(e) {
-        e.preventDefault();
-        e.stopPropagation();
-        
-        var sectionId = $(this).data('section-id');
-        var detailsElement = $(document.getElementById(sectionId));
-        
-        if (detailsElement.length) {
-            var sectionHash = detailsElement.attr('data-section-hash');
-            
-            // Close the details element
-            detailsElement.prop('open', false);
-            
-            // Since programmatic changes don't fire toggle event, manually persist state
-            if (conversation_id && sectionHash) {
-                persistSectionState(conversation_id, sectionHash, true); // true = hidden
-            }
-            
-            // Smooth scroll to the summary
-            detailsElement[0].scrollIntoView({ 
-                behavior: 'smooth', 
-                block: 'nearest' 
-            });
-        }
-    });
-    
     // Check if this input contains slide presentation tags at all
     var hasSlideTags = html.includes('<slide-presentation>');
     var isSlidePresentation = hasSlideTags; // Backward-compatible flag used below
@@ -5178,7 +5436,6 @@ ${innerSectionRendered}
             var part = split.parts[pi];
             if (part.type === 'text') {
                 var renderedText = marked.marked(normalizeOverIndentedLists(part.content), { renderer: markdownParser });
-                renderedText = removeEmTags(renderedText);
                 combined += renderedText;
             } else if (part.type === 'slide') {
                 foundSlide = true;
@@ -5252,19 +5509,24 @@ ${innerSectionRendered}
         // Normalize over-indented list items BEFORE marked parses them.
         // Some LLMs indent bullets with 4+ spaces (e.g., "    *   text"),
         // which CommonMark treats as an indented code block instead of a list.
-        htmlChunk = marked.marked(normalizeOverIndentedLists(html), { renderer: markdownParser });
-        htmlChunk = removeEmTags(htmlChunk);
+        // R3: skip global parse when processContentWithDetails already rendered all sections
+        if (_sectionsFullyRendered) {
+            htmlChunk = html; // already fully rendered HTML — no redundant parse
+        } else {
+            htmlChunk = marked.marked(normalizeOverIndentedLists(html), { renderer: markdownParser });
+        }
     }
 
     // Post-marked: convert answer_visual comment placeholders to div wrappers
     // (done after marked so markdown inside the visual block is rendered properly)
+    // Fast indexOf gate: skip when no placeholders present
     if (htmlChunk.indexOf('ANSWER_VISUAL') !== -1) {
         console.warn('[renderInnerContentAsMarkdown] ANSWER_VISUAL comment found in htmlChunk, converting to div');
-    }
-    htmlChunk = htmlChunk.replace(/<!--ANSWER_VISUAL_OPEN-->/g, '<div data-answer-visual="true">')
-        .replace(/<!--ANSWER_VISUAL_CLOSE-->/g, '</div>');
-    if (htmlChunk.indexOf('data-answer-visual') !== -1) {
-        console.warn('[renderInnerContentAsMarkdown] SUCCESS: data-answer-visual div is in final htmlChunk');
+        htmlChunk = htmlChunk.replace(/<!--ANSWER_VISUAL_OPEN-->/g, '<div data-answer-visual="true">')
+            .replace(/<!--ANSWER_VISUAL_CLOSE-->/g, '</div>');
+        if (htmlChunk.indexOf('data-answer-visual') !== -1) {
+            console.warn('[renderInnerContentAsMarkdown] SUCCESS: data-answer-visual div is in final htmlChunk');
+        }
     }
     
     // Helper for scheduling non-critical work during idle time
@@ -5312,10 +5574,26 @@ ${innerSectionRendered}
         console.warn('[renderInnerContentAsMarkdown] POST-innerHTML | div in DOM:', _domHasIt, '| targetElement id:', targetElement.id, '| parentId:', (targetElement.parentElement||{}).id);
     }
 
-    try {
-        applyModelResponseTabs(elem_to_render_in);
-    } catch (e) {
-        console.warn('Model tabs render failed:', e);
+    // Gate applyModelResponseTabs with a fast string check before touching the DOM.
+    // For the vast majority of plain messages none of these markers will be present,
+    // so we skip ~6 DOM traversals, a data-attribute write, and a console.warn that
+    // the function emits unconditionally on non-streaming calls.
+    // The last condition uses the data-has-tabs attribute (set by applyModelResponseTabs
+    // itself on .chat-card-body) as an O(1) gate instead of a DOM traversal for
+    // .model-tabs-container. This covers re-renders where a container built by a prior
+    // streaming cycle needs to be cleaned up even though the fresh htmlChunk no longer
+    // contains tab markers.
+    var _needsModelTabs = htmlChunk.indexOf('data-answer-tldr') !== -1
+                       || htmlChunk.indexOf('data-answer-visual') !== -1
+                       || htmlChunk.indexOf('<details') !== -1
+                       || htmlChunk.indexOf('model-tabs-container') !== -1
+                       || (elem_to_render_in && $(elem_to_render_in).closest('.chat-card-body[data-has-tabs]').length > 0);
+    if (_needsModelTabs) {
+        try {
+            applyModelResponseTabs(elem_to_render_in);
+        } catch (e) {
+            console.warn('Model tabs render failed:', e);
+        }
     }
 
     // Verify visual div survived applyModelResponseTabs
@@ -5335,50 +5613,70 @@ ${innerSectionRendered}
     }
 
     mathjax_elem = elem_to_render_in[0] || jqelem;
-    
+
+    // Detect whether the content actually contains math notation.
+    // MathJax 2 scans the entire DOM subtree even when there is nothing to typeset,
+    // so skipping the queue call for math-free content eliminates wasted work —
+    // particularly important when loading history (list_messages), where many cards
+    // are rendered in sequence and most may not contain any math.
+    // Patterns matched: $...$ / $$...$$  \(...\)  \[...\]  \begin{...}
+    var hasMath = /(\$|\\[()\[\]]|\\begin\{)/.test(html);
+
     // Queue MathJax typesetting.
     // When defer_mathjax=true, wrap in setTimeout(0) so the MathJax queue item is added
     // AFTER the current call stack completes. This allows non-deferred cards (e.g. the last
     // message, which the user is reading) to get their MathJax processed first.
     // This dramatically improves perceived rendering speed for the most relevant card.
     function _queueMathJax() {
-        MathJax.Hub.Queue(["Typeset", MathJax.Hub, mathjax_elem]);
-        
-        // After MathJax finishes:
-        // 1. Release the min-height lock so the element can size naturally
-        // 2. Handle slide height adjustment if applicable
-        MathJax.Hub.Queue(function() {
-            // Release min-height lock set before innerHTML replacement.
-            // At this point MathJax has re-typeset the math, so the element
-            // should be at its correct natural height (or larger).
-            if (_lockedMinHeight) {
-                try {
-                    targetElement.style.minHeight = '';
-                } catch (e) { /* ignore */ }
-            }
-        });
-        
-        // After MathJax finishes, handle slide height adjustment
-        if (isSlidePresentation) {
+        if (hasMath) {
+            MathJax.Hub.Queue(["Typeset", MathJax.Hub, mathjax_elem]);
+
+            // After MathJax finishes:
+            // 1. Release the min-height lock so the element can size naturally
+            // 2. Handle slide height adjustment if applicable
             MathJax.Hub.Queue(function() {
-                requestAnimationFrame(function() {
+                // Release min-height lock set before innerHTML replacement.
+                // At this point MathJax has re-typeset the math, so the element
+                // should be at its correct natural height (or larger).
+                if (_lockedMinHeight) {
                     try {
-                        var slideWrapper = $(elem_to_render_in).find('.slide-presentation-wrapper');
-                        if (slideWrapper && slideWrapper.length > 0) {
-                            adjustCardHeightForSlides(slideWrapper);
-                        }
-                    } catch (e) { 
-                        console.warn('Post-MathJax slide height adjust failed:', e); 
-                    }
-                });
+                        targetElement.style.minHeight = '';
+                    } catch (e) { /* ignore */ }
+                }
             });
-        }
-        
-        if (callback) {
-            MathJax.Hub.Queue(callback);
+
+            // After MathJax finishes, handle slide height adjustment
+            if (isSlidePresentation) {
+                MathJax.Hub.Queue(function() {
+                    requestAnimationFrame(function() {
+                        try {
+                            var slideWrapper = $(elem_to_render_in).find('.slide-presentation-wrapper');
+                            if (slideWrapper && slideWrapper.length > 0) {
+                                adjustCardHeightForSlides(slideWrapper);
+                            }
+                        } catch (e) {
+                            console.warn('Post-MathJax slide height adjust failed:', e);
+                        }
+                    });
+                });
+            }
+
+            if (callback) {
+                MathJax.Hub.Queue(callback);
+            }
+        } else {
+            // No math in this block — skip the MathJax queue entirely.
+            // Still release the min-height lock and fire the callback synchronously
+            // so callers behave identically regardless of whether math was present.
+            if (_lockedMinHeight) {
+                try { targetElement.style.minHeight = ''; } catch (e) { /* ignore */ }
+            }
+            if (callback) {
+                callback();
+            }
         }
     }
-    
+
     if (defer_mathjax) {
         // Deferred: yield to browser event loop so priority cards process first.
         // setTimeout(0) ensures this runs after all synchronous code (including the
@@ -5405,16 +5703,18 @@ ${innerSectionRendered}
             if (_uiConvId && window.ConversationUIState && window.ConversationUIState.has(_uiConvId)) {
                 var _uiEntry = window.ConversationUIState.get(_uiConvId);
                 // Scope to the whole message card so BOTH section collapse and the
-                // tabbed-answer collapse paint in their final state. applyModelResponseTabs
-                // runs synchronously inside showMore() (the immediate_callback above), so
-                // any .model-tabs-container already exists at this point. Non-tabbed
-                // messages were already placed in final state via showMore's show_at_start,
-                // so re-applying here is a harmless idempotent no-op.
+                // tabbed-answer collapse paint in their final state. For expanded messages
+                // (show_at_start=true), applyModelResponseTabs runs synchronously inside
+                // showMore(), so .model-tabs-container exists. For collapsed messages
+                // (R1 optimization), tabs are deferred to first expand — applyConversationUIState
+                // checks data-has-tabs which won't be set yet, so the tab logic is safely
+                // skipped. Non-tabbed messages are placed in final state via show_at_start.
                 var $_uiCard = $(elem_to_render_in).closest('.card.message-card');
                 var _uiScope = $_uiCard.length
                     ? $_uiCard
                     : ($(elem_to_render_in).closest('.chat-card-body').length ? $(elem_to_render_in).closest('.chat-card-body') : elem_to_render_in);
                 applyConversationUIState(_uiEntry.section_details, _uiEntry.message_show_hide, _uiScope);
+                window.ConversationUIState.markApplied(_uiConvId);
             }
         } catch (e) { /* ignore */ }
     }
@@ -5428,7 +5728,6 @@ ${innerSectionRendered}
         // Re-resolve conversation_id in case it wasn't available at render start
         var resolvedConvId = conversation_id || ((typeof ConversationManager !== 'undefined' && ConversationManager && ConversationManager.getActiveConversation() != '') ? ConversationManager.getActiveConversation() : '');
         if (resolvedConvId && !continuous && !MOCK_SECTION_STATE_API) {
-            attachSectionListeners(elem_to_render_in);
             // Debounce fetchConversationUIState — multiple messages render at once,
             // so batch into a single API call after all renders complete
             clearTimeout(window._sectionStateFetchTimer);
@@ -5491,20 +5790,30 @@ ${innerSectionRendered}
         if (drawio_rendering_needed) {
             MathJax.Hub.Queue(function() {
                 scheduleIdleWork(function() {
-                    var permittedTagNames = ["DIV", "SPAN", "SECTION", "BODY"];
-                    waitForDrawIo(function(timeout) {
-                        var diagrams = document.querySelectorAll(".drawio-diagram");
-                        diagrams.forEach(function(diagram) {
-                            if (permittedTagNames.indexOf(diagram.tagName) === -1) {
-                                return;
-                            }
-                            if (timeout) {
-                                showError(diagram, "Unable to load draw.io renderer");
-                                return;
-                            }
-                            processDiagram(diagram);
+                    // Item 7: load drawio-renderer on demand
+                    var doRender = function () {
+                        var permittedTagNames = ["DIV", "SPAN", "SECTION", "BODY"];
+                        waitForDrawIo(function(timeout) {
+                            var diagrams = document.querySelectorAll(".drawio-diagram");
+                            diagrams.forEach(function(diagram) {
+                                if (permittedTagNames.indexOf(diagram.tagName) === -1) {
+                                    return;
+                                }
+                                if (timeout) {
+                                    showError(diagram, "Unable to load draw.io renderer");
+                                    return;
+                                }
+                                processDiagram(diagram);
+                            });
                         });
-                    });
+                    };
+                    if (typeof waitForDrawIo === 'function') {
+                        doRender();
+                    } else if (typeof LazyLibs !== 'undefined') {
+                        LazyLibs.loadDrawio().then(doRender).catch(function (err) {
+                            console.error('Failed to load drawio-renderer:', err);
+                        });
+                    }
                 });
             });
         }
@@ -5585,14 +5894,24 @@ function extractLastMermaid(html) {
     return "";
 }
 
+// -----------------------------------------------------------------------------
+// Mermaid / <details> open detection — module-level state
+// All three variables are set inside renderMermaidIfDetailsTagOpened() which
+// guards itself with _mermaidDetailsInitDone so they are populated exactly once.
+// -----------------------------------------------------------------------------
+var _mermaidDetailsInitDone = false;
+var _mermaidAttrObserver = null;      // watches open-attr changes on known <details> nodes
+var _mermaidNewDetailsObserver = null; // watches DOM for newly inserted <details> nodes
+
 function renderMermaidIfDetailsTagOpened() {
-    // when a <details> tag is opened, we need to run `mermaid.run({querySelector: "pre.mermaid"})`
-    // Handle details element toggle events with multiple detection methods for robustness
-    $(document).on('toggle', 'details', function() {
-        const isOpen = this.hasAttribute('open');
-        console.log('details toggled via toggle event, open:', isOpen);
-        
-        if (isOpen) {
+    // Guard: register all listeners exactly once per page load.
+    if (_mermaidDetailsInitDone) { return; }
+    _mermaidDetailsInitDone = true;
+
+    // Handler 1 — native 'toggle' event (spec-compliant, fires after open attr is set).
+    // Namespaced so it can be cleanly removed via $(document).off('.mermaidDetails') if needed.
+    $(document).on('toggle.mermaidDetails', 'details', function() {
+        if (this.hasAttribute('open')) {
             // Small delay to ensure DOM is updated before running mermaid
             setTimeout(function() {
                 normalizeMermaidBlocks(document);
@@ -5601,49 +5920,51 @@ function renderMermaidIfDetailsTagOpened() {
         }
     });
 
-    // Fallback: Listen for click events on details/summary elements
-    $(document).on('click', 'details summary', function() {
-        const details = $(this).parent('details')[0];
-        const willBeOpen = !details.hasAttribute('open');
-        console.log('details clicked, will be open:', willBeOpen);
-        
-        if (willBeOpen) {
-            // Delay to allow the details to open first
-            setTimeout(function() {
-                normalizeMermaidBlocks(document);
-                mermaid.run({querySelector: "pre.mermaid"});
-            }, 100);
-        }
-    });
-
-    // Additional fallback: Use MutationObserver to detect attribute changes
+    // Handler 2 (MutationObserver) — attribute-change fallback for browsers / embedded
+    // contexts where 'toggle' may not bubble reliably. Observes attributeFilter=['open']
+    // only — no subtree scanning, no characterData — so it never fires on streamed text.
     if (typeof MutationObserver !== 'undefined') {
-        const observer = new MutationObserver(function(mutations) {
+        _mermaidAttrObserver = new MutationObserver(function(mutations) {
             mutations.forEach(function(mutation) {
-                if (mutation.type === 'attributes' && mutation.attributeName === 'open') {
-                    const target = mutation.target;
-                    if (target.tagName.toLowerCase() === 'details' && target.hasAttribute('open')) {
-                        console.log('details opened via MutationObserver');
-                        setTimeout(function() {
-                            normalizeMermaidBlocks(document);
-                            mermaid.run({querySelector: "pre.mermaid"});
-                        }, 50);
-                    }
+                if (mutation.attributeName === 'open' &&
+                    mutation.target.tagName.toLowerCase() === 'details' &&
+                    mutation.target.hasAttribute('open')) {
+                    setTimeout(function() {
+                        normalizeMermaidBlocks(document);
+                        mermaid.run({querySelector: "pre.mermaid"});
+                    }, 50);
                 }
             });
         });
 
-        // Observe all details elements for attribute changes
-        $(document).on('DOMNodeInserted', function(e) {
-            if (e.target.tagName && e.target.tagName.toLowerCase() === 'details') {
-                observer.observe(e.target, { attributes: true, attributeFilter: ['open'] });
-            }
+        // Wire up all <details> elements already in the DOM at init time.
+        document.querySelectorAll('details').forEach(function(el) {
+            _mermaidAttrObserver.observe(el, { attributes: true, attributeFilter: ['open'] });
         });
 
-        // Also observe existing details elements
-        $('details').each(function() {
-            observer.observe(this, { attributes: true, attributeFilter: ['open'] });
+        // Handler 3 — watch for NEW <details> inserted during streaming.
+        // Replaces the deprecated synchronous DOMNodeInserted event, which was firing
+        // on every single DOM write during streaming and blocking the rendering pipeline.
+        // MutationObserver fires asynchronously after each task, never mid-mutation.
+        _mermaidNewDetailsObserver = new MutationObserver(function(mutations) {
+            mutations.forEach(function(mutation) {
+                mutation.addedNodes.forEach(function(node) {
+                    if (node.nodeType !== 1) { return; } // element nodes only
+                    // Direct match: the added node is itself a <details>
+                    if (node.tagName.toLowerCase() === 'details') {
+                        _mermaidAttrObserver.observe(node, { attributes: true, attributeFilter: ['open'] });
+                    }
+                    // Descendants: a whole message card (or subtree) may contain <details> inside it.
+                    // Early-exit if no children to avoid querySelectorAll on leaf nodes.
+                    if (node.children && node.children.length > 0) {
+                        node.querySelectorAll('details').forEach(function(el) {
+                            _mermaidAttrObserver.observe(el, { attributes: true, attributeFilter: ['open'] });
+                        });
+                    }
+                });
+            });
         });
+        _mermaidNewDetailsObserver.observe(document.body, { childList: true, subtree: true });
     }
 }
 
@@ -5850,15 +6171,6 @@ function apiCall(url, method, data, useFetch = false) {
     }
 }
 
-
-
-function removeEmTags(htmlChunk) {
-    // Previously this function was stripping <em> and <i> tags and replacing with underscores,
-    // which prevented italic text from rendering properly.
-    // Now we preserve the italic tags so _italic_ and *italic* render correctly.
-    return htmlChunk;
-}
-
 function showPDF(pdfUrl, subtree, url=null) {
     var parent_of_view = document.getElementById(`${subtree}`);
     var xhr = new XMLHttpRequest();
@@ -5977,7 +6289,16 @@ function initializeSlidePresentation(container) {
         
         // Check if Reveal.js is available
         if (typeof Reveal === 'undefined') {
-            console.error('Reveal.js is not loaded');
+            // Item 7: Reveal.js is lazy-loaded. Load it, then retry.
+            if (typeof LazyLibs !== 'undefined') {
+                LazyLibs.loadReveal().then(function () {
+                    initializeSlidePresentation(container);
+                }).catch(function (err) {
+                    console.error('Failed to load Reveal.js:', err);
+                });
+            } else {
+                console.error('Reveal.js is not loaded and LazyLibs is unavailable');
+            }
             return;
         }
         
@@ -6249,6 +6570,14 @@ function clearSwCaches() {
                     req.onsuccess = req.onerror = req.onblocked = function() { resolve(); };
                 } catch (_e) { resolve(); }
             }));
+        }
+    } catch (_e) { /* best-effort */ }
+
+    // Clear the in-memory ConversationUIState cache (section collapse / message
+    // show-hide state from the prior user session).
+    try {
+        if (window.ConversationUIState && typeof window.ConversationUIState.clear === 'function') {
+            window.ConversationUIState.clear();
         }
     } catch (_e) { /* best-effort */ }
 

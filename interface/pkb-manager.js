@@ -687,52 +687,14 @@ var PKBManager = (function() {
         
         var html = claims.map(renderClaimCard).join('');
         $list.html(html);
-        bindClaimCardActions($list, function() { loadClaims(); });
+        // Item 3.6: bindClaimCardActions removed — handlers are now delegated in init()
     }
     
     // ===========================================================================
-    // Shared: Bind claim card action handlers on any container
+    // Shared: Claim card action handlers (Item 3.6)
     // ===========================================================================
-    
-    /**
-     * Bind Pin / Use-in-next / Edit / Delete handlers on claim cards inside a
-     * container.  Reusable across Claims tab, Entity expansion, Tag expansion,
-     * and Context expansion.
-     *
-     * @param {jQuery} $container - The jQuery container holding .list-group-item
-     *   cards rendered by renderClaimCard().
-     * @param {Function} [refreshCallback] - Optional callback invoked after a
-     *   delete so the caller can re-fetch the list.
-     */
-    function bindClaimCardActions($container, refreshCallback) {
-        $container.find('.pkb-edit-claim').on('click', function() {
-            openEditClaimModal($(this).data('claim-id'));
-        });
-        $container.find('.pkb-delete-claim').on('click', function() {
-            var cid = $(this).data('claim-id');
-            if (confirm('Are you sure you want to delete this memory?')) {
-                deleteClaim(cid).done(function(response) {
-                    if (response.success) {
-                        showToast('Memory deleted.', 'success');
-                        if (refreshCallback) refreshCallback();
-                        else loadClaims();
-                    } else {
-                        showToast(response.error || 'Failed to delete memory.', 'error');
-                    }
-                }).fail(function() {
-                    showToast('Failed to delete memory.', 'error');
-                });
-            }
-        });
-        $container.find('.pkb-pin-claim').on('click', function() {
-            var cid = $(this).data('claim-id');
-            var pinned = $(this).data('pinned') === true || $(this).data('pinned') === 'true';
-            togglePinAndRefresh(cid, pinned);
-        });
-        $container.find('.pkb-use-now-claim').on('click', function() {
-            addToNextMessage($(this).data('claim-id'));
-        });
-    }
+    // Previously bindClaimCardActions() re-bound 4 handlers per render/expand.
+    // Now handled by delegated $(document).on() in init(). See init() above.
 
     // ===========================================================================
     // Expandable Entity Cards (v0.5.1)
@@ -887,10 +849,7 @@ var PKBManager = (function() {
                 });
             });
             
-            // Bind standard claim actions on linked claims
-            bindClaimCardActions($c.find('.pkb-ent-linked-claims'), function() {
-                loadEntityClaimsPanel(entityId);
-            });
+            // Item 3.6: bindClaimCardActions removed — handlers are now delegated in init()
             
             // Bind search
             $c.find('.pkb-ent-search-btn').on('click', function() {
@@ -1218,10 +1177,7 @@ var PKBManager = (function() {
                 });
             });
             
-            // Bind standard claim actions on linked claims
-            bindClaimCardActions($c.find('.pkb-tag-linked-claims'), function() {
-                loadTagClaimsPanel(tagId);
-            });
+            // Item 3.6: bindClaimCardActions removed — handlers are now delegated in init()
             
             // Bind search
             $c.find('.pkb-tag-search-btn').on('click', function() {
@@ -2068,17 +2024,7 @@ var PKBManager = (function() {
     // Utility Functions
     // ===========================================================================
     
-    /**
-     * Escape HTML to prevent XSS.
-     * @param {string} text - Text to escape
-     * @returns {string} Escaped HTML
-     */
-    function escapeHtml(text) {
-        if (!text) return '';
-        var div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
+    // escapeHtml() is the module-level canonical function defined in common.js.
     
     /**
      * Format an ISO date string.
@@ -3307,6 +3253,52 @@ var PKBManager = (function() {
      * Initialize event handlers.
      */
     function init() {
+        // ---- Item 3.6: Delegated claim card action handlers ----
+        // These replace bindClaimCardActions() which re-bound 4 handlers per render.
+        // Delegated from $(document) to match the existing convention in this file.
+        $(document).on('click', '.pkb-edit-claim', function() {
+            openEditClaimModal($(this).data('claim-id'));
+        });
+        $(document).on('click', '.pkb-delete-claim', function() {
+            var $btn = $(this);
+            var cid = $btn.data('claim-id');
+            if (confirm('Are you sure you want to delete this memory?')) {
+                deleteClaim(cid).done(function(response) {
+                    if (response.success) {
+                        showToast('Memory deleted.', 'success');
+                        // Determine refresh context from the button's ancestor container
+                        var $entContainer = $btn.closest('.pkb-ent-linked-claims');
+                        var $tagContainer = $btn.closest('.pkb-tag-linked-claims');
+                        var $ctxContainer = $btn.closest('.pkb-ctx-linked-claims');
+                        if ($entContainer.length) {
+                            var eid = $entContainer.closest('.pkb-entity-claims-container').data('entity-id');
+                            if (eid) loadEntityClaimsPanel(eid);
+                        } else if ($tagContainer.length) {
+                            var tid = $tagContainer.closest('.pkb-tag-claims-container').data('tag-id');
+                            if (tid) loadTagClaimsPanel(tid);
+                        } else if ($ctxContainer.length) {
+                            var ctxId = $ctxContainer.closest('.pkb-context-claims-container').data('context-id');
+                            if (ctxId) loadContextClaimsPanel(ctxId);
+                        } else {
+                            loadClaims();
+                        }
+                    } else {
+                        showToast(response.error || 'Failed to delete memory.', 'error');
+                    }
+                }).fail(function() {
+                    showToast('Failed to delete memory.', 'error');
+                });
+            }
+        });
+        $(document).on('click', '.pkb-pin-claim', function() {
+            var cid = $(this).data('claim-id');
+            var pinned = $(this).data('pinned') === true || $(this).data('pinned') === 'true';
+            togglePinAndRefresh(cid, pinned);
+        });
+        $(document).on('click', '.pkb-use-now-claim', function() {
+            addToNextMessage($(this).data('claim-id'));
+        });
+
         // PKB Modal button
         $(document).on('click', '#settings-pkb-modal-open-button', function() {
             openPKBModal();
@@ -3918,10 +3910,7 @@ var PKBManager = (function() {
                 });
             });
             
-            // Bind standard claim actions on linked claims
-            bindClaimCardActions($c.find('.pkb-ctx-linked-claims'), function() {
-                loadContextClaimsPanel(contextId);
-            });
+            // Item 3.6: bindClaimCardActions removed — handlers are now delegated in init()
             
             // Bind search button, enter key, and filter changes
             $c.find('.pkb-ctx-search-btn').on('click', function() {
@@ -4102,8 +4091,8 @@ var PKBManager = (function() {
         });
     }
     
-    // Initialize on document ready
-    $(document).ready(init);
+    // Initialize on document ready (R4: deferred — modal feature, delegated handlers)
+    deferReady(init);
     
     // ===========================================================================
     // Context Management (v0.5)
@@ -4739,8 +4728,8 @@ var PKBManager = (function() {
         });
     }
 
-    // Initialize on document ready
-    $(document).ready(function() {
+    // Initialize on document ready (R4: deferred — nested modal feature)
+    deferReady(function() {
         initNotificationsUI();
     });
 

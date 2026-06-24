@@ -487,6 +487,7 @@ var TabPickerManager = (function() {
     };
 })();
 
-$(document).ready(function() {
+// R4: deferred — modal, requires extension
+deferReady(function() {
     TabPickerManager.init();
 });

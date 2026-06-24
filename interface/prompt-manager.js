@@ -820,8 +820,8 @@ const PromptManager = {
     }
 };
 
-// Initialize when document is ready
-$(document).ready(function() {
+// Initialize when document is ready (R4: deferred — modal, also refreshes on open)
+deferReady(function() {
     PromptManager.init();
 });
 

@@ -109,7 +109,8 @@ function interface_readiness() {
     
     
     function showUserName(){
-        $.get('/get_user_info', function(data) {
+        // Item 3.4: return the jqXHR promise for potential future chaining.
+        return $.get('/get_user_info', function(data) {
             $('#username').text(data.name.slice(0, 10));
             userDetails.email = data.email;
             userDetails.name = data.name;

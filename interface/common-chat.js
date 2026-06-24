@@ -1,5 +1,5 @@
-// Mobile navbar dropdown proxies → desktop button handlers
-$(function() {
+// Mobile navbar dropdown proxies → desktop button handlers (R4: deferred — low risk)
+deferReady(function() {
     $('#mob-get-chat-transcript').on('click', function(e) { e.preventDefault(); $('#get-chat-transcript').trigger('click'); });
     $('#mob-share-chat').on('click', function(e) { e.preventDefault(); $('#share-chat').trigger('click'); });
     $('#mob-conversation-docs').on('click', function(e) { e.preventDefault(); $('#conversation-docs-button').trigger('click'); });
@@ -29,6 +29,11 @@ var currentSolutionStreamingController = null;
 var currentDoubtStreamingController = null;
 
 var pendingAttachments = [];
+
+// Timer handle for the "already rendering" modal auto-close. Stored at module level
+// so it can be cancelled if sendMessageCallback is invoked again before it fires,
+// preventing multiple independent 5-second timers from accumulating.
+var _preventChatRenderingTimer = null;
 
 function generateThumbnailForMainUI(dataUrl, maxSize) {
     maxSize = maxSize || 100;
@@ -776,22 +781,11 @@ var ConversationManager = {
         } catch (_e) { /* ignore */ }
         updateUrlWithConversationId(conversationId);
 
-        // Mobile UX: when selecting a conversation from the sidebar, we want the sidebar to
-        // reliably go away (hide-only), not "toggle" (which can accidentally re-open).
-        function hideSidebarOnMobileIfOpen() {
-            try {
-                if (window.innerWidth >= 768) return;
-                var sidebar = $('#chat-assistant-sidebar');
-                var contentCol = $('#chat-assistant');
-                if (!sidebar.length || !contentCol.length) return;
-                if (sidebar.hasClass('d-none')) return; // already hidden
-                sidebar.addClass('d-none');
-                contentCol.removeClass('col-md-10').addClass('col-md-12');
-                $(window).trigger('resize');
-            } catch (_e) { /* best-effort */ }
+        // Mobile UX: when selecting a conversation from the sidebar, reliably hide it
+        // (not toggle). WorkspaceManager.hideSidebarIfMobile is the canonical implementation.
+        if (typeof WorkspaceManager !== 'undefined' && WorkspaceManager.hideSidebarIfMobile) {
+            WorkspaceManager.hideSidebarIfMobile();
         }
-
-        hideSidebarOnMobileIfOpen();
 
         // Rendered-state persistence:
         // - Try to restore a DOM snapshot for instant paint.
@@ -850,6 +844,11 @@ var ConversationManager = {
                 }
             } catch (_e) { /* ignore */ }
 
+            // Disconnect observers from previous conversation's cards before we either
+            // re-render or paint over with a snapshot. The snapshot-restore path previously
+            // skipped this, leaving observers attached to detached DOM nodes.
+            try { cleanupMessageObservers(); } catch (_e) { /* ignore */ }
+
             var keepSnapshot = false;
             try {
                 if (snapshotMeta && window.RenderedStateManager && window.RenderedStateManager.matchesMessages) {
@@ -860,14 +859,29 @@ var ConversationManager = {
             if (!keepSnapshot) {
                 ChatManager.renderMessages(conversationId, msgList, true);
             } else {
+                // Cancel any in-progress chunked render before painting snapshot.
+                _renderGeneration++;
+                // R2: Snapshot path — all cards are already in the live DOM.
+                // Reset and immediately resolve the render-complete promise so
+                // fetch-early / apply-late chains don't hang.
+                _resetRenderCompletePromise();
+                if (typeof _renderCompleteResolve === 'function') {
+                    _renderCompleteResolve();
+                }
                 // Snapshot is still valid; ensure controls focus works.
                 try { $('#messageText').focus(); } catch (_e) {}
                 // Restore section hidden states + message show/hide via unified endpoint.
                 // renderInnerContentAsMarkdown was skipped, so the normal debounced call didn't run.
+                // Clear the applied flag first — snapshot HTML did NOT go through the synchronous
+                // per-card apply, so fetchConversationUIState must actually run.
+                try {
+                    if (window.ConversationUIState && typeof window.ConversationUIState.clearApplied === 'function') {
+                        window.ConversationUIState.clearApplied(conversationId);
+                    }
+                } catch (_e) { /* ignore */ }
                 try {
                     if (conversationId && !MOCK_SECTION_STATE_API) {
                         var $chatView = $('#chatView');
-                        attachSectionListeners($chatView[0]);
                         fetchConversationUIState(conversationId, $chatView[0]);
                     }
                 } catch (_e) { /* ignore */ }
@@ -896,10 +910,28 @@ var ConversationManager = {
             // Common post-load focus
             $('#messageText').focus();
             $("#show-sidebar").focus();
-            // Reveal doubts indicator buttons for messages that have doubts
-            revealDoubtsButtons(conversationId);
-            // Fetch and highlight pinned messages
-            ChatManager._fetchAndHighlightPins(conversationId);
+            // R2: Fetch-early / apply-late — fire network requests NOW (overlaps
+            // with remaining async chunked rendering), but defer DOM manipulation
+            // until _renderCompletePromise resolves (all cards in live DOM).
+            // This fixes the existing race where async chunked render hadn't
+            // finished when fetch responses arrived, silently missing later cards.
+            var _r2ConvId = conversationId;  // capture for stale-response guard
+            var doubtsPromise = _fetchDoubtsData(conversationId);
+            var pinsPromise = ChatManager._fetchPinsData(conversationId);
+            Promise.all([doubtsPromise, _renderCompletePromise]).then(function (results) {
+                // Stale-response guard: if user switched conversations, discard
+                if (ConversationManager.activeConversationId !== _r2ConvId) return;
+                _applyDoubtsToCards(results[0], false);
+            });
+            // Wrap jQuery Deferred in native Promise for safe interop
+            Promise.all([Promise.resolve(pinsPromise), _renderCompletePromise]).then(function () {
+                // Stale-response guard
+                if (ConversationManager.activeConversationId !== _r2ConvId) return;
+                ChatManager._applyPinsToCards();
+            });
+            // Item 3.3: hide loader — covers both the renderMessages path (which
+            // hides inside _runPostRenderWork) and the snapshot-restore path.
+            try { $("#loader").hide(); } catch (_e) { /* ignore */ }
         }).fail(function () {
             // API call failed (e.g. 404 for deleted conversation).
             // Clear stale state and fall back gracefully.
@@ -1292,6 +1324,10 @@ function getTextAfterLastBreakpoint(text) {
 }
 
 function renderStreamingResponse(streamingResponse, conversationId, messageText, history_message_ids) {
+    // Cancel any in-progress chunked render — streaming needs exclusive DOM access.
+    // Incrementing the generation token causes pending _renderChunk() calls to bail.
+    _renderGeneration++;
+
     // Remove any existing suggestions when starting a new response
     $('#chatView .next-question-suggestions').remove();
     
@@ -1310,7 +1346,28 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
     let card = null;
     let answerParagraph = null;
     let elem_to_render = null;
+    // Perf: cache statusDiv and spinner jQuery references so we don't
+    // re-query the DOM on every streaming chunk (saves ~200-400 .find() calls).
+    let _cachedStatusDiv = null;
+    let _cachedSpinner = null;
     var content_length = 0;
+    // Tracks whether the current section's latest rendered_answer has already been
+    // passed to renderInnerContentAsMarkdown. Used to avoid the O(N²)
+    // rendered_till_now.includes(rendered_answer) substring scan.
+    var _section_already_rendered = false;
+    // Tracks whether the current section has seen any display-math delimiter ($$, \\[, \\]).
+    // Set to true on the first chunk that contains one; reset on every section boundary.
+    // Used to skip the expensive isInsideDisplayMath() call (5 regex passes on the full
+    // accumulated string) for sections that contain no math at all.
+    var _section_has_display_math = false;
+    // Cache for getTextAfterLastBreakpoint. The function splits the full
+    // rendered_answer by \n and scans every line — O(lines) per chunk.
+    // Because rendered_answer only grows within a section, and every breakpoint
+    // trigger requires a \n to delimit the structural line, the result cannot
+    // change on a chunk that contains no \n. We recompute only when the new
+    // delta (chars appended since last call) contains a newline.
+    // Reset to initial state at every section boundary alongside the other flags.
+    var _breakpointCache = { result: null, computedAtLength: -1 };
     var answer = ''
     var rendered_answer = ''
     var response_message_id = null;
@@ -1579,9 +1636,13 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                 answerParagraph = card.find('.actual-card-text').last();
                 elem_to_render = answerParagraph;
             }
-            var statusDiv = card.find('.status-div');
-            statusDiv.show();
-            statusDiv.find('.spinner-border').show();
+            // Perf: use cached statusDiv/spinner instead of re-querying per chunk
+            if (!_cachedStatusDiv) {
+                _cachedStatusDiv = card.find('.status-div');
+                _cachedSpinner = _cachedStatusDiv.find('.spinner-border');
+            }
+            _cachedStatusDiv.show();
+            _cachedSpinner.show();
             
             if (part['text'].includes('<answer>') && card.find("#message-render-space-md-render").length > 0) {
                 elem_to_render = $(`<div class="answer section-${sectionCount}" id="actual-answer-rendering-space-${sectionCount}"></div>`);
@@ -1591,12 +1652,27 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                 beforeElem = elem_to_render;
                 content_length = 0;
                 rendered_answer = '';
+                _section_already_rendered = false;
+                _section_has_display_math = false;
+                _breakpointCache = { result: null, computedAtLength: -1 };
                 
                 sectionCount++;
             }
             
-            // Check for breakpoints in the current rendered text
-            const breakpointResult = getTextAfterLastBreakpoint(rendered_answer);
+            // Check for breakpoints in the current rendered text.
+            // getTextAfterLastBreakpoint splits the full rendered_answer by \n and
+            // scans every line — O(lines) on every chunk. Because every breakpoint
+            // trigger requires a \n to exist in the text (all triggers are line-based),
+            // the result cannot change on a chunk that appended no newline.
+            // We cache the last result and only recompute when the new delta contains \n.
+            var breakpointResult;
+            var _bpDelta = rendered_answer.slice(_breakpointCache.computedAtLength);
+            if (_breakpointCache.result === null || _bpDelta.includes('\n')) {
+                breakpointResult = getTextAfterLastBreakpoint(rendered_answer);
+                _breakpointCache = { result: breakpointResult, computedAtLength: rendered_answer.length };
+            } else {
+                breakpointResult = _breakpointCache.result;
+            }
             
             // Don't split if the breakpoint falls inside an <answer_visual> block
             var _skipBreakpoint = false;
@@ -1630,6 +1706,9 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                 // Reset rendering for the new section
                 content_length = 0;
                 rendered_answer = breakpointResult.textAfterBreakpoint;
+                _section_already_rendered = false;
+                _section_has_display_math = false;
+                _breakpointCache = { result: null, computedAtLength: -1 };
                 sectionCount++;
             }
             
@@ -1645,23 +1724,39 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
             //    MathJax to re-typeset everything in the section).
             //    - No math in section → 80 chars  (smooth text streaming)
             //    - Math in section    → 200 chars  (fewer MathJax re-runs)
-            var insideMath = isInsideDisplayMath(rendered_answer);
-            var hasMathContent = rendered_answer.includes('\\\\[') || rendered_answer.includes('\\\\]')
-                || (rendered_answer.match(/\$\$/g) || []).length >= 2;
-            var renderThreshold = hasMathContent ? 200 : 80;
+            //
+            // _section_has_display_math is set true on the first chunk that
+            // introduces a math delimiter and reset at every section boundary.
+            // This avoids calling isInsideDisplayMath() — which runs 5 regex
+            // passes over the full accumulated string — on sections that have
+            // no math at all.
+            if (!_section_has_display_math) {
+                _section_has_display_math = rendered_answer.includes('\\\\[')
+                    || rendered_answer.includes('\\\\]')
+                    || (rendered_answer.match(/\$\$/g) || []).length >= 2;
+            }
+            var insideMath = _section_has_display_math ? isInsideDisplayMath(rendered_answer) : false;
+            var renderThreshold = _section_has_display_math ? 200 : 80;
             
             if (!insideMath
-                && (rendered_answer.length > content_length + renderThreshold || breakpointResult.hasBreakpoint)
-                && !rendered_till_now.includes(rendered_answer)) {
+                && (rendered_answer.length > content_length + renderThreshold || breakpointResult.hasBreakpoint)) {
+                // Note: the length gate already guarantees rendered_answer has grown since
+                // the last render — no need for the previous rendered_till_now.includes() check.
                 mathjax_elem = renderInnerContentAsMarkdown(elem_to_render,
                     callback = null, continuous = true, html = rendered_answer);
                 content_length = rendered_answer.length;
                 rendered_till_now = rendered_till_now + rendered_answer;
+                _section_already_rendered = true;
                 
             }
             
             if ((part['text'].includes('</answer>')) && card.find("#message-render-space-md-render").length > 0) {
-                var _willRerender = elem_to_render && elem_to_render.length > 0 && rendered_answer.length > 0 && !rendered_till_now.includes(rendered_answer);
+                // _section_already_rendered is true only if the main gate above fired for this
+                // exact rendered_answer value. If any new content arrived since then
+                // (content_length < rendered_answer.length), we must render once more.
+                var _willRerender = elem_to_render && elem_to_render.length > 0
+                    && rendered_answer.length > 0
+                    && (!_section_already_rendered || rendered_answer.length !== content_length);
                 console.warn('[STREAM] </answer> detected | willRerender:', _willRerender, '| rendered_answer len:', rendered_answer.length, '| hasVisualOpen:', rendered_answer.indexOf('<answer_visual>') !== -1, '| hasVisualClose:', rendered_answer.indexOf('</answer_visual>') !== -1, '| elem_to_render id:', (elem_to_render && elem_to_render.attr ? elem_to_render.attr('id') : 'N/A'));
                 if (_willRerender) {
                     mathjax_elem = renderInnerContentAsMarkdown(elem_to_render, 
@@ -1672,6 +1767,7 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                         html = rendered_answer);
 
                     rendered_till_now = rendered_till_now + rendered_answer;
+                    _section_already_rendered = true;
                     
                 }    
                 elem_to_render = $(`<div class="answer section-${sectionCount}" id="actual-answer-rendering-space-${sectionCount}"></div>`);
@@ -1683,12 +1779,14 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
 
                 content_length = 0;
                 rendered_answer = '';
+                _section_already_rendered = false;
+                _section_has_display_math = false;
+                _breakpointCache = { result: null, computedAtLength: -1 };
                 
             }
             last_rendered_answer = rendered_answer;
             last_elem_to_render = elem_to_render;
             
-            var statusDiv = card.find('.status-div');
             statusDiv.find('.status-text').html(part['status']);
 
             if (part['message_ids']) {
@@ -1745,11 +1843,10 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                     }
                 }
                 
-                // Initialize Bootstrap 4.6 dropdowns for the streaming card
-                setTimeout(function() {
-                    // Bootstrap 4.6 dropdowns are initialized automatically with data-toggle="dropdown"
-                    card.find('[data-toggle="dropdown"]').dropdown();
-                }, 25);
+                // Bootstrap 4.6 auto-initializes data-toggle="dropdown" elements on DOM
+                // insertion. An explicit .dropdown() call here is redundant:
+                // setupStreamingCardEventHandlers (above) re-wires all card handlers, and
+                // the stream-done path initializes dropdowns via renderMessages/$newCards.
             }
         }
 
@@ -1777,11 +1874,39 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
             $('#stopResponseButton').hide();
             $('#sendMessageButton').show();
             currentStreamingController = null;
-            var statusDiv = card.find('.status-div');
+
+            // ====================================================================
+            // HEIGHT LOCK: Read offsetHeight BEFORE any DOM writes so the browser
+            // does not need to force a layout flush (reflow) to produce the value.
+            // Any preceding DOM write (hide, removeClass, removeAttr) would dirty
+            // layout and make the read below trigger a synchronous reflow.
+            // Locking minHeight here keeps the card body height constant throughout
+            // all subsequent DOM changes (statusDiv teardown, tab build, showMore
+            // rebuild) so scrollTop never shifts visibly.
+            // Released after all synchronous DOM work + scroll restoration completes.
+            // ====================================================================
+            var _cardBodyForLock = null;
+            var _cardBodyLockedHeight = 0;
+            try {
+                _cardBodyForLock = card.find('.chat-card-body')[0];
+                if (_cardBodyForLock) {
+                    _cardBodyLockedHeight = _cardBodyForLock.offsetHeight || 0;
+                    if (_cardBodyLockedHeight > 0) {
+                        _cardBodyForLock.style.minHeight = _cardBodyLockedHeight + 'px';
+                    }
+                }
+            } catch (e) { /* ignore */ }
+
+            // Use cached statusDiv if available; fall back to DOM query for safety
+            var statusDiv = _cachedStatusDiv || card.find('.status-div');
             statusDiv.hide();
             statusDiv.find('.status-text').text('');
-            statusDiv.find('.spinner-border').hide();
-            statusDiv.find('.spinner-border').removeClass('spinner-border');
+            var spinnerEl = _cachedSpinner || statusDiv.find('.spinner-border');
+            spinnerEl.hide();
+            spinnerEl.removeClass('spinner-border');
+            // Clear cache — card rendering is done
+            _cachedStatusDiv = null;
+            _cachedSpinner = null;
             console.log('Stream complete');
             // ── Diagnostic: dump raw backend text to console ──
             console.warn('[STREAM DIAG] Raw backend text (before newline replace):', _rawBackendText);
@@ -1816,27 +1941,6 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                 }
             } catch (e) { /* ignore */ }
 
-            // ====================================================================
-            // HEIGHT LOCK: Prevent visible scroll shift during DOM finalization.
-            // When tabs are built (hide children → insert tab container) and showMore()
-            // rebuilds the DOM (empty textElem → rebuild), the card body's height
-            // momentarily drops, causing a visible "scroll up then back down" jank.
-            // By locking min-height to the current rendered height, the page height stays
-            // constant throughout all DOM changes, so scrollTop never shifts.
-            // Released after all synchronous DOM work + scroll restoration completes.
-            // ====================================================================
-            var _cardBodyForLock = null;
-            var _cardBodyLockedHeight = 0;
-            try {
-                _cardBodyForLock = card.find('.chat-card-body')[0];
-                if (_cardBodyForLock) {
-                    _cardBodyLockedHeight = _cardBodyForLock.offsetHeight || 0;
-                    if (_cardBodyLockedHeight > 0) {
-                        _cardBodyForLock.style.minHeight = _cardBodyLockedHeight + 'px';
-                    }
-                }
-            } catch (e) { /* ignore */ }
-            
             // Always render the last active section once more at the end
             // This ensures that any content less than the 150 character threshold gets rendered
 
@@ -1875,7 +1979,10 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
             }
 
             if (last_elem_to_render && last_elem_to_render.length > 0) {
-                const alreadyRendered = rendered_till_now.includes(last_rendered_answer);
+                // _section_already_rendered reflects whether last_rendered_answer was already
+                // passed to renderInnerContentAsMarkdown; O(1) flag replaces the previous
+                // O(N) rendered_till_now.includes(last_rendered_answer) substring scan.
+                const alreadyRendered = _section_already_rendered;
                 
                 console.warn('[STREAM DONE] lastRendered len:', (last_rendered_answer || '').length, '| alreadyRendered:', alreadyRendered, '| hasVisualTag:', (answer || '').indexOf('answer_visual') !== -1, '| data-live-stream:', card.attr('data-live-stream'));
                 
@@ -2408,6 +2515,27 @@ function setupPaperclipAndPageDrop(conversationId) {
 }
 
 
+// ---- Async chunked rendering: cancellation token ----
+// Incremented each time a chunked render starts. Each chunk checks this
+// before flushing; if it changed (user switched conversations, or streaming
+// started), the stale render is silently abandoned.
+var _renderGeneration = 0;
+
+// ---- R2: Render-complete signalling for fetch-early / apply-late ----
+// Resolved by _runPostRenderWork after ALL cards are in the live DOM.
+// Allows pre-fired network fetches (doubts, pins) to defer their DOM
+// manipulation until cards actually exist — fixing the existing race where
+// async chunked rendering hadn't finished when fetch responses arrived.
+var _renderCompleteResolve = null;
+var _renderCompletePromise = null;
+
+function _resetRenderCompletePromise() {
+    _renderCompletePromise = new Promise(function (resolve) {
+        _renderCompleteResolve = resolve;
+    });
+}
+_resetRenderCompletePromise();  // initialise
+
 var ChatManager = {
     shownDoc: null,
     listMessages: function (conversationId, includeUiState) {
@@ -2522,36 +2650,48 @@ var ChatManager = {
         });
     },
     renderMessages: function (conversationId, messages, shouldClearChatView, initialize_voting = true, history_message_ids = [], skip_one = false) {
+        // R2: Reset the render-complete promise so pre-fired fetches (doubts/pins)
+        // wait for THIS render pass to finish before applying DOM changes.
+        _resetRenderCompletePromise();
+
         if (shouldClearChatView) {
             $('#chatView').empty();  // Clear the chat view first
             cleanupMessageObservers();
         }
+        // Clear the "already applied" flag so the synchronous per-card apply in
+        // renderInnerContentAsMarkdown re-runs and the debounced fetchConversationUIState
+        // is not incorrectly skipped on this fresh render pass.
+        try {
+            if (window.ConversationUIState && typeof window.ConversationUIState.clearApplied === 'function') {
+                window.ConversationUIState.clearApplied(conversationId);
+            }
+        } catch (_e) { /* ignore */ }
         
-        // Timer for URL update
-        let focusTimer = null;
-        let currentFocusedMessageId = null;
         var messageElement = null;
-        
-        messages.forEach(function (message, originalIndex, array) {
-            // IMPORTANT:
-            // We use message-index in several API calls (edit/delete/move).
-            // This MUST be stable and refer to the message order, not arbitrary UI cards.
-            //
-            // Previously we used $(document).find('.card').length, but other UI components
-            // (e.g., Table of Contents UI uses a `.card` class) add extra `.card` nodes,
-            // which corrupts message-index and causes edits to apply to the wrong message.
-            //
-            // Count only actual message cards inside the chat view.
-            var card_elements_count = $('#chatView').find('.message-card').length;
-            var index = card_elements_count;
-            // Track whether this is the last message in the batch for MathJax priority.
-            // originalIndex is the forEach iterator; index is the card position in the DOM.
-            var isLastInBatch = (originalIndex === array.length - 1);
+
+        // Snapshot the existing card count ONCE before the loop (H6 fix).
+        var initialCardCount = $('#chatView').find('.message-card').length;
+
+        // Collect newly created card elements so Bootstrap dropdown init can be
+        // scoped to just these cards (Fix: dropdown outside-click bug).
+        var newMessageElements = [];
+
+        // Perf: hoist constant settings read outside the loop — the checkbox
+        // value doesn't change mid-render, so reading it once saves N-1 DOM queries.
+        var renderCloseToSource = $('#settings-render-close-to-source').is(':checked');
+
+        // ---- Helper: build a single message card (pure DOM, no live-DOM insertion) ----
+        // Returns the jQuery-wrapped card element.  Side-effects: pushes onto
+        // newMessageElements, calls initialiseVoteBank, renderInnerContentAsMarkdown.
+        function _buildMessageCard(message, originalIndex, totalCount) {
+            var index = initialCardCount + originalIndex;
+            var isLastInBatch = (originalIndex === totalCount - 1);
             var senderText = message.sender === 'user' ? 'You' : 'Assistant';
             var showHide = message.show_hide || 'hide';
             var userHidden = message.user_hidden === true;
-            messageElement = $('<div class="mb-1 mt-0 card w-100 my-1 d-flex flex-column message-card"></div>');
-            if (userHidden) messageElement.css('display', 'none').addClass('message-user-hidden');
+            var cardElem = $('<div class="mb-1 mt-0 card w-100 my-1 d-flex flex-column message-card"></div>');
+            newMessageElements.push(cardElem);
+            if (userHidden) cardElem.css('display', 'none').addClass('message-user-hidden');
             // Create action dropdown for left side (doubts, delete, move)
             var actionDropdown = `
                 <div class="dropdown d-inline-block message-action-dropdown">
@@ -2658,36 +2798,26 @@ var ChatManager = {
                 renderDisplayAttachmentBadges(message.display_attachments, cardBody, conversationId);
             }
             
-            messageElement.append(cardHeader);
-            messageElement.append(cardBody);
+            cardElem.append(cardHeader);
+            cardElem.append(cardBody);
 
             // Depending on who the sender is, we adjust the alignment and add different background shading
             
             if (message.sender == 'user') {
-                // messageElement.addClass('ml-md-auto');  // For right alignment
-                messageElement.css('background-color', '#fdfdfd');  // Even lighter shade of purple
+                cardElem.css('background-color', '#fdfdfd');
                 if (message.text.trim().length > 0) {
-                    msgElements = [$(messageElement)]
-                    initialiseVoteBank(messageElement, message.text, contentId = message.message_id, activeDocId = ConversationManager.activeConversationId, disable_voting = true);
-                    
+                    msgElements = [$(cardElem)]
+                    initialiseVoteBank(cardElem, message.text, contentId = message.message_id, activeDocId = ConversationManager.activeConversationId, disable_voting = true);
                 }
             } else {
                 if (message.text.trim().length > 0) {
-                    msgElements = [$(messageElement)]
-                    initialiseVoteBank(messageElement, message.text, contentId = message.message_id, activeDocId = ConversationManager.activeConversationId, disable_voting = !initialize_voting);
-                    
+                    msgElements = [$(cardElem)]
+                    initialiseVoteBank(cardElem, message.text, contentId = message.message_id, activeDocId = ConversationManager.activeConversationId, disable_voting = !initialize_voting);
                 }
-                // messageElement.addClass('mr-md-auto');  // For left alignment
-                messageElement.css('background-color', '#ffffff');  // Lighter shade of blue
+                cardElem.css('background-color', '#ffffff');
             }
             
             if (message.text.trim().length > 0) {
-                // Capture the current messageElement in a closure
-                // IMPORTANT: showMore() and addScrollToTopButton() are passed as immediate_callback
-                // (5th param) so they run SYNCHRONOUSLY right after HTML rendering, NOT waiting
-                // for MathJax typesetting.  Previously they were passed as `callback` (2nd param)
-                // which queued them AFTER MathJax — meaning the last card wouldn't get its
-                // showMore/buttons until ALL previous cards' MathJax was done.
                 (function(currentMessageElement, currentMessage, currentTextElem, currentShowHide, isLastMessage) {
                     renderInnerContentAsMarkdown(currentTextElem,
                         /* callback (runs after MathJax) */ null,
@@ -2705,7 +2835,6 @@ var ChatManager = {
                                 (_textElem && _textElem.attr('data-has-slides') === 'true')
                             );
                             if (hasSlides) {
-                                // Ensure historic messages with slides resize properly
                                 setTimeout(function() {
                                     var slideWrapper = _textElem.closest('.card-body').find('.slide-presentation-wrapper');
                                     if (slideWrapper.length > 0) {
@@ -2718,8 +2847,6 @@ var ChatManager = {
                                 });
                             }
                             
-                            // Add Top/Bottom nav controls + (non-tabbed) header hide
-                            // toggle for long messages — on BOTH user and assistant cards.
                             if (_currentMessage.text.length > 300) {
                                 if (typeof window.decorateMessageCardNav === 'function') {
                                     window.decorateMessageCardNav(_currentMessageElement, _showHide);
@@ -2728,267 +2855,200 @@ var ChatManager = {
                         },
                         /* defer_mathjax */ !isLastMessage
                     );
-                })(messageElement, message, textElem, showHide, isLastInBatch);
+                })(cardElem, message, textElem, showHide, isLastInBatch);
             }
 
             var statusDiv = $('<div class="status-div d-flex align-items-center"></div>');
             var spinner = $('<div class="spinner-border text-primary" role="status"></div>');
             var statusText = $('<span class="status-text ml-2"></span>');
-            var renderCloseToSource = $('#settings-render-close-to-source').is(':checked');
 
             statusDiv.append(spinner);
             statusDiv.append(statusText);
-            messageElement.append(statusDiv);
-            if (history_message_ids.length > 0 && renderCloseToSource) {
-                // get all the "card message-card" and their message-id , then append the messageElement (new card) after the last card of the history_message_ids, if skip_one is true then skip one card further and then append the messageElement
-                var cards = $('#chatView').find('.card.message-card');
-                    var lastCard = null;
-                    for (var i = 0; i < cards.length; i++) {
-                        var card = cards[i];
-                        var cardMessageId = $(card).find('.history-message-checkbox').attr('message-id');
-                        if (history_message_ids.includes(cardMessageId)) {
-                            lastCard = card;
-                        }
-                    }
-                    if (lastCard) {
-                        if (skip_one) {
-                            $(lastCard).next().after(messageElement);
-                        } else {
-                            $(lastCard).after(messageElement);
-                        }
-                    } else {
-                        $('#chatView').append(messageElement);
-                    }
-            }
-            else {
-                $('#chatView').append(messageElement);
-            }
-            // $('#chatView').append(messageElement);
-
+            cardElem.append(statusDiv);
             statusDiv.hide();
             statusDiv.find('.spinner-border').hide();
-            
-            // Add event handlers for immediate focus
-            messageElement.on('click', function(e) {
-                // Don't trigger on button clicks, checkboxes, or dropdown elements
-            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .pin-message-btn, .scroll-to-bottom-btn, .header-hide-toggle, .scroll-to-top-btn, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
-                    return;
-                }
-                // Skip focus when multi-select is active or Cmd/Ctrl+click (toggles checkbox instead)
-                if (typeof MultiSelectManager !== 'undefined' && (MultiSelectManager.count() > 0 || e.metaKey || e.ctrlKey)) return;
-                
-                handleMessageFocus(message.message_id, conversationId);
-            });
-            
-            // Add text selection event handler
-            messageElement.on('selectstart mouseup', function(e) {
-                // Don't trigger on button clicks, checkboxes, or dropdown elements
-            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .pin-message-btn, .scroll-to-bottom-btn, .header-hide-toggle, .scroll-to-top-btn, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
-                    return;
-                }
-                
-                // Check if text is actually selected
-                setTimeout(function() {
-                    const selection = window.getSelection();
-                    if (selection && selection.toString().trim().length > 0) {
-                        handleMessageFocus(message.message_id, conversationId);
-                    }
-                }, 10);
-            });
-            
-            // Add focus event handler for keyboard navigation
-            messageElement.on('focus focusin', function(e) {
-                // Don't trigger on button clicks, checkboxes, or dropdown elements
-            if ($(e.target).closest('.delete-message-button, .delete-pair-button, .history-message-checkbox, .move-message-up-button, .move-message-down-button, .show-doubts-button, .ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, .pin-message-btn, .scroll-to-bottom-btn, .header-hide-toggle, .scroll-to-top-btn, .dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]').length > 0) {
-                    return;
-                }
-                
-                handleMessageFocus(message.message_id, conversationId);
-            });
-        });
 
-        setTimeout(function() {
-            if (typeof normalizeMermaidBlocks === 'function') {
-                normalizeMermaidBlocks(document);
-            }
-            mermaid.run({querySelector: "pre.mermaid"});
-        }, 100);
-        
-        // Function to handle message focus and URL update
-        function handleMessageFocus(messageId, convId) {
-            // Clear existing timer if any
-            if (focusTimer) {
-                clearTimeout(focusTimer);
-            }
-            
-            // Don't restart timer if same message is already focused
-            messageIdInUrl = getMessageIdFromUrl();
-            if (currentFocusedMessageId === messageId && messageIdInUrl === messageId) {
-                return;
-            }
-            
-            currentFocusedMessageId = messageId;
-            
-            // Set new timer for 5 seconds
-            focusTimer = setTimeout(function() {
-                updateUrlWithMessageId(convId, messageId);
-                focusTimer = null;
-            }, 1000);
+            return cardElem;
         }
-        
-        
-        $(".delete-message-button").off().on("click", function (event) {
-            event.preventDefault();
-            event.stopPropagation();
-            var messageId = $(this).attr('message-id');
-            var messageIndex = $(this).attr('message-index');
-            $(this).closest('.card').remove();
-            if (typeof reindexMessageCards === 'function') reindexMessageCards();
-            ChatManager.deleteMessage(conversationId, messageId, messageIndex);
-        });
-        $(".move-message-up-button").off().on("click", function (event) {
-            event.preventDefault();
-            event.stopPropagation();
-            var messageId = $(this).attr('message-id');
-            var messageIndex = $(this).attr('message-index');
-            moveMessagesUpOrDownCallback("up", messageId, messageIndex);
-        });
-        $(".move-message-down-button").off().on("click", function (event) {
-            event.preventDefault();
-            event.stopPropagation();
-            var messageId = $(this).attr('message-id');
-            var messageIndex = $(this).attr('message-index');
-            moveMessagesUpOrDownCallback("down", messageId, messageIndex);
-        });
-        
-        $(".show-doubts-button").off().on("click", function (event) {
-            event.preventDefault();
-            event.stopPropagation();
-            var messageId = $(this).attr('message-id');
-            DoubtManager.showDoubtsOverview(conversationId, messageId);
-        });
 
-        // has-doubts-btn uses document delegation (set up once, see below renderMessages)
-        
-        $(".ask-doubt-button").off().on("click", function (event) {
-            event.preventDefault();
-            event.stopPropagation();
-            var messageId = $(this).attr('message-id');
-            DoubtManager.askNewDoubt(conversationId, messageId);
-        });
-
-        $(".open-artefacts-button").off().on("click", function (event) {
-            event.preventDefault();
-            event.stopPropagation();
-            if (typeof ArtefactsManager !== 'undefined') {
-                ArtefactsManager.openModal(conversationId);
-            } else {
-                showToast('Artefacts manager not loaded', 'error');
-            }
-        });
-
-        $(".fork-from-here-button").off().on("click", function (event) {
-            event.preventDefault();
-            event.stopPropagation();
-            var msgIndex = parseInt($(this).attr("message-index"), 10);
-            if (isNaN(msgIndex)) return;
-            $.ajax({
-                url: '/fork_conversation/' + conversationId + '/' + msgIndex,
-                type: 'POST',
-                success: function (data) {
-                    showToast('Forked conversation', 'success');
-                    if (data.conversation_id) {
-                        WorkspaceManager.loadConversationsWithWorkspaces(false).done(function () {
-                            ConversationManager.setActiveConversation(data.conversation_id);
-                            WorkspaceManager.highlightActiveConversation(data.conversation_id);
-                        });
-                    }
-                },
-                error: function () { showToast('Fork failed', 'error'); }
-            });
-        });
-
-        // Click-to-copy handler for message reference badges
-        $(".message-ref-badge").off('click').on("click", function (event) {
-            event.preventDefault();
-            event.stopPropagation();
-            var hash = $(this).data('msg-hash');
-            var idx = $(this).data('msg-idx');
-            var convFid = ConversationManager.activeConversationFriendlyId || '';
-            if (!convFid) return;
-            var msgPart = hash ? hash : idx;
-            var ref = '@conversation_' + convFid + '_message_' + msgPart;
-            var badge = $(this);
-            navigator.clipboard.writeText(ref).then(function () {
-                var original = badge.text();
-                badge.text('Copied!');
-                setTimeout(function () { badge.text(original); }, 1200);
-            });
-        });
-        
-        // Initialize Bootstrap 4.6 dropdowns
-        setTimeout(function() {
-            // Bootstrap 4.6 dropdowns are initialized automatically with data-toggle="dropdown"
-            // Just ensure they work properly by triggering any needed setup
-            $('[data-toggle="dropdown"]').dropdown();
-        }, 50);
-        // var chatView = $('#chatView');
-        // chatView.scrollTop(chatView.prop('scrollHeight'));
-        
-        // Check if URL contains a message ID and scroll to that message
-        const messageIdFromUrl = getMessageIdFromUrl();
-        if (messageIdFromUrl && shouldClearChatView) {
-            // Use setTimeout to ensure DOM is fully updated after rendering
+        // ---- Helper: post-render work (mermaid, dropdowns, URL scroll, etc.) ----
+        // Called once after ALL cards are in the live DOM — either immediately
+        // (synchronous path) or after the last chunk flushes (async path).
+        function _runPostRenderWork() {
             setTimeout(function() {
-                const targetMessageElement = $(`[message-id="${messageIdFromUrl}"]`);
-                const targetMessageCard = targetMessageElement.length > 0 ? targetMessageElement.closest('.card') : $();
-                if (targetMessageCard && targetMessageCard.length > 0) {
-                    // REMOVED: Auto-scroll to target message - was interrupting user reading
-                    // targetMessageCard[0].scrollIntoView({
-                    //     behavior: 'smooth',
-                    //     block: 'center'
-                    // });
-                    
-                    // Optional: Add a temporary highlight effect (keeping this for visual feedback)
-                    targetMessageCard.addClass('highlight-message');
-                    setTimeout(function() {
-                        targetMessageCard.removeClass('highlight-message');
-                    }, 2000);
+                if (typeof normalizeMermaidBlocks === 'function') {
+                    normalizeMermaidBlocks(document);
                 }
+                mermaid.run({querySelector: "pre.mermaid"});
             }, 100);
-        }
 
-        // If the URL also contains a hash target (ToC deep link), try to scroll to it after render.
-        // This is important because messages render asynchronously, and default browser anchor scroll
-        // won't work reliably for dynamically generated content.
-        if (shouldClearChatView) {
+            // Initialize Bootstrap 4.6 dropdowns — scoped to newly rendered cards only.
             setTimeout(function() {
-                try {
-                    var hash = (window.location.hash || '').trim();
-                    if (!hash) return;
-                    // Prefer the card for the message in the URL, if present.
-                    var $targetCard = $(`[message-id="${messageIdFromUrl}"]`).closest('.card');
-                    if ($targetCard && $targetCard.length > 0) {
-                        scrollToHashTargetInCard($targetCard);
+                var $newCards = $(newMessageElements);
+                $newCards.find('[data-toggle="dropdown"]').dropdown();
+            }, 50);
+            
+            // Check if URL contains a message ID and scroll to that message
+            var messageIdFromUrl = getMessageIdFromUrl();
+            if (messageIdFromUrl && shouldClearChatView) {
+                setTimeout(function() {
+                    var targetMessageElement = $('[message-id="' + messageIdFromUrl + '"]');
+                    var targetMessageCard = targetMessageElement.length > 0 ? targetMessageElement.closest('.card') : $();
+                    if (targetMessageCard && targetMessageCard.length > 0) {
+                        targetMessageCard.addClass('highlight-message');
+                        setTimeout(function() {
+                            targetMessageCard.removeClass('highlight-message');
+                        }, 2000);
                     }
-                } catch (e) { /* ignore */ }
-            }, 250);
-        }
-        
-        // Call next question suggestions after rendering messages
-        if (shouldClearChatView) {
-            // Use setTimeout to ensure DOM is fully updated and messages are rendered
-            setTimeout(function() {
-                renderNextQuestionSuggestions(conversationId);
-            }, 200);
+                }, 100);
+            }
+
+            // If the URL also contains a hash target (ToC deep link), try to scroll to it after render.
+            if (shouldClearChatView) {
+                setTimeout(function() {
+                    try {
+                        var hash = (window.location.hash || '').trim();
+                        if (!hash) return;
+                        var $targetCard = $('[message-id="' + messageIdFromUrl + '"]').closest('.card');
+                        if ($targetCard && $targetCard.length > 0) {
+                            scrollToHashTargetInCard($targetCard);
+                        }
+                    } catch (e) { /* ignore */ }
+                }, 250);
+            }
+            
+            // Call next question suggestions after rendering messages
+            if (shouldClearChatView) {
+                setTimeout(function() {
+                    renderNextQuestionSuggestions(conversationId);
+                }, 200);
+            }
+
+            // After rendering, schedule a debounced DOM snapshot save for fast resume.
+            try {
+                if (window.RenderedStateManager && window.RenderedStateManager.scheduleSave) {
+                    window.RenderedStateManager.scheduleSave(conversationId);
+                }
+            } catch (_e) { /* ignore */ }
+
+            // Item 3.3: hide the page loader now that cards are in the DOM.
+            // This replaces the old blind 1s setTimeout in chat_interface_readiness().
+            try { $("#loader").hide(); } catch (_e) { /* ignore */ }
+
+            // R2: Signal that all cards are in the live DOM. Pre-fired network
+            // fetches (doubts, pins) wait on this before applying DOM changes.
+            if (typeof _renderCompleteResolve === 'function') {
+                _renderCompleteResolve();
+            }
         }
 
-        // After rendering, schedule a debounced DOM snapshot save for fast resume.
-        try {
-            if (window.RenderedStateManager && window.RenderedStateManager.scheduleSave) {
-                window.RenderedStateManager.scheduleSave(conversationId);
+        // ================================================================
+        // ASYNC CHUNKED RENDERING PATH
+        // ================================================================
+        // When loading a full conversation (shouldClearChatView=true) with many
+        // messages, rendering all cards synchronously blocks the main thread for
+        // seconds (8-12s for 40+ messages).  Instead, we process messages in
+        // small chunks of CHUNK_SIZE, yielding to the browser between chunks via
+        // setTimeout(0).  This lets the browser paint each chunk as it arrives,
+        // so the user sees the first ~5 messages in <500ms instead of waiting
+        // for the entire batch.
+        //
+        // The synchronous path is preserved unchanged for:
+        // - Small batches (<=CHUNK_SIZE messages) — no benefit from chunking
+        // - Incremental appends (shouldClearChatView=false) — streaming, sendMessage
+        // - renderCloseToSource positional inserts — need live-DOM per card
+        var CHUNK_SIZE = 5;
+        var usePositionalInsert = (renderCloseToSource && history_message_ids.length > 0);
+        var useChunkedPath = (shouldClearChatView && messages.length > CHUNK_SIZE && !usePositionalInsert);
+
+        if (useChunkedPath) {
+            // ---- Async chunked path ----
+            var renderToken = ++_renderGeneration;
+            var chatViewEl = $('#chatView')[0];
+            var totalCount = messages.length;
+
+            // Pre-build the last message's card so we can return it synchronously
+            // (API compat — though no current caller of the full-render path uses
+            // the return value, defensive is better).
+            messageElement = null;  // will be set during chunk processing
+
+            function _renderChunk(startIdx) {
+                // Cancellation: if the user switched conversations or streaming
+                // started a new render, abandon this stale render silently.
+                if (_renderGeneration !== renderToken) return;
+
+                var end = Math.min(startIdx + CHUNK_SIZE, totalCount);
+                var fragment = document.createDocumentFragment();
+
+                for (var i = startIdx; i < end; i++) {
+                    var card = _buildMessageCard(messages[i], i, totalCount);
+                    fragment.appendChild(card[0]);
+                    messageElement = card;  // track last card
+                }
+
+                // Flush this chunk into the live DOM — triggers one layout recalc
+                chatViewEl.appendChild(fragment);
+
+                if (end < totalCount) {
+                    // Yield to browser (paint, handle events) then render next chunk
+                    setTimeout(function() { _renderChunk(end); }, 0);
+                } else {
+                    // All chunks done — run post-render work
+                    _runPostRenderWork();
+                }
             }
-        } catch (_e) { /* ignore */ }
+
+            // Kick off the first chunk synchronously (appears instant)
+            _renderChunk(0);
+            return messageElement;
+        }
+
+        // ================================================================
+        // SYNCHRONOUS PATH (small batches, incremental appends, positional inserts)
+        // ================================================================
+        // ---- Item 8: DocumentFragment batching ----
+        var useFragment = !usePositionalInsert;
+        var fragment = useFragment ? document.createDocumentFragment() : null;
+        // Item 2.2: O(1) Set lookup instead of O(M) Array.includes for history IDs
+        var historyIdSet = usePositionalInsert ? new Set(history_message_ids) : null;
+
+        messages.forEach(function (message, originalIndex, array) {
+            var card = _buildMessageCard(message, originalIndex, array.length);
+            messageElement = card;
+
+            if (usePositionalInsert) {
+                // renderCloseToSource path: positional insert after history cards
+                // Re-query is intentional — each insert changes the live DOM order.
+                var cards = $('#chatView').find('.card.message-card');
+                var lastCard = null;
+                for (var ci = 0; ci < cards.length; ci++) {
+                    var cardMessageId = $(cards[ci]).find('.history-message-checkbox').attr('message-id');
+                    if (historyIdSet.has(cardMessageId)) {
+                        lastCard = cards[ci];
+                    }
+                }
+                if (lastCard) {
+                    if (skip_one) {
+                        $(lastCard).next().after(card);
+                    } else {
+                        $(lastCard).after(card);
+                    }
+                } else {
+                    $('#chatView').append(card);
+                }
+            } else {
+                // Item 8: collect into off-DOM fragment (appended after loop)
+                fragment.appendChild(card[0]);
+            }
+        });
+
+        // ---- Item 8: flush the DocumentFragment into the live DOM ----
+        if (fragment && fragment.childNodes.length > 0) {
+            $('#chatView')[0].appendChild(fragment);
+        }
+
+        // Post-render work runs immediately for synchronous path
+        _runPostRenderWork();
         
         return messageElement;
     },
@@ -3070,13 +3130,38 @@ var ChatManager = {
         $.get('/get_pinned_messages/' + conversationId, function (data) {
             if (data && data.pinned_messages) {
                 data.pinned_messages.forEach(function (p) { self._pinnedMessageIds.add(p.message_id); });
-                // Highlight pinned stars
-                $('#chatView .pin-message-btn').each(function () {
-                    var msgId = $(this).data('message-id');
-                    if (self._pinnedMessageIds.has(String(msgId))) {
-                        $(this).find('i').removeClass('bi-star').addClass('bi-star-fill text-warning');
-                    }
-                });
+                self._applyPinsToCards();
+            }
+        });
+    },
+
+    // R2: Fetch-only — returns a jQuery Deferred resolving with pinned_messages
+    // array (or empty array on failure). Populates _pinnedMessageIds as a side
+    // effect so the Set is available for other code paths (e.g. pin toggle).
+    _fetchPinsData: function (conversationId) {
+        var self = this;
+        var deferred = $.Deferred();
+        self._pinnedMessageIds.clear();
+        $.get('/get_pinned_messages/' + conversationId, function (data) {
+            if (data && data.pinned_messages) {
+                data.pinned_messages.forEach(function (p) { self._pinnedMessageIds.add(p.message_id); });
+                deferred.resolve(data.pinned_messages);
+            } else {
+                deferred.resolve([]);
+            }
+        }).fail(function () { deferred.resolve([]); });
+        return deferred.promise();
+    },
+
+    // R2: Apply-only — highlights star icons on pinned message cards.
+    // Reads from _pinnedMessageIds (must be populated first via _fetchPinsData).
+    _applyPinsToCards: function () {
+        var self = this;
+        if (self._pinnedMessageIds.size === 0) return;
+        $('#chatView .pin-message-btn').each(function () {
+            var msgId = $(this).data('message-id');
+            if (self._pinnedMessageIds.has(String(msgId))) {
+                $(this).find('i').removeClass('bi-star').addClass('bi-star-fill text-warning');
             }
         });
     }
@@ -3242,26 +3327,47 @@ function revealDoubtsButtons(conversationId, withPulse) {
         .then(function(r) { return r.json(); })
         .then(function(data) {
             if (data.success && data.message_ids && data.message_ids.length > 0) {
-                var newlyRevealed = 0;
-                data.message_ids.forEach(function(mid) {
-                    var btn = $('.has-doubts-btn[message-id="' + mid + '"]');
-                    if (btn.length && btn.is(':hidden')) {
-                        btn.show();
-                        if (withPulse) {
-                            btn.addClass('doubt-new-pulse');
-                            btn.one('animationend', function() { $(this).removeClass('doubt-new-pulse'); });
-                            newlyRevealed++;
-                        }
-                    } else {
-                        btn.show();
-                    }
-                });
-                if (withPulse && newlyRevealed > 0 && typeof showToast === 'function') {
-                    showToast('\u2728 Learning aids ready for your last reply', 'info');
-                }
+                _applyDoubtsToCards(data.message_ids, withPulse);
             }
         })
         .catch(function() { /* silent */ });
+}
+
+// R2: Fetch-only — returns a Promise resolving with the message_ids array
+// (or empty array on failure). Used for fetch-early / apply-late pattern.
+function _fetchDoubtsData(conversationId) {
+    if (!conversationId) return Promise.resolve([]);
+    return fetch('/get_messages_with_doubts/' + conversationId)
+        .then(function(r) { return r.json(); })
+        .then(function(data) {
+            if (data.success && data.message_ids && data.message_ids.length > 0) {
+                return data.message_ids;
+            }
+            return [];
+        })
+        .catch(function() { return []; });
+}
+
+// R2: Apply-only — shows doubts buttons on cards that already exist in the DOM.
+function _applyDoubtsToCards(messageIds, withPulse) {
+    if (!messageIds || messageIds.length === 0) return;
+    var newlyRevealed = 0;
+    messageIds.forEach(function(mid) {
+        var btn = $('.has-doubts-btn[message-id="' + mid + '"]');
+        if (btn.length && btn.is(':hidden')) {
+            btn.show();
+            if (withPulse) {
+                btn.addClass('doubt-new-pulse');
+                btn.one('animationend', function() { $(this).removeClass('doubt-new-pulse'); });
+                newlyRevealed++;
+            }
+        } else {
+            btn.show();
+        }
+    });
+    if (withPulse && newlyRevealed > 0 && typeof showToast === 'function') {
+        showToast('\u2728 Learning aids ready for your last reply', 'info');
+    }
 }
 
 function loadConversations(autoselect = true) {
@@ -3405,18 +3511,35 @@ function sendMessageCallback(skipAutoClarify) {
     
     already_rendering = $('#messageText').prop('working')
     if (already_rendering) {
-        // also display a small modal for 5 seconds in the UI and automatically close the modal or close the modal on any keypress.
+        // Display a small modal for 5 seconds then auto-close, or close on any keypress.
+        //
+        // Fix (H2): two accumulation bugs patched here:
+        //   1. Strip any previously-registered listener in this namespace before re-attaching.
+        //      Without this, each rapid Send press while streaming stacks a new handler;
+        //      pressing Escape then fires closeModal() N times (first real, rest no-ops),
+        //      and the N accumulated handlers all fire on every subsequent keystroke.
+        //   2. Cancel any outstanding auto-close timer before scheduling a new one.
+        //      Without this, N discarded timer handles fire sequentially and each calls
+        //      modal('hide') + .off() on handlers that may belong to a later invocation.
         $('#prevent-chat-rendering').modal('show');
 
         const closeModal = function () {
             $('#prevent-chat-rendering').modal('hide');
             $(document).off('keydown.prevent-chat-rendering click.prevent-chat-rendering');
+            _preventChatRenderingTimer = null;
         };
 
-        setTimeout(function () {
+        // Cancel any outstanding auto-close timer from a prior invocation.
+        if (_preventChatRenderingTimer) {
+            clearTimeout(_preventChatRenderingTimer);
+        }
+        _preventChatRenderingTimer = setTimeout(function () {
             closeModal();
         }, 5000);
 
+        // Strip any previously-accumulated handler before re-registering.
+        // The 200ms delay avoids catching the click that triggered this invocation.
+        $(document).off('keydown.prevent-chat-rendering click.prevent-chat-rendering');
         setTimeout(function () {
             $(document).on('keydown.prevent-chat-rendering click.prevent-chat-rendering', function (e) {
                 if (e.key === "Escape" || e.key === "Enter" || e.type === "click") {
@@ -3684,11 +3807,59 @@ function sendMessageCallback(skipAutoClarify) {
     // chatView.scrollTop(chatView.prop('scrollHeight'));
 }
 
+// scrollToBottom — module-level guard and observer reference.
+// Listeners are registered only once; _chatViewResizeObserver is stored here so
+// it can be disconnected if the page is ever torn down (e.g. full SPA navigation).
+var _scrollToBottomInitDone = false;
+var _chatViewResizeObserver = null;
+
+// Focus/URL-update state for the delegated card focus handler.
+// Previously lived inside renderMessages' function scope, which meant each
+// render created fresh closures over it. Hoisted to module scope so a single
+// delegated handler can share it across all renders.
+var _messageFocusTimer = null;
+var _currentFocusedMessageId = null;
+
+// Returns true if the event originated from an interactive control inside the
+// card (buttons, checkboxes, dropdowns) and should NOT trigger card focus.
+function _focusEventShouldBeIgnored(e) {
+    return $(e.target).closest(
+        '.delete-message-button, .delete-pair-button, .history-message-checkbox, ' +
+        '.move-message-up-button, .move-message-down-button, .show-doubts-button, ' +
+        '.ask-doubt-button, .open-artefacts-button, .has-doubts-btn, .copy-btn-header, ' +
+        '.pin-message-btn, .scroll-to-bottom-btn, .header-hide-toggle, .scroll-to-top-btn, ' +
+        '.dropdown, .dropdown-menu, .dropdown-item, [data-toggle="dropdown"]'
+    ).length > 0;
+}
+
+// Read the message-id from a card's header attribute (stamped at render time).
+function _getMessageIdFromCard(cardEl) {
+    var $card = $(cardEl);
+    var $header = $card.find('.card-header[message-id]').first();
+    if (!$header.length) return null;
+    var mid = $header.attr('message-id');
+    return (mid && mid !== 'undefined') ? mid : null;
+}
+
+// Debounced URL update when a message card receives focus.
+function handleMessageFocus(messageId, convId) {
+    if (_messageFocusTimer) {
+        clearTimeout(_messageFocusTimer);
+    }
+    var messageIdInUrl = getMessageIdFromUrl();
+    if (_currentFocusedMessageId === messageId && messageIdInUrl === messageId) {
+        return;
+    }
+    _currentFocusedMessageId = messageId;
+    _messageFocusTimer = setTimeout(function() {
+        updateUrlWithMessageId(convId, messageId);
+        _messageFocusTimer = null;
+    }, 1000);
+}
+
 function scrollToBottom() {
     var $chatView = $('#chatView');
     var $scrollToBottomBtn = $('#scrollToBottomBtn');
-    var $messageText = $('#messageText');
-
 
     // Function to check the scroll position
     function checkScroll() {
@@ -3698,13 +3869,11 @@ function scrollToBottom() {
         var chatViewHeight = $chatView.innerHeight();
         var distanceFromBottom = scrollHeight - (scrollTop + chatViewHeight);
 
-        // Show button if more than 400 pixels from the bottom, otherwise hide and it is chat context
-        chat_area = $("#chat-content")
-        // if chat area is visible
-        is_chat_visible = chat_area.is(':visible') && !chat_area.hasClass('d-none')
+        // Show button if more than 100 pixels from the bottom and chat is visible
+        chat_area = $("#chat-content");
+        is_chat_visible = chat_area.is(':visible') && !chat_area.hasClass('d-none');
 
         if (distanceFromBottom > 100 && is_chat_visible) {
-            // Set the bottom position to 80px (no longer dependent on toggle state)
             $scrollToBottomBtn.css('bottom', '80px');
             $scrollToBottomBtn.show();
         } else {
@@ -3712,28 +3881,49 @@ function scrollToBottom() {
         }
     }
 
+    // Always run an immediate check so button visibility is correct on every call
+    // (e.g. after a conversation load), even though listener binding is guarded.
     checkScroll();
-    // Scroll event
-    $chatView.on('scroll', function () {
+
+    // Only bind listeners once. A second call (e.g. accidental re-init) is a no-op
+    // for the listener block but still runs the checkScroll() above.
+    if (_scrollToBottomInitDone) { return; }
+    _scrollToBottomInitDone = true;
+
+    // Namespaced events allow clean removal via $chatView.off('.scrollToBottom') if needed.
+    $chatView.on('scroll.scrollToBottom', function () {
         checkScroll();
     });
 
-    $chatView.on('change', function () {
+    // Note: 'change' does not fire natively on a div in any browser — kept as a no-op
+    // for forward-compatibility in case the element type changes, but it never triggers.
+    $chatView.on('change.scrollToBottom', function () {
         checkScroll();
     });
 
-    // check for any dom node change or insert or edit or inner html change in $chatView
-    $chatView.on('DOMSubtreeModified', function () {
-        checkScroll();
-    });
+    // Watch for content-height changes (e.g. streaming adds new lines) so the
+    // "scroll to bottom" button appears/disappears correctly as the chat grows.
+    // ResizeObserver fires asynchronously only when layout size actually changes.
+    if (typeof ResizeObserver !== 'undefined') {
+        if (_chatViewResizeObserver) { _chatViewResizeObserver.disconnect(); }
+        _chatViewResizeObserver = new ResizeObserver(function() {
+            checkScroll();
+        });
+        _chatViewResizeObserver.observe($chatView[0]);
+    } else {
+        // Fallback: DOMSubtreeModified fires synchronously on every DOM change — kept
+        // only as a safety net for environments without ResizeObserver.
+        $chatView.on('DOMSubtreeModified.scrollToBottom', function () {
+            checkScroll();
+        });
+    }
 
-
-    // Click event for the button
-    $scrollToBottomBtn.click(function () {
+    // Use .off().on() on the button to prevent click-handler stacking.
+    $scrollToBottomBtn.off('click.scrollToBottom').on('click.scrollToBottom', function () {
         $chatView.animate({ scrollTop: $chatView.prop("scrollHeight") }, "fast");
     });
 
-    // Initial check in case the page is loaded in a scrolled state
+    // Final check in case the page loaded in a scrolled state
     checkScroll();
 }
 
@@ -4517,16 +4707,10 @@ function initializeChatControlsToggleHandler() {
         hideAutocomplete();
     }
     
-    // Helper: escape HTML (use existing or define simple version)
-    function escapeHtml(str) {
-        if (!str) return '';
-        return str.replace(/&/g, '&amp;').replace(/</g, '&lt;')
-                  .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    }
+    // escapeHtml() is the module-level canonical function defined in common.js.
     
-    // Initialize when document is ready
-    $(document).ready(function() {
-        // Small delay to ensure messageText textarea exists
+    // Initialize when document is ready (R4: deferred — already self-delays 500ms)
+    deferReady(function() {
         setTimeout(initAutocomplete, 500);
     });
 })();
@@ -4608,59 +4792,6 @@ function initializeChatControlsToggleHandler() {
     function buildFallbackCommands() {
         var cmds = FALLBACK_PKB.slice();
         return cmds.concat(FALLBACK_OPENCODE);
-    }
-
-    // -- Fuzzy matching (ported from file-browser-manager.js) ----------------
-    function _fuzzyMatch(needle, haystack) {
-        var nLower = needle.toLowerCase();
-        var hLower = haystack.toLowerCase();
-        var nLen = nLower.length;
-        var hLen = hLower.length;
-
-        if (nLen === 0) return { score: 0, indexes: [] };
-        if (nLen > hLen) return null;
-
-        // Quick substring check — best case
-        var subIdx = hLower.indexOf(nLower);
-        if (subIdx !== -1) {
-            var idxs = [];
-            for (var si = 0; si < nLen; si++) idxs.push(subIdx + si);
-            var bonus = 1.5;
-            if (subIdx === 0) bonus = 2.0;
-            else if ('/\\-_. '.indexOf(hLower[subIdx - 1]) !== -1) bonus = 1.8;
-            return { score: nLen * bonus + (1 / (subIdx + 1)), indexes: idxs };
-        }
-
-        // Sequential char matching with scoring
-        var indexes = [];
-        var score = 0;
-        var hIdx = 0;
-        var lastMatchIdx = -2;
-
-        for (var ni = 0; ni < nLen; ni++) {
-            var found = false;
-            for (var hi = hIdx; hi < hLen; hi++) {
-                if (hLower[hi] === nLower[ni]) {
-                    indexes.push(hi);
-                    if (hi === lastMatchIdx + 1) {
-                        score += 1.0;  // consecutive
-                    } else if (hi === 0 || '/\\-_. '.indexOf(hLower[hi - 1]) !== -1) {
-                        score += 0.8;  // word boundary
-                    } else {
-                        score += 0.3;  // mid-word
-                        score -= (hi - lastMatchIdx - 1) * 0.005;  // gap penalty
-                    }
-                    lastMatchIdx = hi;
-                    hIdx = hi + 1;
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) return null;
-        }
-
-        score -= (hLen - nLen) * 0.01;  // length penalty
-        return { score: score, indexes: indexes };
     }
 
     // -- Autocomplete state --------------------------------------------------
@@ -4773,7 +4904,7 @@ function initializeChatControlsToggleHandler() {
             var lowerPrefix = prefix.toLowerCase();
             source.forEach(function(cmd) {
                 if (cmd.requires === 'enable_opencode' && !opencodeEnabled) return;
-                var match = _fuzzyMatch(lowerPrefix, cmd.command);
+                var match = fuzzyMatch(lowerPrefix, cmd.command);
                 if (match) {
                     filtered.push({ command: cmd.command, description: cmd.description, icon: cmd.icon, badge: cmd.badge, category: cmd.category, score: match.score, matchIndexes: match.indexes });
                 }
@@ -4938,14 +5069,10 @@ function initializeChatControlsToggleHandler() {
     }
 
     // -- Escape HTML ---------------------------------------------------------
-    function escapeHtml(str) {
-        if (!str) return '';
-        return str.replace(/&/g, '&amp;').replace(/</g, '&lt;')
-                  .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    }
+    // escapeHtml() is the module-level canonical function defined in common.js.
 
-    // -- Initialize on DOM ready ---------------------------------------------
-    $(document).ready(function() {
+    // -- Initialize on DOM ready (R4: deferred — already self-delays 600ms) -----
+    deferReady(function() {
         setTimeout(initAutocomplete, 600);
     });
 })();
@@ -4963,11 +5090,7 @@ function initializeChatControlsToggleHandler() {
         debounceTimer: null
     };
 
-    function escapeDocHtml(str) {
-        if (!str) return '';
-        return str.replace(/&/g, '&amp;').replace(/</g, '&lt;')
-                  .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-    }
+    // escapeHtml() is the module-level canonical function defined in common.js.
 
     function initDocAutocomplete() {
         if ($('#doc-autocomplete-dropdown').length) return;
@@ -5085,9 +5208,9 @@ function initializeChatControlsToggleHandler() {
 
         for (var i = 0; i < results.length; i++) {
             var doc = results[i];
-            var displayName = escapeDocHtml(doc.display_name || doc.title || doc.ref || '');
-            var refCode = escapeDocHtml(doc.ref || '');
-            var summary = escapeDocHtml((doc.short_summary || '').length > 100 ? (doc.short_summary || '').substring(0, 100) + '…' : (doc.short_summary || ''));
+            var displayName = escapeHtml(doc.display_name || doc.title || doc.ref || '');
+            var refCode = escapeHtml(doc.ref || '');
+            var summary = escapeHtml((doc.short_summary || '').length > 100 ? (doc.short_summary || '').substring(0, 100) + '…' : (doc.short_summary || ''));
             var isSelected = (i === docAutocompleteState.selectedIndex);
             var bgStyle = isSelected ? 'background-color:#e9ecef;' : '';
 
@@ -5193,7 +5316,8 @@ function initializeChatControlsToggleHandler() {
         hideDocAutocomplete();
     }
 
-    $(document).ready(function() {
+    // R4: deferred — already self-delays 700ms
+    deferReady(function() {
         setTimeout(initDocAutocomplete, 700);
     });
 
@@ -5348,7 +5472,11 @@ var MultiSelectManager = {
                 if ($(e.target).closest('.btn, .dropdown, .dropdown-menu, .dropdown-item, input[type="checkbox"], a, [data-toggle]').length > 0) return;
                 var cb = $(this).find('.history-message-checkbox');
                 cb.prop('checked', !cb.prop('checked')).trigger('change');
-                e.stopPropagation();
+                // Do not stopPropagation if a dropdown is open — Bootstrap needs the
+                // event to bubble to document to fire its clickout-dismiss handler.
+                if ($('.dropdown-menu.show').length === 0) {
+                    e.stopPropagation();
+                }
                 return;
             }
             // Desktop: Cmd/Ctrl+click or active multi-select
@@ -5357,7 +5485,11 @@ var MultiSelectManager = {
             if ($(e.target).closest('.btn, .dropdown, .dropdown-menu, .dropdown-item, input[type="checkbox"], a, [data-toggle]').length > 0) return;
             var cb = $(this).find('.history-message-checkbox');
             cb.prop('checked', !cb.prop('checked')).trigger('change');
-            e.stopPropagation();
+            // Do not stopPropagation if a dropdown is open — Bootstrap needs the
+            // event to bubble to document to fire its clickout-dismiss handler.
+            if ($('.dropdown-menu.show').length === 0) {
+                e.stopPropagation();
+            }
         });
 
         // Action handlers — primary bar buttons
@@ -5578,6 +5710,44 @@ var MultiSelectManager = {
     }
 };
 
-$(document).ready(function () {
+// R4: deferred — MultiSelect + card focus, low risk (cards not interactive during first 100ms)
+deferReady(function () {
     MultiSelectManager.init();
+    // Delegated card focus handlers (bound once; survive #chatView DOM replacement).
+    // Replaces the 3 per-card direct binds previously created inside renderMessages.
+    // Skips cards with data-live-stream or data-live-stream-ended (those have their
+    // own handlers in setupStreamingCardEventHandlers inside renderStreamingResponse).
+    $(document)
+        .on('click.messageCardFocus', '.message-card', function(e) {
+            if ($(this).attr('data-live-stream') || $(this).attr('data-live-stream-ended')) return;
+            if (_focusEventShouldBeIgnored(e)) return;
+            if (typeof MultiSelectManager !== 'undefined' &&
+                (MultiSelectManager.count() > 0 || e.metaKey || e.ctrlKey)) return;
+            var messageId = _getMessageIdFromCard(this);
+            if (messageId) {
+                handleMessageFocus(messageId, ConversationManager.activeConversationId);
+            }
+        })
+        .on('selectstart.messageCardFocus mouseup.messageCardFocus', '.message-card', function(e) {
+            if ($(this).attr('data-live-stream') || $(this).attr('data-live-stream-ended')) return;
+            if (_focusEventShouldBeIgnored(e)) return;
+            var currentTarget = e.currentTarget;
+            setTimeout(function() {
+                var selection = window.getSelection();
+                if (selection && selection.toString().trim().length > 0) {
+                    var messageId = _getMessageIdFromCard(currentTarget);
+                    if (messageId) {
+                        handleMessageFocus(messageId, ConversationManager.activeConversationId);
+                    }
+                }
+            }, 10);
+        })
+        .on('focus.messageCardFocus focusin.messageCardFocus', '.message-card', function(e) {
+            if ($(this).attr('data-live-stream') || $(this).attr('data-live-stream-ended')) return;
+            if (_focusEventShouldBeIgnored(e)) return;
+            var messageId = _getMessageIdFromCard(this);
+            if (messageId) {
+                handleMessageFocus(messageId, ConversationManager.activeConversationId);
+            }
+        });
 });

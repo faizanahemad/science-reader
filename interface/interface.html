@@ -11,168 +11,43 @@
     <script src="https://cdn.jsdelivr.net/npm/marked-katex-extension@5.1.5/lib/index.umd.js"></script>
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/default.min.css" id="highlight-theme">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/uuid/8.3.2/uuid.min.js"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/uuid/8.3.2/uuid.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked@11.2.0/marked.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/2.7.5/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
     <script src="https://code.jquery.com/jquery-3.5.1.min.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.12.1/jquery-ui.min.css" integrity="sha512-aOG0c6nPNzGk+5zjwyJaoRUgCdOrfSDhmMID2u4+OIslr0GjpLKo7Xm0Ao3xmpM4T8AmIouRkqwj1nrdVsLKEQ==" crossorigin="anonymous" />
 <!--     <script src="https://unpkg.com/@panzoom/panzoom@4.5.1/dist/panzoom.min.js"></script> -->
-    <script src="https://mozilla.github.io/pdf.js/build/pdf.js"></script>
-    <script>hljs.initHighlightingOnLoad();</script>
+    <!-- PDF.js CDN script removed (Item 7) — the embedded iframe viewer
+         at interface/pdf.js/web/viewer.js bundles its own copy; app code
+         never references pdfjsLib directly. -->
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/11.5.0/mermaid.min.js" integrity="sha512-3EZqKCkk3nMLmbrI7mfry81KH7dkzy/BoDfQrodwLQnS/RbsVlERdYP6J0oiJegRUxSOmx7Y35WNbVKSw7mipw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
-    <script type="text/javascript">
-        mermaid.initialize({  
-          startOnLoad: true,  
-        }); 
-    </script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/11.5.0/mermaid.min.js" integrity="sha512-3EZqKCkk3nMLmbrI7mfry81KH7dkzy/BoDfQrodwLQnS/RbsVlERdYP6J0oiJegRUxSOmx7Y35WNbVKSw7mipw==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     
     <!-- mermaid.initialize({ startOnLoad: true }); -->
-    <script src="https://laingsimon.github.io/render-diagram/drawio-renderer.js"></script>
+    <!-- drawio-renderer removed (Item 7) — loaded on demand by LazyLibs.loadDrawio() -->
     
-    <!-- Reveal.js for slide presentations -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/dist/reveal.css">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/dist/theme/white.css">
+    <!-- Reveal.js removed (Item 7) — loaded on demand by LazyLibs.loadReveal().
+         The standalone blob page (buildStandaloneSlidesPage) embeds its own CDN
+         links, and initializeSlidePresentation() is currently unused (dead code). -->
     
-    <script src="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/dist/reveal.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/plugin/notes/notes.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/plugin/markdown/markdown.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/plugin/highlight/highlight.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/reveal.js@4.3.1/plugin/math/math.js"></script>
-    
-    <!-- BULLETPROOF: CodeMirror 5 -->  
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.js"></script>  
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/python/python.min.js"></script>  
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/closebrackets.min.js"></script>  
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/edit/matchbrackets.min.js"></script>  
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/selection/active-line.min.js"></script>  
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/foldcode.min.js"></script>  
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/foldgutter.min.js"></script>  
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/indent-fold.min.js"></script>  
-      
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/codemirror.min.css">  
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/theme/monokai.min.css">  
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/fold/foldgutter.css">
-    
-    <!-- CodeMirror Markdown/GFM mode for message editing -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/xml/xml.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/markdown/markdown.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/gfm/gfm.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/javascript/javascript.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/css/css.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/mode/htmlmixed/htmlmixed.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.16/addon/mode/overlay.min.js"></script>
-    
-    <!-- EasyMDE - Markdown Editor (Option 2) -->
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/easymde/dist/easymde.min.js"></script>  
-      
-    <script>  
-    // CodeMirror 5 - ALWAYS WORKS  
-    window.CodeMirror5 = {  
-      createEditor: function(parent, doc) {  
-        console.log("🚀 Creating bulletproof CodeMirror 5 editor...");  
-      
-        try {  
-          parent.innerHTML = '';  
-      
-          const textarea = document.createElement('textarea');  
-          textarea.value = doc || `# Python Code Editor (CodeMirror 5)  
-    def robust_function():  
-        """This ALWAYS works - no module conflicts possible"""  
-        import os  
-        import sys  
-        import json  
-        from datetime import datetime  
-          
-        # Complex Python code with full syntax highlighting  
-        data = {  
-            'platform': sys.platform,  
-            'python_version': sys.version,  
-            'current_time': datetime.now().isoformat(),  
-            'environment': dict(os.environ)  
-        }  
-          
-        # List comprehension  
-        squares = [x**2 for x in range(10) if x % 2 == 0]  
-          
-        # Dictionary comprehension    
-        word_lengths = {word: len(word) for word in ['hello', 'world', 'python']}  
-          
-        # Exception handling  
-        try:  
-            result = 10 / 0  
-        except ZeroDivisionError as e:  
-            print(f"Error: {e}")  
-            result = None  
-          
-        print(json.dumps(data, indent=2))  
-        return {'squares': squares, 'words': word_lengths, 'result': result}  
-      
-    # Start your reliable Python coding here...  
-    `;  
-          parent.appendChild(textarea);  
-      
-          const editor = CodeMirror.fromTextArea(textarea, {  
-            mode: 'python',  
-            theme: 'monokai',  
-            lineNumbers: true,  
-            indentUnit: 4,  
-            lineWrapping: true,  
-            autoCloseBrackets: true,  
-            matchBrackets: true,  
-            styleActiveLine: true,  
-            foldGutter: true,  
-            gutters: ["CodeMirror-linenumbers", "CodeMirror-foldgutter"],  
-            extraKeys: {  
-              "Tab": function(cm) {  
-                if (cm.somethingSelected()) {  
-                  cm.indentSelection("add");  
-                } else {  
-                  cm.replaceSelection("    ");  
-                }  
-              },  
-              "Shift-Tab": function(cm) {  
-                cm.indentSelection("subtract");  
-              },  
-              "Ctrl-/": function(cm) {  
-                cm.toggleComment();  
-              },
-              "Ctrl-F": "findPersistent", // Enable search  
-              "Ctrl-H": "replace"      
-            }  
-          });  
-      
-          editor.setSize(null, '70vh');  
-          editor.getWrapperElement().style.fontSize = '12px';  
-      
-          console.log("🎉 CodeMirror 5 editor created successfully!");  
-          return editor;  
-      
-        } catch (error) {  
-          console.error("💥 Even CodeMirror 5 failed:", error);  
-          throw error;  
-        }  
-      }  
-    };  
-      
-    console.log("✅ CodeMirror 5 loaded and guaranteed to work");  
-    </script>  
+    <!-- CodeMirror 5 + EasyMDE removed (Item 7) — loaded on demand by
+         LazyLibs.loadCodeMirror() / LazyLibs.loadEasyMDE().
+         The window.CodeMirror5 wrapper is now registered inside lazy-libs.js
+         after CodeMirror loads. -->
+
+    <!-- Item 7: on-demand loader for feature libraries (must load before app scripts) -->
+    <script defer src="interface/lazy-libs.js"></script>  
 
 
 
 
 
 
-    <!-- Include DataTables CSS -->
-    <link rel="stylesheet" type="text/css" href="https://cdn.datatables.net/v/dt/dt-1.10.25/datatables.min.css"/>
+    <!-- DataTables removed (Item 7) — zero call sites in app code (dead dependency) -->
 
-    <!-- Include DataTables JS -->
-    <script type="text/javascript" src="https://cdn.datatables.net/v/dt/dt-1.10.25/datatables.min.js"></script>
-
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.12.1/jquery-ui.min.js" integrity="sha512-uto9mlQzrs59VwILcLiRYeLKPPbS/bT71da/OEBYEwcdNUk8jYIy+D176RYoop1Da+f9mvkYrmj5MCLZWEtQuA==" crossorigin="anonymous"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jqueryui/1.12.1/jquery-ui.min.js" integrity="sha512-uto9mlQzrs59VwILcLiRYeLKPPbS/bT71da/OEBYEwcdNUk8jYIy+D176RYoop1Da+f9mvkYrmj5MCLZWEtQuA==" crossorigin="anonymous"></script>
 
     <!-- Bootstrap CSS -->
     
@@ -185,6 +60,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/4.7.0/css/font-awesome.min.css">
     <link rel="stylesheet" href="interface/style.css?v=29">
     <link rel="stylesheet" href="interface/dark-mode.css">
+    <link rel="stylesheet" href="interface/workspace-styles.css">
 
     <title>Document Index Interface</title>
 </head>
@@ -2034,7 +1910,7 @@
             You cannot send a message while the previous message is still rendering. Please wait...
           </div>
           <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            <button type="button" class="btn btn-secondary" data-dismiss="modal">Close</button>
           </div>
         </div>
       </div>
@@ -5022,57 +4898,53 @@ greet("World");</code></pre>
 
 
     
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/popper.js/1.14.7/umd/popper.min.js"></script>
-    
     <link href="https://gitcdn.github.io/bootstrap-toggle/2.2.2/css/bootstrap-toggle.min.css" rel="stylesheet">
-    <script src="https://gitcdn.github.io/bootstrap-toggle/2.2.2/js/bootstrap-toggle.min.js"></script>
-    <script src="interface/parseMessageForCheckBoxes.js"></script>
-    <script src="interface/common.js"></script>
-    <script src="interface/rendered-state-manager.js"></script>
-    <script src="interface/gamification.js"></script>
-    <script src="interface/local-docs-manager.js"></script>
-    <script src="interface/common-chat.js"></script>
-    <script src="interface/markdown-editor.js"></script>
-    <script src="interface/interface.js"></script>
-    <script src="interface/codemirror.js"></script>
-    <script src="interface/doubt-manager.js"></script>
-    <script src="interface/notification-manager.js"></script>
-    <script src="interface/clarifications-manager.js"></script>
-    <script src="interface/tool-call-manager.js?v=1"></script>
-    <script src="interface/temp-llm-manager.js"></script>
-    <script src="interface/context-menu-manager.js"></script>
-    <script src="interface/prompt-manager.js"></script>
-    <script src="interface/pkb-manager.js"></script>
-    <script src="interface/artefacts-manager.js?v=20"></script>
+    <script defer src="https://gitcdn.github.io/bootstrap-toggle/2.2.2/js/bootstrap-toggle.min.js"></script>
+    <script defer src="interface/parseMessageForCheckBoxes.js"></script>
+    <script defer src="interface/common.js"></script>
+    <script defer src="interface/rendered-state-manager.js"></script>
+    <script defer src="interface/gamification.js"></script>
+    <script defer src="interface/local-docs-manager.js"></script>
+    <script defer src="interface/common-chat.js"></script>
+    <script defer src="interface/markdown-editor.js"></script>
+    <script defer src="interface/interface.js"></script>
+    <script defer src="interface/codemirror.js"></script>
+    <script defer src="interface/doubt-manager.js"></script>
+    <script defer src="interface/notification-manager.js"></script>
+    <script defer src="interface/clarifications-manager.js"></script>
+    <script defer src="interface/tool-call-manager.js?v=1"></script>
+    <script defer src="interface/temp-llm-manager.js"></script>
+    <script defer src="interface/context-menu-manager.js"></script>
+    <script defer src="interface/prompt-manager.js"></script>
+    <script defer src="interface/pkb-manager.js"></script>
+    <script defer src="interface/artefacts-manager.js?v=20"></script>
 
-    <script src="interface/global-docs-manager.js"></script>
-    <script src="interface/chat.js"></script>
-    <!-- Add to the <head> section -->
-    <link rel="stylesheet" href="interface/workspace-styles.css">
+    <script defer src="interface/global-docs-manager.js"></script>
+    <script defer src="interface/chat.js"></script>
 
     <!-- jsTree for sidebar file-tree display -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.17/themes/default-dark/style.min.css" />
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.17/jstree.min.js"></script>
+    <script defer src="https://cdnjs.cloudflare.com/ajax/libs/jstree/3.3.17/jstree.min.js"></script>
 
     <!-- Add before closing </body> tag -->
-    <script src="interface/workspace-manager.js"></script>
+    <script defer src="interface/workspace-manager.js"></script>
 
-    <script src="interface/audio_process.js"></script>
+    <script defer src="interface/audio_process.js"></script>
 
     <!-- Extension Bridge Integration -->
-    <script src="interface/extension-bridge.js"></script>
-    <script src="interface/page-context-manager.js"></script>
-    <script src="interface/content-viewer.js"></script>
-    <script src="interface/tab-picker-manager.js"></script>
-    <script src="interface/workflow-manager.js"></script>
-    <script src="interface/script-manager.js"></script>
-    <script src="interface/image-gen-manager.js?v=1"></script>
-    <script src="interface/cross-conversation-search.js?v=1"></script>
-    <script src="interface/compare-manager.js"></script>
-    <script src="interface/file-browser-manager.js?v=27"></script>
+    <script defer src="interface/extension-bridge.js"></script>
+    <script defer src="interface/page-context-manager.js"></script>
+    <script defer src="interface/content-viewer.js"></script>
+    <script defer src="interface/tab-picker-manager.js"></script>
+    <script defer src="interface/workflow-manager.js"></script>
+    <script defer src="interface/script-manager.js"></script>
+    <script defer src="interface/image-gen-manager.js?v=1"></script>
+    <script defer src="interface/cross-conversation-search.js?v=1"></script>
+    <script defer src="interface/compare-manager.js"></script>
+    <script defer src="interface/file-browser-manager.js?v=27"></script>
 
     <!-- Desktop (Electron) Bridge Integration -->
-    <script src="interface/desktop-bridge.js"></script>
+    <script defer src="interface/desktop-bridge.js"></script>
     <script>
         // Document-level delegated handler for Terminal button.
         // Same pattern as file browser above — works reliably inside
@@ -5176,7 +5048,7 @@ greet("World");</code></pre>
         
         extensions: ["tex2jax.js", "MathMenu.js", "MathZoom.js", "AssistiveMML.js"],
         TeX: {
-          extensions: ["AMSmath.js", "AMSsymbols.js", "noErrors.js", "noUndefined.js", "color.js", "cases.js"],
+          extensions: ["AMSmath.js", "AMSsymbols.js", "noErrors.js", "noUndefined.js", "color.js"],
           Macros: {
             
             RR: "\\mathbb{R}",

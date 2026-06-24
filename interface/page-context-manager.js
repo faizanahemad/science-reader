@@ -470,7 +470,8 @@ var PageContextManager = (function() {
     };
 })();
 
-$(document).ready(function() {
+// R4: deferred — requires extension interaction first
+deferReady(function() {
     // console.log('[PageCtxMgr]', '$(document).ready fired — calling PageContextManager.init()');
     PageContextManager.init();
 });

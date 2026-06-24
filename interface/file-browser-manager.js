@@ -570,7 +570,19 @@ function createFileBrowser(instanceId, initialCfg) {
         var container = document.getElementById(_config.dom.wysiwygContainer);
         if (!container) return;
 
-        if (!state.fbEasyMDE) {
+        if (state.fbEasyMDE) {
+            // Already initialised — just refresh content
+            state.fbEasyMDE.value(content);
+            setTimeout(function () { state.fbEasyMDE.codemirror.refresh(); }, 50);
+            return;
+        }
+        // Item 7: load EasyMDE (+ CodeMirror) on demand
+        LazyLibs.loadEasyMDE().then(function () {
+            if (state.fbEasyMDE) {
+                state.fbEasyMDE.value(content);
+                setTimeout(function () { state.fbEasyMDE.codemirror.refresh(); }, 50);
+                return;
+            }
             // Create a textarea for EasyMDE to attach to
             var ta = document.createElement('textarea');
             ta.id = 'fb-easymde-textarea';
@@ -595,25 +607,25 @@ function createFileBrowser(instanceId, initialCfg) {
                     return plainText;
                 },
                 shortcuts: {
-                    // Prevent EasyMDE intercepting Ctrl-S so our global save handler fires
                     toggleSideBySide: null,
                     toggleFullScreen: null
                 }
             });
 
-            // Dirty tracking — EasyMDE changes mark the file as dirty
+            // Dirty tracking
             state.fbEasyMDE.codemirror.on('change', function () {
                 if (state.currentPath && !state.isDirty) {
                     state.isDirty = true;
                     _updateDirtyState();
                 }
             });
-        }
 
-        state.fbEasyMDE.value(content);
-        setTimeout(function () {
-            state.fbEasyMDE.codemirror.refresh();
-        }, 50);
+            state.fbEasyMDE.value(content);
+            setTimeout(function () { state.fbEasyMDE.codemirror.refresh(); }, 50);
+        }).catch(function (err) {
+            console.error('Failed to load EasyMDE:', err);
+            if (typeof showToast === 'function') showToast('Failed to load WYSIWYG editor', 'error');
+        });
     }
 
     /**
@@ -632,16 +644,19 @@ function createFileBrowser(instanceId, initialCfg) {
      * Creates it lazily on first call to avoid rendering in a hidden container.
      */
     function _ensureEditor() {
-        if (state.cmEditor) return;
-        state.cmEditor = CodeMirror(_$('editorContainer')[0], {
-            lineNumbers: true,
-            theme: state.currentTheme,
-            mode: null,
-            autoCloseBrackets: true,
-            matchBrackets: true,
-            styleActiveLine: true,
-            foldGutter: true,
-            gutters: ['CodeMirror-linenumbers', 'CodeMirror-foldgutter'],
+        if (state.cmEditor) return Promise.resolve();
+        // Item 7: load CodeMirror on demand
+        return LazyLibs.loadCodeMirror().then(function () {
+            if (state.cmEditor) return;  // guard against double-fire
+            state.cmEditor = CodeMirror(_$('editorContainer')[0], {
+                lineNumbers: true,
+                theme: state.currentTheme,
+                mode: null,
+                autoCloseBrackets: true,
+                matchBrackets: true,
+                styleActiveLine: true,
+                foldGutter: true,
+                gutters: ['CodeMirror-linenumbers', 'CodeMirror-foldgutter'],
             indentUnit: 4,
             tabSize: 4,
             indentWithTabs: false,
@@ -658,13 +673,14 @@ function createFileBrowser(instanceId, initialCfg) {
                 'Ctrl-K': function(cm) { if (state.viewMode !== 'wysiwyg') _showAiEditModal(); }
             }
         });
-        state.cmEditor.on('change', function () {
-            if (!state.currentPath) return;
-            var newDirty = (state.cmEditor.getValue() !== state.originalContent);
-            if (newDirty !== state.isDirty) {
-                state.isDirty = newDirty;
-                _updateDirtyState();
-            }
+            state.cmEditor.on('change', function () {
+                if (!state.currentPath) return;
+                var newDirty = (state.cmEditor.getValue() !== state.originalContent);
+                if (newDirty !== state.isDirty) {
+                    state.isDirty = newDirty;
+                    _updateDirtyState();
+                }
+            });
         });
     }
 
@@ -815,74 +831,8 @@ function createFileBrowser(instanceId, initialCfg) {
     //  Fuzzy matching for address bar autocomplete
     // ═══════════════════════════════════════════════════════════════
 
-    /**
-     * Fuzzy-match a query against a target string.
-     * All query characters must appear in order in the target (case-insensitive).
-     * Returns { score, indexes } or null if no match.
-     * Scoring: consecutive matches > word-boundary matches > mid-word.
-     * @param {string} needle - The search query.
-     * @param {string} haystack - The target string to match against.
-     * @returns {object|null} { score: number, indexes: number[] } or null.
-     */
-    function _fuzzyMatch(needle, haystack) {
-        var nLower = needle.toLowerCase();
-        var hLower = haystack.toLowerCase();
-        var nLen = nLower.length;
-        var hLen = hLower.length;
-
-        if (nLen === 0) return { score: 0, indexes: [] };
-        if (nLen > hLen) return null;
-
-        // Quick substring check — best case
-        var subIdx = hLower.indexOf(nLower);
-        if (subIdx !== -1) {
-            var idxs = [];
-            for (var si = 0; si < nLen; si++) idxs.push(subIdx + si);
-            // Bonus: substring at start of word boundary scores higher
-            var bonus = 1.5;
-            if (subIdx === 0) bonus = 2.0;
-            else if ('/\\-_. '.indexOf(hLower[subIdx - 1]) !== -1) bonus = 1.8;
-            return { score: nLen * bonus + (1 / (subIdx + 1)), indexes: idxs };
-        }
-
-        // Sequential char matching with scoring
-        var indexes = [];
-        var score = 0;
-        var hIdx = 0;
-        var lastMatchIdx = -2;
-
-        for (var ni = 0; ni < nLen; ni++) {
-            var found = false;
-            for (var hi = hIdx; hi < hLen; hi++) {
-                if (hLower[hi] === nLower[ni]) {
-                    indexes.push(hi);
-                    // Score this position
-                    if (hi === lastMatchIdx + 1) {
-                        // Consecutive match
-                        score += 1.0;
-                    } else if (hi === 0 || '/\\-_. '.indexOf(hLower[hi - 1]) !== -1) {
-                        // Word boundary match
-                        score += 0.8;
-                    } else {
-                        // Mid-word match
-                        score += 0.3;
-                        // Penalty for gap
-                        score -= (hi - lastMatchIdx - 1) * 0.005;
-                    }
-                    lastMatchIdx = hi;
-                    hIdx = hi + 1;
-                    found = true;
-                    break;
-                }
-            }
-            if (!found) return null;
-        }
-
-        // Small penalty for longer targets (prefer concise matches)
-        score -= (hLen - nLen) * 0.01;
-        return { score: score, indexes: indexes };
-    }
-
+    // fuzzyMatch() is defined at module level in common.js (loaded before this file).
+    // _fuzzyMatchPath wraps it with file-path-specific scoring (filename boost).
     /**
      * Fuzzy-match a query against a file path, boosting filename matches.
      * Tries matching against the filename component first (1.5x boost),
@@ -896,7 +846,7 @@ function createFileBrowser(instanceId, initialCfg) {
         var filename = lastSlash >= 0 ? path.substring(lastSlash + 1) : path;
 
         // Try filename first (boosted)
-        var fnMatch = _fuzzyMatch(query, filename);
+        var fnMatch = fuzzyMatch(query, filename);
         if (fnMatch && fnMatch.score > 0) {
             var offset = lastSlash + 1;
             var adjustedIndexes = [];
@@ -907,21 +857,14 @@ function createFileBrowser(instanceId, initialCfg) {
         }
 
         // Fallback: match against full path
-        var fullMatch = _fuzzyMatch(query, path);
+        var fullMatch = fuzzyMatch(query, path);
         if (fullMatch) {
             return { score: fullMatch.score, indexes: fullMatch.indexes, path: path };
         }
         return null;
     }
 
-    /**
-     * HTML-escape a string for safe insertion into the DOM.
-     * @param {string} str - Raw string.
-     * @returns {string} Escaped string.
-     */
-    function _escHtml(str) {
-        return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    }
+    // escapeHtml() is the module-level canonical function defined in common.js.
 
     /**
      * Render a file path with matched character positions highlighted.
@@ -943,7 +886,7 @@ function createFileBrowser(instanceId, initialCfg) {
         if (dir) {
             html += '<span class="fb-match-dir">';
             for (var d = 0; d < dir.length; d++) {
-                var ch = _escHtml(dir[d]);
+                var ch = escapeHtml(dir[d]);
                 if (indexSet[d]) html += '<b class="fb-match-char">' + ch + '</b>';
                 else html += ch;
             }
@@ -953,7 +896,7 @@ function createFileBrowser(instanceId, initialCfg) {
         html += '<span class="fb-match-filename">';
         for (var f = 0; f < filename.length; f++) {
             var idx = (lastSlash >= 0 ? lastSlash + 1 : 0) + f;
-            var fc = _escHtml(filename[f]);
+            var fc = escapeHtml(filename[f]);
             if (indexSet[idx]) html += '<b class="fb-match-char">' + fc + '</b>';
             else html += fc;
         }
@@ -998,7 +941,7 @@ function createFileBrowser(instanceId, initialCfg) {
         var html = '';
         for (var r = 0; r < results.length; r++) {
             html += '<div class="fb-suggestion-item" data-path="' +
-                _escHtml(results[r].path) + '">' +
+                escapeHtml(results[r].path) + '">' +
                 _renderHighlightedPath(results[r].path, results[r].indexes) +
                 '</div>';
         }
@@ -1178,45 +1121,50 @@ function createFileBrowser(instanceId, initialCfg) {
                 state.isPdf = false;
 
                 // Normal file — load into editor
-                _ensureEditor();
-                var ext = _ext(filePath);
-                var mode = MODE_MAP[ext] || null;
+                // Item 7: _ensureEditor is now async (returns Promise)
+                _ensureEditor().then(function () {
+                    var ext = _ext(filePath);
+                    var mode = MODE_MAP[ext] || null;
 
-                state.currentPath = filePath;
-                state.currentDir = _parentDir(filePath);
-                state.originalContent = resp.content;
-                state.isDirty = false;
-                state.isMarkdown = _isMarkdownExt(ext);
-                state.activeTab = 'code';
+                    state.currentPath = filePath;
+                    state.currentDir = _parentDir(filePath);
+                    state.originalContent = resp.content;
+                    state.isDirty = false;
+                    state.isMarkdown = _isMarkdownExt(ext);
+                    state.activeTab = 'code';
 
-                state.cmEditor.setValue(resp.content);
-                state.cmEditor.setOption('mode', mode);
-                state.cmEditor.clearHistory();
+                    state.cmEditor.setValue(resp.content);
+                    state.cmEditor.setOption('mode', mode);
+                    state.cmEditor.clearHistory();
 
-                _updateDirtyState();
-                _highlightTreeItem(filePath);
-                _$('addressBar').val(filePath);
+                    _updateDirtyState();
+                    _highlightTreeItem(filePath);
+                    _$('addressBar').val(filePath);
 
-                // View mode selector — shown only for markdown files; reset to Raw
-                state.viewMode = 'raw';
-                if (state.isMarkdown) {
-                    _$('viewBtnGroup').find('.btn').removeClass('active');
-                    _$('viewBtnGroup').find('.btn[data-view="raw"]').addClass('active');
-                    _$('viewSelect').val('raw');
-                    if (state.sidebarVisible) { _$('tabBar').show(); }
-                } else {
-                    _$('tabBar').hide();
-                }
+                    // View mode selector — shown only for markdown files; reset to Raw
+                    state.viewMode = 'raw';
+                    if (state.isMarkdown) {
+                        _$('viewBtnGroup').find('.btn').removeClass('active');
+                        _$('viewBtnGroup').find('.btn[data-view="raw"]').addClass('active');
+                        _$('viewSelect').val('raw');
+                        if (state.sidebarVisible) { _$('tabBar').show(); }
+                    } else {
+                        _$('tabBar').hide();
+                    }
 
-                _showView('editor');
-                _updateToolbarForFileType();
-                // Move cursor to top
-                state.cmEditor.setCursor(0, 0);
-                state.cmEditor.focus();
-                _$('aiEditBtn').prop('disabled', false);
-                _$('reloadBtn').prop('disabled', false);
-                _$('wrapBtn').prop('disabled', false);
-                _$('downloadBtn').prop('disabled', false);
+                    _showView('editor');
+                    _updateToolbarForFileType();
+                    // Move cursor to top
+                    state.cmEditor.setCursor(0, 0);
+                    state.cmEditor.focus();
+                    _$('aiEditBtn').prop('disabled', false);
+                    _$('reloadBtn').prop('disabled', false);
+                    _$('wrapBtn').prop('disabled', false);
+                    _$('downloadBtn').prop('disabled', false);
+                }).catch(function (err) {
+                    console.error('Failed to load editor:', err);
+                    showToast('Failed to load code editor', 'error');
+                });
             })
             .fail(function (xhr) {
                 var msg = 'Failed to read file';
@@ -1594,12 +1542,12 @@ function createFileBrowser(instanceId, initialCfg) {
 
         if (type === 'rename') {
             $title.text('Rename');
-            $hint.html('In: <span id="' + _config.dom.nameDirHint + '">' + (dir === '.' ? '/ (root)' : _escHtml(dir)) + '</span>');
+            $hint.html('In: <span id="' + _config.dom.nameDirHint + '">' + (dir === '.' ? '/ (root)' : escapeHtml(dir)) + '</span>');
             $input.val(opts.currentName || '');
             $okBtn.text('Rename');
         } else {
             $title.text(type === 'file' ? 'New File' : 'New Folder');
-            $hint.html('Will be created in: <span id="' + _config.dom.nameDirHint + '">' + (dir === '.' ? '/ (root)' : _escHtml(dir)) + '</span>');
+            $hint.html('Will be created in: <span id="' + _config.dom.nameDirHint + '">' + (dir === '.' ? '/ (root)' : escapeHtml(dir)) + '</span>');
             $input.val('');
             $okBtn.text('Create');
         }
@@ -1809,7 +1757,7 @@ function createFileBrowser(instanceId, initialCfg) {
         var itemPath = state.contextTarget.path;
         var itemType = state.contextTarget.type;
         var itemName = _basename(itemPath);
-        var bodyHtml = 'Delete <strong>' + _escHtml(itemName) + '</strong>?';
+        var bodyHtml = 'Delete <strong>' + escapeHtml(itemName) + '</strong>?';
         if (itemType === 'dir') {
             bodyHtml += '<br><small class="text-muted">This will delete the folder and ALL its contents.</small>';
         }
@@ -2019,8 +1967,9 @@ function createFileBrowser(instanceId, initialCfg) {
         var startDir = _config.rootPath || '.';
         state.currentDir = startDir;
         setTimeout(function () {
-            _ensureEditor();
-            if (state.cmEditor) state.cmEditor.refresh();
+            _ensureEditor().then(function () {
+                if (state.cmEditor) state.cmEditor.refresh();
+            });
             if (Object.keys(state.expandedDirs).length === 0 && !state.currentPath) {
                 loadTree(startDir, null);
             }
@@ -2615,12 +2564,6 @@ function createFileBrowser(instanceId, initialCfg) {
         _$('confirmModal').on('click', function (e) {
             if (e.target === this) _hideConfirmModal();
         });
-        $(document).on('keydown', function (e) {
-            if (e.key === 'Escape' && _$('confirmModal').css('display') === 'flex') {
-                e.stopPropagation();
-                _hideConfirmModal();
-            }
-        });
 
         // --- AI Edit handlers ---
         _$('aiEditBtn').on('click', function() {
@@ -2643,24 +2586,7 @@ function createFileBrowser(instanceId, initialCfg) {
         });
 
 
-        // Keyboard shortcuts for AI edit overlays
-        $(document).on('keydown', function(e) {
-            // Escape closes AI edit overlays (highest priority)
-            if (e.key === 'Escape') {
-                var diffModal = document.getElementById(_config.dom.aiDiffModal);
-                if (diffModal && diffModal.style.display === 'flex') {
-                    e.stopPropagation();
-                    _rejectAiEdit();
-                    return;
-                }
-                var editModal = document.getElementById(_config.dom.aiEditModal);
-                if (editModal && editModal.style.display === 'flex') {
-                    e.stopPropagation();
-                    _hideAiEditModal();
-                    return;
-                }
-            }
-        });
+        // Keyboard shortcuts for AI edit overlays — handled by the unified keydown handler below.
 
         // Ctrl+Enter / Cmd+Enter in instruction textarea triggers generate
         _$('aiEditInstruction').on('keydown', function(e) {
@@ -2889,14 +2815,7 @@ function createFileBrowser(instanceId, initialCfg) {
         $(document).on('click', function () {
             _hideContextMenu();
         });
-        $(document).on('keydown', function (e) {
-            if (e.key === 'Escape') {
-                if (_$('contextMenu').is(':visible')) {
-                    _hideContextMenu();
-                    e.stopPropagation();
-                }
-            }
-        });
+        // Context menu Escape — handled by the unified keydown handler below.
 
         // --- Theme picker ---
         _$('themeSelect').on('change', function () {
@@ -2920,24 +2839,65 @@ function createFileBrowser(instanceId, initialCfg) {
             _setViewMode(mode);
         });
 
-        // --- Keyboard shortcuts (global, scoped to modal visibility) ---
-        $(document).on('keydown', function (e) {
-            if (!_$('modal').hasClass('show')) return;
-
-            // Ctrl+S / Cmd+S → Save
+        // --- Unified keyboard handler (one per instance, namespaced for clean removal) ---
+        // All Escape priorities are dispatched here in order so that stopImmediatePropagation
+        // correctly prevents the second instance's handler from double-acting.
+        //   Priority 1: AI diff overlay  → _rejectAiEdit()
+        //   Priority 2: AI edit overlay  → _hideAiEditModal()
+        //   Priority 3: Confirm modal    → _hideConfirmModal()
+        //   Priority 4: Context menu     → _hideContextMenu()
+        //   Priority 5: Main modal       → _closeModal()
+        // Ctrl/Cmd+S is also handled here (save).
+        var _kbNs = 'keydown.fileBrowser_' + instanceId.replace(/-/g, '_');
+        $(document).off(_kbNs).on(_kbNs, function (e) {
+            // Ctrl+S / Cmd+S → Save (works regardless of modal state)
             if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+                if (!_$('modal').hasClass('show')) return;
                 e.preventDefault();
                 saveFile();
                 return;
             }
 
-            // Escape → Close modal (with dirty check)
-            if (e.key === 'Escape') {
-                // Don't close if context menu is visible (handled separately)
-                if (_$('contextMenu').is(':visible')) return;
+            if (e.key !== 'Escape') return;
+
+            // Priority 1: AI diff overlay
+            var diffModal = document.getElementById(_config.dom.aiDiffModal);
+            if (diffModal && diffModal.style.display === 'flex') {
                 e.preventDefault();
-                _closeModal();
+                e.stopImmediatePropagation();
+                _rejectAiEdit();
+                return;
             }
+
+            // Priority 2: AI edit overlay
+            var editModal = document.getElementById(_config.dom.aiEditModal);
+            if (editModal && editModal.style.display === 'flex') {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                _hideAiEditModal();
+                return;
+            }
+
+            // Priority 3: Confirm modal
+            if (_$('confirmModal').css('display') === 'flex') {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                _hideConfirmModal();
+                return;
+            }
+
+            // Priority 4: Context menu
+            if (_$('contextMenu').is(':visible')) {
+                e.preventDefault();
+                e.stopImmediatePropagation();
+                _hideContextMenu();
+                return;
+            }
+
+            // Priority 5: Main modal close (only if modal is open)
+            if (!_$('modal').hasClass('show')) return;
+            e.preventDefault();
+            _closeModal();
         });
 
         // NOTE: hide.bs.modal won't fire because we bypass Bootstrap's modal JS.
@@ -2979,8 +2939,8 @@ function createFileBrowser(instanceId, initialCfg) {
 
 window.createFileBrowser = createFileBrowser;
 
-// Initialize default instance on DOM ready
-$(document).ready(function () {
+// Initialize default instance on DOM ready (R4: deferred — modal, defensive typeof checks elsewhere)
+deferReady(function () {
     window.FileBrowserManager = createFileBrowser('fb');
     window.FileBrowserManager.init();
 });

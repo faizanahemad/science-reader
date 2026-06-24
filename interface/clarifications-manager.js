@@ -17,11 +17,7 @@
 
     const BLOCK_START = '\n\n[Clarifications]\n';
 
-    function _escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = (text == null) ? '' : String(text);
-        return div.innerHTML;
-    }
+    // escapeHtml() is the module-level canonical function defined in common.js.
 
     function _stripExistingClarificationsBlock(text) {
         if (typeof text !== 'string') return '';
@@ -164,20 +160,20 @@
                     return `
                         <div class="form-check">
                             <input class="form-check-input clarification-option" type="checkbox"
-                                   name="clarification-q-${_escapeHtml(qId)}"
-                                   id="${_escapeHtml(inputId)}"
-                                   value="${_escapeHtml(optId)}"
-                                   data-qid="${_escapeHtml(qId)}"
-                                   data-optid="${_escapeHtml(optId)}"
+                                   name="clarification-q-${escapeHtml(qId)}"
+                                   id="${escapeHtml(inputId)}"
+                                   value="${escapeHtml(optId)}"
+                                   data-qid="${escapeHtml(qId)}"
+                                   data-optid="${escapeHtml(optId)}"
                                    data-isother="${isOther ? '1' : '0'}">
-                            <label class="form-check-label" for="${_escapeHtml(inputId)}" style="font-size: 0.95rem;">
-                                ${_escapeHtml(label)}
+                            <label class="form-check-label" for="${escapeHtml(inputId)}" style="font-size: 0.95rem;">
+                                ${escapeHtml(label)}
                             </label>
                             <div class="mt-1" style="display: ${isOther ? 'block' : 'none'};">
                                 <input
                                     type="text"
                                     class="form-control form-control-sm clarification-other-input"
-                                    id="${_escapeHtml(inputId)}-othertext"
+                                    id="${escapeHtml(inputId)}-othertext"
                                     placeholder="Please specify..."
                                     style="max-width: 520px; display: ${isOther ? 'none' : 'none'};"
                                 />
@@ -189,7 +185,7 @@
                 const questionHtml = `
                     <div class="mb-4">
                         <div style="font-size: 0.98rem; font-weight: 600; margin-bottom: 0.35rem;">
-                            Q${qIdx + 1}: ${_escapeHtml(prompt)}
+                            Q${qIdx + 1}: ${escapeHtml(prompt)}
                         </div>
                         <div class="ml-3">
                             ${optionsHtml}
@@ -335,7 +331,8 @@
 
     window.ClarificationsManager = ClarificationsManager;
 
-    $(document).ready(function () {
+    // R4: deferred — modal feature
+    deferReady(function () {
         if ($('#clarifications-modal').length) {
             ClarificationsManager.setupEventHandlers();
         }

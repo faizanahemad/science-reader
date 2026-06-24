@@ -18,7 +18,10 @@ var WorkspaceManager = {
     _mobileConversationInterceptorInstalled: false,
     hideSidebarIfMobile: function () {
         try {
-            if (!(window.matchMedia && window.matchMedia('(max-width: 768px)').matches)) return;
+            var isMobile = window.matchMedia
+                ? window.matchMedia('(max-width: 768px)').matches
+                : (window.innerWidth || 9999) <= 768;
+            if (!isMobile) return;
             var sidebar = $('#chat-assistant-sidebar');
             var contentCol = $('#chat-assistant');
             if (sidebar.length && contentCol.length && !sidebar.hasClass('d-none')) {
@@ -48,6 +51,9 @@ var WorkspaceManager = {
     },
 
     conversations: [],
+
+    // ---- Sidebar cache / dedup state (Group C, Item 3) ----
+    _lastSidebarDataKey: '',    // fingerprint of last rendered data — skip re-render when unchanged
 
     // ---------------------------------------------------------------
     // Initialisation
@@ -170,16 +176,7 @@ var WorkspaceManager = {
         }
 
         function hideSidebarIfMobileOpen() {
-            try {
-                if (!isMobileWidth()) return;
-                var sidebar = $('#chat-assistant-sidebar');
-                var contentCol = $('#chat-assistant');
-                if (sidebar.length && contentCol.length && !sidebar.hasClass('d-none')) {
-                    sidebar.addClass('d-none');
-                    contentCol.removeClass('col-md-10').addClass('col-md-12');
-                    $(window).trigger('resize');
-                }
-            } catch (_e) { /* ignore */ }
+            WorkspaceManager.hideSidebarIfMobile();
         }
 
         function handler(e) {
@@ -397,7 +394,34 @@ var WorkspaceManager = {
     },
 
     _processAndRenderData: function (workspaces, conversations) {
-        conversations.sort(function (a, b) { return new Date(b.last_updated) - new Date(a.last_updated); });
+        // Item 2.7: pre-compute timestamps once, avoiding O(2n log n) Date allocations in sort.
+        conversations.forEach(function (c) { c._sortTs = new Date(c.last_updated).getTime(); });
+        conversations.sort(function (a, b) { return b._sortTs - a._sortTs; });
+
+        // ---- Render-skip fingerprint (Item 3) ----
+        // Build a lightweight key from fields that affect sidebar rendering.
+        // If data is identical to the last render, skip the full DOM rebuild
+        // (saves jsTree rebuild + 5 section renders on duplicate fetches).
+        var fp = conversations.length + '|' + (workspaces ? workspaces.length : 0) + '|' + (this._showArchived ? '1' : '0');
+        for (var _i = 0; _i < conversations.length; _i++) {
+            var _c = conversations[_i];
+            fp += '|' + _c.conversation_id + ':' + (_c.workspace_id || '') + ':' + (_c.flag || '') +
+                  ':' + (_c.archived ? 1 : 0) + ':' + (_c.title || '') + ':' + (_c.last_updated || '');
+        }
+        if (workspaces) {
+            for (var _w = 0; _w < workspaces.length; _w++) {
+                var _ws = workspaces[_w];
+                fp += '|' + _ws.workspace_id + ':' + (_ws.workspace_name || '') +
+                      ':' + (_ws.workspace_color || '') + ':' + (_ws.parent_workspace_id || '');
+            }
+        }
+        if (fp === this._lastSidebarDataKey) {
+            // Data unchanged since last render — skip full rebuild.
+            // Callers' .done() handlers will still fire (e.g. highlightActiveConversation).
+            return;
+        }
+        this._lastSidebarDataKey = fp;
+
         this.conversations = conversations;
 
         var workspacesMap = {};
@@ -821,12 +845,14 @@ var WorkspaceManager = {
         });
 
         // Sort each group: flagged first, then by last_updated DESC
+        // Item 2.7: reuse _sortTs pre-computed in _processAndRenderData.
+        // If _sortTs is missing (direct call path), fall back to Date parse.
         groups.forEach(function (group) {
             group.items.sort(function (a, b) {
                 var aFlagged = (a.flag && a.flag !== 'none') ? 1 : 0;
                 var bFlagged = (b.flag && b.flag !== 'none') ? 1 : 0;
                 if (bFlagged !== aFlagged) return bFlagged - aFlagged;
-                return new Date(b.last_updated) - new Date(a.last_updated);
+                return (b._sortTs || new Date(b.last_updated).getTime()) - (a._sortTs || new Date(a.last_updated).getTime());
             });
         });
 
@@ -1109,7 +1135,7 @@ var WorkspaceManager = {
                 parent: parentNodeId,
                 text: displayName + badgeHtml,
                 type: 'workspace',
-                state: { opened: false },
+                state: { opened: !!ws.expanded },
                 li_attr: { 'data-workspace-id': ws.workspace_id, 'data-color': ws.color },
                 a_attr: { title: displayName }
             });
@@ -1153,14 +1179,45 @@ var WorkspaceManager = {
     renderTree: function (convByWs) {
         var self = this;
         var container = $('#workspaces-container');
+        var treeData = this.buildJsTreeData(convByWs);
 
-        // Destroy previous instance if any
-        if (this._jsTreeReady) {
-            try { container.jstree('destroy'); } catch (_e) {}
-            this._jsTreeReady = false;
+        // ---- Item 9: refresh() instead of destroy/recreate ----
+        // If jsTree is already initialised, update its data and refresh
+        // in-place.  This preserves the DOM, event bindings, and
+        // (partially) expansion state — avoiding a full tear-down +
+        // re-init that creates hundreds of DOM elements from scratch.
+        var existingTree = null;
+        try { existingTree = this._jsTreeReady ? $.jstree.reference(container) : null; } catch (_e) {}
+
+        if (existingTree) {
+            existingTree.settings.core.data = treeData;
+
+            // Mark tree as not-ready so highlightActiveConversation queues
+            // into _pendingHighlight instead of trying to select nodes that
+            // don't exist yet (refresh is async).
+            self._jsTreeReady = false;
+
+            // One-shot handler: after refresh completes, re-add triple-dot
+            // buttons and process any pending highlight.
+            container.one('refresh.jstree', function () {
+                self._jsTreeReady = true;
+                // Triple-dot buttons are re-added by the existing redraw.jstree
+                // handler (bound during first init), so no need to call
+                // addTripleDotButtons() here.
+                if (self._pendingHighlight) {
+                    var cid = self._pendingHighlight;
+                    var collapse = self._pendingHighlightCollapse;
+                    self._pendingHighlight = null;
+                    self._pendingHighlightCollapse = false;
+                    self.highlightActiveConversation(cid, collapse);
+                }
+            });
+
+            existingTree.refresh();
+            return;
         }
 
-        var treeData = this.buildJsTreeData(convByWs);
+        // ---- First-time initialisation (original path) ----
 
         container.jstree({
             core: {

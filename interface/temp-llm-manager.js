@@ -785,7 +785,7 @@ const TempLLMManager = {
     }
 };
 
-// Initialize when document is ready
-$(document).ready(function() {
+// Initialize when document is ready (R4: deferred — console.log only)
+deferReady(function() {
     console.log('TempLLMManager loaded');
 });

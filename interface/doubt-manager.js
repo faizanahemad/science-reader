@@ -3,10 +3,7 @@
  * Provides methods for showing doubts, asking new doubts, and managing doubt conversations
  */
 
-/** Shared HTML escape helper (not available as a global elsewhere). */
-function _doubtEscapeHtml(str) {
-    return (str || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
-}
+// escapeHtml() is the module-level canonical function defined in common.js (loaded first).
 
 const DoubtManager = {
     currentConversationId: null,
@@ -784,12 +781,22 @@ const DoubtManager = {
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
                 let accumulated = '';
+                let _summaryRafPending = null;  // Perf: rAF throttle for DOM updates
                 cardBody.empty();
                 
                 function readChunk() {
                     reader.read().then(({ done, value }) => {
                         if (done) {
                             btn.prop('disabled', false);
+                            // Flush any pending rAF render
+                            if (_summaryRafPending) {
+                                cancelAnimationFrame(_summaryRafPending);
+                                _summaryRafPending = null;
+                            }
+                            // Final render to ensure accumulated text is fully displayed
+                            const finalRendered = (typeof marked !== 'undefined' && marked.parse) ? marked.parse(accumulated) : accumulated.replace(/\n/g, '<br>');
+                            cardBody.html(finalRendered);
+                            messagesContainer.scrollTop(messagesContainer[0].scrollHeight);
                             if (typeof MathJax !== 'undefined' && MathJax.Hub) {
                                 MathJax.Hub.Queue(["Typeset", MathJax.Hub, cardBody[0]]);
                             }
@@ -802,9 +809,16 @@ const DoubtManager = {
                                 const data = JSON.parse(line);
                                 if (data.text) {
                                     accumulated += data.text;
-                                    const rendered = (typeof marked !== 'undefined' && marked.parse) ? marked.parse(accumulated) : accumulated.replace(/\n/g, '<br>');
-                                    cardBody.html(rendered);
-                                    messagesContainer.scrollTop(messagesContainer[0].scrollHeight);
+                                    // Perf: throttle DOM updates to once per animation frame
+                                    // (marked.parse re-parses entire accumulated text — O(n) per call)
+                                    if (!_summaryRafPending) {
+                                        _summaryRafPending = requestAnimationFrame(() => {
+                                            _summaryRafPending = null;
+                                            const rendered = (typeof marked !== 'undefined' && marked.parse) ? marked.parse(accumulated) : accumulated.replace(/\n/g, '<br>');
+                                            cardBody.html(rendered);
+                                            messagesContainer.scrollTop(messagesContainer[0].scrollHeight);
+                                        });
+                                    }
                                 }
                                 if (data.completed && data.doubt_id) {
                                     // Update card data attributes
@@ -976,15 +990,24 @@ const DoubtManager = {
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
                 let accumulated = '';
+                let _regenRafPending = null;  // Perf: rAF throttle for DOM updates
                 cardBody.empty();
                 
                 function readChunk() {
                     reader.read().then(({ done, value }) => {
                         if (done) {
                             btn.prop('disabled', false);
+                            // Flush any pending rAF render
+                            if (_regenRafPending) {
+                                cancelAnimationFrame(_regenRafPending);
+                                _regenRafPending = null;
+                            }
                             // Update in-memory history
                             const histEntry = self.currentDoubtHistory.find(d => d.doubt_id === doubtId);
                             if (histEntry) histEntry.doubt_answer = accumulated;
+                            // Final render to ensure accumulated text is fully displayed
+                            const finalRendered = (typeof marked !== 'undefined' && marked.parse) ? marked.parse(accumulated) : accumulated.replace(/\n/g, '<br>');
+                            cardBody.html(finalRendered);
                             // Re-render math
                             if (typeof MathJax !== 'undefined' && MathJax.Hub) {
                                 MathJax.Hub.Queue(["Typeset", MathJax.Hub, cardBody[0]]);
@@ -998,8 +1021,14 @@ const DoubtManager = {
                                 const data = JSON.parse(line);
                                 if (data.text) {
                                     accumulated += data.text;
-                                    const rendered = (typeof marked !== 'undefined' && marked.parse) ? marked.parse(accumulated) : accumulated.replace(/\n/g, '<br>');
-                                    cardBody.html(rendered);
+                                    // Perf: throttle DOM updates to once per animation frame
+                                    if (!_regenRafPending) {
+                                        _regenRafPending = requestAnimationFrame(() => {
+                                            _regenRafPending = null;
+                                            const rendered = (typeof marked !== 'undefined' && marked.parse) ? marked.parse(accumulated) : accumulated.replace(/\n/g, '<br>');
+                                            cardBody.html(rendered);
+                                        });
+                                    }
                                 }
                             } catch(e) {}
                         }
@@ -1185,6 +1214,7 @@ const DoubtManager = {
         let accumulatedText = '';
         let doubtId = null;
         let isCancelled = false;
+        let _doubtRafPending = null;  // Perf: rAF throttle for DOM updates
         
         // DEBUG: Log initial state
         console.log('=== DOUBT STREAMING DEBUG START ===');
@@ -1215,6 +1245,12 @@ const DoubtManager = {
                     console.log('Done flag:', done);
                     console.log('isCancelled:', isCancelled);
                     console.log('This branch may be dead code if streaming completes via part.completed');
+                    
+                    // Flush any pending rAF render
+                    if (_doubtRafPending) {
+                        cancelAnimationFrame(_doubtRafPending);
+                        _doubtRafPending = null;
+                    }
                     
                     // Reset UI state - hide stop button and clear controller
                     $('#stop-doubt-chat-button').hide();
@@ -1431,17 +1467,37 @@ const DoubtManager = {
                         }
                         
                         accumulatedText += processedText;
-                        // Render markdown if available — strip progressive disclosure markers during streaming
-                        const displayText = accumulatedText.replace(/<\/?(?:tldr|explanation|deep_dive)>/g, '');
-                        if (typeof marked !== 'undefined' && marked.parse) {
-                            assistantBody.html(marked.parse(displayText));
-                        } else {
-                            assistantBody.html(displayText.replace(/\n/g, '<br>'));
+                        // Perf: throttle DOM updates to once per animation frame
+                        // (marked.parse re-parses entire accumulated text — O(n) per call)
+                        if (!_doubtRafPending) {
+                            _doubtRafPending = requestAnimationFrame(() => {
+                                _doubtRafPending = null;
+                                // Render markdown if available — strip progressive disclosure markers during streaming
+                                const displayText = accumulatedText.replace(/<\/?(?:tldr|explanation|deep_dive)>/g, '');
+                                if (typeof marked !== 'undefined' && marked.parse) {
+                                    assistantBody.html(marked.parse(displayText));
+                                } else {
+                                    assistantBody.html(displayText.replace(/\n/g, '<br>'));
+                                }
+                                if (typeof renderMermaidIn === 'function') renderMermaidIn(assistantBody);
+                            });
                         }
-                        if (typeof renderMermaidIn === 'function') renderMermaidIn(assistantBody);
                     }
                     
                     if (part.completed) {
+                        // Flush any pending rAF render before final processing
+                        if (_doubtRafPending) {
+                            cancelAnimationFrame(_doubtRafPending);
+                            _doubtRafPending = null;
+                        }
+                        // Final render to ensure accumulated text is fully displayed
+                        const _finalDisplayText = accumulatedText.replace(/<\/?(?:tldr|explanation|deep_dive)>/g, '');
+                        if (typeof marked !== 'undefined' && marked.parse) {
+                            assistantBody.html(marked.parse(_finalDisplayText));
+                        } else {
+                            assistantBody.html(_finalDisplayText.replace(/\n/g, '<br>'));
+                        }
+                        if (typeof renderMermaidIn === 'function') renderMermaidIn(assistantBody);
                         // Final processing
                         if (part.doubt_id) {
                             doubtId = part.doubt_id;
@@ -1866,7 +1922,7 @@ const DoubtManager = {
         const foundCount = (proposal.replacements || []).filter(r => r.found).length;
         const totalCount = (proposal.replacements || []).length;
         const summaryText = proposal.summary
-            ? `<strong>${_doubtEscapeHtml(proposal.summary)}</strong> &mdash; `
+            ? `<strong>${escapeHtml(proposal.summary)}</strong> &mdash; `
             : '';
         $('#answer-edit-summary').html(
             `${summaryText}${foundCount} of ${totalCount} replacement${totalCount !== 1 ? 's' : ''} matched`
@@ -1895,7 +1951,7 @@ const DoubtManager = {
             ArtefactsManager.renderDiffInContainer(diffContainer, proposal.diff_text || '');
         } else {
             // Simple fallback: show raw diff in a <pre>
-            diffContainer.html('<pre style="font-size:0.8rem;">' + _doubtEscapeHtml(proposal.diff_text || '(no diff)') + '</pre>');
+            diffContainer.html('<pre style="font-size:0.8rem;">' + escapeHtml(proposal.diff_text || '(no diff)') + '</pre>');
         }
 
         // --- Wire the Accept button (re-bind each time to avoid stale closures) ---
@@ -1992,8 +2048,8 @@ const DoubtManager = {
 
 };  // end DoubtManager
 
-// Initialize when document is ready
-$(document).ready(function() {
+// Initialize when document is ready (R4: deferred — modal feature, low risk)
+deferReady(function() {
     console.log('DoubtManager initialized');
     DoubtManager.setupGlobalDoubtsHandlers();
 });

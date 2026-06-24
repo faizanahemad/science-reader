@@ -44,7 +44,8 @@ function applyCompactNav(enabled) {
         } catch (e) { /* ignore */ }
     }
 }
-$(function() {
+// R4: deferred — settings modal not open at load
+deferReady(function() {
     $('#settings-compact_nav').on('change', function() {
         applyCompactNav($(this).is(':checked'));
     });
@@ -65,7 +66,8 @@ function applyRecentConversationsCount(count) {
     }
     return n;
 }
-$(function() {
+// R4: deferred — settings modal not open at load
+deferReady(function() {
     $('#settings-recent-conversations-count').on('change input', function() {
         applyRecentConversationsCount($(this).val());
     });
@@ -100,15 +102,82 @@ function isProbablyMobileDevice() {
 // Expose globally for other modules loaded before chat.js (e.g., context-menu-manager.js)
 window.isProbablyMobileDevice = isProbablyMobileDevice;
 
+// ---------------------------------------------------------------------------
+// User Details and Preferences API functions
+// These are pure AJAX wrappers that close over nothing — kept at module level
+// so they are accessible from any call site without being buried inside
+// chat_interface_readiness().
+// ---------------------------------------------------------------------------
+function fetchUserDetail() {
+    return $.ajax({
+        url: '/get_user_detail',
+        type: 'GET',
+        success: function(result) {
+            $('#user-details-text').val(result.text);
+        },
+        error: function(xhr) {
+            console.error('Error fetching user details:', xhr.responseText);
+        }
+    });
+}
+
+function saveUserDetail(text) {
+    return $.ajax({
+        url: '/modify_user_detail',
+        type: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ 'text': text }),
+        success: function(result) {
+            console.log('User details saved successfully');
+        },
+        error: function(xhr) {
+            console.error('Error saving user details:', xhr.responseText);
+            alert('Error: Failed to save user details');
+        }
+    });
+}
+
+function fetchUserPreference() {
+    return $.ajax({
+        url: '/get_user_preference',
+        type: 'GET',
+        success: function(result) {
+            $('#user-preferences-text').val(result.text);
+        },
+        error: function(xhr) {
+            console.error('Error fetching user preferences:', xhr.responseText);
+        }
+    });
+}
+
+function saveUserPreference(text) {
+    return $.ajax({
+        url: '/modify_user_preference',
+        type: 'POST',
+        contentType: 'application/json',
+        data: JSON.stringify({ 'text': text }),
+        success: function(result) {
+            console.log('User preferences saved successfully');
+        },
+        error: function(xhr) {
+            console.error('Error saving user preferences:', xhr.responseText);
+            alert('Error: Failed to save user preferences');
+        }
+    });
+}
+
 function chat_interface_readiness() {
     
     // $('#chat-assistant-view').hide();
     $("#loader").show();
-    // loadConversations();
-    // Hide the loader after 10 seconds
+    // Item 3.3: event-based loader hide.  The loader is hidden by
+    // _runPostRenderWork() in common-chat.js when rendering completes (both
+    // sync and async-chunked paths), or by the snapshot-restore path.
+    // Keep a generous safety-net timeout in case rendering never fires
+    // (e.g. empty workspace, error before renderMessages is reached).
     setTimeout(function() {
         $("#loader").hide();
-    }, 1000 * 1);  // 1000 milliseconds = 1 seconds
+    }, 8000);  // 8s safety net — normally hidden much sooner by renderMessages
     
     $('#add-new-chat').on('click', function() {
         ConversationManager.createConversation();
@@ -523,69 +592,6 @@ function chat_interface_readiness() {
         $('#memory-pad-modal').modal('hide');
     });
     // $('#toggleChatDocsView').click();
-
-    // User Details and Preferences API functions
-    function fetchUserDetail() {
-        return $.ajax({
-            url: '/get_user_detail',
-            type: 'GET',
-            success: function(result) {
-                $('#user-details-text').val(result.text);
-            },
-            error: function(xhr) {
-                console.error('Error fetching user details:', xhr.responseText);
-                // Optionally show an error message
-                // alert('Failed to load user details');
-            }
-        });
-    }
-
-    function saveUserDetail(text) {
-        return $.ajax({
-            url: '/modify_user_detail',
-            type: 'POST',
-            contentType: 'application/json',
-            data: JSON.stringify({ 'text': text }),
-            success: function(result) {
-                console.log('User details saved successfully');
-            },
-            error: function(xhr) {
-                console.error('Error saving user details:', xhr.responseText);
-                alert('Error: Failed to save user details');
-            }
-        });
-    }
-
-    function fetchUserPreference() {
-        return $.ajax({
-            url: '/get_user_preference',
-            type: 'GET',
-            success: function(result) {
-                $('#user-preferences-text').val(result.text);
-            },
-            error: function(xhr) {
-                console.error('Error fetching user preferences:', xhr.responseText);
-                // Optionally show an error message
-                // alert('Failed to load user preferences');
-            }
-        });
-    }
-
-    function saveUserPreference(text) {
-        return $.ajax({
-            url: '/modify_user_preference',
-            type: 'POST',
-            contentType: 'application/json',
-            data: JSON.stringify({ 'text': text }),
-            success: function(result) {
-                console.log('User preferences saved successfully');
-            },
-            error: function(xhr) {
-                console.error('Error saving user preferences:', xhr.responseText);
-                alert('Error: Failed to save user preferences');
-            }
-        });
-    }
 
     // Event handlers for User Details modal
     $('#user-details-modal-open-button').click(function() {
@@ -1161,9 +1167,10 @@ function loadModelCatalog(callback) {
         if (callback) {
             callback();
         }
-        return;
+        // Item 3.4: return a resolved deferred for callers that chain on the return value.
+        return $.Deferred().resolve().promise();
     }
-    $.ajax({
+    return $.ajax({
         url: '/model_catalog',
         type: 'GET',
         success: function (result) {
@@ -1257,7 +1264,8 @@ function loadCustomPromptsOnInit() {
     // Fetch custom prompts and store in global variable
     window.availableCustomPrompts = [];
     
-    fetch('/get_prompts', {
+    // Item 3.4: return the fetch promise so callers can chain on completion.
+    return fetch('/get_prompts', {
         method: 'GET',
         headers: {'Content-Type': 'application/json'}
     })

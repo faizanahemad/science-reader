@@ -519,7 +519,7 @@ var ImageGenManager = (function () {
     };
 })();
 
-// Auto-init when DOM is ready
-$(function () {
+// Auto-init when DOM is ready (R4: deferred — modal feature)
+deferReady(function () {
     ImageGenManager.init();
 });

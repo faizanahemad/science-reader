@@ -763,14 +763,7 @@ var ArtefactsManager = (function () {
         return el;
     }
 
-    function escapeHtml(value) {
-        return (value || '')
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;')
-            .replace(/'/g, '&#039;');
-    }
+    // escapeHtml() is the module-level canonical function defined in common.js.
 
     function parseUnifiedDiff(diffText) {
         var lines = (diffText || '').split('\n');

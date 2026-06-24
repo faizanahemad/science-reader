@@ -7,131 +7,108 @@ function setupCodeEditor() {
         $('#code-editor-modal').modal('show');  
     });  
       
-    // COMPREHENSIVE CodeMirror initialization with ALL fallbacks  
+    // COMPREHENSIVE CodeMirror initialization with ALL fallbacks
+    // Item 7: CodeMirror is loaded on demand via LazyLibs (no longer in <head>).
     $('#code-editor-modal').on('shown.bs.modal', function () {  
-        if (!codeEditor) {  
-            const container = document.getElementById('python-code-editor');  
-            var initialCode = `# Advanced Python Code Editor  
-def comprehensive_example():  
-    """Full-featured Python example with syntax highlighting"""  
-    import json  
-    import datetime  
-    from typing import List, Dict, Optional  
-    
-    # Type hints and modern Python features  
-    def process_data(items: List[int]) -> Dict[str, any]:  
-        result = {  
-            'processed_at': datetime.datetime.now().isoformat(),  
-            'total_items': len(items),  
-            'sum': sum(items),  
-            'average': sum(items) / len(items) if items else 0,  
-            'squares': [x**2 for x in items],  
-            'evens': [x for x in items if x % 2 == 0]  
-        }  
-        return result  
-    
-    # Example usage  
-    sample_data = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]  
-    result = process_data(sample_data)  
-    
-    print(json.dumps(result, indent=2))  
-    return result  
-
-# Start writing your Python code here...  
-    `;  
+        if (codeEditor) {
+            // Already initialised — just focus
+            setTimeout(function () { if (codeEditor && codeEditor.focus) codeEditor.focus(); }, 100);
+            return;
+        }
+        LazyLibs.loadCodeMirror().then(function () {
+            if (codeEditor) return;  // guard against double-fire
+            var container = document.getElementById('python-code-editor');  
+            var initialCode = '# Advanced Python Code Editor\n'
+                + 'def comprehensive_example():\n'
+                + '    """Full-featured Python example with syntax highlighting"""\n'
+                + '    import json\n'
+                + '    return json.dumps({"status": "ready"}, indent=2)\n'
+                + '\n# Start writing your Python code here...\n';
             if (currentCode) {
                 initialCode = currentCode;
             }
     
             // **PRIORITY 1**: Try CodeMirror 6 solutions in order  
-            const cm6Attempts = [  
-                () => window.CodeMirror6?.createEditor(container, initialCode),  
-                () => window.CodeMirror6_JSDelivr?.createEditor(container, initialCode),  
-                () => window.CodeMirror6_ImportMaps?.createEditor(container, initialCode)  
+            var cm6Attempts = [  
+                function () { return window.CodeMirror6 ? window.CodeMirror6.createEditor(container, initialCode) : null; },
+                function () { return window.CodeMirror6_JSDelivr ? window.CodeMirror6_JSDelivr.createEditor(container, initialCode) : null; },
+                function () { return window.CodeMirror6_ImportMaps ? window.CodeMirror6_ImportMaps.createEditor(container, initialCode) : null; }
             ];  
     
-            let success = false;  
+            var success = false;  
     
             // Try CodeMirror 6 variants  
-            for (let i = 0; i < cm6Attempts.length && !success; i++) {  
+            for (var i = 0; i < cm6Attempts.length && !success; i++) {  
                 try {  
-                    console.log(`🔄 Attempting CodeMirror 6 variant ${i + 1}...`);  
                     codeEditor = cm6Attempts[i]();  
-                    if (codeEditor) {  
-                        console.log(`✅ CodeMirror 6 variant ${i + 1} successful!`);  
-                        success = true;  
-                    }  
+                    if (codeEditor) { success = true; }  
                 } catch (error) {  
-                    console.warn(`⚠️ CodeMirror 6 variant ${i + 1} failed:`, error.message);  
+                    console.warn('CodeMirror 6 variant ' + (i + 1) + ' failed:', error.message);  
                 }  
             }  
     
-            // **PRIORITY 2**: Fallback to CodeMirror 5  
+            // **PRIORITY 2**: Fallback to CodeMirror 5 wrapper
             if (!success && window.CodeMirror5) {  
                 try {  
-                    console.log("🔄 Falling back to CodeMirror 5...");  
                     codeEditor = window.CodeMirror5.createEditor(container, initialCode);  
-                    console.log("✅ CodeMirror 5 successful!");  
                     success = true;  
                 } catch (error) {  
-                    console.warn("⚠️ CodeMirror 5 failed:", error.message);  
+                    console.warn('CodeMirror5 wrapper failed:', error.message);  
                 }  
             }  
     
             // **PRIORITY 3**: Basic CodeMirror 5 (if available)  
             if (!success && window.CodeMirror) {  
                 try {  
-                    console.log("🔄 Using basic CodeMirror 5...");  
                     container.innerHTML = '<textarea class="form-control" rows="20"></textarea>';  
-                    const textarea = container.querySelector('textarea');  
+                    var textarea = container.querySelector('textarea');  
                     textarea.value = initialCode;  
-    
                     codeEditor = CodeMirror.fromTextArea(textarea, {  
                         mode: 'python',  
                         lineNumbers: true,  
                         theme: 'default',  
                         lineWrapping: true  
                     });  
-                    console.log("✅ Basic CodeMirror 5 successful!");  
                     success = true;  
                 } catch (error) {  
-                    console.warn("⚠️ Basic CodeMirror 5 failed:", error.message);  
+                    console.warn('Basic CodeMirror 5 failed:', error.message);  
                 }  
             }  
     
             // **LAST RESORT**: Plain textarea  
             if (!success) {  
-                console.error("💥 All CodeMirror approaches failed!");  
-                container.innerHTML = `  
-                    <div class="alert alert-danger mb-2">  
-                        <strong>⚠️ All CodeMirror Variants Failed</strong><br>  
-                        <small>Using basic textarea. No syntax highlighting available.</small>  
-                    </div>  
-                    <textarea class="form-control" rows="20"  
-                            placeholder="All CodeMirror variants failed. Basic editing available..."  
-                            style="font-family: 'Courier New', monospace; font-size: 14px;">${initialCode}</textarea>  
-                `;  
-    
+                container.innerHTML =  
+                    '<div class="alert alert-danger mb-2">' +
+                    '<strong>All CodeMirror Variants Failed</strong><br>' +
+                    '<small>Using basic textarea. No syntax highlighting available.</small>' +
+                    '</div>' +
+                    '<textarea class="form-control" rows="20" ' +
+                    'placeholder="Basic editing..." ' +
+                    'style="font-family: monospace; font-size: 14px;"></textarea>';
+                container.querySelector('textarea').value = initialCode;
                 codeEditor = {  
-                    getValue: () => container.querySelector('textarea').value,  
-                    setValue: (val) => container.querySelector('textarea').value = val,  
-                    focus: () => container.querySelector('textarea').focus()  
+                    getValue: function () { return container.querySelector('textarea').value; },
+                    setValue: function (val) { container.querySelector('textarea').value = val; },
+                    focus:    function () { container.querySelector('textarea').focus(); }
                 };  
             }  
-        }  
     
-        // Focus the editor  
-        setTimeout(() => {  
-            if (codeEditor && codeEditor.focus) {  
-                codeEditor.focus();  
-            }  
-        }, 100);  
-    });  
+            // Focus the editor  
+            setTimeout(function () {  
+                if (codeEditor && codeEditor.focus) codeEditor.focus();
+            }, 100);  
+        }).catch(function (err) {
+            console.error('Failed to load CodeMirror:', err);
+            if (typeof showToast === 'function') showToast('Failed to load code editor', 'error');
+        });
+    });
 
     // on modal close, save the code to the server
     $('#code-editor-modal').on('hidden.bs.modal', function() {
-        const code = codeEditor.getValue();
-        currentCode = code;
+        if (codeEditor) {
+            var code = codeEditor.getValue();
+            currentCode = code;
+        }
     });
 
 

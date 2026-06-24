@@ -504,7 +504,7 @@ var ContentViewer = (function () {
 
 })();
 
-// Initialise once the DOM is ready
-$(document).ready(function () {
+// Initialise once the DOM is ready (R4: deferred — modal requires extension interaction)
+deferReady(function () {
     ContentViewer.init();
 });
