@@ -3210,6 +3210,19 @@ def clarify_intent(conversation_id: str):
 
 _DOUBT_SECTION_FMT = "\n\nFormat your answer in exactly 3 sections using these markers:\n<tldr>One-sentence summary of the answer</tldr>\n<explanation>Clear explanation (2-4 paragraphs)</explanation>\n<deep_dive>Detailed examples, edge cases, connections, and nuances</deep_dive>"
 
+# Instruction appended to auto-doubt system prompts so the LLM skips generating when the
+# topic is not a strong, high-relevance match for this specific analysis lens. The default
+# should be to return <not_applicable> — only generate when the fit is clearly strong.
+# The sentinel is detected by _is_not_applicable() before persisting.
+_NOT_APPLICABLE_INSTRUCTION = "\n\nCRITICAL: Only proceed with this analysis if the question and answer are a strong, highly relevant match for this specific lens. If there is any doubt about relevance, or if the topic is only loosely or tangentially related, respond with only: <not_applicable>\nDo NOT generate a response just because you could stretch the topic to fit — the bar is HIGH relevance, not remote relevance."
+
+
+def _is_not_applicable(response: str) -> bool:
+    """Return True if the LLM indicated the topic is not applicable to this Q&A."""
+    if not isinstance(response, str):
+        return False
+    return response.strip().startswith("<not_applicable>")
+
 
 def _create_auto_takeaways_doubt_for_last_assistant_message(
     *,
@@ -3345,10 +3358,12 @@ Assistant answer:
             temperature=0.2,
             stream=False,
             max_tokens=650,
-            system="You write compact, actionable summaries with no preamble.",
+            system="You write compact, actionable summaries with no preamble." + _NOT_APPLICABLE_INSTRUCTION,
         )
 
         if not isinstance(takeaways, str) or not takeaways.strip():
+            return
+        if _is_not_applicable(takeaways):
             return
 
         add_doubt(
@@ -3437,7 +3452,7 @@ Question to answer:
                     temperature=0.3,
                     stream=False,
                     max_tokens=1500,
-                    system="Answer thoroughly in markdown with depth, practical insight, and nuance. Explain the 'why' behind things. No preamble." + _DOUBT_SECTION_FMT,
+                    system="Answer thoroughly in markdown with depth, practical insight, and nuance. Explain the 'why' behind things. No preamble." + _DOUBT_SECTION_FMT + _NOT_APPLICABLE_INSTRUCTION,
                 )
 
             # Fire all LLM calls in parallel
@@ -3457,7 +3472,7 @@ Question to answer:
             # Chain results in order as child doubts
             for i, nq_answer in enumerate(results):
                 try:
-                    if isinstance(nq_answer, str) and nq_answer.strip():
+                    if isinstance(nq_answer, str) and nq_answer.strip() and not _is_not_applicable(nq_answer):
                         new_doubt_id = add_doubt(
                             conversation_id=conversation_id,
                             user_email=user_email,
@@ -3607,18 +3622,20 @@ Assistant answer:
             learning_future = executor.submit(
                 llm, learning_prompt, images=[], temperature=0.3, stream=False,
                 max_tokens=1500,
-                system="You identify and explain critical concepts that deepen understanding. Be precise and practical." + _DOUBT_SECTION_FMT,
+                system="You identify and explain critical concepts that deepen understanding. Be precise and practical." + _DOUBT_SECTION_FMT + _NOT_APPLICABLE_INSTRUCTION,
             )
             perspectives_future = executor.submit(
                 llm, perspectives_prompt, images=[], temperature=0.4, stream=False,
                 max_tokens=2000,
-                system="You inhabit multiple expert personas simultaneously. Each perspective is authentic — reflecting genuine concerns and priorities of that role, not generic platitudes. Surprise the reader with insights they wouldn't get from a single viewpoint." + _DOUBT_SECTION_FMT,
+                system="You inhabit multiple expert personas simultaneously. Each perspective is authentic — reflecting genuine concerns and priorities of that role, not generic platitudes. Surprise the reader with insights they wouldn't get from a single viewpoint." + _DOUBT_SECTION_FMT + _NOT_APPLICABLE_INSTRUCTION,
             )
 
             learning_content = learning_future.result()
             perspectives_content = perspectives_future.result()
 
         if not isinstance(learning_content, str) or not learning_content.strip():
+            return
+        if _is_not_applicable(learning_content):
             return
 
         root_id = add_doubt(
@@ -3633,7 +3650,7 @@ Assistant answer:
         )
 
         # Add perspectives as child doubt
-        if isinstance(perspectives_content, str) and perspectives_content.strip():
+        if isinstance(perspectives_content, str) and perspectives_content.strip() and not _is_not_applicable(perspectives_content):
             add_doubt(
                 conversation_id=conversation_id,
                 user_email=user_email,
@@ -3750,17 +3767,19 @@ Assistant answer:
         with ThreadPoolExecutor(max_workers=2) as executor:
             devils_future = executor.submit(
                 llm, devils_prompt, images=[], temperature=0.3, stream=False, max_tokens=1500,
-                system="You are a senior engineer and critical thinker. For every weakness you identify, explain the mechanism of failure and the intuition behind why it happens. Never be vague — always show the 'why' and trace the reasoning chain." + _DOUBT_SECTION_FMT,
+                system="You are a senior engineer and critical thinker. For every weakness you identify, explain the mechanism of failure and the intuition behind why it happens. Never be vague — always show the 'why' and trace the reasoning chain." + _DOUBT_SECTION_FMT + _NOT_APPLICABLE_INSTRUCTION,
             )
             mistakes_future = executor.submit(
                 llm, mistakes_prompt, images=[], temperature=0.3, stream=False, max_tokens=2000,
-                system="You are a principal engineer reviewing code and architecture for production readiness. You think in terms of failure modes at scale, cascading effects, and the gap between 'works on my machine' and 'works under load'. Trace each failure from root cause through propagation to visible symptom." + _DOUBT_SECTION_FMT,
+                system="You are a principal engineer reviewing code and architecture for production readiness. You think in terms of failure modes at scale, cascading effects, and the gap between 'works on my machine' and 'works under load'. Trace each failure from root cause through propagation to visible symptom." + _DOUBT_SECTION_FMT + _NOT_APPLICABLE_INSTRUCTION,
             )
 
             devils_answer = devils_future.result()
             mistakes_answer = mistakes_future.result()
 
         if not isinstance(devils_answer, str) or not devils_answer.strip():
+            return
+        if _is_not_applicable(devils_answer):
             return
 
         root_id = add_doubt(
@@ -3770,7 +3789,7 @@ Assistant answer:
             users_dir=users_dir, logger=logger,
         )
 
-        if isinstance(mistakes_answer, str) and mistakes_answer.strip():
+        if isinstance(mistakes_answer, str) and mistakes_answer.strip() and not _is_not_applicable(mistakes_answer):
             add_doubt(
                 conversation_id=conversation_id, user_email=user_email,
                 message_id=message_id, doubt_text="Common Mistakes",
@@ -3875,17 +3894,19 @@ Assistant answer:
         with ThreadPoolExecutor(max_workers=2) as executor:
             prereq_future = executor.submit(
                 llm, prereq_prompt, images=[], temperature=0.3, stream=False, max_tokens=1500,
-                system="You identify knowledge prerequisites and explain them with depth and intuition. Build mental models, not just definitions." + _DOUBT_SECTION_FMT,
+                system="You identify knowledge prerequisites and explain them with depth and intuition. Build mental models, not just definitions." + _DOUBT_SECTION_FMT + _NOT_APPLICABLE_INSTRUCTION,
             )
             apply_future = executor.submit(
                 llm, apply_prompt, images=[], temperature=0.4, stream=False, max_tokens=1500,
-                system="You create insightful practice exercises that reveal whether someone truly understands a concept or just memorized it. Design for 'aha moments'." + _DOUBT_SECTION_FMT,
+                system="You create insightful practice exercises that reveal whether someone truly understands a concept or just memorized it. Design for 'aha moments'." + _DOUBT_SECTION_FMT + _NOT_APPLICABLE_INSTRUCTION,
             )
 
             prereq_answer = prereq_future.result()
             apply_answer = apply_future.result()
 
         if not isinstance(prereq_answer, str) or not prereq_answer.strip():
+            return
+        if _is_not_applicable(prereq_answer):
             return
 
         root_id = add_doubt(
@@ -3895,7 +3916,7 @@ Assistant answer:
             users_dir=users_dir, logger=logger,
         )
 
-        if isinstance(apply_answer, str) and apply_answer.strip():
+        if isinstance(apply_answer, str) and apply_answer.strip() and not _is_not_applicable(apply_answer):
             add_doubt(
                 conversation_id=conversation_id, user_email=user_email,
                 message_id=message_id, doubt_text="Apply It",
@@ -3975,9 +3996,11 @@ Assistant response:
 """
         answers = llm(
             answer_prompt, images=[], temperature=0.3, stream=False, max_tokens=1500,
-            system="You answer thought-provoking questions thoroughly and clearly to help the user learn." + _DOUBT_SECTION_FMT,
+            system="You answer thought-provoking questions thoroughly and clearly to help the user learn." + _DOUBT_SECTION_FMT + _NOT_APPLICABLE_INSTRUCTION,
         )
         if not isinstance(answers, str) or not answers.strip():
+            return
+        if _is_not_applicable(answers):
             return
         if "no questions found" in answers.lower()[:100]:
             return

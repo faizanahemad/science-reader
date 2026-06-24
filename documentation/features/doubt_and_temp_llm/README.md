@@ -305,7 +305,9 @@ Messages that have existing doubts show a `<i class="bi bi-chat-left-text"></i>`
 
 ## Auto-Doubts System
 
-After every assistant message streams completely, up to 5 pre-emptive doubt threads are created automatically in parallel to maximize learning and understanding. Controlled by the **"Auto-doubts"** checkbox in Chat Settings → Basic Options (default: enabled).
+After every assistant message streams completely, up to 5 pre-emptive doubt threads are created automatically in parallel to maximize learning and understanding. Controlled by the **"Auto-doubts"** checkbox in Chat Settings → Basic Options (default: **disabled**).
+
+Each auto-doubt LLM call can respond with `<not_applicable>` if the conversation topic is completely unrelated to that doubt's analysis lens (e.g. software engineering expert personas on a cooking question). The system detects this sentinel and skips persisting that doubt thread entirely. See `_is_not_applicable()` in `endpoints/conversations.py`.
 
 ### Threads
 
@@ -345,8 +347,8 @@ Within each doubt function, sub-prompts also run in parallel:
 
 ### Configuration
 
-- **UI**: "Auto-doubts" checkbox in Basic Options (`#settings-auto_doubts_enabled`), default checked
-- **Backend key**: `checkboxes.auto_doubts_enabled` (default: `True`)
+- **UI**: "Auto-doubts" checkbox in Basic Options (`#settings-auto_doubts_enabled`), **default unchecked (disabled)**
+- **Backend key**: `checkboxes.auto_doubts_enabled` (default: `False`)
 - **Slash commands**: `/enable_auto_doubts` and `/disable_auto_doubts` for per-turn override
 - **Browser persistence**: localStorage via `chatSettingsState` — persists across sessions on same device (same mechanism as all Basic Options: persist, use_pkb, auto_pkb_extract, etc.)
 - **Cross-device**: Not synced (same limitation as all Basic Options — localStorage only)
