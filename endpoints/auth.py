@@ -238,8 +238,7 @@ def login():
 @limiter.limit("100 per minute")
 @login_required
 def logout():
-    session.pop("name", None)
-    session.pop("email", None)
+    session.clear()
     return render_template_string(
         """
             <h1>Logged out</h1>

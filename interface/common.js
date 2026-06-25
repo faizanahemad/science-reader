@@ -6960,6 +6960,11 @@ function clearSwCaches() {
         }
     } catch (_e) { /* best-effort */ }
 
+    // Clear localStorage and sessionStorage to avoid leaking user preferences
+    // (chat settings, sidebar state, auto-scroll pref, etc.) across sessions.
+    try { localStorage.clear(); } catch (_e) { /* best-effort */ }
+    try { sessionStorage.clear(); } catch (_e) { /* best-effort */ }
+
     return Promise.all(tasks)
         .then(function() { /* [DEBUG] console.log('[clearSwCaches] all caches cleared'); */ })
         .catch(function(err) { console.warn('[clearSwCaches] error:', err); });

@@ -20,6 +20,7 @@ from flask import (
     Response,
     current_app,
     jsonify,
+    make_response,
     redirect,
     send_from_directory,
     stream_with_context,
@@ -311,6 +312,20 @@ PWA_PUBLIC_PATHS = {
 }
 PWA_CACHE_MAX_AGE_SECONDS = 60 * 60 * 24 * 30  # 30d to reduce repeated browser fetches.
 
+# Static asset extensions that contain no user data and should return 403
+# (not 302 redirect) when accessed without authentication.  This prevents
+# cache poisoning of immutable hashed asset URLs.
+_STATIC_ASSET_EXTENSIONS = frozenset({
+    "js", "css", "svg", "png", "jpg", "jpeg", "gif", "ico",
+    "woff", "woff2", "ttf", "eot", "map",
+})
+
+
+def _is_static_asset(path: str) -> bool:
+    """Check if path is a static asset (not a conversation URL or HTML page)."""
+    ext = path.rsplit(".", 1)[-1].lower() if "." in path else ""
+    return ext in _STATIC_ASSET_EXTENSIONS
+
 
 @static_bp.route("/interface/<path:path>", strict_slashes=False)
 @limiter.limit("1000 per minute")
@@ -344,6 +359,13 @@ def interface_combined_route(path: str):
     email, _name, loggedin = get_session_identity()
 
     if not loggedin or email is None:
+        # For static assets, return 403 with no-store to prevent cache poisoning
+        # of immutable hashed URLs (a 302 redirect could be cached by the browser
+        # under the original ?h= URL, breaking subsequent loads).
+        if _is_static_asset(path):
+            resp = make_response("Forbidden", 403)
+            resp.headers["Cache-Control"] = "no-store"
+            return resp
         return redirect("/login", code=302)
 
     if not path:
