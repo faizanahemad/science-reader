@@ -63,14 +63,36 @@ const ContextMenuManager = {
      * Initialize the context menu manager
      * Sets up event listeners for contextmenu events, text selection, and click-outside handling
      * Works on main chat view AND modals (doubt modal, temp LLM modal)
+     *
+     * Mobile strategy (Fix 3):
+     *   On mobile, calling preventDefault() on the 'contextmenu' event breaks
+     *   Android's native text-selection handle lifecycle (handles jump, get
+     *   stuck, or disappear).  Instead we:
+     *     1. Let the native contextmenu event pass through untouched.
+     *     2. Listen for 'selectionchange' on the document — this fires once the
+     *        OS selection handles have settled.
+     *     3. After a short debounce (300 ms) we check whether there is a
+     *        meaningful selection inside one of our containers and show the
+     *        LLM menu positioned relative to the selection rectangle (Fix 1).
+     *   This means on mobile the native Android copy/paste toolbar AND our
+     *   custom LLM menu will both appear (ours below/above the selection).
      */
     init: function() {
         const self = this;
+        const isMobile = typeof window.isProbablyMobileDevice === 'function'
+            && window.isProbablyMobileDevice();
         
-        // Listen for contextmenu (right-click) events on chat view AND modals
+        // Listen for contextmenu (right-click) events on chat view AND modals.
+        // On mobile we intentionally do NOT preventDefault so the native
+        // text-selection flow is not disturbed.
         $(document).on('contextmenu', this.CONTEXT_MENU_SELECTORS, function(e) {
             // If feature disabled, allow browser default menu.
             if (!self.isFeatureEnabled()) {
+                return;
+            }
+            if (isMobile) {
+                // Let the native event proceed — our selectionchange listener
+                // (below) will show the LLM menu once the selection settles.
                 return;
             }
             e.preventDefault();
@@ -78,6 +100,18 @@ const ContextMenuManager = {
             self.handleContextMenu(e);
         });
         
+        // --- Mobile: show LLM menu after native selection settles -----------
+        if (isMobile) {
+            var selChangeTimer = null;
+            document.addEventListener('selectionchange', function() {
+                if (!self.isFeatureEnabled()) return;
+                if (selChangeTimer) clearTimeout(selChangeTimer);
+                selChangeTimer = setTimeout(function() {
+                    self._handleMobileSelectionChange();
+                }, 300);
+            });
+        }
+
         // Listen for text selection completion (mouseup after selection) on chat view AND modals
         $(document).on('mouseup', this.CONTEXT_MENU_SELECTORS, function(e) {
             // If feature disabled, do nothing (keep default selection behavior).
@@ -167,6 +201,63 @@ const ContextMenuManager = {
         // Update menu visibility and show at selection end position
         this.updateMenuVisibility();
         this.showMenu(e.pageX, e.pageY);
+    },
+    
+    /**
+     * Handle mobile text selection changes (called from the selectionchange
+     * listener after a debounce).
+     *
+     * Checks whether the current selection falls inside one of our managed
+     * containers.  If so, populates the context-menu state and shows the
+     * menu positioned relative to the selection rectangle (via showMenu,
+     * which already implements selection-aware positioning for mobile).
+     *
+     * If the selection is empty or outside our containers, the menu is hidden.
+     */
+    _handleMobileSelectionChange: function() {
+        if (!this.isFeatureEnabled()) return;
+
+        var sel = window.getSelection();
+        var text = sel ? sel.toString().trim() : '';
+
+        // If selection cleared or too short, hide menu
+        if (text.length < 3) {
+            this.hideMenu();
+            return;
+        }
+
+        // Make sure the selection anchor is inside one of our containers
+        var anchorNode = sel.anchorNode;
+        if (!anchorNode) { this.hideMenu(); return; }
+        var $anchor = $(anchorNode.nodeType === 3 ? anchorNode.parentNode : anchorNode);
+        var selectors = this.CONTEXT_MENU_SELECTORS; // e.g. '#chatView, #doubt-chat-messages, #temp-llm-messages'
+        if ($anchor.closest(selectors).length === 0) {
+            // Selection is outside our managed areas — ignore
+            return;
+        }
+
+        // Avoid re-showing for the exact same selection
+        var currentRange = sel.rangeCount > 0 ? sel.getRangeAt(0) : null;
+        if (currentRange && this.lastSelectionRange) {
+            if (currentRange.toString() === this.lastSelectionRange.toString() && this.isMenuVisible) {
+                return;
+            }
+        }
+        this.lastSelectionRange = currentRange ? currentRange.cloneRange() : null;
+
+        // Populate context-menu state
+        var contextTarget = anchorNode.nodeType === 3 ? anchorNode.parentNode : anchorNode;
+        var messageContext = this.getMessageContext(contextTarget);
+        this.currentSelection   = text;
+        this.currentMessageId   = messageContext.messageId;
+        this.currentMessageText = messageContext.messageText;
+        this.currentConversationId = (typeof ConversationManager !== 'undefined')
+            ? ConversationManager.activeConversationId
+            : null;
+
+        this.updateMenuVisibility();
+        // x/y are ignored on mobile when a selection rect exists (Fix 1)
+        this.showMenu(0, 0);
     },
     
     /**
@@ -260,10 +351,16 @@ const ContextMenuManager = {
     },
     
     /**
-     * Show the context menu at the specified position
+     * Show the context menu at the specified position.
+     *
+     * On mobile, if there is an active text selection, the menu is positioned
+     * relative to the selection bounding box (below it, or above if there is
+     * no room below) so it never obscures the selected text or the Android
+     * selection handles.  On desktop the original cursor-position behaviour
+     * is preserved.
      * 
-     * @param {number} x - X coordinate (pageX)
-     * @param {number} y - Y coordinate (pageY)
+     * @param {number} x - X coordinate (pageX), used as fallback / desktop
+     * @param {number} y - Y coordinate (pageY), used as fallback / desktop
      */
     showMenu: function(x, y) {
         if (!this.isFeatureEnabled()) {
@@ -271,26 +368,68 @@ const ContextMenuManager = {
             return;
         }
         const $menu = $('#llm-context-menu');
-        
-        // Position the menu
-        // Adjust position if menu would go off-screen
-        const menuWidth = 220; // Approximate menu width
+        const menuWidth = 220;  // Approximate menu width
         const menuHeight = 350; // Approximate max menu height
         const windowWidth = $(window).width();
         const windowHeight = $(window).height();
         const scrollTop = $(window).scrollTop();
         const scrollLeft = $(window).scrollLeft();
-        
+        const isMobile = typeof window.isProbablyMobileDevice === 'function'
+            && window.isProbablyMobileDevice();
+
+        // On mobile, try to position relative to the selection rectangle so
+        // the menu never covers the selected text or the OS selection handles.
+        if (isMobile) {
+            var selRect = null;
+            try {
+                var sel = window.getSelection();
+                if (sel && sel.rangeCount > 0) {
+                    selRect = sel.getRangeAt(0).getBoundingClientRect();
+                    // Ignore degenerate (collapsed) rects
+                    if (selRect && selRect.width === 0 && selRect.height === 0) {
+                        selRect = null;
+                    }
+                }
+            } catch (_e) { /* ignore */ }
+
+            if (selRect) {
+                // selRect is viewport-relative; convert to page-relative
+                var selTop    = selRect.top + scrollTop;
+                var selBottom = selRect.bottom + scrollTop;
+                var selLeft   = selRect.left + scrollLeft;
+                var selRight  = selRect.right + scrollLeft;
+                var selCenterX = (selLeft + selRight) / 2;
+
+                // Preferred: below the selection with a small gap
+                var gap = 8;
+                var posY = selBottom + gap;
+                // If that would push the menu off the bottom, place it above
+                if (posY + menuHeight > windowHeight + scrollTop) {
+                    posY = selTop - menuHeight - gap;
+                }
+                // Centre horizontally on the selection
+                var posX = selCenterX - menuWidth / 2;
+
+                // Clamp to viewport edges
+                posX = Math.max(10, Math.min(posX, windowWidth + scrollLeft - menuWidth - 10));
+                posY = Math.max(10, posY);
+
+                $menu.css({ left: posX + 'px', top: posY + 'px', display: 'block' });
+                this.isMenuVisible = true;
+                return;
+            }
+            // Fall through to default positioning if no selection rect
+        }
+
+        // --- Default (desktop) positioning: at cursor coordinates ---
         // Adjust X if menu would go off right edge
         if (x + menuWidth > windowWidth + scrollLeft) {
             x = windowWidth + scrollLeft - menuWidth - 10;
         }
-        
         // Adjust Y if menu would go off bottom edge
         if (y + menuHeight > windowHeight + scrollTop) {
             y = windowHeight + scrollTop - menuHeight - 10;
         }
-        
         // Ensure menu doesn't go off left or top edge
         x = Math.max(10, x);
         y = Math.max(10, y);

@@ -5563,9 +5563,17 @@ var MultiSelectManager = {
         var _longPressTimer = null;
         var _longPressTriggered = false;
 
-        // Mobile long-press to initiate multi-select
+        // Mobile long-press to initiate multi-select.
+        // When the LLM custom context menu is enabled, skip this handler so that
+        // the 500 ms timer does not race with (and pre-empt) the native Android
+        // text selection gesture which needs ~600-800 ms to activate.
         $(document).on('touchstart', '.message-card', function (e) {
             if ($(e.target).closest('.btn, .dropdown, .dropdown-menu, .dropdown-item, input[type="checkbox"], a, [data-toggle]').length > 0) return;
+            // If the LLM context menu feature is active, let the OS handle
+            // long-press for text selection instead of toggling multi-select.
+            if (typeof ContextMenuManager !== 'undefined' && ContextMenuManager.isFeatureEnabled()) {
+                return;
+            }
             var card = $(this);
             _longPressTriggered = false;
             _longPressTimer = setTimeout(function () {
