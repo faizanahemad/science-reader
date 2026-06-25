@@ -2222,26 +2222,29 @@
     <!-- LLM Context Menu -->
     <div id="llm-context-menu" class="llm-context-menu" style="display: none;">
         <ul class="list-unstyled mb-0">
-            <!-- Selection-required items (hidden when no selection) -->
+            <!-- Primary items (always visible) -->
             <li class="context-menu-item selection-required"><a href="#" data-action="explain"><i class="bi bi-lightbulb"></i> Explain this</a></li>
             <li class="context-menu-item selection-required"><a href="#" data-action="critique"><i class="bi bi-search"></i> Critique this</a></li>
-            <li class="context-menu-item selection-required"><a href="#" data-action="expand"><i class="bi bi-arrows-expand"></i> Expand this</a></li>
-            <li class="context-menu-item selection-required"><a href="#" data-action="eli5"><i class="bi bi-emoji-smile"></i> ELI5</a></li>
-            <li class="context-menu-item"><a href="#" data-action="explain_visual"><i class="bi bi-diagram-3"></i> Explain Visually</a></li>
             <li class="divider selection-required"></li>
             <!-- Always visible items -->
             <li class="context-menu-item"><a href="#" data-action="ask-doubt"><i class="bi bi-question-circle"></i> Ask a Doubt</a></li>
-            <li class="context-menu-item"><a href="#" data-action="ask-doubt-ctx"><i class="bi bi-question-circle-fill"></i> Ask a Doubt [with Ctx]</a></li>
-            <li class="context-menu-item"><a href="#" data-action="continue-doubt-in-chat"><i class="bi bi-box-arrow-up-right"></i> Continue doubt in main chat</a></li>
             <li class="context-menu-item"><a href="#" data-action="ask-temp"><i class="bi bi-chat-dots"></i> Ask Temporarily</a></li>
-            <li class="context-menu-item"><a href="#" data-action="ask-temp-ctx"><i class="bi bi-chat-dots-fill"></i> Ask Temporarily [with Ctx]</a></li>
-            <li class="context-menu-item"><a href="#" data-action="artefacts"><i class="bi bi-files"></i> Artefacts</a></li>
             <li class="divider"></li>
-            <!-- Browser actions -->
             <li class="context-menu-item selection-required"><a href="#" data-action="search-google"><i class="bi bi-google"></i> Search Google</a></li>
-            <li class="context-menu-item"><a href="#" data-action="lookup"><i class="bi bi-book"></i> Lookup</a></li>
             <li class="context-menu-item"><a href="#" data-action="copy-text"><i class="bi bi-clipboard"></i> Copy text</a></li>
-            <li class="context-menu-item"><a href="#" data-action="copy-link"><i class="bi bi-link-45deg"></i> Copy link</a></li>
+            <!-- "More..." toggle (hidden on desktop via JS) -->
+            <li class="divider ctx-more-toggle" style="display:none;"></li>
+            <li class="context-menu-item ctx-more-toggle" style="display:none;"><a href="#" data-action="ctx-toggle-more"><i class="bi bi-three-dots"></i> More...</a></li>
+            <!-- Collapsible items (hidden on mobile until "More..." tapped) -->
+            <li class="context-menu-item selection-required ctx-more-item"><a href="#" data-action="expand"><i class="bi bi-arrows-expand"></i> Expand this</a></li>
+            <li class="context-menu-item selection-required ctx-more-item"><a href="#" data-action="eli5"><i class="bi bi-emoji-smile"></i> ELI5</a></li>
+            <li class="context-menu-item ctx-more-item"><a href="#" data-action="explain_visual"><i class="bi bi-diagram-3"></i> Explain Visually</a></li>
+            <li class="context-menu-item ctx-more-item"><a href="#" data-action="ask-doubt-ctx"><i class="bi bi-question-circle-fill"></i> Ask a Doubt [with Ctx]</a></li>
+            <li class="context-menu-item ctx-more-item"><a href="#" data-action="continue-doubt-in-chat"><i class="bi bi-box-arrow-up-right"></i> Continue doubt in main chat</a></li>
+            <li class="context-menu-item ctx-more-item"><a href="#" data-action="ask-temp-ctx"><i class="bi bi-chat-dots-fill"></i> Ask Temporarily [with Ctx]</a></li>
+            <li class="context-menu-item ctx-more-item"><a href="#" data-action="artefacts"><i class="bi bi-files"></i> Artefacts</a></li>
+            <li class="context-menu-item ctx-more-item"><a href="#" data-action="lookup"><i class="bi bi-book"></i> Lookup</a></li>
+            <li class="context-menu-item ctx-more-item"><a href="#" data-action="copy-link"><i class="bi bi-link-45deg"></i> Copy link</a></li>
         </ul>
     </div>
 
@@ -5715,6 +5718,29 @@ greet("World");</code></pre>
         
         .audio-player-container .audio-container audio {
             max-width: 200px;
+        }
+        
+        /* Mobile-compact LLM context menu */
+        .llm-context-menu {
+            max-height: 60vh;
+            font-size: 0.78rem;
+            min-width: 170px;
+            padding: 4px 0;
+        }
+        .llm-context-menu .context-menu-item a {
+            padding: 5px 12px;
+        }
+        .llm-context-menu .context-menu-item a i {
+            margin-right: 6px;
+        }
+        .llm-context-menu .divider {
+            margin: 3px 0;
+        }
+        /* "More..." toggle row */
+        .llm-context-menu .ctx-more-toggle a {
+            color: #6c757d;
+            font-style: italic;
+            font-size: 0.75rem;
         }
         
         /* Global inline code styling for proper text wrapping and appearance */

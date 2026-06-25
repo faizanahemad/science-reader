@@ -64,18 +64,13 @@ const ContextMenuManager = {
      * Sets up event listeners for contextmenu events, text selection, and click-outside handling
      * Works on main chat view AND modals (doubt modal, temp LLM modal)
      *
-     * Mobile strategy (Fix 3):
-     *   On mobile, calling preventDefault() on the 'contextmenu' event breaks
-     *   Android's native text-selection handle lifecycle (handles jump, get
-     *   stuck, or disappear).  Instead we:
-     *     1. Let the native contextmenu event pass through untouched.
-     *     2. Listen for 'selectionchange' on the document — this fires once the
-     *        OS selection handles have settled.
-     *     3. After a short debounce (300 ms) we check whether there is a
-     *        meaningful selection inside one of our containers and show the
-     *        LLM menu positioned relative to the selection rectangle (Fix 1).
-     *   This means on mobile the native Android copy/paste toolbar AND our
-     *   custom LLM menu will both appear (ours below/above the selection).
+     * Mobile strategy:
+     *   On mobile, we suppress the native context menu (copy/paste toolbar) by
+     *   calling preventDefault() on the 'contextmenu' event inside our managed
+     *   containers.  We then show our LLM menu via the 'selectionchange'
+     *   listener once the OS selection handles settle (300 ms debounce).
+     *   The selectionchange approach preserves native text-selection handle
+     *   behaviour while giving us full control of the menu.
      */
     init: function() {
         const self = this;
@@ -83,16 +78,16 @@ const ContextMenuManager = {
             && window.isProbablyMobileDevice();
         
         // Listen for contextmenu (right-click) events on chat view AND modals.
-        // On mobile we intentionally do NOT preventDefault so the native
-        // text-selection flow is not disturbed.
         $(document).on('contextmenu', this.CONTEXT_MENU_SELECTORS, function(e) {
             // If feature disabled, allow browser default menu.
             if (!self.isFeatureEnabled()) {
                 return;
             }
             if (isMobile) {
-                // Let the native event proceed — our selectionchange listener
-                // (below) will show the LLM menu once the selection settles.
+                // Suppress native Android copy/paste toolbar so only our
+                // menu appears.  The selectionchange listener below will
+                // show the LLM menu once the selection settles.
+                e.preventDefault();
                 return;
             }
             e.preventDefault();
@@ -368,17 +363,30 @@ const ContextMenuManager = {
             return;
         }
         const $menu = $('#llm-context-menu');
-        const menuWidth = 220;  // Approximate menu width
-        const menuHeight = 350; // Approximate max menu height
-        const windowWidth = $(window).width();
-        const windowHeight = $(window).height();
-        const scrollTop = $(window).scrollTop();
-        const scrollLeft = $(window).scrollLeft();
         const isMobile = typeof window.isProbablyMobileDevice === 'function'
             && window.isProbablyMobileDevice();
 
-        // On mobile, try to position relative to the selection rectangle so
-        // the menu never covers the selected text or the OS selection handles.
+        // On mobile: show "More..." toggle, hide collapsible items initially.
+        // On desktop: hide "More..." toggle, show all items directly.
+        if (isMobile) {
+            $menu.find('.ctx-more-toggle').show();
+            $menu.find('.ctx-more-item').hide();
+            this._moreExpanded = false;
+        } else {
+            $menu.find('.ctx-more-toggle').hide();
+            $menu.find('.ctx-more-item').show();
+        }
+
+        // Show the menu off-screen first so we can measure its actual height
+        $menu.css({ left: '-9999px', top: '-9999px', display: 'block' });
+        var menuWidth  = $menu.outerWidth();
+        var menuHeight = $menu.outerHeight();
+
+        // Viewport dimensions (position: fixed uses viewport coords)
+        var vpW = window.innerWidth;
+        var vpH = window.innerHeight;
+
+        // On mobile, position relative to the selection rectangle
         if (isMobile) {
             var selRect = null;
             try {
@@ -393,28 +401,22 @@ const ContextMenuManager = {
             } catch (_e) { /* ignore */ }
 
             if (selRect) {
-                // selRect is viewport-relative; convert to page-relative
-                var selTop    = selRect.top + scrollTop;
-                var selBottom = selRect.bottom + scrollTop;
-                var selLeft   = selRect.left + scrollLeft;
-                var selRight  = selRect.right + scrollLeft;
-                var selCenterX = (selLeft + selRight) / 2;
-
-                // Preferred: below the selection with a small gap
+                // selRect is already viewport-relative (perfect for position:fixed)
                 var gap = 8;
-                var posY = selBottom + gap;
-                // If that would push the menu off the bottom, place it above
-                if (posY + menuHeight > windowHeight + scrollTop) {
-                    posY = selTop - menuHeight - gap;
+                var posY = selRect.bottom + gap;
+                // If menu would go off the bottom, place it above the selection
+                if (posY + menuHeight > vpH - 8) {
+                    posY = selRect.top - menuHeight - gap;
                 }
                 // Centre horizontally on the selection
+                var selCenterX = (selRect.left + selRect.right) / 2;
                 var posX = selCenterX - menuWidth / 2;
 
                 // Clamp to viewport edges
-                posX = Math.max(10, Math.min(posX, windowWidth + scrollLeft - menuWidth - 10));
-                posY = Math.max(10, posY);
+                posX = Math.max(8, Math.min(posX, vpW - menuWidth - 8));
+                posY = Math.max(8, posY);
 
-                $menu.css({ left: posX + 'px', top: posY + 'px', display: 'block' });
+                $menu.css({ left: posX + 'px', top: posY + 'px' });
                 this.isMenuVisible = true;
                 return;
             }
@@ -422,24 +424,19 @@ const ContextMenuManager = {
         }
 
         // --- Default (desktop) positioning: at cursor coordinates ---
-        // Adjust X if menu would go off right edge
-        if (x + menuWidth > windowWidth + scrollLeft) {
-            x = windowWidth + scrollLeft - menuWidth - 10;
-        }
-        // Adjust Y if menu would go off bottom edge
-        if (y + menuHeight > windowHeight + scrollTop) {
-            y = windowHeight + scrollTop - menuHeight - 10;
-        }
-        // Ensure menu doesn't go off left or top edge
-        x = Math.max(10, x);
-        y = Math.max(10, y);
+        // Convert page coords to viewport coords for position:fixed
+        var scrollTop = $(window).scrollTop();
+        var scrollLeft = $(window).scrollLeft();
+        var posX = x - scrollLeft;
+        var posY = y - scrollTop;
+
+        // Adjust if menu would go off edges
+        if (posX + menuWidth > vpW - 10) posX = vpW - menuWidth - 10;
+        if (posY + menuHeight > vpH - 10) posY = vpH - menuHeight - 10;
+        posX = Math.max(10, posX);
+        posY = Math.max(10, posY);
         
-        $menu.css({
-            left: x + 'px',
-            top: y + 'px',
-            display: 'block'
-        });
-        
+        $menu.css({ left: posX + 'px', top: posY + 'px' });
         this.isMenuVisible = true;
     },
     
@@ -447,7 +444,15 @@ const ContextMenuManager = {
      * Hide the context menu
      */
     hideMenu: function() {
-        $('#llm-context-menu').hide();
+        var $menu = $('#llm-context-menu');
+        $menu.hide();
+        // Collapse "More..." section so it's closed next time
+        $menu.find('.ctx-more-item').hide();
+        $menu.find('.ctx-more-toggle a[data-action="ctx-toggle-more"] i')
+            .removeClass('bi-chevron-up').addClass('bi-three-dots');
+        $menu.find('.ctx-more-toggle a[data-action="ctx-toggle-more"]').contents().last()
+            .replaceWith(' More...');
+        this._moreExpanded = false;
         this.isMenuVisible = false;
     },
     
@@ -461,9 +466,74 @@ const ContextMenuManager = {
         $(document).on('click', '#llm-context-menu .context-menu-item a', function(e) {
             e.preventDefault();
             const action = $(this).data('action');
+            if (action === 'ctx-toggle-more') {
+                // Toggle the "More..." section
+                self._toggleMoreSection();
+                return; // Don't hide the menu
+            }
             self.handleAction(action);
             self.hideMenu();
         });
+    },
+    
+    /**
+     * Toggle the "More..." collapsed section in the context menu.
+     * On expand, also repositions the menu so it stays within the viewport.
+     */
+    _toggleMoreSection: function() {
+        var $menu = $('#llm-context-menu');
+        var $moreItems = $menu.find('.ctx-more-item');
+        var $toggleLink = $menu.find('.ctx-more-toggle a[data-action="ctx-toggle-more"]');
+        
+        if (this._moreExpanded) {
+            // Collapse: hide extra items, update label
+            $moreItems.hide();
+            // Also re-apply selection-required visibility
+            $toggleLink.find('i').removeClass('bi-chevron-up').addClass('bi-three-dots');
+            $toggleLink.contents().last().replaceWith(' More...');
+            this._moreExpanded = false;
+        } else {
+            // Expand: show extra items (respect selection-required)
+            var hasSelection = this.currentSelection && this.currentSelection.length > 0;
+            $moreItems.each(function() {
+                var $item = $(this);
+                if ($item.hasClass('selection-required') && !hasSelection) {
+                    $item.hide();
+                } else {
+                    $item.show();
+                }
+            });
+            $toggleLink.find('i').removeClass('bi-three-dots').addClass('bi-chevron-up');
+            $toggleLink.contents().last().replaceWith(' Less');
+            this._moreExpanded = true;
+        }
+        // Reposition to keep menu in viewport after size change
+        this._repositionMenuInViewport();
+    },
+    
+    /**
+     * Reposition the already-visible menu so it fits within the viewport.
+     * Called after the "More..." section is expanded/collapsed.
+     */
+    _repositionMenuInViewport: function() {
+        var $menu = $('#llm-context-menu');
+        if (!$menu.is(':visible')) return;
+        
+        var menuH = $menu.outerHeight();
+        var menuW = $menu.outerWidth();
+        var vpW = window.innerWidth;
+        var vpH = window.innerHeight;
+        
+        var curLeft = parseFloat($menu.css('left')) || 0;
+        var curTop  = parseFloat($menu.css('top'))  || 0;
+        
+        // Clamp to viewport (position:fixed uses viewport coords)
+        if (curLeft + menuW > vpW - 8) curLeft = vpW - menuW - 8;
+        if (curTop + menuH > vpH - 8) curTop = vpH - menuH - 8;
+        if (curLeft < 8) curLeft = 8;
+        if (curTop < 8)  curTop = 8;
+        
+        $menu.css({ left: curLeft + 'px', top: curTop + 'px' });
     },
     
     /**
