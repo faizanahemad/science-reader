@@ -2503,7 +2503,6 @@ window.addScrollToTopButton = function(cardElem, buttonText, buttonClass) {
     el.appendChild(btn);
     return btn;
 };
-}
 
 // ============================================
 // Delegated event handlers for snapshot-restored DOM
