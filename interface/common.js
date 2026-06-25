@@ -1787,32 +1787,23 @@ function showMore(parentElem, text = null, textElem = null, as_html = false, sho
         // Append a clone of [show] inside .more-text (appears as [hide] at bottom of expanded content).
         moreText.append(smClick.clone());
 
-        // --- Tabs + ToC: eager for expanded, DEFERRED for collapsed messages ---
-        // For show_at_start=true (expanded): run tabs+ToC now (same cost as before, but no
-        //   serialize/parse overhead). These are needed immediately because content is visible.
+        // --- Tabs + ToC: DEFERRED for collapsed messages, SKIPPED for expanded ---
         // For show_at_start=false (collapsed, the majority on history load): DEFER tabs+ToC
         //   to the first [show] click. The content is display:none, so the tab UI and ToC
         //   are invisible anyway. The delegated toggle handler at common.js:2507 already
         //   calls applyModelResponseTabs + updateMessageTocForElement on expand.
         //   Savings: ~15 messages x (tabs + ToC) deferred = 0.5-1s additional.
-        if (show_at_start) {
-            // Eager path: content will be visible immediately.
-            try {
-                if (typeof applyModelResponseTabs === 'function') {
-                    applyModelResponseTabs(moreText);
-                }
-            } catch (e) { /* ignore */ }
-            try {
-                if (typeof updateMessageTocForElement === 'function') {
-                    // Pass empty string for rawMarkdown — updateMessageTocForElement
-                    // reads word count from the live DOM ($cardBody.text()) and only
-                    // uses rawMarkdown as a fallback.  Calling moreText.html() here
-                    // would serialize the entire card HTML (10-100KB), costing 5-50ms
-                    // per expanded card, for a fallback path that never triggers.
-                    updateMessageTocForElement(moreText, '', false);
-                }
-            } catch (e) { /* ignore */ }
-        }
+        // For show_at_start=true (expanded): tabs+ToC were already applied by
+        //   renderInnerContentAsMarkdown BEFORE immediate_callback (which calls us).
+        //   applyModelResponseTabs scopes to .chat-card-body (parent of textElem),
+        //   so the tab container is unaffected by wrapAll reparenting.  Re-applying
+        //   here would double the work: 62 cards × 28ms tabs + 109 × 9ms ToC.
+        //   The streaming-done path also calls renderInnerContentAsMarkdown first,
+        //   so this is safe for all callers.
+        //
+        // NOTE: if showMore is ever called WITHOUT a prior renderInnerContentAsMarkdown
+        //   for show_at_start=true, tabs+ToC would need to be applied here. Currently
+        //   no such call site exists.
         // else: collapsed — tabs+ToC deferred to first expand (delegated handler covers it).
 
         // RELEASE HEIGHT LOCK.
