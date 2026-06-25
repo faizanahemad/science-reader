@@ -584,6 +584,13 @@ bi bi-trash-fill {
        deferred MathJax/button rendering */
     margin-bottom: 0.75rem !important;
     margin-top: 0.25rem !important;
+    /* Skip layout/paint for off-screen cards — the browser uses the intrinsic-size
+       placeholder until a card scrolls into the viewport, then renders it fully.
+       This makes each inter-chunk layout pass O(visible cards) instead of O(all cards).
+       contain-intrinsic-size: auto 150px — 'auto' remembers the real height once
+       measured; 150px is the initial estimate before first render. */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 150px;
 }
 
 .message-card .card-body {
@@ -595,6 +602,10 @@ bi bi-trash-fill {
 /* Ensure slide containers don't get clipped */
 .message-card.has-slides {
     min-height: 600px;
+    /* Slides overflow their card — disable content-visibility containment
+       which would clip the overflowing presentation content. */
+    content-visibility: visible;
+    contain-intrinsic-size: none;
 }
 
 .message-card.has-slides .card-body {

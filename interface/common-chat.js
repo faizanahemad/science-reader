@@ -2838,7 +2838,9 @@ var ChatManager = {
                     // yields and the browser paints the card.
                     (function(_ce, _mt, _mid, _adid) {
                         setTimeout(function() {
+                            var _vbT = _perfStart('deferredVoteBank');
                             initialiseVoteBank(_ce, _mt, contentId = _mid, activeDocId = _adid, disable_voting = true);
+                            _perfEnd('deferredVoteBank', _vbT);
                         }, 0);
                     })(cardElem, message.text, message.message_id, ConversationManager.activeConversationId);
                 }
@@ -2847,7 +2849,9 @@ var ChatManager = {
                     msgElements = [$(cardElem)];
                     (function(_ce, _mt, _mid, _adid, _iv) {
                         setTimeout(function() {
+                            var _vbT = _perfStart('deferredVoteBank');
                             initialiseVoteBank(_ce, _mt, contentId = _mid, activeDocId = _adid, disable_voting = !_iv);
+                            _perfEnd('deferredVoteBank', _vbT);
                         }, 0);
                     })(cardElem, message.text, message.message_id, ConversationManager.activeConversationId, initialize_voting);
                 }
@@ -2896,7 +2900,9 @@ var ChatManager = {
                                 // header collapse sync, ToC visibility).
                                 if (typeof window.decorateMessageCardNav === 'function') {
                                     setTimeout(function() {
+                                        var _dnT = _perfStart('deferredDecorateNav');
                                         window.decorateMessageCardNav(_currentMessageElement, _showHide);
+                                        _perfEnd('deferredDecorateNav', _dnT);
                                     }, 0);
                                 }
                             }
@@ -3010,74 +3016,76 @@ var ChatManager = {
         }
 
         // ================================================================
-        // ASYNC CHUNKED RENDERING PATH
+        // HYBRID TWO-PHASE RENDERING PATH
         // ================================================================
         // When loading a full conversation (shouldClearChatView=true) with many
-        // messages, rendering all cards synchronously blocks the main thread for
-        // seconds (8-12s for 40+ messages).  Instead, we process messages in
-        // small chunks of CHUNK_SIZE, yielding to the browser between chunks via
-        // setTimeout(0).  This lets the browser paint each chunk as it arrives,
-        // so the user sees the first ~5 messages in <500ms instead of waiting
-        // for the entire batch.
+        // messages, we use a two-phase hybrid approach:
+        //
+        // Phase 1: Build and insert the first IMMEDIATE_COUNT (4) cards into the
+        //   live DOM synchronously.  The user sees readable content in <250ms.
+        //
+        // Phase 2: Yield once (setTimeout(0)) so the browser paints those 4 cards.
+        //   Then build ALL remaining cards off-DOM in a DocumentFragment — this is
+        //   pure JS work with zero layout passes since the fragment is detached.
+        //   Finally, append the fragment in a single shot → one layout pass.
+        //
+        // This replaces the previous multi-chunk approach (7 yields × 625ms layout
+        // gap each = 4.4s wasted on inter-chunk layout).  The hybrid path eliminates
+        // all inter-chunk gaps, paying only one ~600ms layout pass at the end.
+        //
+        // With content-visibility: auto on .message-card, even that final layout
+        // pass is cheap — the browser skips layout for off-screen cards.
         //
         // The synchronous path is preserved unchanged for:
-        // - Small batches (<=CHUNK_SIZE messages) — no benefit from chunking
+        // - Small batches (<=IMMEDIATE_COUNT messages)
         // - Incremental appends (shouldClearChatView=false) — streaming, sendMessage
         // - renderCloseToSource positional inserts — need live-DOM per card
-        // Render the first card immediately (CHUNK_SIZE_FIRST=1) so the user sees
-        // content in <100ms.  Subsequent chunks use a moderate batch size to balance
-        // yield overhead vs layout-recalc cost.  Too large (16) causes massive reflows
-        // per batch; too small (1) causes 111 yields × ~1.5s layout thrashing.
-        // 4 cards per batch → ~28 yields, each batch layout-recalc is manageable.
-        var CHUNK_SIZE_FIRST = 1;
-        var CHUNK_SIZE_REST = 4;
+        var IMMEDIATE_COUNT = 4;
         var usePositionalInsert = (renderCloseToSource && history_message_ids.length > 0);
-        var useChunkedPath = (shouldClearChatView && messages.length > CHUNK_SIZE_FIRST && !usePositionalInsert);
+        var useChunkedPath = (shouldClearChatView && messages.length > IMMEDIATE_COUNT && !usePositionalInsert);
 
         if (useChunkedPath) {
-            // ---- Async chunked path ----
+            // ---- Hybrid two-phase path ----
             var renderToken = ++_renderGeneration;
             var chatViewEl = $('#chatView')[0];
             var totalCount = messages.length;
 
-            // Pre-build the last message's card so we can return it synchronously
-            // (API compat — though no current caller of the full-render path uses
-            // the return value, defensive is better).
-            messageElement = null;  // will be set during chunk processing
+            messageElement = null;  // will be set during card processing
 
-            function _renderChunk(startIdx) {
-                // Cancellation: if the user switched conversations or streaming
-                // started a new render, abandon this stale render silently.
+            // Phase 1: Build and insert first IMMEDIATE_COUNT cards synchronously
+            var _phase1T = _perfStart('renderPhase1_immediate');
+            var firstFragment = document.createDocumentFragment();
+            for (var i = 0; i < IMMEDIATE_COUNT && i < totalCount; i++) {
+                var card = _buildMessageCard(messages[i], i, totalCount);
+                firstFragment.appendChild(card[0]);
+                messageElement = card;
+            }
+            chatViewEl.appendChild(firstFragment);
+            _perfEnd('renderPhase1_immediate', _phase1T);
+
+            // Phase 2: Yield once to paint the first cards, then build the rest off-DOM
+            setTimeout(function() {
                 if (_renderGeneration !== renderToken) return;
 
-                var _chunkT = _perfStart('renderChunk#' + startIdx);
-                // First chunk is small (1 card) for instant paint;
-                // subsequent chunks are batched (16 cards) to reduce layout thrashing.
-                var chunkSize = (startIdx === 0) ? CHUNK_SIZE_FIRST : CHUNK_SIZE_REST;
-                var end = Math.min(startIdx + chunkSize, totalCount);
-                var fragment = document.createDocumentFragment();
-
-                for (var i = startIdx; i < end; i++) {
-                    var card = _buildMessageCard(messages[i], i, totalCount);
-                    fragment.appendChild(card[0]);
-                    messageElement = card;  // track last card
+                var _phase2T = _perfStart('renderPhase2_offDOM');
+                var bulkFragment = document.createDocumentFragment();
+                for (var j = IMMEDIATE_COUNT; j < totalCount; j++) {
+                    if (_renderGeneration !== renderToken) return;  // cancellation check
+                    var card = _buildMessageCard(messages[j], j, totalCount);
+                    bulkFragment.appendChild(card[0]);
+                    messageElement = card;
                 }
+                _perfEnd('renderPhase2_offDOM', _phase2T);
 
-                // Flush this chunk into the live DOM — triggers one layout recalc
-                chatViewEl.appendChild(fragment);
-                _perfEnd('renderChunk#' + startIdx, _chunkT);
+                // Phase 3: Single DOM append — one layout pass
+                var _appendT = _perfStart('renderPhase3_append');
+                chatViewEl.appendChild(bulkFragment);
+                _perfEnd('renderPhase3_append', _appendT);
 
-                if (end < totalCount) {
-                    // Yield to browser (paint, handle events) then render next chunk
-                    setTimeout(function() { _renderChunk(end); }, 0);
-                } else {
-                    // All chunks done — run post-render work
-                    _runPostRenderWork();
-                }
-            }
+                // All cards are in DOM — run post-render work
+                _runPostRenderWork();
+            }, 0);
 
-            // Kick off the first chunk synchronously (appears instant)
-            _renderChunk(0);
             return messageElement;
         }
 
