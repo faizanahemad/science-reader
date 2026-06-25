@@ -1015,6 +1015,36 @@ table, tr, thead, th, td {
         margin-top: 0.1rem !important;
     }
 
+    /* ---- Compact chat-controls on mobile ---- */
+    #chat-controls .row.mb-1 {
+        margin-bottom: 0.15rem !important;
+    }
+
+    #chat-controls .input-group-text {
+        padding: 0.15rem 0.35rem;
+        font-size: 0.8rem;
+    }
+
+    #chat-controls .dynamic-textarea {
+        font-size: 0.85rem;
+        height: 30px !important;
+        min-height: 26px;
+        padding: 2px 6px !important;
+    }
+
+    #chat-controls .btn {
+        padding: 0.2rem 0.5rem;
+        font-size: 0.8rem;
+    }
+
+    #chat-controls .chat-input-group {
+        width: calc(100% - 70px) !important;
+    }
+
+    #chat-controls .input-group-append {
+        margin-left: 3px !important;
+    }
+
 }
 
 /* Narrow-but-not-mobile: sidebar extension, iframe, desktop narrow window.
