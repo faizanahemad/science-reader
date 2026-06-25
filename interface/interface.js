@@ -229,6 +229,7 @@ function interface_readiness() {
     $('#gear-aside-chat').on('click', function(e) { e.preventDefault(); openAsideChatModal($('#messageText').val().trim()); });
     $('#gear-get-chat-transcript').on('click', function(e) { e.preventDefault(); $('#get-chat-transcript').trigger('click'); });
     $('#gear-share-chat').on('click', function(e) { e.preventDefault(); $('#share-chat').trigger('click'); });
+    $('#gear-starred-messages').on('click', function(e) { e.preventDefault(); $('#starred-messages-btn').trigger('click'); });
     $('#gear-conversation-docs').on('click', function(e) { e.preventDefault(); $('#conversation-docs-button').trigger('click'); });
     $('#gear-global-docs').on('click', function(e) { e.preventDefault(); $('#global-docs-button').trigger('click'); });
     $('#gear-logout').on('click', function(e) { e.preventDefault(); $('#logout-link').trigger('click'); });
@@ -239,6 +240,7 @@ function interface_readiness() {
     $('#gear-floating-aside-chat').on('click', function(e) { e.preventDefault(); openAsideChatModal($('#messageText').val().trim()); });
     $('#gear-floating-transcript').on('click', function(e) { e.preventDefault(); $('#get-chat-transcript').trigger('click'); });
     $('#gear-floating-share').on('click', function(e) { e.preventDefault(); $('#share-chat').trigger('click'); });
+    $('#gear-floating-starred').on('click', function(e) { e.preventDefault(); $('#starred-messages-btn').trigger('click'); });
     $('#gear-floating-docs').on('click', function(e) { e.preventDefault(); $('#conversation-docs-button').trigger('click'); });
     $('#gear-floating-global-docs').on('click', function(e) { e.preventDefault(); $('#global-docs-button').trigger('click'); });
     $('#gear-floating-logout').on('click', function(e) { e.preventDefault(); $('#logout-link').trigger('click'); });

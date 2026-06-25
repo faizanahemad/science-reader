@@ -244,7 +244,10 @@
                           <div id="mainView" class="container-fluid d-flex flex-column vh-100">
                               <!-- Desktop-only doc action row (hidden on mobile) -->
                               <div class="row d-flex align-items-center flex-nowrap" id="chat-toolbar-row">
-                                  <div id="chat-doc-view" class="d-flex align-items-center flex-wrap">
+                                  <!-- chat-doc-view: hidden; actions moved to gear dropdown.
+                                       Kept in DOM (display:none) so gear-menu click delegation
+                                       (#get-chat-transcript, #share-chat, etc.) still works. -->
+                                  <div id="chat-doc-view" class="d-flex align-items-center flex-wrap" style="display:none !important;">
                                       <button id="get-chat-transcript" type="button" class="btn btn-primary mr-2 btn-sm mb-1"><i class="fa fa-download">&nbsp;</i></button>
                                       <button id="share-chat" type="button" class="btn btn-primary mr-2 btn-sm mb-1"><i class="fa fa-share-alt">&nbsp;</i></button>
                                       <button id="starred-messages-btn" type="button" class="btn btn-outline-warning mr-2 btn-sm mb-1" title="Starred Messages"><i class="fa fa-star">&nbsp;</i></button>
@@ -277,6 +280,8 @@
                                               <i class="fa fa-cog"></i>
                                           </button>
                                           <div class="dropdown-menu dropdown-menu-right gear-dropdown" aria-labelledby="gear-menu-btn">
+                                              <div class="gear-tab-nav"></div>
+                                              <div class="dropdown-divider gear-tab-divider" style="display:none;"></div>
                                               <div class="gear-domain-nav">
                                                   <a class="dropdown-item gear-domain-item active" href="#" data-domain="assistant"><i class="fa fa-comment-o mr-2"></i>Assistant</a>
                                                   <a class="dropdown-item gear-domain-item" href="#" data-domain="search"><i class="fa fa-search mr-2"></i>Search</a>
@@ -287,6 +292,7 @@
                                               <a class="dropdown-item d-sm-none" href="#" id="gear-aside-chat"><i class="fa fa-comments-o mr-2"></i>Aside Chat</a>
                                               <a class="dropdown-item" href="#" id="gear-get-chat-transcript"><i class="fa fa-download mr-2"></i>Download Transcript</a>
                                               <a class="dropdown-item" href="#" id="gear-share-chat"><i class="fa fa-share-alt mr-2"></i>Share Chat</a>
+                                              <a class="dropdown-item" href="#" id="gear-starred-messages"><i class="fa fa-star mr-2" style="color:#ffc107;"></i>Starred Messages</a>
                                               <div class="dropdown-divider"></div>
                                               <a class="dropdown-item" href="#" id="gear-conversation-docs"><i class="fa fa-file mr-2"></i>Docs</a>
                                               <a class="dropdown-item" href="#" id="gear-global-docs"><i class="fa fa-globe mr-2"></i>Global Docs</a>
@@ -304,6 +310,8 @@
                                       <i class="fa fa-cog"></i>
                                   </button>
                                   <div class="dropdown-menu dropdown-menu-right gear-dropdown" aria-labelledby="gear-menu-floating-btn">
+                                      <div class="gear-tab-nav"></div>
+                                      <div class="dropdown-divider gear-tab-divider" style="display:none;"></div>
                                       <a class="dropdown-item gear-sidebar-item" href="#" id="gear-floating-show-sidebar"><i class="fa fa-bars mr-2"></i>Toggle Sidebar</a>
                                       <div class="dropdown-divider"></div>
                                       <div class="gear-domain-nav">
@@ -316,6 +324,7 @@
                                       <a class="dropdown-item d-sm-none" href="#" id="gear-floating-aside-chat"><i class="fa fa-comments-o mr-2"></i>Aside Chat</a>
                                       <a class="dropdown-item" href="#" id="gear-floating-transcript"><i class="fa fa-download mr-2"></i>Download Transcript</a>
                                       <a class="dropdown-item" href="#" id="gear-floating-share"><i class="fa fa-share-alt mr-2"></i>Share Chat</a>
+                                      <a class="dropdown-item" href="#" id="gear-floating-starred"><i class="fa fa-star mr-2" style="color:#ffc107;"></i>Starred Messages</a>
                                       <div class="dropdown-divider"></div>
                                       <a class="dropdown-item" href="#" id="gear-floating-docs"><i class="fa fa-file mr-2"></i>Docs</a>
                                       <a class="dropdown-item" href="#" id="gear-floating-global-docs"><i class="fa fa-globe mr-2"></i>Global Docs</a>
@@ -325,8 +334,11 @@
                                        <a class="dropdown-item" href="#" id="gear-floating-logout"><i class="fa fa-sign-out mr-2"></i>Logout</a>
                                   </div>
                               </div>
-                              <div id="chatView" class="row flex-grow-1 overflow-auto">
-                                  <!-- Chat messages will be dynamically populated here -->
+                              <div id="conv-tab-bar"></div>
+                              <div id="chatView-container" class="flex-grow-1 overflow-hidden d-flex flex-column">
+                                  <div id="chatView" class="chatView-pane active row flex-grow-1 overflow-auto">
+                                      <!-- Chat messages will be dynamically populated here -->
+                                  </div>
                               </div>
                               <button id="scrollToBottomBtn" class="btn btn-sm btn-primary" style="opacity: 0.8; display:none; position: fixed; bottom: 40px;left: 50%;transform: translateX(-50%); z-index: 100;">▼</button>
                               <!-- Page Context Panel (hidden until content extracted) -->
@@ -4925,6 +4937,7 @@ greet("World");</code></pre>
     <script defer src="interface/parseMessageForCheckBoxes.js"></script>
     <script defer src="interface/common.js"></script>
     <script defer src="interface/rendered-state-manager.js"></script>
+    <script defer src="interface/tab-manager.js"></script>
     <script defer src="interface/gamification.js"></script>
     <script defer src="interface/local-docs-manager.js"></script>
     <script defer src="interface/common-chat.js"></script>
@@ -5050,7 +5063,7 @@ greet("World");</code></pre>
                 if (shouldCheck) enhanceGeneratedImages();
             });
             document.addEventListener('DOMContentLoaded', function() {
-                observer.observe(document.getElementById('chatView') || document.body, {
+                observer.observe(document.getElementById('chatView-container') || document.getElementById('chatView') || document.body, {
                     childList: true, subtree: true
                 });
                 enhanceGeneratedImages();
