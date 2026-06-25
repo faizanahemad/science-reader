@@ -5660,17 +5660,22 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
             // (they track inCodeBlock state internally).  Running them once here
             // eliminates N redundant split('\n') + join('\n') cycles (one per section)
             // inside the loop below.
+            var _normT = _perfStart('pcd_normalize');
             content = normalizeMathBlocks(normalizeOverIndentedLists(content));
+            _perfEnd('pcd_normalize', _normT);
 
             // Extract code blocks first to protect them from splitting
             // Pass the extractionSessionId to ensure consistent placeholders at the outer level
+            var _extractT = _perfStart('pcd_extractCodeBlocks');
             var codeExtraction = extractCodeBlocks(content, extractionSessionId);
             var contentWithCodePlaceholders = codeExtraction.content;
             var codeBlocks = codeExtraction.codeBlocks;
             var codePlaceholders = codeExtraction.placeholders;
+            _perfEnd('pcd_extractCodeBlocks', _extractT);
             
             // Now preserve existing <details> tags
             // Use a unique suffix for details placeholders to avoid collision with user content
+            var _detailsExtractT = _perfStart('pcd_detailsExtract');
             var detailsPlaceholderSuffix = Date.now().toString(36) + Math.random().toString(36).substr(2, 5);
             var detailsRegex = /<details[^>]*>[\s\S]*?<\/details>/gi;
             var detailsBlocks = [];
@@ -5697,13 +5702,34 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
                                      workingContent.substring(detailsIndex + detailsBlocks[i].length);
                 }
             }
+            _perfEnd('pcd_detailsExtract', _detailsExtractT);
             
             // Now split the content by horizontal rules (which are now safe from code blocks)
+            var _sectionLoopT = _perfStart('pcd_sectionLoop');
             var sections = workingContent.split(horizontalRuleRegex);
             horizontalRuleRegex.lastIndex = 0;
             
             if (sections.length > 1) {
                 var wrappedHtml = '';
+                var _markedCumulativeMs = 0;
+                var _markedCallCount = 0;
+                var _restoreCumulativeMs = 0;
+                
+                // Timed wrapper around marked.marked() — accumulates total time
+                function _timedMarked(input) {
+                    var t0 = performance.now();
+                    var result = marked.marked(input, { renderer: markdownParser });
+                    _markedCumulativeMs += performance.now() - t0;
+                    _markedCallCount++;
+                    return result;
+                }
+                // Timed wrapper around restoreCodeBlocks — accumulates total time
+                function _timedRestore(content, blocks, placeholders) {
+                    var t0 = performance.now();
+                    var result = restoreCodeBlocks(content, blocks, placeholders);
+                    _restoreCumulativeMs += performance.now() - t0;
+                    return result;
+                }
                 
                 sections.forEach(function(section, sectionIndex) {
                     section = section.trim();
@@ -5743,13 +5769,13 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
                                             
                                             // First section (before first ---) — pre-render markdown (R3 optimisation)
                                             if (innerSections[0].trim()) {
-                                                var firstSection = restoreCodeBlocks(innerSections[0].trim(), innerCodeBlocks, innerCodePlaceholders);
+                                                var firstSection = _timedRestore(innerSections[0].trim(), innerCodeBlocks, innerCodePlaceholders);
                                                 // Check if it has a summary tag (from server) — pass through as-is (HTML survives marked)
                                                 var summaryMatch = firstSection.match(/<summary[^>]*>(.*?)<\/summary>/i);
                                                 if (summaryMatch) {
                                                     innerWrapped += firstSection;
                                                 } else {
-                                                    innerWrapped += marked.marked(firstSection, { renderer: markdownParser });
+                                                    innerWrapped += _timedMarked(firstSection);
                                                 }
                                             }
                                             
@@ -5758,7 +5784,7 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
                                                 var innerSection = innerSections[j].trim();
                                                 if (innerSection) {
                                                     // Restore code blocks in this section before generating summary
-                                                    var innerSectionWithCode = restoreCodeBlocks(innerSection, innerCodeBlocks, innerCodePlaceholders);
+                                                    var innerSectionWithCode = _timedRestore(innerSection, innerCodeBlocks, innerCodePlaceholders);
                                                     var innerSummary = generateSectionSummary(innerSectionWithCode, j - 1);
                                                     var innerHash = simpleHash(innerSectionWithCode) || 
                                                         (innerSectionWithCode.length.toString() + innerSectionWithCode.replace(/[^a-zA-Z0-9]/g, '').substring(0, 4)).substring(0, 8);
@@ -5768,7 +5794,7 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
                                                     innerSectionWithCode = innerSectionWithCode.trim();
                                                     // Pre-render markdown to HTML before wrapping in <details>
                                                     // Otherwise marked.js treats content inside HTML blocks as raw text
-                                                    var innerSectionRendered = marked.marked(innerSectionWithCode, { renderer: markdownParser });
+                                                    var innerSectionRendered = _timedMarked(innerSectionWithCode);
                                                      
                                                      innerWrapped += `
 <details open class="section-details nested-section" data-section-index="${j - 1}" data-section-hash="${innerHash}" id="${innerId}">
@@ -5806,30 +5832,30 @@ ${innerSectionRendered}
                             }
                         }
                         // Restore code blocks in the section with restored details
-                        section = restoreCodeBlocks(section, codeBlocks, codePlaceholders);
+                        section = _timedRestore(section, codeBlocks, codePlaceholders);
                         // R3: pre-render any raw markdown surrounding <details> blocks
                         // The <details> HTML passes through marked unchanged (sanitize: false)
-                        wrappedHtml += marked.marked(section, { renderer: markdownParser });
+                        wrappedHtml += _timedMarked(section);
                     } else {
                         // Handle sections without placeholders
                         // Only wrap if this is a middle section (not first or last)
                         if (sectionIndex === 0) {
                             // First section - don't wrap, but pre-render markdown (R3 optimisation)
                             if (section) {
-                                var sectionWithCode = restoreCodeBlocks(section, codeBlocks, codePlaceholders);
-                                wrappedHtml += marked.marked(sectionWithCode, { renderer: markdownParser }) + '\n';
+                                var sectionWithCode = _timedRestore(section, codeBlocks, codePlaceholders);
+                                wrappedHtml += _timedMarked(sectionWithCode) + '\n';
                             }
                         } else if (sectionIndex === sections.length - 1) {
                             // Last section - don't wrap, but pre-render markdown (R3 optimisation)
                             if (section) {
-                                var sectionWithCode = restoreCodeBlocks(section, codeBlocks, codePlaceholders);
-                                wrappedHtml += '\n' + marked.marked(sectionWithCode, { renderer: markdownParser });
+                                var sectionWithCode = _timedRestore(section, codeBlocks, codePlaceholders);
+                                wrappedHtml += '\n' + _timedMarked(sectionWithCode);
                             }
                         } else {
                             // Middle section - wrap in details
                             if (section) {
                                 // Restore code blocks before generating summary and wrapping
-                                var sectionWithCode = restoreCodeBlocks(section, codeBlocks, codePlaceholders);
+                                var sectionWithCode = _timedRestore(section, codeBlocks, codePlaceholders);
                                 var summary = generateSectionSummary(sectionWithCode, sectionIndex - 1);
                                 var sectionHash = simpleHash(sectionWithCode) || 
                                     (sectionWithCode.length.toString() + sectionWithCode.replace(/[^a-zA-Z0-9]/g, '').substring(0, 4)).substring(0, 8);
@@ -5840,7 +5866,7 @@ ${innerSectionRendered}
                                 summary = summary.replace(/<answer>/g, '').replace(/<\/answer>/g, '').replace(/\*/g, '');
                                 // Pre-render markdown to HTML before wrapping in <details>
                                 // Otherwise marked.js treats content inside HTML blocks as raw text
-                                var                                 sectionRendered = marked.marked(sectionWithCode, { renderer: markdownParser });
+                                var                                 sectionRendered = _timedMarked(sectionWithCode);
                                 wrappedHtml += `
 <details open class="section-details" data-section-index="${sectionIndex - 1}" data-section-hash="${sectionHash}" id="${sectionId}">
     <summary class="section-summary"><strong>${summary}</strong></summary>
@@ -5858,10 +5884,23 @@ ${innerSectionRendered}
                 
                 // R3: all sections (first, middle, last) are now fully rendered HTML
                 _sectionsFullyRendered = true;
+                // Record cumulative marked.marked() and restoreCodeBlocks() time
+                if (window._PERF && _markedCallCount > 0) {
+                    window._perfTimings = window._perfTimings || {};
+                    window._perfTimings['pcd_marked_cumulative'] = window._perfTimings['pcd_marked_cumulative'] || [];
+                    window._perfTimings['pcd_marked_cumulative'].push(_markedCumulativeMs);
+                    window._perfTimings['pcd_restore_cumulative'] = window._perfTimings['pcd_restore_cumulative'] || [];
+                    window._perfTimings['pcd_restore_cumulative'].push(_restoreCumulativeMs);
+                    // Store call counts for analysis (not displayed in summary table)
+                    window._pcdMarkedCallCounts = window._pcdMarkedCallCounts || [];
+                    window._pcdMarkedCallCounts.push(_markedCallCount);
+                }
+                _perfEnd('pcd_sectionLoop', _sectionLoopT);
                 return wrappedHtml;
             }
             
             // No sections to split, return original content with placeholders restored
+            _perfEnd('pcd_sectionLoop', _sectionLoopT);
             for (var i = 0; i < placeholders.length; i++) {
                 workingContent = workingContent.replace(placeholders[i], detailsBlocks[i]);
             }
