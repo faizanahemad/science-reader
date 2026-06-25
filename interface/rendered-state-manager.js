@@ -117,7 +117,15 @@
     return `conv:${String(conversationId)}`;
   }
 
-  function getChatViewEl() {
+  function getChatViewEl(convId) {
+    if (convId) {
+      var el = document.getElementById("chatView-" + convId);
+      if (el) return el;
+    }
+    if (typeof TabManager !== 'undefined' && TabManager.focusedTabId) {
+      var pane = document.getElementById("chatView-" + TabManager.focusedTabId);
+      if (pane) return pane;
+    }
     return document.getElementById("chatView");
   }
 
@@ -159,9 +167,9 @@
     }
   }
 
-  function readDomMeta() {
+  function readDomMeta(convId) {
     try {
-      const chatView = getChatViewEl();
+      const chatView = getChatViewEl(convId);
       if (!chatView) return { html: "", scrollTop: 0, lastMessageId: null, messageCount: 0, contentSig: "" };
 
       const html = chatView.innerHTML || "";
@@ -180,9 +188,9 @@
     }
   }
 
-  function applySnapshotToDom(snapshot) {
+  function applySnapshotToDom(snapshot, convId) {
     try {
-      const chatView = getChatViewEl();
+      const chatView = getChatViewEl(convId);
       if (!chatView) return false;
       if (!snapshot || typeof snapshot.html !== "string") return false;
 
@@ -280,7 +288,7 @@
       const cid = String(conversationId || "");
       if (!cid) return;
 
-      const meta = readDomMeta();
+      const meta = readDomMeta(cid);
       if (!meta.html || meta.html.length < 10) return;
       if (meta.html.length > MAX_HTML_CHARS) return;
 
@@ -351,7 +359,7 @@
             } catch (_e) { /* ignore */ }
             return null;
           }
-          const applied = applySnapshotToDom(snapshot);
+          const applied = applySnapshotToDom(snapshot, cid);
           if (!applied) return null;
 
           // Expose meta for the caller to decide whether to re-render after fetching messages.

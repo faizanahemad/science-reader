@@ -6289,9 +6289,9 @@ ${innerSectionRendered}
             // so batch into a single API call after all renders complete
             clearTimeout(window._sectionStateFetchTimer);
             window._sectionStateFetchTimer = setTimeout(function() {
-                var $chatView = $('#chatView');
-                if ($chatView.length) {
-                    fetchConversationUIState(resolvedConvId, $chatView[0]);
+                var $cv = (typeof $chatView === 'function') ? $chatView(resolvedConvId) : $('#chatView');
+                if ($cv.length) {
+                    fetchConversationUIState(resolvedConvId, $cv[0]);
                 }
             }, 300);
         }

@@ -82,6 +82,20 @@ Conversations are organized into **hierarchical workspaces** per user and domain
 **Key files:** `database/workspaces.py`, `database/pinned_messages.py`, `endpoints/workspaces.py`, `endpoints/conversations.py`, `interface/workspace-manager.js`, `interface/workspace-styles.css`, `interface/common-chat.js`
 **Docs:** `documentation/features/workspaces/README.md`
 
+### Multi-Conversation Tabs
+
+Up to 5 conversations can be open simultaneously with instant switching:
+
+- **Desktop**: Horizontal tab bar (`#conv-tab-bar`) between toolbar and chat area. Each tab gets its own DOM pane (`#chatView-{conversationId}`) inside `#chatView-container`. Switching tabs toggles CSS `.active` class -- no re-render needed.
+- **Mobile**: Tab list in gear dropdown (`.gear-tab-nav`). Switching saves current state via `RenderedStateManager.saveNow()` then reloads via `setActiveConversation()`.
+- **Opening tabs**: Ctrl+click (or Meta+click) a sidebar conversation, or right-click context menu "Open in New Tab". New Temp Chat opens in new tab when tabs are active.
+- **Closing tabs**: Click x on a tab. Can't close last tab. Warns if response is streaming.
+- **Persistence**: Tab state persisted to `localStorage` keyed by `{email}:{domain}`. Domain switch clears all tabs.
+- **`$chatView(convId)` accessor**: Global function replacing all `$('#chatView')` references. Returns the correct pane for a conversation, with fallback to `$('#chatView')` before TabManager initializes.
+
+**Key files:** `interface/tab-manager.js` (TabManager module), `interface/common-chat.js` (`$chatView()` + caller updates), `interface/workspace-manager.js` (sidebar integration), `interface/rendered-state-manager.js` (pane-aware snapshots), `interface/style.css`, `interface/interface.html`
+**Docs:** `documentation/features/multi_conversation_tabs.md`
+
 ### Domains
 
 Routes frequently include `<domain>`. In practice, it’s a tenant-like namespace for organizing a user’s content and workspaces.
