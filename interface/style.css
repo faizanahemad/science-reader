@@ -123,6 +123,17 @@ body.compact-nav .message-card {
 .gear-dropdown {
     min-width: 200px;
     padding: 0.25rem 0;
+    max-height: 80vh;
+    overflow-y: auto;
+    font-size: 0.82rem;
+}
+
+.gear-dropdown .dropdown-item {
+    padding: 0.3rem 1rem;
+}
+
+.gear-dropdown .dropdown-divider {
+    margin: 0.25rem 0;
 }
 
 .gear-domain-nav {
@@ -130,7 +141,7 @@ body.compact-nav .message-card {
 }
 
 .gear-domain-item {
-    padding: 0.35rem 1.25rem;
+    padding: 0.25rem 1rem;
     font-weight: 500;
     border-left: 3px solid transparent;
 }
