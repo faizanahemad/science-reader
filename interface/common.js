@@ -3833,6 +3833,52 @@ function applyModelResponseTabs(elem_to_render_in) {
             $root = $chatBody;
         }
     } catch (e) { /* ignore */ }
+
+    var rootEl = $root[0];
+
+    // ── B: Fast cache check ──────────────────────────────────────────────
+    // On a previous call that early-exited ("no tabs needed"), we stamp
+    // data-no-tabs="1" on $root.  If the attribute is still present, the
+    // card body hasn't been rebuilt (innerHTML is only set on the inner
+    // render element, not the card body), so the answer is unchanged and
+    // we can skip all DOM discovery work.  The attribute is cleared whenever
+    // tabs ARE built (data-has-tabs is set instead).
+    if (rootEl && rootEl.getAttribute('data-no-tabs') === '1') {
+        return;
+    }
+
+    // ── D: Native DOM fast-path for "no tabs needed" ─────────────────────
+    // Before building any jQuery collections, use native querySelector to
+    // check whether any tab-worthy content exists.  This replaces 5-7
+    // jQuery .find() traversals (~5ms each) with 3-4 native calls (<0.5ms).
+    //
+    // Tab-worthy content:
+    //   1. Non-section <details> blocks (multi-model, TLDR fallback, etc.)
+    //   2. [data-answer-tldr] wrappers
+    //   3. [data-answer-visual] wrappers
+    //   4. An existing .model-tabs-container (re-render / cleanup path)
+    //
+    // Section-only <details class="section-details"> never need tabs.
+    if (rootEl) {
+        var _hasExistingContainer = rootEl.querySelector('.model-tabs-container');
+        // If there's no existing container AND no tab-worthy content, early-exit.
+        // When there IS an existing container, we must continue (may need to clean it up).
+        if (!_hasExistingContainer) {
+            var _hasNonSectionDetails = rootEl.querySelector('details:not(.section-details)');
+            var _hasTldr = rootEl.querySelector('[data-answer-tldr]');
+            var _hasVisual = rootEl.querySelector('[data-answer-visual]');
+            if (!_hasNonSectionDetails && !_hasTldr && !_hasVisual) {
+                // No tabs needed — stamp cache attribute and return
+                rootEl.setAttribute('data-no-tabs', '1');
+                rootEl.removeAttribute('data-has-tabs');
+                return;
+            }
+        }
+    }
+
+    // ── Past the fast-path: clear the no-tabs cache (we may build tabs) ──
+    if (rootEl) rootEl.removeAttribute('data-no-tabs');
+
     var $legacySource = $root.find('.model-tabs-source').first();
     if ($legacySource.length > 0) {
         $legacySource.find('details').not('.section-details').each(function() {
@@ -3913,6 +3959,9 @@ function applyModelResponseTabs(elem_to_render_in) {
             $existingContainer.remove();
         }
         $root.removeAttr('data-has-tabs');
+        // Cache the "no tabs" decision so subsequent calls (showMore expand, re-render)
+        // can skip all DOM discovery via the fast-path at the top of this function.
+        if (rootEl) rootEl.setAttribute('data-no-tabs', '1');
         $root.find('[data-model-tabs-hidden="true"]').show().removeAttr('data-model-tabs-hidden');
         return;
     }
@@ -5977,11 +6026,18 @@ ${innerSectionRendered}
     // For the vast majority of plain messages none of these markers will be present,
     // so we skip ~6 DOM traversals, a data-attribute write, and a console.warn that
     // the function emits unconditionally on non-streaming calls.
-    // The last condition uses the data-has-tabs attribute (set by applyModelResponseTabs
-    // itself on .chat-card-body) as an O(1) gate instead of a DOM traversal for
-    // .model-tabs-container. This covers re-renders where a container built by a prior
-    // streaming cycle needs to be cleaned up even though the fresh htmlChunk no longer
-    // contains tab markers.
+    //
+    // IMPORTANT: The old gate included `htmlChunk.indexOf('<details') !== -1` which
+    // was far too broad — processContentWithDetails wraps every `---`-split section
+    // in `<details class="section-details">`, so ALL 69 section-bearing cards entered
+    // applyModelResponseTabs only to early-exit after 5-7 jQuery .find() traversals
+    // (~5ms each = ~250ms wasted).  The refined gate checks for markers that only
+    // appear when tabs are actually needed:
+    //   - data-answer-tldr / data-answer-visual  — server-injected wrappers
+    //   - 'Response from'  — multi-model <summary> text (always present in rendered HTML)
+    //   - 'TLDR Summary'   — fallback TLDR <details> from older stored messages
+    //   - model-tabs-container — pre-existing tab UI from prior render
+    //   - data-has-tabs on ancestor .chat-card-body — O(1) attribute set by prior render
     //
     // skip_deferred_formatting: When the card will be collapsed by showMore() (show_hide='hide'),
     // tabs and ToC are invisible.  The delegated expand handler (R1) re-applies both on
@@ -5989,11 +6045,21 @@ ${innerSectionRendered}
     if (!skip_deferred_formatting) {
         var _needsModelTabs = htmlChunk.indexOf('data-answer-tldr') !== -1
                            || htmlChunk.indexOf('data-answer-visual') !== -1
-                           || htmlChunk.indexOf('<details') !== -1
+                           || htmlChunk.indexOf('Response from') !== -1
+                           || htmlChunk.indexOf('TLDR Summary') !== -1
                            || htmlChunk.indexOf('model-tabs-container') !== -1
                            || (elem_to_render_in && $(elem_to_render_in).closest('.chat-card-body[data-has-tabs]').length > 0);
         if (_needsModelTabs) {
             try {
+                // Clear the data-no-tabs cache before entering — the gate above
+                // determined that tab-worthy markers ARE present in the fresh
+                // htmlChunk, so any prior "no tabs" decision is stale.  Without
+                // this, a streaming update that adds TLDR/multi-model content would
+                // be blocked by the cache from a prior call that found nothing.
+                try {
+                    var _cacheRoot = elem_to_render_in ? $(elem_to_render_in).closest('.chat-card-body')[0] : null;
+                    if (_cacheRoot) _cacheRoot.removeAttribute('data-no-tabs');
+                } catch (e2) { /* ignore */ }
                 var _tabsT = _perfStart('applyModelResponseTabs');
                 applyModelResponseTabs(elem_to_render_in);
                 _perfEnd('applyModelResponseTabs', _tabsT);
