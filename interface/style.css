@@ -443,6 +443,14 @@ body.compact-nav .gear-sidebar-item + .dropdown-divider {
     overflow: auto;
 }
 
+/* #chat-content and the inner assistant-view row are NOT scroll containers.
+   The only intended scroll container for chat messages is #chatView.
+   Removed .scrolling-row from these elements; overflow:hidden is a safety net. */
+#chat-content,
+#assistant-view > .row {
+    overflow: hidden;
+}
+
 .card {
     position: relative;
 }
@@ -965,6 +973,9 @@ table, tr, thead, th, td {
     margin-bottom: 5px;
 }
 
+#mainView {
+    padding-bottom: 10px;
+}
 
 @media screen and (max-width: 768px) and (pointer: coarse) and (max-height: 768px) {
     

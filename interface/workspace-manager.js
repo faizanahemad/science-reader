@@ -26,7 +26,7 @@ var WorkspaceManager = {
             var contentCol = $('#chat-assistant');
             if (sidebar.length && contentCol.length && !sidebar.hasClass('d-none')) {
                 sidebar.addClass('d-none');
-                contentCol.removeClass('col-md-10').addClass('col-md-12');
+                contentCol.removeClass('col-md-9').addClass('col-md-12');
                 $(window).trigger('resize');
             }
         } catch (_e) {}
@@ -1329,7 +1329,7 @@ var WorkspaceManager = {
                         var contentCol = $('#chat-assistant');
                         if (sidebar.length && contentCol.length && !sidebar.hasClass('d-none')) {
                             sidebar.addClass('d-none');
-                            contentCol.removeClass('col-md-10').addClass('col-md-12');
+                            contentCol.removeClass('col-md-9').addClass('col-md-12');
                             $(window).trigger('resize');
                         }
                     }

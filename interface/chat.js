@@ -1351,6 +1351,24 @@ function initializeSettingsState() {
         if ($('#use_memory_pad').length) { $('#use_memory_pad').prop('checked', !!state.use_memory_pad); }
         if (typeof $.fn.selectpicker !== 'undefined') { $('.selectpicker').selectpicker('refresh'); }
     }
+
+    // Sync compact-nav body class with CSS-driven mobile compact view.
+    // On mobile, compact view is activated purely via CSS media queries on
+    // body:not(.compact-nav-off), but the gear-menu checkmark depends on
+    // body.compact-nav being present.  If no persisted state explicitly set
+    // compact_nav, detect the mobile media query and add the class so the
+    // gear-menu checkmark reflects the actual UI state.
+    var hasExplicitCompact = state && Object.prototype.hasOwnProperty.call(state, 'compact_nav');
+    if (!hasExplicitCompact) {
+        try {
+            var isMobileCompact = window.matchMedia &&
+                window.matchMedia('(max-width: 768px) and (pointer: coarse) and (max-height: 768px)').matches;
+            if (isMobileCompact && !document.body.classList.contains('compact-nav-off')) {
+                document.body.classList.add('compact-nav');
+                $('#settings-compact_nav').prop('checked', true);
+            }
+        } catch (e) { /* ignore matchMedia errors */ }
+    }
 }
 
 function resetSettingsToDefaults() {

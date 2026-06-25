@@ -134,7 +134,7 @@
           </div>
           <span id="progress-status"></span>
         </div>
-        <div id="chat-content" class="row scrolling-row">
+        <div id="chat-content" class="row">
             
 
             <div class="col-md-10" id="content-col">
@@ -143,11 +143,11 @@
                 <div id="chat-assistant-view" class="container-fluid" style="padding-left: 2px; padding-top: 2px;">
                   <div class="tab-content">
                     <div class="tab-pane fade show active" id="assistant-view" role="tabpanel">
-                      <div class="row scrolling-row" style="height: 100% !important;">
-                        <div class="col-md-2 sidebar sticky-top scrollable-sidebar" id="chat-assistant-sidebar">
+                      <div class="row" style="height: 100% !important;">
+                        <div class="col-md-3 sidebar sticky-top scrollable-sidebar" id="chat-assistant-sidebar">
                             <!-- Sidebar -->
                             <div class="sidebar-toolbar d-flex justify-content-between align-items-center mt-2">
-                                <h5 class="mb-0">Explorer</h5>
+                                <button id="sidebar-close-btn" type="button" class="btn btn-sm sidebar-tool-btn" title="Close Sidebar"><i class="fa fa-bars"></i></button>
                                 <div class="sidebar-toolbar-actions">
                                     <button id="add-new-chat" type="button" class="btn btn-sm sidebar-tool-btn" title="New Conversation"><i class="fa fa-file-o"></i><sup class="sidebar-plus">+</sup></button>
                                     <button id="add-new-workspace" type="button" class="btn btn-sm sidebar-tool-btn" title="New Workspace"><i class="fa fa-folder-o"></i><sup class="sidebar-plus">+</sup></button>
@@ -239,7 +239,7 @@
                                 </div>
                             </div>
                         </div>
-                        <div class="col-md-10" id="chat-assistant">
+                        <div class="col-md-9" id="chat-assistant">
                           <div id="mainView" class="container-fluid d-flex flex-column vh-100">
                               <!-- Desktop-only doc action row (hidden on mobile) -->
                               <div class="row d-flex align-items-center flex-nowrap" id="chat-toolbar-row">

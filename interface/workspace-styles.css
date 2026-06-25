@@ -5,6 +5,8 @@
 /* ---- Sidebar toolbar (file+ / folder+ buttons) ---- */
 .sidebar-toolbar {
     padding: 4px 8px;
+    border-bottom: 1px solid #ddd;
+    margin-bottom: 4px;
 }
 
 .sidebar-toolbar h5 {

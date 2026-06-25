@@ -89,7 +89,7 @@ function interface_readiness() {
             sidebar.addClass('d-none');
 
             // Adjust the width of the content column
-            contentCol.removeClass('col-md-10').addClass('col-md-12');
+            contentCol.removeClass('col-md-9').addClass('col-md-12');
             // REMOVED: Auto-scroll to top when hiding sidebar - was interrupting user reading
             // $(document).scrollTop(0);
             // // scroll to the top of the page for the window
@@ -99,7 +99,7 @@ function interface_readiness() {
             sidebar.removeClass('d-none');
 
             // Adjust the width of the content column
-            contentCol.removeClass('col-md-12').addClass('col-md-10');
+            contentCol.removeClass('col-md-12').addClass('col-md-9');
         }
 
         // Trigger the resize event to adjust the size of the PDF viewer
@@ -367,6 +367,7 @@ function interface_readiness() {
     $('#show-sidebar').on('click', toggleSidebar);
     $('#show-sidebar').on('click', function () { $("#chat-pdf-content").addClass('d-none');});
     $('#chat-area-show-sidebar').on('click', toggleSidebar);
+    $('#sidebar-close-btn').on('click', toggleSidebar);
     
 
     $(document).on('click', '.copy-code-btn', function() {

@@ -724,7 +724,7 @@ var ConversationManager = {
                         var contentCol = $('#chat-assistant');
                         if (sidebar.length && contentCol.length && !sidebar.hasClass('d-none')) {
                             sidebar.addClass('d-none');
-                            contentCol.removeClass('col-md-10').addClass('col-md-12');
+                            contentCol.removeClass('col-md-9').addClass('col-md-12');
                             $(window).trigger('resize');
                         }
                     }
@@ -3516,9 +3516,9 @@ function activateChatTab() {
     sidebar.addClass('d-none');
     otherSidebar.addClass('d-none');
     var contentCol = $('#content-col');
-    contentCol.removeClass('col-md-10').addClass('col-md-12');
+    contentCol.removeClass('col-md-9').addClass('col-md-12');
     var contentCol = $('#chat-assistant');
-    contentCol.removeClass('col-md-10').addClass('col-md-12');
+    contentCol.removeClass('col-md-9').addClass('col-md-12');
 }
 
 function moveMessagesUpOrDownCallback(direction, messageId=null, messageIndex=null) {
