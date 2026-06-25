@@ -73,33 +73,23 @@ function interface_readiness() {
     
 
     function toggleSidebar() {
-        function getActiveTabName() {
-            var activeTab = $('#pdf-details-tab .nav-link.active').attr('id');
-            return activeTab;
-        }
-        var activeTabName = getActiveTabName();
+        var sidebar = $('#chat-assistant-sidebar');
+        var contentCol = $('#chat-assistant');
+        if (!sidebar.length) return;
 
-        if (activeTabName === 'assistant-tab' || activeTabName === 'search-tab' || activeTabName === 'finchat-tab') {
-            var sidebar = $('#chat-assistant-sidebar');
-            
-            var contentCol = $('#chat-assistant');
-        } 
-        if (sidebar.is(':visible')) {
-            // If the sidebar is currently visible, hide it
-            sidebar.addClass('d-none');
+        // Use an explicit state flag rather than :visible, which can give
+        // misleading results on mobile (col-12 stacked layout with sticky-top
+        // keeps the sidebar "visible" even when it fills the viewport).
+        var isHidden = sidebar.hasClass('d-none');
 
-            // Adjust the width of the content column
-            contentCol.removeClass('col-md-9').addClass('col-md-12');
-            // REMOVED: Auto-scroll to top when hiding sidebar - was interrupting user reading
-            // $(document).scrollTop(0);
-            // // scroll to the top of the page for the window
-            // $(window).scrollTop(0);
-        } else {
-            // If the sidebar is currently hidden, show it
+        if (isHidden) {
+            // Show sidebar
             sidebar.removeClass('d-none');
-
-            // Adjust the width of the content column
             contentCol.removeClass('col-md-12').addClass('col-md-9');
+        } else {
+            // Hide sidebar
+            sidebar.addClass('d-none');
+            contentCol.removeClass('col-md-9').addClass('col-md-12');
         }
 
         // Trigger the resize event to adjust the size of the PDF viewer

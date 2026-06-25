@@ -1366,8 +1366,24 @@ function initializeSettingsState() {
             if (isMobileCompact && !document.body.classList.contains('compact-nav-off')) {
                 document.body.classList.add('compact-nav');
                 $('#settings-compact_nav').prop('checked', true);
+                // Hide sidebar on mobile so the chat area is immediately
+                // visible; the user can reveal it via gear > Toggle Sidebar.
+                $('#chat-assistant-sidebar').addClass('d-none');
+                $('#chat-assistant').removeClass('col-md-9').addClass('col-md-12');
             }
         } catch (e) { /* ignore matchMedia errors */ }
+    }
+    // Also handle the case where persisted state has compact_nav: true
+    // on a mobile device — ensure sidebar starts hidden.
+    if (state && !!state.compact_nav) {
+        try {
+            var isMobileExplicit = window.matchMedia &&
+                window.matchMedia('(max-width: 768px) and (pointer: coarse)').matches;
+            if (isMobileExplicit) {
+                $('#chat-assistant-sidebar').addClass('d-none');
+                $('#chat-assistant').removeClass('col-md-9').addClass('col-md-12');
+            }
+        } catch (e) { /* ignore */ }
     }
 }
 
