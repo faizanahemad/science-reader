@@ -117,10 +117,12 @@
                 if (paneEl) {
                     $(paneEl).addClass('active');
                 } else {
-                    // First time opening this tab on desktop — create pane and load
+                    // First time opening this tab on desktop — create pane and load.
+                    // Do NOT set activeConversationId before calling setActiveConversation,
+                    // otherwise setActiveConversation's "already active" guard will
+                    // short-circuit and skip fetching/rendering the messages.
                     this._createPane(conversationId).addClass('active');
                     if (typeof ConversationManager !== 'undefined') {
-                        ConversationManager.activeConversationId = conversationId;
                         ConversationManager.setActiveConversation(conversationId);
                     }
                 }
