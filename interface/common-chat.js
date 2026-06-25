@@ -2919,7 +2919,10 @@ var ChatManager = {
                                 // Defer navigation button setup — cosmetic aids that don't
                                 // affect content visibility (scroll-to-bottom, scroll-to-top,
                                 // header collapse sync, ToC visibility).
-                                if (typeof window.decorateMessageCardNav === 'function') {
+                                // R-H5a: Skip for collapsed cards — content is hidden behind
+                                // [show] link, so nav buttons are invisible. The delegated
+                                // expand handler calls decorateMessageCardNav on first expand.
+                                if (_showHide === 'show' && typeof window.decorateMessageCardNav === 'function') {
                                     setTimeout(function() {
                                         var _dnT = _perfStart('deferredDecorateNav');
                                         window.decorateMessageCardNav(_currentMessageElement, _showHide);

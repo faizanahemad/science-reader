@@ -2842,6 +2842,17 @@ $(document).on('click', '.show-more', function(e) {
             }
         } catch (e2) { /* ignore */ }
 
+        // R-H5a: Apply deferred nav decoration (scroll buttons, header-hide toggle,
+        // ToC visibility). Skipped during initial render for collapsed cards.
+        try {
+            if (typeof window.decorateMessageCardNav === 'function') {
+                var $navCard = $link.closest('.card.message-card');
+                if ($navCard.length) {
+                    window.decorateMessageCardNav($navCard, 'show');
+                }
+            }
+        } catch (e2) { /* ignore */ }
+
         // Persist state
         try {
             var $card = $link.closest('.card.message-card');
@@ -2890,6 +2901,16 @@ $(document).on('click', '.show-more', function(e) {
             if (typeof updateMessageTocForElement === 'function') {
                 // Pass empty string — ToC builds from DOM headings, not rawMarkdown.
                 updateMessageTocForElement($moreText, '', false);
+            }
+        } catch (e) { /* ignore */ }
+        // R-H5a: Apply deferred nav decoration on expand (scroll buttons,
+        // header-hide toggle).  Skipped during initial render for collapsed cards.
+        try {
+            if (typeof window.decorateMessageCardNav === 'function') {
+                var $navCard = $link.closest('.card.message-card');
+                if ($navCard.length) {
+                    window.decorateMessageCardNav($navCard, 'show');
+                }
             }
         } catch (e) { /* ignore */ }
     }
