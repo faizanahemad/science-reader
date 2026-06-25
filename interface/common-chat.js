@@ -2705,6 +2705,12 @@ var ChatManager = {
         // value doesn't change mid-render, so reading it once saves N-1 DOM queries.
         var renderCloseToSource = $('#settings-render-close-to-source').is(':checked');
 
+        // Perf: reusable container for native innerHTML parsing of card headers.
+        // Avoids jQuery's $() per-card overhead (creates temp div, innerHTML,
+        // extracts children, wraps in jQuery).  We reuse a single detached div
+        // and extract firstElementChild after each innerHTML assignment.
+        var _headerParser = document.createElement('div');
+
         // ---- Helper: build a single message card (pure DOM, no live-DOM insertion) ----
         // Returns the jQuery-wrapped card element.  Side-effects: pushes onto
         // newMessageElements, calls initialiseVoteBank, renderInnerContentAsMarkdown.
@@ -2764,7 +2770,7 @@ var ChatManager = {
             var displayIndex = originalIndex + 1;
             var msgHash = message.message_short_hash || '';
             var refBadgeText = '#' + displayIndex + (msgHash ? ' \u00b7 ' + msgHash : '');
-            var cardHeader = $(`<div class="card-header d-flex justify-content-between align-items-center" message-index="${index}" message-id=${message.message_id}>
+            var cardHeaderHTML = `<div class="card-header d-flex justify-content-between align-items-center" message-index="${index}" message-id=${message.message_id}>
                 <div class="d-flex align-items-center">
                     <input type="checkbox" class="history-message-checkbox mr-2" id="message-checkbox-${message.message_id}" message-id=${message.message_id}>
                     <small><small><strong>` + senderText + `</strong><span class="message-ref-badge text-muted" style="font-family:monospace;font-size:0.65rem;cursor:pointer;margin-left:4px;" data-msg-idx="${displayIndex}" data-msg-hash="${msgHash}" title="Click to copy message reference">${refBadgeText}</span></small></small>
@@ -2814,7 +2820,11 @@ var ChatManager = {
                         </div>
                     </div>
                 </div>
-            </div>`);
+            </div>`;
+            // Parse via reusable native container — avoids jQuery $() overhead
+            // which creates a temp div, innerHTML, extracts children, wraps.
+            _headerParser.innerHTML = cardHeaderHTML;
+            var cardHeader = _headerParser.firstElementChild;
             var _templateDone = _perfEnd('cardTemplate#' + originalIndex, _tmplT);
             var cardBody = $('<div class="card-body chat-card-body" style="font-size: 0.8rem;"></div>');
             var textElem = $('<div id="message-render-space" class="card-text actual-card-text"></div>');
