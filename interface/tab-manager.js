@@ -13,8 +13,15 @@
     var MAX_TABS = 5;
 
     function isMobileLayout() {
+        // Mobile layout = tab bar is NOT usable in the toolbar row.
+        // This is true when:
+        // 1. body has compact-nav class (user toggled or auto-set), OR
+        // 2. The CSS media query hides the tab bar: narrow viewport + touch device.
+        //    The tab bar CSS uses (max-width: 768px) and (pointer: coarse) — 2 conditions.
+        //    We match that here so JS and CSS agree on when tabs go to the gear dropdown.
         try {
-            return window.matchMedia('(max-width: 768px) and (pointer: coarse) and (max-height: 768px)').matches;
+            if (document.body.classList.contains('compact-nav')) return true;
+            return window.matchMedia('(max-width: 768px) and (pointer: coarse)').matches;
         } catch (_e) { return false; }
     }
 

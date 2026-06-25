@@ -21,6 +21,18 @@ On desktop, each open tab gets its own DOM element (`#chatView-{conversationId}`
 
 On mobile, there's only one `#chatView` element. Switching tabs saves the current state via `RenderedStateManager.saveNow()` then calls `ConversationManager.setActiveConversation()` which does a full reload. The trade-off is accepted since mobile has memory constraints.
 
+### Mobile Detection (`isMobileLayout()`)
+
+The `isMobileLayout()` function in `tab-manager.js` determines whether tabs use the single-pane mobile path (gear dropdown) or the multi-pane desktop path (tab bar).
+
+It returns `true` when:
+1. `body` has class `compact-nav` (user-toggled or auto-set), OR
+2. CSS media query `(max-width: 768px) and (pointer: coarse)` matches — narrow viewport + touch device.
+
+This matches the CSS rule that hides `#conv-tab-bar` on mobile, ensuring JS and CSS always agree on whether the tab bar is visible. On mobile, tabs are accessible via the gear dropdown instead.
+
+**Important**: The tab bar CSS uses a 2-condition query (width + pointer), while the auto-compact CSS rules in `style.css` use a 3-condition query (width + pointer + height). This means on a tall phone (height > 768), the toolbar row may stay visible but the tab bar is hidden — tabs are shown in the inline gear dropdown instead.
+
 ### Tab Bar UI
 
 - `#conv-tab-bar` -- sits inside `#chat-toolbar-row` on the left; toolbar buttons (sidebar toggle, new-temp-chat, gear) stay right via `.ml-auto`
