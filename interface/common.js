@@ -148,8 +148,97 @@ window._perfJSON = function() {
 
 window._perfReset = function() {
     window._perfTimings = {};
+    window._perfCardDetails = [];
+    window._pcdMarkedCallCounts = [];
     try { performance.clearMarks(); performance.clearMeasures(); } catch(e) {}
     console.log('[PERF] Timings reset.');
+};
+
+// Per-card detail records: populated by _buildMessageCard in common-chat.js.
+// Each entry: { index, sender, showHide, textLen, willCollapse, userHidden,
+//               buildCard_ms, renderInner_ms, showMore_ms, ... }
+// Access via: window._perfCardDetails
+// Pretty-print via: _perfCards()
+window._perfCardDetails = [];
+
+window._perfCards = function() {
+    var cards = window._perfCardDetails;
+    if (!cards || cards.length === 0) {
+        console.log('[PERF] No card details. Load a conversation with window._PERF = true.');
+        return;
+    }
+    // Summary counts
+    var collapsed = cards.filter(function(c) { return c.willCollapse; }).length;
+    var expanded = cards.filter(function(c) { return !c.willCollapse; }).length;
+    var userCards = cards.filter(function(c) { return c.sender === 'user'; }).length;
+    var assistantCards = cards.filter(function(c) { return c.sender !== 'user'; }).length;
+    console.group('%c[PERF] Per-Card Details (' + cards.length + ' cards: ' +
+        expanded + ' open, ' + collapsed + ' collapsed, ' +
+        userCards + ' user, ' + assistantCards + ' assistant)',
+        'font-weight:bold;color:#4CAF50');
+
+    // Table: open cards
+    var openCards = cards.filter(function(c) { return !c.willCollapse; });
+    if (openCards.length > 0) {
+        console.group('Open cards (' + openCards.length + ')');
+        console.table(openCards.map(function(c) {
+            return {
+                '#': c.index,
+                sender: c.sender,
+                textLen: c.textLen,
+                showHide: c.showHide,
+                'buildCard(ms)': Math.round(c.buildCard_ms * 10) / 10,
+                'renderInner(ms)': Math.round((c.renderInner_ms || 0) * 10) / 10,
+                'showMore(ms)': Math.round((c.showMore_ms || 0) * 10) / 10,
+                'decorateNav(ms)': Math.round((c.decorateNav_ms || 0) * 10) / 10
+            };
+        }));
+        console.groupEnd();
+    }
+
+    // Table: collapsed cards
+    var closedCards = cards.filter(function(c) { return c.willCollapse; });
+    if (closedCards.length > 0) {
+        console.group('Collapsed cards (' + closedCards.length + ')');
+        console.table(closedCards.map(function(c) {
+            return {
+                '#': c.index,
+                sender: c.sender,
+                textLen: c.textLen,
+                showHide: c.showHide,
+                'buildCard(ms)': Math.round(c.buildCard_ms * 10) / 10,
+                'renderInner(ms)': Math.round((c.renderInner_ms || 0) * 10) / 10,
+                'showMore(ms)': Math.round((c.showMore_ms || 0) * 10) / 10
+            };
+        }));
+        console.groupEnd();
+    }
+
+    // Aggregate totals
+    var totalOpen = openCards.reduce(function(s, c) { return s + c.buildCard_ms; }, 0);
+    var totalClosed = closedCards.reduce(function(s, c) { return s + c.buildCard_ms; }, 0);
+    console.log('Total buildCard: open=' + Math.round(totalOpen) + 'ms, collapsed=' + Math.round(totalClosed) + 'ms');
+    console.groupEnd();
+};
+
+window._perfCardsJSON = function() {
+    var cards = window._perfCardDetails;
+    if (!cards || cards.length === 0) {
+        console.log('[PERF] No card details.');
+        return '[]';
+    }
+    var json = JSON.stringify(cards, null, 2);
+    try {
+        var ta = document.createElement('textarea');
+        ta.value = json;
+        ta.style.cssText = 'position:fixed;left:-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        console.log('[PERF] Card details copied to clipboard (' + cards.length + ' cards).');
+    } catch(e) { console.log('[PERF] Clipboard copy failed.'); }
+    return json;
 };
 
 // ---------------------------------------------------------------------------

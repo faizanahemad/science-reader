@@ -2675,6 +2675,8 @@ var ChatManager = {
     },
     renderMessages: function (conversationId, messages, shouldClearChatView, initialize_voting = true, history_message_ids = [], skip_one = false) {
         var _renderMsgsT = _perfStart('renderMessages');
+        // Reset per-card details for this render pass
+        if (window._PERF) { window._perfCardDetails = []; }
         // R2: Reset the render-complete promise so pre-fired fetches (doubts/pins)
         // wait for THIS render pass to finish before applying DOM changes.
         _resetRenderCompletePromise();
@@ -2722,6 +2724,24 @@ var ChatManager = {
             var senderText = message.sender === 'user' ? 'You' : 'Assistant';
             var showHide = message.show_hide || 'hide';
             var userHidden = message.user_hidden === true;
+
+            // Per-card perf detail record — sub-steps write their timings into this.
+            var _cardDetail = {
+                index: originalIndex,
+                sender: message.sender || 'unknown',
+                showHide: showHide,
+                textLen: message.text ? message.text.length : 0,
+                willCollapse: (showHide !== 'show' && (message.text ? message.text.length : 0) > 300),
+                userHidden: userHidden,
+                buildCard_ms: 0,
+                renderInner_ms: 0,
+                showMore_ms: 0,
+                decorateNav_ms: 0
+            };
+            if (window._PERF) {
+                window._perfCardDetails = window._perfCardDetails || [];
+                window._perfCardDetails.push(_cardDetail);
+            }
             var cardElem = $('<div class="mb-1 mt-0 card w-100 my-1 d-flex flex-column message-card"></div>');
             newMessageElements.push(cardElem);
             if (userHidden) cardElem.css('display', 'none').addClass('message-user-hidden');
@@ -2874,13 +2894,14 @@ var ChatManager = {
             }
             
             if (message.text.trim().length > 0) {
-                (function(currentMessageElement, currentMessage, currentTextElem, currentShowHide, isLastMessage) {
+                (function(currentMessageElement, currentMessage, currentTextElem, currentShowHide, isLastMessage, _cd) {
                     // When the card will be collapsed by showMore() (show_hide != 'show'
                     // and text long enough), skip applyModelResponseTabs, ToC, and UI state
                     // restore inside renderInnerContentAsMarkdown — they're invisible behind
                     // [show] and the delegated expand handler re-applies them on first click.
                     // This saves 50-200ms of DOM work per collapsed card.
                     var _willCollapse = (currentShowHide !== 'show' && currentMessage.text.length > 300);
+                    var _rimStart = performance.now();
                     renderInnerContentAsMarkdown(currentTextElem,
                         /* callback (runs after MathJax) */ null,
                         /* continuous */ false,
@@ -2910,9 +2931,11 @@ var ChatManager = {
                                     }
                                 }, 100);
                             } else if (_currentMessage.text.length > 300) {
+                                var _smStart = performance.now();
                                 showMore(null, text = null, textElem = _textElem, as_html = true, show_at_start = _showHide === 'show', server_side = {
                                     'message_id': _currentMessage.message_id
                                 });
+                                _cd.showMore_ms = performance.now() - _smStart;
                             }
                             
                             if (_currentMessage.text.length > 300) {
@@ -2926,7 +2949,7 @@ var ChatManager = {
                                     setTimeout(function() {
                                         var _dnT = _perfStart('deferredDecorateNav');
                                         window.decorateMessageCardNav(_currentMessageElement, _showHide);
-                                        _perfEnd('deferredDecorateNav', _dnT);
+                                        _cd.decorateNav_ms = _perfEnd('deferredDecorateNav', _dnT) || 0;
                                     }, 0);
                                 }
                             }
@@ -2934,7 +2957,8 @@ var ChatManager = {
                         /* defer_mathjax */ !isLastMessage,
                         /* skip_deferred_formatting */ _willCollapse
                     );
-                })(cardElem, message, textElem, showHide, isLastInBatch);
+                    _cd.renderInner_ms = performance.now() - _rimStart;
+                })(cardElem, message, textElem, showHide, isLastInBatch, _cardDetail);
             }
 
             var statusDiv = $('<div class="status-div d-flex align-items-center"></div>');
@@ -2947,7 +2971,7 @@ var ChatManager = {
             statusDiv.hide();
             statusDiv.find('.spinner-border').hide();
 
-            _perfEnd('buildCard#' + originalIndex, _perfT);
+            _cardDetail.buildCard_ms = _perfEnd('buildCard#' + originalIndex, _perfT) || 0;
             return cardElem;
         }
 
