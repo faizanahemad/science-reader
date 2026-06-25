@@ -5655,6 +5655,13 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
 
         // Function to process sections while preserving existing details tags
         function processContentWithDetails(content) {
+            // R-H3: Pre-normalize the full content ONCE before splitting into sections.
+            // Both functions are line-by-line transforms that already skip code blocks
+            // (they track inCodeBlock state internally).  Running them once here
+            // eliminates N redundant split('\n') + join('\n') cycles (one per section)
+            // inside the loop below.
+            content = normalizeMathBlocks(normalizeOverIndentedLists(content));
+
             // Extract code blocks first to protect them from splitting
             // Pass the extractionSessionId to ensure consistent placeholders at the outer level
             var codeExtraction = extractCodeBlocks(content, extractionSessionId);
@@ -5742,7 +5749,7 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
                                                 if (summaryMatch) {
                                                     innerWrapped += firstSection;
                                                 } else {
-                                                    innerWrapped += marked.marked(normalizeMathBlocks(normalizeOverIndentedLists(firstSection)), { renderer: markdownParser });
+                                                    innerWrapped += marked.marked(firstSection, { renderer: markdownParser });
                                                 }
                                             }
                                             
@@ -5761,7 +5768,7 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
                                                     innerSectionWithCode = innerSectionWithCode.trim();
                                                     // Pre-render markdown to HTML before wrapping in <details>
                                                     // Otherwise marked.js treats content inside HTML blocks as raw text
-                                                    var innerSectionRendered = marked.marked(normalizeMathBlocks(normalizeOverIndentedLists(innerSectionWithCode)), { renderer: markdownParser });
+                                                    var innerSectionRendered = marked.marked(innerSectionWithCode, { renderer: markdownParser });
                                                      
                                                      innerWrapped += `
 <details open class="section-details nested-section" data-section-index="${j - 1}" data-section-hash="${innerHash}" id="${innerId}">
@@ -5802,7 +5809,7 @@ ${innerSectionRendered}
                         section = restoreCodeBlocks(section, codeBlocks, codePlaceholders);
                         // R3: pre-render any raw markdown surrounding <details> blocks
                         // The <details> HTML passes through marked unchanged (sanitize: false)
-                        wrappedHtml += marked.marked(normalizeMathBlocks(normalizeOverIndentedLists(section)), { renderer: markdownParser });
+                        wrappedHtml += marked.marked(section, { renderer: markdownParser });
                     } else {
                         // Handle sections without placeholders
                         // Only wrap if this is a middle section (not first or last)
@@ -5810,13 +5817,13 @@ ${innerSectionRendered}
                             // First section - don't wrap, but pre-render markdown (R3 optimisation)
                             if (section) {
                                 var sectionWithCode = restoreCodeBlocks(section, codeBlocks, codePlaceholders);
-                                wrappedHtml += marked.marked(normalizeMathBlocks(normalizeOverIndentedLists(sectionWithCode)), { renderer: markdownParser }) + '\n';
+                                wrappedHtml += marked.marked(sectionWithCode, { renderer: markdownParser }) + '\n';
                             }
                         } else if (sectionIndex === sections.length - 1) {
                             // Last section - don't wrap, but pre-render markdown (R3 optimisation)
                             if (section) {
                                 var sectionWithCode = restoreCodeBlocks(section, codeBlocks, codePlaceholders);
-                                wrappedHtml += '\n' + marked.marked(normalizeMathBlocks(normalizeOverIndentedLists(sectionWithCode)), { renderer: markdownParser });
+                                wrappedHtml += '\n' + marked.marked(sectionWithCode, { renderer: markdownParser });
                             }
                         } else {
                             // Middle section - wrap in details
@@ -5833,7 +5840,7 @@ ${innerSectionRendered}
                                 summary = summary.replace(/<answer>/g, '').replace(/<\/answer>/g, '').replace(/\*/g, '');
                                 // Pre-render markdown to HTML before wrapping in <details>
                                 // Otherwise marked.js treats content inside HTML blocks as raw text
-                                var                                 sectionRendered = marked.marked(normalizeMathBlocks(normalizeOverIndentedLists(sectionWithCode)), { renderer: markdownParser });
+                                var                                 sectionRendered = marked.marked(sectionWithCode, { renderer: markdownParser });
                                 wrappedHtml += `
 <details open class="section-details" data-section-index="${sectionIndex - 1}" data-section-hash="${sectionHash}" id="${sectionId}">
     <summary class="section-summary"><strong>${summary}</strong></summary>
