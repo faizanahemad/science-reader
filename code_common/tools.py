@@ -717,8 +717,8 @@ def handle_document_lookup(args: dict, context: ToolContext) -> ToolCallResult:
                         doc_list = conv.get_field("uploaded_documents_list")
                         if doc_list:
                             for entry in doc_list:
-                                doc_id, doc_storage = entry[0], entry[1]
-                                display = entry[3] if len(entry) > 3 else doc_id
+                                doc_id, doc_storage, _src, _dn = conv._doc_entry_fields(entry)
+                                display = _dn if _dn is not None else doc_id
                                 try:
                                     from DocIndex import DocIndex
                                     doc = DocIndex.load_local(doc_storage)
@@ -1313,7 +1313,7 @@ def handle_docs_list_conversation_docs(args: dict, context: ToolContext) -> Tool
             )
         results = []
         for idx, entry in enumerate(doc_list):
-            doc_id, doc_storage, pdf_url = entry[0], entry[1], entry[2]
+            doc_id, doc_storage, pdf_url, _display_name = conv._doc_entry_fields(entry)
             doc = _docs_load_doc_index(doc_storage)
             if doc is None:
                 results.append({
@@ -1323,7 +1323,7 @@ def handle_docs_list_conversation_docs(args: dict, context: ToolContext) -> Tool
                     "short_summary": "",
                     "doc_storage_path": doc_storage,
                     "source": pdf_url,
-                    "display_name": entry[3] if len(entry) > 3 else None,
+                    "display_name": _display_name,
                 })
                 continue
             results.append({
@@ -1333,7 +1333,7 @@ def handle_docs_list_conversation_docs(args: dict, context: ToolContext) -> Tool
                 "short_summary": doc.short_summary,
                 "doc_storage_path": doc_storage,
                 "source": pdf_url,
-                "display_name": entry[3] if len(entry) > 3 else None,
+                "display_name": _display_name,
                 "priority": getattr(doc, "_priority", 3),
                 "priority_label": {1: "very low", 2: "low", 3: "medium", 4: "high", 5: "very high"}.get(getattr(doc, "_priority", 3), "medium"),
                 "date_written": getattr(doc, "_date_written", None),

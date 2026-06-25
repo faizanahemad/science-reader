@@ -1924,7 +1924,10 @@ Compact list of bullet points:
             doc_index.save_local()
         doc_id = doc_index.doc_id
         doc_storage = doc_index._storage
-        previous_docs = self.get_field("uploaded_documents_list") or []
+        previous_docs = [
+            self._doc_entry_fields(e)
+            for e in (self.get_field("uploaded_documents_list") or [])
+        ]
         all_docs = previous_docs + [
             (doc_id, doc_storage, doc_index.doc_source, display_name)
         ]
@@ -1973,7 +1976,10 @@ Compact list of bullet points:
             doc_index.save_local()
         doc_id = doc_index.doc_id
         doc_storage = doc_index._storage
-        previous_docs = self.get_field("uploaded_documents_list") or []
+        previous_docs = [
+            self._doc_entry_fields(e)
+            for e in (self.get_field("uploaded_documents_list") or [])
+        ]
         all_docs = previous_docs + [(doc_id, doc_storage, pdf_url)]
 
         current_documents = self.get_uploaded_documents(readonly=True)
@@ -2001,10 +2007,12 @@ Compact list of bullet points:
             updated_list = []
             list_changed = False
             for entry in doc_list:
-                # Support both old 3-tuple (doc_id, doc_storage, pdf_url) and
-                # new 4-tuple (doc_id, doc_storage, pdf_url, display_name).
+                # Normalize SQLite dict / legacy tuple to a uniform 4-tuple so all
+                # downstream tuple operations (migration, re-persistence) work for
+                # both storage backends.
+                entry = self._doc_entry_fields(entry)
                 doc_storage = entry[1]
-                _display_name = entry[3] if len(entry) > 3 else None
+                _display_name = entry[3]
                 # Lazy migration: move old per-conversation path to canonical store
                 if docs_folder is not None and not _canonical_docs.is_canonical_path(
                     docs_folder, doc_storage
@@ -2016,7 +2024,7 @@ Compact list of bullet points:
                         u_hash,
                         str(_entry_doc_id),
                         doc_storage,
-                        source_path=entry[2] if len(entry) > 2 else "",
+                        source_path=entry[2] if entry[2] is not None else "",
                     )
                     if new_storage != doc_storage:
                         doc_storage = new_storage
@@ -2045,7 +2053,9 @@ Compact list of bullet points:
 
     def delete_uploaded_document(self, doc_id):
         all_docs = [
-            d for d in self.get_field("uploaded_documents_list") if d[0] != doc_id
+            self._doc_entry_fields(d)
+            for d in (self.get_field("uploaded_documents_list") or [])
+            if self._doc_entry_fields(d)[0] != doc_id
         ]
         self.set_field("uploaded_documents_list", all_docs, overwrite=True)
         current_documents: List[DocIndex] = self.get_uploaded_documents()
@@ -2071,14 +2081,16 @@ Compact list of bullet points:
         updated = []
         found = False
         for entry in docs_list:
-            if entry[0] == old_doc_id:
+            _entry_doc_id, _entry_storage, _entry_source, old_display = (
+                self._doc_entry_fields(entry)
+            )
+            if _entry_doc_id == old_doc_id:
                 # Preserve display_name from old entry if not overridden
-                old_display = entry[3] if len(entry) > 3 else None
                 dn = display_name if display_name is not None else old_display
                 updated.append((new_doc_id, new_doc_storage, new_doc_source, dn))
                 found = True
             else:
-                updated.append(entry)
+                updated.append((_entry_doc_id, _entry_storage, _entry_source, old_display))
         if not found:
             return False
         self.set_field("uploaded_documents_list", updated, overwrite=True)
@@ -2141,7 +2153,13 @@ Compact list of bullet points:
             doc_index.save_local()
         doc_id = doc_index.doc_id
         doc_storage = doc_index._storage
-        previous_msg_docs = self.get_field("message_attached_documents_list") or []
+        # Normalize prior entries to tuples so SQLite-backed dict entries are not
+        # dropped by set_field()'s tuple-only persistence (which would wipe earlier
+        # attachments on every new attach).
+        previous_msg_docs = [
+            self._doc_entry_fields(e)
+            for e in (self.get_field("message_attached_documents_list") or [])
+        ]
         all_msg_docs = previous_msg_docs + [(doc_id, doc_storage, doc_index.doc_source)]
         self.set_field("message_attached_documents_list", all_msg_docs, overwrite=True)
 
@@ -2179,8 +2197,8 @@ Compact list of bullet points:
             self.set_field("message_attached_documents_list", [])
         if doc_list is not None:
             docs = [
-                DocIndex.load_local(doc_storage)
-                for _doc_id, doc_storage, _pdf_url in doc_list
+                DocIndex.load_local(self._doc_entry_fields(entry)[1])
+                for entry in doc_list
             ]
         else:
             docs = []
@@ -2205,12 +2223,45 @@ Compact list of bullet points:
             The document ID to remove.
         """
         all_docs = [
-            d
+            self._doc_entry_fields(d)
             for d in (self.get_field("message_attached_documents_list") or [])
-            if d[0] != doc_id
+            if self._doc_entry_fields(d)[0] != doc_id
         ]
         self.set_field("message_attached_documents_list", all_docs, overwrite=True)
         self.save_local()
+
+    @staticmethod
+    def _doc_entry_fields(entry):
+        """Normalize a document-list entry to ``(doc_id, doc_storage, doc_source, display_name)``.
+
+        Legacy JSON-backed conversations store each entry as a tuple
+        ``(doc_id, doc_storage, doc_source[, display_name])``.  SQLite-backed
+        conversations return dicts (``{"doc_id", "doc_storage", "doc_source",
+        "display_name", ...}``) from ``ConversationStore.get_documents()`` (routed
+        via ``_get_field_sqlite``).  Accepting either shape prevents the silent
+        ``KeyError: 0`` that caused attached images/text docs to never reach the
+        doubt/temp-LLM calls (and the broader ``#doc_N`` pipeline to break) on
+        SQLite-migrated conversations.
+
+        ``display_name`` is ``None`` for ``message_attached_documents_list`` entries
+        (3-tuples) and for older 3-tuple ``uploaded_documents_list`` entries.
+        Returns ``(None, None, None, None)`` for unrecognised entry shapes.
+        """
+        if isinstance(entry, dict):
+            return (
+                entry.get("doc_id"),
+                entry.get("doc_storage"),
+                entry.get("doc_source"),
+                entry.get("display_name"),
+            )
+        if isinstance(entry, (list, tuple)):
+            return (
+                entry[0] if len(entry) > 0 else None,
+                entry[1] if len(entry) > 1 else None,
+                entry[2] if len(entry) > 2 else None,
+                entry[3] if len(entry) > 3 else None,
+            )
+        return (None, None, None, None)
 
     def _inject_display_attachments(self, display_attachments, message_text):
         """Inject #doc_N references for display_attachments entries into message_text.
@@ -2239,8 +2290,8 @@ Compact list of bullet points:
             _msg_attached_docs_list = self.get_field("message_attached_documents_list") or []
             _combined = _uploaded_docs_list + _msg_attached_docs_list
             _docid_to_idx = {
-                doc_tuple[0]: idx + 1
-                for idx, doc_tuple in enumerate(_combined)
+                self._doc_entry_fields(doc_entry)[0]: idx + 1
+                for idx, doc_entry in enumerate(_combined)
             }
             _refs_to_add = []
             for _att in display_attachments:
@@ -2282,21 +2333,65 @@ Compact list of bullet points:
         if not display_attachments:
             return []
         results = []
+        # Diagnostic counters — mirror of _get_attached_doc_images().
+        skip_reasons = {
+            "not_dict": 0,
+            "missing_doc_id": 0,
+            "doc_id_not_in_storage": 0,
+            "load_returned_none": 0,
+            "no_text": 0,
+        }
         try:
             msg_doc_list = self.get_field("message_attached_documents_list") or []
             uploaded_doc_list = self.get_field("uploaded_documents_list") or []
             combined = msg_doc_list + uploaded_doc_list
-            storage_by_docid = {entry[0]: entry[1] for entry in combined}
+            storage_by_docid = {
+                self._doc_entry_fields(entry)[0]: self._doc_entry_fields(entry)[1]
+                for entry in combined
+            }
+            logger.info(
+                "[Conversation] [_get_attached_doc_texts] Resolving %d attachment(s); "
+                "msg_doc_list=%d uploaded_doc_list=%d combined=%d",
+                len(display_attachments),
+                len(msg_doc_list),
+                len(uploaded_doc_list),
+                len(combined),
+            )
             for att in display_attachments:
                 if not isinstance(att, dict):
+                    skip_reasons["not_dict"] += 1
+                    logger.warning(
+                        "[Conversation] [_get_attached_doc_texts] Skipped non-dict entry: %r",
+                        att,
+                    )
                     continue
                 doc_id = att.get("doc_id")
                 name = att.get("name", doc_id or "attachment")
-                if not doc_id or doc_id not in storage_by_docid:
+                if not doc_id:
+                    skip_reasons["missing_doc_id"] += 1
+                    logger.warning(
+                        "[Conversation] [_get_attached_doc_texts] Attachment has no doc_id "
+                        "(frontend likely sent before upload AJAX resolved): name=%r",
+                        name,
+                    )
+                    continue
+                if doc_id not in storage_by_docid:
+                    skip_reasons["doc_id_not_in_storage"] += 1
+                    logger.warning(
+                        "[Conversation] [_get_attached_doc_texts] doc_id %s not found in "
+                        "message_attached_documents_list or uploaded_documents_list",
+                        doc_id,
+                    )
                     continue
                 try:
                     doc_index = DocIndex.load_local(storage_by_docid[doc_id])
                     if doc_index is None:
+                        skip_reasons["load_returned_none"] += 1
+                        logger.warning(
+                            "[Conversation] [_get_attached_doc_texts] DocIndex.load_local "
+                            "returned None for doc_id %s at storage %s",
+                            doc_id, storage_by_docid[doc_id],
+                        )
                         continue
                     # FastDocIndex stores full text in static_data; fall back to
                     # BM25 chunks joined together for other index types.
@@ -2307,6 +2402,13 @@ Compact list of bullet points:
                         doc_text = "\n\n".join(doc_index._bm25_chunks)
                     if doc_text:
                         results.append({"name": name, "text": doc_text})
+                    else:
+                        skip_reasons["no_text"] += 1
+                        logger.warning(
+                            "[Conversation] [_get_attached_doc_texts] doc_id %s has no "
+                            "extractable text (type=%s)",
+                            doc_id, type(doc_index).__name__,
+                        )
                 except Exception as _load_err:
                     logger.warning(
                         "[Conversation] [_get_attached_doc_texts] Could not load doc %s: %s",
@@ -2315,6 +2417,12 @@ Compact list of bullet points:
         except Exception as _err:
             logger.warning(
                 "[Conversation] [_get_attached_doc_texts] Error: %s", _err
+            )
+        if not results:
+            logger.warning(
+                "[Conversation] [_get_attached_doc_texts] Resolved 0/%d attachment(s) "
+                "into text payloads; skip_reasons=%s",
+                len(display_attachments), skip_reasons,
             )
         return results
 
@@ -2340,30 +2448,92 @@ Compact list of bullet points:
         if not display_attachments:
             return []
         image_sources = []
+        # Diagnostic counters — populated per-attachment so we can see why
+        # any attachment was dropped (missing doc_id, doc_id not in storage,
+        # wrong index type, load failure, missing llm_image_source).
+        skip_reasons = {
+            "not_dict": 0,
+            "missing_doc_id": 0,
+            "doc_id_not_in_storage": 0,
+            "load_returned_none": 0,
+            "wrong_index_type": 0,
+            "missing_image_source": 0,
+        }
         try:
             from DocIndex import FastImageDocIndex, ImageDocIndex
             msg_doc_list = self.get_field("message_attached_documents_list") or []
             uploaded_doc_list = self.get_field("uploaded_documents_list") or []
             combined = msg_doc_list + uploaded_doc_list
-            storage_by_docid = {entry[0]: entry[1] for entry in combined}
+            storage_by_docid = {
+                self._doc_entry_fields(entry)[0]: self._doc_entry_fields(entry)[1]
+                for entry in combined
+            }
+            logger.info(
+                "[Conversation] [_get_attached_doc_images] Resolving %d attachment(s); "
+                "msg_doc_list=%d uploaded_doc_list=%d combined=%d",
+                len(display_attachments),
+                len(msg_doc_list),
+                len(uploaded_doc_list),
+                len(combined),
+            )
             for att in display_attachments:
                 if not isinstance(att, dict):
+                    skip_reasons["not_dict"] += 1
+                    logger.warning(
+                        "[Conversation] [_get_attached_doc_images] Skipped non-dict entry: %r",
+                        att,
+                    )
                     continue
                 doc_id = att.get("doc_id")
-                if not doc_id or doc_id not in storage_by_docid:
+                if not doc_id:
+                    skip_reasons["missing_doc_id"] += 1
+                    logger.warning(
+                        "[Conversation] [_get_attached_doc_images] Attachment has no doc_id "
+                        "(frontend likely sent before upload AJAX resolved): name=%r type=%r",
+                        att.get("name"), att.get("type"),
+                    )
+                    continue
+                if doc_id not in storage_by_docid:
+                    skip_reasons["doc_id_not_in_storage"] += 1
+                    logger.warning(
+                        "[Conversation] [_get_attached_doc_images] doc_id %s not found in "
+                        "message_attached_documents_list or uploaded_documents_list "
+                        "(conversation cache may have been evicted/refreshed since upload)",
+                        doc_id,
+                    )
                     continue
                 try:
                     doc_index = DocIndex.load_local(storage_by_docid[doc_id])
                     if doc_index is None:
+                        skip_reasons["load_returned_none"] += 1
+                        logger.warning(
+                            "[Conversation] [_get_attached_doc_images] DocIndex.load_local "
+                            "returned None for doc_id %s at storage %s",
+                            doc_id, storage_by_docid[doc_id],
+                        )
                         continue
-                    if isinstance(doc_index, (FastImageDocIndex, ImageDocIndex)):
-                        src = doc_index.llm_image_source
-                        if src:
-                            image_sources.append(src)
-                            logger.info(
-                                "[Conversation] [_get_attached_doc_images] Loaded image source for doc %s",
-                                doc_id,
-                            )
+                    if not isinstance(doc_index, (FastImageDocIndex, ImageDocIndex)):
+                        skip_reasons["wrong_index_type"] += 1
+                        logger.warning(
+                            "[Conversation] [_get_attached_doc_images] doc_id %s is not an "
+                            "image index (type=%s); should have been inlined as text",
+                            doc_id, type(doc_index).__name__,
+                        )
+                        continue
+                    src = doc_index.llm_image_source
+                    if not src:
+                        skip_reasons["missing_image_source"] += 1
+                        logger.warning(
+                            "[Conversation] [_get_attached_doc_images] doc_id %s is an image "
+                            "index but llm_image_source is empty",
+                            doc_id,
+                        )
+                        continue
+                    image_sources.append(src)
+                    logger.info(
+                        "[Conversation] [_get_attached_doc_images] Loaded image source for doc %s",
+                        doc_id,
+                    )
                 except Exception as _load_err:
                     logger.warning(
                         "[Conversation] [_get_attached_doc_images] Could not load doc %s: %s",
@@ -2372,6 +2542,12 @@ Compact list of bullet points:
         except Exception as _err:
             logger.warning(
                 "[Conversation] [_get_attached_doc_images] Error: %s", _err
+            )
+        if not image_sources:
+            logger.warning(
+                "[Conversation] [_get_attached_doc_images] Resolved 0/%d attachment(s) "
+                "into image sources; skip_reasons=%s",
+                len(display_attachments), skip_reasons,
             )
         return image_sources
 
@@ -2396,13 +2572,13 @@ Compact list of bullet points:
         msg_docs = msg_docs if msg_docs is not None else []
         target = None
         for entry in msg_docs:
-            if entry[0] == doc_id:
+            if self._doc_entry_fields(entry)[0] == doc_id:
                 target = entry
                 break
         if target is None:
             return None
 
-        _doc_id, _doc_storage, actual_source = target
+        _doc_id, _doc_storage, actual_source, _display_name = self._doc_entry_fields(target)
         # ---- Load fast doc to preserve metadata ----
         from DocIndex import DocIndex as _FastDocIndex
 
@@ -2416,7 +2592,11 @@ Compact list of bullet points:
         )
         # actual_source is the post-move path stored by add_message_attached_document
         # ---- Remove from message_attached list ----
-        remaining = [d for d in msg_docs if d[0] != doc_id]
+        remaining = [
+            self._doc_entry_fields(d)
+            for d in msg_docs
+            if self._doc_entry_fields(d)[0] != doc_id
+        ]
         self.set_field("message_attached_documents_list", remaining, overwrite=True)
         # ---- Create full index (slow path — FAISS + LLM) ----
         if docs_folder is not None:
@@ -13204,8 +13384,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         doc_list = self.get_field("uploaded_documents_list") or []
         documents = []
         for entry in doc_list:
-            doc_id = entry[0] if len(entry) > 0 else ""
-            display = entry[3] if len(entry) > 3 else doc_id
+            doc_id, _storage, _src, _dn = self._doc_entry_fields(entry)
+            doc_id = doc_id if doc_id is not None else ""
+            display = _dn if _dn is not None else doc_id
             documents.append(
                 {
                     "doc_id": doc_id,

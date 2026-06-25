@@ -497,11 +497,13 @@ def cleanup_orphan_docs(
                 if user_hash(conv.user_id) != u_hash:
                     continue
                 for entry in (conv.get_field("uploaded_documents_list") or []):
-                    if entry and len(entry) >= 1:
-                        referenced.add(str(entry[0]))
+                    _entry_doc_id = conv._doc_entry_fields(entry)[0]
+                    if _entry_doc_id is not None:
+                        referenced.add(str(_entry_doc_id))
                 for entry in (conv.get_field("message_attached_documents_list") or []):
-                    if entry and len(entry) >= 1:
-                        referenced.add(str(entry[0]))
+                    _entry_doc_id = conv._doc_entry_fields(entry)[0]
+                    if _entry_doc_id is not None:
+                        referenced.add(str(_entry_doc_id))
             except Exception as exc:
                 logger.warning(
                     "canonical_docs.cleanup: could not load conversation %s: %s",
