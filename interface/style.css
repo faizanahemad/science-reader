@@ -627,6 +627,23 @@ bi bi-trash-fill {
 .lazy-collapsed > .less-text,
 .lazy-collapsed > a.show-more { display: block !important; }
 
+/* R-H5b: Scroll-to-top button — replaces 10 inline jQuery .css() calls
+   with a single class.  Hover handled by CSS :hover pseudo-class. */
+.scroll-to-top-btn {
+    position: absolute;
+    bottom: 5px;
+    right: 5px;
+    padding: 2px 8px;
+    font-size: 0.75rem;
+    background-color: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    opacity: 0.8;
+    z-index: 10;
+    transition: opacity 0.2s;
+}
+.scroll-to-top-btn:hover { opacity: 1; }
+
 .card-header {
     padding: 0.1rem 0.75rem;
 }

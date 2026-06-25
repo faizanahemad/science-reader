@@ -2464,96 +2464,45 @@ function scrollContainerToTargetTop($container, $target) {
  * @param {string} buttonText - Text for the button (default: "↑ Top")
  * @param {string} buttonClass - Additional CSS classes for the button
  */
-window.addScrollToTopButton = function(cardElem, buttonText = '↑ Top', buttonClass = '') {
-    var $cardElem = (cardElem && cardElem.jquery) ? cardElem : $(cardElem);
-    // console.log('[addScrollToTopButton] Called with:', {
-    //     cardElem: $cardElem,
-    //     cardExists: $cardElem && $cardElem.length > 0,
-    //     buttonText: buttonText,
-    //     buttonClass: buttonClass
-    // });
-    
-    if (!$cardElem || $cardElem.length === 0) {
-        console.warn('[addScrollToTopButton] Card element not found, skipping');
-        return null;
+window.addScrollToTopButton = function(cardElem, buttonText, buttonClass) {
+    // R-H5b: Rewritten with native DOM — avoids jQuery $('<button>'), .css({10 props}),
+    // .hover(), .click(), redundant .find() verification.  Styles now in CSS class.
+    var el = (cardElem && cardElem.jquery) ? cardElem[0] : cardElem;
+    if (!el) return null;
+
+    // Deduplicate — check if button already exists
+    if (el.querySelector('.scroll-to-top-btn')) {
+        return el.querySelector('.scroll-to-top-btn');
     }
-    
-    // Check if button already exists to avoid duplicates
-    if ($cardElem.find('.scroll-to-top-btn').length > 0) {
-        // console.log('[addScrollToTopButton] Button already exists, skipping');
-        return $cardElem.find('.scroll-to-top-btn').first();
-    }
-    
-    // console.log('[addScrollToTopButton] Creating button...');
-    // Create the scroll-to-top button
-    let scrollTopBtn = $('<button>')
-        .addClass('btn btn-sm scroll-to-top-btn ' + buttonClass)
-        .html(buttonText)
-        .css({
-            'position': 'absolute',
-            'bottom': '5px',
-            'right': '5px',
-            'padding': '2px 8px',
-            'font-size': '0.75rem',
-            'background-color': '#f8f9fa',
-            'border': '1px solid #dee2e6',
-            'border-radius': '4px',
-            'opacity': '0.8',
-            'z-index': '10',
-            'transition': 'opacity 0.2s'
-        })
-        .hover(
-            function() { $(this).css('opacity', '1'); },
-            function() { $(this).css('opacity', '0.8'); }
-        );
-    
-    // Click handler to scroll to top of the card
-    // (getScrollableAncestor and scrollContainerToTargetTop are module-level utilities)
-    scrollTopBtn.click(function(e) {
+
+    var btn = document.createElement('button');
+    btn.className = 'btn btn-sm scroll-to-top-btn ' + (buttonClass || '');
+    btn.innerHTML = buttonText || '\u2191 Top';
+
+    // Click handler — scroll card into view
+    btn.addEventListener('click', function(e) {
         e.preventDefault();
         e.stopPropagation();
-        
-        var $scrollableParent = getScrollableAncestor($cardElem);
-        if ($scrollableParent) {
-            if (scrollContainerToTargetTop($scrollableParent, $cardElem)) {
-                return;
-            }
+        var $ce = $(el);
+        var $scrollableParent = getScrollableAncestor($ce);
+        if ($scrollableParent && scrollContainerToTargetTop($scrollableParent, $ce)) {
+            return;
         }
-        
-        // Default: Card is in the main window, scroll window
-        var cardTop = $cardElem.offset().top;
+        var cardTop = $ce.offset().top;
         if (isFinite(cardTop)) {
-            $('html, body').animate({
-                scrollTop: cardTop - 20 // 20px padding from top
-            }, 300, 'swing');
+            $('html, body').animate({ scrollTop: cardTop - 20 }, 300, 'swing');
         }
     });
-    
-    // Ensure the card has relative positioning for absolute button positioning
-    const currentPosition = $cardElem.css('position');
-    // console.log('[addScrollToTopButton] Card current position:', currentPosition);
-    if (currentPosition === 'static') {
-        // console.log('[addScrollToTopButton] Setting position to relative');
-        $cardElem.css('position', 'relative');
+
+    // Ensure relative positioning for absolute button (native — no getComputedStyle forced reflow)
+    var pos = el.style.position;
+    if (!pos || pos === 'static') {
+        el.style.position = 'relative';
     }
-    
-    // Add the button to the card
-    // console.log('[addScrollToTopButton] Appending button to card...');
-    $cardElem.append(scrollTopBtn);
-    
-    // Verify button was added
-    const buttonAdded = $cardElem.find('.scroll-to-top-btn').length > 0;
-    // console.log('[addScrollToTopButton] Button added successfully:', buttonAdded);
-    
-    if (!buttonAdded) {
-        console.error('[addScrollToTopButton] Failed to add button!');
-        // console.log('[addScrollToTopButton] Card still exists:', $cardElem.length > 0);
-        // console.log('[addScrollToTopButton] Card parent:', $cardElem.parent().length > 0);
-        // console.log('[addScrollToTopButton] Card is attached to DOM:', $.contains(document, $cardElem[0]));
-    }
-    
-    // Return the button element in case further customization is needed
-    return scrollTopBtn;
+
+    el.appendChild(btn);
+    return btn;
+};
 }
 
 // ============================================
@@ -2737,49 +2686,45 @@ $(document).on('click', '.header-hide-toggle', function(e) {
  * @param {string} showHide - persisted 'show'/'hide' state for the answer
  */
 window.decorateMessageCardNav = function(cardElem, showHide) {
-    var $card = (cardElem && cardElem.jquery) ? cardElem : $(cardElem);
-    if (!$card || !$card.length) return;
+    // R-H5b: Rewritten with native DOM — replaces 7 jQuery .find() calls per card
+    // with native querySelector (2-5x faster per call, no jQuery overhead).
+    var el = (cardElem && cardElem.jquery) ? cardElem[0] : cardElem;
+    if (!el) return;
 
     // Bottom button (header, top-right) — reveal for any card that is long enough.
-    var $bottom = $card.find('> .card-header .scroll-to-bottom-btn').first();
-    if ($bottom.length) { $bottom.show(); }
+    var bottomBtn = el.querySelector(':scope > .card-header .scroll-to-bottom-btn');
+    if (bottomBtn) { bottomBtn.style.display = ''; }
 
-    // Top button (absolute, bottom-right) — now on user cards too.
-    if ($card.find('.scroll-to-top-btn').length === 0 && typeof window.addScrollToTopButton === 'function') {
-        window.addScrollToTopButton($card, 'Top \u2191', 'chat-scroll-top');
+    // Top button (absolute, bottom-right) — add if not present.
+    if (!el.querySelector('.scroll-to-top-btn') && typeof window.addScrollToTopButton === 'function') {
+        window.addScrollToTopButton(el, 'Top \u2191', 'chat-scroll-top');
     }
 
-    // Header hide toggle — only for NON-tabbed answers that actually have an
-    // in-body showMore control to proxy (tabbed answers collapse via their nav
-    // toggle). Reflect the persisted state; behaviour comes from the delegated
-    // .header-hide-toggle proxy.
-    var isTabbed = !!$card.find('.chat-card-body[data-has-tabs]').length;
-    var hasShowMore = $card.find('.actual-card-text .show-more, .show-more').length > 0;
-    var $hide = $card.find('> .card-header .header-hide-toggle').first();
-    if ($hide.length) {
+    // Header hide toggle — only for NON-tabbed answers that have a showMore control.
+    var isTabbed = !!el.querySelector('.chat-card-body[data-has-tabs]');
+    var hasShowMore = !!el.querySelector('.actual-card-text .show-more, .show-more');
+    var hideToggle = el.querySelector(':scope > .card-header .header-hide-toggle');
+    if (hideToggle) {
         if (isTabbed || !hasShowMore) {
-            $hide.hide();
+            hideToggle.style.display = 'none';
         } else {
             var collapsed = (showHide === 'hide');
-            $hide.text(collapsed ? '[show]' : '[hide]').show();
+            hideToggle.textContent = collapsed ? '[show]' : '[hide]';
+            hideToggle.style.display = '';
         }
     }
 
     // Sync TOC visibility with the initial persisted collapse state.
-    // When the message loads collapsed (show_hide === 'hide'), the TOC container
-    // must also be hidden so it doesn't float above folded content.
-    // Guard: only show a non-empty container — tabbed messages leave the container
-    // hidden and empty, and re-showing an empty div would reveal stale markup.
     try {
-        var $tocContainer = $card.find('.message-toc-container').first();
-        if ($tocContainer.length) {
+        var tocContainer = el.querySelector('.message-toc-container');
+        if (tocContainer) {
             var _decCompact = document.body.classList.contains('compact-nav');
             if (showHide === 'hide') {
-                $tocContainer.hide(); // message body collapsed — hide TOC entirely
-            } else if (_decCompact && $tocContainer.children().length > 0) {
-                _tocCollapseForCompact($tocContainer); // compact mode — collapse body, keep header
-            } else if ($tocContainer.children().length > 0) {
-                $tocContainer.show();
+                tocContainer.style.display = 'none';
+            } else if (_decCompact && tocContainer.children.length > 0) {
+                _tocCollapseForCompact($(tocContainer));
+            } else if (tocContainer.children.length > 0) {
+                tocContainer.style.display = '';
             }
         }
     } catch (e) { /* ignore */ }
