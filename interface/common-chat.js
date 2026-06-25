@@ -900,8 +900,8 @@ var ConversationManager = {
                 if (typeof _renderCompleteResolve === 'function') {
                     _renderCompleteResolve();
                 }
-                // Snapshot is still valid; ensure controls focus works.
-                try { $('#messageText').focus(); } catch (_e) {}
+                // REMOVED: Auto-focus on messageText causes soft keyboard on mobile/tablet.
+                // try { $('#messageText').focus(); } catch (_e) {}
                 // Restore section hidden states + message show/hide via unified endpoint.
                 // renderInnerContentAsMarkdown was skipped, so the normal debounced call didn't run.
                 // Clear the applied flag first — snapshot HTML did NOT go through the synchronous
@@ -939,8 +939,8 @@ var ConversationManager = {
                 } catch (_reinit_err) { /* ignore */ }
             }
 
-            // Common post-load focus
-            $('#messageText').focus();
+            // REMOVED: Auto-focus on messageText causes soft keyboard on mobile/tablet.
+            // $('#messageText').focus();
             $("#show-sidebar").focus();
             // R2: Apply-late — doubts + pins network requests were already fired
             // above (before $.when), overlapping with the messages API call.
@@ -2602,7 +2602,8 @@ var ChatManager = {
                     // Auto-scroll after deleting last message 
                     var $cv = $chatView();
                     $cv.animate({ scrollTop: $cv.prop("scrollHeight") }, "fast");
-                    $('#messageText').focus();
+                    // REMOVED: Auto-focus on messageText causes soft keyboard on mobile/tablet.
+                    // $('#messageText').focus();
 
                 });
             }
@@ -3566,7 +3567,8 @@ function activateChatTab() {
     // REMOVED: Auto-scroll to bottom on chat tab activation - was interrupting user reading
     // var chatView = $('#chatView');
     // chatView.scrollTop(chatView.prop('scrollHeight'));
-    $('#messageText').focus();
+    // REMOVED: Auto-focus on messageText causes soft keyboard on mobile/tablet.
+    // $('#messageText').focus();
     $("#chat-pdf-content").addClass('d-none');
     $("#chat-content").removeClass('d-none');
     pdfTabIsActive();
@@ -3929,9 +3931,10 @@ function sendMessageCallback(skipAutoClarify) {
         renderStreamingResponse(response, ConversationManager.activeConversationId, messageText, history_message_ids);
         $('#linkInput').val('')
         $('#searchInput').val('')
-        if (!/Mobi|Android/i.test(navigator.userAgent) && !/iPhone/i.test(navigator.userAgent) && window.innerWidth > 768) {
-            $('#messageText').focus();
-        }
+        // REMOVED: Auto-focus on messageText causes soft keyboard on mobile/tablet.
+        // if (!/Mobi|Android/i.test(navigator.userAgent) && !/iPhone/i.test(navigator.userAgent) && window.innerWidth > 768) {
+        //     $('#messageText').focus();
+        // }
         ConversationManager.fetchMemoryPad().fail(function () {
             alert('Error fetching memory pad');
         });
