@@ -620,6 +620,13 @@ bi bi-trash-fill {
     min-height: 580px;
 }
 
+/* showMore() lazy collapse: hide all children except preview + [show] link
+   via a single class on the parent instead of per-child style.display='none'.
+   O(1) JS (one classList.add) vs O(n_children) style writes. */
+.lazy-collapsed > * { display: none !important; }
+.lazy-collapsed > .less-text,
+.lazy-collapsed > a.show-more { display: block !important; }
+
 .card-header {
     padding: 0.1rem 0.75rem;
 }

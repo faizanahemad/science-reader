@@ -1624,14 +1624,12 @@ function showMore(parentElem, text = null, textElem = null, as_html = false, sho
                 _rawEl.setAttribute('data-showmore-message-id', server_side.message_id);
             }
 
-            // Hide content with CSS only — no DOM reparenting at all.
-            // Use direct style manipulation instead of jQuery .hide() to avoid
-            // forced synchronous layout (getComputedStyle) on each child element.
-            var _children = _rawEl.children;
-            for (var _ci = 0; _ci < _children.length; _ci++) {
-                _children[_ci].style.display = 'none';
-                _children[_ci].classList.add('lazy-hidden-child');
-            }
+            // Hide content with a single CSS class on the parent — the
+            // `.lazy-collapsed > *` rule hides all children while
+            // `.lazy-collapsed > .less-text, .lazy-collapsed > a.show-more`
+            // keeps the preview + link visible.  O(1) classList.add replaces
+            // the previous O(n_children) per-child style.display loop.
+            _rawEl.classList.add('lazy-collapsed');
             // Prepend preview + [show] link using native DOM (avoids jQuery HTML parsing).
             var lessEl = document.createElement('span');
             lessEl.className = 'less-text';
@@ -2804,9 +2802,12 @@ $(document).on('click', '.show-more', function(e) {
     if ($textElem.attr('data-lazy-collapse') === 'true') {
         $textElem.removeAttr('data-lazy-collapse');
 
-        // Show the hidden children and remove the marker class
-        var $hiddenChildren = $textElem.find('.lazy-hidden-child');
-        $hiddenChildren.removeClass('lazy-hidden-child').show();
+        // Remove the CSS-driven collapse class — all children become visible.
+        $textElem[0].classList.remove('lazy-collapsed');
+
+        // Select the content children (everything except the preview + link)
+        // for wrapping into .more-text.
+        var $hiddenChildren = $textElem.children().not('.less-text').not('a.show-more');
 
         // Now wrap them into .more-text for toggle consistency going forward.
         // This wrapAll is a one-time cost on first expand only.

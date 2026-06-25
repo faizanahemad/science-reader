@@ -810,6 +810,19 @@ var ConversationManager = {
         var messagesRequest = ChatManager.listMessages(conversationId, true);
         var _networkT = _perfStart('networkWait');
 
+        // R2: Fetch-early / apply-late — fire doubts + pins network requests NOW
+        // so they overlap with the messages API call.  Previously these were inside
+        // the $.when callback, meaning they waited for messages to return before
+        // starting (~200-500ms of wasted network latency).
+        // The apply step still waits for _renderCompletePromise (all cards in DOM).
+        var _r2ConvId = conversationId;  // capture for stale-response guard
+        var _doubtsNetT = _perfStart('doubtsFetch');
+        var doubtsPromise = _fetchDoubtsData(conversationId);
+        doubtsPromise.then(function() { _perfEnd('doubtsFetch', _doubtsNetT); });
+        var _pinsNetT = _perfStart('pinsFetch');
+        var pinsPromise = ChatManager._fetchPinsData(conversationId);
+        Promise.resolve(pinsPromise).then(function() { _perfEnd('pinsFetch', _pinsNetT); });
+
         $.when(restorePromise, messagesRequest).done(function (snapshotMeta, messages) {
             _perfEnd('networkWait', _networkT);
             // When used inside $.when, a jQuery.ajax success value becomes:
@@ -917,18 +930,10 @@ var ConversationManager = {
             // Common post-load focus
             $('#messageText').focus();
             $("#show-sidebar").focus();
-            // R2: Fetch-early / apply-late — fire network requests NOW (overlaps
-            // with remaining async chunked rendering), but defer DOM manipulation
-            // until _renderCompletePromise resolves (all cards in live DOM).
-            // This fixes the existing race where async chunked render hadn't
-            // finished when fetch responses arrived, silently missing later cards.
-            var _r2ConvId = conversationId;  // capture for stale-response guard
-            var _doubtsNetT = _perfStart('doubtsFetch');
-            var doubtsPromise = _fetchDoubtsData(conversationId);
-            doubtsPromise.then(function() { _perfEnd('doubtsFetch', _doubtsNetT); });
-            var _pinsNetT = _perfStart('pinsFetch');
-            var pinsPromise = ChatManager._fetchPinsData(conversationId);
-            Promise.resolve(pinsPromise).then(function() { _perfEnd('pinsFetch', _pinsNetT); });
+            // R2: Apply-late — doubts + pins network requests were already fired
+            // above (before $.when), overlapping with the messages API call.
+            // Here we just wire up the apply step, which waits for both the
+            // fetch AND _renderCompletePromise (all cards in live DOM).
             Promise.all([doubtsPromise, _renderCompletePromise]).then(function (results) {
                 // Stale-response guard: if user switched conversations, discard
                 if (ConversationManager.activeConversationId !== _r2ConvId) return;
@@ -1984,9 +1989,9 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                 }
                 // [DEBUG] console.warn('[STREAM DONE] show_more | USING textElem:', textElem.attr('id'), '| text len:', (text||'').length, '| hasVisualDiv:', (text||'').indexOf('data-answer-visual') !== -1);
                 const hasSlides = (
-                    !!card.find('.slide-presentation-wrapper').length ||
-                    !!card.find('.slide-external-link').length ||
-                    (textElem && textElem.attr('data-has-slides') === 'true')
+                    (textElem && textElem.attr('data-has-slides') === 'true') ||
+                    (!!card.find('.slide-presentation-wrapper').length ||
+                     !!card.find('.slide-external-link').length)
                 );
                 if (!hasSlides) {
                     toggle = showMore(card.find('.chat-card-body'), text = text, textElem = textElem, as_html = true, show_at_start = true, server_side = {
@@ -2876,10 +2881,16 @@ var ChatManager = {
                             var _currentMessage = currentMessage;
                             var _currentMessageElement = currentMessageElement;
                             
+                            // Slide detection: check cheap attribute + string gate FIRST.
+                            // The jQuery .find() calls are expensive (full subtree scan) and
+                            // slides are extremely rare (~0-1 cards out of 111).  Gate on
+                            // the raw message text to avoid DOM traversal for 99%+ of cards.
                             var hasSlides = (
-                                !!_textElem.closest('.card-body').find('.slide-presentation-wrapper').length ||
-                                !!_textElem.closest('.card-body').find('.slide-external-link').length ||
-                                (_textElem && _textElem.attr('data-has-slides') === 'true')
+                                (_textElem && _textElem.attr('data-has-slides') === 'true') ||
+                                (_currentMessage.text.indexOf('slide-presentation') !== -1 && (
+                                    !!_textElem.closest('.card-body').find('.slide-presentation-wrapper').length ||
+                                    !!_textElem.closest('.card-body').find('.slide-external-link').length
+                                ))
                             );
                             if (hasSlides) {
                                 setTimeout(function() {
