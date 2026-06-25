@@ -584,12 +584,34 @@ def get_all_doubts_for_user(
     page: int = 1,
     page_size: int = 20,
     search: str = "",
-    filter_type: str = "all",
+    scope: str = "conversation",
+    filter_user: bool = True,
+    filter_pinned: bool = False,
+    filter_auto: bool = False,
+    conversation_id: str = "",
     users_dir: str | None = None,
     logger: logging.Logger | None = None,
 ) -> dict:
     """
-    Get paginated root doubts across all conversations for a user.
+    Get paginated root doubts for a user.
+
+    Args:
+        user_email: Owner's email.
+        page: 1-indexed page number.
+        page_size: Results per page.
+        search: Full-text search against doubt_text and doubt_answer.
+        scope: "conversation" restricts to the given conversation_id;
+               "all" searches across all conversations.
+        filter_user: Include manual (non-auto) doubts.
+        filter_pinned: Include pinned doubts.
+        filter_auto: Include auto-generated doubts.
+        conversation_id: Required when scope == "conversation".
+        users_dir: Override for the users directory path.
+        logger: Optional logger instance.
+
+    The type filters (filter_user, filter_pinned, filter_auto) are combined with OR:
+    a doubt is included if it matches *any* of the checked filters.
+    If none are checked, all doubts are returned (no type restriction).
 
     Returns dict with keys: doubts (list), total (int), page (int), page_size (int).
     """
@@ -605,12 +627,28 @@ def get_all_doubts_for_user(
             conditions.append("(doubt_text LIKE ? OR doubt_answer LIKE ?)")
             params.extend([f"%{search}%", f"%{search}%"])
 
-        if filter_type == "pinned":
-            conditions.append("pinned = 1")
-        elif filter_type == "user":
-            conditions.append("doubt_text NOT LIKE 'Auto takeaways%' AND doubt_text NOT LIKE 'Maximize Learning%' AND doubt_text NOT LIKE 'Challenge & Verify%' AND doubt_text NOT LIKE 'Foundations & Practice%' AND doubt_text NOT LIKE 'Answer Raised Questions%'")
-        elif filter_type == "auto":
-            conditions.append("(doubt_text LIKE 'Auto takeaways%' OR doubt_text LIKE 'Maximize Learning%' OR doubt_text LIKE 'Challenge & Verify%' OR doubt_text LIKE 'Foundations & Practice%' OR doubt_text LIKE 'Answer Raised Questions%')")
+        # Scope: restrict to a single conversation or across all conversations
+        if scope == "conversation" and conversation_id:
+            conditions.append("conversation_id = ?")
+            params.append(conversation_id)
+
+        # Type filters: combined with OR; if none checked, no type restriction (show all)
+        _AUTO_PREFIXES = ("'Auto takeaways%'", "'Maximize Learning%'", "'Challenge & Verify%'",
+                          "'Foundations & Practice%'", "'Answer Raised Questions%'")
+        _auto_like = " OR ".join(f"doubt_text LIKE {p}" for p in _AUTO_PREFIXES)
+        _user_not_auto = " AND ".join(f"doubt_text NOT LIKE {p}" for p in _AUTO_PREFIXES)
+        type_clauses = []
+        if filter_user:
+            type_clauses.append(f"({_user_not_auto})")
+        if filter_pinned:
+            type_clauses.append("pinned = 1")
+        if filter_auto:
+            type_clauses.append(f"({_auto_like})")
+        if type_clauses:
+            conditions.append("(" + " OR ".join(type_clauses) + ")")
+
+        # Conversation scope sorts purely by date; all-scope floats pinned first
+        order_by = "created_at DESC" if scope == "conversation" else "pinned DESC, created_at DESC"
 
         where = " AND ".join(conditions)
 
@@ -625,7 +663,7 @@ def get_all_doubts_for_user(
                        parent_doubt_id, is_root_doubt, created_at, updated_at, show_hide, with_context,
                        pinned, bookmarked, display_attachments
                 FROM DoubtsClearing WHERE {where}
-                ORDER BY pinned DESC, created_at DESC
+                ORDER BY {order_by}
                 LIMIT ? OFFSET ?""",
             params + [page_size, offset],
         )

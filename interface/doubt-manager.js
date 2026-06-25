@@ -1780,16 +1780,23 @@ const DoubtManager = {
     // ========================
     
     globalDoubtsPage: 1,
-    globalDoubtsFilter: 'all',
+    globalDoubtsScope: 'conversation',   // 'conversation' | 'all'
+    globalDoubtsTypes: { user: true, pinned: false, auto: false },
     globalDoubtsSearch: '',
     
     openGlobalDoubtsModal: function() {
         this.globalDoubtsPage = 1;
-        this.globalDoubtsFilter = 'all';
+        this.globalDoubtsScope = 'conversation';
+        this.globalDoubtsTypes = { user: true, pinned: false, auto: false };
         this.globalDoubtsSearch = '';
         $('#global-doubts-search').val('');
-        $('.global-doubts-filter').removeClass('active');
-        $('.global-doubts-filter[data-filter="all"]').addClass('active');
+        // Reset scope buttons
+        $('.global-doubts-scope').removeClass('active');
+        $('.global-doubts-scope[data-scope="conversation"]').addClass('active');
+        // Reset type checkboxes
+        $('#gd-check-user').prop('checked', true);
+        $('#gd-check-pinned').prop('checked', false);
+        $('#gd-check-auto').prop('checked', false);
         this.loadGlobalDoubts();
         $('#global-doubts-modal').modal('show');
     },
@@ -1800,8 +1807,18 @@ const DoubtManager = {
             page: this.globalDoubtsPage,
             page_size: 20,
             search: this.globalDoubtsSearch,
-            filter: this.globalDoubtsFilter,
+            scope: this.globalDoubtsScope,
+            filter_user: this.globalDoubtsTypes.user ? '1' : '0',
+            filter_pinned: this.globalDoubtsTypes.pinned ? '1' : '0',
+            filter_auto: this.globalDoubtsTypes.auto ? '1' : '0',
         });
+        if (this.globalDoubtsScope === 'conversation') {
+            const convId = (typeof ConversationManager !== 'undefined' && ConversationManager.activeConversationId)
+                ? ConversationManager.activeConversationId : '';
+            if (convId) {
+                params.set('conversation_id', convId);
+            }
+        }
         $.get(`/get_all_doubts?${params.toString()}`, function(data) {
             if (data.success) {
                 self.renderGlobalDoubtsList(data.doubts, data.total, data.page, data.page_size);
@@ -1870,11 +1887,19 @@ const DoubtManager = {
             }, 400);
         });
         
-        // Filter buttons
-        $(document).off('click', '.global-doubts-filter').on('click', '.global-doubts-filter', function() {
-            $('.global-doubts-filter').removeClass('active');
+        // Scope buttons (mutually exclusive)
+        $(document).off('click', '.global-doubts-scope').on('click', '.global-doubts-scope', function() {
+            $('.global-doubts-scope').removeClass('active');
             $(this).addClass('active');
-            self.globalDoubtsFilter = $(this).data('filter');
+            self.globalDoubtsScope = $(this).data('scope');
+            self.globalDoubtsPage = 1;
+            self.loadGlobalDoubts();
+        });
+        
+        // Type checkboxes (independent)
+        $(document).off('change', '.global-doubts-type-check').on('change', '.global-doubts-type-check', function() {
+            const type = $(this).data('type');
+            self.globalDoubtsTypes[type] = $(this).is(':checked');
             self.globalDoubtsPage = 1;
             self.loadGlobalDoubts();
         });

@@ -595,10 +595,16 @@ def get_all_doubts_route():
         page = int(request.args.get("page", 1))
         page_size = int(request.args.get("page_size", 20))
         search = request.args.get("search", "").strip()
-        filter_type = request.args.get("filter", "all")
+        scope = request.args.get("scope", "conversation")
+        filter_user = request.args.get("filter_user", "1") == "1"
+        filter_pinned = request.args.get("filter_pinned", "0") == "1"
+        filter_auto = request.args.get("filter_auto", "0") == "1"
+        conversation_id = request.args.get("conversation_id", "").strip()
         result = get_all_doubts_for_user(
             user_email=email, page=page, page_size=page_size,
-            search=search, filter_type=filter_type,
+            search=search, scope=scope,
+            filter_user=filter_user, filter_pinned=filter_pinned, filter_auto=filter_auto,
+            conversation_id=conversation_id,
             users_dir=state.users_dir, logger=logger,
         )
         return jsonify({"success": True, **result})
