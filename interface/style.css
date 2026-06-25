@@ -864,6 +864,8 @@ textarea.form-control.dynamic-textarea {
     min-width: 180px;
     padding: 4px 0;
     font-size: 0.82rem;
+    max-height: 80vh;
+    overflow-y: auto;
 }
 .att-ctx-item {
     padding: 7px 14px;
@@ -1893,6 +1895,8 @@ table, tr, thead, th, td {
 .fb-context-menu {
     position: fixed;
     z-index: 9999;
+    max-height: 80vh;
+    overflow-y: auto;
 }
 .fb-context-menu .dropdown-item {
     font-size: 0.82rem;

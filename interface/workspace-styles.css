@@ -229,6 +229,8 @@
     box-shadow: 0 2px 8px rgba(0,0,0,0.4) !important;
     border-radius: 4px !important;
     min-width: 160px !important;
+    max-height: 80vh !important;
+    overflow-y: auto !important;
     -webkit-font-smoothing: antialiased !important;
     -moz-osx-font-smoothing: grayscale !important;
     text-rendering: optimizeLegibility !important;
