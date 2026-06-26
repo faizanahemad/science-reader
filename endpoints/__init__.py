@@ -29,7 +29,7 @@ def register_blueprints(app: Flask) -> None:
     # Order can matter for request hooks (e.g., auth remember-token logic uses
     # `before_app_request`), so we register auth first.
     from .auth import auth_bp
-    from .static_routes import static_bp
+    from .static_routes import static_bp, compute_asset_hashes
     from .workspaces import workspaces_bp
     from .conversations import conversations_bp
     from .doubts import doubts_bp
@@ -62,6 +62,12 @@ def register_blueprints(app: Flask) -> None:
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(static_bp)
+
+    # Compute content hashes for all interface JS/CSS assets before any
+    # requests are served.  The hashes are used for cache-busting URLs (?h=)
+    # and dynamic CACHE_VERSION injection into the service worker.
+    compute_asset_hashes()
+
     app.register_blueprint(workspaces_bp)
     app.register_blueprint(conversations_bp)
     app.register_blueprint(doubts_bp)

@@ -11,8 +11,10 @@ This module hosts routes that serve UI assets / basic infra endpoints:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
+import re
 from typing import Any
 
 from flask import (
@@ -37,6 +39,123 @@ from extensions import cache, limiter
 
 static_bp = Blueprint("static_routes", __name__)
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Asset hash registry (Task 1)
+# ---------------------------------------------------------------------------
+# At server startup, compute SHA-256 content hashes for all JS/CSS files in
+# the interface/ directory.  Used for cache-busting URLs (?h=<hash>) and
+# dynamic CACHE_VERSION injection into the service worker.
+
+_asset_hashes: dict[str, str] = {}   # "filename" -> "8-char hex hash"
+_composite_hash: str = ""             # hash of all hashes, for CACHE_VERSION
+
+
+def compute_asset_hashes() -> None:
+    """Compute content hashes for all interface JS/CSS assets.
+
+    Call once at app startup (during blueprint registration or app factory),
+    before any requests are served.  Flask's ``use_reloader=True`` restarts
+    the process on file changes, so hashes stay fresh in dev mode.
+    """
+    global _composite_hash
+    _asset_hashes.clear()
+
+    interface_dir = os.path.join(os.path.dirname(__file__), "..", "interface")
+    interface_dir = os.path.normpath(interface_dir)
+
+    # Skip third-party bundles with internal relative references
+    skip_dirs = {"pdf.js", "node_modules"}
+
+    for root, dirs, files in os.walk(interface_dir):
+        dirs[:] = [d for d in dirs if d not in skip_dirs]
+        for f in files:
+            if f.endswith((".js", ".css")):
+                filepath = os.path.join(root, f)
+                relpath = os.path.relpath(filepath, interface_dir).replace("\\", "/")
+                with open(filepath, "rb") as fh:
+                    content_hash = hashlib.sha256(fh.read()).hexdigest()[:8]
+                _asset_hashes[relpath] = content_hash
+
+    # Composite hash for dynamic CACHE_VERSION (Task 8)
+    all_hashes = "|".join(f"{k}={v}" for k, v in sorted(_asset_hashes.items()))
+    _composite_hash = hashlib.sha256(all_hashes.encode()).hexdigest()[:8]
+    logger.info(
+        "Asset hash registry: %d files, composite=%s", len(_asset_hashes), _composite_hash
+    )
+
+
+# ---------------------------------------------------------------------------
+# HTML hash injection (Task 2)
+# ---------------------------------------------------------------------------
+
+# Regex matches src="interface/foo.js" or href="/interface/foo.css?v=123" etc.
+# Captures: (attr_prefix)(optional_slash + interface/)(filename.ext) — strips ?v=N
+_ASSET_REF_RE = re.compile(
+    r'((?:src|href)=["\'])(/?interface/)([\w\-./]+\.(?:js|css))(?:\?v=\d+)?'
+)
+
+_html_cache: dict[str, tuple[str, float]] = {}  # filename -> (processed_html, mtime)
+
+
+def _inject_asset_hashes(html_content: str) -> str:
+    """Replace interface/foo.js(?v=N) with interface/foo.js?h=<hash> in HTML."""
+
+    def _replace(match: re.Match) -> str:
+        prefix = match.group(1)      # 'src="' or 'href="'
+        iface_path = match.group(2)  # 'interface/' or '/interface/'
+        filename = match.group(3)    # 'common.js' or 'style.css'
+        h = _asset_hashes.get(filename, "")
+        if h:
+            return f"{prefix}{iface_path}{filename}?h={h}"
+        return match.group(0)  # no hash available, leave as-is
+
+    return _ASSET_REF_RE.sub(_replace, html_content)
+
+
+def _serve_html_with_hashes(filename: str, extra_transform=None) -> Response:
+    """Read an HTML file, inject asset hashes, apply optional transform, return response.
+
+    Parameters
+    ----------
+    filename : str
+        Filename relative to the ``interface/`` directory (e.g. ``"interface.html"``).
+    extra_transform : callable, optional
+        A ``str -> str`` function applied *after* hash injection (e.g. to embed
+        a conversation-id div for shared pages).
+    """
+    is_nocache = bool(current_app.config.get("SW_CACHE_NONCE"))
+    html_path = os.path.join("interface", filename)
+    current_mtime = os.path.getmtime(html_path)
+
+    cached = _html_cache.get(filename)
+    if (
+        cached
+        and cached[1] == current_mtime
+        and not current_app.debug
+        and not is_nocache
+        and extra_transform is None
+    ):
+        html = cached[0]
+    else:
+        with open(html_path, "r", encoding="utf-8") as f:
+            html = f.read()
+
+        # In --no-cache mode, skip hash injection (Task 7)
+        if not is_nocache:
+            html = _inject_asset_hashes(html)
+
+        if extra_transform is not None:
+            html = extra_transform(html)
+
+        # Only cache when there's no dynamic transform and not in debug/nocache mode
+        if extra_transform is None and not current_app.debug and not is_nocache:
+            _html_cache[filename] = (html, current_mtime)
+
+    response = make_response(html)
+    response.headers["Content-Type"] = "text/html; charset=utf-8"
+    response.headers["Cache-Control"] = "no-cache"
+    return response
 
 
 def cached_get_file(file_url: str):
@@ -250,43 +369,46 @@ def force_clear_locks(conversation_id: str):
 @limiter.limit("200 per minute")
 @login_required
 def interface():
-    """Serve the main UI shell."""
-
-    return send_from_directory("interface", "interface.html", max_age=0)
+    """Serve the main UI shell (with injected asset hashes for cache busting)."""
+    return _serve_html_with_hashes("interface.html")
 
 
 @static_bp.route("/interface/service-worker.js")
 @limiter.limit("200 per minute")
 def service_worker_js():
-    """Serve service-worker.js, optionally with a dynamic CACHE_VERSION.
+    """Serve service-worker.js with a dynamic CACHE_VERSION.
 
-    When the server is started with ``--no-cache``, the hardcoded CACHE_VERSION
-    in the JS file is replaced with a startup-time nonce.  Because browsers
-    byte-compare the SW script on every navigation, this forces a reinstall
-    which purges all old caches.
+    Normal mode: CACHE_VERSION is replaced with a composite content hash
+    of all interface assets.  Any file change produces a new hash, which
+    triggers a SW reinstall and cache purge — no manual version bumping.
+
+    ``--no-cache`` mode: CACHE_VERSION is replaced with a startup-time nonce
+    that forces reinstall and cache purge on every server restart.
     """
-    import re
-
     sw_path = os.path.join("interface", "service-worker.js")
     nonce = current_app.config.get("SW_CACHE_NONCE")
 
-    if not nonce:
-        # Normal mode: serve the static file as-is.
-        return send_from_directory("interface", "service-worker.js", max_age=0)
-
-    # --no-cache mode: read file and replace CACHE_VERSION with nonce.
-    with open(sw_path, "r") as f:
+    with open(sw_path, "r", encoding="utf-8") as f:
         content = f.read()
+
+    if nonce:
+        # --no-cache mode: unique nonce per server start
+        version_string = f"nocache-{nonce}"
+        cache_control = "no-store"
+    else:
+        # Normal mode: composite hash of all interface assets (Task 8)
+        version_string = f"v-{_composite_hash}" if _composite_hash else "v50"
+        cache_control = "no-cache"
 
     content = re.sub(
         r'const CACHE_VERSION\s*=\s*"[^"]*"',
-        f'const CACHE_VERSION = "nocache-{nonce}"',
+        f'const CACHE_VERSION = "{version_string}"',
         content,
         count=1,
     )
 
     return Response(content, mimetype="application/javascript", headers={
-        "Cache-Control": "no-store",
+        "Cache-Control": cache_control,
         "Service-Worker-Allowed": "/interface/",
     })
 
@@ -369,7 +491,7 @@ def interface_combined_route(path: str):
         return redirect("/login", code=302)
 
     if not path:
-        return send_from_directory("interface", "interface.html", max_age=0)
+        return _serve_html_with_hashes("interface.html")
 
     # If the interface is nested under a user email folder, strip it.
     if email is not None and path.startswith(email) and path.count("/") >= 2:
@@ -379,16 +501,21 @@ def interface_combined_route(path: str):
     try:
         conversation_id = path.split("/")[0]
         if checkConversationExists(email, conversation_id, users_dir=state.users_dir):
-            return send_from_directory("interface", "interface.html", max_age=0)
+            return _serve_html_with_hashes("interface.html")
     except Exception as e:
         logger.error(f"Error checking conversation access: {str(e)}")
 
+    # Serve static assets.  If the request has ?h=<hash>, the URL is
+    # content-addressed — cache aggressively (Task 3).
+    actual_path = path.replace("interface/", "").replace("interface/interface/", "")
     try:
-        return send_from_directory(
-            "interface",
-            path.replace("interface/", "").replace("interface/interface/", ""),
-            max_age=0,
-        )
+        has_hash = request.args.get("h")
+        if has_hash:
+            resp = send_from_directory("interface", actual_path, max_age=31536000)
+            resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            return resp
+        else:
+            return send_from_directory("interface", actual_path, max_age=0)
     except FileNotFoundError:
         return "File not found", 404
 
@@ -434,13 +561,12 @@ def proxy_shared_route():
 def shared(conversation_id: str):
     """Serve the shared view page, embedding conversation_id into the HTML."""
 
-    html_file_path = os.path.join("interface", "shared.html")
-    with open(html_file_path, "r", encoding="utf-8") as file:
-        html_content = file.read()
-
     div_element = f'<div id="conversation_id" data-conversation_id="{conversation_id}" style="display: none;"></div>'
-    modified_html = html_content.replace("</body>", f"{div_element}</body>")
-    return Response(modified_html, mimetype="text/html")
+
+    def _embed_conversation_id(html: str) -> str:
+        return html.replace("</body>", f"{div_element}</body>")
+
+    return _serve_html_with_hashes("shared.html", extra_transform=_embed_conversation_id)
 
 
 @static_bp.route("/")

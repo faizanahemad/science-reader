@@ -293,8 +293,9 @@ class TerminalSession:
 @limiter.limit("30 per minute")
 @login_required
 def terminal_page():
-    """Serve the standalone terminal page."""
-    return send_from_directory("interface", "terminal.html", max_age=0)
+    """Serve the standalone terminal page (with injected asset hashes)."""
+    from endpoints.static_routes import _serve_html_with_hashes
+    return _serve_html_with_hashes("terminal.html")
 
 
 # ─── WebSocket helpers ───────────────────────────────────────────────

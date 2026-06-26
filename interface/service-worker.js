@@ -3,22 +3,23 @@
  * Service Worker for the `/interface/*` UI shell.
  *
  * Design goals (per project plan):
- * - Cache only the same-origin "app shell" assets under `/interface/*` and `/static/*`.
+ * - Cache same-origin "app shell" assets under `/interface/*` and `/static/*`.
+ * - Cache third-party CDN assets from allowlisted hosts (versioned, with TTL safety net).
  * - Treat ALL API endpoints (see `endpoints/external_api.md`) as NetworkOnly.
- * - Do NOT cache cross-origin CDN assets (MathJax/Marked/etc) initially to avoid staleness/update risk.
  * - Use NetworkFirst for navigations under `/interface/*` (avoid HTML/JS mismatch), with offline fallback to cached shell.
  */
 
 const DEBUG = false;
 
 // Bump cache when UI shell assets change.
+// Placeholder — replaced at serve time with composite content hash (see static_routes.py)
 const CACHE_VERSION = "v50";
 const UI_SHELL_CACHE = `ui-shell-${CACHE_VERSION}`;
 const META_CACHE = `meta-${CACHE_VERSION}`;
 
 // TTL policy (milliseconds). Used as a safety net so stale assets eventually refresh
 // even if CACHE_VERSION isn't bumped.
-const TTL_6H = 6 * 60 * 60 * 1000;
+const TTL_30D = 30 * 24 * 60 * 60 * 1000;  // 30 days — safe with content-hashed URLs
 
 // Conservative allowlist for third-party assets (scripts/styles/fonts) referenced in `interface/interface.html`.
 // We only cache asset-like requests (script/style/font/image) from these hosts.
@@ -34,43 +35,9 @@ const CDN_ALLOWLIST_HOSTS = new Set([
   "laingsimon.github.io",
 ]);
 
-// Deterministic precache list: only same-origin assets that are part of your UI bundle.
-// Note: `interface/interface.html` references local assets as `interface/...`, which resolves to
-// `/interface/interface/...` when the page URL is `/interface` or `/interface/<conversation_id>`.
-const PRECACHE_URLS = [
-  // UI shell (HTML). Cached for offline fallback only; navigations are still NetworkFirst.
-  "/interface",
-
-  // Local CSS
-  "/interface/interface/style.css",
-  "/interface/interface/workspace-styles.css",
-  "/interface/interface/css_patched_mobile_view.css",
-
-  // Local JS (referenced by interface/interface.html)
-  "/interface/interface/parseMessageForCheckBoxes.js",
-  "/interface/interface/common.js",
-  "/interface/interface/rendered-state-manager.js",
-  "/interface/interface/gamification.js",
-  "/interface/interface/common-chat.js",
-  "/interface/interface/markdown-editor.js",
-  "/interface/interface/interface.js",
-  "/interface/interface/codemirror.js",
-  "/interface/interface/doubt-manager.js",
-  "/interface/interface/clarifications-manager.js",
-  "/interface/interface/temp-llm-manager.js",
-  "/interface/interface/context-menu-manager.js",
-  "/interface/interface/prompt-manager.js",
-  "/interface/interface/pkb-manager.js",
-  "/interface/interface/chat.js",
-  "/interface/interface/workspace-manager.js",
-  "/interface/interface/audio_process.js",
-  "/interface/interface/file-browser-manager.js",
-  "/interface/interface/tool-call-manager.js",
-
-  // PWA icons
-  "/interface/icons/app-icon.svg",
-  "/interface/icons/maskable-icon.svg",
-];
+// Precaching removed — runtime caching on page load handles all assets.
+// Content-hashed URLs (?h=) in the HTML are the source of truth for current file versions.
+const PRECACHE_URLS = [];
 
 const PWA_ASSET_PATHS = new Set([
   "/interface/manifest.json",
@@ -241,7 +208,7 @@ self.addEventListener("fetch", (event) => {
         const ts = await getCachedTimestamp(req.url);
 
         // If we have a fresh cached entry, serve it.
-        if (cached && isFresh(ts, TTL_6H)) return cached;
+        if (cached && isFresh(ts, TTL_30D)) return cached;
 
         // Otherwise try network and refresh cache; fall back to stale cache if offline.
         try {
@@ -325,7 +292,7 @@ self.addEventListener("fetch", (event) => {
         const ts = await getCachedTimestamp(req.url);
 
         // Serve from cache if fresh. If stale, try network refresh but fall back to cached.
-        if (cached && isFresh(ts, TTL_6H)) return cached;
+        if (cached && isFresh(ts, TTL_30D)) return cached;
 
         try {
           const resp = await fetch(req);

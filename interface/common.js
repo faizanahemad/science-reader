@@ -313,8 +313,11 @@ window._mathJaxScheduler = (function() {
     };
 })();
 
-// Keep this aligned with `CACHE_VERSION` in `interface/service-worker.js` when you want
-// deterministic invalidation of cached UI assets and rendered-state snapshots.
+// UI_CACHE_VERSION controls IndexedDB rendered-state snapshot invalidation.
+// This is intentionally kept manual (not auto-hashed like CACHE_VERSION in
+// service-worker.js) because rendered-state snapshots only need invalidation
+// when rendering logic changes — not when any file changes.  Bump this when
+// you change common.js, common-chat.js, or rendered-state-manager.js rendering.
 window.UI_CACHE_VERSION = "v24";
 var currentDomain = {
     domain: 'assistant', // finchat, search
