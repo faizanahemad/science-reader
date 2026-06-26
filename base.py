@@ -3574,10 +3574,24 @@ def create_leetcode_links(url):
     }
 
 
+def _should_cache_download_link_data(result):
+    try:
+        return (
+            result is not None
+            and isinstance(result, dict)
+            and isinstance(result.get("full_text"), str)
+            and len(result["full_text"].strip()) > 10
+            and not result.get("exception")
+            and not result.get("error")
+        )
+    except Exception:
+        return False
+
 @CacheResults(
     cache=cache,
     key_function=lambda args, kwargs: str(mmh3.hash(str(args[0][0]), signed=False)),
-    enabled=False,
+    enabled=True,
+    should_cache_predicate=_should_cache_download_link_data,
 )
 def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=None):
     st = time.time()
@@ -3658,63 +3672,80 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
         result["is_pdf"] = True
         result["is_image"] = False
 
-    elif False:
+    elif is_youtube_link(link):
+        # Fetch YouTube transcript via youtube_transcript_api (no audio download / ASR needed).
+        # Prefer manual captions over auto-generated; prefer English.
+        import re as _re
         from youtube_transcript_api import YouTubeTranscriptApi
         from youtube_transcript_api.proxies import GenericProxyConfig
 
-        ytt_api = YouTubeTranscriptApi(
-            proxy_config=GenericProxyConfig(
-                http_url=api_keys["brightdataProxy"],
-                https_url=api_keys["brightdataProxy"],
+        proxy_url = api_keys.get("brightdataProxy")
+        if proxy_url:
+            ytt_api = YouTubeTranscriptApi(
+                proxy_config=GenericProxyConfig(
+                    http_url=proxy_url,
+                    https_url=proxy_url,
+                )
             )
-        )
-        fetched_transcript = ytt_api.fetch(link).to_raw_data()
-        # Convert transcript data to SRT format
-        result = []
-        for i, entry in enumerate(fetched_transcript, 1):
-            # Calculate end time by adding duration to start time
-            start_time = entry["start"]
-            end_time = start_time + entry["duration"]
+        else:
+            ytt_api = YouTubeTranscriptApi()
 
-            # Convert times to SRT format (HH:MM:SS,mmm)
-            start_str = f"{int(start_time // 3600):02d}:{int((start_time % 3600) // 60):02d}:{int(start_time % 60):02d},{int((start_time * 1000) % 1000):03d}"
-            end_str = f"{int(end_time // 3600):02d}:{int((end_time % 3600) // 60):02d}:{int(end_time % 60):02d},{int((end_time * 1000) % 1000):03d}"
+        try:
+            transcript_list = ytt_api.list(link)
+            manual = [t for t in transcript_list if not t.is_generated]
+            auto = [t for t in transcript_list if t.is_generated]
 
-            # Format subtitle entry
-            result.append(str(i))  # Subtitle number
-            result.append(f"{start_str} --> {end_str}")  # Timestamp
-            result.append(entry["text"])  # Text
-            result.append("")  # Blank line between entries
-        result = "\n".join([d["text"] for d in result])
-        result = {
-            "link": link,
-            "title": title,
-            "text": result,
-            "exception": False,
-            "full_text": result,
-            "is_pdf": False,
-            "is_image": False,
-        }
-        result["is_pdf"] = False
-        result["is_image"] = False
+            # Pick best transcript: manual english > any manual > auto english > any auto
+            target_lang = None
+            for t in manual:
+                if "en" in t.language_code.lower():
+                    target_lang = t.language_code
+                    break
+            if not target_lang and manual:
+                target_lang = manual[0].language_code
+            if not target_lang:
+                for t in auto:
+                    if "en" in t.language_code.lower():
+                        target_lang = t.language_code
+                        break
+            if not target_lang and auto:
+                target_lang = auto[0].language_code
+
+            if target_lang is None:
+                raise Exception("No transcripts available for this YouTube video.")
+
+            fetched_transcript = ytt_api.fetch(link, languages=[target_lang])
+            raw_data = fetched_transcript.to_raw_data()
+            full_text = " ".join([entry["text"] for entry in raw_data])
+            # Clean zero-width spaces and normalize whitespace
+            full_text = _re.sub(r"[\u200b\u200c\u200d\ufeff]", "", full_text)
+            full_text = _re.sub(r"\s+", " ", full_text).strip()
+
+            result = {
+                "link": link,
+                "title": title,
+                "text": full_text,
+                "exception": False,
+                "full_text": full_text,
+                "is_pdf": False,
+                "is_image": False,
+            }
+            logger.info(f"YouTube transcript fetched for {link} (lang={target_lang}, words={len(full_text.split())})")
+        except Exception as e:
+            logger.error(f"YouTube transcript fetch failed for {link}: {e}")
+            result = {
+                "link": link,
+                "title": title,
+                "text": "",
+                "exception": True,
+                "full_text": "",
+                "is_pdf": False,
+                "is_image": False,
+                "error": str(e),
+            }
+
     elif False:
-        from langchain_community.document_loaders import YoutubeLoader
-
-        doc_text = YoutubeLoader.from_youtube_url(link, add_video_info=False).load()
-        doc_text = "\n".join([d.page_content for d in doc_text])
-        result = {
-            "link": link,
-            "title": title,
-            "text": doc_text,
-            "exception": False,
-            "full_text": doc_text,
-            "is_pdf": False,
-            "is_image": False,
-        }
-        result["is_pdf"] = False
-        result["is_image"] = False
-
-    elif is_youtube_link(link):
+        # Deactivated: yt_dlp + AssemblyAI based approach (causes IP flagging).
         temp_folder = os.path.join(os.getcwd(), "temp")
         if not os.path.exists(temp_folder):
             os.makedirs(temp_folder)
