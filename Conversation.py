@@ -6318,7 +6318,7 @@ Respond with a JSON object containing is_coding_interview, confidence, reasoning
         # --- TLDR generation for long answers ---
         answer_content = answer.replace("<answer>", "").replace("</answer>", "").strip()
         answer_word_count = len(answer_content.split())
-        if answer_word_count > 300 and not self.is_cancelled():
+        if answer_word_count > 300 and not self.is_cancelled() and checkboxes.get("enable_answer_tldr", False):
             try:
                 yield {
                     "text": "\n\n",
@@ -12493,7 +12493,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         stream_iter_start = time.perf_counter()
         first_stream_chunk_logged = False
         _tldr_future = None
-        _tldr_skip = (model_name == FILLER_MODEL or agent is not None)
+        _tldr_skip = (model_name == FILLER_MODEL or agent is not None or not checkboxes.get("enable_answer_tldr", False))
         for dcit in main_ans_gen:
             if not first_stream_chunk_logged:
                 time_logger.info(
@@ -12678,6 +12678,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             and model_name != FILLER_MODEL
             and not self.is_cancelled()
             and agent is None
+            and checkboxes.get("enable_answer_tldr", False)
         ):
             _collect_reward_output(block=False)
             if reward_output_ready:

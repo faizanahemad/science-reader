@@ -696,6 +696,7 @@ function buildSettingsStateFromControlsOrDefaults() {
         enabled_tools: getSelectPickerValue('#settings-tool-selector', []),
         compact_nav: $('#settings-compact_nav').is(':checked') || false,
         default_temp_chat: $('#settings-default_temp_chat').is(':checked') || false,
+        enable_answer_tldr: $('#settings-enable_answer_tldr').is(':checked') || false,
         recent_conversations_count: parseInt($('#settings-recent-conversations-count').val(), 10) || 10,
     };
     return state;
@@ -755,6 +756,7 @@ function setModalFromState(state) {
         applyCompactNav(!!state.compact_nav);
     }
     $('#settings-default_temp_chat').prop('checked', !!state.default_temp_chat);
+    $('#settings-enable_answer_tldr').prop('checked', !!state.enable_answer_tldr);
     var recentCount = (state.recent_conversations_count !== undefined && state.recent_conversations_count !== null)
         ? state.recent_conversations_count
         : 10;
@@ -875,6 +877,7 @@ function collectSettingsFromModal() {
         enabled_tools: getSelectPickerValue('#settings-tool-selector', []),
         compact_nav: $('#settings-compact_nav').is(':checked'),
         default_temp_chat: $('#settings-default_temp_chat').is(':checked'),
+        enable_answer_tldr: $('#settings-enable_answer_tldr').is(':checked'),
         recent_conversations_count: parseInt($('#settings-recent-conversations-count').val(), 10) || 10,
         model_overrides: (window.chatSettingsState && window.chatSettingsState.model_overrides)
             ? window.chatSettingsState.model_overrides
@@ -1398,6 +1401,7 @@ function resetSettingsToDefaults() {
     $('#settings-ppt-answer').prop('checked', false);
     $('#settings-use_memory_pad').prop('checked', false);
     $('#settings-enable_planner').prop('checked', false);
+    $('#settings-enable_answer_tldr').prop('checked', false);
     $('#settings-use_pkb').prop('checked', true);
     $('#settings-pkb-extraction-mode').val('relaxed');
     $('#settings-enable_custom_context_menu').prop('checked', !isProbablyMobileDevice());
@@ -1497,6 +1501,7 @@ function computeDefaultStateForTab(tab) {
         persist_or_not: true,
         use_memory_pad: false,
         enable_planner: false,
+        enable_answer_tldr: false,
         pkb_extraction_mode: 'relaxed',
         enable_custom_context_menu: !isProbablyMobileDevice(),
         ppt_answer: false,

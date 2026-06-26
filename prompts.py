@@ -136,9 +136,9 @@ Other instructions:
 
 """.lstrip()
 
-# TLDR prompt for generating short summaries of long answers
-tldr_summary_prompt_system = """You are a skilled answer shortener. Your task is to create a TLDR (Too Long; Didn't Read) short version of a detailed answer.
-You will be given a conversation summary so far, a user's original question and the full answer to shorten. You will be given instructions on how to shorten the answer. Then you will write the short version of the answer."""
+# TLDR prompt for generating a short direct answer for long responses
+tldr_summary_prompt_system = """You are a skilled writer who gives short, direct answers. Your task is to write a brief standalone answer to the user's question, informed by the detailed answer already produced.
+You will be given a conversation summary so far, a user's original question and the full detailed answer. You will be given instructions on how to write the short answer. Then you will write the short answer."""
 
 tldr_summary_prompt = f"""{tldr_summary_prompt_system}
 
@@ -158,24 +158,24 @@ tldr_summary_prompt = f"""{tldr_summary_prompt_system}
 
 ---
 
-**The full answer to shorten:**
+**The full detailed answer (for reference):**
 '''
 {{answer}}
 '''
 
 **Instructions:**
-1. Create a concise TLDR short version of the above answer in few bullet points or 3-4 short paragraphs.
-2. Focus on the key takeaways, main points, and actionable insights from the actual answer provided. Don't forget to also include any key information or insights from the answer as well.
-3. Do NOT add any new information, opinions, or details that are not in the original answer.
-4. This is strictly a summarization/paraphrasing task - only condense what is already written.
-5. Keep the short version brief (under 400 words) but ensure it captures the essence of the full answer. Include few details where they are making most impact.
-6. Use clear, simple language that is easy to scan quickly.
-7. If the answer contains code, formulas, or technical details, summarize what they accomplish rather than including them verbatim.
-8. Preserve any important steps, procedures, caveats, warnings, or limitations mentioned in the original answer.
-9. Provide a one paragraph key takeaways and learnings or things to remember and do's/dont's to remember from the answer at the end.
-10. Remove any historical context, background information, or repeatation of what is already mentioned in user query or conversation summary so far.
+1. Write a short, direct answer to the user's question in a few bullet points or 2-3 short paragraphs.
+2. Answer the question directly - get to the point immediately. Do not summarize or paraphrase the detailed answer; instead, give the user the key information they need.
+3. Focus on the most important facts, conclusions, and actionable takeaways that answer the question.
+4. Do NOT add any new information that is not supported by the detailed answer.
+5. Keep the short answer brief (under 300 words). Every sentence should earn its place.
+6. Use clear, simple language. Prefer concrete statements over vague generalities.
+7. If the answer involves code, formulas, or technical steps, state what they accomplish and the key details rather than reproducing them.
+8. Preserve any critical caveats, warnings, or limitations.
+9. End with a one-line key takeaway or bottom-line statement if appropriate.
+10. Do not repeat the question, do not add preamble like "Here is a short answer", and do not reference the detailed answer.
 
-Write the short version of the answer below:
+Write the short answer below:
 """.lstrip()
 
 user_ask_tldr_prompt = """Summarize the user's message below in 1-2 short sentences capturing the core intent and key details.

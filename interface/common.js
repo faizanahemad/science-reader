@@ -6647,6 +6647,7 @@ function getOptions(parentElementId, type) {
         enable_tool_use: $('#settings-tool_mode').length ? ($('#settings-tool_mode').val() !== 'none') : false,
         tool_mode: $('#settings-tool_mode').length ? $('#settings-tool_mode').val() : 'hybrid',
         auto_doubts_enabled: $('#settings-auto_doubts_enabled').length ? $('#settings-auto_doubts_enabled').is(':checked') : false,
+        enable_answer_tldr: $('#settings-enable_answer_tldr').length ? $('#settings-enable_answer_tldr').is(':checked') : false,
         enabled_tools: (function() {
             var $sel = $('#settings-tool-selector');
             if (!$sel.length) return [];

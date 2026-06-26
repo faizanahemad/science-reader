@@ -155,7 +155,9 @@ Server-side injection:
 
 **TLDR auto-summary for long answers**
 - For answers >300 words, the server appends a TLDR block after the main response.
-- Trigger: answer > 300 words, no agent active, not cancelled, not `FILLER_MODEL`.
+- **Controlled by "Answer TLDR" toggle** in chat settings modal (Behavior & Memory). Disabled by default. Setting key: `enable_answer_tldr`.
+- Trigger: answer > 300 words, TLDR enabled, no agent active, not cancelled, not `FILLER_MODEL`.
+- The prompt frames the task as writing a short direct answer (not a summary), producing better results for long responses.
 - **Mid-stream async**: TLDR future fires once streaming crosses 300 words (partial answer). Runs in parallel with remaining streaming. Collected post-stream (15s timeout). Falls back to sync if future wasn't fired.
 - Helper: `Conversation._generate_tldr_text(answer_text, user_query, summary_text)`. Model: `SUPERFAST_LLM[0]`.
 - Wrapped in collapsible `<details>` with header “📝 TLDR Summary (Quick Read)”.

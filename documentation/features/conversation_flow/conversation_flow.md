@@ -418,18 +418,26 @@ Key refs:
 
 ## TLDR Summary (auto-added after long answers)
 
-`Conversation.reply()` can append a TLDR block to the end of the answer when the response is very long. This is a server-side augmentation that shows up as a collapsible “TLDR Summary” section in the UI.
+`Conversation.reply()` can append a TLDR block to the end of the answer when the response is very long. This is a server-side augmentation that shows up as a collapsible "TLDR Summary" section in the UI.
 
 ### When it triggers
+- The **"Answer TLDR"** toggle is enabled in the chat settings modal (under Behavior & Memory). Disabled by default.
 - The answer exceeds 300 words (after stripping `<answer>` tags).
 - The request is not cancelled.
 - The model is not the `FILLER_MODEL`.
 - No specialized agent is active (`agent is None`).
 
+### UI setting
+- Checkbox: `#settings-enable_answer_tldr` in the Behavior & Memory section of the chat-settings-modal.
+- Default: **off** (disabled). The setting is persisted per-tab in localStorage via `chatSettingsState.enable_answer_tldr`.
+- Sent to the backend as `checkboxes.enable_answer_tldr` (boolean).
+- Both the main reply path and the OpenCode path check `checkboxes.get("enable_answer_tldr", False)`.
+
 ### How it is generated
 - **Mid-stream future (parallel)**: Once the answer crosses 300 words during streaming, a TLDR future is fired in the background with the partial answer text. This runs in parallel with the rest of the answer streaming, so the TLDR is usually ready by the time streaming completes.
 - **Post-stream collection**: After streaming, if the word threshold is met, the pre-computed TLDR future is collected (15s timeout). Falls back to synchronous generation if the future wasn't fired.
-- The TLDR prompt includes the user query, the running summary (if available), and the answer content (partial for mid-stream, full for fallback).
+- The TLDR prompt frames the task as writing a short, direct answer to the user's question (informed by the detailed answer), rather than summarizing. This produces better results for long answers (1K+ words) where a pure summary would lose important details.
+- The prompt includes the user query, the running summary (if available), and the answer content (partial for mid-stream, full for fallback).
 - The model used is `SUPERFAST_LLM[0]` (via `conversation_internal_model` override).
 - Helper method: `Conversation._generate_tldr_text(answer_text, user_query, summary_text)`.
 - Net latency savings: 1-3s post-stream compared to fully synchronous generation.
