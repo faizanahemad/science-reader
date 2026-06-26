@@ -456,7 +456,7 @@ Key responsibilities:
 - **Normalizes over-indented list items** via `normalizeOverIndentedLists()` before passing to `marked`. Some LLMs indent bullets with 4+ spaces, which CommonMark treats as code blocks instead of list items. This pre-processing subtracts 4 spaces from such lines while preserving relative nesting.
 - Supports streaming mode with a sibling "-md-render" element to avoid DOM thrash.
 - **Min-height locking** (streaming mode): Before replacing innerHTML, locks the element's current height as `min-height` to prevent layout collapse. Released after MathJax re-typesets.
-- Wraps `---` sections in `<details>` blocks and persists hidden/visible state.
+- Wraps `---` sections in `<details>` blocks and persists hidden/visible state. The section heading is placed directly in the `<summary>` element (with a CSS chevron toggle) rather than duplicated, and no close-section footer is rendered—saving two lines of vertical space per section.
 - Handles slide presentation markup, producing a blob URL and optional inline iframe.
 - Updates ToC and triggers MathJax typesetting (with min-height release in `_queueMathJax()` callback).
 - Protects incomplete code fences and inline code during streaming to avoid invalid HTML.

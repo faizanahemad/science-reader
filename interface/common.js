@@ -3558,9 +3558,6 @@ function _escapeCodeHtml(str) {
 }
 
 markdownParser.code = function (code, language) {
-    if (code.trim().startsWith('<div class="section-footer">')) {
-        return code;
-    }
     // Mermaid: render diagram duplicate + keep original code block for copy-btn.
     // The <pre class="mermaid"> clone is what mermaid.run() targets.
     // The original <pre><code> source is preserved inside a <details> so the
@@ -5840,26 +5837,22 @@ function renderInnerContentAsMarkdown(jqelem, callback = null, continuous = fals
                                                     
                                                     innerSummary = innerSummary.replace(/<answer>/g, '').replace(/<\/answer>/g, '').replace(/\*/g, '');
                                                     innerSectionWithCode = innerSectionWithCode.trim();
+                                                    // Extract heading level so we render the heading inside <summary>
+                                                    var _innerHeadingMatch = innerSectionWithCode.match(/^(#{1,6})\s+(.+?)$/m);
+                                                    var _innerHeadingLevel = _innerHeadingMatch ? _innerHeadingMatch[1].length : 2;
+                                                    var innerSectionForRender = _innerHeadingMatch
+                                                        ? innerSectionWithCode.replace(/^#{1,6}\s+.+?$/m, '')
+                                                        : innerSectionWithCode;
                                                     // Pre-render markdown to HTML before wrapping in <details>
                                                     // Otherwise marked.js treats content inside HTML blocks as raw text
-                                                    var innerSectionRendered = _timedMarked(innerSectionWithCode);
+                                                    var innerSectionRendered = _timedMarked(innerSectionForRender);
                                                      
                                                      innerWrapped += `
 <details open class="section-details nested-section" data-section-index="${j - 1}" data-section-hash="${innerHash}" id="${innerId}">
-<summary class="section-summary"><strong>${innerSummary}</strong></summary>
-
-<br/>
-
+<summary class="section-summary"><h${_innerHeadingLevel} class="section-heading">${innerSummary}</h${_innerHeadingLevel}></summary>
 
 <div class="section-content">
-<br/>\n
 ${innerSectionRendered}
-
-` + `
-
-<div class="section-footer">
-<button class="close-section-btn btn btn-xs btn-secondary" onclick="closeSectionDetails('${innerId}')" data-section-id="${innerId}" style="font-size: 10px; padding: 2px 6px;">Close Section</button>
-</div>
 </div>
 </details>
 `;
@@ -5912,17 +5905,22 @@ ${innerSectionRendered}
                                 var sectionId = `section-details-${sectionHash}`;
                                 
                                 summary = summary.replace(/<answer>/g, '').replace(/<\/answer>/g, '').replace(/\*/g, '');
+                                // Extract heading level so we can render the heading tag
+                                // inside <summary>, making the heading itself the toggle.
+                                var _headingMatch = sectionWithCode.match(/^(#{1,6})\s+(.+?)$/m);
+                                var _headingLevel = _headingMatch ? _headingMatch[1].length : 2;
+                                // Strip the heading from body so it only appears inside <summary>
+                                var sectionForRender = _headingMatch
+                                    ? sectionWithCode.replace(/^#{1,6}\s+.+?$/m, '')
+                                    : sectionWithCode;
                                 // Pre-render markdown to HTML before wrapping in <details>
                                 // Otherwise marked.js treats content inside HTML blocks as raw text
-                                var                                 sectionRendered = _timedMarked(sectionWithCode);
+                                var sectionRendered = _timedMarked(sectionForRender);
                                 wrappedHtml += `
 <details open class="section-details" data-section-index="${sectionIndex - 1}" data-section-hash="${sectionHash}" id="${sectionId}">
-    <summary class="section-summary"><strong>${summary}</strong></summary>
+    <summary class="section-summary"><h${_headingLevel} class="section-heading">${summary}</h${_headingLevel}></summary>
     <div class="section-content">
         ${sectionRendered}
-        <div class="section-footer">
-            <button class="close-section-btn btn btn-xs btn-secondary" onclick="closeSectionDetails('${sectionId}')" data-section-id="${sectionId}" style="font-size: 10px; padding: 2px 6px;">Close Section</button>
-        </div>
     </div>
 </details>`;
                             }

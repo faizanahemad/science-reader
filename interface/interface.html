@@ -5566,6 +5566,31 @@ greet("World");</code></pre>
     .doubt-conversation-card.doubt-answer-collapsed .card-body {
         display: none;
     }
+
+    /* ── Main-chat collapsible section-details ── */
+    details.section-details > summary.section-summary {
+        cursor: pointer;
+        user-select: none;
+        padding: 0;
+        margin: 0;
+    }
+    /* The heading inside summary IS the toggle — reset its margins so it
+       occupies exactly the same space as a normal heading would. */
+    details.section-details > summary.section-summary > .section-heading {
+        margin: 0;
+        display: inline;
+        cursor: pointer;
+    }
+    /* Collapsed section: subtle visual hint */
+    details.section-details:not([open]) {
+        margin-bottom: 0.5em;
+    }
+    details.section-details:not([open]) > summary.section-summary > .section-heading {
+        opacity: 0.65;
+    }
+    details.section-details:not([open]) > summary.section-summary:hover > .section-heading {
+        opacity: 1;
+    }
     .doubt-conversation-card.doubt-answer-collapsed .scroll-to-top-btn {
         display: none !important;
     }
