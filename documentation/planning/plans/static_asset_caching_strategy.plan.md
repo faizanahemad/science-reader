@@ -2,19 +2,19 @@
 
 ## Motivation & Background
 
-The app serves ~35 local JS/CSS files and ~20 CDN assets. Today the caching story has several layers that don't work together cleanly:
+The app serves ~37 local JS/CSS files and ~22 CDN assets (in `interface.html` alone; `shared.html` adds ~10 local + ~20 CDN, `terminal.html` adds 1 local + 4 CDN). Today the caching story has several layers that don't work together cleanly:
 
 1. **HTTP layer**: Flask serves all interface assets with `max_age=0` (must revalidate every request). Flask's `send_from_directory` does auto-set `Last-Modified` and `ETag` based on file mtime, so browsers *can* get `304 Not Modified` — but they must make a network round-trip every time.
 
 2. **Service Worker layer**: The SW (CACHE_VERSION `"v50"`) is the real caching layer. Despite comments suggesting StaleWhileRevalidate, the actual strategy for same-origin and CDN assets is **CacheFirst when fresh (< 6h TTL), NetworkFirst when stale** — it blocks on the network when stale, with stale fallback only on network failure. It precaches ~22 URLs on install. But:
-   - 16 local files loaded by `interface.html` are missing from the precache list
+   - 17 local files loaded by `interface.html` are missing from the precache list
    - 4 precached files have a `?v=N` query string in the HTML that doesn't match the bare precache URL, making the precache entry useless
-   - 3 CDN allowlist hosts are stale (no longer referenced in HTML)
+   - 3 CDN allowlist hosts (`cdn.datatables.net`, `mozilla.github.io`, `laingsimon.github.io`) are not referenced in `interface.html` but **are still used by `shared.html`** — cannot remove without breaking shared page caching
    - No intra-cache cleanup: old entries within the same `CACHE_VERSION` are never removed — they accumulate until the entire cache bucket is deleted by a version bump
 
-3. **Cache busting**: Only 7 of ~35 local files have manual `?v=N` query strings. The rest are bare URLs. Version numbers are not synchronized. There is no automated hash-based cache busting.
+3. **Cache busting**: Only 7 of ~37 local files have manual `?v=N` query strings. The rest are bare URLs. Version numbers are not synchronized. There is no automated hash-based cache busting.
 
-4. **CDN integrity**: Only ~5 of ~20+ CDN references have SRI `integrity` hashes.
+4. **CDN integrity**: Only 5 of 22 CDN references in `interface.html` have SRI `integrity` hashes. `shared.html` also has 5 of ~20. `terminal.html` has 0 of 4.
 
 5. **No build step**: `interface.html` is a raw static file. There is no bundler, no build pipeline, no Jinja2 templating. All JS files are unbundled source.
 
@@ -22,7 +22,7 @@ The app serves ~35 local JS/CSS files and ~20 CDN assets. Today the caching stor
 
 When a developer edits a JS file and deploys, users may get the stale version from the SW cache for up to 6 hours (the TTL). The only reliable invalidation is manually bumping `CACHE_VERSION` in `service-worker.js`, which forces a full re-download of everything — there's no way to invalidate just one file.
 
-Without the SW (first visit, private browsing, SW update in progress), every asset triggers a network round-trip because `max_age=0`. Flask's auto `ETag`/`Last-Modified` means these can be `304` responses (fast, no body), but it's still one round-trip per file (~35 requests).
+Without the SW (first visit, private browsing, SW update in progress), every asset triggers a network round-trip because `max_age=0`. Flask's auto `ETag`/`Last-Modified` means these can be `304` responses (fast, no body), but it's still one round-trip per file (~37 requests).
 
 ### What we want
 
@@ -43,20 +43,24 @@ Without the SW (first visit, private browsing, SW update in progress), every ass
 - 17 JS: `parseMessageForCheckBoxes.js`, `common.js`, `rendered-state-manager.js`, `gamification.js`, `common-chat.js`, `markdown-editor.js`, `interface.js`, `codemirror.js`, `doubt-manager.js`, `clarifications-manager.js`, `temp-llm-manager.js`, `context-menu-manager.js`, `prompt-manager.js`, `pkb-manager.js`, `chat.js`, `workspace-manager.js`, `audio_process.js`, `file-browser-manager.js`, `tool-call-manager.js`
 - 2 icons: `app-icon.svg`, `maskable-icon.svg`
 
-**Missing from precache (16 local files loaded by HTML):**
+**Missing from precache (17 local files loaded by HTML):**
 - 1 CSS: `dark-mode.css`
-- 15 JS: `lazy-libs.js`, `local-docs-manager.js`, `notification-manager.js`, `artefacts-manager.js`, `global-docs-manager.js`, `extension-bridge.js`, `page-context-manager.js`, `content-viewer.js`, `tab-picker-manager.js`, `workflow-manager.js`, `script-manager.js`, `image-gen-manager.js`, `cross-conversation-search.js`, `compare-manager.js`, `desktop-bridge.js`
+- 16 JS: `lazy-libs.js`, `local-docs-manager.js`, `notification-manager.js`, `artefacts-manager.js`, `global-docs-manager.js`, `extension-bridge.js`, `page-context-manager.js`, `content-viewer.js`, `tab-picker-manager.js`, `workflow-manager.js`, `script-manager.js`, `image-gen-manager.js`, `cross-conversation-search.js`, `compare-manager.js`, `desktop-bridge.js`, `tab-manager.js`
 
 **Query string mismatch (precache URL won't match browser request):**
 - HTML loads `style.css?v=29` but precache has `/interface/interface/style.css` (no `?v=`)
 - Same for `css_patched_mobile_view.css?v=29`, `tool-call-manager.js?v=1`, `file-browser-manager.js?v=27`
 
-**Stale CDN allowlist entries (no matching HTML reference):**
-- `cdn.datatables.net`, `mozilla.github.io`, `laingsimon.github.io`
+**CDN allowlist entries not in `interface.html` but used by `shared.html`:**
+- `cdn.datatables.net` — DataTables JS/CSS in `shared.html`
+- `mozilla.github.io` — pdf.js in `shared.html`
+- `laingsimon.github.io` — drawio-renderer in `shared.html`
+
+These hosts cannot be removed from the SW allowlist (see updated Task 5c).
 
 ### B. Manual `?v=N` Status
 
-Files WITH `?v=N` (7 of ~35):
+Files WITH `?v=N` (7 of ~37):
 | File | Version |
 |------|---------|
 | `css_patched_mobile_view.css` | `?v=29` |
@@ -67,7 +71,7 @@ Files WITH `?v=N` (7 of ~35):
 | `cross-conversation-search.js` | `?v=1` |
 | `file-browser-manager.js` | `?v=27` |
 
-Files WITHOUT `?v=N`: the remaining ~28 local JS/CSS files.
+Files WITHOUT `?v=N`: the remaining ~30 local JS/CSS files.
 
 ### C. CDN SRI Integrity Status
 
@@ -77,7 +81,21 @@ WITH integrity + crossorigin (5):
 WITHOUT integrity (15+):
 - KaTeX JS, KaTeX CSS, marked-katex-extension, highlight.js CSS, highlight.js JS, uuid, marked, MathJax, jQuery, animate.css, bootstrap-select JS, bootstrap-select CSS, Bootstrap Icons, Font Awesome, bootstrap-toggle CSS/JS, jsTree CSS/JS
 
-### D. HTTP Cache Headers by Route
+### D. `shared.html` Issues (discovered during plan revision)
+
+`shared.html` has several problems beyond just needing hash injection:
+
+1. **Duplicate script/link tags**: `popper.js` loaded twice (lines 68 & 133), `bootstrap-toggle.min.js` loaded twice (lines 70 & 136), `bootstrap-toggle.min.css` loaded twice (lines 69 & 135). These cause double-parsing and potential issues.
+2. **highlight.js version mismatch**: CSS is version 10.7.2 (line 10) but JS is version 11.9.0 (line 11). Themes may not match correctly.
+3. **Bootstrap Icons version discrepancy**: `shared.html` uses 1.7.2 (line 61), `interface.html` uses 1.11.3 (line 60). Missing newer icons on shared pages.
+4. **MathJax vs KaTeX divergence**: `shared.html` actively loads MathJax (line 15) which `interface.html` has commented out (line 19) in favor of KaTeX. Shared pages render math differently.
+5. **External pdf.js**: `shared.html` loads pdf.js from `mozilla.github.io` (line 19) while `interface.html` uses the local `/interface/pdf.js/` bundle. The shared page depends on a third-party CDN that could go down.
+6. **Shared uses DataTables + drawio-renderer** (lines 36, 39, 31) from CDN hosts that only `shared.html` uses — these CDN hosts must remain in the SW allowlist.
+7. **No auth**: `shared.html` is served at `/shared/<conversation_id>` without `@login_required`, so the 403 auth fix doesn't apply — but hash injection still should.
+
+These issues pre-date the caching plan but should be noted as they affect CDN allowlist decisions, SRI scope, and the completeness of shared page caching. A dedicated cleanup task (Task 11) is added below.
+
+### E. HTTP Cache Headers by Route
 
 | Route | `max_age` | Notes |
 |-------|-----------|-------|
@@ -230,18 +248,20 @@ def _serve_html_with_hashes(filename):
 Apply the same replacement in the catch-all route (conversation URL paths) that also serves `interface.html`.
 
 **Other HTML files that reference local assets:**
-- `interface/shared.html` — loads 1 CSS (`style.css`) + 9 JS files (including `shared.js`). Served via `static_routes.py` at `/shared/<conversation_id>` which already reads the file and does string replacement (injecting a `<div>` with the conversation ID). Add hash injection to the same code path.
-- `interface/terminal.html` — loads 1 local JS (`opencode-terminal.js`). Served via the catch-all route. Add hash injection when serving this file, or apply the same regex approach.
+- `interface/shared.html` — loads 1 CSS (`style.css`) + 9 JS files (including `shared.js`). Served via `endpoints/static_routes.py` at `/shared/<conversation_id>` (line 432) which already reads the file and does string replacement (injecting a `<div>` with the conversation ID). Add hash injection to the same code path. Note: `shared.html` has no auth (`@login_required` absent), so the 403 auth fix doesn't apply, but hash injection still should work for caching benefits.
+- `interface/terminal.html` — loads 1 local JS (`opencode-terminal.js`). Served via `endpoints/terminal.py` at a terminal route (line 297, uses `send_from_directory` with `max_age=0`). Would need to switch to a read + replace + `make_response` pattern for hash injection, same as `interface.html`.
 
 These are lower-traffic pages but should get the same treatment for consistency. The `shared.html` route already does dynamic string replacement, so adding hash injection is straightforward. The `terminal.html` route currently uses `send_from_directory` and would need to switch to a read + replace + `make_response` pattern, same as `interface.html`.
 
 `login.html` and `render_mermaid.html` load only CDN assets (no local `interface/` files), so no changes needed.
 
-### Task 3: Long-lived HTTP headers for hashed assets + auth fix
+### Task 3: Long-lived HTTP headers for hashed assets + auth fix (PARTIALLY DONE)
 
 **File:** `endpoints/static_routes.py`
 
-In the catch-all `/interface/<path:path>` route, detect `?h=` in the query string. If present, serve the file with aggressive caching:
+**Auth fix — DONE (commit 32189d2):** The 403 + `no-store` response for unauthenticated static asset requests is already implemented at `static_routes.py:361-369`. The `_is_static_asset()` helper and `_STATIC_ASSET_EXTENSIONS` frozenset are in place at lines 318-327.
+
+**Remaining:** Add `?h=` detection in the catch-all route. In the catch-all `/interface/<path:path>` route, detect `?h=` in the query string. If present, serve the file with aggressive caching:
 
 ```python
 @app.route('/interface/<path:path>')
@@ -289,7 +309,7 @@ The rate limiter (1000 req/min) already provides DDoS protection. Navigation req
 Since Task 2 injects `?h=<hash>` automatically, remove all existing manual `?v=N` query strings from `interface.html`. This avoids the regex needing to handle both `?v=N` and `?h=<hash>`.
 
 Files affected:
-- `interface/interface.html` lines 8, 61, 4915, 4920, 4941, 4942, 4944
+- `interface/interface.html` — 7 occurrences: `css_patched_mobile_view.css?v=29` (line 8), `style.css?v=29` (line 63), `tool-call-manager.js?v=1` (line 4950), `artefacts-manager.js?v=20` (line 4955), `image-gen-manager.js?v=1` (line 4976), `cross-conversation-search.js?v=1` (line 4977), `file-browser-manager.js?v=27` (line 4979)
 
 ### Task 5: Update service worker for hash-aware caching
 
@@ -301,7 +321,7 @@ Changes needed:
 
 Precaching with content hashes doesn't work well because the SW doesn't know the current hashes. The HTML page (which contains the hashed URLs) is the source of truth. Instead, the SW's runtime caching strategy will cache assets on first load — which happens immediately on page load since the HTML references them all.
 
-**Decision:** Remove precaching. The precache list was already broken (16 missing files, 4 mismatched URLs). The runtime cache strategy handles subsequent visits. If offline-first on first visit is needed later, add an `/interface/asset-manifest.json` endpoint.
+**Decision:** Remove precaching. The precache list was already broken (17 missing files, 4 mismatched URLs). The runtime cache strategy handles subsequent visits. If offline-first on first visit is needed later, add an `/interface/asset-manifest.json` endpoint.
 
 **5b. Hash-aware caching works naturally** because Cache API matches by full URL including query string. A new hash = a new URL = a cache miss = network fetch + cache store. The existing CacheFirst-when-fresh / NetworkFirst-when-stale strategy handles this correctly.
 
@@ -310,7 +330,7 @@ Precaching with content hashes doesn't work well because the SW doesn't know the
 1. **Dynamic `CACHE_VERSION` (Task 8)** means any file change triggers a new SW version, which deletes the old cache bucket on activate — so stale entries only live until the next deploy.
 2. **(Optional, lower priority)** Add a cleanup step in the SW `activate` handler that enumerates entries in the current cache, groups by base path (strip `?h=`), and deletes duplicates keeping only the most recent. This is defensive and low-priority because Task 8 already provides the primary cleanup.
 
-**5c. Clean up stale CDN allowlist entries:** Remove `cdn.datatables.net`, `mozilla.github.io`, `laingsimon.github.io`.
+**5c. ~~Clean up stale CDN allowlist entries~~ REVISED: Keep all CDN allowlist entries.** Originally planned to remove `cdn.datatables.net`, `mozilla.github.io`, `laingsimon.github.io`. However, `shared.html` still actively loads assets from all three hosts (DataTables JS/CSS, pdf.js from Mozilla, drawio-renderer from laingsimon). These are not stale — they're just not used by `interface.html`. The SW caches shared page assets too, so these hosts must remain in the allowlist. No changes to `CDN_ALLOWLIST_HOSTS`.
 
 **5d. Adjust cache cleanup on activate:** Currently deletes old `ui-shell-*` and `meta-*` cache buckets by name. This is still correct — when `CACHE_VERSION` changes (now dynamic via Task 8), all old entries are purged.
 
@@ -341,8 +361,11 @@ For each CDN asset without `integrity`:
 
 Priority: All JS files first (executable code), then CSS files.
 
-CDN assets needing integrity hashes (15):
-- `katex.min.js`, `katex.min.css`, `marked-katex-extension`, `highlight.js` CSS + JS, `uuid`, `marked`, `MathJax.js`, `jquery-3.5.1.min.js`, `animate.css`, `bootstrap-select` JS + CSS, `bootstrap-icons.css`, `font-awesome.css`, `bootstrap-toggle` CSS + JS, `jstree` CSS + JS
+CDN assets needing integrity hashes in `interface.html` (17):
+- JS: `katex.min.js`, `marked-katex-extension`, `highlight.js` JS, `uuid`, `marked`, `jquery-3.5.1.min.js`, `bootstrap-select.min.js`, `bootstrap-toggle.min.js`, `jstree.min.js`
+- CSS: `katex.min.css`, `highlight.js` CSS, `animate.css`, `bootstrap-select.min.css`, `bootstrap-icons.css`, `font-awesome.css`, `bootstrap-toggle.min.css`, `jstree` dark theme CSS
+
+CDN assets needing integrity in `shared.html` (~15) and `terminal.html` (4) should also get SRI hashes for consistency.
 
 ### Task 7: Update `--no-cache` mode
 
@@ -394,9 +417,9 @@ Option B: Keep it manual. Rendering snapshots should only be invalidated when re
 
 Recommendation: Option B for now. `UI_CACHE_VERSION` is conceptually different from `CACHE_VERSION` and should remain manually controlled. Document this clearly.
 
-### Task 10: Fix logout cleanup gaps
+### Task 10: Fix logout cleanup gaps — DONE (commit 32189d2)
 
-Two pre-existing gaps in the logout flow that should be fixed for completeness:
+Two pre-existing gaps in the logout flow, both fixed:
 
 **10a. Add `localStorage.clear()` to `clearSwCaches()` in `interface/common.js`**
 
@@ -417,6 +440,36 @@ session.pop("email", None)
 session.clear()
 ```
 
+### Task 11: Clean up `shared.html` asset issues (NEW)
+
+**File:** `interface/shared.html`
+
+`shared.html` has accumulated several issues that affect caching, correctness, and CDN dependency scope. These should be fixed alongside the caching work:
+
+**11a. Remove duplicate script/link tags:**
+- `popper.js` is loaded twice (lines 68 & 133) — remove the duplicate
+- `bootstrap-toggle.min.js` loaded twice (lines 70 & 136) — remove the duplicate
+- `bootstrap-toggle.min.css` loaded twice (lines 69 & 135) — remove the duplicate
+
+**11b. Fix highlight.js version mismatch:**
+- CSS is version 10.7.2 (line 10): `//cdnjs.cloudflare.com/ajax/libs/highlight.js/10.7.2/styles/default.min.css`
+- JS is version 11.9.0 (line 11): `https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js`
+- Update the CSS to 11.9.0 to match the JS (and match `interface.html`)
+
+**11c. Update Bootstrap Icons version:**
+- `shared.html` uses 1.7.2 (line 61), `interface.html` uses 1.11.3 (line 60)
+- Update `shared.html` to 1.11.3 for consistency and access to newer icons
+
+**11d. (Optional, deferred) Consider MathJax → KaTeX migration:**
+- `shared.html` actively loads MathJax (line 15) while `interface.html` has switched to KaTeX
+- This is a behavioral change that may affect math rendering on shared pages — defer unless explicitly wanted
+
+**11e. (Optional, deferred) Consider local pdf.js for shared.html:**
+- `shared.html` uses external `mozilla.github.io/pdf.js` while `interface.html` uses the local bundle
+- Switching would remove a CDN dependency but may change PDF rendering behavior — defer
+
+**Priority:** Medium. 11a-11c are quick fixes. 11d-11e are larger changes that should be separate.
+
 ---
 
 ## Task Dependency Order
@@ -424,9 +477,9 @@ session.clear()
 ```
 Task 1 (hash registry)
   └─> Task 2 (inject into HTML — regex handles both absolute and relative paths)
-       └─> Task 3 (long-lived headers + 403/no-store auth fix for hashed assets)
+       └─> Task 3 (long-lived headers for hashed assets — auth fix already DONE)
             └─> Task 4 (remove manual ?v=N)
-                 └─> Task 5 (update service worker: remove precache, TTL 6h→30d, clean CDN allowlist)
+                 └─> Task 5 (update service worker: remove precache, TTL 6h→30d, keep CDN allowlist)
 
 Task 6 (SRI hashes) — independent, can be done in parallel
 
@@ -436,7 +489,9 @@ Task 8 (dynamic CACHE_VERSION) — after Task 1, can parallel with 2-5
 
 Task 9 (UI_CACHE_VERSION decision) — after Task 8, documentation only
 
-Task 10 (logout cleanup: localStorage.clear + session.clear) — independent, can be done in parallel
+Task 10 (logout cleanup: localStorage.clear + session.clear) — DONE (commit 32189d2)
+
+Task 11 (shared.html cleanup: duplicates, versions) — independent, can be done in parallel with Tasks 1-9
 ```
 
 ## Risks and Mitigations
@@ -454,7 +509,11 @@ Task 10 (logout cleanup: localStorage.clear + session.clear) — independent, ca
 | Auth-gated assets + immutable caching = 302 cache poisoning | Task 3 replaces the 302 redirect with 403 + `Cache-Control: no-store` for static asset requests when unauthenticated. The `no-store` header prevents the browser from caching the error response under the hashed URL. Navigation requests still get the 302 redirect. Rate limiter (1000 req/min) provides DDoS protection. |
 | Browser HTTP cache survives logout | Intentional. `clearSwCaches()` clears SW caches and unregisters the SW, but the browser's HTTP disk cache is not clearable by JavaScript. Cached files are static JS/CSS with no user data — not a privacy concern. A different user logging in gets the same files (or different hashes if files changed). |
 | Hash computation placement with Flask reloader | Ensure `_compute_asset_hashes()` runs during blueprint registration / app factory setup, not at module import time. With `use_reloader=True`, module-level code runs in both the parent (reloader) and child (server) processes. Blueprint registration runs only in the child. |
-| `localStorage` leaks across sessions on logout | Task 10 adds `localStorage.clear()` to `clearSwCaches()`. Blanket clear is simpler and safer than tracking individual keys. |
+| `localStorage` leaks across sessions on logout | Task 10 adds `localStorage.clear()` to `clearSwCaches()`. Blanket clear is simpler and safer than tracking individual keys. DONE. |
+| CDN allowlist removal breaks `shared.html` caching | REVISED: Keep all 7 CDN allowlist hosts. The 3 hosts originally marked stale (`cdn.datatables.net`, `mozilla.github.io`, `laingsimon.github.io`) are actively used by `shared.html`. Removing them would cause SW to skip caching for shared page CDN assets. |
+| New JS files added without plan update | `tab-manager.js` was added after original plan. The hash registry (Task 1) auto-discovers files via `os.walk`, so new files are automatically included. But precache list counts and audit sections must be kept current. |
+| `shared.html` duplicates and version mismatches | Task 11 addresses these. Duplicates cause double-loading; version mismatches may cause subtle rendering differences. |
+| `terminal.html` served from different module | `terminal.html` is served from `endpoints/terminal.py:297`, not `static_routes.py`. Hash injection for terminal requires modifying `terminal.py`, not the static routes catch-all. |
 
 ## Verification
 
@@ -468,20 +527,23 @@ After implementation:
 6. **SRI:** In DevTools Console, verify no SRI errors. Intentionally corrupt an integrity hash and verify the browser blocks the script.
 7. **Auth expired:** Open a private window, request an asset URL like `/interface/interface/style.css?h=abc123` directly without logging in. Verify 403 response with `Cache-Control: no-store` (not a 302 redirect).
 8. **Shared page:** Visit `/shared/<conversation_id>`. Verify asset URLs in the HTML source have `?h=<hash>` with absolute paths (`/interface/style.css?h=...`).
-9. **Logout cleanup:** Log in, browse around (populate localStorage, SW caches, IndexedDB). Log out. Verify: SW caches deleted, SW unregistered, localStorage empty, IndexedDB cleared, Flask session fully cleared.
+9. **Logout cleanup:** ~~Log in, browse around (populate localStorage, SW caches, IndexedDB). Log out. Verify: SW caches deleted, SW unregistered, localStorage empty, IndexedDB cleared, Flask session fully cleared.~~ DONE (commit 32189d2). Verify after deployment.
 10. **SW TTL:** After assets are cached by the SW, wait or manually edit the meta-cache timestamps to simulate >30 days. Verify the SW re-fetches (resolves from HTTP disk cache) and re-caches.
+11. **Shared page CDN caching:** Visit `/shared/<conversation_id>`. Open DevTools Network tab. Verify DataTables, pdf.js, and drawio-renderer assets are cached by the SW (check Cache Storage). Confirm CDN allowlist hosts are not removed.
+12. **Shared page duplicates (Task 11):** After cleanup, verify `shared.html` source has no duplicate script/link tags. Verify highlight.js CSS version matches JS version (11.9.0).
 
 ## Files Modified
 
 | File | Changes |
 |------|---------|
-| `endpoints/static_routes.py` | Asset hash computation at startup, HTML injection via `_serve_html_with_hashes()`, regex handles both absolute and relative `interface/` paths, long-lived `immutable` headers for `?h=` assets, 403 + no-store for unauthed static asset requests (replacing 302 redirect), dynamic `CACHE_VERSION` injection in SW route, `--no-cache` mode updates |
-| `interface/interface.html` | Remove manual `?v=N` query strings (7 occurrences), add SRI integrity hashes to ~15 CDN assets |
-| `interface/service-worker.js` | Remove/empty `PRECACHE_URLS`, increase TTL from 6h to 30 days, clean 3 stale CDN allowlist entries, add comments about hash-based caching |
-| `interface/common.js` | Add `localStorage.clear()` to `clearSwCaches()` function |
-| `endpoints/auth.py` | Change `session.pop("name"/"email")` to `session.clear()` in `/logout` endpoint |
-| `interface/shared.html` | No direct edits — hash injection happens at serve time via the `/shared/<conversation_id>` route |
-| `interface/terminal.html` | No direct edits — hash injection happens at serve time (requires switching route from `send_from_directory` to read + inject + `make_response`) |
+| `endpoints/static_routes.py` | Asset hash computation at startup, HTML injection via `_serve_html_with_hashes()`, regex handles both absolute and relative `interface/` paths, long-lived `immutable` headers for `?h=` assets, ~~403 + no-store for unauthed static asset requests~~ DONE, dynamic `CACHE_VERSION` injection in SW route, `--no-cache` mode updates |
+| `endpoints/terminal.py` | Switch `terminal.html` serving from `send_from_directory` to read + inject + `make_response` for hash injection (line 297) |
+| `interface/interface.html` | Remove manual `?v=N` query strings (7 occurrences), add SRI integrity hashes to ~17 CDN assets |
+| `interface/shared.html` | Task 11: Remove duplicate script/link tags, fix highlight.js version mismatch, update Bootstrap Icons version. Hash injection happens at serve time via the `/shared/<conversation_id>` route — no direct hash edits. |
+| `interface/service-worker.js` | Remove/empty `PRECACHE_URLS`, increase TTL from 6h to 30 days, ~~clean 3 stale CDN allowlist entries~~ keep all entries, add comments about hash-based caching |
+| `interface/common.js` | ~~Add `localStorage.clear()` to `clearSwCaches()` function~~ DONE (commit 32189d2) |
+| `endpoints/auth.py` | ~~Change `session.pop("name"/"email")` to `session.clear()` in `/logout` endpoint~~ DONE (commit 32189d2) |
+| `interface/terminal.html` | No direct edits — hash injection happens at serve time via `endpoints/terminal.py` |
 
 ## Out of Scope
 
@@ -489,6 +551,8 @@ After implementation:
 - **Dynamically loaded CDN assets** (`lazy-libs.js`, dark mode CSS toggle): These are loaded via `document.createElement('script')` from JS code, not from HTML `<script>` tags. The SW's CDN allowlist caching handles them. SRI cannot be applied without modifying `lazy-libs.js` — this is a separate future concern.
 - **API response caching**: Covered in a separate plan.
 - **`login.html`, `render_mermaid.html`**: CDN-only assets, no local files to hash.
+- **`shared.html` → local pdf.js migration**: `shared.html` uses external `mozilla.github.io/pdf.js` while `interface.html` uses the local bundle. Migrating `shared.html` to the local bundle would remove a CDN dependency but is a separate concern from caching.
+- **`shared.html` MathJax → KaTeX migration**: `shared.html` uses MathJax while `interface.html` uses KaTeX. Different math rendering on shared pages. Migration is a separate concern.
 
 ## Decisions Log
 
@@ -499,6 +563,18 @@ Clarification decisions made during planning review:
 | 1 | Auth on static assets with immutable caching | Return 403 + `Cache-Control: no-store` for unauthed static asset requests (instead of 302 redirect) | Prevents 302 cache poisoning of immutable hashed URLs. Can't remove auth entirely — internet-facing server, DDoS concern. Rate limiter provides additional protection. |
 | 2 | Regex for absolute vs relative paths | Single regex handles both with optional leading `/`: `(/?interface/)` | `interface.html` uses relative paths, `shared.html`/`terminal.html` use absolute paths. One regex, no duplication. |
 | 3 | Logout cleanup gaps (localStorage, session) | Fix now as part of this work (Task 10) | Small changes, low risk, improves hygiene. `localStorage.clear()` in `clearSwCaches()`, `session.clear()` in `/logout`. |
-| 4 | Precaching strategy | Remove precaching entirely (empty `PRECACHE_URLS`) | Precache list was already broken (16 missing, 4 mismatched). Runtime caching on first page load is sufficient. Add manifest endpoint later if offline-first on first visit is needed. |
+| 4 | Precaching strategy | Remove precaching entirely (empty `PRECACHE_URLS`) | Precache list was already broken (17 missing, 4 mismatched). Runtime caching on first page load is sufficient. Add manifest endpoint later if offline-first on first visit is needed. |
 | 5 | SW TTL for cached assets | Increase from 6h to 30 days for all assets | Content-hashed URLs are correct forever (hash guarantees content). CDN URLs include version numbers. Dynamic `CACHE_VERSION` purges everything on each deploy anyway, so entries never actually reach 30 days. |
 | 6 | Browser HTTP cache survives logout | Accepted, not a concern | JS/CSS files contain no user data. `clearSwCaches()` already handles SW caches, IndexedDB, and SW unregistration. Browser HTTP disk cache cannot be cleared by JavaScript — this is a browser limitation, not a bug. |
+| 7 | CDN allowlist hosts for shared.html | Keep all 7 hosts (REVISED) | Originally planned to remove 3 "stale" hosts. Audit revealed `shared.html` actively loads DataTables, pdf.js (Mozilla), and drawio-renderer (laingsimon) from these hosts. Removing them breaks SW caching for shared pages. |
+| 8 | `terminal.html` route location | `endpoints/terminal.py:297`, not `static_routes.py` | Hash injection for terminal requires modifying `terminal.py`, not the static routes catch-all. |
+| 9 | `shared.html` asset cleanup | New Task 11 (deduplication, version alignment) | Duplicate scripts, highlight.js version mismatch, Bootstrap Icons version gap. Quick fixes (11a-11c) vs larger migrations (11d-11e) prioritized separately. |
+| 10 | New files auto-discovered | Hash registry uses `os.walk`, so `tab-manager.js` and any future files are automatically included | No manual registry maintenance needed. Plan audit sections should be updated periodically. |
+
+## Revision History
+
+| Date | Changes |
+|------|---------|
+| Initial | Original plan with Tasks 1-10, audit of precache/CDN/SRI/HTTP headers |
+| Post-32189d2 | Implemented Task 10 (logout cleanup) and Task 3 auth fix (403+no-store). Committed as 32189d2. |
+| Post-UI-optimization | **Major revision.** Updated all file counts (35→37 local, 20→22 CDN, 16→17 precache missing). Added `tab-manager.js` to missing precache list. REVISED Task 5c: keep CDN allowlist hosts (used by `shared.html`). Added section E documenting `shared.html` issues (duplicates, version mismatches). Added Task 11 for `shared.html` cleanup. Fixed `terminal.html` route location (`terminal.py` not `static_routes.py`). Updated Task 3 and Task 10 status to reflect completed work. Updated verification steps, risks table, files modified table, decisions log. Added out-of-scope items for `shared.html` MathJax→KaTeX and pdf.js migration. Noted 28 commits with 1450 lines of JS/CSS changes since plan was written, with zero `?v=N` bumps — validating the automated hashing approach. |
