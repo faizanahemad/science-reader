@@ -63,38 +63,16 @@ class _PWAIconLogFilter(logging.Filter):
 logging.getLogger("werkzeug").addFilter(_PWAIconLogFilter())
 
 # --- OpenCode integration -------------------------------------------------
-OPENCODE_AVAILABLE: bool = False
+# OpenCode is now invoked via `opencode run` (subprocess per call, no server).
+# We check if the binary is available on PATH at startup.
+import shutil as _shutil
 
-try:
-    from opencode_client.config import OPENCODE_BASE_URL as _OPENCODE_BASE_URL
-except Exception:
-    _OPENCODE_BASE_URL = "http://localhost:4096"
+OPENCODE_AVAILABLE: bool = bool(_shutil.which("opencode"))
 
-
-def _check_opencode_health() -> bool:
-    """
-    Probe the OpenCode server health endpoint.
-
-    Returns True if reachable, False otherwise.  Updates the module-level
-    ``OPENCODE_AVAILABLE`` flag so other modules can check availability at
-    import time.
-    """
-    global OPENCODE_AVAILABLE
-    health_url = f"{_OPENCODE_BASE_URL.rstrip('/')}/global/health"
-    try:
-        resp = _requests.get(health_url, timeout=3)
-        if resp.ok:
-            logger.info("OpenCode server is available at %s", _OPENCODE_BASE_URL)
-            OPENCODE_AVAILABLE = True
-            return True
-    except Exception:
-        pass
-    logger.warning(
-        "OpenCode server not available at %s — OpenCode features will be disabled",
-        _OPENCODE_BASE_URL,
-    )
-    OPENCODE_AVAILABLE = False
-    return False
+if OPENCODE_AVAILABLE:
+    logger.info("OpenCode binary found on PATH — OpenCode features are available")
+else:
+    logger.warning("OpenCode binary not found on PATH — OpenCode features disabled")
 
 
 class FlaskJSONProvider(JSONProvider):
@@ -629,8 +607,6 @@ def main(argv: Optional[list[str]] = None) -> int:
     start_coding_tools_mcp_server()
 
 
-    # Check OpenCode server availability (non-blocking, just logs status)
-    _check_opencode_health()
     app.run(host="0.0.0.0", port=5000, threaded=True)
     return 0
 

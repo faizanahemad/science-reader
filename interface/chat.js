@@ -487,7 +487,6 @@ function chat_interface_readiness() {
 
         var settings = {
             opencode_config: {
-                always_enabled: $('#opencode-always-enabled').is(':checked'),
                 injection_level: $('#opencode-injection-level').val(),
                 opencode_provider: $('#opencode-provider').val(),
                 opencode_model: $('#opencode-model').val()
@@ -509,16 +508,11 @@ function chat_interface_readiness() {
         });
     });
 
-    // New Session button
+    // New Session button — tell user to use /new slash command
     $('#opencode-new-session-button').click(function() {
         showToast('Send /new in chat to create a new OpenCode session', 'info');
     });
 
-    // Open Terminal from OpenCode settings modal
-    $('#opencode-open-terminal-button').click(function() {
-        // [DEBUG] console.log('[Terminal] opencode-open-terminal-button clicked');
-        window._showTerminalModal();
-    });
     // --- Terminal Modal (manual DOM, bypasses Bootstrap modal JS) ---
     // Same approach as file-browser-modal: raw display toggle to avoid
     // backdrop/stacking issues when opened from another Bootstrap modal.
@@ -694,6 +688,7 @@ function buildSettingsStateFromControlsOrDefaults() {
         enable_tool_use: $('#settings-tool_mode').val() !== 'none',
         tool_mode: $('#settings-tool_mode').val() || 'hybrid',
         enabled_tools: getSelectPickerValue('#settings-tool-selector', []),
+        enable_opencode: $('#settings-enable_opencode').length ? $('#settings-enable_opencode').is(':checked') : false,
         compact_nav: $('#settings-compact_nav').is(':checked') || false,
         default_temp_chat: $('#settings-default_temp_chat').is(':checked') || false,
         enable_answer_tldr: $('#settings-enable_answer_tldr').is(':checked') || false,
@@ -757,6 +752,8 @@ function setModalFromState(state) {
     }
     $('#settings-default_temp_chat').prop('checked', !!state.default_temp_chat);
     $('#settings-enable_answer_tldr').prop('checked', !!state.enable_answer_tldr);
+    // OpenCode defaults to unchecked/disabled
+    $('#settings-enable_opencode').prop('checked', state.enable_opencode === true);
     var recentCount = (state.recent_conversations_count !== undefined && state.recent_conversations_count !== null)
         ? state.recent_conversations_count
         : 10;
@@ -879,6 +876,7 @@ function collectSettingsFromModal() {
         default_temp_chat: $('#settings-default_temp_chat').is(':checked'),
         enable_answer_tldr: $('#settings-enable_answer_tldr').is(':checked'),
         recent_conversations_count: parseInt($('#settings-recent-conversations-count').val(), 10) || 10,
+        enable_opencode: $('#settings-enable_opencode').is(':checked'),
         model_overrides: (window.chatSettingsState && window.chatSettingsState.model_overrides)
             ? window.chatSettingsState.model_overrides
             : undefined
@@ -998,12 +996,11 @@ function saveConversationModelOverrides(conversationId) {
 function loadOpencodeSettings(conversationId) {
     $.get('/get_conversation_settings/' + conversationId, function(data) {
         var oc = (data.settings || {}).opencode_config || {};
-        $('#opencode-always-enabled').prop('checked', oc.always_enabled || false);
         $('#opencode-injection-level').val(oc.injection_level || 'medium');
         $('#opencode-provider').val(oc.opencode_provider || 'openrouter');
         $('#opencode-model').val(oc.opencode_model || 'anthropic/claude-sonnet-4.6');
-        $('#opencode-session-id').text(oc.active_session_id || 'None');
-        $('#opencode-session-count').text((oc.session_ids || []).length);
+        $('#opencode-session-id').val(oc.active_session_id || '');
+        $('#opencode-session-count').val((oc.session_ids || []).length);
     });
 }
 
@@ -1511,6 +1508,7 @@ function computeDefaultStateForTab(tab) {
         enable_tool_use: true,
         tool_mode: 'hybrid',
         enabled_tools: DEFAULT_ENABLED_TOOLS,
+        enable_opencode: false,
         preamble_options: getDefaultPreambleForTab(tab),
         doubt_preamble_options: [],
         main_model: getDefaultModelForTab(tab),

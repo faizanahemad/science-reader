@@ -508,7 +508,7 @@ def set_conversation_settings(conversation_id: str):
                     code="invalid_model",
                 )
 
-    # --- opencode_config (optional) ---
+    # --- opencode_config (optional, partial-update merge) ---
     opencode_config = payload.get("opencode_config")
     if opencode_config is not None:
         if not isinstance(opencode_config, dict):
@@ -518,47 +518,54 @@ def set_conversation_settings(conversation_id: str):
                 code="invalid_settings",
             )
         _valid_injection = {"minimal", "medium", "full"}
-        validated_oc: dict = {}
-        validated_oc["always_enabled"] = bool(
-            opencode_config.get("always_enabled", False)
-        )
-        inj = opencode_config.get("injection_level", "medium")
-        if inj not in _valid_injection:
-            return json_error(
-                f"injection_level must be one of {_valid_injection}",
-                status=400,
-                code="invalid_settings",
-            )
-        validated_oc["injection_level"] = inj
-        sess_ids = opencode_config.get("session_ids", [])
-        if not isinstance(sess_ids, list):
-            return json_error(
-                "session_ids must be a list",
-                status=400,
-                code="invalid_settings",
-            )
-        validated_oc["session_ids"] = sess_ids
-        validated_oc["active_session_id"] = opencode_config.get(
-            "active_session_id"
-        )
+        # Start from existing config so missing keys are preserved
+        # (e.g. always_enabled, session_ids, active_session_id survive
+        # when the UI only sends injection_level + provider + model).
+        existing_oc = dict(conversation.get_conversation_settings().get("opencode_config") or {})
+        validated_oc: dict = dict(existing_oc)
+        # Only overwrite keys that are explicitly sent
+        if "always_enabled" in opencode_config:
+            validated_oc["always_enabled"] = bool(opencode_config["always_enabled"])
+        inj = opencode_config.get("injection_level")
+        if inj is not None:
+            if inj not in _valid_injection:
+                return json_error(
+                    f"injection_level must be one of {_valid_injection}",
+                    status=400,
+                    code="invalid_settings",
+                )
+            validated_oc["injection_level"] = inj
+        if "session_ids" in opencode_config:
+            sess_ids = opencode_config["session_ids"]
+            if not isinstance(sess_ids, list):
+                return json_error(
+                    "session_ids must be a list",
+                    status=400,
+                    code="invalid_settings",
+                )
+            validated_oc["session_ids"] = sess_ids
+        if "active_session_id" in opencode_config:
+            validated_oc["active_session_id"] = opencode_config["active_session_id"]
         # --- opencode_provider (optional) ---
-        _valid_providers = {"openrouter", "amazon-bedrock"}
-        oc_provider = opencode_config.get("opencode_provider", "openrouter")
-        if oc_provider not in _valid_providers:
-            oc_provider = "openrouter"
-        validated_oc["opencode_provider"] = oc_provider
+        if "opencode_provider" in opencode_config:
+            _valid_providers = {"openrouter", "amazon-bedrock"}
+            oc_provider = opencode_config["opencode_provider"]
+            if oc_provider not in _valid_providers:
+                oc_provider = "openrouter"
+            validated_oc["opencode_provider"] = oc_provider
         # --- opencode_model (optional) ---
-        _valid_models = {
-            "anthropic/claude-haiku-4.5",
-            "anthropic/claude-sonnet-4.5",
-            "anthropic/claude-opus-4.5",
-            "anthropic/claude-sonnet-4.6",
-            "anthropic/claude-opus-4.6",
-        }
-        oc_model = opencode_config.get("opencode_model", "anthropic/claude-sonnet-4.5")
-        if oc_model not in _valid_models:
-            oc_model = "anthropic/claude-sonnet-4.5"
-        validated_oc["opencode_model"] = oc_model
+        if "opencode_model" in opencode_config:
+            _valid_models = {
+                "anthropic/claude-haiku-4.5",
+                "anthropic/claude-sonnet-4.5",
+                "anthropic/claude-opus-4.5",
+                "anthropic/claude-sonnet-4.6",
+                "anthropic/claude-opus-4.6",
+            }
+            oc_model = opencode_config["opencode_model"]
+            if oc_model not in _valid_models:
+                oc_model = "anthropic/claude-sonnet-4.6"
+            validated_oc["opencode_model"] = oc_model
     else:
         validated_oc = None
 

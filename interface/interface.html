@@ -3482,15 +3482,10 @@ greet("World");</code></pre>
                     </button>
                 </div>
                 <div class="modal-body">
-                    <!-- Always use OpenCode toggle -->
-                    <div class="form-group">
-                        <div class="form-check">
-                            <input class="form-check-input" id="opencode-always-enabled" type="checkbox">
-                            <label class="form-check-label" for="opencode-always-enabled">
-                                <strong>Always use OpenCode</strong>
-                            </label>
-                        </div>
-                        <small class="form-text text-muted">When enabled, all messages in this conversation will be routed through OpenCode.</small>
+                    <div class="alert alert-info py-2 mb-3" style="font-size:0.85em;">
+                        <i class="bi bi-info-circle"></i>
+                        <strong>Run mode:</strong> OpenCode is invoked via <code>opencode run</code> — no persistent server required.
+                        Each message spawns a short-lived subprocess. Use <strong>small, atomic tasks</strong> for best results.
                     </div>
                     <!-- Context Injection Level -->
                     <div class="form-group">
@@ -3500,7 +3495,7 @@ greet("World");</code></pre>
                             <option value="medium" selected>Medium</option>
                             <option value="full">Full</option>
                         </select>
-                        <small class="form-text text-muted">Controls how much conversation context is injected into OpenCode prompts.</small>
+                        <small class="form-text text-muted">Controls how much conversation context (history summary, PKB, memory pad) is prepended to the opencode prompt.</small>
                     </div>
                     <!-- Provider -->
                     <div class="form-group">
@@ -3509,19 +3504,19 @@ greet("World");</code></pre>
                             <option value="openrouter" selected>OpenRouter</option>
                             <option value="amazon-bedrock">Amazon Bedrock</option>
                         </select>
-                        <small class="form-text text-muted">Which LLM provider OpenCode should use for this conversation.</small>
+                        <small class="form-text text-muted">LLM provider passed to <code>opencode run --model provider/model</code>.</small>
                     </div>
                     <!-- Model -->
                     <div class="form-group">
                         <label for="opencode-model"><strong>Model</strong></label>
                         <select class="form-control" id="opencode-model">
-                            <option value="anthropic/claude-sonnet-4.5" selected>Claude Sonnet 4.5</option>
+                            <option value="anthropic/claude-sonnet-4.6" selected>Claude Sonnet 4.6 (default)</option>
                             <option value="anthropic/claude-haiku-4.5">Claude Haiku 4.5</option>
+                            <option value="anthropic/claude-sonnet-4.5">Claude Sonnet 4.5</option>
                             <option value="anthropic/claude-opus-4.5">Claude Opus 4.5</option>
-                            <option value="anthropic/claude-sonnet-4.6">Claude Sonnet 4.6</option>
                             <option value="anthropic/claude-opus-4.6">Claude Opus 4.6</option>
                         </select>
-                        <small class="form-text text-muted">Claude model to use. Model IDs are translated automatically per provider.</small>
+                        <small class="form-text text-muted">Model passed as <code>provider/model</code> to <code>opencode run --model</code>.</small>
                     </div>
                     <!-- Session Info -->
                     <hr>
@@ -3536,11 +3531,8 @@ greet("World");</code></pre>
                     </div>
                     <!-- Action Buttons -->
                     <div class="d-flex mt-3">
-                        <button class="btn btn-outline-primary btn-sm mr-2" id="opencode-new-session-button">
+                        <button class="btn btn-outline-primary btn-sm" id="opencode-new-session-button">
                             <i class="bi bi-plus-circle"></i> New Session
-                        </button>
-                        <button class="btn btn-outline-info btn-sm" id="opencode-open-terminal-button">
-                            <i class="bi bi-terminal"></i> Open Terminal
                         </button>
                     </div>
                 </div>

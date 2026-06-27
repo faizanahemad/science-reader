@@ -41,7 +41,7 @@ SERVICES: Dict[str, dict] = {
     "opencode_serve": {
         "screen_name": "opencode_local",
         "display_name": "OpenCode Serve",
-        "description": "opencode serve backend (port 4096)",
+        "description": "opencode serve backend (port 4096) — legacy, opencode run is now used instead",
         "port": 4096,
         "command_patterns": [r"opencode\s+serve"],
     },
