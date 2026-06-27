@@ -370,7 +370,6 @@ var WorkspaceManager = {
                 }
             } else {
                 var currentActive = ConversationManager.getActiveConversation();
-                console.log('[loadConversationsWithWorkspaces] autoselect=false, highlighting currentActive =', currentActive);
                 if (currentActive) WorkspaceManager.highlightActiveConversation(currentActive);
             }
 
@@ -1220,7 +1219,6 @@ var WorkspaceManager = {
                     var collapse = self._pendingHighlightCollapse;
                     self._pendingHighlight = null;
                     self._pendingHighlightCollapse = false;
-                    console.log('[refresh.jstree] processing _pendingHighlight =', cid);
                     self.highlightActiveConversation(cid, collapse);
                 }
             });
@@ -1346,7 +1344,6 @@ var WorkspaceManager = {
                 // setActiveConversation — the tab system owns focus management.
                 // Just let the sidebar node stay selected (visual highlight) and bail.
                 if (!data.event && typeof TabManager !== 'undefined' && TabManager.focusedTabId) {
-                    console.log('[select_node.jstree] SUPPRESSED programmatic select for', conversationId, '(TabManager owns focus, focused=' + TabManager.focusedTabId + ')');
                     return;
                 }
 
@@ -1978,7 +1975,6 @@ var WorkspaceManager = {
                 $('#linkInput').val('');
                 $('#searchInput').val('');
                 self.loadConversationsWithWorkspaces(false).done(function () {
-                    console.log('[createConversationInWorkspace] .done() fired, convId =', convId, 'TabManager.focusedTabId =', (typeof TabManager !== 'undefined' ? TabManager.focusedTabId : 'N/A'));
                     // Open as new tab if tabs are active (same as createTemporaryConversation)
                     if (typeof TabManager !== 'undefined' && TabManager.tabs.length >= 1) {
                         TabManager.openTab(convId, 'New Chat', true);

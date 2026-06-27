@@ -56,7 +56,6 @@
 
         openTab: function (conversationId, title, shouldFocus) {
             if (!conversationId) return;
-            console.log('[TabManager.openTab]', conversationId, 'shouldFocus=' + shouldFocus, 'tabs=' + this.tabs.length);
             // LRU eviction: if at capacity and this is a new tab, close the least-recently-used tab
             if (this.tabs.length >= MAX_TABS && !this.hasTab(conversationId)) {
                 var lruTab = this._findLRUTab(conversationId);
@@ -144,8 +143,7 @@
 
         focusTab: function (conversationId) {
             if (!conversationId) return;
-            if (this.focusedTabId === conversationId) { console.log('[TabManager.focusTab] SKIP same id', conversationId); return; }
-            console.log('[TabManager.focusTab]', conversationId, 'old=' + this.focusedTabId);
+            if (this.focusedTabId === conversationId) return;
             var oldId = this.focusedTabId;
             this.focusedTabId = conversationId;
             // Track LRU access time
