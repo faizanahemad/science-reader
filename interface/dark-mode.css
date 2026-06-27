@@ -194,14 +194,14 @@ body.dark-mode .dropdown-header {
 
 /* ── Buttons — outline variants need re-theming ─────────────────────── */
 body.dark-mode .btn-outline-secondary {
-    color: #8b949e;
-    border-color: #30363d;
+    color: #c9d1d9;
+    border-color: #8b949e;
 }
 body.dark-mode .btn-outline-secondary:hover,
 body.dark-mode .btn-outline-secondary:focus {
-    color: #c9d1d9;
+    color: #ffffff;
     background-color: #21262d;
-    border-color: #8b949e;
+    border-color: #c9d1d9;
 }
 body.dark-mode .btn-light {
     background-color: #21262d;
@@ -806,4 +806,337 @@ body.dark-mode #prompt-list-items .list-group-item:hover:not(.active) {
 body.dark-mode #old-prompts-toggle {
     background-color: #21262d !important;
     color: #c9d1d9;
+}
+
+/* ==========================================================================
+   Additional dark mode overrides for buttons, icons, menus, and cards
+   that were previously invisible or barely visible in dark mode.
+   ========================================================================== */
+
+/* ── Chat card header: three-dot menus & icon buttons ────────────────────
+   The inline <style> block sets .card-header .dropdown-toggle-no-caret
+   { color: #6c757d } and hover { color: #495057 } — both too dark on
+   the #21262d card-header background. Same issue for .copy-btn-header. */
+body.dark-mode .card-header .dropdown-toggle-no-caret {
+    color: #8b949e;
+}
+body.dark-mode .card-header .dropdown-toggle-no-caret:hover {
+    color: #c9d1d9;
+    background-color: rgba(255,255,255,0.08);
+}
+body.dark-mode .card-header .copy-btn-header {
+    color: #8b949e;
+}
+body.dark-mode .card-header .copy-btn-header:hover {
+    color: #c9d1d9;
+    background-color: rgba(255,255,255,0.08);
+}
+/* Pin button in card headers */
+body.dark-mode .card-header .pin-message-btn {
+    color: #8b949e;
+}
+body.dark-mode .card-header .pin-message-btn:hover {
+    color: #c9d1d9;
+}
+/* "Has doubts" indicator button in card header */
+body.dark-mode .has-doubts-btn {
+    color: #8b949e;
+}
+
+/* ── btn-outline-* variants not previously covered ───────────────────── */
+body.dark-mode .btn-outline-success {
+    color: #3fb950;
+    border-color: #238636;
+}
+body.dark-mode .btn-outline-success:hover,
+body.dark-mode .btn-outline-success:focus {
+    color: #ffffff;
+    background-color: #238636;
+    border-color: #3fb950;
+}
+body.dark-mode .btn-outline-warning {
+    color: #d29922;
+    border-color: #9e6a03;
+}
+body.dark-mode .btn-outline-warning:hover,
+body.dark-mode .btn-outline-warning:focus {
+    color: #ffffff;
+    background-color: #9e6a03;
+    border-color: #d29922;
+}
+body.dark-mode .btn-outline-danger {
+    color: #f85149;
+    border-color: #da3633;
+}
+body.dark-mode .btn-outline-danger:hover,
+body.dark-mode .btn-outline-danger:focus {
+    color: #ffffff;
+    background-color: #da3633;
+    border-color: #f85149;
+}
+body.dark-mode .btn-outline-primary {
+    color: #58a6ff;
+    border-color: #1f6feb;
+}
+body.dark-mode .btn-outline-primary:hover,
+body.dark-mode .btn-outline-primary:focus {
+    color: #ffffff;
+    background-color: #1f6feb;
+    border-color: #58a6ff;
+}
+/* Solid btn-secondary and btn-success (used in doubts-overview modal) */
+body.dark-mode .btn-secondary {
+    background-color: #21262d;
+    border-color: #30363d;
+    color: #c9d1d9;
+}
+body.dark-mode .btn-secondary:hover {
+    background-color: #30363d;
+    border-color: #8b949e;
+    color: #c9d1d9;
+}
+body.dark-mode .btn-success {
+    background-color: #238636;
+    border-color: #2ea043;
+    color: #ffffff;
+}
+body.dark-mode .btn-success:hover {
+    background-color: #2ea043;
+    border-color: #3fb950;
+}
+body.dark-mode .btn-danger {
+    background-color: #da3633;
+    border-color: #f85149;
+    color: #ffffff;
+}
+body.dark-mode .btn-danger:hover {
+    background-color: #b62324;
+}
+
+/* ── LLM right-click context menu ────────────────────────────────────── */
+body.dark-mode .llm-context-menu {
+    background: #161b22;
+    border-color: #30363d;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+}
+body.dark-mode .llm-context-menu .context-menu-item a {
+    color: #c9d1d9;
+}
+body.dark-mode .llm-context-menu .context-menu-item a:hover {
+    background-color: #21262d;
+    color: #58a6ff;
+}
+body.dark-mode .llm-context-menu .context-menu-item a i {
+    color: #8b949e;
+}
+body.dark-mode .llm-context-menu .context-menu-item a:hover i {
+    color: #58a6ff;
+}
+body.dark-mode .llm-context-menu .divider {
+    border-top-color: #30363d;
+}
+
+/* ── Doubt conversation cards — user / assistant variants ────────────────
+   The <style> block sets .user-doubt { bg: #e3f2fd } and .assistant-doubt
+   { bg: #ffffff } which are light-only. Override with dark equivalents.
+   Use !important because the <style> block loads after dark-mode.css. */
+body.dark-mode .doubt-conversation-card.user-doubt {
+    background-color: #1c2d3a !important;
+    border-color: #30363d;
+}
+body.dark-mode .doubt-conversation-card.assistant-doubt {
+    background-color: #161b22 !important;
+    border-color: #30363d;
+}
+body.dark-mode .doubt-conversation-card .card-header {
+    border-bottom-color: rgba(255,255,255,0.06);
+}
+/* Doubt delete button */
+body.dark-mode .doubt-delete-btn {
+    color: #f85149;
+    background-color: rgba(248,81,73,0.1);
+}
+body.dark-mode .doubt-delete-btn:hover {
+    color: #ff7b72;
+    background-color: rgba(248,81,73,0.2);
+}
+/* Doubt regen button */
+body.dark-mode .doubt-regen-btn {
+    color: #8b949e;
+}
+body.dark-mode .doubt-regen-btn:hover {
+    color: #c9d1d9;
+}
+
+/* ── Doubt preview cards (doubts-overview modal) ─────────────────────── */
+body.dark-mode .doubt-preview-card {
+    border-color: #30363d;
+    background-color: #161b22;
+}
+body.dark-mode .doubt-preview-card:hover {
+    border-color: #58a6ff;
+    box-shadow: 0 2px 8px rgba(88,166,255,0.15);
+}
+body.dark-mode .doubt-preview-card.doubt-pinned {
+    border-left-color: #58a6ff;
+    background-color: #0d2a3f;
+}
+body.dark-mode .doubt-preview-card .card-header {
+    background-color: #21262d;
+    border-bottom-color: #30363d;
+    color: #c9d1d9;
+}
+
+/* ── Doubt preamble dropdown active state ────────────────────────────── */
+body.dark-mode #doubt-preamble-dropdown-menu .doubt-preamble-option.active {
+    background-color: #21262d;
+    color: #c9d1d9;
+}
+
+/* ── Scroll-to-bottom, collapse-toggle-bottom, doubt-ingress-bottom ──────
+   All share the pattern { bg: #f8f9fa; border: #dee2e6; color: #007bff }.
+   Convert to dark equivalents. */
+body.dark-mode .scroll-to-bottom-btn {
+    color: #58a6ff;
+    background-color: #21262d;
+    border-color: #30363d;
+}
+body.dark-mode .model-tabs-collapse-toggle-bottom {
+    color: #58a6ff;
+    background-color: #21262d;
+    border-color: #30363d;
+}
+body.dark-mode .model-tabs-doubt-ingress-bottom {
+    color: #58a6ff;
+    background-color: #21262d;
+    border-color: #30363d;
+}
+body.dark-mode .doubt-answer-collapse-toggle-bottom {
+    color: #58a6ff;
+    background-color: #21262d;
+    border-color: #30363d;
+}
+/* The inline [hide]/[show] text toggle */
+body.dark-mode .header-hide-toggle {
+    color: #58a6ff;
+}
+body.dark-mode .header-hide-toggle:hover {
+    color: #79b8ff;
+}
+/* Doubt answer collapse toggle (top, in card header) */
+body.dark-mode .doubt-answer-collapse-toggle {
+    color: #58a6ff;
+}
+body.dark-mode .doubt-answer-collapse-toggle:hover {
+    color: #79b8ff;
+}
+
+/* ── Model-tabs collapse toggle (inline in tab bar) ──────────────────── */
+body.dark-mode .model-tabs-collapse-toggle {
+    color: #58a6ff;
+}
+
+/* ── Doubt copy button ───────────────────────────────────────────────── */
+body.dark-mode .doubt-copy-btn {
+    color: #58a6ff;
+}
+body.dark-mode .doubt-copy-btn:hover {
+    color: #79b8ff;
+}
+
+/* ── Details close button ────────────────────────────────────────────── */
+body.dark-mode .details-close-btn {
+    background-color: #21262d;
+    border-color: #30363d;
+    color: #c9d1d9;
+}
+body.dark-mode .details-close-btn:hover {
+    background-color: #30363d;
+}
+
+/* ── Model diff styles ───────────────────────────────────────────────── */
+body.dark-mode .model-diff-badge {
+    background: rgba(63,185,80,0.15);
+    color: #3fb950;
+}
+body.dark-mode .diff-model-group {
+    border-bottom-color: #30363d;
+}
+body.dark-mode .diff-model-header {
+    color: #8b949e;
+}
+body.dark-mode .diff-section {
+    border-left-color: #8b949e;
+}
+body.dark-mode .diff-section.diff-addition {
+    border-left-color: #3fb950;
+}
+body.dark-mode .diff-section.diff-contradiction {
+    border-left-color: #d29922;
+}
+body.dark-mode .diff-section.diff-omission {
+    border-left-color: #6e7681;
+}
+body.dark-mode .diff-section-body {
+    color: #c9d1d9;
+}
+body.dark-mode .diff-all-agree {
+    color: #3fb950;
+}
+body.dark-mode .diff-loading-spinner {
+    color: #8b949e;
+}
+
+/* ── Progressive disclosure (doubt answers) ──────────────────────────── */
+body.dark-mode .doubt-progressive-disclosure .doubt-section-tldr {
+    background: #0d2a3f;
+    border-left-color: #58a6ff;
+    color: #c9d1d9;
+}
+body.dark-mode .doubt-progressive-disclosure details.section-details {
+    border-color: #30363d;
+}
+
+/* ── Doubt management buttons in card dropdown ───────────────────────── */
+body.dark-mode .show-doubts-button,
+body.dark-mode .ask-doubt-button {
+    color: #8b949e;
+}
+
+/* ── Doubt file-upload span (sibling of voice-record span) ───────────── */
+body.dark-mode #doubt-file-upload-span {
+    background-color: #161b22 !important;
+    border-color: #30363d;
+    color: #c9d1d9 !important;
+}
+
+/* ── Dropdown item hover in dark mode (override inline <style> #f8f9fa) ── */
+body.dark-mode .dropdown-item:hover {
+    background-color: #21262d;
+}
+body.dark-mode .dropdown-item.text-danger:hover {
+    background-color: rgba(248,81,73,0.15);
+    color: #f85149;
+}
+
+/* ── Hint / Solution modals (gradient headers are fine, fix code blocks) ── */
+body.dark-mode #hint-content pre,
+body.dark-mode #solution-content pre {
+    background-color: #161b22;
+    border-color: #30363d;
+}
+body.dark-mode #hint-content code,
+body.dark-mode #solution-content code {
+    background-color: #21262d;
+}
+
+/* ── Doubt table borders inside dark cards ───────────────────────────── */
+body.dark-mode .doubt-conversation-card .card-body th,
+body.dark-mode .doubt-conversation-card .card-body td {
+    border-color: #30363d;
+}
+
+/* ── Audio player container in dark mode ─────────────────────────────── */
+body.dark-mode .audio-player-container .audio-container {
+    background: rgba(255,255,255,0.06);
 }
