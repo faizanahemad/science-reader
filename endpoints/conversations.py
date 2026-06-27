@@ -2210,7 +2210,7 @@ def pin_message(conversation_id: str, message_id: str):
     conversation = state.conversation_cache[conversation_id]
     preview = ""
     if conversation:
-        for msg in conversation.conversation_history:
+        for msg in (conversation.get_message_list() or []):
             if msg.get("message_id") == message_id:
                 preview = (msg.get("text") or "")[:200]
                 break
