@@ -1936,7 +1936,7 @@ var WorkspaceManager = {
                 var convId = conversation.conversation_id;
                 $('#linkInput').val('');
                 $('#searchInput').val('');
-                self.loadConversationsWithWorkspaces(true).done(function () {
+                self.loadConversationsWithWorkspaces(false).done(function () {
                     // Open as new tab if tabs are active (same as createTemporaryConversation)
                     if (typeof TabManager !== 'undefined' && TabManager.tabs.length >= 1) {
                         TabManager.openTab(convId, 'New Chat', true);
