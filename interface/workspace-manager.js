@@ -1933,11 +1933,17 @@ var WorkspaceManager = {
             url: '/create_conversation/' + currentDomain['domain'] + '/' + workspaceId,
             type: 'POST',
             success: function (conversation) {
+                var convId = conversation.conversation_id;
                 $('#linkInput').val('');
                 $('#searchInput').val('');
                 self.loadConversationsWithWorkspaces(true).done(function () {
-                    ConversationManager.setActiveConversation(conversation.conversation_id);
-                    self.highlightActiveConversation(conversation.conversation_id);
+                    // Open as new tab if tabs are active (same as createTemporaryConversation)
+                    if (typeof TabManager !== 'undefined' && TabManager.tabs.length >= 1) {
+                        TabManager.openTab(convId, 'New Chat', true);
+                    } else {
+                        ConversationManager.setActiveConversation(convId);
+                    }
+                    self.highlightActiveConversation(convId);
                 });
             }
         });

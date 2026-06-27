@@ -56,12 +56,19 @@
 
         openTab: function (conversationId, title, shouldFocus) {
             if (!conversationId) return;
+            // LRU eviction: if at capacity and this is a new tab, close the least-recently-used tab
             if (this.tabs.length >= MAX_TABS && !this.hasTab(conversationId)) {
-                if (typeof showToast === 'function') showToast('Maximum ' + MAX_TABS + ' tabs allowed. Close a tab first.', 'warning');
-                return false;
+                var lruTab = this._findLRUTab(conversationId);
+                if (lruTab) {
+                    this._evictTab(lruTab.conversationId);
+                } else {
+                    // All tabs are streaming — can't evict safely
+                    if (typeof showToast === 'function') showToast('All tabs are busy. Close a tab first.', 'warning');
+                    return false;
+                }
             }
             if (!this.hasTab(conversationId)) {
-                this.tabs.push({ conversationId: conversationId, title: title || 'Untitled' });
+                this.tabs.push({ conversationId: conversationId, title: title || 'Untitled', lastAccessed: Date.now() });
             } else if (title) {
                 this.getTab(conversationId).title = title;
             }
@@ -106,6 +113,9 @@
             if (this.focusedTabId === conversationId) return;
             var oldId = this.focusedTabId;
             this.focusedTabId = conversationId;
+            // Track LRU access time
+            var tab = this.getTab(conversationId);
+            if (tab) tab.lastAccessed = Date.now();
 
             if (isMobileLayout()) {
                 // Mobile: save old, then use setActiveConversation for full restore
@@ -150,6 +160,47 @@
             if (typeof WorkspaceManager !== 'undefined' && WorkspaceManager.highlightActiveConversation) {
                 WorkspaceManager.highlightActiveConversation(conversationId);
             }
+        },
+
+        /**
+         * Find the least-recently-used tab that can be evicted.
+         * Skips the currently focused tab and any tab with an active stream.
+         * @param {string} excludeId - also exclude this ID (the tab about to be opened)
+         * @returns {object|null} tab object or null if none can be evicted
+         */
+        _findLRUTab: function (excludeId) {
+            var oldest = null;
+            for (var i = 0; i < this.tabs.length; i++) {
+                var t = this.tabs[i];
+                if (t.conversationId === this.focusedTabId) continue;
+                if (t.conversationId === excludeId) continue;
+                if (this.streamControllers[t.conversationId]) continue; // skip streaming tabs
+                var ts = t.lastAccessed || 0;
+                if (!oldest || ts < (oldest.lastAccessed || 0)) {
+                    oldest = t;
+                }
+            }
+            return oldest;
+        },
+
+        /**
+         * Silently evict a tab (no mid-stream confirm, no focus shift).
+         * Used by LRU eviction during openTab.
+         */
+        _evictTab: function (conversationId) {
+            var idx = -1;
+            for (var i = 0; i < this.tabs.length; i++) {
+                if (this.tabs[i].conversationId === conversationId) { idx = i; break; }
+            }
+            if (idx === -1) return;
+            this.tabs.splice(idx, 1);
+            // Remove pane on desktop
+            if (!isMobileLayout()) {
+                var paneEl = document.getElementById('chatView-' + conversationId);
+                if (paneEl) paneEl.parentNode.removeChild(paneEl);
+            }
+            delete this.streamBuffers[conversationId];
+            // No focus shift — caller will focus the new tab
         },
 
         _createPane: function (conversationId) {
@@ -284,7 +335,7 @@
 
         persist: function () {
             try {
-                var data = this.tabs.map(function (t) { return { conversationId: t.conversationId, title: t.title }; });
+                var data = this.tabs.map(function (t) { return { conversationId: t.conversationId, title: t.title, lastAccessed: t.lastAccessed || 0 }; });
                 localStorage.setItem(storageKey(), JSON.stringify({ tabs: data, focusedTabId: this.focusedTabId }));
             } catch (_e) {}
         },
@@ -296,6 +347,11 @@
                 var data = JSON.parse(raw);
                 if (!data || !data.tabs || !data.tabs.length) return false;
                 this.tabs = data.tabs;
+                // Ensure all tabs have lastAccessed (migration from older format)
+                var now = Date.now();
+                for (var i = 0; i < this.tabs.length; i++) {
+                    if (!this.tabs[i].lastAccessed) this.tabs[i].lastAccessed = now - (this.tabs.length - i);
+                }
                 this.focusedTabId = data.focusedTabId || this.tabs[0].conversationId;
                 return true;
             } catch (_e) { return false; }
@@ -331,16 +387,16 @@
             var self = this;
             var restored = this.restore();
             if (!restored && initialConversationId) {
-                this.tabs = [{ conversationId: initialConversationId, title: initialTitle || 'Untitled' }];
+                this.tabs = [{ conversationId: initialConversationId, title: initialTitle || 'Untitled', lastAccessed: Date.now() }];
                 this.focusedTabId = initialConversationId;
             } else if (restored && initialConversationId) {
                 // Ensure the loaded conversation is in the tab list
                 if (!this.hasTab(initialConversationId)) {
                     // If only 1 persisted tab, replace it (user navigated away)
                     if (this.tabs.length === 1) {
-                        this.tabs[0] = { conversationId: initialConversationId, title: initialTitle || 'Untitled' };
+                        this.tabs[0] = { conversationId: initialConversationId, title: initialTitle || 'Untitled', lastAccessed: Date.now() };
                     } else {
-                        this.tabs.unshift({ conversationId: initialConversationId, title: initialTitle || 'Untitled' });
+                        this.tabs.unshift({ conversationId: initialConversationId, title: initialTitle || 'Untitled', lastAccessed: Date.now() });
                     }
                 }
                 // The DOM currently shows initialConversationId, so set it as focused
