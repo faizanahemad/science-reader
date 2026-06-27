@@ -3917,11 +3917,54 @@ function sendMessageCallback(skipAutoClarify) {
 
     ChatManager.sendMessage(ConversationManager.activeConversationId, messageText, options, links, search, attached_claim_ids, referenced_claim_ids, referenced_friendly_ids).then(function (response) {
         if (!response.ok) {
-            alert('An error occurred: ' + response.status);
             // Reset UI state on error
             $('#stopResponseButton').hide();
             $('#sendMessageButton').show();
             $('#messageText').prop('working', false);
+            // Mark synchronously so responseWaitAndSuccessChecker skips reload
+            response._errorHandled = true;
+
+            // Try to parse error body for specific error codes
+            response.clone().json().then(function (body) {
+                if (body && body.code === 'conversation_not_found') {
+                    // Conversation was deleted on another device — copy message,
+                    // notify user, and close the tab.
+                    var convId = ConversationManager.activeConversationId;
+                    if (messageText && navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(messageText);
+                    }
+                    if (typeof showToast === 'function') {
+                        showToast('This conversation has been deleted. Your message was copied to clipboard.', 'warning');
+                    } else {
+                        alert('This conversation has been deleted. Your message was copied to clipboard.');
+                    }
+                    // Remove the optimistically-rendered user message
+                    var $view = (typeof $chatView === 'function') ? $chatView(convId) : $('#chatView');
+                    $view.find('.card.message-card').last().remove();
+                    // Close the tab and navigate away
+                    if (typeof TabManager !== 'undefined' && TabManager.hasTab(convId)) {
+                        TabManager.removeTab(convId);
+                    }
+                    // Navigate to another conversation
+                    if (typeof WorkspaceManager !== 'undefined') {
+                        WorkspaceManager.loadConversationsWithWorkspaces(false).done(function () {
+                            if (WorkspaceManager.conversations && WorkspaceManager.conversations.length > 0) {
+                                var nextId = WorkspaceManager.conversations[0].conversation_id;
+                                if (typeof TabManager !== 'undefined' && TabManager.tabs.length >= 1) {
+                                    TabManager.openTab(nextId, 'Untitled', true);
+                                } else {
+                                    ConversationManager.setActiveConversation(nextId);
+                                }
+                                WorkspaceManager.highlightActiveConversation(nextId);
+                            }
+                        });
+                    }
+                } else {
+                    alert('An error occurred: ' + response.status);
+                }
+            }).catch(function () {
+                alert('An error occurred: ' + response.status);
+            });
             return;
         }
         // $('#messageText').val('');  // Clear the messageText field

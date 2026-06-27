@@ -370,6 +370,7 @@ var WorkspaceManager = {
                 }
             } else {
                 var currentActive = ConversationManager.getActiveConversation();
+                console.log('[loadConversationsWithWorkspaces] autoselect=false, highlighting currentActive =', currentActive);
                 if (currentActive) WorkspaceManager.highlightActiveConversation(currentActive);
             }
 
@@ -1219,6 +1220,7 @@ var WorkspaceManager = {
                     var collapse = self._pendingHighlightCollapse;
                     self._pendingHighlight = null;
                     self._pendingHighlightCollapse = false;
+                    console.log('[refresh.jstree] processing _pendingHighlight =', cid);
                     self.highlightActiveConversation(cid, collapse);
                 }
             });
@@ -1337,6 +1339,17 @@ var WorkspaceManager = {
                     TabManager.openTab(conversationId, title, true);
                     return;
                 }
+
+                // Programmatic select_node (no user event) while TabManager owns
+                // focus: this comes from _pendingHighlight / highlightActiveConversation
+                // after a tree refresh.  It must NOT switch tabs or call
+                // setActiveConversation — the tab system owns focus management.
+                // Just let the sidebar node stay selected (visual highlight) and bail.
+                if (!data.event && typeof TabManager !== 'undefined' && TabManager.focusedTabId) {
+                    console.log('[select_node.jstree] SUPPRESSED programmatic select for', conversationId, '(TabManager owns focus, focused=' + TabManager.focusedTabId + ')');
+                    return;
+                }
+
                 if (currentActive && String(currentActive) === String(conversationId)) return;
 
                 try {
@@ -1526,6 +1539,25 @@ var WorkspaceManager = {
         );
 
         // Clean up positioning element after menu is shown
+        setTimeout(function () { posEl.remove(); }, 200);
+    },
+
+    /**
+     * Show context menu for a tab whose conversation is not in the jsTree.
+     * Accepts a synthetic node object { id, text, li_attr, original }.
+     */
+    showTabContextMenu: function (synthNode, x, y) {
+        $.vakata.context.hide();
+        var items = this.buildConversationContextMenu(synthNode);
+        var vakata_items = this._convertToVakataItems(items, synthNode);
+        var menuX = x;
+        var menuY = y;
+        var posEl = $('<span>').css({
+            position: 'absolute', left: menuX + 'px', top: menuY + 'px',
+            width: '1px', height: '1px'
+        });
+        $('body').append(posEl);
+        $.vakata.context.show(posEl, { x: menuX, y: menuY }, vakata_items);
         setTimeout(function () { posEl.remove(); }, 200);
     },
 
@@ -1746,13 +1778,22 @@ var WorkspaceManager = {
                         url: '/delete_conversation/' + convId,
                         type: 'DELETE',
                         success: function () {
+                            // Remove tab if open (before sidebar refresh so pane is cleaned up)
+                            if (typeof TabManager !== 'undefined' && TabManager.hasTab(convId)) {
+                                TabManager.removeTab(convId);
+                            }
                             self.loadConversationsWithWorkspaces(false).done(function () {
-                                if (ConversationManager.activeConversationId === convId) {
-                                    if (self.conversations.length > 0) {
-                                        var nextId = self.conversations[0].conversation_id;
+                                // Navigate to another conversation if the deleted one was active
+                                var needsNav = !ConversationManager.activeConversationId ||
+                                               ConversationManager.activeConversationId === convId;
+                                if (needsNav && self.conversations.length > 0) {
+                                    var nextId = self.conversations[0].conversation_id;
+                                    if (typeof TabManager !== 'undefined' && TabManager.tabs.length >= 1) {
+                                        TabManager.openTab(nextId, 'Untitled', true);
+                                    } else {
                                         ConversationManager.setActiveConversation(nextId);
-                                        self.highlightActiveConversation(nextId);
                                     }
+                                    self.highlightActiveConversation(nextId);
                                 }
                             });
                         }
@@ -1937,6 +1978,7 @@ var WorkspaceManager = {
                 $('#linkInput').val('');
                 $('#searchInput').val('');
                 self.loadConversationsWithWorkspaces(false).done(function () {
+                    console.log('[createConversationInWorkspace] .done() fired, convId =', convId, 'TabManager.focusedTabId =', (typeof TabManager !== 'undefined' ? TabManager.focusedTabId : 'N/A'));
                     // Open as new tab if tabs are active (same as createTemporaryConversation)
                     if (typeof TabManager !== 'undefined' && TabManager.tabs.length >= 1) {
                         TabManager.openTab(convId, 'New Chat', true);

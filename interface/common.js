@@ -1351,6 +1351,13 @@ async function responseWaitAndSuccessChecker(url, responsePromise) {
 
         // Check the API response status
         if (!response.ok) {
+            // Skip reload if the caller already handled this error (e.g. conversation_not_found)
+            if (response._errorHandled) return;
+            // Delay check: give the caller's .then() handler a chance to set _errorHandled
+            // before showing the reload alert (the .then() is a microtask that may run after
+            // this await continuation).
+            await new Promise(r => setTimeout(r, 100));
+            if (response._errorHandled) return;
             alert(`An error occurred while calling ${url}: ${response.status}. Reloading the page is advised.`);
             // Reload the page after 5 seconds
             setTimeout(() => {

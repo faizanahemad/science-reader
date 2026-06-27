@@ -56,6 +56,7 @@
 
         openTab: function (conversationId, title, shouldFocus) {
             if (!conversationId) return;
+            console.log('[TabManager.openTab]', conversationId, 'shouldFocus=' + shouldFocus, 'tabs=' + this.tabs.length);
             // LRU eviction: if at capacity and this is a new tab, close the least-recently-used tab
             if (this.tabs.length >= MAX_TABS && !this.hasTab(conversationId)) {
                 var lruTab = this._findLRUTab(conversationId);
@@ -108,9 +109,43 @@
             this.persist();
         },
 
+        /**
+         * Remove a tab unconditionally (used when conversation is deleted).
+         * Unlike closeTab, this works for the last tab, skips mid-stream
+         * confirm, and does not auto-focus an adjacent tab (caller handles
+         * navigation to the next conversation).
+         */
+        removeTab: function (conversationId) {
+            if (!this.hasTab(conversationId)) return;
+            // Cancel any active stream silently
+            if (this.streamControllers[conversationId]) {
+                try { this.streamControllers[conversationId].cancel(); } catch (_e) {}
+                delete this.streamControllers[conversationId];
+            }
+            var idx = -1;
+            for (var i = 0; i < this.tabs.length; i++) {
+                if (this.tabs[i].conversationId === conversationId) { idx = i; break; }
+            }
+            if (idx === -1) return;
+            this.tabs.splice(idx, 1);
+            // Remove pane on desktop
+            if (!isMobileLayout()) {
+                var paneEl = document.getElementById('chatView-' + conversationId);
+                if (paneEl) paneEl.parentNode.removeChild(paneEl);
+            }
+            delete this.streamBuffers[conversationId];
+            // Clear focusedTabId if this was the focused tab (caller will set a new one)
+            if (this.focusedTabId === conversationId) {
+                this.focusedTabId = null;
+            }
+            this.renderUI();
+            this.persist();
+        },
+
         focusTab: function (conversationId) {
             if (!conversationId) return;
-            if (this.focusedTabId === conversationId) return;
+            if (this.focusedTabId === conversationId) { console.log('[TabManager.focusTab] SKIP same id', conversationId); return; }
+            console.log('[TabManager.focusTab]', conversationId, 'old=' + this.focusedTabId);
             var oldId = this.focusedTabId;
             this.focusedTabId = conversationId;
             // Track LRU access time
@@ -289,6 +324,30 @@
             $bar.find('.conv-tab').off('click').on('click', function (e) {
                 if ($(e.target).hasClass('conv-tab-close')) return;
                 self.focusTab($(this).data('conv-id'));
+            });
+            $bar.find('.conv-tab').off('contextmenu').on('contextmenu', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                var cid = $(this).data('conv-id');
+                if (typeof WorkspaceManager !== 'undefined' && WorkspaceManager.showNodeContextMenu) {
+                    var nodeId = 'cv_' + cid;
+                    // Try jsTree node first; if absent build a synthetic node
+                    var tree = $('#workspaces-container').jstree(true);
+                    var node = tree && tree.get_node(nodeId);
+                    if (node) {
+                        WorkspaceManager.showNodeContextMenu(nodeId, e.pageX, e.pageY);
+                    } else {
+                        // Synthetic node for tabs not in the sidebar tree
+                        var tab = self.getTab(cid);
+                        var synth = {
+                            id: nodeId,
+                            text: (tab && tab.title) || 'Untitled',
+                            li_attr: {},
+                            original: {}
+                        };
+                        WorkspaceManager.showTabContextMenu(synth, e.pageX, e.pageY);
+                    }
+                }
             });
             $bar.find('.conv-tab-close').off('click').on('click', function (e) {
                 e.stopPropagation();
