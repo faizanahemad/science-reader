@@ -618,6 +618,22 @@ bi bi-trash-fill {
     margin-top: 5px;
 }
 
+/* Disable paint containment when a dropdown is open so the absolutely-
+   positioned dropdown-menu can overflow the card's bounding box.
+   content-visibility:auto implies contain:layout style paint; the paint
+   containment clips children to the border box.  Switching to 'visible'
+   on the specific card that has an open dropdown is surgical — all other
+   cards keep the perf benefit. */
+.message-card:has(.dropdown-menu.show) {
+    content-visibility: visible;
+    contain-intrinsic-size: none;
+}
+/* JS fallback class for browsers without :has() support */
+.message-card.dropdown-open {
+    content-visibility: visible;
+    contain-intrinsic-size: none;
+}
+
 /* Ensure slide containers don't get clipped */
 .message-card.has-slides {
     min-height: 600px;
@@ -657,6 +673,34 @@ bi bi-trash-fill {
 
 .card-header {
     padding: 0.1rem 0.75rem;
+}
+
+/* ── Card header buttons: explicit light-mode colors ─────────────────────
+   Without a Bootstrap color variant class (e.g. btn-outline-secondary),
+   .btn inherits color:#212529 + transparent border/bg — making icon-only
+   buttons appear as invisible ghost buttons. Give all card-header .btn a
+   visible icon color so Bootstrap-Icon glyphs always render.           */
+.card-header .btn {
+    color: #6c757d;
+}
+.card-header .btn:hover,
+.card-header .btn:focus {
+    color: #495057;
+}
+
+/* ── Modal header buttons: ensure btn-outline-secondary is visible ──────
+   The Bootstrap default btn-outline-secondary has color:#6c757d which is
+   correct for light mode, but reinforce it for specificity against any
+   parent color inheritance. */
+.modal-header .btn-outline-secondary {
+    color: #6c757d;
+    border-color: #6c757d;
+}
+.modal-header .btn-outline-secondary:hover,
+.modal-header .btn-outline-secondary:focus {
+    color: #fff;
+    background-color: #6c757d;
+    border-color: #6c757d;
 }
 
 .status-text {

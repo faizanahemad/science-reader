@@ -52,6 +52,33 @@ body.dark-mode .card-header {
     border-color: #30363d;
     color: #c9d1d9;
 }
+/* Broad rule: every .btn inside a dark-mode card-header should be visible.
+   Bootstrap's base .btn { color:#212529 } is invisible on #21262d. */
+body.dark-mode .card-header .btn {
+    color: #8b949e;
+}
+body.dark-mode .card-header .btn:hover,
+body.dark-mode .card-header .btn:focus {
+    color: #c9d1d9;
+}
+/* Same for modal headers — catch any unstyled buttons */
+body.dark-mode .modal-header .btn {
+    color: #8b949e;
+}
+body.dark-mode .modal-header .btn:hover,
+body.dark-mode .modal-header .btn:focus {
+    color: #c9d1d9;
+}
+body.dark-mode .modal-header .btn-outline-secondary {
+    color: #c9d1d9;
+    border-color: #8b949e;
+}
+body.dark-mode .modal-header .btn-outline-secondary:hover,
+body.dark-mode .modal-header .btn-outline-secondary:focus {
+    color: #ffffff;
+    background-color: #21262d;
+    border-color: #c9d1d9;
+}
 body.dark-mode .card-footer {
     background-color: #21262d;
     border-color: #30363d;

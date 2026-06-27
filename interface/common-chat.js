@@ -5904,4 +5904,18 @@ deferReady(function () {
                 handleMessageFocus(messageId, ConversationManager.activeConversationId);
             }
         });
+
+    /* ── Dropdown containment fix ────────────────────────────────────────
+       content-visibility:auto on .message-card implies contain:paint which
+       clips dropdown menus to the card's border box.  The CSS :has() rule
+       handles modern browsers; this JS handler is a fallback that also
+       toggles a .dropdown-open class on the parent .message-card so the
+       CSS can disable containment while a dropdown is visible.           */
+    $(document)
+        .on('show.bs.dropdown', '.message-card .dropdown', function () {
+            $(this).closest('.message-card').addClass('dropdown-open');
+        })
+        .on('hide.bs.dropdown', '.message-card .dropdown', function () {
+            $(this).closest('.message-card').removeClass('dropdown-open');
+        });
 });
