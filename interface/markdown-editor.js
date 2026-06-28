@@ -199,22 +199,33 @@ var MarkdownEditorManager = (function() {
             $('#edit-code-tab').tab('show');
         }
         
-        // Initialize and show the appropriate editor
+        // Initialize and show the appropriate editor.
+        // NOTE: initCodeMirror/initEasyMDE load libraries asynchronously and
+        // only create the editor instance inside a promise callback. We must
+        // therefore wait for that promise before calling setValue, otherwise
+        // the very first open finds editors.* === null and silently sets
+        // nothing (the content only appears on the second open, once the
+        // instance happens to already exist).
+        var initPromise;
         switch (editorType) {
             case 'codemirror-preview':
-                initCodeMirror();
+                initPromise = initCodeMirror();
                 break;
             case 'easymde':
-                initEasyMDE();
+                initPromise = initEasyMDE();
                 break;
             case 'milkdown':
-                initWYSIWYG();
+                initPromise = initWYSIWYG();
                 break;
         }
         
-        // Set the content after initialization
-        setValue(currentText);
-        hasEditorBeenInitialized = true;
+        // Set the content after initialization completes (sync or async).
+        Promise.resolve(initPromise).then(function() {
+            setValue(currentText);
+            hasEditorBeenInitialized = true;
+        }).catch(function(err) {
+            console.error('Editor initialization failed:', err);
+        });
     }
     
     /**
@@ -227,10 +238,10 @@ var MarkdownEditorManager = (function() {
         
         if (editors.easymde) {
             setTimeout(function() { editors.easymde.codemirror.refresh(); }, 10);
-            return;
+            return Promise.resolve();
         }
         // Item 7: load EasyMDE (+ CodeMirror) on demand
-        LazyLibs.loadEasyMDE().then(function () {
+        return LazyLibs.loadEasyMDE().then(function () {
             if (editors.easymde) { // guard against double-fire
                 setTimeout(function() { editors.easymde.codemirror.refresh(); }, 10);
                 return;
@@ -276,10 +287,10 @@ var MarkdownEditorManager = (function() {
         
         if (editors.codemirror) {
             setTimeout(function() { editors.codemirror.refresh(); }, 10);
-            return;
+            return Promise.resolve();
         }
         // Item 7: load CodeMirror on demand
-        LazyLibs.loadCodeMirror().then(function () {
+        return LazyLibs.loadCodeMirror().then(function () {
             if (editors.codemirror) {
                 setTimeout(function() { editors.codemirror.refresh(); }, 10);
                 return;
