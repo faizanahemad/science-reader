@@ -329,6 +329,16 @@ var WorkspaceManager = {
                 } catch (_e) { /* ignore */ }
             }
 
+            // Prune persisted tabs whose conversations were deleted on another device
+            var _tabValidation = null;
+            if (typeof TabManager !== 'undefined') {
+                _tabValidation = TabManager.validateTabs(conversations);
+                if (_tabValidation.removed > 0) {
+                    var _tabMsg = _tabValidation.removed + ' tab' + (_tabValidation.removed > 1 ? 's' : '') + ' closed (conversation' + (_tabValidation.removed > 1 ? 's' : '') + ' no longer available)';
+                    if (typeof showToast === 'function') showToast(_tabMsg, 'warning');
+                }
+            }
+
             // Auto-selection logic
             if (autoselect) {
                 var conversationId = getConversationIdFromUrl();
@@ -369,8 +379,18 @@ var WorkspaceManager = {
                     }
                 }
             } else {
-                var currentActive = ConversationManager.getActiveConversation();
-                if (currentActive) WorkspaceManager.highlightActiveConversation(currentActive);
+                // Non-autoselect path (sidebar refresh, not initial load)
+                // If tab validation pruned the focused tab, navigate to a valid conversation
+                if (_tabValidation && _tabValidation.removed > 0 && (_tabValidation.allRemoved || (typeof TabManager !== 'undefined' && !TabManager.focusedTabId))) {
+                    var _fallbackId = (_tabValidation.survivorId) || (conversations.length > 0 ? conversations[0].conversation_id : null);
+                    if (_fallbackId) {
+                        ConversationManager.setActiveConversation(_fallbackId);
+                        WorkspaceManager.highlightActiveConversation(_fallbackId, true);
+                    }
+                } else {
+                    var currentActive = ConversationManager.getActiveConversation();
+                    if (currentActive) WorkspaceManager.highlightActiveConversation(currentActive);
+                }
             }
 
             // popstate handler

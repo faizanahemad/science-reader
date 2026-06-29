@@ -414,6 +414,109 @@
             } catch (_e) { return false; }
         },
 
+        /**
+         * Prune persisted tabs whose conversations no longer exist on the server.
+         * Works both pre-init (prunes localStorage so restore() sees clean data)
+         * and post-init (also cleans up in-memory tabs and DOM panes).
+         *
+         * @param {Array} conversations - server conversation list (objects with .conversation_id)
+         * @returns {Object} { removed: number, allRemoved: boolean, survivorId: string|undefined }
+         */
+        validateTabs: function (conversations) {
+            try {
+                // Determine the source: in-memory tabs (post-init) or localStorage (pre-init)
+                var isInitialized = this.tabs.length > 0;
+                var tabsToCheck;
+                var persistedFocusedId;
+
+                if (isInitialized) {
+                    tabsToCheck = this.tabs;
+                    persistedFocusedId = this.focusedTabId;
+                } else {
+                    var raw = localStorage.getItem(storageKey());
+                    if (!raw) return { removed: 0, allRemoved: false };
+                    var data = JSON.parse(raw);
+                    if (!data || !data.tabs || !data.tabs.length) return { removed: 0, allRemoved: false };
+                    tabsToCheck = data.tabs;
+                    persistedFocusedId = data.focusedTabId;
+                }
+
+                // Build a Set of valid conversation IDs for fast lookup
+                var validIds = {};
+                for (var i = 0; i < conversations.length; i++) {
+                    validIds[String(conversations[i].conversation_id)] = true;
+                }
+
+                // Partition tabs into valid and stale
+                var validTabs = [];
+                var staleTabs = [];
+                for (var j = 0; j < tabsToCheck.length; j++) {
+                    if (validIds[String(tabsToCheck[j].conversationId)]) {
+                        validTabs.push(tabsToCheck[j]);
+                    } else {
+                        staleTabs.push(tabsToCheck[j]);
+                    }
+                }
+
+                if (staleTabs.length === 0) return { removed: 0, allRemoved: false };
+
+                // Clean up in-memory state and DOM panes if already initialized
+                if (isInitialized) {
+                    for (var k = 0; k < staleTabs.length; k++) {
+                        var staleId = staleTabs[k].conversationId;
+                        // Remove DOM pane on desktop
+                        if (!isMobileLayout()) {
+                            $('#chatView-' + staleId).remove();
+                        }
+                        delete this.streamBuffers[staleId];
+                        if (this.streamControllers[staleId]) {
+                            try { this.streamControllers[staleId].cancel(); } catch (_e) {}
+                            delete this.streamControllers[staleId];
+                        }
+                    }
+                }
+
+                if (validTabs.length === 0) {
+                    // All tabs were stale — clear everything
+                    localStorage.removeItem(storageKey());
+                    if (isInitialized) {
+                        this.tabs = [];
+                        this.focusedTabId = null;
+                        this.renderUI();
+                    }
+                    return { removed: staleTabs.length, allRemoved: true };
+                }
+
+                // Fix focusedTabId if it was pointing to a stale tab
+                var focusedStillValid = validTabs.some(function (t) {
+                    return String(t.conversationId) === String(persistedFocusedId);
+                });
+                var newFocused = focusedStillValid ? persistedFocusedId : validTabs[0].conversationId;
+
+                // If only 1 tab survives, clear tabs entirely (no tab bar for single tab)
+                if (validTabs.length === 1) {
+                    localStorage.removeItem(storageKey());
+                    if (isInitialized) {
+                        this.tabs = [];
+                        this.focusedTabId = null;
+                        this.renderUI();
+                    }
+                    return { removed: staleTabs.length, allRemoved: true, survivorId: validTabs[0].conversationId };
+                }
+
+                // Multiple tabs survive — update state
+                if (isInitialized) {
+                    this.tabs = validTabs;
+                    this.focusedTabId = newFocused;
+                    this.renderUI();
+                }
+                localStorage.setItem(storageKey(), JSON.stringify({ tabs: validTabs, focusedTabId: newFocused }));
+                return { removed: staleTabs.length, allRemoved: false };
+            } catch (_e) {
+                return { removed: 0, allRemoved: false };
+            }
+        },
+
         clearTabs: function () {
             // Abort all streams
             var self = this;
