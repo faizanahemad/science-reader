@@ -3701,13 +3701,19 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
                 "error": f"Could not extract YouTube video ID from {link}",
             }
         else:
+            import requests as _requests
             proxy_url = api_keys.get("brightdataProxy")
             if proxy_url:
+                # Use a custom Session with verify=False for brightdata proxy
+                # (same pattern as web_scraping.py:fetch_content_brightdata_html)
+                session = _requests.Session()
+                session.verify = False
                 ytt_api = YouTubeTranscriptApi(
                     proxy_config=GenericProxyConfig(
                         http_url=proxy_url,
                         https_url=proxy_url,
-                    )
+                    ),
+                    http_client=session,
                 )
             else:
                 ytt_api = YouTubeTranscriptApi()

@@ -1190,6 +1190,7 @@ def handle_read_link(args: dict, context: ToolContext) -> ToolCallResult:
         if result.get("exception"):
             return ToolCallResult(
                 tool_id="", tool_name="read_link",
+                result="",
                 error=f"Error reading link: {result.get('error', 'unknown error')}",
             )
 
@@ -1226,6 +1227,7 @@ def handle_read_link(args: dict, context: ToolContext) -> ToolCallResult:
         logger.exception("read_link failed: %s", exc)
         return ToolCallResult(
             tool_id="", tool_name="read_link",
+            result="",
             error=f"Read link failed: {exc}",
         )
 
