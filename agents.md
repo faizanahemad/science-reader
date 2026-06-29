@@ -66,6 +66,8 @@
 
 ### Context management and calling sub-agents
 
+- **Prefer delegating to sub-agents by default.** The main agent should act as an orchestrator: hand off the heavy, context-consuming work — surveying the codebase, reading large files, repo-wide searching, doc lookups, parsing long command/test output — to sub-agents (the read-only `explore` agent for search/read, `general` for multi-step work), running several in parallel where possible, and pull back only the distilled results. Do this even when you could do it inline; the goal is to keep the main thread's context small and focused.
+- Keep synthesis and judgment in the main agent: it has the conversation and the full intent, so it writes the plan/docs/code, makes decisions, and packages a complete briefing for any sub-agent (which starts fresh and cannot see the conversation). Delegate gathering and verification; do not delegate the writing or the final decision.
 - For reading large files (>200 lines): 1. `wc -l filename`, 2. Call a sub-agent to get an outline by grepping for headers and relevant patterns, 3. Read the exact lines needed. If outline parsing doesn't work, call a sub-agent with your query to get relevant info and line numbers.
 - If multiple files need to be edited in parallel, use sub-agents. Give the location of the plan or task file for context.
 - Your context length is small — delegate surveying, reading large files, or looking up code across multiple files to sub-agents. Return only important and useful parts to prevent context bloat.
