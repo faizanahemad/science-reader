@@ -3676,73 +3676,95 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
         # Fetch YouTube transcript via youtube_transcript_api (no audio download / ASR needed).
         # Prefer manual captions over auto-generated; prefer English.
         import re as _re
+        from urllib.parse import urlparse, parse_qs
         from youtube_transcript_api import YouTubeTranscriptApi
         from youtube_transcript_api.proxies import GenericProxyConfig
 
-        proxy_url = api_keys.get("brightdataProxy")
-        if proxy_url:
-            ytt_api = YouTubeTranscriptApi(
-                proxy_config=GenericProxyConfig(
-                    http_url=proxy_url,
-                    https_url=proxy_url,
-                )
-            )
+        # Extract video ID from URL — the API requires the ID, not the full URL.
+        def _extract_video_id(url):
+            parsed = urlparse(url)
+            if parsed.hostname in ("www.youtube.com", "youtube.com", "m.youtube.com"):
+                if parsed.path == "/watch":
+                    return parse_qs(parsed.query).get("v", [None])[0]
+                if parsed.path.startswith(("/embed/", "/v/", "/shorts/")):
+                    return parsed.path.split("/")[2]
+            if parsed.hostname in ("youtu.be",):
+                return parsed.path.lstrip("/").split("/")[0] or None
+            return None
+
+        video_id = _extract_video_id(link)
+        if not video_id:
+            logger.error(f"Could not extract YouTube video ID from {link}")
+            result = {
+                "link": link, "title": title, "text": "", "exception": True,
+                "full_text": "", "is_pdf": False, "is_image": False,
+                "error": f"Could not extract YouTube video ID from {link}",
+            }
         else:
-            ytt_api = YouTubeTranscriptApi()
+            proxy_url = api_keys.get("brightdataProxy")
+            if proxy_url:
+                ytt_api = YouTubeTranscriptApi(
+                    proxy_config=GenericProxyConfig(
+                        http_url=proxy_url,
+                        https_url=proxy_url,
+                    )
+                )
+            else:
+                ytt_api = YouTubeTranscriptApi()
 
-        try:
-            transcript_list = ytt_api.list(link)
-            manual = [t for t in transcript_list if not t.is_generated]
-            auto = [t for t in transcript_list if t.is_generated]
+            try:
+                transcript_list = ytt_api.list(video_id)
+                manual = [t for t in transcript_list if not t.is_generated]
+                auto = [t for t in transcript_list if t.is_generated]
 
-            # Pick best transcript: manual english > any manual > auto english > any auto
-            target_lang = None
-            for t in manual:
-                if "en" in t.language_code.lower():
-                    target_lang = t.language_code
-                    break
-            if not target_lang and manual:
-                target_lang = manual[0].language_code
-            if not target_lang:
-                for t in auto:
+                # Pick best transcript: manual english > any manual > auto english > any auto
+                target_lang = None
+                for t in manual:
                     if "en" in t.language_code.lower():
                         target_lang = t.language_code
                         break
-            if not target_lang and auto:
-                target_lang = auto[0].language_code
+                if not target_lang and manual:
+                    target_lang = manual[0].language_code
+                if not target_lang:
+                    for t in auto:
+                        if "en" in t.language_code.lower():
+                            target_lang = t.language_code
+                            break
+                if not target_lang and auto:
+                    target_lang = auto[0].language_code
 
-            if target_lang is None:
-                raise Exception("No transcripts available for this YouTube video.")
+                if target_lang is None:
+                    raise Exception("No transcripts available for this YouTube video.")
 
-            fetched_transcript = ytt_api.fetch(link, languages=[target_lang])
-            raw_data = fetched_transcript.to_raw_data()
-            full_text = " ".join([entry["text"] for entry in raw_data])
-            # Clean zero-width spaces and normalize whitespace
-            full_text = _re.sub(r"[\u200b\u200c\u200d\ufeff]", "", full_text)
-            full_text = _re.sub(r"\s+", " ", full_text).strip()
+                fetched_transcript = ytt_api.fetch(video_id, languages=[target_lang])
+                raw_data = fetched_transcript.to_raw_data()
+                full_text = " ".join([entry["text"] for entry in raw_data])
+                # Clean zero-width spaces and normalize whitespace
+                full_text = _re.sub(r"[\u200b\u200c\u200d\ufeff]", "", full_text)
+                full_text = _re.sub(r"\s+", " ", full_text).strip()
 
-            result = {
-                "link": link,
-                "title": title,
-                "text": full_text,
-                "exception": False,
-                "full_text": full_text,
-                "is_pdf": False,
-                "is_image": False,
-            }
-            logger.info(f"YouTube transcript fetched for {link} (lang={target_lang}, words={len(full_text.split())})")
-        except Exception as e:
-            logger.error(f"YouTube transcript fetch failed for {link}: {e}")
-            result = {
-                "link": link,
-                "title": title,
-                "text": "",
-                "exception": True,
-                "full_text": "",
-                "is_pdf": False,
-                "is_image": False,
-                "error": str(e),
-            }
+                result = {
+                    "link": link,
+                    "title": title,
+                    "text": full_text,
+                    "exception": False,
+                    "full_text": full_text,
+                    "is_pdf": False,
+                    "is_image": False,
+                }
+                logger.info(f"YouTube transcript fetched for {link} (lang={target_lang}, words={len(full_text.split())})")
+            except Exception as e:
+                logger.error(f"YouTube transcript fetch failed for {link}: {e}")
+                result = {
+                    "link": link,
+                    "title": title,
+                    "text": "",
+                    "exception": True,
+                    "full_text": "",
+                    "is_pdf": False,
+                    "is_image": False,
+                    "error": str(e),
+                }
 
     elif False:
         # Deactivated: yt_dlp + AssemblyAI based approach (causes IP flagging).
