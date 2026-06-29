@@ -3703,6 +3703,7 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
         else:
             import requests as _requests
             proxy_url = api_keys.get("brightdataProxy")
+            logger.info(f"YouTube transcript: video_id={video_id}, proxy_url={'SET (' + proxy_url[:30] + '...)' if proxy_url else 'NOT SET'}")
             if proxy_url:
                 # Subclass to enable IP rotation retries — brightdata residential
                 # proxies rotate IPs per connection, so retrying on YouTube IP blocks
@@ -3771,7 +3772,7 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
                 }
                 logger.info(f"YouTube transcript fetched for {link} (lang={target_lang}, words={len(full_text.split())})")
             except Exception as e:
-                logger.error(f"YouTube transcript fetch failed for {link}: {e}")
+                logger.error(f"YouTube transcript fetch failed for {link}: type={type(e).__name__}, proxy_used={bool(proxy_url)}, error={e}")
                 result = {
                     "link": link,
                     "title": title,
