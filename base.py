@@ -3704,12 +3704,23 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
             import requests as _requests
             proxy_url = api_keys.get("brightdataProxy")
             if proxy_url:
-                # Use a custom Session with verify=False for brightdata proxy
+                # Subclass to enable IP rotation retries — brightdata residential
+                # proxies rotate IPs per connection, so retrying on YouTube IP blocks
+                # gets a fresh IP each time.
+                class _RotatingProxyConfig(GenericProxyConfig):
+                    @property
+                    def prevent_keeping_connections_alive(self):
+                        return True  # close connection after each request to rotate IP
+                    @property
+                    def retries_when_blocked(self):
+                        return 3  # retry up to 3 times on IP block (429/blocked)
+
+                # Use verify=False for brightdata proxy SSL
                 # (same pattern as web_scraping.py:fetch_content_brightdata_html)
                 session = _requests.Session()
                 session.verify = False
                 ytt_api = YouTubeTranscriptApi(
-                    proxy_config=GenericProxyConfig(
+                    proxy_config=_RotatingProxyConfig(
                         http_url=proxy_url,
                         https_url=proxy_url,
                     ),
