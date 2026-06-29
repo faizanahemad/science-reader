@@ -59,6 +59,7 @@ def keyParser(session) -> dict[str, Any]:
         "scrapingant": os.getenv("scrapingant", ""),
         "brightdataUrl": os.getenv("brightdataUrl", ""),
         "brightdataProxy": os.getenv("brightdataProxy", ""),
+        "transcriptapiKey": os.getenv("transcriptapiKey", ""),
         "OPENROUTER_API_KEY": os.getenv("OPENROUTER_API_KEY", ""),
         "LOGIN_BEARER_AUTH": os.getenv("LOGIN_BEARER_AUTH", ""),
     }

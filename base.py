@@ -3673,14 +3673,14 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
         result["is_image"] = False
 
     elif is_youtube_link(link):
-        # Fetch YouTube transcript via youtube_transcript_api (no audio download / ASR needed).
-        # Prefer manual captions over auto-generated; prefer English.
+        # Fetch YouTube transcript — no audio download / ASR needed.
+        # Primary: transcriptapi.com (hosted service, no proxy needed)
+        # Fallback: youtube_transcript_api (direct, needs proxy on cloud IPs)
         import re as _re
+        import requests as _requests
         from urllib.parse import urlparse, parse_qs
-        from youtube_transcript_api import YouTubeTranscriptApi
-        from youtube_transcript_api.proxies import GenericProxyConfig
 
-        # Extract video ID from URL — the API requires the ID, not the full URL.
+        # Extract video ID from URL.
         def _extract_video_id(url):
             parsed = urlparse(url)
             if parsed.hostname in ("www.youtube.com", "youtube.com", "m.youtube.com"):
@@ -3701,66 +3701,93 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
                 "error": f"Could not extract YouTube video ID from {link}",
             }
         else:
-            import requests as _requests
-            proxy_url = api_keys.get("brightdataProxy")
-            logger.info(f"YouTube transcript: video_id={video_id}, proxy_url={'SET (' + proxy_url[:30] + '...)' if proxy_url else 'NOT SET'}")
-            if proxy_url:
-                # Subclass to enable IP rotation retries — brightdata residential
-                # proxies rotate IPs per connection, so retrying on YouTube IP blocks
-                # gets a fresh IP each time.
-                class _RotatingProxyConfig(GenericProxyConfig):
-                    @property
-                    def prevent_keeping_connections_alive(self):
-                        return True  # close connection after each request to rotate IP
-                    @property
-                    def retries_when_blocked(self):
-                        return 3  # retry up to 3 times on IP block (429/blocked)
+            full_text = None
 
-                # Use verify=False for brightdata proxy SSL
-                # (same pattern as web_scraping.py:fetch_content_brightdata_html)
-                session = _requests.Session()
-                session.verify = False
-                ytt_api = YouTubeTranscriptApi(
-                    proxy_config=_RotatingProxyConfig(
-                        http_url=proxy_url,
-                        https_url=proxy_url,
-                    ),
-                    http_client=session,
-                )
-            else:
-                ytt_api = YouTubeTranscriptApi()
+            # --- Primary: transcriptapi.com ---
+            transcript_api_key = api_keys.get("transcriptapiKey")
+            if transcript_api_key:
+                try:
+                    resp = _requests.get(
+                        "https://transcriptapi.com/api/v2/youtube/transcript",
+                        params={"video_url": video_id},
+                        headers={"Authorization": f"Bearer {transcript_api_key}"},
+                        timeout=30,
+                    )
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        transcript_entries = data.get("transcript", [])
+                        if transcript_entries:
+                            full_text = " ".join([e.get("text", "") for e in transcript_entries])
+                            full_text = _re.sub(r"[\u200b\u200c\u200d\ufeff]", "", full_text)
+                            full_text = _re.sub(r"\s+", " ", full_text).strip()
+                            logger.info(f"YouTube transcript fetched via transcriptapi.com for {link} (words={len(full_text.split())})")
+                    else:
+                        logger.warning(f"transcriptapi.com returned {resp.status_code} for {link}: {resp.text[:200]}")
+                except Exception as e:
+                    logger.warning(f"transcriptapi.com failed for {link}: {type(e).__name__}: {e}")
 
-            try:
-                transcript_list = ytt_api.list(video_id)
-                manual = [t for t in transcript_list if not t.is_generated]
-                auto = [t for t in transcript_list if t.is_generated]
+            # --- Fallback: youtube_transcript_api + proxy ---
+            if not full_text:
+                try:
+                    from youtube_transcript_api import YouTubeTranscriptApi
+                    from youtube_transcript_api.proxies import GenericProxyConfig
 
-                # Pick best transcript: manual english > any manual > auto english > any auto
-                target_lang = None
-                for t in manual:
-                    if "en" in t.language_code.lower():
-                        target_lang = t.language_code
-                        break
-                if not target_lang and manual:
-                    target_lang = manual[0].language_code
-                if not target_lang:
-                    for t in auto:
+                    proxy_url = api_keys.get("brightdataProxy")
+                    if proxy_url:
+                        class _RotatingProxyConfig(GenericProxyConfig):
+                            @property
+                            def prevent_keeping_connections_alive(self):
+                                return True
+                            @property
+                            def retries_when_blocked(self):
+                                return 3
+
+                        session = _requests.Session()
+                        session.verify = False
+                        ytt_api = YouTubeTranscriptApi(
+                            proxy_config=_RotatingProxyConfig(
+                                http_url=proxy_url,
+                                https_url=proxy_url,
+                            ),
+                            http_client=session,
+                        )
+                    else:
+                        ytt_api = YouTubeTranscriptApi()
+
+                    transcript_list = ytt_api.list(video_id)
+                    manual = [t for t in transcript_list if not t.is_generated]
+                    auto = [t for t in transcript_list if t.is_generated]
+
+                    # Pick best transcript: manual english > any manual > auto english > any auto
+                    target_lang = None
+                    for t in manual:
                         if "en" in t.language_code.lower():
                             target_lang = t.language_code
                             break
-                if not target_lang and auto:
-                    target_lang = auto[0].language_code
+                    if not target_lang and manual:
+                        target_lang = manual[0].language_code
+                    if not target_lang:
+                        for t in auto:
+                            if "en" in t.language_code.lower():
+                                target_lang = t.language_code
+                                break
+                    if not target_lang and auto:
+                        target_lang = auto[0].language_code
 
-                if target_lang is None:
-                    raise Exception("No transcripts available for this YouTube video.")
+                    if target_lang is None:
+                        raise Exception("No transcripts available for this YouTube video.")
 
-                fetched_transcript = ytt_api.fetch(video_id, languages=[target_lang])
-                raw_data = fetched_transcript.to_raw_data()
-                full_text = " ".join([entry["text"] for entry in raw_data])
-                # Clean zero-width spaces and normalize whitespace
-                full_text = _re.sub(r"[\u200b\u200c\u200d\ufeff]", "", full_text)
-                full_text = _re.sub(r"\s+", " ", full_text).strip()
+                    fetched_transcript = ytt_api.fetch(video_id, languages=[target_lang])
+                    raw_data = fetched_transcript.to_raw_data()
+                    full_text = " ".join([entry["text"] for entry in raw_data])
+                    full_text = _re.sub(r"[\u200b\u200c\u200d\ufeff]", "", full_text)
+                    full_text = _re.sub(r"\s+", " ", full_text).strip()
+                    logger.info(f"YouTube transcript fetched via youtube_transcript_api for {link} (lang={target_lang}, words={len(full_text.split())})")
+                except Exception as e:
+                    logger.error(f"YouTube transcript fallback also failed for {link}: {type(e).__name__}: {e}")
 
+            # --- Build result ---
+            if full_text:
                 result = {
                     "link": link,
                     "title": title,
@@ -3770,9 +3797,7 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
                     "is_pdf": False,
                     "is_image": False,
                 }
-                logger.info(f"YouTube transcript fetched for {link} (lang={target_lang}, words={len(full_text.split())})")
-            except Exception as e:
-                logger.error(f"YouTube transcript fetch failed for {link}: type={type(e).__name__}, proxy_used={bool(proxy_url)}, error={e}")
+            else:
                 result = {
                     "link": link,
                     "title": title,
@@ -3781,7 +3806,7 @@ def download_link_data(link_title_context_apikeys, web_search_tmp_marker_name=No
                     "full_text": "",
                     "is_pdf": False,
                     "is_image": False,
-                    "error": str(e),
+                    "error": "Failed to fetch YouTube transcript from all sources.",
                 }
 
     elif False:
