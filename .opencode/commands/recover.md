@@ -1,7 +1,7 @@
 ---
 description: Rebuild lost context after compaction or summarization — reconstruct what was being done, what changed, and what is left, using git state and session history. Read-only.
 agent: build
-model: amazon-bedrock/anthropic.claude-sonnet-4-6
+model: openrouter/anthropic/claude-sonnet-4.6
 ---
 
 This command is run inline by the main agent so the reconstructed context lands in the main thread where it is needed. To avoid bloating it with raw material, delegate the gathering to sub-agents via the Task tool: have them read the git diffs, run `session_search`/`session_read`, and scan plan/hand-off docs, returning ONLY a distilled reconstruction. Take any hint from $ARGUMENTS.

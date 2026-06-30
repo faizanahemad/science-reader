@@ -1,7 +1,7 @@
 ---
 description: Create or update documentation for the change made in this session, following the AGENTS.md documentation guidelines. Updates the documentation/ folder and relevant feature docs.
 agent: build
-model: amazon-bedrock/anthropic.claude-sonnet-4-6
+model: openrouter/anthropic/claude-sonnet-4.6
 ---
 
 This command is run inline by the main agent, so it can use the focus/details you provide via $ARGUMENTS or the conversation. To keep the main context lean, delegate the heavy work to sub-agents via the Task tool: have one survey existing docs (to find where the change belongs) and one summarize the code change from `git diff` — pull back only what is needed to write accurate docs. The main agent writes the doc updates.

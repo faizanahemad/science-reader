@@ -1,7 +1,7 @@
 ---
 description: Adversarially red-team the current plan or approach. The main agent dispatches an isolated critic sub-agent and supplies it the proposal context, then relays the critique.
 agent: build
-model: amazon-bedrock/anthropic.claude-sonnet-4-6
+model: openrouter/anthropic/claude-sonnet-4.6
 ---
 
 This command runs inline, so YOU (the main agent) have the full conversation context. Do NOT critique the approach yourself — an independent critic in a separate context is less likely to share your blind spots, and dispatching it also keeps this context lean. Dispatch the critique to an isolated sub-agent via the Task tool, and relay back only its conclusions.

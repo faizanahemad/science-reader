@@ -1,7 +1,7 @@
 ---
 description: Explore the codebase and documentation and get context around what files need to be read and modified for this action or ask
 agent: build
-model: amazon-bedrock/anthropic.claude-sonnet-4-6
+model: openrouter/anthropic/claude-sonnet-4.6
 ---
 
 This command runs inline in your current session, so it has the full conversation context (the ask you've been discussing). To keep the main context window lean, delegate the heavy exploration (wide/deep file reading and searching) to sub-agents via the Task tool (e.g. the read-only explore agent) and bring back only distilled findings — do not pull raw file contents into the main thread. Delegate aggressively: run several explore sub-agents in parallel and default to handing any non-trivial reading or searching to a sub-agent rather than doing it yourself.

@@ -1,7 +1,7 @@
 ---
 description: Prepare and open a pull request for the current branch following the repo's GitHub workflow — review all commits and the base diff, then write a clear PR description and create it with gh.
 agent: build
-model: amazon-bedrock/anthropic.claude-sonnet-4-6
+model: openrouter/anthropic/claude-sonnet-4.6
 ---
 
 This command is run inline by the main agent, so it can use the PR title/intent you provide via $ARGUMENTS or the conversation. To keep the main context lean, delegate the base-diff and commit review to a sub-agent via the Task tool (have it read `diff <base>...HEAD` and `log <base>..HEAD` and return a structured summary of the changes); the main agent then writes the description from that summary plus the conversation.

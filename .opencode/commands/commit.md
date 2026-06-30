@@ -1,7 +1,7 @@
 ---
 description: Create a git commit for the current changes following the repo's git rules — inspect first, stage only intended files, write a concise message matching repo style, never commit secrets.
 agent: build
-model: amazon-bedrock/anthropic.claude-sonnet-4-6
+model: openrouter/anthropic/claude-sonnet-4.6
 ---
 
 This command is run inline by the main agent, so it can use the commit message or details you provide via $ARGUMENTS or the conversation. To keep the main context lean, delegate inspection of large diffs to a sub-agent via the Task tool (have it summarize what changed and flag anything unexpected); the main agent decides the final staged set and the message.

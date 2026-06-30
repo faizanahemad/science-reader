@@ -1,7 +1,7 @@
 ---
 description: Turn clarified requirements into a granular implementation plan written to documentation/planning/plans/<name>.plan.md, following the AGENTS.md planning conventions.
 agent: build
-model: amazon-bedrock/anthropic.claude-sonnet-4-6
+model: openrouter/anthropic/claude-sonnet-4.6
 ---
 
 This command runs inline in your current session, so it has the full conversation context (the requirements you've been discussing). To keep the main context window lean, delegate the heavy exploration (surveying code and existing plans/docs) to sub-agents via the Task tool (e.g. the read-only explore agent) and bring back only distilled findings before writing the plan. Delegate aggressively: run several explore sub-agents in parallel and default to handing any non-trivial reading or surveying to a sub-agent rather than doing it yourself.

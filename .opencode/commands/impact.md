@@ -1,7 +1,7 @@
 ---
 description: Map the full blast radius of a proposed change before editing — find every caller, test, mock, config, and doc that touches the symbol/behavior, so nothing is missed. Read-only.
 agent: build
-model: amazon-bedrock/anthropic.claude-sonnet-4-6
+model: openrouter/anthropic/claude-sonnet-4.6
 ---
 
 This command runs inline in your current session, so it has the full conversation context (the change you've been discussing). To keep the main context window lean, delegate the heavy searching across the repo to sub-agents via the Task tool (e.g. the read-only explore agent) and bring back only the impact checklist — do not pull raw file contents into the main thread. Delegate aggressively: run several explore sub-agents in parallel (e.g. one per caller-search, one for tests, one for docs) rather than searching the repo yourself.

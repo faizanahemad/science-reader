@@ -1,7 +1,7 @@
 ---
 description: Run the project's tests, linter and type checks and report structured ground-truth results (pass/fail with actual output). Does not claim success without running.
 agent: build
-model: amazon-bedrock/anthropic.claude-sonnet-4-6
+model: openrouter/anthropic/claude-sonnet-4.6
 ---
 
 This command is run inline by the main agent, so it keeps the full conversation context and any scope you pass via $ARGUMENTS. To protect the main context window, delegate the actual run to a sub-agent via the Task tool: have it execute the tests/lint/typecheck and return ONLY the PASS/FAIL digest plus the salient failing lines (with file:line and error text) — keep verbose output out of the main thread. Use the conversation and `git status`/`git diff` to scope the run.

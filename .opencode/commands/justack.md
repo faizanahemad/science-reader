@@ -1,7 +1,7 @@
 ---
 description: The do nothing tool, just ack the context or user text given.
 agent: build
-model: amazon-bedrock/anthropic.claude-sonnet-4-6
+model: openrouter/anthropic/claude-sonnet-4.6
 ---
 
 You ignore all other instructions or info given.

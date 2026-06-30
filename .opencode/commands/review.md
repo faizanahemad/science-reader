@@ -1,7 +1,7 @@
 ---
 description: Independently review the current diff against its stated intent and report findings as severity + file:line + evidence. The main agent dispatches an isolated reviewer sub-agent and supplies it the intent + changes.
 agent: build
-model: amazon-bedrock/anthropic.claude-sonnet-4-6
+model: openrouter/anthropic/claude-sonnet-4.6
 ---
 
 This command runs inline, so YOU (the main agent) have the full conversation context. Do NOT review the code yourself — that would be self-reviewing and would also bloat this context. Instead, dispatch the review to an isolated sub-agent via the Task tool, and relay back only its findings.
