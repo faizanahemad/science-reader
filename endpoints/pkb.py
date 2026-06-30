@@ -448,8 +448,9 @@ def pkb_list_claims_route():
             claims = api.claims.list(
                 filters=filters, limit=limit, offset=offset, order_by="-updated_at"
             )
+            total_count = api.claims.count(filters=filters)
             return jsonify(
-                {"claims": [serialize_claim(c) for c in claims], "count": len(claims)}
+                {"claims": [serialize_claim(c) for c in claims], "count": len(claims), "total_count": total_count}
             )
     except Exception as e:
         logger.error(f"Error in pkb_list_claims: {e}")
@@ -2163,6 +2164,7 @@ def pkb_propose_updates_route():
         # Silently store short-term memories (no user approval needed)
         stm_stored = 0
         stm_reinforced = 0
+        stm_superseded = 0
         if plan and plan.short_term_candidates:
             # Get existing STM for cross-conversation reinforcement detection
             existing_stm = []
@@ -2170,6 +2172,15 @@ def pkb_propose_updates_route():
             if existing_result.success and existing_result.data:
                 existing_stm = existing_result.data
 
+            # Collect all IDs the LLM flagged as superseded so we can skip
+            # reinforcing them while iterating. Actual deletion happens only for
+            # candidates that successfully land (see ids_to_delete below).
+            superseded_ids: set = set()
+            for stc in plan.short_term_candidates:
+                if stc.supersedes:
+                    superseded_ids.update(stc.supersedes)
+
+            ids_to_delete: set = set()
             for stc in plan.short_term_candidates:
                 # Check for similar existing STM from a DIFFERENT conversation
                 reinforced = False
@@ -2177,6 +2188,8 @@ def pkb_propose_updates_route():
                     for mem in existing_stm:
                         if mem.get("conversation_id") == conversation_id:
                             continue  # Same conversation — skip
+                        if mem["memory_id"] in superseded_ids:
+                            continue  # Will be deleted below — don't reinforce
                         # Simple word-overlap similarity check
                         from difflib import SequenceMatcher
                         ratio = SequenceMatcher(None, stc.statement.lower(), mem["statement"].lower()).ratio()
@@ -2186,6 +2199,11 @@ def pkb_propose_updates_route():
                             reinforced = True
                             break
 
+                # Track whether this candidate's content actually landed somewhere
+                # (reinforced an existing item, a near-duplicate already exists, or
+                # it was stored as a new row). Only then is it safe to retire the
+                # items it supersedes — otherwise a failed insert would lose data.
+                landed = reinforced
                 if not reinforced:
                     # Also skip if same conversation already has very similar STM
                     skip = False
@@ -2193,12 +2211,16 @@ def pkb_propose_updates_route():
                         for mem in existing_stm:
                             if mem.get("conversation_id") != conversation_id:
                                 continue
+                            if mem["memory_id"] in superseded_ids:
+                                continue  # Will be deleted below — don't block on it
                             from difflib import SequenceMatcher
                             ratio = SequenceMatcher(None, stc.statement.lower(), mem["statement"].lower()).ratio()
                             if ratio >= api.config.stm_reinforcement_threshold:
                                 skip = True
                                 break
-                    if not skip:
+                    if skip:
+                        landed = True  # near-duplicate already present; content preserved
+                    else:
                         result = api.add_short_term_memory(
                             statement=stc.statement,
                             conversation_id=conversation_id or "",
@@ -2209,14 +2231,28 @@ def pkb_propose_updates_route():
                         )
                         if result.success:
                             stm_stored += 1
-            if stm_stored or stm_reinforced:
-                logger.info(f"STM for {email}: stored={stm_stored}, reinforced={stm_reinforced}")
+                            landed = True
+
+                # Queue superseded items for deletion only if the replacement landed.
+                if landed and stc.supersedes:
+                    ids_to_delete.update(stc.supersedes)
+
+            # Delete each superseded item once (dedup avoids double-counting, since
+            # delete_short_term_memory reports success regardless of row presence).
+            for sid in ids_to_delete:
+                del_result = api.delete_short_term_memory(sid)
+                if del_result.success:
+                    stm_superseded += 1
+
+            if stm_stored or stm_reinforced or stm_superseded:
+                logger.info(f"STM for {email}: stored={stm_stored}, reinforced={stm_reinforced}, superseded={stm_superseded}")
 
         if not plan or len(plan.candidates) == 0:
             return jsonify(
                 {"has_updates": False, "proposed_actions": [], "user_prompt": None,
-                 "stm_stored": stm_stored, "stm_reinforced": stm_reinforced}
-            )
+                 "stm_stored": stm_stored, "stm_reinforced": stm_reinforced,
+                 "stm_superseded": stm_superseded}
+             )
 
         plan_id = str(uuid.uuid4())
         _memory_update_plans[plan_id] = plan
@@ -2280,6 +2316,7 @@ def pkb_propose_updates_route():
                 "user_prompt": plan.user_prompt,
                 "stm_stored": stm_stored,
                 "stm_reinforced": stm_reinforced,
+                "stm_superseded": stm_superseded,
                 "auto_saved": auto_saved_response,
                 "skipped": skipped_response,
             }

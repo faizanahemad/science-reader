@@ -86,6 +86,7 @@ class ShortTermCandidate:
     importance: str = "medium"  # medium|high
     ttl: str = "week"           # session|day|week
     reasoning: str = ""
+    supersedes: Optional[List[str]] = None  # memory_ids of existing STM items this replaces
 
 @dataclass
 class ProposedAction:
@@ -598,29 +599,82 @@ Response:"""
     ) -> List[ShortTermCandidate]:
         """
         Extract short-term cross-conversation context from the current turn.
-        Includes existing STM in the prompt so the LLM avoids duplicates.
+
+        The LLM is given:
+          - The existing STM with their memory_ids and expiry info
+          - The user's top PKB long-term claims (for overlap / redundancy detection)
+          - A granular rejection rubric (Wrong/Controversial, Superseded, Irrelevant,
+            Obvious, Adds no value)
+
+        For each candidate that passes the rubric the LLM also returns a
+        ``supersedes`` list of existing STM memory_ids that the new item makes
+        obsolete.  Those old items are deleted by the caller.
         """
         try:
             from code_common.call_llm import call_llm
         except ImportError:
             return []
 
-        # Fetch existing active short-term memories for dedup context
-        existing_stm_lines = ""
+        from datetime import datetime, timezone
+
+        # --- Build existing STM block with IDs so the LLM can reference them ---
+        existing_stm_raw: List[dict] = []
+        existing_stm_block = ""
         if self.config.stm_enabled:
-            result = self.api.get_active_short_term_memories(limit=self.config.stm_max_per_user)
-            if result.success and result.data:
-                lines = [f"- {m['statement']}" for m in result.data]
-                existing_stm_lines = "\n".join(lines)
+            stm_result = self.api.get_active_short_term_memories(limit=self.config.stm_max_per_user)
+            if stm_result.success and stm_result.data:
+                existing_stm_raw = stm_result.data
+                now_utc = datetime.now(timezone.utc)
+                stm_lines = []
+                for m in existing_stm_raw:
+                    try:
+                        exp = datetime.fromisoformat(m["expires_at"].replace("Z", "+00:00"))
+                        delta = exp - now_utc
+                        total_hours = int(delta.total_seconds() / 3600)
+                        if total_hours < 0:
+                            ttl_str = "expired"
+                        elif total_hours < 24:
+                            ttl_str = f"{total_hours}h left"
+                        else:
+                            ttl_str = f"{total_hours // 24}d left"
+                    except Exception:
+                        ttl_str = "?"
+                    stm_lines.append(
+                        f"[ID: {m['memory_id']}] {m['statement']}  ({m['importance']}, {ttl_str})"
+                    )
+                existing_stm_block = (
+                    "\n=== EXISTING SHORT-TERM MEMORIES (with IDs) ===\n"
+                    + "\n".join(stm_lines)
+                    + "\n"
+                )
 
-        existing_block = ""
-        if existing_stm_lines:
-            existing_block = f"""
-=== EXISTING SHORT-TERM MEMORIES (DO NOT duplicate these) ===
-{existing_stm_lines}
-"""
+        # --- Build PKB long-term claims block (top-N relevant to this turn) ---
+        pkb_block = ""
+        query_for_pkb = user_message or conversation_summary or ""
+        if query_for_pkb:
+            try:
+                pkb_result = self.api.search(query_for_pkb, strategy="hybrid", k=20)
+                if pkb_result.success and pkb_result.data:
+                    pkb_lines = [
+                        f"- {sr.claim.statement[:180]}"
+                        for sr in pkb_result.data[:20]
+                        if sr.claim and sr.claim.statement
+                    ]
+                    if pkb_lines:
+                        pkb_block = (
+                            "\n=== LONG-TERM KNOWLEDGE BASE (permanent facts already known about this user) ===\n"
+                            + "\n".join(pkb_lines)
+                            + "\n"
+                        )
+            except Exception:
+                pass  # PKB block is optional; proceed without it
 
-        prompt = f"""You are a memory assistant that identifies EPHEMERAL cross-conversation context worth remembering briefly.
+        prompt = f"""You are a memory assistant that decides what SHORT-TERM cross-conversation context is worth remembering briefly.
+
+You will be shown a conversation turn, the user's existing short-term memories (with IDs), and their long-term knowledge base (PKB). Your job is to:
+1. Extract candidate ephemeral context items from the conversation
+2. Filter every candidate rigorously using the REJECTION RUBRIC below — discard anything that fails even one criterion
+3. For each candidate that passes, list any existing STM IDs it supersedes
 
 === CONVERSATION SUMMARY ===
 {conversation_summary or '(new conversation)'}
@@ -630,27 +684,33 @@ Response:"""
 
 === ASSISTANT RESPONSE ===
 {assistant_message or '(none)'}
-{existing_block}
-Your task: identify SHORT-TERM context that would help in FUTURE conversations (not permanent facts).
-These are things like:
-- Active projects or tasks being worked on right now
+{existing_stm_block}{pkb_block}
+=== WHAT COUNTS AS WORTH STORING ===
+Short-term context = ephemeral, cross-conversation context that will meaningfully help a future assistant understand what the user is actively working on. Good examples:
+- Active projects or tasks in progress right now
 - Ongoing debugging sessions or problems being solved
-- Decisions being evaluated but not yet made
+- Decisions being actively evaluated but not yet made
 - Temporary workflows or tools being set up
-- Multi-session work in progress
+- Multi-session work in progress with clear continuation value
 
-Do NOT extract:
-- Permanent facts (diet, job, location) — those go to long-term memory
-- Trivial conversation mechanics ("user said thanks")
-- Things already in the existing short-term memories list above
-- Vague interests without active engagement
+=== REJECTION RUBRIC — discard any candidate that meets ANY of these ===
+1. Wrong or Controversial: factually questionable, politically/ethically contentious, or built on an incorrect or unverifiable premise. When in doubt, discard.
+2. Superseded or redundant: an existing STM entry or PKB fact already covers this fully. If the new item updates or replaces an old STM entry, keep the new one and list the old entry's ID in "supersedes" — do NOT keep both. If the PKB already records this as a permanent fact, do not store it as STM.
+3. Irrelevant to future conversations: too narrow, one-off, or localized to this single exchange to be useful when starting a fresh conversation with the user.
+4. Obvious or common knowledge: something any person would know without needing a memory store (e.g., "user is using a keyboard", "user asked a question").
+5. Adds no value even knowing the context: too vague, generic, or low-signal to help a future assistant ("user is interested in technology", "user likes to learn things"). If it does not give a future assistant a concrete, actionable piece of context, discard it.
 
-For each item, judge:
-- importance: "medium" (one-off context) or "high" (active multi-session work)
-- ttl: "session" (4h, very transient), "day" (24h), or "week" (7d, ongoing project)
+=== OUTPUT FORMAT ===
+Return a JSON array of candidates that PASSED the rubric. If nothing qualifies, return [].
+Each item:
+  "statement"  – concise, specific, third-person description of the context
+  "importance" – "medium" (useful but one-off) or "high" (active multi-session work)
+  "ttl"        – "session" (4 h), "day" (24 h), or "week" (7 d, ongoing project)
+  "reasoning"  – one sentence: why this passed the rubric and what TTL/importance was chosen
+  "supersedes" – array of existing STM memory_ids (from the list above) that this item makes obsolete or replaces; [] if none
 
-Return a JSON array. If nothing qualifies, return [].
-Example: [{{"statement": "Working on React dashboard migration from class to hooks", "importance": "high", "ttl": "week", "reasoning": "Active project spanning multiple sessions"}}]
+Example:
+[{{"statement": "Migrating React dashboard from class components to hooks", "importance": "high", "ttl": "week", "reasoning": "Active multi-session project with clear continuation value; supersedes the older vague note about React work.", "supersedes": ["abc123"]}}]
 
 Response:"""
 
@@ -670,21 +730,28 @@ Response:"""
             if not isinstance(parsed, list):
                 return []
 
+            # Build a set of valid existing STM IDs for safe supersede validation
+            valid_stm_ids = {m["memory_id"] for m in existing_stm_raw}
+
             candidates = []
             for item in parsed:
-                if not isinstance(item, dict) or not item.get('statement'):
+                if not isinstance(item, dict) or not item.get("statement"):
                     continue
-                importance = item.get('importance', 'medium')
-                if importance not in ('medium', 'high'):
-                    importance = 'medium'
-                ttl = item.get('ttl', 'week')
-                if ttl not in ('session', 'day', 'week'):
-                    ttl = 'week'
+                importance = item.get("importance", "medium")
+                if importance not in ("medium", "high"):
+                    importance = "medium"
+                ttl = item.get("ttl", "week")
+                if ttl not in ("session", "day", "week"):
+                    ttl = "week"
+                # Only accept supersede IDs that actually exist in our STM table
+                raw_supersedes = item.get("supersedes") or []
+                supersedes = [sid for sid in raw_supersedes if sid in valid_stm_ids]
                 candidates.append(ShortTermCandidate(
-                    statement=item['statement'],
+                    statement=item["statement"],
                     importance=importance,
                     ttl=ttl,
-                    reasoning=item.get('reasoning', ''),
+                    reasoning=item.get("reasoning", ""),
+                    supersedes=supersedes if supersedes else None,
                 ))
             return candidates
         except Exception as e:

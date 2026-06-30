@@ -190,7 +190,7 @@ class PKBConfig:
     stm_max_per_user: int = 50
     stm_inject_limit: int = 10
     stm_inject_max_words: int = 200
-    stm_reinforcement_threshold: float = 0.85
+    stm_reinforcement_threshold: float = 0.70
     stm_promotion_threshold: int = 3
 
     # Compaction
