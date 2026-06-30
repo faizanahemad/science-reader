@@ -1934,12 +1934,19 @@ var PKBManager = (function() {
         listClaims(filters, limit, offset, query || undefined)
             .done(function(response) {
                 renderClaimsList(response.claims);
-                var label = query ? (response.count + ' results') : (response.count + ' claims');
+                var total = (response.total_count != null) ? response.total_count : response.count;
+                var label = query ? (response.count + ' results') : (response.count + '/' + total + ' claims');
                 $('#pkb-claims-count').text(label);
                 
                 // Update pagination (disable when searching since search returns all at once)
                 $('#pkb-prev-page').prop('disabled', currentPage === 0 || !!query);
-                $('#pkb-next-page').prop('disabled', response.count < pageSize || !!query);
+                // Disable Next when the rows shown so far cover the full total.
+                // Fall back to the old heuristic if total_count is missing.
+                var shownSoFar = currentPage * pageSize + response.count;
+                var noMorePages = (response.total_count != null)
+                    ? (shownSoFar >= response.total_count)
+                    : (response.count < pageSize);
+                $('#pkb-next-page').prop('disabled', !!query || noMorePages);
             })
             .fail(function(err) {
                 console.error('Failed to load claims:', err);
