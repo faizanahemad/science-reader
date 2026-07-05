@@ -3676,18 +3676,113 @@ function normalizeMermaidText(text) {
         .replace(/[‘’]/g, "'");
 }
 
+function sanitizeMermaidSyntax(code) {
+    /**
+     * Exhaustive deterministic sanitizer for LLM-generated Mermaid flowcharts.
+     *
+     * Fixes the most common class of model errors: unquoted punctuation
+     * (parentheses, brackets, commas, quotes...) inside node labels, edge
+     * labels and subgraph titles, e.g. `A[compute f(x)]` -> `A["compute f(x)"]`
+     * and `A -->|calls f(x)| B` -> `A -->|"calls f(x)"| B`.
+     *
+     * Only applies to flowchart/graph diagrams (other diagram types have
+     * different grammars). Idempotent: already-quoted labels are protected
+     * via placeholders and never re-processed, so it is safe to call
+     * repeatedly on the same source.
+     *
+     * @param {string} code - Raw mermaid source
+     * @returns {string} - Sanitized mermaid source
+     */
+    if (!code || typeof code !== 'string') return code;
+    var lines = code.split('\n');
+    var header = '';
+    for (var i = 0; i < lines.length; i++) {
+        var t = lines[i].trim();
+        if (t && t.indexOf('%%') !== 0 && t.charAt(0) !== '<') { header = t; break; }
+    }
+    if (!/^(flowchart|graph)\b/i.test(header)) return code;
+
+    var NEEDS_QUOTE = /[()\[\]{}"'<>&;,]/;
+    var SKIP_LINE = /^\s*(%%|style\b|classDef\b|class\b|click\b|linkStyle\b|direction\b)/;
+    // Node shapes, most specific delimiters first. Single-level paren nesting
+    // supported for round nodes. Lookaheads prevent re-matching the interior
+    // of composite shapes ([( )], ([ ]), etc.) as simpler shapes.
+    var SHAPES = [
+        [/(\b[A-Za-z0-9_]+)\(\[([^\[\]\n]*?)\]\)/g, '([', '])'],    // stadium
+        [/(\b[A-Za-z0-9_]+)\[\(((?:[^()\n]|\([^()\n]*\))*?)\)\]/g, '[(', ')]'],      // cylinder
+        [/(\b[A-Za-z0-9_]+)\(\(((?:[^()\n]|\([^()\n]*\))*?)\)\)(?!\))/g, '((', '))'],      // circle
+        [/(\b[A-Za-z0-9_]+)\{\{([^{}\n]*?)\}\}/g, '{{', '}}'],      // hexagon
+        [/(\b[A-Za-z0-9_]+)\[\/([^\/\]\n]*?)\/\]/g, '[/', '/]'],    // parallelogram
+        [/(\b[A-Za-z0-9_]+)\[\\([^\\\]\n]*?)\\\]/g, '[\\', '\\]'],  // parallelogram alt
+        [/(\b[A-Za-z0-9_]+)\[(?![\/\\(\[])([^\[\]\n]*?)\]/g, '[', ']'],  // rectangle
+        [/(\b[A-Za-z0-9_]+)\{([^{}\n]*?)\}/g, '{', '}'],            // diamond
+        [/(\b[A-Za-z0-9_]+)>([^\[\]\n]*?)\]/g, '>', ']'],           // asymmetric
+        [/(\b[A-Za-z0-9_]+)\((?![\(\[])((?:[^()\n]|\([^()\n]*\))*?)\)/g, '(', ')'] // round
+    ];
+
+    return lines.map(function(line) {
+        if (SKIP_LINE.test(line)) return line;
+        var protectedStrs = [];
+
+        function protectStr(str) {
+            protectedStrs.push(str);
+            return '\u0000' + (protectedStrs.length - 1) + '\u0000';
+        }
+
+        function quoteLabel(content) {
+            var c = (content || '').trim();
+            if (!c) return content;
+            // A single placeholder == label was already quoted; leave it.
+            if (/^\u0000\d+\u0000$/.test(c)) return content;
+            if (!NEEDS_QUOTE.test(c)) return content;
+            return protectStr('"' + c.replace(/"/g, '#quot;') + '"');
+        }
+
+        // 1. Protect pre-existing quoted strings so they are never re-processed.
+        var out = line.replace(/"[^"\n]*"/g, function(m) { return protectStr(m); });
+        // 2. Edge labels: |text|
+        out = out.replace(/\|([^|\n]+)\|/g, function(m, label) {
+            return '|' + quoteLabel(label) + '|';
+        });
+        // 3. Node shape labels
+        SHAPES.forEach(function(s) {
+            out = out.replace(s[0], function(m, id, label) {
+                return id + s[1] + quoteLabel(label) + s[2];
+            });
+        });
+        // 4. Subgraph titles
+        out = out.replace(/^(\s*subgraph\s+)(.+?)(\s*)$/, function(m, pre, title, post) {
+            var tt = title.trim();
+            if (/^\u0000\d+\u0000$/.test(tt) || /^\w+\s*\[/.test(tt)) return m;
+            if (NEEDS_QUOTE.test(tt)) {
+                return pre + protectStr('"' + tt.replace(/"/g, '#quot;') + '"') + post;
+            }
+            return m;
+        });
+        // 5. Restore placeholders (iterate — quoted labels may nest placeholders)
+        for (var pass = 0; pass < 5 && out.indexOf('\u0000') !== -1; pass++) {
+            out = out.replace(/\u0000(\d+)\u0000/g, function(m, idx) {
+                var v = protectedStrs[+idx];
+                return v === undefined ? m : v;
+            });
+        }
+        return out;
+    }).join('\n');
+}
+
 function cleanMermaidCode(mermaidCode) {
     /**
      * Prepare Mermaid code for rendering:
      * - Normalize unicode that breaks parsing (NBSP, smart quotes)
      * - Trim trailing whitespace
      * - Remove empty lines and accidental wrapper-tag artifacts
+     * - Deterministically quote labels with breaking punctuation (sanitizeMermaidSyntax)
      *
      * @param {string} mermaidCode
      * @returns {string}
      */
     mermaidCode = normalizeMermaidText(mermaidCode || "");
-    return mermaidCode
+    mermaidCode = mermaidCode
         .split('\n')
         .map(function(line) { return line.trimRight(); })
         .filter(function(line) {
@@ -3696,6 +3791,7 @@ function cleanMermaidCode(mermaidCode) {
                    !line.includes("pre class='mermaid");
         })
         .join('\n');
+    return sanitizeMermaidSyntax(mermaidCode);
 }
 
 function normalizeMermaidBlocks(rootElem) {
@@ -6313,40 +6409,12 @@ ${innerSectionRendered}
         // Schedule mermaid rendering during idle time to avoid blocking UI
         if (mermaid_rendering_needed) {
             scheduleIdleWork(function() {
-                var mermaidBlocks = elem_to_render_in.parent().find('pre.mermaid');
-                
-                if (mermaidBlocks.length > 0) {
-                    // Batch all text content cleaning before any DOM writes
-                    var blocksToClean = [];
-                    mermaidBlocks.each(function(index, block) {
-                        if (!block.querySelector('svg')) {
-                            blocksToClean.push(block);
-                        }
-                    });
-                    // Clean mermaid code helper is global: cleanMermaidCode()
-                    
-                    // Batch DOM writes
-                    blocksToClean.forEach(function(block) {
-                        var code = block.textContent || block.innerText;
-                        block.textContent = cleanMermaidCode(code);
-                    });
-                    
-                    // Run mermaid rendering
-                    mermaid.run({
-                        nodes: mermaidBlocks,
-                        useMaxWidth: false,
-                        suppressErrors: false
-                    }).then(function() {
-                        // Defer SVG height cleanup to next frame to avoid reflow
-                        requestAnimationFrame(function() {
-                            var svgs = $(elem_to_render_in).find('pre.mermaid svg');
-                            svgs.each(function(index, svg) {
-                                $(svg).attr('height', null);
-                            });
-                        });
-                    }).catch(function(err) {
-                        console.error('Mermaid Error:', err);
-                    });
+                var $mermaidRoot = elem_to_render_in.parent();
+                if ($mermaidRoot.find('pre.mermaid').length > 0) {
+                    // renderMermaidIn handles cleaning (cleanMermaidCode incl.
+                    // deterministic syntax sanitizer), error detection and the
+                    // "Fix Diagram" LLM-repair button.
+                    renderMermaidIn($mermaidRoot);
                 }
             });
         }
@@ -6487,7 +6555,7 @@ function renderMermaidIfDetailsTagOpened() {
             // Small delay to ensure DOM is updated before running mermaid
             setTimeout(function() {
                 normalizeMermaidBlocks(document);
-                mermaid.run({querySelector: "pre.mermaid"});
+                renderMermaidIn($(document));
             }, 50);
         }
     });
@@ -6503,7 +6571,7 @@ function renderMermaidIfDetailsTagOpened() {
                     mutation.target.hasAttribute('open')) {
                     setTimeout(function() {
                         normalizeMermaidBlocks(document);
-                        mermaid.run({querySelector: "pre.mermaid"});
+                        renderMermaidIn($(document));
                     }, 50);
                 }
             });

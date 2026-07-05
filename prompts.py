@@ -308,6 +308,18 @@ Structure your answer as:
 2. **Mermaid Diagram(s)** — wrap each in ```mermaid fences. Choose the best type per diagram (flowchart, sequence, class, state, mindmap). Multiple focused diagrams preferred.
 3. **One-paragraph explanation** — briefly describe what the diagrams show.
 
+## Mermaid Syntax Rules (STRICT — violations break rendering)
+- Node labels: if a label contains parentheses, brackets, braces, commas, colons, slashes, quotes, or any other punctuation, wrap the WHOLE label in double quotes: `A["compute f(x)"]` — NEVER `A[compute f(x)]`.
+- Edge labels (text on arrows): never use parentheses or special characters inside `|...|` or after `--`. Use quoted labels: `A -->|"calls f(x)"| B`. Prefer plain words: `A -->|calls| B`.
+- Never use round-bracket node shape `A(text)` when the text itself contains parentheses — use `A["text"]` instead.
+- Node IDs: plain alphanumerics only (e.g., A, step1, userDB). No spaces, dots, or dashes in IDs.
+- Do not use `end` (lowercase) as a node ID or label word by itself; write `End` or `finish`.
+- Subgraph titles with spaces or punctuation must be quoted: `subgraph "My Title (v2)"`.
+- Sequence diagrams: participant names with spaces need `participant A as "Long Name"`.
+- Avoid HTML tags, markdown, `&`, `<`, `>` inside labels; spell out `and`.
+- Keep one statement per line; no trailing semicolons needed; no tabs (use spaces).
+- Use only plain ASCII in diagram code — no unicode arrows, em-dashes, or smart quotes.
+
 Go straight into the diagrams. No preamble or meta-commentary. Focus on visual clarity — make concepts immediately understandable at a glance."""
 
 chain_of_density_system_prompt = """You are an expert summarizer using the Chain of Density technique. Your goal is to create increasingly dense and informative summaries while maintaining clarity and readability. Follow these key principles:

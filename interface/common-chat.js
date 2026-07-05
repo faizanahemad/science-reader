@@ -2076,7 +2076,11 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
             if (typeof normalizeMermaidBlocks === 'function') {
                 normalizeMermaidBlocks(document);
             }
-            mermaid.run({querySelector: "pre.mermaid"});
+            if (typeof renderMermaidIn === 'function') {
+                renderMermaidIn($(document));
+            } else {
+                mermaid.run({querySelector: "pre.mermaid"});
+            }
             
             // Add Top/Bottom nav controls + (non-tabbed) header hide toggle for the
             // freshly streamed message (expanded by default).
@@ -2998,7 +3002,11 @@ var ChatManager = {
                 if (typeof normalizeMermaidBlocks === 'function') {
                     normalizeMermaidBlocks(document);
                 }
-                mermaid.run({querySelector: "pre.mermaid"});
+                if (typeof renderMermaidIn === 'function') {
+                    renderMermaidIn($(document));
+                } else {
+                    mermaid.run({querySelector: "pre.mermaid"});
+                }
                 _perfEnd('mermaidRun', _mermT);
             }, 100);
 

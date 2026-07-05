@@ -9897,7 +9897,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     _visual_tab_future = wrap_in_future(_mock_visual)
                 else:
                     from call_llm import CallLLm as _CallLLm_visual
-                    _visual_model = self.get_model_override("conversation_internal_model", SUPERFAST_LLM[0])
+                    _visual_model = self.get_model_override("quick_action_model", QUICK_ACTION_LLM)
                     _visual_llm = _CallLLm_visual(self.get_api_keys(), model_name=_visual_model, use_gpt4=False, use_16k=False)
                     _visual_prompt = visual_tab_prompt.format(
                         query=query["messageText"],
@@ -14373,6 +14373,12 @@ Structure your answer as follows:
 1. **ASCII Diagram(s)** — use box/arrow/tree/table art to show the structure or flow. Plain text characters only. Prefer multiple simple or moderately complex diagrams over one large diagram — each diagram should focus on one aspect.
 2. **Mermaid Diagram(s)** — wrap each in ```mermaid fences. Choose the most appropriate type per diagram (flowchart, sequence, class, state, mindmap, etc.). Again, prefer several focused diagrams over one sprawling one.
 3. **One-paragraph explanation** — briefly describe what the diagrams show and why this visual representation helps.
+
+Mermaid syntax rules (STRICT — violations break rendering):
+- Wrap any node label containing parentheses, brackets, commas, colons, or other punctuation in double quotes: A["compute f(x)"] — never A[compute f(x)].
+- Edge labels: no parentheses/special chars inside |...|; quote them: A -->|"calls f(x)"| B, or prefer plain words.
+- Node IDs must be plain alphanumerics; never use lowercase `end` as an ID.
+- Quote subgraph titles containing spaces/punctuation. Use only plain ASCII in diagram code.
 
 Do not add any preamble or meta-commentary. Go straight into the diagrams.
 

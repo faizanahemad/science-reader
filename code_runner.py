@@ -846,9 +846,111 @@ def extract_drawio(code_string):
     return ''
 
 
+def sanitize_mermaid_syntax(code: str) -> str:
+    """
+    Exhaustive deterministic sanitizer for LLM-generated Mermaid flowcharts.
+
+    Fixes the most common class of model errors: unquoted punctuation
+    (parentheses, brackets, commas, quotes...) inside node labels, edge
+    labels and subgraph titles, e.g. ``A[compute f(x)]`` -> ``A["compute f(x)"]``
+    and ``A -->|calls f(x)| B`` -> ``A -->|"calls f(x)"| B``.
+
+    Only applies to flowchart/graph diagrams (other diagram types have
+    different grammars). Idempotent: already-quoted labels are protected via
+    placeholders and never re-processed. Mirrors sanitizeMermaidSyntax() in
+    interface/common.js — keep both in sync.
+
+    Args:
+        code: Raw Mermaid source (may be wrapped in <pre class="mermaid"> tags).
+
+    Returns:
+        Sanitized Mermaid source.
+    """
+    if not code or not isinstance(code, str):
+        return code
+    header = ""
+    for _line in code.split("\n"):
+        _t = _line.strip()
+        if _t and not _t.startswith("%%") and not _t.startswith("<"):
+            header = _t
+            break
+    if not re.match(r"^(flowchart|graph)\b", header, re.IGNORECASE):
+        return code
+
+    needs_quote = re.compile(r"[()\[\]{}\"'<>&;,]")
+    skip_line = re.compile(r"^\s*(%%|style\b|classDef\b|class\b|click\b|linkStyle\b|direction\b|<)")
+    # Node shapes, most specific delimiters first. Lookaheads prevent
+    # re-matching the interior of composite shapes as simpler shapes.
+    shapes = [
+        (re.compile(r"(\b[A-Za-z0-9_]+)\(\[([^\[\]\n]*?)\]\)"), "([", "])"),   # stadium
+        (re.compile(r"(\b[A-Za-z0-9_]+)\[\(((?:[^()\n]|\([^()\n]*\))*?)\)\]"), "[(", ")]"),     # cylinder
+        (re.compile(r"(\b[A-Za-z0-9_]+)\(\(((?:[^()\n]|\([^()\n]*\))*?)\)\)(?!\))"), "((", "))"),     # circle
+        (re.compile(r"(\b[A-Za-z0-9_]+)\{\{([^{}\n]*?)\}\}"), "{{", "}}"),     # hexagon
+        (re.compile(r"(\b[A-Za-z0-9_]+)\[/([^/\]\n]*?)/\]"), "[/", "/]"),      # parallelogram
+        (re.compile(r"(\b[A-Za-z0-9_]+)\[\\([^\\\]\n]*?)\\\]"), "[\\", "\\]"), # parallelogram alt
+        (re.compile(r"(\b[A-Za-z0-9_]+)\[(?![/\\(\[])([^\[\]\n]*?)\]"), "[", "]"),  # rectangle
+        (re.compile(r"(\b[A-Za-z0-9_]+)\{([^{}\n]*?)\}"), "{", "}"),           # diamond
+        (re.compile(r"(\b[A-Za-z0-9_]+)>([^\[\]\n]*?)\]"), ">", "]"),          # asymmetric
+        (re.compile(r"(\b[A-Za-z0-9_]+)\((?![(\[])((?:[^()\n]|\([^()\n]*\))*?)\)"), "(", ")"),  # round
+    ]
+    placeholder_re = re.compile("\x00(\\d+)\x00")
+
+    def _sanitize_line(line: str) -> str:
+        if skip_line.match(line):
+            return line
+        protected = []
+
+        def protect(s: str) -> str:
+            protected.append(s)
+            return "\x00%d\x00" % (len(protected) - 1)
+
+        def quote_label(content: str) -> str:
+            c = (content or "").strip()
+            if not c:
+                return content
+            if re.match(r"^\x00\d+\x00$", c):  # already-quoted label
+                return content
+            if not needs_quote.search(c):
+                return content
+            return protect('"' + c.replace('"', "#quot;") + '"')
+
+        # 1. Protect pre-existing quoted strings.
+        out = re.sub(r'"[^"\n]*"', lambda m: protect(m.group(0)), line)
+        # 2. Edge labels: |text|
+        out = re.sub(r"\|([^|\n]+)\|", lambda m: "|" + quote_label(m.group(1)) + "|", out)
+        # 3. Node shape labels
+        for shape_re, open_d, close_d in shapes:
+            out = shape_re.sub(
+                lambda m, o=open_d, c=close_d: m.group(1) + o + quote_label(m.group(2)) + c,
+                out,
+            )
+        # 4. Subgraph titles
+        def _subgraph(m):
+            title = m.group(2).strip()
+            if re.match(r"^\x00\d+\x00$", title) or re.match(r"^\w+\s*\[", title):
+                return m.group(0)
+            if needs_quote.search(title):
+                return m.group(1) + protect('"' + title.replace('"', "#quot;") + '"') + m.group(3)
+            return m.group(0)
+
+        out = re.sub(r"^(\s*subgraph\s+)(.+?)(\s*)$", _subgraph, out)
+        # 5. Restore placeholders (iterate — quoted labels may nest placeholders)
+        for _ in range(5):
+            if "\x00" not in out:
+                break
+            out = placeholder_re.sub(
+                lambda m: protected[int(m.group(1))] if int(m.group(1)) < len(protected) else m.group(0),
+                out,
+            )
+        return out
+
+    return "\n".join(_sanitize_line(l) for l in code.split("\n"))
+
+
 def normalize_mermaid_text(text: str) -> str:
     """
-    Normalize unicode characters that commonly break Mermaid parsing/rendering.
+    Normalize unicode characters that commonly break Mermaid parsing/rendering,
+    then apply the deterministic syntax sanitizer (label quoting).
 
     Replaces:
     - NBSP (\\u00A0) and narrow NBSP (\\u202F) with a normal space
@@ -868,7 +970,7 @@ def normalize_mermaid_text(text: str) -> str:
     # Smart quotes → straight quotes
     text = text.replace("“", '"').replace("”", '"')
     text = text.replace("‘", "'").replace("’", "'")
-    return text
+    return sanitize_mermaid_syntax(text)
 
 
 mermaid_diagram_wrapping_str = '<pre class="mermaid">\n{cleaned_content}\n</pre>'
