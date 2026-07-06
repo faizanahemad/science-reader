@@ -527,6 +527,31 @@ Tool calling extends the existing newline-delimited JSON streaming with new even
 
 ---
 
+## Host-Gated Tools (conditional registration)
+
+Some tools only make sense on a specific host. The pattern (first used by
+`internal_search`, see `internal_search_tool.md` in this folder) is to compute
+an `*_AVAILABLE` module-level flag in `code_common/tools.py` (e.g. checking a
+local script/binary exists, plus an env kill-switch) and wrap the
+`@register_tool` registration in `if <FLAG>:`. An unregistered tool is
+automatically absent from every mode, the UI menu, smart-select, and
+`request_tools` — no other checks needed. To make a host-gated tool always-on,
+also conditionally append it to `TIER_1_TOOLS`/`_TIER_1_BASE` and force-append
+it in the hybrid branch of `Conversation._get_enabled_tools()` (same as
+`request_tools`).
+
+`internal_search` (host-gated, wraps a local user-provided script that runs
+queries against a company-internal knowledge system) is registered only when
+the script at `INTERNAL_SEARCH_SCRIPT_PATH` (default
+`~/.local/bin/internal-search`) exists and `INTERNAL_SEARCH_DISABLED` is
+unset; it is always-on in tiered and hybrid modes. A dedicated `internal_only`
+tool mode (UI: "Internal Search
+Only") exposes ONLY this tool — no web/perplexity search, no artefact
+auto-include — with a replacement preamble that forbids mentioning other
+tools; on hosts where the tool is unavailable the mode resolves to no tools.
+
+---
+
 ## Developer Guide: Adding New Tools
 
 ### Step 1: Define with `@register_tool`

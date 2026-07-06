@@ -6344,6 +6344,206 @@ def handle_list_background_tasks(args: dict, context: ToolContext) -> ToolCallRe
 
 
 # ---------------------------------------------------------------------------
+# Internal search via a local user-provided script — host-gated tool
+# ---------------------------------------------------------------------------
+#
+# This tool shells out to a local script (default ~/.local/bin/internal-search,
+# override via INTERNAL_SEARCH_SCRIPT_PATH) that runs LLM queries against a
+# company-internal knowledge system (typically over SSH from an authorized
+# host). Registration is GATED on the script existing and being executable, so
+# the tool is simply absent (all modes, menus, request_tools) on other hosts.
+# Script contract: invoked as `script -t <timeout_seconds> <query>...`, runs
+# the queries in parallel, prints labeled per-query answers to stdout.
+
+INTERNAL_SEARCH_SCRIPT_PATH = os.environ.get(
+    "INTERNAL_SEARCH_SCRIPT_PATH",
+    os.path.expanduser("~/.local/bin/internal-search"),
+)
+
+INTERNAL_SEARCH_AVAILABLE = (
+    os.environ.get("INTERNAL_SEARCH_DISABLED", "").strip().lower()
+    not in ("1", "true", "yes")
+    and os.path.isfile(INTERNAL_SEARCH_SCRIPT_PATH)
+    and os.access(INTERNAL_SEARCH_SCRIPT_PATH, os.X_OK)
+)
+
+_INTERNAL_SEARCH_DESCRIPTION = (
+    "Search company-internal systems, docs, and knowledge via an "
+    "internal AI assistant. This is the ONLY way to get information about "
+    "internal/proprietary systems — external web search will not have it.\n\n"
+    "KNOWN LIMITATIONS (work around them actively):\n"
+    "- Each query is a slow one-shot call (~30-90s, sometimes minutes) to an "
+    "internal AI that often SKIMPS on detail and does little background work "
+    "on its own.\n"
+    "- Answers may be based on stale/outdated internal pages.\n\n"
+    "HOW TO USE WELL:\n"
+    "- Decompose the user's question into 2-5 focused, differently-angled "
+    "queries and pass them ALL in one call via `queries` — they execute in "
+    "parallel on the remote side, so 5 queries cost about the same wall time "
+    "as 1.\n"
+    "- You may ALSO issue several internal_search tool calls in the SAME "
+    "response (they run in parallel too) and invoke the tool again across "
+    "multiple rounds — there is no call budget; more coverage beats fewer "
+    "calls.\n"
+    "- Make each query self-contained and specific (the internal AI has no "
+    "conversation context): include system names, acronyms expanded, and "
+    "explicitly ask for details, links, caveats, and recency.\n"
+    "MANDATORY MULTI-ROUND WORKFLOW (do this BEFORE answering the user):\n"
+    "1. RECON ROUND: fire your first batch of queries to map the topic.\n"
+    "2. SELF-CRITIQUE against this quality bar: 'Would this answer satisfy a "
+    "STAFF-LEVEL senior engineer ramping up to contribute in this area — does "
+    "it cover architecture and design rationale, key components and their "
+    "interactions, configuration/APIs, operational concerns (failure modes, "
+    "monitoring, capacity), team/doc/code pointers, and current best "
+    "practice?' First-round answers almost NEVER meet this bar.\n"
+    "3. DEEPENING ROUND(S): ask yourself 'what other queries would an expert "
+    "fire to fill the gaps?' and fire them — drill into each thin area, "
+    "verify surprising claims, chase named systems/docs that appeared in "
+    "round 1.\n"
+    "4. Only then synthesize: a complete, expert-depth answer with explicit "
+    "notes on remaining gaps or possibly-stale information.\n"
+    "Do NOT stop after one round unless the results already meet the bar "
+    "(rare). The user should get the deep, multi-round-quality answer on the "
+    "FIRST response, without having to ask you to dig further.\n"
+    "- Prefer this tool over web_search/perplexity_search for anything about "
+    "internal systems, infra, tooling, or processes."
+)
+
+
+def handle_internal_search(args: dict, context: ToolContext) -> ToolCallResult:
+    """Run one or more company-internal search queries via the local
+    internal-search script.
+
+    Multiple queries run in parallel remotely (single SSH session), so
+    passing several focused reformulations is roughly as fast as one.
+    Output is labeled per query. Only available when the script exists
+    locally (authorized host); never registered on other deployments.
+
+    Parameters
+    ----------
+    args:
+        ``queries`` (list[str] or str, required), ``timeout_seconds``
+        (int, per-query remote timeout, default 240, clamped 30-600).
+    context:
+        Tool execution context (unused; the script needs no API keys).
+
+    Returns
+    -------
+    ToolCallResult
+        Labeled per-query answers, or an error description.
+    """
+    import subprocess
+
+    queries = args.get("queries") or args.get("query") or []
+    if isinstance(queries, str):
+        queries = [queries]
+    queries = [q.strip() for q in queries if isinstance(q, str) and q.strip()]
+    if not queries:
+        return ToolCallResult(
+            tool_id="", tool_name="internal_search", result="",
+            error="queries is required: pass 1-8 non-empty query strings.",
+        )
+    queries = queries[:8]
+
+    try:
+        timeout_s = int(args.get("timeout_seconds", 240) or 240)
+    except (TypeError, ValueError):
+        timeout_s = 240
+    timeout_s = max(30, min(timeout_s, 600))
+
+    cmd = [INTERNAL_SEARCH_SCRIPT_PATH, "-t", str(timeout_s)] + queries
+    logger.info(
+        "internal_search invoked: %d queries, timeout=%ds", len(queries), timeout_s
+    )
+    try:
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout_s + 120
+        )
+    except subprocess.TimeoutExpired:
+        return ToolCallResult(
+            tool_id="", tool_name="internal_search", result="",
+            error=(
+                f"internal search timed out after {timeout_s + 120}s locally. "
+                "The SSH connection may need a fresh auth touch, or the remote "
+                "AI is overloaded. Retry with fewer/simpler queries."
+            ),
+        )
+    except FileNotFoundError:
+        return ToolCallResult(
+            tool_id="", tool_name="internal_search", result="",
+            error=f"internal search script not found at {INTERNAL_SEARCH_SCRIPT_PATH}.",
+        )
+    except Exception as exc:  # noqa: BLE001 — handlers must never raise
+        return ToolCallResult(
+            tool_id="", tool_name="internal_search", result="",
+            error=f"internal search failed: {exc}",
+        )
+
+    out = (proc.stdout or "").replace("\r", "")
+    # Strip SSH connection-noise lines from -tt sessions.
+    _noise_prefixes = ("Shared connection to ", "Connection to ")
+    text = "\n".join(
+        ln for ln in out.splitlines()
+        if not ln.strip().startswith(_noise_prefixes)
+    ).strip()
+
+    if proc.returncode != 0 and not text:
+        stderr_tail = (proc.stderr or "").replace("\r", "").strip()[-2000:]
+        return ToolCallResult(
+            tool_id="", tool_name="internal_search", result="",
+            error=(
+                f"internal search script exited with code {proc.returncode} "
+                f"and no output. stderr tail: {stderr_tail or '(empty)'}"
+            ),
+        )
+    if not text:
+        text = "(internal search returned no output)"
+    if proc.returncode != 0:
+        text += (
+            f"\n\n[note: internal search script exit code {proc.returncode} — "
+            "one or more queries may have failed or timed out; see per-query "
+            "exit codes in the headers above]"
+        )
+    return ToolCallResult(
+        tool_id="", tool_name="internal_search",
+        result=_truncate_result(text),
+    )
+
+
+if INTERNAL_SEARCH_AVAILABLE:
+    handle_internal_search = register_tool(
+        name="internal_search",
+        description=_INTERNAL_SEARCH_DESCRIPTION,
+        parameters={
+            "type": "object",
+            "properties": {
+                "queries": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "1-8 self-contained queries about internal systems. "
+                        "Pass MULTIPLE focused reformulations — they run in "
+                        "parallel remotely, so 5 queries take about as long "
+                        "as 1."
+                    ),
+                },
+                "timeout_seconds": {
+                    "type": "integer",
+                    "description": (
+                        "Per-query remote timeout in seconds (30-600). "
+                        "Default 240."
+                    ),
+                    "default": 240,
+                },
+            },
+            "required": ["queries"],
+        },
+        is_interactive=False,
+        category="search",
+    )(handle_internal_search)
+
+
+# ---------------------------------------------------------------------------
 # Tool Mode Selector — Tiered loading, Smart Select, request_tools meta-tool
 # ---------------------------------------------------------------------------
 
@@ -6378,6 +6578,14 @@ _TIER_1_BASE = [
     "search_messages",
     "request_tools",
 ]
+
+# internal_search (local script) is always-on when its script exists on this
+# host: include in the static tier-1 list AND the adaptive base so it
+# survives usage-history-based selection. Hybrid mode force-appends it in
+# Conversation._get_enabled_tools (same pattern as request_tools).
+if INTERNAL_SEARCH_AVAILABLE:
+    TIER_1_TOOLS.append("internal_search")
+    _TIER_1_BASE.append("internal_search")
 
 
 _adaptive_tier1_cache = {}  # {user_email: (timestamp, result)}

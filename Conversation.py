@@ -7827,11 +7827,12 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
     def _get_enabled_tools(self, checkboxes, user_email="", users_dir="", user_message="", summary=""):
         """Read tool settings from query checkboxes and return OpenAI tools param.
 
-        Supports 5 tool modes (new) plus legacy boolean format:
+        Supports 6 tool modes (new) plus legacy boolean format:
         - 'none': No tools
         - 'tiered': Core tools + request_tools meta-tool
         - 'smart': LLM picks relevant tools per turn
         - 'hybrid': Smart select + request_tools fallback (default)
+        - 'internal_only': ONLY internal_search (host-gated; None on other hosts)
         - 'manual': User-selected tools (list or category dict)
 
         Returns None if tools are disabled.
@@ -7866,10 +7867,17 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
         logger.warning("[_get_enabled_tools] tool_mode=%s", tool_mode)
 
-        from code_common.tools import TIER_1_TOOLS, _select_relevant_tools, get_adaptive_tier1_tools
+        from code_common.tools import TIER_1_TOOLS, _select_relevant_tools, get_adaptive_tier1_tools, INTERNAL_SEARCH_AVAILABLE
 
         if tool_mode == "tiered":
             enabled_names = get_adaptive_tier1_tools(user_email=user_email)
+        elif tool_mode == "internal_only":
+            # Internal Search Only: expose just internal_search so the model
+            # cannot reach for web/perplexity search on internal questions.
+            if not INTERNAL_SEARCH_AVAILABLE:
+                logger.warning("[_get_enabled_tools] internal_only mode but internal_search unavailable on this host")
+                return None
+            enabled_names = ["internal_search"]
         elif tool_mode == "smart":
             keys = self.get_api_keys()
             enabled_names = _select_relevant_tools(user_message, summary, keys)
@@ -7878,6 +7886,11 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             enabled_names = _select_relevant_tools(user_message, summary, keys)
             if "request_tools" not in enabled_names:
                 enabled_names.append("request_tools")
+            # internal_search is always-on where available (registered only
+            # when its local script exists on this host) — force-include it so
+            # the smart selection can never drop it.
+            if INTERNAL_SEARCH_AVAILABLE and "internal_search" not in enabled_names:
+                enabled_names.append("internal_search")
         else:
             # "manual" mode — existing logic
             enabled_tools_config = checkboxes.get("enabled_tools", None)
@@ -7905,8 +7918,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 enabled_names = [t.name for t in TOOL_REGISTRY.get_all_tools()]
 
         # Auto-include artefact tools if conversation has artefacts
+        # (skipped in internal_only mode — that mode is strictly internal_search)
         try:
-            if self.list_artefacts():
+            if tool_mode != "internal_only" and self.list_artefacts():
                 for name in ("read_artefact", "propose_artefact_edit", "create_or_delete_artefact", "artefacts_list"):
                     if name not in enabled_names:
                         enabled_names.append(name)
@@ -9920,45 +9934,108 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             # NOTE: Tool names and descriptions are already provided via the
             # OpenAI `tools` parameter — no need to duplicate them in the
             # system prompt. Only inject usage guidance here.
-            tool_awareness_text = (
-                "\n\n## Tool Usage Guidance\n"
-                "You have tools available (see the tools parameter). Key tips:\n\n"
-                "### Tool Usage Tips\n"
-                "- **perplexity_search**: Accepts a rich `context` parameter alongside the query. "
-                "Provide as much relevant background, intent, and specifics as possible in the context "
-                "field — perplexity can leverage a good amount of context to give better, more targeted results. "
-                "Use a single well-crafted query rather than multiple vague ones.\n"
-                "- **web_search**: Good for quick factual lookups with short queries.\n"
-                "- **document_lookup**: Search user's uploaded documents by semantic query.\n\n"
-                "### Parallel Tool Calls\n"
-                "You can and SHOULD issue multiple tool calls at once when you need "
-                "independent pieces of information. For example, if you need to search "
-                "the web AND look up a document, issue both tool calls in the same response "
-                "rather than calling one, waiting for the result, then calling the other. "
-                "All non-interactive tool calls in the same response are executed in parallel, "
-                "so issuing multiple calls simultaneously is significantly faster than "
-                "calling them one at a time across multiple rounds. "
-                "This reduces user wait time and gives you richer context to synthesize.\n\n"
-                "Use tools when:\n"
-                "- The user explicitly asks you to ask clarifying questions "
-                "or says 'ask me questions'.\n"
-                "- You need to search the web for current information not in "
-                "the conversation.\n"
-                "- You need to look up content from the user's documents.\n\n"
-                "Do NOT use tools when:\n"
-                "- The user's request is clear and you can answer directly.\n"
-                "- The information is already in the conversation context.\n"
-                "- The task is simple and doesn't benefit from tool use.\n\n"
-                "When you invoke a tool, the conversation will pause briefly "
-                "while it executes. After receiving the tool results, you MUST "
-                "continue your response — use the results to provide a complete, "
-                "helpful answer to the user. Never stop after a tool call without "
-                "giving the user a synthesized response based on the tool output.\n"
-                "If the tool results are insufficient, you may call another tool "
-                "or explain what you found and what limitations exist.\n"
-                "For interactive tools (like ask_clarification), the user will "
-                "be prompted for input.\n"
-            )
+            if _tool_mode == "internal_only":
+                tool_awareness_text = (
+                    "\n\n## Tool Usage Guidance\n"
+                    "You have exactly ONE tool: **internal_search** (company-internal "
+                    "systems/docs/infra). There is NO web search or any other tool — "
+                    "do not mention or attempt others.\n\n"
+                    "### internal_search weaknesses (compensate actively)\n"
+                    "- Each query is a slow (~30-90s) ONE-SHOT call to an internal AI "
+                    "that does little background work on its own and often skimps on "
+                    "detail.\n"
+                    "- It has NO conversation context — every query must be "
+                    "self-contained (expand acronyms, name systems explicitly, state "
+                    "what detail you need: links, configs, caveats, recency).\n"
+                    "- Answers may be based on stale/outdated internal pages; "
+                    "cross-check anything surprising.\n\n"
+                    "### How to get good results\n"
+                    "- PARALLEL WITHIN A CALL: pass 2-5 differently-angled queries in "
+                    "the `queries` array of ONE call — they run in parallel remotely, "
+                    "so 5 queries cost about the same wall time as 1.\n"
+                    "- PARALLEL ACROSS CALLS: you may also issue MULTIPLE "
+                    "internal_search tool calls in the same response; they execute "
+                    "concurrently. Use this to separate distinct sub-topics.\n"
+                    "- MANDATORY MULTI-ROUND WORKFLOW (before answering the user):\n"
+                    "  1. RECON ROUND: fire a first batch of queries to map the topic.\n"
+                    "  2. SELF-CRITIQUE against this bar: would the answer satisfy a "
+                    "STAFF-LEVEL senior engineer ramping up to contribute in this area — "
+                    "architecture and design rationale, key components and "
+                    "interactions, configuration/APIs, operational concerns (failure "
+                    "modes, monitoring, capacity), team/doc/code pointers, current "
+                    "best practice? First-round results almost NEVER meet this bar.\n"
+                    "  3. DEEPENING ROUND(S): ask 'what other queries would an expert "
+                    "fire?' and fire them — drill into thin areas, verify surprising "
+                    "claims, chase systems/docs named in round 1. There is no call "
+                    "budget.\n"
+                    "  4. Only then synthesize a complete, expert-depth answer, noting "
+                    "gaps or possibly-stale information explicitly.\n"
+                    "- The user should get the deep, multi-round-quality answer on "
+                    "the FIRST response — never make them ask you to dig further.\n"
+                )
+            else:
+                tool_awareness_text = (
+                    "\n\n## Tool Usage Guidance\n"
+                    "You have tools available (see the tools parameter). Key tips:\n\n"
+                    "### Tool Usage Tips\n"
+                    "- **perplexity_search**: Accepts a rich `context` parameter alongside the query. "
+                    "Provide as much relevant background, intent, and specifics as possible in the context "
+                    "field — perplexity can leverage a good amount of context to give better, more targeted results. "
+                    "Use a single well-crafted query rather than multiple vague ones.\n"
+                    "- **web_search**: Good for quick factual lookups with short queries.\n"
+                    "- **document_lookup**: Search user's uploaded documents by semantic query.\n"
+                )
+                try:
+                    from code_common.tools import INTERNAL_SEARCH_AVAILABLE as _internal_avail
+                except Exception:
+                    _internal_avail = False
+                if _internal_avail:
+                    tool_awareness_text += (
+                        "- **internal_search**: The ONLY source for company-internal "
+                        "systems/docs/infra questions (web search won't have this). "
+                        "It calls a slow (~30-90s) one-shot internal AI that often "
+                        "skimps on detail and may cite stale pages. Strategy: "
+                        "decompose into 2-5 self-contained, differently-angled "
+                        "queries and pass them together (they run in parallel, so "
+                        "5 queries ≈ cost of 1); you can also issue several "
+                        "internal_search calls in the same response, and invoke it "
+                        "again over multiple rounds — after round 1, self-critique "
+                        "against a staff-level-engineer-ramp-up quality bar (per the "
+                        "tool's description) and fire the queries an expert would "
+                        "add, before answering — there is no call budget. Never "
+                        "settle for a single shallow pass on internal topics.\n"
+                    )
+                tool_awareness_text += (
+                    "\n"
+                    "### Parallel Tool Calls\n"
+                    "You can and SHOULD issue multiple tool calls at once when you need "
+                    "independent pieces of information. For example, if you need to search "
+                    "the web AND look up a document, issue both tool calls in the same response "
+                    "rather than calling one, waiting for the result, then calling the other. "
+                    "All non-interactive tool calls in the same response are executed in parallel, "
+                    "so issuing multiple calls simultaneously is significantly faster than "
+                    "calling them one at a time across multiple rounds. "
+                    "This reduces user wait time and gives you richer context to synthesize.\n\n"
+                    "Use tools when:\n"
+                    "- The user explicitly asks you to ask clarifying questions "
+                    "or says 'ask me questions'.\n"
+                    "- You need to search the web for current information not in "
+                    "the conversation.\n"
+                    "- You need to look up content from the user's documents.\n\n"
+                    "Do NOT use tools when:\n"
+                    "- The user's request is clear and you can answer directly.\n"
+                    "- The information is already in the conversation context.\n"
+                    "- The task is simple and doesn't benefit from tool use.\n\n"
+                    "When you invoke a tool, the conversation will pause briefly "
+                    "while it executes. After receiving the tool results, you MUST "
+                    "continue your response — use the results to provide a complete, "
+                    "helpful answer to the user. Never stop after a tool call without "
+                    "giving the user a synthesized response based on the tool output.\n"
+                    "If the tool results are insufficient, you may call another tool "
+                    "or explain what you found and what limitations exist.\n"
+                    "For interactive tools (like ask_clarification), the user will "
+                    "be prompted for input.\n"
+                )
             preamble = (preamble or "") + tool_awareness_text
             yield {"text": "", "status": "Tool awareness injected into preamble ..."}
         previous_context = (
