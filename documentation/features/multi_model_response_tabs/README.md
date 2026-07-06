@@ -117,6 +117,77 @@ def stream_multiple_models(
 </details>
 ```
 
+### Per-Model Personas
+
+Location: `code_common/personas.py`, `Conversation.py` (~11842, ~12131),
+`endpoints/conversations.py` (`/persona_catalog`), `interface/chat.js`,
+`interface/interface.html`, `interface/common.js`.
+
+By default the multi-model feature broadcasts an identical prompt and system
+prompt to every selected model, so the tabs differ only by model idiosyncrasy.
+**Per-model personas** let each model row carry a distinct viewpoint/stance so
+the tabs are genuinely diverse.
+
+**UI.** A collapsible "Advanced: per-model personas" panel lives in the chat
+settings modal (under the Model & Agent Selection row). It renders a grid of
+rows, each `Model ▾ | Persona ▾ | [custom text] | –`, plus an "Add model"
+button. The persona dropdown is populated from `GET /persona_catalog` (curated
+list + "Custom…" free text, capped at `CUSTOM_PERSONA_MAX_CHARS`=500). The row
+Model dropdown reuses the same curated option list as the Main Model selector.
+
+**Persona library (server-side, single source of truth).**
+`code_common/personas.py` holds `PERSONA_LIBRARY` (starter set: Skeptic, Domain
+Expert, Pragmatist, Contrarian, ELI5, Creative) plus helpers:
+- `persona_suffix(row)` — the system-prompt suffix a row contributes (custom
+  text truncated to the cap; `none`/unknown → empty).
+- `persona_label(row)` — human label for the tab (`"Custom"` for custom rows).
+- `header_for_row(row)` — the tab header template: `"Response from {model} ·
+  <label>"` for persona rows, else `"Response from {model}"`. **The
+  `"Response from "` prefix is load-bearing** — `applyModelResponseTabs`
+  classifies model tabs by that prefix and strips it to derive the label, so a
+  persona tab reads `"{model} · Skeptic"`.
+- `build_systems_and_headers(rows, base_system)` — turns rows into the
+  positionally-aligned `systems` + `header_template` lists.
+
+**Combination rule.** The persona suffix is appended **after** the shared
+preamble (`preamble + "\n\n" + persona_suffix`) and applied as the model's
+`system` prompt — the user prompt is unchanged.
+
+**`system` as a list.** The crux backend change: `stream_multiple_models` now
+accepts `system` as `Union[str, List[str], None]`. A scalar/None is broadcast to
+every model (back-compat); a list must match the prompt count (else `ValueError`)
+and routes a distinct system prompt to each model. This threads through
+`CallMultipleLLM(systems=...)` and `NResponseAgent(systems=..., header_template=...)`.
+
+**Resolution (Conversation.py).** When the reply payload's
+`checkboxes["model_personas"]` grid is non-empty (blank-model rows dropped):
+- **1 valid row** → routes to the normal single-model path (one tab, no
+  ensemble); the persona is folded into the preamble.
+- **≥2 valid rows** → `model_name` becomes the list of grid models, `ensemble`
+  is forced on, and each row drives its own tab. Duplicate models are allowed
+  (dedup is skipped when personas are active) so the same model can appear under
+  different personas.
+- **empty grid** → unchanged; the Main Model selection is used. The grid
+  override is all-or-nothing: when it's active the Main Model dropdown is
+  silent (not merged as an extra baseline tab).
+
+**Persistence.** The grid is a **global user default** stored in
+`chatSettingsState.model_personas`; it rides in the reply `checkboxes` payload,
+NOT in per-conversation `model_overrides`.
+
+**Output Format (persona example):**
+```html
+<details open>
+<summary>Response from claude-3-opus · Skeptic</summary>
+...skeptical answer...
+</details>
+
+<details>
+<summary>Response from claude-3-opus · Contrarian</summary>
+...contrarian answer...
+</details>
+```
+
 ### TLDR Generation (`Conversation.py`)
 
 Location: `Conversation.py:6815-6880`
@@ -565,9 +636,20 @@ Bootstrap's native tab switching is used. No custom click handlers are needed - 
 | `interface/common.js` | 1793-1801 | `hasMeaningfulContent()` helper function |
 | `interface/common.js` | 1739-1757 | `restoreHiddenForClone()` helper function |
 | `interface/common.js` | 2210-2805 | `renderInnerContentAsMarkdown()` function |
-| `common.py` | 291-500+ | `stream_multiple_models()` function |
+| `common.py` | 291-500+ | `stream_multiple_models()` function (`system` now `Union[str, List[str], None]`) |
 | `Conversation.py` | 6815-6880 | TLDR generation in `chatbot_reply()` |
 | `Conversation.py` | 2880-2960 | TLDR extraction for message storage |
+| `Conversation.py` | ~11842, ~12131 | Per-model persona resolution + `NResponseAgent` wiring |
+| `code_common/personas.py` | (new) | Persona library + `persona_suffix`/`persona_label`/`header_for_row`/`build_systems_and_headers`/`catalog` |
+| `call_llm.py` | `CallMultipleLLM` | `systems` + `header_template` params |
+| `agents/search_and_information_agents.py` | `NResponseAgent` | `systems` + `header_template` params |
+| `endpoints/conversations.py` | `/persona_catalog` | GET endpoint returning `{personas:[{id,label}], custom_max_chars}` |
+| `server.py` | CORS block | `/persona_catalog` CORS rule |
+| `interface/interface.html` | Settings modal | Collapsible "Advanced: per-model personas" panel |
+| `interface/chat.js` | persona grid module | catalog fetch, grid render/collect, state touch-points |
+| `interface/common.js` | `getValues()` | emits `model_personas` in reply payload |
+| `tests/test_per_model_personas.py` | (new) | persona helpers + routing + forwarding |
+| `tests/test_stream_multiple_models.py` | (new cases) | `system`-as-list routing, str broadcast, length-mismatch `ValueError` |
 
 ---
 
@@ -600,6 +682,15 @@ Bootstrap's native tab switching is used. No custom click handlers are needed - 
 - [ ] Verify empty `<strong></strong>` content doesn't create TLDR tab
 - [ ] During streaming: TLDR wrapper not removed until content is complete
 - [ ] Preserved content validation: empty preserved content should be ignored
+
+### Per-Model Personas
+- [ ] Expand the "Advanced: per-model personas" panel in chat settings
+- [ ] Add 2 rows: same or different models, distinct personas (e.g. Skeptic, Contrarian)
+- [ ] Send a message; verify one tab per row with labels `"{model} · {persona}"`
+- [ ] Select "Custom…" on a row; verify the free-text box appears (maxlength 500) and the tab reads `"{model} · Custom"`
+- [ ] Single-row grid → one answer, no ensemble; persona still shapes the reply
+- [ ] Empty grid → falls back to Main Model selection (Main Model NOT silent)
+- [ ] Duplicate model across two rows → two distinct persona tabs
 
 ---
 

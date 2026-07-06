@@ -318,7 +318,7 @@ window._mathJaxScheduler = (function() {
 // service-worker.js) because rendered-state snapshots only need invalidation
 // when rendering logic changes — not when any file changes.  Bump this when
 // you change common.js, common-chat.js, or rendered-state-manager.js rendering.
-window.UI_CACHE_VERSION = "v24";
+window.UI_CACHE_VERSION = "v25";
 var currentDomain = {
     domain: 'assistant', // finchat, search
     page_loaded: false,
@@ -6762,6 +6762,12 @@ function getOptions(parentElementId, type) {
             _modelVal = window._modelSelectionOrder;
         }
         values['main_model'] = _modelVal;
+        // Per-model personas ride in checkboxes as a global default (decision 6).
+        // Non-empty grid overrides Main Model server-side; empty == today's behavior.
+        if (window.chatSettingsState && Array.isArray(window.chatSettingsState.model_personas)
+                && window.chatSettingsState.model_personas.length) {
+            values['model_personas'] = window.chatSettingsState.model_personas;
+        }
         values['field'] = $('#field-selector').length ? $('#field-selector').val() : $('#settings-field-selector').val();
         values["permanentText"] = $("#permanentText").length ? $("#permanentText").val() : $("#settings-permanentText").val();
         if (window.chatSettingsState && window.chatSettingsState.model_overrides) {

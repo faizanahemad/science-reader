@@ -681,6 +681,7 @@ function buildSettingsStateFromControlsOrDefaults() {
         preamble_options: $('#preamble-selector').length ? $('#preamble-selector').val() : (getDefaultPreambleForTab(currentTab)),
         doubt_preamble_options: [],
         main_model: $('#main-model-selector').length ? $('#main-model-selector').val() : (getDefaultModelForTab(currentTab)),
+        model_personas: [],
         field: $('#field-selector').length ? $('#field-selector').val() : (getDefaultAgentForTab(currentTab)),
         permanentText: $('#permanentText').length ? $('#permanentText').val() : ($('#settings-permanentText').val() || ''),
         links: $('#linkInput').length ? $('#linkInput').val() : ($('#settings-linkInput').val() || ''),
@@ -734,6 +735,7 @@ function setModalFromState(state) {
     $('#settings-preamble-selector').val(preambleOptions);
     $('#settings-doubt-preamble-selector').val(state.doubt_preamble_options || []);
     $('#settings-main-model-selector').val(state.main_model || []);
+    populateModelPersonasGrid(state.model_personas || []);
     $('#settings-field-selector').val(state.field || 'None');
     $('#settings-permanentText').val(state.permanentText || '');
     $('#settings-linkInput').val(state.links || '');
@@ -879,7 +881,8 @@ function collectSettingsFromModal() {
         enable_opencode: $('#settings-enable_opencode').is(':checked'),
         model_overrides: (window.chatSettingsState && window.chatSettingsState.model_overrides)
             ? window.chatSettingsState.model_overrides
-            : undefined
+            : undefined,
+        model_personas: collectModelPersonasFromGrid()
     };
 }
 
@@ -1200,6 +1203,137 @@ function loadModelCatalog(callback) {
         }
     });
 }
+
+/* ═══════════════ Per-model personas grid ═══════════════
+ * Optional per-row (model, persona) bindings for diverse response tabs.
+ * Empty grid == today's behavior (falls back to the Main Model selection).
+ * State shape: [{ model: str, persona: id|'none'|'custom', custom_text: str }]
+ */
+
+// Fetch the curated persona catalog once (mirrors loadModelCatalog).
+function loadPersonaCatalog(callback) {
+    if (window.PersonaCatalog && window.PersonaCatalog.ready) {
+        if (callback) { callback(); }
+        return $.Deferred().resolve().promise();
+    }
+    return $.ajax({
+        url: '/persona_catalog',
+        type: 'GET',
+        success: function (result) {
+            window.PersonaCatalog = {
+                personas: (result && result.personas) ? result.personas : [],
+                customMaxChars: (result && result.custom_max_chars) ? result.custom_max_chars : 500,
+                ready: true
+            };
+            if (callback) { callback(); }
+        },
+        error: function (xhr) {
+            console.error('Error loading persona catalog:', xhr.responseText);
+            window.PersonaCatalog = { personas: [], customMaxChars: 500, ready: true };
+            if (callback) { callback(); }
+        }
+    });
+}
+
+// Build <option> HTML for a row's Model dropdown by cloning the curated
+// Main Model options (decision 10 — same list, not the full ModelCatalog).
+function buildPersonaModelOptions(selected) {
+    var html = '';
+    $('#settings-main-model-selector option').each(function () {
+        var $o = $(this);
+        var val = $o.val() || $o.text();
+        var isSel = (val === selected) ? ' selected' : '';
+        html += '<option value="' + $('<div>').text(val).html() + '"' + isSel + '>' +
+                $('<div>').text($o.text()).html() + '</option>';
+    });
+    return html;
+}
+
+// Build <option> HTML for a row's Persona dropdown: None + curated + Custom.
+function buildPersonaOptions(selected) {
+    var personas = (window.PersonaCatalog && window.PersonaCatalog.personas) || [];
+    var html = '<option value="none"' + (!selected || selected === 'none' ? ' selected' : '') + '>None</option>';
+    personas.forEach(function (p) {
+        var isSel = (p.id === selected) ? ' selected' : '';
+        html += '<option value="' + $('<div>').text(p.id).html() + '"' + isSel + '>' +
+                $('<div>').text(p.label).html() + '</option>';
+    });
+    html += '<option value="custom"' + (selected === 'custom' ? ' selected' : '') + '>Custom…</option>';
+    return html;
+}
+
+// Render a single grid row.
+function renderPersonaRow(row) {
+    row = row || {};
+    var maxChars = (window.PersonaCatalog && window.PersonaCatalog.customMaxChars) || 500;
+    var isCustom = row.persona === 'custom';
+    var customText = $('<div>').text(row.custom_text || '').html();
+    return '' +
+        '<div class="model-persona-row d-flex align-items-center mb-1" style="gap: 6px;">' +
+            '<select class="form-control form-control-sm mp-model" style="flex: 1 1 30%;">' +
+                buildPersonaModelOptions(row.model) +
+            '</select>' +
+            '<select class="form-control form-control-sm mp-persona" style="flex: 1 1 25%;">' +
+                buildPersonaOptions(row.persona) +
+            '</select>' +
+            '<input type="text" class="form-control form-control-sm mp-custom" maxlength="' + maxChars + '" ' +
+                'placeholder="Custom persona instructions…" value="' + customText + '" ' +
+                'style="flex: 1 1 40%; ' + (isCustom ? '' : 'display:none;') + '">' +
+            '<button type="button" class="btn btn-sm btn-outline-danger mp-remove" title="Remove row">' +
+                '<i class="fa fa-minus"></i></button>' +
+        '</div>';
+}
+
+// Populate the grid from a state array (fetches catalogs first if needed).
+function populateModelPersonasGrid(rows) {
+    rows = Array.isArray(rows) ? rows : [];
+    var render = function () {
+        var $grid = $('#model-personas-grid');
+        if (!$grid.length) { return; }
+        $grid.empty();
+        rows.forEach(function (r) { $grid.append(renderPersonaRow(r)); });
+    };
+    // Model options come from the (static) main-model selector; personas need the catalog.
+    if (window.PersonaCatalog && window.PersonaCatalog.ready) {
+        render();
+    } else {
+        loadPersonaCatalog(render);
+    }
+}
+
+// Read the grid back into the state array. Blank-model rows are dropped so an
+// empty/partial grid cleanly falls back to the Main Model selection.
+function collectModelPersonasFromGrid() {
+    var rows = [];
+    $('#model-personas-grid .model-persona-row').each(function () {
+        var $r = $(this);
+        var model = ($r.find('.mp-model').val() || '').trim();
+        if (!model) { return; }
+        var persona = $r.find('.mp-persona').val() || 'none';
+        var row = { model: model, persona: persona };
+        if (persona === 'custom') {
+            row.custom_text = ($r.find('.mp-custom').val() || '').trim();
+        }
+        rows.push(row);
+    });
+    return rows;
+}
+
+// Grid event delegation: add row, remove row, toggle custom-text visibility.
+$(document).on('click', '#model-personas-add-row', function () {
+    if (!window.PersonaCatalog || !window.PersonaCatalog.ready) {
+        loadPersonaCatalog(function () { $('#model-personas-grid').append(renderPersonaRow({})); });
+    } else {
+        $('#model-personas-grid').append(renderPersonaRow({}));
+    }
+});
+$(document).on('click', '#model-personas-grid .mp-remove', function () {
+    $(this).closest('.model-persona-row').remove();
+});
+$(document).on('change', '#model-personas-grid .mp-persona', function () {
+    var $row = $(this).closest('.model-persona-row');
+    $row.find('.mp-custom').toggle($(this).val() === 'custom');
+});
 
 /**
  * Retrieves the persisted settings state from localStorage (if enabled) or returns

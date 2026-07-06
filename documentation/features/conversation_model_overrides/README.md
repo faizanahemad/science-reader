@@ -2,6 +2,15 @@
 
 Conversation model overrides let users pick non-reply models on a per-conversation basis (internal operations, quick actions, artefact edits, Doc Index operations, and clarification). Overrides are stored on the conversation and sent to the server so they apply consistently across sessions and devices.
 
+> **Not the same as per-model personas.** These overrides govern *non-reply*
+> models and are scoped **per conversation** (stored in `model_overrides`). The
+> separate **per-model personas** feature (which picks the *reply* models and
+> assigns each a stance) is a **global user default** stored in
+> `chatSettingsState.model_personas` and rides in the reply payload's
+> `checkboxes` — it is intentionally **not** part of `model_overrides` and does
+> not need to be added to `set_conversation_settings`'s `allowed_keys`. See
+> `features/multi_model_response_tabs/README.md` → "Per-Model Personas".
+
 ## What We Added
 
 - **Conversation-level settings store**: new `conversation_settings` field in `Conversation.py` persisted with the conversation.

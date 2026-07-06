@@ -376,8 +376,11 @@ def stream_multiple_models(
         Temperature setting for generation (default: 0.7)
     max_tokens : int, optional
         Maximum tokens to generate for each model
-    system : str, optional
-        System prompt to use with the models
+    system : str or list, optional
+        System prompt to use with the models. If a list, must be the same length
+        as prompts (one system prompt per model instance); if a str, the same
+        system prompt is broadcast to every model. This enables per-model
+        personas/stances while keeping identical prompts.
     collapsible_headers : bool, optional
         Whether to wrap responses in collapsible sections (default: True)
     header_template : Union[str, List[str]], optional
@@ -433,6 +436,16 @@ def stream_multiple_models(
         if len(header_template) != len(prompts):
             raise ValueError("Number of headers must match number of prompts")
 
+    # Normalize system prompts to a per-prompt list so each model instance can
+    # receive a distinct system prompt (persona). A single str (or None) is
+    # broadcast to every model, preserving the original behavior.
+    if isinstance(system, list):
+        if len(system) != len(prompts):
+            raise ValueError("Number of system prompts must match number of prompts")
+        systems = system
+    else:
+        systems = [system] * len(prompts)
+
     if len(model_names) != len(prompts):
         raise ValueError("Number of models must match number of prompts")
 
@@ -440,11 +453,11 @@ def stream_multiple_models(
     model_instances = []
     model_id_to_name = {}  # Mapping from unique ID to display name
 
-    for i, (model, prompt, header) in enumerate(
-        zip(model_names, prompts, header_template)
+    for i, (model, prompt, header, system_i) in enumerate(
+        zip(model_names, prompts, header_template, systems)
     ):
         model_id = f"{model}_{i}"  # Create unique identifier
-        model_instances.append((model_id, model, prompt, header))
+        model_instances.append((model_id, model, prompt, header, system_i))
         model_id_to_name[model_id] = model  # Store mapping for display purposes
 
     # Create a queue for communication between threads
@@ -460,7 +473,7 @@ def stream_multiple_models(
     model_thread_start = {}
     first_chunk_streamed_to_client = False
 
-    def run_llm(model_id, model_name, prompt, header):
+    def run_llm(model_id, model_name, prompt, header, system_i):
         try:
             model_thread_start[model_id] = time.perf_counter()
             log.info(
@@ -481,7 +494,7 @@ def stream_multiple_models(
                 temperature,
                 stream=True,
                 max_tokens=max_tokens,
-                system=system,
+                system=system_i,
             )
             log.warning(
                 "[stream_multiple_models] LLM returned generator | model_id=%s | t=%.3fs",
@@ -560,13 +573,13 @@ def stream_multiple_models(
     executor = ThreadPoolExecutor(max_workers=4)
     futures = []
 
-    def _run_llm_wrapper(model_id, model_name, prompt, header):
+    def _run_llm_wrapper(model_id, model_name, prompt, header, system_i):
         """Wrapper function to call run_llm with specific parameters."""
-        return run_llm(model_id, model_name, prompt, header)
+        return run_llm(model_id, model_name, prompt, header, system_i)
 
-    for model_id, model_name, prompt, header in model_instances:
+    for model_id, model_name, prompt, header, system_i in model_instances:
         future = get_async_future(
-            _run_llm_wrapper, model_id, model_name, prompt, header, executor=executor
+            _run_llm_wrapper, model_id, model_name, prompt, header, system_i, executor=executor
         )
         futures.append(future)
 
@@ -574,7 +587,7 @@ def stream_multiple_models(
     completed_models = set()
 
     # Create buffers to store chunks from each model using model_id
-    model_buffers = {model_id: [] for model_id, _, _, _ in model_instances}
+    model_buffers = {model_id: [] for model_id, _, _, _, _ in model_instances}
     streaming_order = []  # List to track the order in which models started streaming
     currently_streaming = None  # Which model is currently being streamed
     started_models = set()

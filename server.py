@@ -421,6 +421,12 @@ def create_app(argv: Optional[list[str]] = None) -> Flask:
                 "methods": ["GET", "OPTIONS"],
                 "allow_headers": ["Content-Type"],
             },
+            r"/persona_catalog": {
+                "origins": _ext_cors_origins,
+                "supports_credentials": True,
+                "methods": ["GET", "OPTIONS"],
+                "allow_headers": ["Content-Type"],
+            },
             r"/get_prompts": {
                 "origins": _ext_cors_origins,
                 "supports_credentials": True,

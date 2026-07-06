@@ -481,6 +481,125 @@ def test_stream_multiple_models_iteration_timing():
     return True
 
 
+class RecordingSystemCallLLm:
+    """Mock CallLLm that records the ``system`` prompt each model instance is
+    constructed/called with, so per-model system routing can be asserted."""
+
+    # class-level registry: model_name -> system seen at call time
+    systems_seen = {}
+
+    def __init__(self, keys, model_name):
+        self.keys = keys
+        self.model_name = model_name
+
+    def __call__(
+        self,
+        prompt,
+        images=[],
+        temperature=0.7,
+        stream=False,
+        max_tokens=None,
+        system=None,
+        *args,
+        **kwargs,
+    ):
+        RecordingSystemCallLLm.systems_seen[self.model_name] = system
+        # Minimal streaming body; content is irrelevant to the routing assertion.
+        return mock_streaming_response(
+            [f"[{self.model_name}] ok"], delay_per_chunk=0.0, initial_delay=0.0
+        )
+
+
+def test_stream_multiple_models_system_as_list():
+    """Per-model personas: a list ``system`` routes a distinct system prompt to
+    each model, aligned positionally with ``prompts``/``model_names``."""
+    from common import stream_multiple_models
+
+    logger.warning("=" * 60)
+    logger.warning("TEST: test_stream_multiple_models_system_as_list")
+    logger.warning("=" * 60)
+
+    keys = {"openAIKey": "test", "openRouterKey": "test"}
+    model_names = ["model-a", "model-b"]
+    prompts = ["Q1", "Q2"]
+    systems = ["SYS-A", "SYS-B"]
+
+    RecordingSystemCallLLm.systems_seen = {}
+    with patch("call_llm.CallLLm", RecordingSystemCallLLm):
+        list(
+            stream_multiple_models(
+                keys=keys,
+                model_names=model_names,
+                prompts=prompts,
+                system=systems,
+                collapsible_headers=True,
+            )
+        )
+
+    seen = RecordingSystemCallLLm.systems_seen
+    assert seen.get("model-a") == "SYS-A", seen
+    assert seen.get("model-b") == "SYS-B", seen
+    logger.warning("TEST PASSED: test_stream_multiple_models_system_as_list")
+    return True
+
+
+def test_stream_multiple_models_system_str_broadcast():
+    """A scalar ``system`` string is broadcast to every model (back-compat)."""
+    from common import stream_multiple_models
+
+    logger.warning("=" * 60)
+    logger.warning("TEST: test_stream_multiple_models_system_str_broadcast")
+    logger.warning("=" * 60)
+
+    keys = {"openAIKey": "test", "openRouterKey": "test"}
+    RecordingSystemCallLLm.systems_seen = {}
+    with patch("call_llm.CallLLm", RecordingSystemCallLLm):
+        list(
+            stream_multiple_models(
+                keys=keys,
+                model_names=["model-a", "model-b"],
+                prompts=["Q1", "Q2"],
+                system="SHARED",
+                collapsible_headers=True,
+            )
+        )
+
+    seen = RecordingSystemCallLLm.systems_seen
+    assert seen.get("model-a") == "SHARED", seen
+    assert seen.get("model-b") == "SHARED", seen
+    logger.warning("TEST PASSED: test_stream_multiple_models_system_str_broadcast")
+    return True
+
+
+def test_stream_multiple_models_system_length_mismatch():
+    """A list ``system`` whose length != prompt count raises ``ValueError``."""
+    from common import stream_multiple_models
+
+    logger.warning("=" * 60)
+    logger.warning("TEST: test_stream_multiple_models_system_length_mismatch")
+    logger.warning("=" * 60)
+
+    keys = {"openAIKey": "test", "openRouterKey": "test"}
+    raised = False
+    try:
+        with patch("call_llm.CallLLm", RecordingSystemCallLLm):
+            # 2 prompts but only 1 system -> must raise.
+            list(
+                stream_multiple_models(
+                    keys=keys,
+                    model_names=["model-a", "model-b"],
+                    prompts=["Q1", "Q2"],
+                    system=["ONLY-ONE"],
+                    collapsible_headers=True,
+                )
+            )
+    except ValueError:
+        raised = True
+    assert raised, "Expected ValueError on system-list length mismatch"
+    logger.warning("TEST PASSED: test_stream_multiple_models_system_length_mismatch")
+    return True
+
+
 def run_all_tests():
     """Run all tests and report results."""
     tests = [
@@ -489,6 +608,9 @@ def run_all_tests():
         test_stream_multiple_models_with_slow_model,
         test_stream_multiple_models_queue_behavior,
         test_stream_multiple_models_iteration_timing,
+        test_stream_multiple_models_system_as_list,
+        test_stream_multiple_models_system_str_broadcast,
+        test_stream_multiple_models_system_length_mismatch,
     ]
 
     results = []

@@ -2753,6 +2753,30 @@
                                         </div>
                                     </div>
                                 </div>
+                                <!-- Advanced: per-model personas (collapsible; hidden until expanded) -->
+                                <div class="row mt-2">
+                                    <div class="col-12">
+                                        <div class="settings-personas-panel" style="border: 1px solid #e0e0e0; border-radius: 12px;">
+                                            <div class="settings-personas-header" data-toggle="collapse" data-target="#settings-model-personas" aria-expanded="false"
+                                                 style="cursor: pointer; padding: 8px 12px; font-weight: 600; color: #555; user-select: none;">
+                                                <i class="fa fa-users"></i> Advanced: per-model personas
+                                                <i class="fa fa-chevron-down" style="float: right;"></i>
+                                            </div>
+                                            <div id="settings-model-personas" class="collapse">
+                                                <div style="padding: 8px 12px;">
+                                                    <p class="text-muted" style="font-size: 12px; margin-bottom: 8px;">
+                                                        Bind each model to a distinct persona to get diverse viewpoints across the response tabs.
+                                                        Leave empty to use the <strong>Main Model</strong> selection above. Two or more rows produce a tab per row (the same model may appear more than once).
+                                                    </p>
+                                                    <div id="model-personas-grid"><!-- rows injected by populateModelPersonasGrid() --></div>
+                                                    <button type="button" class="btn btn-sm btn-outline-secondary mt-1" id="model-personas-add-row">
+                                                        <i class="fa fa-plus"></i> Add model
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                                 <!-- History (moved from Advanced) + frequently used toggles -->
                                 <div class="row mt-2">
                                     <div class="col-md-3 col-6">

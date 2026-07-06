@@ -1100,10 +1100,18 @@ Write down the characteristics of a good answer in detail following the above gu
 
 
 class NResponseAgent(Agent):
-    def __init__(self, keys, writer_model: Union[List[str], str], n_responses: int = 3):
+    def __init__(self, keys, writer_model: Union[List[str], str], n_responses: int = 3,
+                 systems=None, header_template="Response from {model}"):
         self.keys = keys
         self.writer_model = writer_model
         self.n_responses = n_responses
+        # Optional per-model system prompts (personas), aligned with writer_model
+        # when it is a list. Forwarded to CallMultipleLLM so each model instance
+        # can answer under a distinct persona/stance. None => shared `system`
+        # (identical broadcast, backward compatible).
+        self.systems = systems
+        # Optional per-model header template(s) for persona-aware tab labels.
+        self.header_template = header_template
         self.system = """
 Select the best response from the given multiple responses.
         """.strip()
@@ -1144,7 +1152,12 @@ Select the best response from the given multiple responses.
             if isinstance(self.writer_model, str)
             else self.writer_model
         )
-        llm = CallMultipleLLM(self.keys, self.writer_models)
+        llm = CallMultipleLLM(
+            self.keys,
+            self.writer_models,
+            systems=self.systems,
+            header_template=self.header_template,
+        )
         self._call_multiple_llm = llm  # Expose for model_responses access
 
         time_logger.warning(

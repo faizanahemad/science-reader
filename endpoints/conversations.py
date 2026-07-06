@@ -425,6 +425,23 @@ def get_model_catalog():
     return jsonify({"models": models, "defaults": defaults})
 
 
+@conversations_bp.route("/persona_catalog", methods=["GET"])
+@limiter.limit("300 per minute")
+@login_required
+def get_persona_catalog():
+    """Return the curated persona library for the per-model personas grid.
+
+    Mirrors ``/model_catalog``: the UI populates each row's persona dropdown from
+    this list (plus its own "None" and "Custom…" entries). Also surfaces the
+    server-enforced custom-persona character cap so the UI can set ``maxlength``.
+    """
+    from code_common.personas import catalog, CUSTOM_PERSONA_MAX_CHARS
+
+    return jsonify(
+        {"personas": catalog(), "custom_max_chars": CUSTOM_PERSONA_MAX_CHARS}
+    )
+
+
 @conversations_bp.route("/get_conversation_settings/<conversation_id>", methods=["GET"])
 @limiter.limit("200 per minute")
 @login_required

@@ -6,7 +6,7 @@ import time
 import random
 
 from datetime import datetime
-from typing import List
+from typing import List, Optional, Union
 
 try:
     import ujson as json
@@ -186,12 +186,23 @@ Avoid writing code unless asked to or if needed explicitly.
             return ensure_display_math_newlines(formatted)
 
 class CallMultipleLLM:
-    def __init__(self, keys, model_names: List[str], merge=False, merge_model=None):
+    def __init__(self, keys, model_names: List[str], merge=False, merge_model=None,
+                 systems: Optional[List[str]] = None,
+                 header_template: Union[str, List[str]] = "Response from {model}"):
         self.keys = keys
         if model_names is None or len(model_names) < 2:
             raise ValueError("At least two models are needed for multiple model call")
         self.model_names = model_names
         self.model_responses = {}  # Populated after iteration: {model_id: response_text}
+        # Optional per-model system prompts (personas). When a list, it must be
+        # the same length as model_names; each model instance gets its own system
+        # prompt. When None, the shared `system` passed to call_models is used
+        # (backward compatible with the identical-broadcast behavior).
+        self.systems = systems
+        # Optional per-model header template(s) so tab labels can be persona-aware
+        # (e.g. "Skeptic — gpt-5.5"). str broadcasts to all; list must match
+        # model_names length.
+        self.header_template = header_template
 
         self.merge = merge
         self.merge_model = (
@@ -268,9 +279,9 @@ class CallMultipleLLM:
             images=images,
             temperature=temperature,
             max_tokens=max_tokens,
-            system=system,
+            system=self.systems if self.systems is not None else system,
             collapsible_headers=True,
-            header_template="Response from {model}",
+            header_template=self.header_template,
             result_container=self.model_responses,
         )
         time_logger.warning(

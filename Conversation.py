@@ -11839,11 +11839,41 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 time_logger.info(
                     "[PAGE-CONTEXT] Added page_context screenshot to images for vision processing"
                 )
+        # --- Per-model personas (multi-model response tabs) ---------------
+        # When the persona grid is non-empty, each row binds a model to a
+        # persona (stance). The grid overrides the "Main Model" selection
+        # (decision 9): its models drive the response tabs, and duplicate models
+        # are allowed (decision 5) so the same model can appear under different
+        # personas. A single row behaves like a normal single-model answer
+        # (decision 8) and is NOT treated as an ensemble.
+        from code_common.personas import persona_suffix, header_for_row
+
+        model_personas_rows = checkboxes.get("model_personas") or []
+        model_personas_rows = [
+            r for r in model_personas_rows
+            if isinstance(r, dict) and (r.get("model") or "").strip()
+        ]
+        if model_personas_rows:
+            model_name = [
+                model_name_to_canonical_name(r["model"]) for r in model_personas_rows
+            ]
+            if len(model_name) == 1:
+                model_name = model_name[0]
+                # Single-row grid (decision 8) routes to the normal single-model
+                # branch (no ensemble). Fold its persona into the shared preamble
+                # so the chosen stance still applies to the one answer.
+                _suffix = persona_suffix(model_personas_rows[0])
+                if _suffix:
+                    preamble = ((preamble or "") + "\n\n" + _suffix).strip()
+
         ensemble = (
             (checkboxes["ensemble"] if "ensemble" in checkboxes else False)
             or (isinstance(model_name, (list, tuple)) and len(set(model_name)) > 1)
+            or (len(model_personas_rows) >= 2)
         ) and agent is None
-        if isinstance(model_name, (list, tuple)):
+        # Deduplicate model list, EXCEPT when personas are active: personas
+        # deliberately allow the same model in multiple rows (each its own tab).
+        if isinstance(model_name, (list, tuple)) and not model_personas_rows:
             model_name = list(dict.fromkeys(model_name))  # deduplicate preserving order
         from agents.slide_agent import SlideAgent, CodingQuestionSlideAgent
 
@@ -12104,8 +12134,22 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                         improve_model = model_name
 
                     # llm = ReflectionAgent(self.get_api_keys(), writer_model=model_names, improve_model=improve_model, outline_model="openai/o1-mini")
+                    # When personas are active, each writer model gets its own
+                    # system prompt (shared preamble + persona suffix) and a
+                    # persona-aware tab header. model_names is derived from
+                    # model_personas_rows in the same order, so these line up.
+                    persona_systems = None
+                    persona_headers = "Response from {model}"
+                    if model_personas_rows and isinstance(model_name, (list, tuple)):
+                        persona_systems = [
+                            ((preamble or "") + "\n\n" + persona_suffix(r)).strip()
+                            if persona_suffix(r) else preamble
+                            for r in model_personas_rows
+                        ]
+                        persona_headers = [header_for_row(r) for r in model_personas_rows]
                     llm = NResponseAgent(
-                        self.get_api_keys(), writer_model=model_names, n_responses=2
+                        self.get_api_keys(), writer_model=model_names, n_responses=2,
+                        systems=persona_systems, header_template=persona_headers,
                     )
                     # llm = CallMultipleLLM(self.get_api_keys(), model_names=model_names, merge=True, merge_model=model_name)
                     stream_setup_start = time.perf_counter()
