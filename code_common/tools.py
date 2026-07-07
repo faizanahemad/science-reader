@@ -6409,6 +6409,191 @@ _INTERNAL_SEARCH_DESCRIPTION = (
     "internal systems, infra, tooling, or processes."
 )
 
+# Compact one-paragraph version of the internal_search guidance, for the
+# short quick-action surfaces (doubt clearing, temporary LLM actions) whose
+# system prompts must stay small. It carries the same essentials: multi-round
+# workflow, parallel decomposition, and the staff-level quality bar.
+INTERNAL_SEARCH_WORKFLOW_HINT = (
+    "\n\nYou have an `internal_search` tool for company-internal systems, docs, "
+    "and knowledge — it is the ONLY source for internal/proprietary info "
+    "(external web search will not have it). It is a slow one-shot internal AI "
+    "that skimps on detail, so work around that: decompose the question into "
+    "2-5 focused, differently-angled queries and pass them ALL in one call via "
+    "`queries` (they run in parallel), make each query self-contained and "
+    "specific (expand acronyms, name systems, ask for details/links/caveats/"
+    "recency), and do a quick recon round then at least one deepening round to "
+    "fill gaps before answering — a first-round internal answer rarely meets "
+    "the bar a staff-level engineer would expect. Prefer it over web search for "
+    "anything internal."
+)
+
+
+_READ_INTERNAL_PAGE_DESCRIPTION = (
+    "Read a specific company-internal web page / doc by URL and return its "
+    "content. Use this when you already have an internal URL (an internal "
+    "docs/wiki/code/bug link) and want the actual page contents — NOT a "
+    "search. It fetches the page through an internal AI acting as a RAG/source "
+    "layer: it returns the bulk of the raw extracted information first, then a "
+    "short tldr.\n\n"
+    "WHEN TO USE:\n"
+    "- You have one or more concrete internal URLs to read (e.g. surfaced by "
+    "internal_search, or given by the user).\n"
+    "- Prefer this over internal_search when the goal is 'read THIS page' "
+    "rather than 'find information about a topic'. Use internal_search to "
+    "discover pages, then read_internal_page to pull their full detail.\n\n"
+    "NOTES:\n"
+    "- Each URL is a slow one-shot fetch (~30-90s); pass MULTIPLE urls in one "
+    "call — they are read in parallel remotely, so N urls cost about as much "
+    "wall time as 1.\n"
+    "- Only works for company-internal URLs reachable from the authorized "
+    "host; external web pages should use the normal read_link/jina_read_page "
+    "tools.\n"
+    "- Content may reflect the current internal page but can still be stale; "
+    "note recency caveats when it matters."
+)
+
+# Compact guidance for the short quick-action surfaces (doubt clearing,
+# temporary LLM actions). Pairs with INTERNAL_SEARCH_WORKFLOW_HINT.
+READ_INTERNAL_PAGE_WORKFLOW_HINT = (
+    "\n\nYou also have a `read_internal_page` tool: give it one or more "
+    "company-internal URLs (in the `urls` array) and it returns the actual "
+    "page contents (raw detail first, then a tldr). Use it to READ specific "
+    "internal pages you already have links to (including links surfaced by "
+    "`internal_search`), rather than to search. Pass multiple URLs in one call "
+    "— they are fetched in parallel."
+)
+
+
+def handle_read_internal_page(args: dict, context: ToolContext) -> ToolCallResult:
+    """Read one or more company-internal pages by URL via the local
+    internal-search script's ``--read`` mode.
+
+    Multiple URLs run in parallel remotely (single SSH session), so passing
+    several links is roughly as fast as one. Output is labeled per URL. Only
+    available when the script exists locally (authorized host); never
+    registered on other deployments.
+
+    Parameters
+    ----------
+    args:
+        ``urls`` (list[str] or str, required), ``timeout_seconds`` (int,
+        per-URL remote timeout, default 240, clamped 30-600).
+    context:
+        Tool execution context (unused; the script needs no API keys).
+
+    Returns
+    -------
+    ToolCallResult
+        Labeled per-URL page contents, or an error description.
+    """
+    import subprocess
+
+    urls = args.get("urls") or args.get("url") or []
+    if isinstance(urls, str):
+        urls = [urls]
+    urls = [u.strip() for u in urls if isinstance(u, str) and u.strip()]
+    if not urls:
+        return ToolCallResult(
+            tool_id="", tool_name="read_internal_page", result="",
+            error="urls is required: pass 1-8 non-empty internal URL strings.",
+        )
+    urls = urls[:8]
+
+    try:
+        timeout_s = int(args.get("timeout_seconds", 240) or 240)
+    except (TypeError, ValueError):
+        timeout_s = 240
+    timeout_s = max(30, min(timeout_s, 600))
+
+    cmd = [INTERNAL_SEARCH_SCRIPT_PATH, "-t", str(timeout_s), "--read"] + urls
+    logger.info(
+        "read_internal_page invoked: %d urls, timeout=%ds", len(urls), timeout_s
+    )
+    try:
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout_s + 120
+        )
+    except subprocess.TimeoutExpired:
+        return ToolCallResult(
+            tool_id="", tool_name="read_internal_page", result="",
+            error=(
+                f"internal page read timed out after {timeout_s + 120}s locally. "
+                "The SSH connection may need a fresh auth touch, or the remote "
+                "AI is overloaded. Retry with fewer URLs."
+            ),
+        )
+    except FileNotFoundError:
+        return ToolCallResult(
+            tool_id="", tool_name="read_internal_page", result="",
+            error=f"internal search script not found at {INTERNAL_SEARCH_SCRIPT_PATH}.",
+        )
+    except Exception as exc:  # noqa: BLE001 — handlers must never raise
+        return ToolCallResult(
+            tool_id="", tool_name="read_internal_page", result="",
+            error=f"internal page read failed: {exc}",
+        )
+
+    out = (proc.stdout or "").replace("\r", "")
+    _noise_prefixes = ("Shared connection to ", "Connection to ")
+    text = "\n".join(
+        ln for ln in out.splitlines()
+        if not ln.strip().startswith(_noise_prefixes)
+    ).strip()
+
+    if proc.returncode != 0 and not text:
+        stderr_tail = (proc.stderr or "").replace("\r", "").strip()[-2000:]
+        return ToolCallResult(
+            tool_id="", tool_name="read_internal_page", result="",
+            error=(
+                f"internal page read script exited with code {proc.returncode} "
+                f"and no output. stderr tail: {stderr_tail or '(empty)'}"
+            ),
+        )
+    if not text:
+        text = "(internal page read returned no output)"
+    if proc.returncode != 0:
+        text += (
+            f"\n\n[note: internal page read script exit code {proc.returncode} — "
+            "one or more URLs may have failed or timed out; see per-URL exit "
+            "codes in the headers above]"
+        )
+    return ToolCallResult(
+        tool_id="", tool_name="read_internal_page",
+        result=_truncate_result(text),
+    )
+
+
+if INTERNAL_SEARCH_AVAILABLE:
+    handle_read_internal_page = register_tool(
+        name="read_internal_page",
+        description=_READ_INTERNAL_PAGE_DESCRIPTION,
+        parameters={
+            "type": "object",
+            "properties": {
+                "urls": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "1-8 company-internal page URLs to read. Pass MULTIPLE "
+                        "to read pages in parallel remotely, so N urls take "
+                        "about as long as 1."
+                    ),
+                },
+                "timeout_seconds": {
+                    "type": "integer",
+                    "description": (
+                        "Per-URL remote timeout in seconds (30-600). "
+                        "Default 240."
+                    ),
+                    "default": 240,
+                },
+            },
+            "required": ["urls"],
+        },
+        is_interactive=False,
+        category="search",
+    )(handle_read_internal_page)
+
 
 def handle_internal_search(args: dict, context: ToolContext) -> ToolCallResult:
     """Run one or more company-internal search queries via the local
@@ -6583,9 +6768,21 @@ _TIER_1_BASE = [
 # host: include in the static tier-1 list AND the adaptive base so it
 # survives usage-history-based selection. Hybrid mode force-appends it in
 # Conversation._get_enabled_tools (same pattern as request_tools).
+# It is ALSO added to DOUBT_DEFAULT_TOOLS so the doubt-clearing (and, via the
+# same list, temporary-LLM) quick actions can reach internal knowledge even
+# when the user's general tools toggle is off — internal lookups should behave
+# consistently everywhere the script exists.
 if INTERNAL_SEARCH_AVAILABLE:
     TIER_1_TOOLS.append("internal_search")
     _TIER_1_BASE.append("internal_search")
+    DOUBT_DEFAULT_TOOLS.append("internal_search")
+    # read_internal_page rides alongside internal_search everywhere: same
+    # host-gate, same always-on treatment (static tier-1, adaptive base, and
+    # the doubt/temp default list). Selecting/enabling internal knowledge tools
+    # should always expose BOTH search and page-read together.
+    TIER_1_TOOLS.append("read_internal_page")
+    _TIER_1_BASE.append("read_internal_page")
+    DOUBT_DEFAULT_TOOLS.append("read_internal_page")
 
 
 _adaptive_tier1_cache = {}  # {user_email: (timestamp, result)}

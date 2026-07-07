@@ -40,6 +40,7 @@ var WorkspaceManager = {
     _recentSectionCollapsed: false,
     _recentSectionLocalStorageKey: 'recentSectionCollapsed',
     _showArchived: false,
+    _syncSendEnabled: false,  // set from GET /sync/config; gates the "Sync to remote" menu item
     _timeViewActive: false,
     _previousConvId: null,  // the conversation user just left (for "back" dot)
     _currentConvId: null,   // tracks current active conversation internally
@@ -63,6 +64,12 @@ var WorkspaceManager = {
         this.installMobileConversationInterceptor();
         this.setupToolbarHandlers();
         this._restoreViewStates();
+
+        // Feature-gate the "Sync to remote" context-menu item: only show it when
+        // this server is configured to send syncs. Fire-and-forget; default hidden.
+        $.ajax({ url: '/sync/config', type: 'GET' })
+            .done(function (cfg) { self._syncSendEnabled = !!(cfg && cfg.sync_send_enabled); })
+            .fail(function () { self._syncSendEnabled = false; });
 
         // Recent section collapse/expand toggle
         $('#recent-section-toggle').off('click').on('click', function () {
@@ -223,11 +230,11 @@ var WorkspaceManager = {
                 if (!conversationId) return;
                 hideSidebarIfMobileOpen();
 
-                var currentActive = (ConversationManager.getActiveConversation && ConversationManager.getActiveConversation()) || ConversationManager.activeConversationId || null;
-                if (currentActive && String(currentActive) === String(conversationId)) return;
-
-                WorkspaceManager.highlightActiveConversation(conversationId);
-                ConversationManager.setActiveConversation(conversationId);
+                // Tab-aware switch (focus existing tab or replace focused tab's
+                // conversation). setActiveConversation() / focusTab() handle the
+                // sidebar highlight internally.
+                var _titleAnchor = li.querySelector('.jstree-anchor');
+                WorkspaceManager.switchToConversation(conversationId, _titleAnchor ? _titleAnchor.textContent : undefined);
             } catch (_e) { /* best-effort */ }
         }
 
@@ -537,9 +544,7 @@ var WorkspaceManager = {
                 var convId = $(this).data('conversation-id');
                 if (!convId) return;
                 WorkspaceManager.hideSidebarIfMobile();
-                var currentActive = ConversationManager.getActiveConversation();
-                if (currentActive && String(currentActive) === String(convId)) return;
-                ConversationManager.setActiveConversation(convId);
+                WorkspaceManager.switchToConversation(convId, $(this).attr('title'));
             });
 
             item.on('contextmenu', function (e) {
@@ -656,15 +661,11 @@ var WorkspaceManager = {
                 // Mobile: close sidebar (even if same conv is tapped)
                 WorkspaceManager.hideSidebarIfMobile();
 
-                // Skip if already active
-                var currentActive = ConversationManager.getActiveConversation();
-                if (currentActive && String(currentActive) === String(convId)) return;
-
-                // Switch conversation.
+                // Switch conversation (tab-aware).
                 // IMPORTANT: Do NOT call highlightActiveConversation() separately.
                 // setActiveConversation() internally calls highLightActiveConversation()
                 // which already calls WorkspaceManager.highlightActiveConversation().
-                ConversationManager.setActiveConversation(convId);
+                WorkspaceManager.switchToConversation(convId, $(this).attr('title') || $(this).find('.recent-conv-title').text());
             });
 
             // Right-click handler — show context menu (reuse workspace-manager's)
@@ -1019,9 +1020,7 @@ var WorkspaceManager = {
                 var convId = $(this).data('conversation-id');
                 if (!convId) return;
                 WorkspaceManager.hideSidebarIfMobile();
-                var currentActive = ConversationManager.getActiveConversation();
-                if (currentActive && String(currentActive) === String(convId)) return;
-                ConversationManager.setActiveConversation(convId);
+                WorkspaceManager.switchToConversation(convId, $(this).attr('title'));
             });
 
             item.on('contextmenu', function (e) {
@@ -1381,31 +1380,10 @@ var WorkspaceManager = {
                     }
                 } catch (_e) {}
 
-                // Update the focused tab or register this conversation as the active tab
-                if (typeof TabManager !== 'undefined' && TabManager.focusedTabId) {
-                    var title = data.node.text || 'Untitled';
-                    if (TabManager.hasTab(conversationId)) {
-                        TabManager.focusTab(conversationId);
-                        return;
-                    }
-                    // Replace focused tab's conversation with this one
-                    var oldTab = TabManager.getTab(TabManager.focusedTabId);
-                    if (oldTab) {
-                        var oldPaneId = oldTab.conversationId;
-                        oldTab.conversationId = conversationId;
-                        oldTab.title = title;
-                        TabManager.focusedTabId = conversationId;
-                        // Rename the pane DOM element on desktop
-                        var $oldPane = $(document.getElementById('chatView-' + oldPaneId));
-                        if ($oldPane.length) {
-                            $oldPane.attr('id', 'chatView-' + conversationId).empty();
-                        }
-                        TabManager.renderUI();
-                        TabManager.persist();
-                    }
-                }
-
-                ConversationManager.setActiveConversation(conversationId);
+                // Switch conversation (tab-aware): focuses an existing tab or
+                // replaces the focused tab's conversation, then loads messages.
+                var title = data.node.text || 'Untitled';
+                WorkspaceManager.switchToConversation(conversationId, title);
             }
         });
 
@@ -1758,6 +1736,22 @@ var WorkspaceManager = {
                     });
                 }
             },
+            syncToRemote: {
+                label: 'Sync to remote',
+                icon: 'fa fa-cloud-upload',
+                action: function () {
+                    ConversationManager.syncConversation(convId)
+                        .done(function (r) {
+                            showToast && showToast(
+                                (r && r.skipped) ? 'Already in sync' : 'Synced to remote',
+                                'success');
+                        })
+                        .fail(function (x) {
+                            var msg = (x.responseJSON && x.responseJSON.message) || x.statusText || 'error';
+                            showToast && showToast('Sync failed: ' + msg, 'error');
+                        });
+                }
+            },
             toggleStateless: {
                 label: 'Toggle Stateless',
                 icon: 'fa fa-eye-slash',
@@ -1819,6 +1813,10 @@ var WorkspaceManager = {
             },
             closeMenu: self._closeMenuItem()
         };
+        // Hide "Sync to remote" unless this server is configured to send syncs.
+        if (!self._syncSendEnabled) {
+            delete items.syncToRemote;
+        }
         return items;
     },
 
@@ -2033,6 +2031,59 @@ var WorkspaceManager = {
 
     // ---------------------------------------------------------------
     // Highlighting
+    // ---------------------------------------------------------------
+    /**
+     * Switch the UI to a conversation from a sidebar click (Recent, Pinned,
+     * Most-Accessed, Time-view, jsTree — any list).
+     *
+     * This is the single tab-aware entry point for sidebar-initiated switches.
+     * When the multi-tab feature is active (TabManager.focusedTabId is set):
+     *   - If the conversation is already open in a tab, focus that tab.
+     *   - Otherwise, replace the focused tab's conversation with this one.
+     * When tabs are not active, it falls back to a plain setActiveConversation().
+     *
+     * Prior to this, sidebar sections called setActiveConversation() directly,
+     * which bypassed TabManager: clicking a conversation open in another tab
+     * neither switched the active tab nor reliably re-rendered the pane (the
+     * messages were loaded into the wrong/hidden pane). See the jsTree
+     * select_node handler which uses the same logic.
+     *
+     * @param {string} conversationId - The conversation to switch to.
+     * @param {string} [title] - Optional title (used when replacing a tab's conversation).
+     * @returns {boolean} true if a switch was initiated, false if it was a no-op.
+     */
+    switchToConversation: function (conversationId, title) {
+        if (!conversationId) return false;
+        var currentActive = (ConversationManager.getActiveConversation && ConversationManager.getActiveConversation()) || null;
+        if (currentActive && String(currentActive) === String(conversationId)) return false;
+
+        if (typeof TabManager !== 'undefined' && TabManager.focusedTabId) {
+            // Already open in a tab → just focus it.
+            if (TabManager.hasTab(conversationId)) {
+                TabManager.focusTab(conversationId);
+                return true;
+            }
+            // Replace the focused tab's conversation with this one.
+            var oldTab = TabManager.getTab(TabManager.focusedTabId);
+            if (oldTab) {
+                var oldPaneId = oldTab.conversationId;
+                oldTab.conversationId = conversationId;
+                oldTab.title = title || 'Untitled';
+                TabManager.focusedTabId = conversationId;
+                // Rename the pane DOM element on desktop
+                var $oldPane = $(document.getElementById('chatView-' + oldPaneId));
+                if ($oldPane.length) {
+                    $oldPane.attr('id', 'chatView-' + conversationId).empty();
+                }
+                TabManager.renderUI();
+                TabManager.persist();
+            }
+        }
+
+        ConversationManager.setActiveConversation(conversationId);
+        return true;
+    },
+
     // ---------------------------------------------------------------
     /**
      * Highlight the active conversation in the tree.

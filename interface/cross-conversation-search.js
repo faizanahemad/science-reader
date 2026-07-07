@@ -47,7 +47,15 @@ var CrossConversationSearchManager = (function () {
             var convId = $(this).data('conversation-id');
             if (convId && window.ConversationManager) {
                 $('#cross-conversation-search-modal').modal('hide');
-                window.ConversationManager.setActiveConversation(convId);
+                // Tab-aware switch: focus an existing tab or replace the focused
+                // tab's conversation. Falls back to setActiveConversation when
+                // WorkspaceManager/tabs are unavailable.
+                var title = $(this).find('.cross-conv-result-title').text() || undefined;
+                if (window.WorkspaceManager && WorkspaceManager.switchToConversation) {
+                    WorkspaceManager.switchToConversation(convId, title);
+                } else {
+                    window.ConversationManager.setActiveConversation(convId);
+                }
             }
         });
 

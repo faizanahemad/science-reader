@@ -326,6 +326,16 @@ def create_app(argv: Optional[list[str]] = None) -> Flask:
     app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY")
     app.secret_key = os.environ.get("SECRET_KEY")
 
+    # Conversation Sync (one-way push) config. See
+    # documentation/features/conversation_sync. All optional: the receiver
+    # endpoint 404s when SYNC_UPLOAD_TOKEN is unset, and the sender UI hides its
+    # action when SYNC_REMOTE_URL is unset.
+    app.config["SYNC_UPLOAD_TOKEN"] = os.environ.get("SYNC_UPLOAD_TOKEN")
+    app.config["SYNC_UPLOAD_USER_EMAIL"] = os.environ.get("SYNC_UPLOAD_USER_EMAIL")
+    app.config["SYNC_REMOTE_URL"] = os.environ.get("SYNC_REMOTE_URL")
+    app.config["SYNC_REMOTE_TOKEN"] = os.environ.get("SYNC_REMOTE_TOKEN")
+    app.config["SYNC_HOST_LABEL"] = os.environ.get("SYNC_HOST_LABEL")
+
     # Limiter config (legacy)
     app.config["RATELIMIT_STRATEGY"] = "moving-window"
     app.config["RATELIMIT_STORAGE_URL"] = "memory://"

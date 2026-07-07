@@ -58,7 +58,9 @@ Both inline and floating gear menus have a `.gear-tab-nav` section at the top (b
 
 5. **Tab bar visibility** -- controlled via `.visible` CSS class (not inline styles) to avoid Bootstrap `!important` conflicts. Bar HTML is cleared on hide to prevent stale content.
 
-6. **Single-tab replace** -- normal sidebar clicks replace the focused tab's conversation (rename pane ID, clear content, load new). Only Ctrl+click or context menu opens a new tab.
+6. **Single-tab replace / cross-tab focus** -- normal sidebar clicks route through a single tab-aware entry point, `WorkspaceManager.switchToConversation(conversationId, title)`. When tabs are active it: (a) focuses the tab if the clicked conversation is **already open in another tab**, otherwise (b) replaces the focused tab's conversation (rename pane ID, clear content, load new). When tabs are inactive it falls back to `ConversationManager.setActiveConversation`. Only Ctrl+click or context menu opens a *new* tab.
+
+   All sidebar surfaces call this one helper so behavior is uniform: the jsTree tree (`select_node` handler), the Recent / Pinned / Most-Accessed / Time-view lists, the mobile touch/pointer delegated handler, and the cross-conversation search modal (`cross-conversation-search.js`). **Bug fixed:** previously these list handlers called `setActiveConversation` directly and bypassed TabManager, so clicking a conversation already open in another tab neither switched the active tab nor reliably re-rendered the pane (messages loaded into the wrong/hidden pane). Only the jsTree handler had the tab-aware logic; it has now been extracted into `switchToConversation` and shared.
 
 7. **Domain switch** -- listens for `domainChanged` event, tracks `_lastDomain`, clears all tabs only when domain actually changes (ignores redundant events on page load).
 
@@ -78,7 +80,8 @@ Both inline and floating gear menus have a `.gear-tab-nav` section at the top (b
 | `interface/common-chat.js` | Added `$chatView()` accessor. Updated renderMessages, renderStreamingResponse, stopCurrentResponse, scrollToBottom, sendMessageCallback, suggestions, multi-select to use it |
 | `interface/common.js` | Updated fetchConversationUIState to use `$chatView()` with typeof guard |
 | `interface/rendered-state-manager.js` | `getChatViewEl(convId)`, `readDomMeta(convId)`, `applySnapshotToDom(snapshot, convId)` -- all pane-aware |
-| `interface/workspace-manager.js` | "Open in New Tab" context menu, Ctrl+click handler, sidebar normal click updates focused tab, createTemporaryConversation opens tab, TabManager.init() call, title sync in highlightActiveConversation |
+| `interface/workspace-manager.js` | "Open in New Tab" context menu, Ctrl+click handler, sidebar normal click updates focused tab, createTemporaryConversation opens tab, TabManager.init() call, title sync in highlightActiveConversation. Added shared tab-aware `switchToConversation(conversationId, title)` helper; routed jsTree `select_node`, mobile touch handler, and Recent/Pinned/Most-Accessed/Time-view list clicks through it |
+| `interface/cross-conversation-search.js` | Search-result click routes through `WorkspaceManager.switchToConversation` (tab-aware) instead of `setActiveConversation` directly |
 | `interface/interface.html` | `#conv-tab-bar`, `#chatView-container` wrapper, `.gear-tab-nav` in both gear menus, `tab-manager.js` script tag, MutationObserver targets container |
 | `interface/style.css` | Tab bar styles, `.chatView-pane` display rules, `.gear-tab-nav` item styles, container/bar negative margins |
 

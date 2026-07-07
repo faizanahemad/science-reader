@@ -7872,12 +7872,13 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         if tool_mode == "tiered":
             enabled_names = get_adaptive_tier1_tools(user_email=user_email)
         elif tool_mode == "internal_only":
-            # Internal Search Only: expose just internal_search so the model
-            # cannot reach for web/perplexity search on internal questions.
+            # Internal Search Only: expose the internal knowledge tools
+            # (internal_search + read_internal_page) so the model cannot reach
+            # for web/perplexity search on internal questions.
             if not INTERNAL_SEARCH_AVAILABLE:
                 logger.warning("[_get_enabled_tools] internal_only mode but internal_search unavailable on this host")
                 return None
-            enabled_names = ["internal_search"]
+            enabled_names = ["internal_search", "read_internal_page"]
         elif tool_mode == "smart":
             keys = self.get_api_keys()
             enabled_names = _select_relevant_tools(user_message, summary, keys)
@@ -7888,9 +7889,13 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 enabled_names.append("request_tools")
             # internal_search is always-on where available (registered only
             # when its local script exists on this host) — force-include it so
-            # the smart selection can never drop it.
+            # the smart selection can never drop it. read_internal_page rides
+            # alongside it (same host-gate) so page-reading is always paired
+            # with internal search.
             if INTERNAL_SEARCH_AVAILABLE and "internal_search" not in enabled_names:
                 enabled_names.append("internal_search")
+            if INTERNAL_SEARCH_AVAILABLE and "read_internal_page" not in enabled_names:
+                enabled_names.append("read_internal_page")
         else:
             # "manual" mode — existing logic
             enabled_tools_config = checkboxes.get("enabled_tools", None)
@@ -9937,9 +9942,12 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             if _tool_mode == "internal_only":
                 tool_awareness_text = (
                     "\n\n## Tool Usage Guidance\n"
-                    "You have exactly ONE tool: **internal_search** (company-internal "
-                    "systems/docs/infra). There is NO web search or any other tool — "
-                    "do not mention or attempt others.\n\n"
+                    "You have TWO tools, both for company-internal "
+                    "systems/docs/infra: **internal_search** (find information "
+                    "on a topic) and **read_internal_page** (read the full "
+                    "contents of a specific internal URL you already have). "
+                    "There is NO web search or any other tool — do not mention "
+                    "or attempt others.\n\n"
                     "### internal_search weaknesses (compensate actively)\n"
                     "- Each query is a slow (~30-90s) ONE-SHOT call to an internal AI "
                     "that does little background work on its own and often skimps on "
@@ -10004,6 +10012,16 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                         "tool's description) and fire the queries an expert would "
                         "add, before answering — there is no call budget. Never "
                         "settle for a single shallow pass on internal topics.\n"
+                    )
+                    tool_awareness_text += (
+                        "- **read_internal_page**: Reads the FULL contents of a "
+                        "specific company-internal URL you already have (e.g. a "
+                        "link surfaced by internal_search or given by the user) "
+                        "— raw detail first, then a tldr. Use it to pull a "
+                        "page's real content rather than to search; pass "
+                        "multiple URLs in one call (they read in parallel). Use "
+                        "internal_search to DISCOVER pages, read_internal_page "
+                        "to READ them.\n"
                     )
                 tool_awareness_text += (
                     "\n"
@@ -13607,6 +13625,112 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             access_count_7d=self._access_count_7d(),
         )
 
+    def export_sync_payload(self, host_label: str = "", max_artefact_bytes: int = 5 * 1024 * 1024):
+        """
+        Serialize this conversation into a versioned JSON payload for one-way push
+        sync to a remote instance (see documentation/features/conversation_sync).
+
+        The payload is a plain dict of JSON-serializable primitives: metadata,
+        memory, full message list, conversation settings, uploaded-document display
+        info, artefact metadata + links, and base64-inlined artefact file contents.
+        A ``content_hash`` over the canonical JSON of everything else enables
+        sender-side no-op detection and receiver integrity checks.
+
+        Parameters
+        ----------
+        host_label:
+            Optional free-text label for the source host (e.g. "laptop"). Empty
+            when unset; the receiver renders a date-only provenance badge then.
+        max_artefact_bytes:
+            Per-file cap; artefact files larger than this are skipped and reported
+            in the returned ``skipped_artefacts`` list rather than inlined.
+
+        Returns
+        -------
+        dict
+            The sync payload. Also carries a non-persisted ``skipped_artefacts``
+            key (list of {name, size}) for the caller to surface; callers that
+            transmit the payload should pop it first if strict schema is desired
+            (the receiver ignores unknown top-level keys).
+        """
+        import base64 as _b64
+
+        meta = self.get_metadata()
+        memory = self.get_field("memory") or {}
+        messages = self.get_message_list() or []
+        # Exclude volatile local sync bookkeeping from the wire payload and hash:
+        # last_sync/sync_source change *because of* syncing and would defeat the
+        # content-hash no-op check (and shouldn't propagate to the target).
+        settings = {
+            k: v for k, v in self.get_conversation_settings().items()
+            if k not in ("last_sync", "sync_source", "sync_source_documents")
+        }
+        artefacts_meta = self.get_field("artefacts") or []
+        artefact_links = self.get_field("artefact_message_links") or {}
+        uploaded_docs = self.get_field("uploaded_documents_list") or []
+
+        # Uploaded docs: v1 only carries display info; binaries are not synced.
+        uploaded_display = []
+        for doc in uploaded_docs:
+            if isinstance(doc, (list, tuple)) and len(doc) >= 1:
+                uploaded_display.append(
+                    {"title": doc[1] if len(doc) > 1 and doc[1] else str(doc[0]),
+                     "source": doc[2] if len(doc) > 2 and doc[2] else ""}
+                )
+
+        # Artefacts: inline file bytes (base64) up to the per-file cap.
+        artefacts_inline = []
+        skipped_artefacts = []
+        art_dir = self.artefacts_path  # ensures dir exists
+        for art in artefacts_meta:
+            fname = art.get("file_name") or art.get("filename") or art.get("name")
+            if not fname:
+                continue
+            fpath = os.path.join(art_dir, fname)
+            if not os.path.exists(fpath):
+                continue
+            try:
+                size = os.path.getsize(fpath)
+                if size > max_artefact_bytes:
+                    skipped_artefacts.append({"name": fname, "size": size})
+                    continue
+                with open(fpath, "rb") as fh:
+                    b64 = _b64.b64encode(fh.read()).decode("ascii")
+                artefacts_inline.append({"path": fname, "b64": b64})
+            except Exception as e:
+                skipped_artefacts.append({"name": fname, "error": str(e)})
+
+        exported_at = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        payload = {
+            "sync_version": 1,
+            "source": {
+                "conversation_id": self.conversation_id,
+                "user_id": self.user_id,
+                "host_label": host_label or "",
+                "exported_at": exported_at,
+            },
+            "domain": self.domain,
+            "metadata": {
+                "title": meta.get("title", ""),
+                "summary_till_now": meta.get("summary_till_now", ""),
+                "flag": meta.get("flag"),
+                "conversation_friendly_id": meta.get("conversation_friendly_id", ""),
+            },
+            "memory": memory,
+            "messages": messages,
+            "conversation_settings": settings,
+            "uploaded_documents": uploaded_display,
+            "artefact_metadata": artefacts_meta,
+            "artefact_message_links": artefact_links,
+            "artefacts": artefacts_inline,
+        }
+        # content_hash over canonical JSON of everything above (excl. the hash itself).
+        canonical = json.dumps(payload, sort_keys=True, default=str, ensure_ascii=True)
+        payload["content_hash"] = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        # Non-persisted advisory field for the caller (receiver ignores unknown keys).
+        payload["skipped_artefacts"] = skipped_artefacts
+        return payload
+
     def _initiate_reward_evaluation(
         self, reward_level, query_text, checkboxes, previous_messages_long, summary
     ):
@@ -14203,11 +14327,23 @@ Please provide your explanation or answer to the user's doubt in a clear, struct
             # Always use tool loop so read_message and propose_answer_edit are available.
             # DOUBT_DEFAULT_TOOLS (read_message + propose_answer_edit) are always on;
             # TIER_1_TOOLS are added only when the user's tools toggle is enabled.
-            from code_common.tools import TIER_1_TOOLS, DOUBT_DEFAULT_TOOLS, TOOL_REGISTRY
+            from code_common.tools import TIER_1_TOOLS, DOUBT_DEFAULT_TOOLS, TOOL_REGISTRY, INTERNAL_SEARCH_WORKFLOW_HINT, READ_INTERNAL_PAGE_WORKFLOW_HINT
             if TOOL_REGISTRY:
                 tool_names = list(set(DOUBT_DEFAULT_TOOLS + (TIER_1_TOOLS if tools_enabled else [])))
+                # When internal_search is available (host-gated), it is present
+                # via DOUBT_DEFAULT_TOOLS regardless of the tools toggle. Add its
+                # compact workflow guidance and allow an extra round so the model
+                # can do recon + at least one deepening round. read_internal_page
+                # is host-gated the same way; add its hint when present.
+                internal_search_on = "internal_search" in tool_names
+                if internal_search_on:
+                    system = system + INTERNAL_SEARCH_WORKFLOW_HINT
+                if "read_internal_page" in tool_names:
+                    system = system + READ_INTERNAL_PAGE_WORKFLOW_HINT
                 tools_config = TOOL_REGISTRY.get_openai_tools_param(tool_names)
                 max_iters = 3 if tools_enabled else 2
+                if internal_search_on:
+                    max_iters = max(max_iters, 4)
                 for chunk_dict in self._run_tool_loop(
                     prompt=doubt_prompt,
                     preamble=system,
@@ -14565,29 +14701,51 @@ Your summary:""",
 
             max_tokens = {"Short": 800, "Medium": 2000, "Long": 4000}.get(length, 2000)
 
-            if tools_enabled:
-                # Tool-calling mode: use tiered tools + _run_tool_loop
-                from code_common.tools import TIER_1_TOOLS, TOOL_REGISTRY
-                if TOOL_REGISTRY:
-                    tools_config = TOOL_REGISTRY.get_openai_tools_param(TIER_1_TOOLS)
-                    for chunk_dict in self._run_tool_loop(
-                        prompt=prompt,
-                        preamble=base_system,
-                        images=[],
-                        model_name=context_action_model,
-                        keys=api_keys,
-                        tools_config=tools_config,
-                        max_iterations=3,
-                        conversation_id=self.conversation_id,
-                        user_email=self.user_id or "",
-                    ):
-                        text = chunk_dict.get("text", "")
-                        if text:
-                            yield text
-                else:
-                    tools_enabled = False  # fallback
+            # internal_search is host-gated and always-on where its script
+            # exists, independent of the user's general tools toggle. Detect it
+            # so temp actions can reach internal knowledge (and enter the tool
+            # loop) even when tools_enabled is False.
+            from code_common.tools import (
+                TIER_1_TOOLS, TOOL_REGISTRY, INTERNAL_SEARCH_AVAILABLE,
+                INTERNAL_SEARCH_WORKFLOW_HINT, READ_INTERNAL_PAGE_WORKFLOW_HINT,
+            )
+            use_tool_loop = tools_enabled or INTERNAL_SEARCH_AVAILABLE
 
-            if not tools_enabled:
+            if use_tool_loop and TOOL_REGISTRY:
+                # When the general toggle is off, expose the always-on host-gated
+                # internal tools (internal_search + read_internal_page); when on,
+                # expose all of tier 1.
+                if tools_enabled:
+                    tool_names = list(TIER_1_TOOLS)
+                else:
+                    tool_names = ["internal_search", "read_internal_page"]
+                internal_search_on = "internal_search" in tool_names
+                if internal_search_on:
+                    base_system = base_system + INTERNAL_SEARCH_WORKFLOW_HINT
+                if "read_internal_page" in tool_names:
+                    base_system = base_system + READ_INTERNAL_PAGE_WORKFLOW_HINT
+                tools_config = TOOL_REGISTRY.get_openai_tools_param(tool_names)
+                # Allow recon + at least one deepening round when internal_search
+                # is in play; otherwise keep the original tight cap.
+                temp_max_iters = 4 if internal_search_on else 3
+                for chunk_dict in self._run_tool_loop(
+                    prompt=prompt,
+                    preamble=base_system,
+                    images=[],
+                    model_name=context_action_model,
+                    keys=api_keys,
+                    tools_config=tools_config,
+                    max_iterations=temp_max_iters,
+                    conversation_id=self.conversation_id,
+                    user_email=self.user_id or "",
+                ):
+                    text = chunk_dict.get("text", "")
+                    if text:
+                        yield text
+            else:
+                tools_enabled = False  # fallback to simple mode below
+
+            if not use_tool_loop or not TOOL_REGISTRY:
                 # Simple mode: direct LLM call
                 llm = CallLLm(
                     api_keys, model_name=context_action_model,

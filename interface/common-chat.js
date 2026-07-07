@@ -378,6 +378,15 @@ var ConversationManager = {
         });
     },
 
+    syncConversation: function (conversationId, force) {
+        // One-way push of this conversation to the configured remote instance.
+        // Returns a promise; caller surfaces success/skip/failure via showToast.
+        return $.ajax({
+            url: '/sync_conversation/' + conversationId + (force ? '?force=1' : ''),
+            type: 'POST'
+        });
+    },
+
     statelessConversation: function (conversationId, suppressModal) {
         return $.ajax({
             url: '/make_conversation_stateless/' + conversationId,
@@ -685,6 +694,26 @@ var ConversationManager = {
         });
     },
 
+    renderSyncBadge: function (conversationId, settings) {
+        // Show a muted "synced from <host_label> · <exported_at>" badge on the
+        // target copy of a synced conversation. Pure display; driven by the
+        // conversation_settings.sync_source provenance stamped by the receiver.
+        try {
+            var $view = $chatView(conversationId);
+            if (!$view || !$view.length) return;
+            $view.find('.sync-source-badge').remove();
+            var src = settings && settings.sync_source;
+            if (!src) return;
+            var label = (src.host_label || '').trim();
+            var when = (src.exported_at || '').trim();
+            var text = 'synced' + (label ? ' from ' + label : '') + (when ? ' · ' + when : '');
+            var $badge = $('<div class="sync-source-badge text-muted small mb-2"></div>')
+                .append($('<i class="fa fa-cloud-download mr-1"></i>'))
+                .append($('<span></span>').text(text));
+            $view.prepend($badge);
+        } catch (_e) { /* non-critical display nicety */ }
+    },
+
     getConversationHistory: function () {
         conversationId = this.activeConversationId
         return $.ajax({
@@ -942,8 +971,16 @@ var ConversationManager = {
             // REMOVED: Auto-focus on messageText causes soft keyboard on mobile/tablet.
             // $('#messageText').focus();
             $("#show-sidebar").focus();
-            // R2: Apply-late — doubts + pins network requests were already fired
+
+            // Sync provenance badge (target copies of synced conversations only).
+            $.ajax({ url: '/get_conversation_settings/' + conversationId, type: 'GET' })
+                .done(function (res) {
+                    if (ConversationManager.activeConversationId !== _r2ConvId) return;
+                    ConversationManager.renderSyncBadge(conversationId, (res && res.settings) || {});
+                });
+
             // above (before $.when), overlapping with the messages API call.
+            // R2: Apply-late — doubts + pins network requests were already fired above.
             // Here we just wire up the apply step, which waits for both the
             // fetch AND _renderCompletePromise (all cards in live DOM).
             Promise.all([doubtsPromise, _renderCompletePromise]).then(function (results) {
