@@ -12074,22 +12074,84 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 f"isScreenshot={page_context.get('isScreenshot', False) if page_context else False}"
             )
 
-        prompt = prompts.chat_slow_reply_prompt.format(
-            query=query["messageText"],
-            summary_text=summary_text,
-            previous_messages=previous_messages
-            if agent is None
-            else previous_messages_short,
-            permanent_instructions=permanent_instructions
-            + memory_pad
-            + coding_rules
-            + user_info_text
-            + page_context_text,
-            doc_answer=doc_answer,
-            web_text=web_text,
-            link_result_text=link_result_text,
-            conversation_docs_answer=conversation_docs_answer,
+        # Host-local CLI Main Models (local/gemini-rag, local/gemini-agent): do NOT
+        # assemble the full chimera prompt (history/tools/docs/web). Those models
+        # only receive user question + running summary; everything else is noise
+        # and inflates the UI "prompt length" status into tens of thousands.
+        _local_cli_main = (
+            model_name in (GEMINI_RAG_MODEL, GEMINI_AGENT_MODEL)
+            if not isinstance(model_name, (list, tuple))
+            else (
+                len(model_name) == 1
+                and model_name[0] in (GEMINI_RAG_MODEL, GEMINI_AGENT_MODEL)
+            )
         )
+        if _local_cli_main:
+            from common import get_first_last_parts as _gflp
+
+            _raw_q = (
+                (query.get("messageText") if isinstance(query, dict) else None)
+                or locals().get("original_user_query")
+                or ""
+            )
+            _q = _gflp(str(_raw_q), first_n=2000, last_n=600)
+            _sum = _gflp(
+                (getattr(self, "running_summary", None) or summary_text or ""),
+                first_n=1800,
+                last_n=600,
+            )
+            if _sum.strip():
+                prompt = (
+                    f"{_q}\n\n"
+                    "Conversation context (compressed summary — use only if "
+                    "relevant to the question above):\n"
+                    f"{_sum}"
+                )
+            else:
+                prompt = _q
+            # Collapse heavy side inputs so later metrics/logs stay honest.
+            previous_messages = ""
+            previous_messages_short = ""
+            permanent_instructions = ""
+            memory_pad = ""
+            coding_rules = ""
+            user_info_text = ""
+            page_context_text = ""
+            doc_answer = ""
+            web_text = ""
+            link_result_text = ""
+            conversation_docs_answer = ""
+            # Thin preamble; CLI owns the real system instructions.
+            preamble = (
+                "You are answering via a host-local internal search/RAG CLI. "
+                "Use the user question as the primary query. The conversation "
+                "summary (if present in the user message) is compressed prior "
+                "context only."
+            )
+            time_logger.info(
+                "[REPLY] local-CLI model %r: lean prompt only "
+                "(query+summary, chars=%d tokens≈%d) — skipped chimera assembly",
+                model_name,
+                len(prompt),
+                len(enc.encode(prompt)),
+            )
+        else:
+            prompt = prompts.chat_slow_reply_prompt.format(
+                query=query["messageText"],
+                summary_text=summary_text,
+                previous_messages=previous_messages
+                if agent is None
+                else previous_messages_short,
+                permanent_instructions=permanent_instructions
+                + memory_pad
+                + coding_rules
+                + user_info_text
+                + page_context_text,
+                doc_answer=doc_answer,
+                web_text=web_text,
+                link_result_text=link_result_text,
+                conversation_docs_answer=conversation_docs_answer,
+            )
         time_logger.info(
             f"[REPLY] Prompt assembled | prompt_tokens={len(enc.encode(prompt))} | conversation_docs_answer_tokens={len(enc.encode(conversation_docs_answer))} | t={time.time() - st:.2f}s"
         )
@@ -12337,51 +12399,59 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             )
         ):
             # Host-local CLI Main Models (gemini-rag-query or gemini-agent-query).
-            # Keep context LEAN: user question + running summary only. Heavy
-            # moma/read/RAG or agent tool loops run inside the CLI. No chat tools
-            # / full history / long preambles.
+            # Keep context LEAN: user question + running summary only. The full
+            # chimera prompt was already skipped above; reuse `prompt` here so
+            # UI status "prompt length" stays honest (not 30k+ from history).
             _gr_model = (
                 model_name[0]
                 if isinstance(model_name, (list, tuple))
                 else model_name
             )
+            from common import get_first_last_parts
+
+            # Rebuild only if assembly somehow left a fat prompt (defensive).
+            _gr_prompt = prompt
+            if len(_gr_prompt) > 12000 or "permanent_instructions" in _gr_prompt.lower():
+                _raw_q = (
+                    (query.get("messageText") if isinstance(query, dict) else None)
+                    or original_user_query
+                    or ""
+                )
+                _q = get_first_last_parts(str(_raw_q), first_n=2000, last_n=600)
+                _sum = get_first_last_parts(
+                    (getattr(self, "running_summary", None) or summary_text or ""),
+                    first_n=1800,
+                    last_n=600,
+                )
+                if _sum.strip():
+                    _gr_prompt = (
+                        f"{_q}\n\n"
+                        "Conversation context (compressed summary — use only if "
+                        "relevant to the question above):\n"
+                        f"{_sum}"
+                    )
+                else:
+                    _gr_prompt = _q
+            # Keep shared `prompt` in sync so prompt_length status matches payload.
+            prompt = _gr_prompt
+            _gr_system = (
+                preamble
+                if isinstance(preamble, str) and preamble.strip()
+                else (
+                    "You are answering via a host-local internal search/RAG CLI. "
+                    "Use the user question as the primary query. The conversation "
+                    "summary (if present in the user message) is compressed prior "
+                    "context only."
+                )
+            )
+            _lean_tok = len(enc.encode(_gr_prompt))
             yield {
                 "text": "",
                 "status": (
                     f"Calling host-local {_gr_model} with user query + "
-                    "running summary only (lean context) ..."
+                    f"running summary only (lean, prompt length: {_lean_tok}) ..."
                 ),
             }
-            from common import get_first_last_parts
-
-            _raw_q = (
-                (query.get("messageText") if isinstance(query, dict) else None)
-                or original_user_query
-                or ""
-            )
-            _q = get_first_last_parts(str(_raw_q), first_n=2000, last_n=600)
-            _sum = get_first_last_parts(
-                (getattr(self, "running_summary", None) or summary_text or ""),
-                first_n=1800,
-                last_n=600,
-            )
-            if _sum.strip():
-                _gr_prompt = (
-                    f"{_q}\n\n"
-                    "Conversation context (compressed summary — use only if "
-                    "relevant to the question above):\n"
-                    f"{_sum}"
-                )
-            else:
-                _gr_prompt = _q
-            # Minimal system so CallLLm base_system still allows summary recovery
-            # without dumping the full chart/chat preamble.
-            _gr_system = (
-                "You are answering via a host-local internal search/RAG CLI. "
-                "Use the user question as the primary query. The conversation "
-                "summary (if present in the user message) is compressed prior "
-                "context only."
-            )
             llm = CallLLm(
                 self.get_api_keys(),
                 model_name=_gr_model,
@@ -12985,10 +13055,25 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     yield {"text": stderr, "status": "answering in progress"}
                     answer += stderr
 
+        _status_prompt_note = (
+            f"Starting to stream answer ..., prompt length: {prompt_length}"
+        )
+        if (
+            model_name in (GEMINI_RAG_MODEL, GEMINI_AGENT_MODEL)
+            if not isinstance(model_name, (list, tuple))
+            else (
+                len(model_name) == 1
+                and model_name[0] in (GEMINI_RAG_MODEL, GEMINI_AGENT_MODEL)
+            )
+        ):
+            _status_prompt_note = (
+                f"Starting to stream host-local answer "
+                f"({model_name if not isinstance(model_name, (list, tuple)) else model_name[0]}), "
+                f"lean prompt length: {prompt_length} (query + summary only)"
+            )
         yield {
             "text": "",
-            "status": "Starting to stream answer ..., prompt length: "
-            + str(prompt_length),
+            "status": _status_prompt_note,
         }
         time_logger.info("[STREAM] starting to iterate main_ans_gen")
         log.info("[STREAM] starting to iterate main_ans_gen")
