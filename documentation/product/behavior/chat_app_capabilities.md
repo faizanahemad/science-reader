@@ -678,5 +678,1023 @@ location /ws/terminal {
 - The server normalizes them and, when appropriate, uses an `NResponseAgent` to orchestrate streaming.
 - The underlying multi-model streamer executes models in parallel but displays their outputs sequentially (order of first response).
 - **Host-local synthetic models** (both pass only **user question + running summary**; no full history / chat tools / OpenRouter fallback):
-  - **`local/gemini-rag`**: `~/.local/bin/gemini-rag-query` (`GEMINI_RAG_SCRIPT_PATH`). Always `--detailed`, and (from the chat path) always `--reformulate` + `--duckie`. Learning: optional CLI flags stay off by default when invoking the binary by hand. Pipeline: optional ≤16-word search rewrite → concurrent duckie_cli + moma discovery → parallel page reads (default **`--max-urls 20`**, hard clamp 1–20; override with `GEMINI_RAG_MAX_URLS` or CLI `--max-urls`) → Gemini synthesis over moma extracts + duckie text (+ FAQ/next expansion). Kill-switch: `GEMINI_RAG_DISABLED=1`. Implementation: `code_common/local_cli_llms.py`.
-  - **`local/gemini-agent`**: `~/.local/bin/gemini-agent-query` (`GEMINI_AGENT_SCRIPT_PATH`). Fast ReAct profile (`--max-depth 2 --personas 0 --max-loops 2 --max-tool-iterations 4 --loop-mode direct-retry --budget 20 --history-window 2 --synth-backend gemini`). Kill-switch: `GEMINI_AGENT_DISABLED=1`. Implementation: `code_common/local_cli_llms.py`.
+  - **`local/gemini-rag`**: `~/.local/bin/gemini-rag-query` (`GEMINI_RAG_SCRIPT_PATH`). Always `--detailed`, and (from the chat path) always `--reformulate` + `--duckie` (hand CLI keeps those flags off unless set). Pipeline: optional ≤16-word search rewrite → concurrent duckie + moma discovery → parallel page reads (default **`--max-urls 20`**, hard clamp 1–20; override with `GEMINI_RAG_MAX_URLS` or CLI `--max-urls`) → Gemini synthesis over moma extracts + optional duckie text (+ FAQ/next expansion). Kill-switch: `GEMINI_RAG_DISABLED=1`. Implementation: `code_common/local_cli_llms.py`.
+  - **`local/gemini-agent`**: `~/.local/bin/gemini-agent-query` (`GEMINI_AGENT_SCRIPT_PATH`). Fast ReAct profile for the chat selector: `--max-depth 2 --personas 0 --max-loops 2 --max-tool-iterations 4 --loop-mode direct-retry --budget 20 --history-window 2 --synth-backend gemini`. Depth-2 recursive delegate cap, no persona fan-out — deliberately lighter/faster than GAQ defaults. Kill-switch: `GEMINI_AGENT_DISABLED=1`.
+
+**Formatting of multi-model output**
+- Each model’s response is wrapped in a `<details>` block with a header like “Response from <model>”.
+- A `---` separator is appended after all model responses.
+- The UI renders these sections as collapsible blocks with standard markdown support.
+
+**Key implementations**
+- `Conversation.py` (model selection + ensemble trigger + agent wiring).
+- `agents/search_and_information_agents.py` (`NResponseAgent`).
+- `call_llm.py` (`CallMultipleLLM`) + `common.py` (`stream_multiple_models`).
+
+---
+
+### 6) PKB (Personal Knowledge Base) / Claims Memory System
+
+**What it does**
+- Stores personal facts, preferences, decisions, and tasks as **claims** (atomic memory units) in a SQLite-backed Personal Knowledge Base.
+- Each claim has: statement, claim_type, context_domain, friendly_id, possible_questions (QnA), and optional contexts/groups.
+- **Mandatory dates for task/reminder**: Claims of type `task` or `reminder` require a `valid_to` date. Validation enforced in `StructuredAPI.add_claim()` and the REST `POST /pkb/claims` endpoint.
+- **Claim statuses**: `active` (default), `retracted` (user-retracted), `expired` (auto-set when `valid_to` date passes). Search excludes retracted and expired claims by default.
+- **Contexts** (groups) organize claims hierarchically; referencing `@context_friendly_id` in chat resolves to all claims within that context and sub-contexts.
+- **Entities** represent people, organizations, or other named objects linked to claims. Referencing `@entity_friendly_id` resolves to all claims linked to that entity (any role).
+- **Tags** categorize claims and form a hierarchy. Referencing `@tag_friendly_id` resolves to all claims tagged with that tag and all descendant tags (recursive).
+- **Domains** are topic namespaces (health, work, personal, etc.). Referencing `@domain_friendly_id` filters claims by that context domain.
+- Retrieves relevant claims as context for the current query, combining multiple sources with explicit prioritization:
+  1. `@friendly_id` / `@memory:uuid` references (highest -- user explicitly asked for these)
+  2. attached claims ("Use in next message" UI selection)
+  3. globally pinned claims
+  4. conversation-pinned claims
+  5. auto-retrieved via hybrid (FTS5 + embedding) search
+
+**Auto-Expiry**
+- `expire_stale_claims()` checks `valid_to` dates and marks overdue claims as `expired`.
+- Triggered lazily on search operations and eagerly on database initialization (server start).
+- Expired claims are excluded from search results by default (same as retracted).
+- The `GET /pkb/claims/{id}` endpoint returns claim status (`active`, `retracted`, or `expired`) in the response.
+
+**NL Agent & `/pkb` Slash Commands (v1.0)**
+- `/pkb <text>` and `/memory <text>` slash commands route to `PKBNLConversationAgent` inside `Conversation.reply()`, bypassing the normal LLM path.
+- The agent delegates to `PKBNLAgent` (`truth_management_system/interface/nl_agent.py`), a tool-based NL processor with actions: `add`, `search`, `delete`, `edit`, `ask_clarification`.
+- Uses short conversation history + summary for context. Streams responses directly to the user.
+- When uncertain, the NL agent can trigger `pkb_propose_memory` — an interactive tool that shows a modal with editable proposed claims (text, type, dates, tags, entities, context) for user confirmation.
+- The main LLM can also invoke the NL agent via the `pkb_nl_command` tool (default-enabled in `DEFAULT_ENABLED_TOOLS`). If the NL agent returns `needs_user_input=True`, the tool loop surfaces the `pkb_propose_memory` modal.
+- `pkb_delete_claim` tool available in both LLM tool calling and MCP for claim deletion.
+
+**Universal @References (v0.7)**
+
+All PKB object types are referenceable in chat via `@friendly_id` with type-suffixed IDs to eliminate namespace clashes:
+
+| Reference Type | Suffix | Example | Resolves To |
+|---------------|--------|---------|-------------|
+| Claim | none (most common) | `@prefer_morning_a3f2` | Single claim |
+| Context | `_context` | `@health_goals_context` | All claims in context + sub-contexts (recursive) |
+| Entity | `_entity` | `@john_smith_person_entity` | All claims linked to entity via `claim_entities` join |
+| Tag | `_tag` | `@fitness_tag` | All claims tagged with tag + descendant tags (recursive CTE) |
+| Domain | `_domain` | `@health_domain` | All claims with matching `context_domain` |
+
+The backend resolver (`resolve_reference()`) uses suffix-based routing for fast dispatch:
+- If reference ends with `_context` → resolve as context
+- If reference ends with `_entity` → resolve as entity
+- If reference ends with `_tag` → resolve as tag
+- If reference ends with `_domain` → resolve as domain
+- No suffix → backwards-compatible path (claim_number → claim friendly_id → legacy context → context name fallback)
+
+**Autocomplete** (UI: `@` in chat input) now returns results across all five categories:
+- `memories`: claim friendly_ids
+- `contexts`: context friendly_ids (with `_context` suffix)
+- `entities`: entity friendly_ids (with `_entity` suffix, icon: person)
+- `tags`: tag friendly_ids (with `_tag` suffix, icon: tag)
+- `domains`: domain friendly_ids (with `_domain` suffix, icon: grid)
+
+**Chat integration flow**
+- UI parses `@references` from message text (`parseMemoryReferences()`) and collects "Use Now" attachments (`PKBManager.getPendingAttachments()`).
+- Server injects conversation-pinned claim IDs from session state.
+- `Conversation.reply()` fetches claims via `_get_pkb_context()` in a background thread.
+- **Internal parallelization**: `_get_pkb_context()` fires hybrid search + overview snippet + STM retrieval as futures immediately after API creation, running in parallel with all direct ID lookups (referenced, attached, pinned, conv-pinned claims). The search future resolves after ID lookups finish. Overview snippet is computed once and reused (no re-fetch). Net savings: 200-2000ms per turn.
+- Each `@friendly_id` is resolved by `resolve_reference()` which routes by suffix to the correct resolver (claim, context, entity, tag, or domain).
+- `@pkb_overview` is a special reference that injects the full Memory Overview document verbatim (bypasses distillation).
+- Auto-retrieval uses hybrid search combining several strategies in parallel, merged in ONE top-level Reciprocal Rank Fusion (RRF) with **tuned per-strategy weights** (`embedding=1.0, fts=0.6, entity=0.8` — eval-validated 2026-06-13: mrr 0.827→0.864), then recency/confidence re-ranked (`w_recency=0.15`, `w_confidence=0.1`, half-life=30 days):
+  - **FTS** (original keywords), **Embedding** (vector similarity), and **Rewrite** (SUPERFAST_LLM rewrites the query informed by PKB overview Key Areas → runs both FTS + embedding on the rewritten queries).
+  - **Entity** (W-C, default on): resolves named entities in the query and pulls their linked claims as another ranked list — orthogonal recall for people/orgs/things. Works without an API key (degrades to recency order).
+  - **Tag** (W-D, **off by default / opt-in**): the symmetric counterpart for *category* tags (health, work, family, ...) — resolves the rewrite's tags to tagged claims via `claim_tags` (traversing the tag hierarchy). Gated on `tag_strategy_enabled`; ships **inert** because the keyed eval showed it lifts category-query recall/mrr to ~1.0 but at a small, consistent lexical-precision cost. Has a safer `tag_strategy_boost_only` mode (re-ranks corroborated claims only, never introduces tag-only claims).
+  - **Rewrite/entity unification:** when an API key is present and `rewrite` is active, ONE rewrite LLM call up front emits `{fts_query, embedding_query, keywords, tags, entities}`; the orchestrator threads those outputs to the rewrite (precomputed metadata, no 2nd call), entity (LLM-named surface forms), and tag (LLM tags) strategies — so all sources derive from a single query interpretation.
+- Full PKB context is sent to a cheap LLM for distillation (extracts relevant user prefs).
+- After distillation, explicitly `[REFERENCED]` claims are re-injected verbatim via `_extract_referenced_claims()` to ensure they reach the main LLM word-for-word.
+- The combined user_info_text (distilled prefs + referenced claims) is injected into the `permanent_instructions` slot of the chat prompt.
+
+**Memory Overview (v11)**
+- Auto-maintained markdown summary of the entire KB — one per user.
+- Generated lazily on first tab open or first write; updated incrementally on every write (add/edit/delete/bulk/link). Async, non-blocking.
+- Edit ops: `replace_section`, `append_to_section`, `insert_section`, `delete_from_section`, `no_change`. Applied structurally — only affected sections change.
+- Consolidation when over 8k words. Live stats line injected at read time.
+- UI Tab 8: rendered markdown + Regenerate, Scan for Gaps, and Edit buttons.
+- `@pkb_overview` reference injects full overview into chat context.
+- Config-gated Key Areas snippet (`overview_snippet_in_context`, default OFF) available for retrieval weighting.
+- NL agent receives Key Areas as `## Knowledge Base Map` in system prompt.
+- Schema v11: `pkb_overview` table. APIs: `GET/PUT /pkb/overview`, `POST /pkb/overview/regenerate`, `POST /pkb/overview/scan`.
+
+**Provenance, Origin & Cleanup**
+- **Two-axis claim provenance** (stored in `meta_json.source`, no schema change): **channel** (`manual|chat|ingest|import`) records *where* a claim entered; **derivation** (`stated|extracted|inferred`) records *how* it was obtained. Every add stamps both (`utils.set_provenance`); the distiller's LLM labels each candidate.
+- **Inferred claims are trusted less**: confidence is capped at `inferred_confidence_cap` (0.4) at add time and the rerank multiplies their score by `(1 − inferred_rerank_penalty)`. An explicit restatement *reconfirms* and upgrades `inferred→stated` (`reinforce_claim(upgrade_derivation=True)`).
+- **auto vs curated origin** for entities/tags (`meta_json.origin`): `auto` from enrichment, `curated` from the user. Trust/cleanup signal only — does not gate dedup.
+- **Dedup & merge**: cheap prefilters propose duplicate clusters for claims, entities and tags; an optional LLM pass (`judge_duplicates`, gated by `dedup_llm_verify`/`use_llm`) confirms each and picks a canonical. Tag merge (`POST /pkb/tags/merge`) mirrors entity merge (non-lossy).
+- **Rejection cache**: candidates extracted by the distiller are checked against statements the user rejected/dismissed in the last 7 days (from `pkb_notifications`). Embedding cosine similarity > 0.92 triggers suppression — but an LLM contradiction check (`detect_contradiction`) runs first: if the candidate is a temporal update or supersedes the rejected claim, it passes through. Fallback: exact string match if embeddings fail.
+- **Contradiction detection** (`detect_contradiction` in `llm_helpers.py`): 3-way LLM classification — `"supersedes"` (old is wrong, retire it), `"temporal_update"` (both valid at different times, keep both), `"none"` (not a contradiction). Used by: (1) `_detect_contradictions()` to reclassify high-similarity existing matches, (2) rejection cache to allow temporal updates through. Model: `config.llm_model`.
+- **Memory Cleanup** orchestrator (`POST /pkb/cleanup`, `{apply?, use_llm?}`): one button that sweeps expired/dormant claims, refreshes the overview, and proposes dedup merges; two-phase (Analyze → Apply) so nothing destructive happens until confirmed. Per-item checkboxes for selective apply.
+- **Health Dashboard**: shows per-status colored badges (active/dormant/superseded/retracted/expired), type breakdown, domain count, and stale claim warning badge (confidence < 0.5, not accessed in 90+ days).
+- **Fading Memories** section: low-confidence claims approaching staleness with one-click Reinforce button. Always visible.
+- **Recently Archived** section: shows archived + superseded + retracted claims with status badges and one-click Restore button. Always visible.
+- **Dedup highlighting**: cluster members in cleanup analysis get word-level diff highlighting against the first item.
+- **Memory Autonomy Dial**: 5-detent slider (Manual/Assisted/Balanced/Proactive/Full) with live preview text and per-facet Advanced overrides (Capture/Curation/Lifecycle/Enrichment). Auto-saves on change.
+- **Recently Auto-Saved** section: shows claims saved by tiered persistence Lane A with per-item Undo buttons.
+- **UI**: claim cards show a provenance badge (derivation + channel) and status badge for non-active claims; entity/tag cards show an auto/curated origin badge; the **Maintenance tab** (PKB modal Tab 9) hosts all of the above; a toast fires when an add supersedes earlier memories or when claims are auto-saved (with undo link, 8s duration).
+- See `features/truth_management_system/pkb_provenance_and_cleanup.md`.
+
+**Toggle**
+- Controlled by `checkboxes.use_pkb` (UI: "Use PKB Memory" checkbox, default enabled). When unchecked, PKB retrieval and user info distillation are skipped entirely.
+- **Auto-save facts** (`auto_pkb_extract`, UI: "Auto-save facts" checkbox, default ON): controls the client-side automatic fact-detection call fired 3 seconds after every message. When OFF, `PKBManager.checkMemoryUpdates()` is never called, no `POST /pkb/propose_updates` request is made, and the memory-proposal modal (`#memory-proposal-modal`) never appears. This is a **client-only** setting — it is stored in `chatSettingsState.auto_pkb_extract` via `localStorage` and checked in `interface/common-chat.js` before the delayed call. It does not affect `/pkb`/`/memory` slash commands or the `pkb_propose_memory` interactive tool.
+- **Auto-doubts** (`auto_doubts_enabled`, UI: "Auto-doubts" checkbox, default ON): controls whether 5 pre-emptive doubt threads (Auto Takeaways, Maximize Learning, Challenge & Verify, Foundations & Practice, Answer Raised Questions) are created after each assistant response. Sent to backend as `checkboxes.auto_doubts_enabled`; checked in `endpoints/conversations.py` scheduling block. Uses `gemini-flash-3.5-non-reasoning` (reasoning enabled, effort minimal). Persisted in localStorage via `chatSettingsState`. Also toggleable via `/enable_auto_doubts` and `/disable_auto_doubts` slash commands. See `documentation/features/doubt_and_temp_llm/README.md` Auto-Doubts section.
+
+**APIs**
+- PKB management and retrieval:
+  - `GET/POST/PUT/DELETE /pkb/claims[...]`
+  - `GET/POST/PUT/DELETE /pkb/contexts[...]`
+  - `POST /pkb/search`
+  - `POST /pkb/relevant_context`
+  - `POST /pkb/analyze_statement` (LLM-powered auto-fill: extracts claim_type, context_domain, tags, entities, possible_questions, friendly_id from a statement in one call; used by the "Auto-fill" button in the Add/Edit Memory modal and by text ingestion enrichment)
+  - `GET /pkb/autocomplete?prefix=...` (powers `@` autocomplete in chat input; returns memories, contexts, entities, tags, domains)
+  - pinning endpoints (`/pkb/*/pin`, `/pkb/pinned`, conversation pinning routes)
+  - `DELETE /pkb/claims/{claim_id}` (delete a claim by ID)
+  - `POST /pkb/nl_command` (NL agent endpoint — accepts `{"command": "...", "conversation_id": "..."}`, returns NL response with optional `needs_user_input` and `proposed_claims`)
+- Main chat uses PKB context automatically if available (part of `send_message` execution).
+
+**Persistence**
+- PKB uses a separate sqlite DB: `pkb.sqlite` under `users_dir`.
+- Schema v14 with: claims, contexts, context_claims (M:N), entities (with `friendly_id`), tags (with `friendly_id`), claim_entities, claim_tags, claims_fts (FTS5), claim_embeddings, audit_log (v10), pkb_overview (v11), stm_entries (v12), pkb_notifications (v14), pkb_user_settings (v13), pkb_activity_log (v13).
+- Entity and tag friendly_ids are auto-generated with type suffixes (`_entity`, `_tag`) and indexed.
+- Context friendly_ids have `_context` suffix (migrated from unsuffixed in v6→v7).
+- Domain references are computed at query time (no separate DB table).
+- Conversation-level pinned claims are tracked server-side (in app state) and injected into chat requests.
+
+**Key files**
+- `truth_management_system/` -- core module (models, CRUD, search, LLM helpers)
+- `truth_management_system/llm_helpers.py` -- `LLMHelpers` class, `analyze_claim_statement()` (shared single-call extraction for auto-fill and text ingestion enrichment), `ClaimAnalysisResult` dataclass
+- `truth_management_system/interface/structured_api.py` -- StructuredAPI facade, `resolve_reference()` (suffix-based routing), `autocomplete()` (all 5 categories)
+- `truth_management_system/interface/text_ingestion.py` -- `TextIngestionDistiller`, `_enrich_candidates()` (post-parse enrichment with tags/entities/questions)
+- `truth_management_system/crud/entities.py` -- `get_by_friendly_id()`, `resolve_claims()`, `search_friendly_ids()`
+- `truth_management_system/crud/tags.py` -- `get_by_friendly_id()`, `resolve_claims()` (recursive CTE), `search_friendly_ids()`
+- `truth_management_system/utils.py` -- `generate_entity_friendly_id()`, `generate_tag_friendly_id()`, `generate_context_friendly_id()`, `domain_to_friendly_id()`
+- `truth_management_system/database.py` -- `_migrate_v6_to_v7()` (adds friendly_id to entities/tags, appends `_context` to contexts)
+- `Conversation.py` -- `_get_pkb_context()`, `_extract_referenced_claims()`
+- `interface/pkb-manager.js` -- UI for claims CRUD, contexts, search
+- `interface/common-chat.js` -- autocomplete rendering for all 5 categories (entities, tags, domains with type badges)
+- `interface/parseMessageForCheckBoxes.js` -- `parseMemoryReferences()` for `@` reference parsing
+- `endpoints/pkb.py` -- REST API endpoints
+- `truth_management_system/interface/nl_agent.py` -- `PKBNLAgent` NL processor with tool-based CRUD actions, `NLCommandResult` with `needs_user_input` and `proposed_claims` fields
+- `agents/pkb_nl_conversation_agent.py` -- `PKBNLConversationAgent` conversation-compatible agent for `/pkb` and `/memory` slash commands, with `tool_response_waiter` for interactive proposals
+
+**Differentiator**
+- This is a major capability gap vs "plain ChatGPT chat": it supports an internal, queryable memory store with explicit attachment, pinning, context grouping, entity and tag linking, domain namespacing, inline `@` references with type-aware autocomplete across all object types, recursive resolution (contexts and tags), QnA-style retrieval, NL-based CRUD operations via `/pkb` slash commands, auto-expiry for time-bound claims, and interactive memory proposals.
+
+#### Memory Autonomy Dial & Tiered Persistence (inert, behind flag)
+
+**What it does**
+- A 0–100 autonomy slider that controls how much the memory system does silently vs. asking the user. At 0 (Manual), every extracted fact requires confirmation via the existing modal. At 100 (Full), safe high-confidence facts auto-save silently with one-click undo.
+- Tiered routing: each extracted candidate is routed through a decision tree (conflict? → confirm; inferred? → confirm; sensitive domain? → confirm; duplicate? → skip; high-confidence stated fact? → auto-save; else → confirm).
+- All auto-saves are logged, reversible within 24h, and visible in a "Recently auto-saved" review surface.
+
+**Status:** Code complete. UI landed 2026-06-13 (slider in Maintenance tab, auto-save toast with undo, recently auto-saved review section). Feature remains behind `tiered_persistence_enabled=False` and `default_autonomy=0` until eval-gate (wrong-auto-save rate < 3%) is confirmed in production.
+
+**User-facing surfaces (when activated):**
+- Toast notification when memories are auto-saved (with undo link)
+- "Recently auto-saved" review list in PKB modal
+- Autonomy dial/slider in settings (presets: Conservative/Balanced/Proactive, or manual 0–100)
+- Per-item and bulk undo for auto-saved memories
+
+**API surface:**
+- `GET /pkb/memory/policy` — read current policy
+- `PUT /pkb/memory/policy` — update autonomy level
+- `POST /pkb/memory/undo` — undo auto-saves by activity_id (supports per-session grouping via session_id)
+- `GET /pkb/memory/recent_auto` — review list (grouped by session)
+- `GET /pkb/memory/auto_save_rate?days=30` — eval gate metric (wrong-auto-save rate)
+- MCP tools: `pkb_get_policy`, `pkb_undo_auto_saves`
+
+**Telemetry & monitoring:**
+- Structured log line per routing pass: `tiered:summary save=N confirm=N skip=N total=N` (lane-mix ratio for dashboards)
+- Per-candidate log: gate name, confidence, statement excerpt
+- Activity log with `session_id` for per-conversation undo grouping
+- Wrong-auto-save rate endpoint for eval gate (target < 3%)
+
+**MCP provenance:** External agent writes are tagged `channel="mcp"`, `derivation="inferred"` by default. Agents default to accept-all (autonomy 100) — safety comes from mandatory provenance + 24h reversibility, not from blocking.
+
+**Confidence calibration:** Extraction prompts score 4 aspects (explicitness, stability, clarity, usefulness) on a 1–10 anchored rubric; final confidence = mean/10.
+
+**Key files:** `truth_management_system/autonomy.py`, `routing.py`, `config.py` (tiered_persistence_enabled), `schema.py` (v13), `endpoints/pkb.py` (5 endpoints), `mcp_server/pkb.py` (2 tools)
+
+**Differentiator addendum:** No comparable chat system offers a user-tunable autonomy dial that smoothly transitions between full-manual and full-automatic memory with per-signal routing, auditable decisions, and reversible auto-saves.
+
+---
+
+### 6b) Cross-Conversation Message References
+
+**What it does**
+- Users can reference specific messages from any of their conversations using `@conversation_<friendly_id>_message_<index_or_hash>` syntax.
+- The referenced message content is injected into the LLM prompt alongside PKB claims, enabling knowledge reuse across conversations without copy-paste.
+- Each conversation gets a short, human-readable `conversation_friendly_id` (e.g. `react_optimization_b4f2`) generated from the title.
+- Each message gets a `message_short_hash` (6-char base36) for stable cross-conversation referencing.
+
+**UI**
+- Sidebar context menu: "Copy Conversation Reference" (first item, `fa-at` icon) copies the conversation friendly ID.
+- Message card headers: reference badge shows `#<index> . <hash>`. Click copies the full `@conversation_<fid>_message_<hash>` reference.
+- During streaming, badges update with hashes when `message_ids` arrive.
+
+**Backend**
+- `_get_pkb_context()` separates conversation refs from PKB refs using `CONV_REF_PATTERN` regex.
+- Resolves conversation friendly ID via DB lookup, loads conversation via cache-aware loader, extracts the target message.
+- Injects as `[REFERENCED @conversation_...]` blocks that survive post-distillation re-injection.
+
+**Key files:** `conversation_reference_utils.py`, `Conversation.py`, `database/conversations.py`, `interface/workspace-manager.js`, `interface/common-chat.js`
+**Docs:** `documentation/features/cross_conversation_references/README.md`
+
+---
+
+### 6c) Clarification Flow (`/clarify` Slash Command)
+
+**What it does**
+- User types `/clarify`, `/clarification`, or `/clarifications` anywhere in a message (outside backtick spans) and presses Enter.
+- Instead of sending the message, the app fires the clarification flow: calls the `/clarify_intent` endpoint, shows a modal with 1–3 clarifying questions, and appends the answered Q&A to the message composer in a `[Clarifications]` block.
+- Multiple rounds are supported — each `/clarify` call appends another block separated by `---`; Q numbering resets to Q1 per round.
+- Never auto-sends: the user always controls when to actually send the message.
+- **Auto Clarify checkbox** (`settings-auto_clarify`) also triggers the flow before sending (with `forceClarify: false`); in that mode, if the backend finds no questions needed, the modal auto-closes and the message sends normally.
+
+**`forceClarify` flag**
+- Slash command → `forceClarify: true` → backend MUST produce 1–3 questions, never returns "already clear"
+- Auto-clarify checkbox → `forceClarify: false` → backend may return `needs_clarification: false`; modal auto-closes
+
+**Context used by the clarification LLM**
+- Conversation summary (running summary field)
+- Last 3 turns of history (assistant capped 8k chars, user capped 6k chars)
+- Raw PKB claims (no LLM summarization step; capped at 6k chars)
+- Current message text (with `/clarify` tokens stripped)
+
+**API**
+- `POST /clarify_intent/<conversation_id>` — `{ messageText, checkboxes, forceClarify }` → `{ needs_clarification: bool, questions: [ { id, prompt, options: [ { id, label } ] } ] }`
+- Rate limit: 30/minute. Fail-open: always returns valid JSON.
+
+**Model override**
+- `clarify_intent_model` key in conversation model overrides controls which LLM generates the questions. Default: `VERY_CHEAP_LLM[0]`. Configurable per-conversation via the "Clarify Models" section in the Model Overrides modal.
+
+**Key files**: `interface/parseMessageForCheckBoxes.js` (`processClarifyCommand`), `interface/common-chat.js` (send intercept), `interface/clarifications-manager.js` (modal + multi-round append), `endpoints/conversations.py` (`clarify_intent` endpoint), `interface/chat.js` (`clarify_intent_model` persistence)
+**Full docs**: `documentation/product/behavior/CLARIFICATIONS_AND_AUTO_DOUBT_CONTEXT.md`
+
+---
+
+### 6d) PKB Memory Slash Commands
+
+**What it does**
+
+Four slash commands for creating PKB memories and objects directly from the chat input, without leaving the conversation.
+
+| Command | Behavior |
+|---|---|
+| `/create-memory <text>` | Opens the Add Memory modal pre-filled with `<text>`, then auto-fires the LLM analysis (same as clicking "Auto-fill") to populate type, domain, tags, and possible questions. User reviews in modal and clicks Save. |
+| `/create-simple-memory <text>` | Silently calls `POST /pkb/analyze_statement` to classify `<text>`, then calls `POST /pkb/claims` to add it immediately — no modal. Appends the tag `create-simple` to all such claims. Shows a fixed-position toast: ✓ Memory saved / failure message. Falls back to `fact`/`personal` if analysis fails. |
+| `/create-entity <name>` | Opens the PKB modal on the Entities tab with `<name>` pre-filled in the entity name field. User selects entity type and clicks Add Entity. |
+| `/create-context <name>` | Opens the PKB modal on the Contexts tab with `<name>` pre-filled in the context name field. User optionally adds `@friendly_id` and description, then clicks Create Context. |
+
+**Key behaviors**
+- All four commands are intercepted in `sendMessageCallback()` before the textarea is cleared — the message is **never sent to the AI**.
+- Commands are parsed from the **first line only** (outside backtick spans), matching the pattern of other chat slash commands.
+- Bare commands without arguments (e.g. `/create-memory` alone) are silently stripped with no action.
+- `/create-memory` uses `PKBManager.openAddClaimModalWithText()` then calls `PKBManager.autofillClaimFields()` after a 350 ms delay to let Bootstrap finish showing the modal.
+- `/create-entity` and `/create-context` use Bootstrap's `shown.bs.modal` event to switch tabs and pre-fill the name field after the modal is fully visible.
+
+**Autocomplete**
+- All four commands appear in the slash command autocomplete dropdown (triggered by typing `/` followed by 3+ characters).
+- They show with a green **pkb** badge (teal `#20c997`) to visually distinguish them from OpenCode commands (purple **opencode** badge).
+- PKB commands are always visible in autocomplete regardless of whether OpenCode is enabled.
+
+**API used**
+- `/create-simple-memory`: `POST /pkb/analyze_statement` → `POST /pkb/claims`
+- `/create-memory`: `POST /pkb/analyze_statement` (via auto-fill button inside modal)
+- `/create-entity`, `/create-context`: use existing UI modal forms — no new API calls
+
+**Key files**
+- `interface/parseMessageForCheckBoxes.js` — 4 `processCommand()` calls parse the text argument from the first line
+- `interface/common-chat.js` — PKB command interception block in `sendMessageCallback()`; `PKB_COMMANDS` array in the autocomplete IIFE with `badge: 'pkb'`; badge color branching in `showSlashAutocomplete()`
+- `interface/pkb-manager.js` — `createSimpleMemory(text)` function; public exports of `autofillClaimFields` and `createSimpleMemory`
+
+---
+
+---
+
+### 6e) Slash Command System & Autocomplete
+
+**What it does**
+
+A comprehensive slash command system that provides per-turn overrides for all chat settings, model/agent/preamble selection, and action commands — all surfaced through a fuzzy-match autocomplete dropdown. Follows the design principle: `@` for information elements (PKB claims, docs, cross-conversation refs), `/` for functionality (actions, toggles, selections).
+
+**Command categories (7)**
+
+| Category | Commands | Behavior |
+|----------|----------|----------|
+| Actions | `/search`, `/scholar`, `/image`, `/draw`, `/execute`, `/ensemble`, `/more`, `/delete`, `/clarify`, `/history N`, `/detailed N`, `/title <text>`, `/temp <text>` | Boolean toggles, value-capture, or backend-only commands. `/title` sets conversation title manually (alias: `/set_title`). `/temp` sends message as temporary/not persisted (alias: `/temporary`). Both handled server-side in `Conversation.reply()`. |
+| Enable/Disable | `/enable_search`, `/disable_pkb`, `/enable_tools`, `/disable_opencode`, etc. (14 pairs) | Per-turn override of any Basic Options checkbox. `/enable_X` sets the flag to `true`, `/disable_X` to `false`. |
+| Models | `/model_gpt-5.4`, `/model_opus_4.6`, `/model_sonnet_4.6`, etc. | Selects a model for this turn only. **Replaces** the modal selection. Sets `checkboxes.main_model = [canonical_name]`. |
+| Agents | `/agent_perplexity_search`, `/agent_web_search`, `/agent_none`, etc. | Selects an agent for this turn only. **Replaces** the modal selection. Sets `checkboxes.field = canonical_name`. |
+| Preambles | `/preamble_short`, `/preamble_diagram`, `/preamble_creative`, etc. | Adds a preamble for this turn. **Additive** — stacks with existing preamble selection from the modal. Appends to `checkboxes.preamble_options`. |
+|| PKB | `/create-memory`, `/create-simple-memory`, `/create-entity`, `/create-context`, `/pkb <text>`, `/memory <text>` | `/create-*` commands are client-side intercepted (see section 6d). `/pkb` and `/memory` route to the PKB NL agent inside `Conversation.reply()` for NL-based CRUD operations on claims/entities/tags/contexts. |
+| OpenCode | `/compact`, `/abort`, `/new`, `/sessions`, `/fork`, `/summarize`, `/status`, `/diff`, `/revert`, `/mcp`, `/models`, `/help` | Only when OpenCode enabled. Forwarded to OpenCode session. |
+
+**Autocomplete**
+
+- **Trigger**: Typing `/` (0-character minimum — shows all commands immediately, unlike `@` which requires characters).
+- **Data source**: Cached from `GET /api/slash_commands` on page load. No network calls during typing.
+- **Fuzzy matching**: Sequential character matching with scoring (ported from `file-browser-manager.js` `_fuzzyMatch`). Supports exact substring, word-boundary, and out-of-order character matching with gap penalties.
+- **Display**: 5 items max visible with scroll, grouped by category with thin separator headers. Match characters highlighted in bold blue.
+- **Selection**: First item pre-selected. Arrow keys navigate, Enter/Tab to apply, Escape to dismiss.
+- **Dynamic content**: Model, agent, and preamble lists are generated dynamically from the settings modal `<option>` elements, so the autocomplete stays current when the modal options change.
+
+**Name resolution**
+
+Slash commands like `/model_opus_4.6` use short names. `_resolveSlashCatalogName()` in `parseMessageForCheckBoxes.js` maps these to canonical names (e.g., `Opus 4.6`, `openai/gpt-5.4`) using the cached catalog from `GET /api/slash_commands`. If no match is found, the raw token is used as-is.
+
+**Merge behavior (slash vs. modal)**
+
+`mergeOptions()` in `parseMessageForCheckBoxes.js` combines slash command flags with the current modal settings. Slash commands always take precedence over modal state. For models and agents this is a replacement; for preambles it is additive (slash preambles are appended to the modal-selected preambles).
+
+**`@pkb` legacy prefix**
+
+The `@pkb:claim_id` prefix is supported as a legacy alias alongside `@memory:` and `@mem:` for PKB claim references in chat messages.
+
+**API**
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/slash_commands` | `GET` | Returns full command catalog as JSON (7 categories, dynamic model/agent/preamble lists). Called once on page load. Rate limit: 10/min. |
+
+**Key files**
+
+- `endpoints/slash_commands.py` — Backend catalog endpoint (478 lines). Builds catalog from `VISIBLE_MODELS`, `VISIBLE_AGENTS`, `VISIBLE_PREAMBLES`, `ENABLE_DISABLE_SETTINGS`, `ACTION_COMMANDS` lists.
+- `interface/parseMessageForCheckBoxes.js` — Slash command parsing: `processCommand()` calls for all commands, `_resolveSlashCatalogName()` for name resolution, `mergeOptions()` for slash-vs-modal merge.
+- `interface/common-chat.js` — Slash autocomplete IIFE v2 (414 lines): `_fuzzyMatch()`, cached catalog fetch, dropdown rendering with category headers and match highlighting.
+- `endpoints/__init__.py` — Blueprint registration for `slash_commands_bp`.
+
+**Docs:** `documentation/features/slash_command_system.md`
+
+### 7) “Doubt clearing” as a first-class workflow
+
+**What it does**
+- A dedicated endpoint that streams an explanation of a specific message.
+- Persists the doubt and its answer into SQLite (`DoubtsClearing`), supports follow-up chains.
+- Supports cancellation of doubt clearing independently from main chat cancellation.
+- **Temporary LLM actions** — ephemeral explain/critique/expand/eli5/ask_temp on selected text via right-click context menu. History kept client-side only (`TempLLMManager.currentHistory`), lost on modal close. Route: `POST /temporary_llm_action`.
+- **`/aside` and `/btw` slash commands** — type `/aside <question>` or `/btw <question>` in the main message box to open the temp chat modal with the question pre-filled and auto-submitted (full conversation context included). Token is stripped before sending.
+- **💬 Aside button** — next to the send button (hidden on mobile `d-none d-sm-inline-block`). Opens temp chat modal with current textarea content.
+- **Ctrl+Shift+Space** — keyboard shortcut, same as aside button.
+- All three aside entry points call `openAsideChatModal(text)` → `TempLLMManager.openTempChatModal(text, {conversationId}, true)`. Full details: [`documentation/features/doubt_and_temp_llm/README.md`](../features/doubt_and_temp_llm/README.md)
+
+**API**
+- `POST /clear_doubt/<conversation_id>/<message_id>` (streaming)
+- `GET /get_doubt/<doubt_id>`
+- `GET /get_doubts/<conversation_id>/<message_id>`
+- `DELETE /delete_doubt/<doubt_id>`
+- `POST /cancel_doubt_clearing/<conversation_id>` (conversation cancellation helpers)
+- `POST /pin_doubt/<doubt_id>` — toggle pinned state
+- `POST /bookmark_doubt/<doubt_id>` — toggle bookmarked state
+- `POST /regenerate_doubt/<doubt_id>` — re-run LLM, stream, update in-place
+- `POST /summarize_doubt_thread/<doubt_id>` — summarize thread, save as child
+- `POST /create_conversation_from_doubt_thread/<doubt_id>` — seed new conversation
+- `GET /get_all_doubts?page=&page_size=&search=&filter=` — cross-conversation paginated view
+- `POST /move_pair_as_doubt/<conversation_id>/<message_id>/<index>` — promote a user+assistant chat pair as a doubt on the preceding assistant message (see section 3)
+
+**Persistence**
+- `users.db` table: `DoubtsClearing` (columns: doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer, parent_doubt_id, is_root_doubt, show_hide, with_context, pinned, bookmarked, created_at, updated_at, **display_attachments** JSON)
+- Conversation settings keys: `auto_doubt_categories` (list), model_overrides.`auto_doubt_model` (string)
+
+**Enhanced features (2026-06)**
+- **File attachments in doubt and temp LLM modals** — paperclip button + preview strip above textarea in both modals. Same upload infrastructure as main chat (`POST /upload_doc_to_conversation`). Images sent natively to the vision LLM (not via `#doc_N` tool calls). Text/data docs inlined directly in the prompt. Doubt attachments persisted in `display_attachments` column and re-rendered as badges when thread is reopened. Temp LLM attachments cleaned up on modal close via `DELETE /detach_doc_from_message`. New endpoint: `DELETE /detach_doc_from_message/<conv_id>/<doc_id>`.
+- **Pin/star** — pin important root doubts; pinned sort first in overview. Bookmark specific answers within threads.
+- **Regeneration** — ↻ button re-runs LLM and updates answer in-place (streamed).
+- **Thread summarization** — uses `senior_engineer_summary_prompt` on the Q&A thread, saves as child doubt.
+- **Inline length/preamble controls** — Short/Medium/Long toggle + preamble selector at top of doubt chat modal.
+- **Copy Thread** — copies full thread as markdown to clipboard.
+- **"Continue doubt in main chat"** — context menu injects doubt thread as `[Doubt Context]` block into main input.
+- **Conversation seed** — "New Chat" button creates conversation with doubt thread as initial `running_summary`.
+- **Notification** — pulse animation + toast after 25s when auto-doubts finish.
+- **Selective auto-doubts** — per-conversation category checkboxes saved in conversation settings.
+- **Auto-doubt model override** — per-conversation `auto_doubt_model` setting.
+- **Global "My Doubts" modal** — cross-conversation searchable/filterable paginated view from sidebar.
+- **Separate doubt preamble** — `doubt_preamble_options` distinct from main chat preambles.
+- **Progressive disclosure** — Answers rendered as TL;DR (always visible) + Explanation (collapsible) + Deep Dive (collapsible, closed by default). Collapse state persisted via `SectionHiddenDetails` table. Markers stripped during streaming, applied on completion.
+- **Tools toggle** — 🔧 button in both doubt and temp LLM modal headers. When active, enables tiered tool calling (`TIER_1_TOOLS` — 12 tools including search, docs, PKB, delegate, request_tools). Uses `_run_tool_loop` with max 3 iterations. Tools off by default. `request_tools` meta-tool allows on-demand expansion to the full tool registry.
+- **Compact length dropdown** — S/M/L button group replaced with a single dropdown button (shows current label, click reveals Short/Medium/Long). Saves header space for the tools toggle.
+- **Responsive tables** — All markdown tables in chat messages, doubts, and temp LLM are wrapped in `<div class="table-responsive">` via `markdownParser.table` override, preventing page-level horizontal scroll from wide tables.
+- **Quick action model** — `QUICK_ACTION_LLM` constant in `common.py` (default: `anthropic/claude-sonnet-4.6`). Used by both `clear_doubt` and `temporary_llm_action` as the default model (overridable via `quick_action_model` setting).
+- **Move Pair as Doubt** — "Move Pair as Doubt" item in the per-message triple-dot dropdown. Promotes a user+assistant pair to a doubt on the preceding assistant message; user text becomes `doubt_text` with a `[Promoted from Chat]` prefix; assistant text becomes `doubt_answer` (no LLM call). Both messages are removed from chat history. Any existing doubts on the promoted messages are also deleted to avoid orphans. Button hidden when no valid preceding assistant message exists.
+- **Doubt cleanup on message delete** — all delete endpoints (`delete_message_from_conversation`, `delete_message_pair`, `delete_last_message`) now automatically delete `DoubtsClearing` rows for every removed message, preventing orphaned doubt records.
+
+---
+
+### 8) Next question suggestions
+
+**What it does**
+- Suggests “what to ask next” based on the running conversation summary and the latest user/assistant turn (not a full prior lookback dump).
+- Context budget (also used by the per-turn running-summary/title call): previous summary + last turn; a short previous-message fallback only when no summary exists yet. Last-turn text is first/last clipped; NQS/summary prompts no longer receive `previous_messages_long`.
+
+**API**
+- `GET /get_next_question_suggestions/<conversation_id>`
+
+---
+
+### 9) Code execution + artifacts (plots, files, diagrams)
+
+**What it does**
+- When enabled (checkboxes or preamble options), the assistant can:
+  - emit code blocks intended for execution,
+  - execute code in a persistent python session,
+  - stream stdout/stderr back into the chat,
+  - publish generated artifacts:
+    - plots/images (served via `/get_conversation_output_docs/...`)
+    - generated files with downloadable links
+  - handle diagrams:
+    - **Mermaid** blocks (client: mermaid.js via `renderMermaidIn`)
+    - **Graphviz DOT** blocks fenced as `dot` / `graphviz` / `gv` (client: lazy `@viz-js/viz` via `LazyLibs.loadViz` + `renderGraphvizIn`)
+    - Draw.io XML payloads (saved under conversation docs + edit/download links; lazy drawio-renderer)
+    - Diagram preamble (`Diagram` / `/preamble_diagram`) injects `diagram_instructions`; `/draw` is a softer need-diagram nudge; Deep Learn also fires a parallel Visual tab (`visual_tab_prompt` may emit Mermaid and/or DOT). Details: `documentation/features/diagramming/README.md`.
+
+**API**
+- Main flow: `POST /send_message/<conversation_id>` (streaming)
+- Explicit one-off runner:
+  - `POST /run_code_once` with `{ "code_string": "..." }`
+- Artifact serving:
+  - `GET /get_conversation_output_docs/<SALT>/<conversation_id>/<filename>`
+
+**Android implications**
+- You’ll need:
+  - a streaming parser,
+  - Markdown rendering,
+  - special-case handling for `<slide-presentation>` wrappers,
+  - a way to render mermaid, Graphviz DOT (viz-js), and drawio — or at least open them in a browser.
+
+---
+
+### 9b) Image Generation
+
+**What it does**
+
+Two entry points for AI image generation **and editing** via OpenRouter (Nano Banana 2 / `google/gemini-3.1-flash-image-preview`):
+
+**A. `/image` slash command (inline chat)**
+
+- User types `/image <prompt>` in the chat input (e.g. `/image a cat on a rainbow`).
+- `parseMessageForCheckBoxes()` strips `/image` and sets `generate_image: true` in `checkboxes`.
+- `Conversation.reply()` detects the flag and calls `_handle_image_generation()` instead of the normal LLM path.
+- The handler:
+  1. **Detects an input image** (for editing) via two priority rules:
+     - Priority 1: image(s) attached to the current message (`query["images"]`) — first `data:` URI used.
+     - Priority 2: last preceding assistant message with `generated_images` metadata — loaded from disk.
+     - If neither found: plain text-to-image generation.
+  2. Gathers conversation context (summary + last 2 messages + deep context extraction).
+  3. Refines the raw prompt via a cheap LLM (`CHEAP_LLM[0]`) acting as an image-prompt engineer.
+  4. Calls the image model via OpenRouter's chat completions API with `modalities: ["image", "text"]`.
+     - If an input image was found: message content is a multipart array `[{image_url}, {text}]` so the model can edit/transform.
+     - If no input image: message content is a plain string (pure generation).
+  5. Saves the PNG to `{conv_storage}/images/img_{sha256_16}.png`.
+  6. Streams the response as `![Generated Image](/api/conversation-image/{conv_id}/{filename})`.
+  7. Persists the turn; stores `generated_images` metadata on the assistant message.
+- The image renders as a full inline image in the message card with a hover-reveal **Download** button.
+- Clicking the image opens it full-size in a new tab.
+- On the **next user turn**, the stored PNG is loaded and included as a base64 `image_url` content part in the LLM call, so vision-capable models can "see" and reason about the generated image.
+
+**B. Image Generation Modal (Settings → Image button)**
+
+- Accessible from Settings → Actions → **Image** button (green).
+- Full form UI: prompt textarea, **image upload/drop zone** (optional — for editing), model dropdown, conversation context checkboxes, "Better context" refinement toggle.
+- **Image upload zone** (between prompt and model selector): dashed drop area. Drag-and-drop or click-to-upload any image. After upload, the zone collapses to a compact mini-strip (thumbnail + filename + click-to-expand). Clicking the strip expands it to the full thumbnail; clicking "collapse" or × removes it.
+- When an input image is present, it is sent as `input_image` (base64 data URI) in the `POST /api/generate-image` payload, and the model receives it alongside the prompt for editing.
+- Not tied to conversation streaming — fires a direct `POST /api/generate-image` and renders the result in the modal with a download button.
+
+**API**
+
+| Endpoint | Method | Purpose |
+|---|---|---|
+| `/send_message/<conversation_id>` | `POST` (streaming) | `/image` command flow — same endpoint as normal chat |
+| `/api/generate-image` | `POST` | Modal image generation (non-streaming JSON) |
+| `/api/conversation-image/<conv_id>/<filename>` | `GET` | Serve a stored conversation image (auth-protected) |
+
+**Request payload additions for `/image` command** (within `checkboxes`):
+
+```json
+{
+  "generate_image": true
+}
+```
+
+**`POST /api/generate-image` payload:**
+
+```json
+{
+  "prompt": "A futuristic city at dusk",
+  "model": "google/gemini-3.1-flash-image-preview",
+  "input_image": "data:image/png;base64,...  (optional — base64 data URI of image to edit)",
+  "conversation_id": "...",
+  "include_summary": true,
+  "include_messages": true,
+  "include_memory_pad": false,
+  "history_count": 10,
+  "deep_context": false,
+  "better_context": true
+}
+
+**Response:**
+
+```json
+{
+  "status": "success",
+  "images": ["data:image/png;base64,..."],
+  "text": "Here is the generated image.",
+  "model": "google/gemini-3.1-flash-image-preview",
+  "refined_prompt": "A hyper-detailed futuristic cityscape..."
+}
+```
+
+**Image storage**
+
+- **Location**: `storage/conversations/{conv_id}/images/img_{sha256_16}.png` (per-conversation directory).
+- **Not** stored inline in the conversation JSON — keeps history files small regardless of image count.
+- **Served** via an auth-protected Flask endpoint; never exposed publicly.
+- **Message metadata**: `msg["generated_images"] = [{"filename": "img_abc.png", "url": "/api/..."}]` on the assistant message dict.
+
+**Available models**
+
+| OpenRouter name | Model ID | Notes |
+|---|---|---|
+| Nano Banana 2 (default) | `google/gemini-3.1-flash-image-preview` | Best quality |
+| Nano Banana | `google/gemini-2.5-flash-image` | Faster |
+| Nano Banana Pro | `google/gemini-3-pro-image-preview` | Highest quality |
+| GPT-5 Image Mini | `openai/gpt-5-image-mini` | OpenAI alternative |
+| GPT-5 Image | `openai/gpt-5-image` | OpenAI highest quality |
+
+**Better Context (prompt refinement)**
+
+When "Better context" is enabled (default on for the modal; always on for the `/image` command), an intermediate LLM call (`CHEAP_LLM[0]` — currently `anthropic/claude-haiku-4.5`) acts as an image-prompt engineer:
+- Takes the raw user prompt + conversation context (summary, recent messages, memory pad, extracted context).
+- Produces a concrete, visually-specific 1–4 sentence prompt optimised for the image model.
+- Falls back to plain concatenation on any failure — the image generation itself is never blocked.
+
+**Persistence**
+
+- The PNG file persists in `{conv_storage}/images/` for the lifetime of the conversation.
+- The assistant message includes the image as a markdown `![...](url)` — renders correctly on history reload.
+- The `generated_images` metadata on the message dict enables future LLM turns to include the image as a vision input.
+
+**Key files**
+
+- `endpoints/image_gen.py` — `generate_image_from_prompt(prompt, keys, model, referer, input_image=None)` (editing via multipart content when `input_image` set), `/api/generate-image` endpoint (accepts `input_image` field)
+- `Conversation._handle_image_generation()` (`Conversation.py`) — `/image` command handler; detects input image from current message attachments or last-turn `generated_images`
+- `Conversation.reply()` (`Conversation.py` line ~6668) — `generate_image` flag intercept
+- `Conversation._reply()` image context injection (~line 8843) — includes stored PNGs in LLM vision context
+- `interface/image-gen-manager.js` — modal frontend: `_initUploadZone()`, `_loadInputImage()`, `_clearInputImage()`, `_setInputImageExpanded()`, `state.inputImageDataUrl`
+- `interface/interface.html` — `#image-gen-upload-area` (drop zone), `#image-gen-input-collapsed` (mini-strip), `#image-gen-input-preview` (expanded thumb), `#image-gen-modal`
+- `interface/parseMessageForCheckBoxes.js` line 133 — `/image` command registration
+- `endpoints/__init__.py` — `image_gen_bp` blueprint registration
+
+**See also:** `documentation/features/image_generation/README.md`
+
+---
+
+### 10) Slides / presentations
+
+**What it does**
+- When “ppt_answer” mode is enabled, the conversation uses a slide agent to generate:
+  - storyboard
+  - final HTML slide presentation
+- Response is wrapped with a marker:
+  - `<slide-presentation> ... </slide-presentation>`
+
+**API**
+- Triggered via `POST /send_message/<conversation_id>` with `checkboxes.ppt_answer=true`.
+
+**Android implications**
+- Decide whether to:
+  - render the HTML slide deck in a WebView, or
+  - transform it to native slides (harder), or
+  - provide “open in browser”.
+
+---
+
+### 11) Audio: TTS / podcast mode + transcription
+
+**What it does**
+- Generate audio for a message:
+  - normal TTS
+  - “code-aware” TTS variants
+  - podcast-style conversions (streaming and non-streaming)
+- Transcribe uploaded audio.
+
+**API**
+- `POST /tts/<conversation_id>/<message_id>` (streaming `audio/mpeg` or file)
+- `POST /is_tts_done/<conversation_id>/<message_id>` (legacy “always done”)
+- `POST /transcribe` (multipart form `audio`)
+
+**Differentiator**
+- This is a strong “accessibility + content repurposing” story compared to default ChatGPT chat.
+
+---
+
+### 12) Titles, temporary mode, and prompt controls
+
+**What it does**
+- Slash command: `/title ...` or `/set_title ...`
+- Temporary mode: `/temp ...` disables persistence for that interaction.
+- **Stateless conversations**: Right-click → "Toggle Stateless" marks a conversation for deletion on next page reload. The conversation works normally during the current session.
+- **New Temporary Chat button**: The `#new-temp-chat` button in the top-right chat bar creates a fresh conversation in the default workspace and marks it stateless in a single atomic server request (`POST /create_temporary_conversation/{domain}`). The server handles cleanup of old stateless conversations, creation, stateless marking, and list building in one call. The conversation is deleted on next page reload.
+- **Temporary conversation cleanup (grace period + graceful UI fallback)**:
+  - **Backend grace period**: `list_conversation_by_user` only deletes stateless conversations older than 5 minutes (`GRACE_PERIOD_SECONDS = 300`). This prevents a multi-tab race condition where Tab A's page reload deletes a temp conversation that Tab B is actively using. The age is computed from `memory.last_updated` (parsed as `"%Y-%m-%d %H:%M:%S"`).
+  - **`deleted_temporary_ids` in response**: The endpoint now returns `{"conversations": [...], "deleted_temporary_ids": [...]}` instead of a flat array. The UI uses `deleted_temporary_ids` to proactively remove stale `lastActiveConversationId:{email}:{domain}` entries from `localStorage`.
+  - **URL parameter validation**: If the URL contains a conversation ID (deep link / bookmark), the UI validates it against the fetched conversation list before calling `setActiveConversation()`. If the conversation no longer exists, a warning toast is shown and the UI falls back to the resume-from-localStorage or first-available-conversation path.
+  - **Existence guard in `setActiveConversation()`**: Before setting `activeConversationId`, saving to localStorage, or firing any API calls (listMessages, getConversationDetails, fetchMemoryPad, getConversationSettings, LocalDocsManager.refresh), the function checks whether the conversation ID exists in `WorkspaceManager.conversations`. If not, it clears localStorage, shows a toast ("This conversation is no longer available"), and recursively calls `setActiveConversation()` with the first available conversation.
+  - **`.fail()` handler on message loading**: The `$.when(restorePromise, messagesRequest)` call now has a `.fail()` handler that catches 404s from deleted conversations, clears localStorage, shows a toast, and falls back.
+  - **`alert()` → `showToast()`**: Error handlers in `getConversationDetails` and `fetchMemoryPad` now use `showToast('...', 'danger')` instead of disruptive `alert()` popups.
+  - **Key files**: `endpoints/conversations.py` (grace period logic, response format), `interface/workspace-manager.js` (response parsing, localStorage cleanup, URL validation), `interface/common-chat.js` (existence guard, `.fail()` handler, alert→toast).
+- User-controllable system/preamble options:
+  - formatting variants
+  - “TTS friendly” style guide
+  - “Engineering Excellence”, “Google GL”, interview modes, etc.
+- Custom prompts: options prefixed with `custom:<prompt_name>` load from the prompts manager.
+
+**API**
+- Mostly via `POST /send_message/<conversation_id>` payload:
+  - `checkboxes.preamble_options`
+  - `checkboxes.permanentText`
+  - `checkboxes.main_model`
+  - `checkboxes.field` (agent selection)
+
+---
+
+## Chat Settings Modal (`#chat-settings-modal`)
+
+Full-screen settings panel accessed via the gear icon in the chat input area. Uses Bootstrap 4 collapse accordion (4 sections, only one open at a time). Settings are persisted per-tab to `localStorage` and applied automatically on modal close.
+
+### Accordion Layout
+
+| Section | Default State | Contents |
+|---------|--------------|----------|
+| **Frequently Used** | Open | Preamble Options (multi-select), Doubt Preamble (multi-select), Main Model (multi-select with single/multi toggle), Agent (single select), History (∅ to ∞ + auto-light/medium/deep), Use Memory Pad, LLM Right-Click Menu, Persist |
+| **Behavior & Memory** | Collapsed | Auto Clarify, Render Close, Compact Nav, Default Temp Chat, Use PKB Memory (+ scope + extraction mode), Auto-save facts, Auto-doubts (+ 5 category checkboxes), OpenCode toggle, Enable Tools (+ 60-tool multi-select with group-header-click-to-select-all), Depth (1-4), Recent Conversations count, Permanent Instructions textarea. Hidden sub-sections: Search & Links, Workflows, Custom Scripts |
+| **Appearance & Preferences** | Collapsed | Highlight.js Code Theme (20 themes + live preview), Auto-Archive (grace period selector + mass archive button) |
+| **Actions** | Collapsed | 15 shortcut buttons that open other modals/features: Delete Last Turn, Clarify, Mem Pad, PKB, Import, User Details, Clear Locks, Artefacts, Code Editor, Prompts, Model Overrides, OpenCode, Terminal, File Browser, Image Generation |
+
+### Persistence Mechanism
+
+- **Storage**: `localStorage` key `${tab}chatSettingsState` (JSON object) where tab ∈ {`chat`, `search`, `finchat`}
+- **Flag**: `ENABLE_SETTINGS_PERSISTENCE = true` at top of `interface/chat.js` — set to `false` for session-only settings
+- **Write trigger**: `persistSettingsStateFromModal()` fires on modal `hidden.bs.modal` event and Apply button click
+- **Read trigger**: `getPersistedSettingsState()` on page load and tab switch
+- **Runtime**: `getOptions('chat-options', 'assistant')` in `interface/common.js` reads directly from DOM (falls back to `window.chatSettingsState` when modal hasn't been opened)
+- **Reset**: "Reset to Defaults" button calls `computeDefaultStateForTab(tab)` and clears localStorage for that tab
+- **In-memory**: Always stored as `window.chatSettingsState` regardless of persistence flag
+
+### State Flow
+
+```
+Page Load → getPersistedSettingsState() → window.chatSettingsState → setModalFromState()
+User modifies → modal close → collectSettingsFromModal() → window.chatSettingsState + localStorage
+Send message → getOptions() → reads DOM (or window.chatSettingsState) → payload.checkboxes
+```
+
+### Mobile Responsiveness
+
+- Modal goes full-width on viewports < 768px (`max-width: 100%`)
+- Touch targets enlarged (min-height 36-38px for checkboxes and buttons)
+- Accordion body padding reduced for compact mobile view
+- Accordion headers use `data-toggle="collapse"` + `data-parent="#settings-accordion"` (Bootstrap 4 native)
+- Chevron icon rotates 180° on expand via CSS transition
+
+### Key Files
+
+| File | Role |
+|------|------|
+| `interface/interface.html` | Modal HTML structure (accordion cards), inline `<script>` for tool-selector initialization, CSS within `<style>` block |
+| `interface/style.css` | Global collapse `::before` rotation rule (excluded for `.settings-accordion-header`) |
+| `interface/chat.js` | `collectSettingsFromModal()`, `setModalFromState()`, `persistSettingsStateFromModal()`, `getPersistedSettingsState()`, `computeDefaultStateForTab()`, `clearAllPersistedSettings()` |
+| `interface/common.js` | `getOptions()` — reads settings from DOM at send-time |
+
+---
+
+## UI shell caching (Service Worker)
+
+The web UI registers a Service Worker to cache the app shell (JS/CSS/icons) so that reopening the interface does not re-download the same assets.
+
+**Scope + behavior**
+- Service Worker: `interface/service-worker.js` (served at `/interface/service-worker.js`).
+- Cache scope: same-origin `/interface/*` and `/static/*` assets (GET only).
+- Navigation: `/interface` and `/interface/<conversation_id>` are **NetworkFirst** with offline fallback.
+- APIs, streaming, uploads, and downloads are **NetworkOnly** by design.
+
+**PWA icon precache**
+- Icons are precached to prevent repeated icon fetches:
+  - `/interface/icons/app-icon.svg`
+  - `/interface/icons/maskable-icon.svg`
+
+**Server cache headers (PWA assets)**
+- The manifest + icons are served with long-lived cache headers to avoid repeated fetches.
+
+---
+
+## Local conversation storage (important for parity + ops)
+
+Conversations are stored in per-conversation SQLite databases (one `conversation.db` per folder), migrated from the legacy JSON flat-file system. Both storage backends coexist — unmigrated conversations continue using JSON.
+
+### Current architecture (SQLite — post-migration)
+
+- Directory layout:
+  - `storage/conversations/<conversation_id>/`
+    - `conversation.db` — single WAL-mode SQLite DB with all conversation data
+    - `<conversation_id>.index` — dill pickle (slimmed: identity fields + transient state only)
+    - `<conversation_id>-indices.partial` — FAISS embedding vectors (dill)
+    - `artefacts/` — artefact content files
+    - `images/` — generated images
+  - A separate shared `locks/` directory is used for `FileLock` locks (legacy path only).
+
+- SQLite schema (7 tables + FTS5):
+  - `messages` — all messages with position, role, text, hidden flag, model, temperature, metadata
+  - `artefacts` — artefact metadata (content stays on filesystem)
+  - `artefact_links` — many-to-many message↔artefact links
+  - `memory` — key-value store (title, summary, domain, flag, archived, memory_pad, etc.)
+  - `settings` — key-value store for conversation settings
+  - `documents` — uploaded + attached document references
+  - `todos` — per-conversation todo items
+  - `messages_fts` — FTS5 virtual table with auto-sync triggers (replaces manual BM25 index)
+
+- Performance: O(1) mutations (edit/delete/hide = single UPDATE, not full-file rewrite). 200-2000x faster than JSON at 500 messages.
+
+- Migration: `python -m database.migration migrate_all storage/conversations/` — one-time bulk migration. JSON files renamed to `.json.migrated` (rollback available). New conversations created after migration use SQLite from the start.
+
+### Legacy architecture (JSON — pre-migration)
+
+- Directory layout (unmigrated conversations):
+  - `<conversation_id>-messages.json` (full rewrite every mutation)
+  - `<conversation_id>-memory.json`
+  - `<conversation_id>-artefacts.json`
+  - `<conversation_id>-artefact_message_links.json`
+  - `<conversation_id>-uploaded_documents_list.json`
+  - `<conversation_id>-message_attached_documents_list.json`
+  - `<conversation_id>-conversation_settings.json`
+  - `<conversation_id>-message_search_index.json` (manual BM25)
+  - `<conversation_id>.index` (dill pickle — full Conversation object)
+
+### Shared databases (always SQLite)
+
+| Database | Location | Purpose |
+|----------|----------|----------|
+| `users.db` | `storage/users/` | Users, conversations, workspaces, doubts, pinned messages, remember tokens, pinned claims |
+| `search_index.db` | `storage/users/` | Cross-conversation FTS5 search |
+| `pkb.sqlite` | `storage/users/` | Personal Knowledge Base |
+| `tool_call_history.sqlite` | `storage/users/` | MCP/tool invocation audit |
+
+### Key implementation files
+
+- `database/conversation_store.py` — `ConversationStore` class (per-conversation SQLite CRUD)
+- `database/migration.py` — migrate/rollback/status CLI commands
+- `Conversation.py` — `conversation_store` lazy property, `_use_sqlite` gate, routing layer
+
+Documentation: `documentation/features/sqlite_conversation_storage/README.md`, Plan: `documentation/planning/plans/sqlite_storage_migration.plan.md`
+
+---
+
+## Chrome Extension (Sidepanel Client)
+
+The Chrome extension provides an AI assistant sidepanel integrated into the browser. It connects to the **same unified backend** (`server.py`, port 5000) as the web UI, using the full `Conversation.py` pipeline. JWT authentication, real-time streaming, workspace-aware. Built with vanilla JS, jQuery (jsTree), and KaTeX (math rendering).
+
+**Documentation**: `documentation/features/extension/extension_design_overview.md` (architecture + conversation flow), `extension_implementation.md` (file-by-file reference), `extension_api.md` (endpoint reference).
+
+### Extension-specific capabilities
+
+| Capability | Details |
+|-----------|---------|
+| **Sidepanel Chat** | Full-height sidepanel with message streaming, markdown (marked.js), syntax highlighting (highlight.js), KaTeX math rendering. Same conversation pipeline as web UI (PKB, agents, TLDR, math formatting). |
+| **Page Context Grounding** | "Include page" button extracts current tab content (site-specific extractors for 16 apps: Google Docs, Gmail, Sheets, Twitter/X, Reddit, GitHub, YouTube, Wikipedia, Stack Overflow, LinkedIn, Medium/Substack, Notion, Quip, Overleaf, Confluence, Slack). Content injected as grounding messages in LLM prompt (64K char limit single page, 128K multi-tab). |
+| **Multi-Tab Scroll Capture** | Capture content from other tabs using scroll+screenshot+OCR. 4 per-tab capture modes: Auto, DOM, OCR, Full OCR. Auto-detects document apps via URL patterns. Deferred OCR with immediate tab restoration. On-page toast overlays during capture. |
+| **Screenshots + OCR** | Viewport screenshots, full-page scrolling screenshots. Vision-LLM OCR (gemini-2.5-flash-lite, 8 workers). Inner scroll container auto-detection for web apps with fixed shells (Office Word Online, Google Docs, Notion, etc.). Pipelined OCR (40-60% faster than batch). |
+| **Extract Comments Mode** | When the "Extract Comments" checkbox is enabled (in the split-button dropdown for single-tab capture, or in the tab-picker modal footer for multi-tab capture), the OCR pipeline uses a separate comments-aware LLM prompt (`_build_ocr_messages_with_comments`) that returns a JSON object `{"text": ..., "comments": [{anchor, body}]}` instead of plain text. Main document content and annotation comments are extracted in a single LLM call per screenshot. Comments are stored per-page in `ocrPagesData[i].comments` and displayed inline after the page text in the content viewer under a `--- COMMENTS ---` header, with each comment prefixed by `[Re: <anchor>]`. When the checkbox is unchecked (default), the clean prompt (`_build_ocr_messages_clean`) is used, which explicitly ignores comment bubbles. |
+| **Voice Input** | MediaRecorder + `/transcribe` endpoint. Recording state UI indicator. |
+| **Workspace Sidebar** | jsTree-based hierarchical workspace tree matching main UI. Workspace folders with color indicators. Expand/collapse. Domain switching (assistant/search/finchat). "Browser Extension" workspace auto-created per domain. |
+| **Conversation Management** | "New Chat" (permanent) + "Quick Chat" (temporary) buttons. 8-item right-click context menu: Copy Reference, Open in New Window, Clone, Toggle Stateless, Set Flag (7 colors), Move to Workspace, Save, Delete. |
+| **File Attachments** | Drag-and-drop PDF/images anywhere on sidepanel. FastDocIndex upload (BM25, 1-3s). Preview thumbnails (images) and styled badges (PDFs) above input. Persistent rendering in sent messages. Also supported in Doubt and Temp LLM modals — images sent natively to vision LLM; text docs inlined in prompt; doubt attachments persisted in DB. |
+| **Document Management Panel** | Overlay panel with two collapsible sections: conversation docs + global docs. Upload, download, remove operations. Accessible via toolbar button. |
+| **PKB Claims Panel** | Read-only overlay panel with debounced text search, type/domain/status filter dropdowns, paginated "Load more". Color-coded claim type badges. |
+| **Attachment Context Menu** | Right-click on rendered message attachments: Download, Promote to Conversation Doc, Promote to Global Doc, Delete. |
+| **Custom Scripts** | Tampermonkey-like scripts created via chat (LLM sees page structure, iterative refinement) or direct CodeMirror editor. `aiAssistant` API: dom (22 methods), clipboard, llm (ask/stream), ui (toast/modal), storage. Action exposure: floating toolbar, injected DOM buttons, command palette (Ctrl+Shift+K), context menu. Sandboxed execution. |
+| **Quick Actions** | Right-click context menu on page text: Explain, Summarize, Translate, etc. Opens modal overlay on page with LLM response. |
+| **Settings** | Model, prompt, history length, auto-include page, domain, workspace. Stored in `chrome.storage.local` + synced to server via `/ext/settings`. Configurable backend URL (localhost:5000 vs production). |
+
+### Extension backend endpoints
+
+The extension uses two categories of endpoints:
+
+1. **Main backend endpoints** (shared with web UI) — conversations, workspaces, documents, global docs, claims/PKB, send_message, model catalog, prompts, transcribe. CORS configured for `chrome-extension://*` origin.
+
+2. **Extension-specific endpoints** (`/ext/*` prefix) — auth (login/logout/verify), scripts CRUD (9 endpoints), workflows CRUD (5 endpoints), OCR, settings, chat quick action. Implemented in `endpoints/ext_*.py`.
+
+### Extension architecture constraints
+
+- **Chrome MV3 CSP**: `script-src 'self'` — all libraries bundled locally in `extension/lib/` (jQuery, jsTree, KaTeX, marked.js, highlight.js). No CDN references.
+- **IIFE modules**: Panel scripts (DocsPanel, ClaimsPanel) use IIFE pattern loaded as plain `<script>` before ES module `sidepanel.js`. Access API via `window.API` global.
+- **Storage**: Auth token + settings in `chrome.storage.local`. Conversations stored server-side via `Conversation.py` filesystem storage (same as web UI).
+- **Streaming**: Newline-delimited JSON parsing via `streamJsonLines()` — reads `{"status":"...", "content":"...", "type":"..."}` lines from `/send_message/<id>`.
+
+---
+
+## Android app: what to build (parity checklist)
+
+### Networking and streaming
+- Implement a streaming client for `POST /send_message/<conversation_id>`.
+  - Parse newline-delimited JSON.
+  - Handle partial JSON lines and buffer correctly.
+  - Update the UI incrementally.
+- Implement streaming for:
+  - `POST /clear_doubt/...` (newline-delimited JSON)
+  - `POST /temporary_llm_action` (newline-delimited JSON)
+- Implement binary streaming for:
+  - `POST /tts/...` (audio/mpeg)
+
+### Data model
+- Conversation:
+  - `conversation_id`, `domain`, `workspace`
+  - message list (sender/text/message_id/index)
+  - optionally: local caching for offline viewing
+- Documents:
+  - list + download + delete
+  - doc references (`#doc_n`) helper UI
+- PKB:
+  - list/search claims; CRUD for claims and contexts
+  - pin/unpin and "attach to next message"
+  - parse `@memory:<id>` and `@friendly_id` references (client-side)
+  - `@` autocomplete dropdown for claims, contexts, entities, tags, and domains
+  - type-suffixed friendly IDs: claims (no suffix), contexts (`_context`), entities (`_entity`), tags (`_tag`), domains (`_domain`)
+  - toggle via `use_pkb` checkbox (default: on)
+
+### UI screens (suggested)
+- Login / session
+- Workspace list + conversation list
+- Chat screen:
+  - message stream rendering
+  - “status” progress line support
+  - attach documents
+  - toggle options (web search, memory pad, PKB memory, planner, reward dialer, model selection, preamble, tool use (enable_tool_use + per-category toggles))
+  - next question suggestions
+  - per-message actions: doubt clearing, TTS, edit/delete, show/hide, edit as artefact, save to memory, table of contents (see [Message Card Header](../../features/message_card_header/README.md) for full architecture, dropdown population, and extension guide)
+  - multi-select message actions: floating action bar on checkbox selection — batch copy/delete/hide, summarize, ask about, run preamble, fork, use-as-context (see [Multi-Select Message Actions](../../features/multi_select_message_actions/README.md))
+  - tool call status indicators and interactive tool modal
+- PKB screen:
+  - claims CRUD
+  - auto-fill button (LLM extracts type, domain, tags, questions, friendly_id from statement)
+  - pinned claims
+  - search
+  - conflict resolution
+- Audio screen/player:
+  - play streamed or downloaded mp3
+  - allow “podcast mode”
+
+---
+
+## How this differs from ChatGPT (grounded differentiators)
+
+### Explicit “knowledge + retrieval” primitives
+- First-class conversation document library with `#doc_n` referencing and doc-aware prompts.
+- Optional PKB with:
+  - pinned memories,
+  - "attach for next message" flows,
+  - conversation-pinned claims,
+  - hybrid search retrieval,
+  - universal `@` references for claims, contexts, entities, tags, and domains (v0.7),
+  - type-aware autocomplete across all PKB object types,
+  - recursive resolution for contexts and tags (entire subtrees),
+  - NL-based CRUD operations via `/pkb` and `/memory` slash commands with interactive proposals,
+  - auto-expiry for time-bound task/reminder claims,
+  - short-term cross-conversation memory (ephemeral context with TTL-based expiry, auto-injection into new conversations, reinforcement-based promotion to long-term).
+
+### Multi-agent orchestration
+- Switchable agents for:
+  - deep research / web search,
+  - literature review,
+  - interview simulation (v1 and v2),
+  - code solving and multi-step code reasoning,
+  - slide generation,
+  - book/table-of-contents generation (ToC/Book agents),
+  - “what-if” scenario generation.
+
+### Execution and artifact generation
+- Code execution in a persistent environment + automatic embedding of outputs.
+- Diagram generation and publishing (Mermaid, Graphviz DOT via `@viz-js/viz`, Draw.io) with client SVG render and/or shareable edit links.
+
+### Native agentic tool calling
+- LLM can autonomously invoke 56 tools mid-response (search, document lookup, PKB queries, PKB NL commands, code execution, artefact management, prompts).
+- Multi-step tool chains (up to 5 iterations per turn) with interactive pausing for user input.
+- Per-category permission toggles — write operations require explicit opt-in.
+- Same tool implementations power both the MCP server (for external coding assistants) and the native tool calling framework.
+### Accessibility + repurposing
+- TTS and podcast conversions (including code-aware variants).
+- Transcription endpoint for audio input.
+
+### Strong “workflow” endpoints beyond chat
+- Doubt clearing as a dedicated streaming endpoint with DB-backed history.
+- Workspaces for organization; shareable chat views.
+
+---
+
+## Sales pitch material (templates)
+
+### 15-second pitch
+"It's a research-grade chat assistant that can **ingest your documents**, **search the web**, **pull from a personal knowledge base**, and **autonomously invoke 56 tools mid-response** (document search, code execution, artefact creation, PKB management, NL memory commands), then stream answers while producing **artifacts**—code outputs, diagrams, slides, and audio—so teams can go from question → deliverable in one workflow."
+
+### Persona-based value props
+- **Researchers/Students**: doc-grounded answers, literature review agents, summaries, citations-like link surfacing.
+- **Engineers**: code execution + generated plots/files, code solving agents, diagram export.
+- **Interview prep**: interview simulators, coding interview prompts, code-aware TTS for practice.
+- **Knowledge workers**: PKB memory + pinning, workspaces, conversation summaries and “next question” nudges.
+- **Accessibility**: TTS/podcast mode for listening-first consumption.
+
+### “Why not just ChatGPT?”
+- Built-in **document library + doc referencing** per conversation.
+- Built-in **PKB** for structured memory retrieval, pinning, and universal `@` references across claims, contexts, entities, tags, and domains.
+- Built-in **execution + artifacts** (plots/files/diagrams) and **streaming** UX for long tasks.
+- Built-in **specialized agents** for research, interviews, slides, and more.
+
+- Built-in **native tool calling** with 56 tools — the LLM autonomously searches, queries docs, manages PKB (including NL commands and interactive proposals), runs code, and creates artefacts within a single response turn.
+---
+
+## Notes / known implementation behaviors (useful for parity)
+
+- Streaming responses are **newline-delimited JSON objects** (not SSE).
+- Certain response segments use **HTML/markers** inside `text`:
+  - `<answer> ... </answer>`
+  - `<slide-presentation> ... </slide-presentation>`
+  - TLDR segments wrapped after long answers.
+- Cancellations exist for:
+  - main response streaming
+  - doubt clearing streaming
+- Conversation locking uses filesystem lock files; clients may see "waiting for lock" warnings in stream.
+
+---
+
+## File Browser & Editor
+Full-screen modal file browser and code editor accessible from the chat-settings-modal **Actions** accordion section. Intended for server-side file management without leaving the chat interface.
+
+**Entry point**: Settings → Actions section → **File Browser** button.
+**What it does**
+ Displays a VS Code-like file tree of the server's working directory (lazy-loaded, depth-first expansion).
+ Opens files in a CodeMirror 5 editor with syntax highlighting (Python, JS, TS, CSS, HTML, XML, Markdown, JSON).
+ For `.md` / `.markdown` files: a **Raw / Preview / WYSIWYG** view-mode selector appears above the editor. WYSIWYG embeds EasyMDE inline; CodeMirror is the source of truth and is synced before every save.
+ For `.pdf` files: renders inline using the bundled PDF.js viewer with a scoped download-progress bar. No download prompt.
+ Address bar with fuzzy autocomplete dropdown — substring + sequential character matching with filename-priority scoring and highlighted matches.
+ Right-click context menu and sidebar buttons: **New File**, **New Folder**, **Rename**, **Move to…**, **Delete**.
+ **Drag-and-drop move**: drag any tree item onto a folder to move it. Dropping onto the tree background (outside any folder item) moves the item to the **root directory**. Drop targets highlight with a dashed blue outline; the tree background highlights with a dashed blue outline + faint tint (`.fb-drag-over-root`) when hovering over root. Prevents moving a folder into itself or its own descendant.
+ **Context-menu move**: right-click → "Move to…" opens `#file-browser-move-modal` (z-index 100004) with a lazy-expanding folder-only tree. A **/ (root)** item is pinned at the top of the tree so items can be moved to the root directory. Move Here button enables once a destination is selected.
+ **Decoupled move backend**: move is routed through `_config.onMove(src, dest, done)`. Default calls `POST /file-browser/move`. Override at `FileBrowserManager.init({onMove: fn})` or `.configure({onMove: fn})` for embedding in other contexts (e.g. the Global Docs Folder view uses `onMove` to call `POST /doc_folders/<id>/assign`).
+ In-modal confirm and naming dialogs (replaces native `confirm()` / `prompt()` which are blocked behind z-index:100000).
+ **Ctrl+S / Cmd+S** saves the current file; **Escape** closes the modal (with dirty-check confirmation). **Cmd+K / Ctrl+K** opens AI Edit overlay.
+ **AI Edit (Cmd+K)**: LLM-assisted inline editing — selection or whole file, unified diff preview, Accept / Reject / Edit Instruction flow, conversation context injection.
+ **Reload from Disk**, **Word Wrap** toggle, **Download**, and drag-and-drop **Upload** (XHR progress bar) toolbar buttons.
+ Binary files detected (null-byte scan in first 8 KB) and shown with informational message. Files over 2 MB blocked with a **Load Anyway** override.
+ Theme picker: Monokai (default) / Default light.
+**API** (`endpoints/file_browser.py`, all `@login_required`)
+ `GET /file-browser/tree?path=.` — list directory (dirs first, sorted)
+ `GET /file-browser/read?path=...&force=true` — read file content
+ `POST /file-browser/write` — write file `{path, content}`
+ `POST /file-browser/mkdir` — create directory `{path}`
+ `POST /file-browser/rename` — rename/move `{old_path, new_path}`
+ `POST /file-browser/move` — move file/directory `{src_path, dest_path}` (full new path). 409 if dest exists, 400 if moving folder into itself. Reuses `os.rename()` + `_safe_resolve()` pattern.
+ `POST /file-browser/delete` — delete file/dir `{path, recursive}`
+ `GET /file-browser/download?path=...` — download file as attachment
+ `POST /file-browser/upload` — upload file (multipart, with overwrite flag)
+ `GET /file-browser/serve?path=...` — serve file inline (used by PDF.js viewer; MIME auto-detected)
+ `POST /file-browser/ai-edit` — LLM-assisted edit `{path, instruction, selection?, conversation_id?}`
+
+**Security**: all paths validated via `os.path.realpath()` + `startswith(SERVER_ROOT)` — cannot escape the server root.
+
+**Modal architecture**: The modal is a plain `position: fixed` `<div>` (not a Bootstrap `.modal`). Opened/closed with raw DOM manipulation to avoid Bootstrap JS stacking conflicts when the settings modal is already open. No backdrop. View switching (`editor / preview / wysiwyg / pdf / empty-state`) uses vanilla `element.style.display` (not jQuery `.show()/.hide()`) to avoid Bootstrap `!important` utility class conflicts.
+**Key files**: `endpoints/file_browser.py`, `interface/file-browser-manager.js`
+**Docs**: `documentation/features/file_browser/README.md`
+
+**Pluggable Config API**: `FileBrowserManager` exposes a 7-group config schema allowing full customization for different embedding contexts — endpoints, DOM IDs, behavior flags (read-only, allowUpload, allowDelete, showEditor, etc.), root path, CRUD operation callbacks (`onMove`, `onDelete`, `onRename`, `onCreateFolder`, `onCreateFile`, `onSave`), lifecycle events (`onOpen`, `onClose`, `onSelect`), and custom rendering hooks (`enrichEntry`, `renderEntry`, `buildContextMenu`). Used by the Global Docs Folder view to embed the file browser as a folder-only organizer. `FileBrowserManager.init([cfg])` / `.configure(cfg)` — both use `$.extend(true, ...)` deep merge so partial overrides are safe.
+
+---
+
+## Operations and deployment
+
+For running, restarting, and maintaining the server infrastructure behind these capabilities:
+
+- **[Server Restart Guide](../ops/server_restart_guide.md)** — 3 screen sessions (science-reader, opencode_server, extension_server), JWT extraction, deferred restart pattern, full stack restart sequence
+- **[MCP Server Setup](../ops/mcp_server_setup.md)** — 8 MCP servers (37 tools), JWT auth, token generation, OpenCode/Claude Code config, Jina timeout tuning, nginx
+- **[LLM Model Management](../ops/llm_model_management.md)** — model configuration and provider setup
+- **[Legacy Server Runbook](../ops/server_ops_and_runbook.md)** — original deployment notes (nginx, SSL, Docker, vLLM)
+
+---
+
+## Removed features
+
+### Dark mode toggle (darkmode-js)
+
+**Removed from**: `interface/interface.html`, `interface/shared.html`
+
+Previously the app loaded `darkmode-js@1.5.7` from CDN and called `new Darkmode({...}).showWidget()` on page load. This injected a floating toggle button that applied a full-page `mix-blend-mode: difference` CSS overlay to invert colors.
+
+**Why it was removed**: `mix-blend-mode: difference` is a blunt color inversion that does not work for complex dynamic apps. Specific failures in this app:
+
+- **Bootstrap components**: Hardcoded color values (`#007bff`, `#28a745`, etc.) invert to unpredictable colors. Blue buttons become orange, green badges become magenta.
+- **Stacking context conflicts**: Elements with `z-index`, `position: fixed/sticky`, `transform`, or `opacity < 1` create stacking contexts. The darkmode overlay sits at one z-level -- elements above it are not inverted, elements below are. The app has many such elements: modals, dropdowns, vakata context menus (`z-index: 99999`), the scroll-to-bottom button, the fixed chat input area. Result: inconsistent partial inversion.
+- **Dynamic content**: The overlay is static. Streamed chat messages, jsTree sidebar nodes, dynamically created modals, and toasts may or may not be affected depending on their stacking context.
+- **Form controls**: `<input>`, `<textarea>`, `<select>` have browser-native rendering that interacts unpredictably with `mix-blend-mode`. Bootstrap styling on these adds another layer of specificity conflicts.
+- **Rich rendered content**: MathJax equations, syntax-highlighted code blocks, and images all have explicit colors that invert to unreadable results.
+
+`darkmode-js` is designed for simple static pages (marketing sites, blogs, documentation) with mostly black-on-white text. It is not suitable for full-page apps with complex z-index stacks, dynamic DOM, and styled UI components.
+
+**What would work instead**: A proper CSS custom properties theme system (`var(--bg-primary)`, `var(--text-primary)`, etc.) where a dark palette is defined and swapped via a class on `<body>`. This requires every color in every component to go through CSS variables -- a significant effort not currently planned.
