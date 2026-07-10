@@ -672,6 +672,7 @@ const TempLLMManager = {
                                 assistantBody.html(accumulatedText.replace(/\n/g, '<br>'));
                             }
                             if (typeof renderMermaidIn === 'function') renderMermaidIn(assistantBody);
+                            if (typeof renderGraphvizIn === 'function') renderGraphvizIn(assistantBody);
                             
                             // NOTE: No automatic scroll during streaming - user may be reading
                             // Scroll will happen only at the end when streaming completes

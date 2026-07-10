@@ -70,7 +70,12 @@ improve_code_prompt_interviews = manager["improve_code_prompt_interviews"]
 relationship_prompt = manager["relationship_prompt"]
 dating_maverick_prompt = manager["dating_maverick_prompt"]
 wife_prompt = manager["wife_prompt"]
-diagram_instructions = manager["diagram_instructions"]
+# CRITICAL: use get_raw(), not manager["..."].
+# WrappedManager auto-compose runs str.format during __getitem__ and collapses
+# literal `{{`/`}}` (used to protect Graphviz digraph braces) down to `{`/`}`,
+# so a later `.format(output_directory=..., plot_prefix=...)` KeyErrors on the
+# DOT body (`KeyError: '\n  rankdir=LR;\n  A '`). get_raw preserves {{}}.
+diagram_instructions = manager.get_raw("diagram_instructions")
 short_coding_interview_prompt = manager["short_coding_interview_prompt"]
 more_related_questions_prompt = manager["more_related_questions_prompt"]
 coding_interview_prompt = manager["coding_interview_prompt"]
@@ -295,7 +300,7 @@ Give me all the concepts, technical terms, principles of topics discussed and ot
 Then think, in this era of agentic coding and LLMs, I as a senior engineer don't need to know all these concepts, rather I need to know trade offs, caveats, and be ready to ask the right questions to another engineer or LLM to ensure I design a system properly. So what are those caveats, thought models, questions that I need to think and ask.
 """
 
-visual_tab_prompt = """You are an expert at creating visual explanations using diagrams. Create BOTH ASCII art diagrams AND Mermaid diagrams that visually explain the key concepts in the user's question.
+visual_tab_prompt = """You are an expert at creating visual explanations using diagrams. Create ASCII art diagrams AND at least one of Mermaid or Graphviz DOT diagrams that visually explain the key concepts in the user's question. Prefer Graphviz DOT for dependency graphs, trees, hierarchies, and precise layouts; prefer Mermaid for sequence/process flows and mindmaps.
 
 ## User's Question
 {query}
@@ -305,7 +310,10 @@ visual_tab_prompt = """You are an expert at creating visual explanations using d
 
 Structure your answer as:
 1. **ASCII Diagram(s)** — box/arrow/tree/table art showing structure or flow. Plain text characters only. Prefer multiple simple diagrams over one complex one — each should focus on one aspect.
-2. **Mermaid Diagram(s)** — wrap each in ```mermaid fences. Choose the best type per diagram (flowchart, sequence, class, state, mindmap). Multiple focused diagrams preferred.
+2. **Rendered Diagram(s)** — include Mermaid and/or Graphviz DOT:
+   - Mermaid: wrap each in ```mermaid fences (flowchart, sequence, class, state, mindmap).
+   - Graphviz DOT: wrap each in ```dot fences (aliases ```graphviz / ```gv also ok). Prefer `digraph G {{ ... }}` with quoted labels.
+   Multiple focused diagrams preferred over one sprawling one.
 3. **One-paragraph explanation** — briefly describe what the diagrams show.
 
 ## Mermaid Syntax Rules (STRICT — violations break rendering)
@@ -319,6 +327,22 @@ Structure your answer as:
 - Avoid HTML tags, markdown, `&`, `<`, `>` inside labels; spell out `and`.
 - Keep one statement per line; no trailing semicolons needed; no tabs (use spaces).
 - Use only plain ASCII in diagram code — no unicode arrows, em-dashes, or smart quotes.
+
+## Graphviz DOT Syntax Rules (STRICT)
+- Full valid DOT only inside ```dot fences. Prefer digraph; declare `digraph G {{ ... }}`.
+- Quote every label with spaces/punctuation: `A [label="compute f(x)"];`.
+- One statement per line; end statements with `;`. Plain ASCII only.
+- Allowed simple attrs: shape, label, rankdir, color, style, fontsize, arrowhead. No `label=<HTML...>`, no external images, no URLs to unknown hosts.
+- Example:
+```dot
+digraph G {{
+  rankdir=TB;
+  A [label="User Query"];
+  B [label="Parser"];
+  C [label="Answer"];
+  A -> B -> C;
+}}
+```
 
 Go straight into the diagrams. No preamble or meta-commentary. Focus on visual clarity — make concepts immediately understandable at a glance."""
 

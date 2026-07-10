@@ -97,7 +97,7 @@ Sets `checkboxes.field = canonical_name`.
 
 Examples:
 - `/preamble_short` → `Short`
-- `/preamble_diagram` → `Diagram`
+- `/preamble_diagram` → `Diagram` (injects `diagram_instructions`: Mermaid, Graphviz DOT, ASCII — see `features/diagramming/README.md`)
 - `/preamble_creative` → `Creative`
 
 Appends to `checkboxes.preamble_options` array.

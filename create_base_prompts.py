@@ -1,18 +1,14 @@
-from inspect import _void
-from pydoc import plain
-
-from langsmith import expect
 from prompt_lib import WrappedManager, create_wrapped_manager
 
 
-math_formatting_instructions = """
+math_formatting_instructions = r"""
 - Formatting Mathematical Equations:
   - We are rendering in a markdown website, using mathjax for rendering maths. Write mathjax and website or markdown compatible maths.
   - Prefer using `$ ... $` for inline math and `$$ ... $$` for block math. For multiple lines of equations, use `$$ ... $$` mostly.
   - Output any relevant equations in latex format putting each equation in a new line in separate '$$' environment. 
-  - if you use `\( ... \)` then use `\\(` instead of `\` for making the single backslash. We need to use single backslash in UX (so two backslash from your response due to python string escaping) so it should be `\\( ... \\)` instead of `\( ... \)`.
-  - If you use `\\[ ... \\]` then use `\\\\` instead of `\\` for making the double backslash. We need to use double backslash in UX (so four backslash from your response due to python string escaping) so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]`.
-  - We need to use double backslash so it should be `\\\\[ ... \\\\]` instead of `\\[ ... \\]` and and `\\\\( ... \\\\)` instead of `\\( ... \\)`. Basically four backslash (`\\\\`) and then `(` or `)` or `[` or `]` as needed. 
+  - if you use `\( ... \)` then use `\(` instead of `\` for making the single backslash. We need to use single backslash in UX (so two backslash from your response due to python string escaping) so it should be `\( ... \)` instead of `\( ... \)`.
+  - If you use `\[ ... \]` then use `\\` instead of `\` for making the double backslash. We need to use double backslash in UX (so four backslash from your response due to python string escaping) so it should be `\\[ ... \\]` instead of `\[ ... \]`.
+  - We need to use double backslash so it should be `\\[ ... \\]` instead of `\[ ... \]` and and `\\( ... \\)` instead of `\( ... \)`. Basically four backslash (`\\`) and then `(` or `)` or `[` or `]` as needed. 
   - Write code, pseudocode, and algorithm blocks in markdown format inside code blocks.
 """
 
@@ -637,7 +633,7 @@ diagram_instructions_old = """
 
 diagram_instructions = """
 **Diagramming and Plotting Instructions**
-- First Decide if you need to make a diagram or not. If you need to make a diagram, then decide if you need to make a mermaid diagram or ASCII art diagram / text-based diagram.
+- First Decide if you need to make a diagram or not. If you need to make a diagram, then decide if you need to make a mermaid diagram, a Graphviz DOT diagram, or an ASCII art / text-based diagram.
 - Mermaid diagrams can be made using mermaid js library syntax. Write the mermaid diagram code inside "```mermaid" and "```" triple ticks.
 - When you make a mermaid diagram, make sure to write the mermaid code inside "```mermaid" and "```" triple ticks. And with full mermaid code. And then write a description of the diagram in the answer after it as well. Make simple diagrams.
 - Mermaid Formatting:
@@ -650,9 +646,26 @@ diagram_instructions = """
   - Use %% for comments.
   - For mermaid diagrams use `<br>` for line breaks. Inside diagram use plain text only.
   - Write in plain text inside the diagram.
-- ASCII art diagram or text-based diagram can be made using text-based diagram syntax written in a plaintext code block. These diagrams are faster to make and more preferred unless the user asks for a mermaid diagram or a draw.io diagram or a matplotlib or seaborn plot.
-- You can make Flowcharts, Sequence Diagrams, Gantt diagram, Class diagram, User Journey Diagram, Quadrant Chart, XY Chart. 
-- Diagrams, charts, flow diagrams, sequence diagrams, Gantt diagrams, class diagrams, and other graphic representations are very effective in helping the user understand the problem and solution, as well as in helping the user learn the solution.
+- Graphviz DOT diagrams (preferred for dependency graphs, trees, finite-state machines, layered hierarchies, and precise edge-routing layouts):
+  - Write full DOT source inside "```dot" and "```" triple ticks (alias language tags: ```graphviz or ```gv also accepted).
+  - Prefer `digraph` for directed graphs and `graph` for undirected. Use a stable graph name like `G`.
+  - Always quote labels that contain spaces, punctuation, or special characters: `A [label="compute f(x)"];`.
+  - Prefer simple attributes only: shape, label, rankdir, color, style, fontsize. Avoid external image includes, raw HTML labels (`label=<...>`), and unsafe URLs.
+  - One statement per line; end statements with `;`. Use plain ASCII only (no smart quotes or unicode arrows).
+  - Example (literal braces are doubled so `.format()` placeholders stay valid):
+```dot
+digraph G {{
+  rankdir=LR;
+  A [label="Input"];
+  B [label="Process"];
+  C [label="Output"];
+  A -> B -> C;
+}}
+```
+  - After a DOT diagram, briefly describe what it shows.
+- ASCII art diagram or text-based diagram can be made using text-based diagram syntax written in a plaintext code block. These diagrams are faster to make and more preferred unless the user asks for a mermaid diagram, a Graphviz/DOT diagram, a draw.io diagram, or a matplotlib or seaborn plot.
+- You can make Flowcharts, Sequence Diagrams, Gantt diagram, Class diagram, User Journey Diagram, Quadrant Chart, XY Chart, and Graphviz DOT dependency / hierarchy graphs.
+- Diagrams, charts, flow diagrams, sequence diagrams, Gantt diagrams, class diagrams, Graphviz DOT graphs, and other graphic representations are very effective in helping the user understand the problem and solution, as well as in helping the user learn the solution.
 """
 
 tts_friendly_format_instructions = """
@@ -909,7 +922,7 @@ Writing Examples (Provide examples if user has asked for them):
   - Example on how to write mathematical formulations and equations for DP problems:
     - Let `dp[i]` be the minimum number of words to break the string `s[0:i]` into a space-separated sequence of one or more dictionary words.
     - `dp[i] = min(dp[j] + 1) for all j < i and s[j:i] is in the dictionary.` (Also write in latex format like below.)
-    - $$ dp[i] = \bigvee_{j=0}^{i-1} (dp[j] \land s[j:i] \in \text{wordDict}) $$
+    - $$ dp[i] = \\bigvee_{j=0}^{i-1} (dp[j] \\land s[j:i] \\in \\text{wordDict}) $$
     - `dp[0] = 0`
     - `dp[i] = infinity if no such j exists.`
     - `dp[len(s)]` is the answer.
@@ -1449,8 +1462,8 @@ Help prepare us for technical interviews at the senior or staff level.
 - Discuss relevant **algorithms** and **data structures** that enhance performance.
 - Analyze the **time and space complexity** of each optimized solution.
   $$
-  \text{{Optimized Time Complexity}}: O(n \log n) \\
-  \text{{Optimized Space Complexity}}: O(n)
+  \\text{{Optimized Time Complexity}}: O(n \\log n) \\\\
+  \\text{{Optimized Space Complexity}}: O(n)
   $$
 - Highlight **trade-offs** between different solutions:
   - **Time vs. Space Complexity**
@@ -6260,7 +6273,7 @@ SECTION 4: CHECKLISTS
 - [ ] "Which tradeoff: **scope / time / quality**?"  
 - [ ] "What **levers** do I have if risk materializes?" (HC, priority, comp, support)  
 - [ ] "What is the **escalation path** and SLA for decisions?"  
-- [ ] Document in **Decision Record** with "risk accepted by \<name\>"  
+- [ ] Document in **Decision Record** with "risk accepted by <name>"  
   
 ---  
   

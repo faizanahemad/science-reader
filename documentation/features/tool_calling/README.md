@@ -544,11 +544,18 @@ it in the hybrid branch of `Conversation._get_enabled_tools()` (same as
 queries against a company-internal knowledge system) is registered only when
 the script at `INTERNAL_SEARCH_SCRIPT_PATH` (default
 `~/.local/bin/internal-search`) exists and `INTERNAL_SEARCH_DISABLED` is
-unset; it is always-on in tiered and hybrid modes. A dedicated `internal_only`
-tool mode (UI: "Internal Search
-Only") exposes ONLY this tool — no web/perplexity search, no artefact
-auto-include — with a replacement preamble that forbids mentioning other
-tools; on hosts where the tool is unavailable the mode resolves to no tools.
+unset; it is always-on in tiered and hybrid modes. Two companions ride in the
+same internal-knowledge group: `read_internal_page` (same gate; reads full
+contents of specific internal URLs) and `search_local_internal_kb` (own gate
+on `INTERNAL_KB_SCRIPT_PATH`, default `~/.local/bin/internal-kb`, kill switch
+`INTERNAL_KB_DISABLED`; instant local BM25 search over previously-fetched
+internal answers — the cheap first probe, with a mandatory fall-back-to-live
+rule baked into its description and result footers). A dedicated
+`internal_only` tool mode (UI: "Internal Search Only") exposes ONLY this
+group — no web/perplexity search, no artefact auto-include — with a
+replacement preamble that forbids mentioning other tools; on hosts where
+`internal_search` is unavailable the mode resolves to no tools. Details for
+all three in `internal_search_tool.md`.
 
 ---
 

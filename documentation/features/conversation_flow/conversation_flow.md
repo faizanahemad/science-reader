@@ -17,7 +17,7 @@ This doc explains how chat messages move from UI to server and back, and how the
 | `/clarify` | `clarify_request: true` | Does NOT send. Fires `ClarificationsManager.requestAndShowClarifications()` with `forceClarify: true`; Q&A is appended to textarea for the user to review and send manually. |
 | `/search` | `perform_web_search: true` | Enables web search augmentation for this message. |
 | `/scholar` | `googleScholar: true` | Enables Google Scholar search. |
-| `/draw` | `draw: true` | Instructs the LLM to produce Mermaid / draw.io diagrams. |
+| `/draw` | `draw: true` | Instructs the LLM to produce diagrams (Mermaid, Graphviz DOT via `@viz-js/viz`, and/or draw.io). |
 | `/execute` | `execute: true` | Instructs the LLM to emit and execute code server-side. |
 | `/history N` | `enable_previous_messages: "N"` | Includes the last N messages in context. |
 | `/detailed N` | `provide_detailed_answers: "N"` | Sets response detail level (1–4). |
@@ -212,7 +212,7 @@ All Basic Options settings share a single serialisation path. When adding or deb
 | User ask TLDR/keywords/prior context | After prior context fire | Passed to persist (fire-and-forget) | 1-3s |
 | Link reading (`link_future`) | After preamble | After web search start | 1-10s |
 | Web search + Perplexity | After link reading | Accumulation loop + blocking | 5-30s |
-| Visual tab (`_visual_tab_future`) | After preamble (Deep Learn mode) | Post-stream | 2-5s |
+| Visual tab (`_visual_tab_future`) | After preamble (Deep Learn mode) | Post-stream if `answer_word_count > 200`; emits `<answer_visual>` (ASCII + Mermaid and/or Graphviz DOT) as **🎨 Visual** tab — see `features/diagramming/README.md` | 2-5s |
 | TLDR (`_tldr_future`) | Mid-stream (at 300 words) | Post-stream | 1-3s |
 | Persist turn | Post-stream (fire-and-forget) | Never awaited | — |
 
@@ -366,7 +366,11 @@ Location: `interface/common-chat.js`
   - `initialiseVoteBank(...)`
   - `renderNextQuestionSuggestions(conversationId)`
   - optional scroll-to-hash for deep links
-- Mermaid blocks are normalized and rendered after the stream completes.
+- Diagram blocks after stream complete:
+  - **Mermaid**: normalized + `renderMermaidIn()` (eager mermaid.js).
+  - **Graphviz DOT** (`dot` / `graphviz` / `gv` fences → `pre.graphviz`): lazy `@viz-js/viz` via `LazyLibs.loadViz()` + `renderGraphvizIn()` (SVG). Temp/doubt paths promote default `language-dot` code blocks as well.
+  - **draw.io**: existing lazy drawio-renderer on `.drawio-diagram` nodes.
+  - Full diagramming map (prompts, Visual tab, Fix buttons): `documentation/features/diagramming/README.md`.
 - **Tool call events**: When tool calling is active, `renderStreamingResponse()` detects tool event types (`tool_call`, `tool_status`, `tool_input_request`, `tool_result`) in JSON-line chunks by checking `typeof item === 'object' && item.type` in the stream handler. These events are dispatched to `ToolCallManager` methods (from `interface/tool-call-manager.js`), which shows inline status pills for server-side tools and a Bootstrap modal for interactive tools requiring user input.
 
 **Math-aware rendering gate** (Feb 2026):

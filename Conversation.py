@@ -4199,18 +4199,27 @@ Give 4 suggestions.
         internal_model = self.get_model_override(
             "conversation_internal_model", SUPERFAST_LLM[0]
         )
-        llm = CallLLm(
-            self.get_api_keys(),
-            model_name=internal_model,
-            use_gpt4=False,
-            use_16k=True,
-        )
-        next_question_suggestions = llm(
-            next_question_suggestions_prompt,
-            system=system,
-            temperature=0.2,
-            stream=False,
-        )
+
+        try:
+            # CallLLm already retries once against VERY_CHEAP_LLM[0] internally if the
+            # primary (e.g. inception/mercury-2 diffusion model) rejects on content
+            # policy or a transient error (see call_llm.py _cc_call_llm_with_fallback).
+            next_question_suggestions = CallLLm(
+                self.get_api_keys(),
+                model_name=internal_model,
+                use_gpt4=False,
+                use_16k=True,
+            )(
+                next_question_suggestions_prompt,
+                system=system,
+                temperature=0.2,
+                stream=False,
+            )
+        except Exception:
+            # Both primary and its internal fallback failed — degrade gracefully
+            # instead of 500-ing this non-critical endpoint.
+            logger.exception("next_question_suggestions: LLM call failed (primary + fallback)")
+            return ["Tell me more", "Can you explain further?", "What's next?"]
         # Parse the next_question_suggestions to extract individual suggestions
         import re
 
@@ -7279,9 +7288,27 @@ Any other `/command` is passed through to opencode run as the prompt message.
             ]
             preamble += "\n Write plaintext with separation between paragraphs by newlines. Don't use any formatting, avoid formatting. Write the answer in plain text.\n"
         if "Diagram" in preamble_options:
-            preamble += diagram_instructions.format(
-                output_directory=self.documents_path, plot_prefix=plot_prefix
-            )
+            # Load RAW template. manager[key] auto-compose collapses {{ → { and then
+            # str.format treats the Graphviz digraph body as a field name (KeyError
+            # '\n  rankdir=LR;\n  A '). get_raw keeps {{}} so format is safe.
+            try:
+                from prompts import manager as _pm
+                _di = _pm.get_raw("diagram_instructions")
+            except Exception:
+                _di = diagram_instructions
+            if not isinstance(_di, str):
+                _di = str(_di or "")
+            try:
+                preamble += _di.format(
+                    output_directory=self.documents_path,
+                    plot_prefix=plot_prefix,
+                )
+            except Exception:
+                # Preserve placeholders by simple replace if format still fails.
+                preamble += (
+                    _di.replace("{output_directory}", str(self.documents_path))
+                       .replace("{plot_prefix}", str(plot_prefix))
+                )
 
         if "TTS" in preamble_options:
             preamble += f"""We are using a TTS engine to read out to blind users. 
@@ -7867,18 +7894,27 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
         logger.warning("[_get_enabled_tools] tool_mode=%s", tool_mode)
 
-        from code_common.tools import TIER_1_TOOLS, _select_relevant_tools, get_adaptive_tier1_tools, INTERNAL_SEARCH_AVAILABLE
+        from code_common.tools import TIER_1_TOOLS, _select_relevant_tools, get_adaptive_tier1_tools, INTERNAL_SEARCH_AVAILABLE, INTERNAL_KB_AVAILABLE
 
         if tool_mode == "tiered":
             enabled_names = get_adaptive_tier1_tools(user_email=user_email)
         elif tool_mode == "internal_only":
             # Internal Search Only: expose the internal knowledge tools
-            # (internal_search + read_internal_page) so the model cannot reach
-            # for web/perplexity search on internal questions.
+            # (internal_search + read_internal_page, plus the local KB cache
+            # search when present) so the model cannot reach for
+            # web/perplexity search on internal questions. Includes the
+            # typed fast-path tools (search_moma/search_yaqs/get_bug/
+            # search_code) and ask_internal_kb, all host-gated the same way.
             if not INTERNAL_SEARCH_AVAILABLE:
                 logger.warning("[_get_enabled_tools] internal_only mode but internal_search unavailable on this host")
                 return None
-            enabled_names = ["internal_search", "read_internal_page"]
+            enabled_names = [
+                "internal_search", "read_internal_page",
+                "search_moma", "search_yaqs", "get_bug", "search_code", "search_code_standard",
+            ]
+            if INTERNAL_KB_AVAILABLE:
+                enabled_names.append("search_local_internal_kb")
+                enabled_names.append("ask_internal_kb")
         elif tool_mode == "smart":
             keys = self.get_api_keys()
             enabled_names = _select_relevant_tools(user_message, summary, keys)
@@ -7896,6 +7932,20 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 enabled_names.append("internal_search")
             if INTERNAL_SEARCH_AVAILABLE and "read_internal_page" not in enabled_names:
                 enabled_names.append("read_internal_page")
+            # Typed fast-path internal tools (own host-gate: same script as
+            # internal_search) ride with the internal group too — force-
+            # include so smart selection can never drop them.
+            if INTERNAL_SEARCH_AVAILABLE:
+                for _fp in ("search_moma", "search_yaqs", "get_bug", "search_code", "search_code_standard"):
+                    if _fp not in enabled_names:
+                        enabled_names.append(_fp)
+            # search_local_internal_kb (own host-gate: local KB script) rides
+            # with the internal group — force-include so smart selection can
+            # never drop the cheap local-cache probe.
+            if INTERNAL_KB_AVAILABLE and "search_local_internal_kb" not in enabled_names:
+                enabled_names.append("search_local_internal_kb")
+            if INTERNAL_SEARCH_AVAILABLE and INTERNAL_KB_AVAILABLE and "ask_internal_kb" not in enabled_names:
+                enabled_names.append("ask_internal_kb")
         else:
             # "manual" mode — existing logic
             enabled_tools_config = checkboxes.get("enabled_tools", None)
@@ -9940,15 +9990,109 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             # OpenAI `tools` parameter — no need to duplicate them in the
             # system prompt. Only inject usage guidance here.
             if _tool_mode == "internal_only":
+                try:
+                    from code_common.tools import INTERNAL_KB_AVAILABLE as _kb_avail
+                except Exception:
+                    _kb_avail = False
+                try:
+                    from code_common.tools import build_internal_tool_routing_hint as _build_routing
+                except Exception:
+                    _build_routing = None
+                # Build the tool list the routing hint needs (mirrors _get_enabled_tools internal_only)
+                _routing_tool_names = [
+                    "internal_search", "read_internal_page",
+                    "search_moma", "search_yaqs", "get_bug", "search_code", "search_code_standard",
+                ]
+                if _kb_avail:
+                    _routing_tool_names.append("search_local_internal_kb")
+                    _routing_tool_names.append("ask_internal_kb")
                 tool_awareness_text = (
                     "\n\n## Tool Usage Guidance\n"
-                    "You have TWO tools, both for company-internal "
-                    "systems/docs/infra: **internal_search** (find information "
-                    "on a topic) and **read_internal_page** (read the full "
-                    "contents of a specific internal URL you already have). "
-                    "There is NO web search or any other tool — do not mention "
+                    + (
+                        "You have company-internal tools: **search_local_internal_kb** "
+                        "(instant local cache of previously-fetched internal "
+                        "answers — probe it FIRST), **ask_internal_kb** (one call, "
+                        "KB-first then auto live-fallback for a single focused "
+                        "question), **internal_search** (find "
+                        "information on a topic) and **read_internal_page** "
+                        "(read the full contents of a specific internal URL "
+                        "you already have), plus typed fast-path lookups: "
+                        "**search_moma** (Moma docs/people/teams), "
+                        "**search_yaqs** (internal Q&A site), **get_bug** "
+                        "(a specific Buganizer bug by ID), **search_code** "
+                        "(codebase questions via CodeSearch agent), and "
+                        "**search_code_standard** (fast, deterministic "
+                        "regex-indexed CodeSearch). "
+                        if _kb_avail else
+                        "You have company-internal tools: **internal_search** "
+                        "(find information on a topic), **read_internal_page** "
+                        "(read the full contents of a specific internal URL "
+                        "you already have), plus typed fast-path lookups: "
+                        "**search_moma** (Moma docs/people/teams), "
+                        "**search_yaqs** (internal Q&A site), **get_bug** "
+                        "(a specific Buganizer bug by ID), **search_code** "
+                        "(codebase questions via CodeSearch agent), and "
+                        "**search_code_standard** (fast, deterministic "
+                        "regex-indexed CodeSearch). "
+                    )
+                    + "There is NO web search or any other tool — do not mention "
                     "or attempt others.\n\n"
-                    "### internal_search weaknesses (compensate actively)\n"
+                    + (
+                        "### search_local_internal_kb (cheap first probe)\n"
+                        "- Instant (<1s) BM25 search over internal content cached "
+                        "on this machine. Start internal questions here with a few "
+                        "keyword queries.\n"
+                        "- LIMITS: only holds what was previously fetched (sparse "
+                        "coverage; no results ≠ doesn't exist) and entries may be "
+                        "up to ~30 days stale. If results are empty, thin, "
+                        "off-topic, or possibly stale, FALL BACK to internal_search "
+                        "/ read_internal_page in the same turn — never stop at a "
+                        "marginal cache hit.\n\n"
+                        "### ask_internal_kb (single focused question, KB-first)\n"
+                        "- Wraps the cache-then-live-fallback flow into ONE call for "
+                        "a single narrow question. Its result is TIER-labeled: a "
+                        "'cache-hit' tier carries the same staleness caveats as "
+                        "search_local_internal_kb; a 'live-single-shot' tier is "
+                        "only a first-round answer, NOT internal_search's "
+                        "multi-round quality. For broad/multi-faceted questions, "
+                        "skip straight to internal_search instead.\n\n"
+                        "### Typed fast paths (search_moma / search_yaqs / get_bug / search_code / search_code_standard)\n"
+                        "- search_moma/search_yaqs/get_bug/search_code_standard are DIRECT, "
+                        "non-agentic lookups (~1-3s, no LLM) — use them when you have a "
+                        "specific person/team/topic (Moma), a known technical "
+                        "question (YAQS), a concrete numeric bug ID, or a known "
+                        "symbol/string/pattern to find in code (search_code_standard, "
+                        "regex-indexed CodeSearch — go/cs-reference filter syntax: "
+                        "f:/c:/func:/class:/symbol:/lang:/within:). They have "
+                        "NO fallback on failure — if they miss, you must call "
+                        "internal_search yourself.\n"
+                        "- search_code IS an LLM agent (comparable latency to "
+                        "internal_search) for 'how does X work in the code' "
+                        "questions — an empty result does not automatically mean "
+                        "escalate to internal_search (it has no code access "
+                        "either); use read_internal_page on a known file/CS link "
+                        "instead if you have one. Prefer search_code_standard FIRST "
+                        "when you already know the specific symbol/string to find.\n\n"
+                        if _kb_avail else
+                        "### Typed fast paths (search_moma / search_yaqs / get_bug / search_code / search_code_standard)\n"
+                        "- search_moma/search_yaqs/get_bug/search_code_standard are DIRECT, "
+                        "non-agentic lookups (~1-3s, no LLM) — use them when you have a "
+                        "specific person/team/topic (Moma), a known technical "
+                        "question (YAQS), a concrete numeric bug ID, or a known "
+                        "symbol/string/pattern to find in code (search_code_standard, "
+                        "regex-indexed CodeSearch — go/cs-reference filter syntax: "
+                        "f:/c:/func:/class:/symbol:/lang:/within:). They have "
+                        "NO fallback on failure — if they miss, you must call "
+                        "internal_search yourself.\n"
+                        "- search_code IS an LLM agent (comparable latency to "
+                        "internal_search) for 'how does X work in the code' "
+                        "questions — an empty result does not automatically mean "
+                        "escalate to internal_search (it has no code access "
+                        "either); use read_internal_page on a known file/CS link "
+                        "instead if you have one. Prefer search_code_standard FIRST "
+                        "when you already know the specific symbol/string to find.\n\n"
+                    )
+                    + "### internal_search weaknesses (compensate actively)\n"
                     "- Each query is a slow (~30-90s) ONE-SHOT call to an internal AI "
                     "that does little background work on its own and often skimps on "
                     "detail.\n"
@@ -9978,9 +10122,11 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     "budget.\n"
                     "  4. Only then synthesize a complete, expert-depth answer, noting "
                     "gaps or possibly-stale information explicitly.\n"
-                    "- The user should get the deep, multi-round-quality answer on "
+                    "The user should get the deep, multi-round-quality answer on "
                     "the FIRST response — never make them ask you to dig further.\n"
                 )
+                if _build_routing:
+                    tool_awareness_text += _build_routing(_routing_tool_names)
             else:
                 tool_awareness_text = (
                     "\n\n## Tool Usage Guidance\n"
@@ -9997,12 +10143,40 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     from code_common.tools import INTERNAL_SEARCH_AVAILABLE as _internal_avail
                 except Exception:
                     _internal_avail = False
+                try:
+                    from code_common.tools import INTERNAL_KB_AVAILABLE as _kb_avail
+                except Exception:
+                    _kb_avail = False
+                try:
+                    from code_common.tools import build_internal_tool_routing_hint as _build_routing
+                except Exception:
+                    _build_routing = None
+                # Build the tool list for the routing hint from the same
+                # availability flags that gate the per-tool bullets below.
+                _routing_tool_names = []
+                if _internal_avail:
+                    _routing_tool_names += [
+                        "internal_search", "read_internal_page",
+                        "search_moma", "search_yaqs", "get_bug",
+                        "search_code", "search_code_standard",
+                    ]
+                if _kb_avail:
+                    _routing_tool_names.append("search_local_internal_kb")
+                    if _internal_avail:
+                        _routing_tool_names.append("ask_internal_kb")
                 if _internal_avail:
                     tool_awareness_text += (
                         "- **internal_search**: The ONLY source for company-internal "
                         "systems/docs/infra questions (web search won't have this). "
                         "It calls a slow (~30-90s) one-shot internal AI that often "
-                        "skimps on detail and may cite stale pages. Strategy: "
+                        "skimps on detail and may cite stale pages. "
+                        + (
+                            "SPEED: check `search_local_internal_kb` FIRST (instant "
+                            "local cache) — only call internal_search when the cache "
+                            "is empty, thin, off-topic, or too stale. "
+                            if _kb_avail else ""
+                        )
+                        + "Strategy: "
                         "decompose into 2-5 self-contained, differently-angled "
                         "queries and pass them together (they run in parallel, so "
                         "5 queries ≈ cost of 1); you can also issue several "
@@ -10017,12 +10191,61 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                         "- **read_internal_page**: Reads the FULL contents of a "
                         "specific company-internal URL you already have (e.g. a "
                         "link surfaced by internal_search or given by the user) "
-                        "— raw detail first, then a tldr. Use it to pull a "
+                        "— raw detail first, then a tldr. "
+                        + (
+                            "SPEED: check `search_local_internal_kb` for that URL/"
+                            "topic FIRST — a cache hit is instant; only fetch live "
+                            "if the cache is empty or stale. "
+                            if _kb_avail else ""
+                        )
+                        + "Use it to pull a "
                         "page's real content rather than to search; pass "
                         "multiple URLs in one call (they read in parallel). Use "
                         "internal_search to DISCOVER pages, read_internal_page "
                         "to READ them.\n"
                     )
+                if _kb_avail:
+                    tool_awareness_text += (
+                        "- **search_local_internal_kb**: instant (<1s) LOCAL "
+                        "cache of previously-fetched internal answers/pages "
+                        "(BM25). On any internal topic probe it FIRST with a "
+                        "few keyword queries — a hit saves 30-90s per live "
+                        "query. LIMITS: sparse coverage (only what was fetched "
+                        "before; no results ≠ doesn't exist) and up to ~30 "
+                        "days stale. If results are empty, thin, off-topic, or "
+                        "freshness matters, FALL BACK to internal_search / "
+                        "read_internal_page in the same turn.\n"
+                    )
+                    tool_awareness_text += (
+                        "- **ask_internal_kb**: single call, KB-first then "
+                        "auto live-fallback for ONE focused internal question. "
+                        "Result is TIER-labeled ('cache-hit' vs "
+                        "'live-single-shot'); treat 'live-single-shot' as a "
+                        "first-round answer only — for broad/multi-faceted "
+                        "questions call internal_search directly instead.\n"
+                    )
+                if _internal_avail:
+                    tool_awareness_text += (
+                        "- **search_moma** / **search_yaqs** / **get_bug** / "
+                        "**search_code_standard**: DIRECT, non-agentic lookups "
+                        "(~1-3s, no LLM) for Moma docs/people/teams, YAQS Q&A, "
+                        "a specific numeric Buganizer bug ID, and a specific "
+                        "known symbol/string/pattern in code (regex-indexed "
+                        "CodeSearch, go/cs-reference filter syntax: f:/c:/"
+                        "func:/class:/symbol:/lang:/within:) respectively. NO "
+                        "fallback on failure — if one misses, fall back to "
+                        "internal_search yourself.\n"
+                        "- **search_code**: an LLM agent (CodeSearch), latency "
+                        "comparable to internal_search, for 'how does X work "
+                        "in the code' reasoning-shaped questions. An empty "
+                        "result does NOT automatically mean escalate to "
+                        "internal_search (no code access there either) — "
+                        "prefer read_internal_page on a known file/CS link "
+                        "instead. Prefer search_code_standard FIRST when you "
+                        "already know the specific symbol/string to find.\n"
+                    )
+                if _build_routing and _routing_tool_names:
+                    tool_awareness_text += _build_routing(_routing_tool_names)
                 tool_awareness_text += (
                     "\n"
                     "### Parallel Tool Calls\n"
@@ -14327,19 +14550,28 @@ Please provide your explanation or answer to the user's doubt in a clear, struct
             # Always use tool loop so read_message and propose_answer_edit are available.
             # DOUBT_DEFAULT_TOOLS (read_message + propose_answer_edit) are always on;
             # TIER_1_TOOLS are added only when the user's tools toggle is enabled.
-            from code_common.tools import TIER_1_TOOLS, DOUBT_DEFAULT_TOOLS, TOOL_REGISTRY, INTERNAL_SEARCH_WORKFLOW_HINT, READ_INTERNAL_PAGE_WORKFLOW_HINT
+            from code_common.tools import TIER_1_TOOLS, DOUBT_DEFAULT_TOOLS, TOOL_REGISTRY, INTERNAL_SEARCH_WORKFLOW_HINT, READ_INTERNAL_PAGE_WORKFLOW_HINT, SEARCH_LOCAL_INTERNAL_KB_WORKFLOW_HINT, FASTPATH_TOOLS_WORKFLOW_HINT, ASK_INTERNAL_KB_WORKFLOW_HINT, build_internal_tool_routing_hint
             if TOOL_REGISTRY:
                 tool_names = list(set(DOUBT_DEFAULT_TOOLS + (TIER_1_TOOLS if tools_enabled else [])))
                 # When internal_search is available (host-gated), it is present
                 # via DOUBT_DEFAULT_TOOLS regardless of the tools toggle. Add its
                 # compact workflow guidance and allow an extra round so the model
-                # can do recon + at least one deepening round. read_internal_page
-                # is host-gated the same way; add its hint when present.
+                # can do recon + at least one deepening round. read_internal_page,
+                # search_local_internal_kb, the typed fast-path tools, and
+                # ask_internal_kb are host-gated the same way; add their hints
+                # when present.
                 internal_search_on = "internal_search" in tool_names
                 if internal_search_on:
                     system = system + INTERNAL_SEARCH_WORKFLOW_HINT
                 if "read_internal_page" in tool_names:
                     system = system + READ_INTERNAL_PAGE_WORKFLOW_HINT
+                if "search_local_internal_kb" in tool_names:
+                    system = system + SEARCH_LOCAL_INTERNAL_KB_WORKFLOW_HINT
+                if any(t in tool_names for t in ("search_moma", "search_yaqs", "get_bug", "search_code", "search_code_standard")):
+                    system = system + FASTPATH_TOOLS_WORKFLOW_HINT
+                if "ask_internal_kb" in tool_names:
+                    system = system + ASK_INTERNAL_KB_WORKFLOW_HINT
+                system = system + build_internal_tool_routing_hint(tool_names)
                 tools_config = TOOL_REGISTRY.get_openai_tools_param(tool_names)
                 max_iters = 3 if tools_enabled else 2
                 if internal_search_on:
@@ -14617,7 +14849,7 @@ Please respond helpfully, clearly, and conversationally. Address the user's ques
 **Important:** Don't use LaTeX or math notation. Use single backticks for inline code and triple backticks for code blocks.
 
 Your response:""",
-                "explain_visual": f"""You are an expert at creating visual explanations. Explain the following text using BOTH ASCII diagrams AND a Mermaid diagram in a single combined answer.
+                "explain_visual": f"""You are an expert at creating visual explanations. Explain the following text using ASCII diagrams plus Mermaid and/or Graphviz DOT diagrams in a single combined answer.
 
 {f"## Background Context" + chr(10) + context_text if context_text else ""}
 
@@ -14628,7 +14860,10 @@ Your response:""",
 
 Structure your answer as follows:
 1. **ASCII Diagram(s)** — use box/arrow/tree/table art to show the structure or flow. Plain text characters only. Prefer multiple simple or moderately complex diagrams over one large diagram — each diagram should focus on one aspect.
-2. **Mermaid Diagram(s)** — wrap each in ```mermaid fences. Choose the most appropriate type per diagram (flowchart, sequence, class, state, mindmap, etc.). Again, prefer several focused diagrams over one sprawling one.
+2. **Rendered Diagram(s)** — include Mermaid and/or Graphviz DOT:
+   - Mermaid: wrap each in ```mermaid fences (flowchart, sequence, class, state, mindmap, etc.).
+   - Graphviz DOT: wrap each in ```dot fences (aliases ```graphviz / ```gv also ok). Prefer digraph with quoted labels.
+   Prefer DOT for dependency/hierarchy layouts; Mermaid for sequence/process flows. Prefer several focused diagrams.
 3. **One-paragraph explanation** — briefly describe what the diagrams show and why this visual representation helps.
 
 Mermaid syntax rules (STRICT — violations break rendering):
@@ -14637,10 +14872,15 @@ Mermaid syntax rules (STRICT — violations break rendering):
 - Node IDs must be plain alphanumerics; never use lowercase `end` as an ID.
 - Quote subgraph titles containing spaces/punctuation. Use only plain ASCII in diagram code.
 
+Graphviz DOT rules (STRICT):
+- Full valid DOT inside ```dot fences: digraph G {{ ... }} preferred.
+- Quote labels with spaces/punctuation: A [label="compute f(x)"]; end statements with `;`.
+- Simple attrs only (shape, label, rankdir, color, style, fontsize). No HTML labels, no external images.
+
 Do not add any preamble or meta-commentary. Go straight into the diagrams.
 
 Your visual explanation:""",
-                "summarize_selection": f"""Summarize the following conversation exchange concisely. Capture the key points, decisions, and conclusions. Use bullet points for clarity.
+"summarize_selection": f"""Summarize the following conversation exchange concisely. Capture the key points, decisions, and conclusions. Use bullet points for clarity.
 
 ## Messages
 {selected_text}
@@ -14707,23 +14947,41 @@ Your summary:""",
             # loop) even when tools_enabled is False.
             from code_common.tools import (
                 TIER_1_TOOLS, TOOL_REGISTRY, INTERNAL_SEARCH_AVAILABLE,
+                INTERNAL_KB_AVAILABLE,
                 INTERNAL_SEARCH_WORKFLOW_HINT, READ_INTERNAL_PAGE_WORKFLOW_HINT,
+                SEARCH_LOCAL_INTERNAL_KB_WORKFLOW_HINT,
+                FASTPATH_TOOLS_WORKFLOW_HINT, ASK_INTERNAL_KB_WORKFLOW_HINT,
+                build_internal_tool_routing_hint,
             )
             use_tool_loop = tools_enabled or INTERNAL_SEARCH_AVAILABLE
 
             if use_tool_loop and TOOL_REGISTRY:
                 # When the general toggle is off, expose the always-on host-gated
-                # internal tools (internal_search + read_internal_page); when on,
-                # expose all of tier 1.
+                # internal tools (internal_search + read_internal_page + typed
+                # fast-path tools + local KB search/ask_internal_kb when
+                # present); when on, expose all of tier 1.
                 if tools_enabled:
                     tool_names = list(TIER_1_TOOLS)
                 else:
-                    tool_names = ["internal_search", "read_internal_page"]
+                    tool_names = [
+                        "internal_search", "read_internal_page",
+                        "search_moma", "search_yaqs", "get_bug", "search_code", "search_code_standard",
+                    ]
+                    if INTERNAL_KB_AVAILABLE:
+                        tool_names.append("search_local_internal_kb")
+                        tool_names.append("ask_internal_kb")
                 internal_search_on = "internal_search" in tool_names
                 if internal_search_on:
                     base_system = base_system + INTERNAL_SEARCH_WORKFLOW_HINT
                 if "read_internal_page" in tool_names:
                     base_system = base_system + READ_INTERNAL_PAGE_WORKFLOW_HINT
+                if "search_local_internal_kb" in tool_names:
+                    base_system = base_system + SEARCH_LOCAL_INTERNAL_KB_WORKFLOW_HINT
+                if any(t in tool_names for t in ("search_moma", "search_yaqs", "get_bug", "search_code", "search_code_standard")):
+                    base_system = base_system + FASTPATH_TOOLS_WORKFLOW_HINT
+                if "ask_internal_kb" in tool_names:
+                    base_system = base_system + ASK_INTERNAL_KB_WORKFLOW_HINT
+                base_system = base_system + build_internal_tool_routing_hint(tool_names)
                 tools_config = TOOL_REGISTRY.get_openai_tools_param(tool_names)
                 # Allow recon + at least one deepening round when internal_search
                 # is in play; otherwise keep the original tight cap.

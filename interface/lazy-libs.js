@@ -180,6 +180,30 @@
     }
 
     // ------------------------------------------------------------
+    // @viz-js/viz (Graphviz DOT → SVG, standalone UMD)
+    // ------------------------------------------------------------
+
+    function _loadViz() {
+        if (_groupCache.viz) return _groupCache.viz;
+        // When already present (e.g. injected in a test page), skip network.
+        if (typeof window.Viz !== 'undefined' && typeof window.Viz.instance === 'function') {
+            _groupCache.viz = Promise.resolve(window.Viz);
+            return _groupCache.viz;
+        }
+        // Standalone UMD: exposes global `Viz` with Viz.instance() → engined wasm Graphviz.
+        // Pin a known-good standalone build (3.11.0 ships lib/viz-standalone.js).
+        _groupCache.viz = loadScript(
+            'https://cdn.jsdelivr.net/npm/@viz-js/viz@3.11.0/lib/viz-standalone.js'
+        ).then(function () {
+            if (typeof window.Viz === 'undefined' || typeof window.Viz.instance !== 'function') {
+                throw new Error('@viz-js/viz loaded but Viz.instance() is missing');
+            }
+            return window.Viz;
+        });
+        return _groupCache.viz;
+    }
+
+    // ------------------------------------------------------------
     // Public API
     // ------------------------------------------------------------
 
@@ -192,6 +216,8 @@
         loadReveal:     _loadReveal,
         /** Load drawio-renderer. */
         loadDrawio:     _loadDrawio,
+        /** Load @viz-js/viz standalone (Graphviz DOT renderer). */
+        loadViz:        _loadViz,
         /** Low-level: load a single script by URL (cached). */
         loadScript:     loadScript,
         /** Low-level: inject a single CSS by URL (cached). */

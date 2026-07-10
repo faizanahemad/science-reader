@@ -558,6 +558,15 @@ def call_chat_model(model, text, images, temperature, system, keys, messages=Non
         model, _reasoning_payload = _reasoning_config_map[model]
 
     api_key = keys["OPENROUTER_API_KEY"]
+    # Fail fast with a clear message instead of a cryptic httpx UnicodeEncodeError
+    # when the Authorization header is built. A non-ASCII key is almost always an
+    # unsubstituted placeholder (e.g. "«redacted:sk…»") left in launch.json env.
+    if not api_key or not api_key.isascii():
+        raise ValueError(
+            "OPENROUTER_API_KEY is missing or contains non-ASCII characters "
+            "(likely an unsubstituted placeholder). Set a real OpenRouter key "
+            "in the runtime env (e.g. .vscode/launch.json)."
+        )
     extras = dict(
         base_url="https://openrouter.ai/api/v1",
     )
@@ -642,22 +651,32 @@ def call_chat_model(model, text, images, temperature, system, keys, messages=Non
             yield formatted_chunk
 
     except Exception as e:
+        # Log the exact messages sent so content-policy / upstream rejections are debuggable.
+        try:
+            messages_json = json.dumps(messages, ensure_ascii=False)
+        except Exception:
+            messages_json = repr(messages)
         logger.error(
-            f"[call_chat_model_original]: Error in calling chat model {model} with error {str(e)}, more info: openrouter_used = {openrouter_used}, len messages = {len(messages)}, extras = {extras}, extras_2 = {extras_2}"
+            f"[call_chat_model_original]: Error in calling chat model {model} with error {str(e)}, "
+            f"more info: openrouter_used = {openrouter_used}, len messages = {len(messages)}, "
+            f"extras = {extras}, extras_2 = {extras_2}, stop = {stop}, tools = {tools is not None}, "
+            f"messages_sent = {messages_json}"
         )
-        # Save function parameters to JSON for debugging/replay
+        # Save function parameters to JSON for debugging/replay.
+        # NB: never persist `keys` (API secrets) to disk.
         error_data = {
             "model": model,
+            "messages": messages,
             "text": text,
             "images": images,
             "temperature": temperature,
             "system": system,
-            "keys": keys,
+            "stop": stop,
             "error": str(e),
             "timestamp": datetime.now().isoformat(),
         }
         with open("error.json", "w") as f:
-            json.dump(error_data, f, indent=2)
+            json.dump(error_data, f, indent=2, ensure_ascii=False)
         traceback.print_exc()
         raise e
 

@@ -318,7 +318,7 @@ window._mathJaxScheduler = (function() {
 // service-worker.js) because rendered-state snapshots only need invalidation
 // when rendering logic changes — not when any file changes.  Bump this when
 // you change common.js, common-chat.js, or rendered-state-manager.js rendering.
-window.UI_CACHE_VERSION = "v25";
+window.UI_CACHE_VERSION = "v27";
 var currentDomain = {
     domain: 'assistant', // finchat, search
     page_loaded: false,
@@ -3580,6 +3580,20 @@ markdownParser.code = function (code, language) {
             '</div>';
     }
 
+    // Graphviz DOT via @viz-js/viz — same shell as mermaid.
+    // Accept common LLM aliases: dot | graphviz | gv.
+    var _langDot = (language || '').trim().toLowerCase();
+    if (_langDot === 'dot' || _langDot === 'graphviz' || _langDot === 'gv') {
+        var escapedDot = _escapeCodeHtml(code);
+        return '<div class="code-block graphviz-container">' +
+            '<pre class="graphviz">' + code + '</pre>' +
+            '<details class="graphviz-source-block">' +
+                '<summary style="font-size:11px;color:#888;cursor:pointer;">DOT source</summary>' +
+                '<pre><code class="hljs language-dot">' + escapedDot + '</code></pre>' +
+            '</details>' +
+            '</div>';
+    }
+
     // ── Language resolution (O(1)) ──
     // 1. Normalise to lowercase, strip leading/trailing whitespace.
     // 2. Check alias map for common LLM shorthands (py → python, js → javascript …).
@@ -3920,6 +3934,179 @@ function _showMermaidFixButton(block, source, $container) {
     });
 }
 
+// ----------------------------------------------------------------------------
+// Graphviz DOT rendering via @viz-js/viz (lazy-loaded).
+// Mirrors renderMermaidIn: find pre.graphviz blocks, render to SVG, Fix on error.
+// ----------------------------------------------------------------------------
+
+/** Soft clean-up for LLM-emitted DOT source. */
+function cleanGraphvizCode(dotCode) {
+    var code = (dotCode || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n').trim();
+    // Strip accidental fences / HTML wrappers the model sometimes re-emits
+    code = code.replace(/^```(?:dot|graphviz|gv)?\s*/i, '').replace(/```\s*$/i, '').trim();
+    code = code
+        .replace(/^\s*<pre[^>]*class=["'][^"']*graphviz[^"']*["'][^>]*>/i, '')
+        .replace(/<\/pre>\s*$/i, '')
+        .trim();
+    // Normalize fancy quotes that break DOT parsers
+    code = code.replace(/[\u201C\u201D]/g, '"').replace(/[\u2018\u2019]/g, "'");
+    // Drop a bare "DOT" / "graphviz" header line LLMs sometimes prepend
+    code = code.replace(/^(?:dot|graphviz)\s*\n/i, '');
+    return code.trim();
+}
+
+/** Cached Viz instance promise (engine ready). */
+var _vizInstancePromise = null;
+function _getVizInstance() {
+    if (_vizInstancePromise) return _vizInstancePromise;
+    var load = (typeof LazyLibs !== 'undefined' && LazyLibs.loadViz)
+        ? LazyLibs.loadViz()
+        : Promise.reject(new Error('LazyLibs.loadViz unavailable'));
+    _vizInstancePromise = load.then(function (VizNS) {
+        var V = VizNS || window.Viz;
+        return V.instance();
+    }).catch(function (err) {
+        // Allow a retry on next call if load/init failed once
+        _vizInstancePromise = null;
+        throw err;
+    });
+    return _vizInstancePromise;
+}
+
+/**
+ * Render any unrendered Graphviz DOT blocks inside a jQuery container.
+ * Safe to call repeatedly — skips blocks that already contain an SVG.
+ * On syntax errors, shows a "Fix Diagram" button (temp LLM repair).
+ * @param {jQuery} $container
+ */
+function renderGraphvizIn($container) {
+    if (!$container || !$container.length) return;
+
+    // Promote default marked output (<pre><code class="language-dot">) to pre.graphviz
+    // so temp-llm / doubt paths that skip markdownParser still render.
+    $container.find('pre > code').each(function() {
+        var cls = (this.className || '').toLowerCase();
+        if (cls.indexOf('language-dot') === -1 &&
+            cls.indexOf('language-graphviz') === -1 &&
+            cls.indexOf('language-gv') === -1) {
+            return;
+        }
+        var $pre = $(this).parent('pre');
+        if (!$pre.length || $pre.hasClass('graphviz') || $pre.find('svg').length) return;
+        var src = this.textContent || '';
+        $pre.addClass('graphviz').empty().text(src);
+    });
+
+    var blocks = $container.find('pre.graphviz').filter(function() {
+        return !this.querySelector('svg') && !this.getAttribute('data-graphviz-failed');
+    });
+    if (!blocks.length) return;
+
+    _getVizInstance().then(function(viz) {
+        blocks.each(function() {
+            var block = this;
+            if (block.querySelector('svg') || block.getAttribute('data-graphviz-failed')) return;
+            var source = cleanGraphvizCode(block.getAttribute('data-graphviz-source') || block.textContent || '');
+            if (!source || source.length < 3) return;
+            // Skip if it does not look like DOT (avoid turning random pre.graphviz plaintext into errors)
+            if (!/\b(di)?graph\b/i.test(source) && source.indexOf('{') === -1) return;
+            block.setAttribute('data-graphviz-source', source);
+            block.textContent = source;
+            try {
+                var svgEl = viz.renderSVGElement(source, { engine: 'dot', format: 'svg' });
+                if (svgEl) {
+                    $(block).empty().append(svgEl);
+                    var svg = block.querySelector('svg');
+                    if (svg) {
+                        $(svg).attr('height', null).css({ 'max-width': '100%', height: 'auto' });
+                    }
+                } else {
+                    _showGraphvizFixButton(block, source, $container);
+                }
+            } catch (err) {
+                _showGraphvizFixButton(block, source, $container, err);
+            }
+        });
+    }).catch(function(err) {
+        console.warn('Graphviz (viz-js) load/render failed:', err);
+        blocks.each(function() {
+            var source = cleanGraphvizCode(this.getAttribute('data-graphviz-source') || this.textContent || '');
+            if (source) _showGraphvizFixButton(this, source, $container, err);
+        });
+    });
+}
+
+function _showGraphvizFixButton(block, source, $container, err) {
+    block.setAttribute('data-graphviz-failed', 'true');
+    var $block = $(block);
+    $block.empty().text(source).css({ 'font-size': '12px', 'opacity': '0.6', 'white-space': 'pre-wrap' });
+    // Drop previous fix UI
+    $block.next('button.graphviz-fix-btn').remove();
+    $block.next('small.graphviz-fix-err').remove();
+    var $btn = $('<button class="btn btn-sm btn-outline-warning mt-1 graphviz-fix-btn" style="font-size:11px;">⚠️ Fix DOT Diagram</button>');
+    $block.after($btn);
+    $btn.one('click', function() {
+        $btn.prop('disabled', true).text('Fixing...');
+        var answerContext = '';
+        try {
+            var $card = $container.closest('.card-body, .model-tab-body, .doubt-conversation-card');
+            answerContext = ($card.text() || '').substring(0, 3000);
+        } catch (e) { /* ignore */ }
+        $.ajax({
+            url: '/temporary_llm_action',
+            method: 'POST',
+            contentType: 'application/json',
+            data: JSON.stringify({
+                action_type: 'ask_temp',
+                selected_text: source,
+                user_message: 'This Graphviz DOT diagram has a syntax error' +
+                    (err && err.message ? (' (' + String(err.message).slice(0, 200) + ')') : '') +
+                    '. Output ONLY the corrected DOT source (no explanation, no markdown fences, just raw digraph/graph {...}). Surrounding context:\n\n' +
+                    answerContext.substring(0, 2000),
+                history: [],
+                with_context: false
+            }),
+            success: function(responseText) {
+                var fixed = '';
+                (responseText || '').split('\n').forEach(function(line) {
+                    if (!line.trim()) return;
+                    try {
+                        var chunk = JSON.parse(line);
+                        if (chunk.text) fixed += chunk.text;
+                    } catch (e) { /* ignore */ }
+                });
+                fixed = cleanGraphvizCode(fixed);
+                if (fixed.length > 10) {
+                    $btn.remove();
+                    block.removeAttribute('data-graphviz-failed');
+                    block.setAttribute('data-graphviz-source', fixed);
+                    block.textContent = fixed;
+                    $(block).css({ 'font-size': '', 'opacity': '', 'white-space': '' });
+                    _getVizInstance().then(function(viz) {
+                        try {
+                            var svgEl = viz.renderSVGElement(fixed, { engine: 'dot', format: 'svg' });
+                            $(block).empty().append(svgEl);
+                            var svg = block.querySelector('svg');
+                            if (svg) $(svg).attr('height', null).css({ 'max-width': '100%', height: 'auto' });
+                        } catch (e2) {
+                            block.setAttribute('data-graphviz-failed', 'true');
+                            $(block).text(fixed).css({ 'font-size': '12px', 'opacity': '0.6', 'white-space': 'pre-wrap' });
+                            $(block).after('<small class="text-danger graphviz-fix-err">Fix failed — DOT still invalid</small>');
+                        }
+                    }).catch(function() {
+                        $btn.text('Fix failed').addClass('btn-outline-danger');
+                    });
+                } else {
+                    $btn.text('Fix failed').addClass('btn-outline-danger');
+                }
+            },
+            error: function() {
+                $btn.text('Fix failed').addClass('btn-outline-danger');
+            }
+        });
+    });
+}
+
 function normalizeTextForClipboard(textElem, textToCopy, mode) {
     /**
      * Guard clipboard copy for Mermaid/code-like text without touching normal prose.
@@ -4102,8 +4289,13 @@ function applyModelResponseTabs(elem_to_render_in) {
         });
     }
 
-    if ($detailsBlocks.length === 0 && !hasTldrWrapper && preservedTldrContent === null) {
-        // No tabs needed — no details blocks, no TLDR wrapper, no preserved content
+    // Pure Visual (Deep Learn <answer_visual> → [data-answer-visual]) must also
+    // continue past this gate. Without hasVisualWrapper here, a single-model /
+    // no-TLDR response early-returned and left the visual markdown inline
+    // instead of building the 🎨 Visual tab (shouldBuildTabs already treats
+    // actuallyHasVisualContent as tab-worthy later).
+    if ($detailsBlocks.length === 0 && !hasTldrWrapper && preservedTldrContent === null && !hasVisualWrapper) {
+        // No tabs needed — no details blocks, no TLDR, no Visual, no preserved content
         if ($existingContainer.length > 0) {
             $existingContainer.remove();
         }
@@ -4688,7 +4880,7 @@ function applyModelResponseTabs(elem_to_render_in) {
         }
     } catch (e) { /* ignore */ }
 
-    // Render mermaid diagrams when a tab becomes visible (mermaid needs visible DOM)
+    // Render mermaid / graphviz diagrams when a tab becomes visible (needs visible DOM)
     try {
         $container.off('shown.bs.tab').on('shown.bs.tab', function(e) {
             var $pane = $($(e.target).attr('href'));
@@ -4710,12 +4902,25 @@ function applyModelResponseTabs(elem_to_render_in) {
                         if (src) { $(this).empty().text(src); }
                     }
                 });
+                // Reset failed Graphviz blocks similarly
+                $pane.find('pre.graphviz[data-graphviz-failed]').each(function() {
+                    this.removeAttribute('data-graphviz-failed');
+                    $(this).next('button.graphviz-fix-btn').remove();
+                    $(this).next('small.graphviz-fix-err').remove();
+                    var src = this.getAttribute('data-graphviz-source') || '';
+                    if (src) { $(this).empty().text(src); }
+                    $(this).css({ 'font-size': '', 'opacity': '', 'white-space': '' });
+                });
                 if (typeof renderMermaidIn === 'function') renderMermaidIn($pane);
+                if (typeof renderGraphvizIn === 'function') renderGraphvizIn($pane);
             }, 200);
         });
         // Also render in the currently active pane
         var $activePane = $container.find('.tab-pane.show.active').first();
-        if ($activePane.length && typeof renderMermaidIn === 'function') renderMermaidIn($activePane);
+        if ($activePane.length) {
+            if (typeof renderMermaidIn === 'function') renderMermaidIn($activePane);
+            if (typeof renderGraphvizIn === 'function') renderGraphvizIn($activePane);
+        }
     } catch (e) { /* ignore */ }
 
     // Ensure the collapse [show]/[hide] toggle exists for tabbed answers and re-apply
@@ -6405,6 +6610,11 @@ ${innerSectionRendered}
         // Cache these checks to avoid repeated DOM queries
         var mermaid_rendering_needed = !hasUnclosedMermaidTag(html) && has_end_answer_tag;
         var drawio_rendering_needed = $(elem_to_render_in).find('.drawio-diagram').length > 0;
+        // Graphviz: render once the answer stream is closed (same end-tag gate as mermaid)
+        // and a pre.graphviz block is present. LazyLibs.loadViz is invoked inside renderGraphvizIn.
+        var graphviz_rendering_needed = has_end_answer_tag &&
+            ($(elem_to_render_in).find('pre.graphviz').length > 0 ||
+             (html && (html.indexOf('```dot') !== -1 || html.indexOf('class="graphviz"') !== -1 || html.indexOf("class='graphviz'") !== -1)));
         
         // Schedule mermaid rendering during idle time to avoid blocking UI
         if (mermaid_rendering_needed) {
@@ -6415,6 +6625,16 @@ ${innerSectionRendered}
                     // deterministic syntax sanitizer), error detection and the
                     // "Fix Diagram" LLM-repair button.
                     renderMermaidIn($mermaidRoot);
+                }
+            });
+        }
+
+        // Schedule Graphviz DOT rendering during idle time (lazily loads @viz-js/viz)
+        if (graphviz_rendering_needed) {
+            scheduleIdleWork(function() {
+                var $gvRoot = elem_to_render_in.parent();
+                if ($gvRoot.find('pre.graphviz').length > 0 && typeof renderGraphvizIn === 'function') {
+                    renderGraphvizIn($gvRoot);
                 }
             });
         }
@@ -6556,6 +6776,7 @@ function renderMermaidIfDetailsTagOpened() {
             setTimeout(function() {
                 normalizeMermaidBlocks(document);
                 renderMermaidIn($(document));
+                if (typeof renderGraphvizIn === 'function') renderGraphvizIn($(document));
             }, 50);
         }
     });
@@ -6572,6 +6793,7 @@ function renderMermaidIfDetailsTagOpened() {
                     setTimeout(function() {
                         normalizeMermaidBlocks(document);
                         renderMermaidIn($(document));
+                        if (typeof renderGraphvizIn === 'function') renderGraphvizIn($(document));
                     }, 50);
                 }
             });

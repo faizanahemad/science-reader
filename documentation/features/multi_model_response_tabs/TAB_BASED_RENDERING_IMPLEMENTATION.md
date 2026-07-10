@@ -1,16 +1,19 @@
-# Tab-Based Rendering (Multi-Model + TLDR)
+# Tab-Based Rendering (Multi-Model + TLDR + Visual)
 
-This doc captures how the chat UI turns multi-model responses and long-answer TLDR summaries into a tabbed “Main / Model / TLDR” interface, and the fixes we made to keep it stable across streaming, `showMore()`, reloads, and cached DOM snapshots.
+This doc captures how the chat UI turns multi-model responses, long-answer TLDR summaries, and Deep Learn visual explanations into a tabbed “Main / Model / TLDR / 🎨 Visual” interface, and the fixes we made to keep it stable across streaming, `showMore()`, reloads, and cached DOM snapshots.
 
 ## Goals
 
 - Present multi-model outputs as tabs (one per model) instead of a stack of `<details>`.
 - For long single-model answers, present “Main” and “TLDR” tabs.
+- For Deep Learn Visual block, present a **🎨 Visual** tab (ASCII + Mermaid and/or Graphviz DOT).
 - Avoid duplicate content (main answer visible above/below tabs).
 - Survive:
   - streaming incremental renders
   - `showMore()` DOM rebuilds
   - page reloads (including RenderedStateManager IndexedDB snapshots)
+
+Related: diagram formats and render path → `documentation/features/diagramming/README.md`.
 
 ## Output Formats (Server)
 
@@ -51,6 +54,10 @@ Backend persistence note:
 - `Conversation.persist_current_turn()` can inject this `<answer_tldr>...</answer_tldr>` block into the stored assistant `message.text` (controlled by `PERSIST_TLDR_IN_SAVED_ANSWER_TEXT`).
 - This is required for reload/history, because the UI primarily re-renders from `message.text`.
 
+### Visual for Deep Learn
+
+When Deep Learn mode fires a parallel visual future and the main answer is long enough (`answer_word_count > 200`), the server appends an `<answer_visual>...</answer_visual>` block whose body is markdown (ASCII art plus optional `mermaid` and/or `dot` / `graphviz` / `gv` fenced diagrams). Frontend turns this into a **🎨 Visual** tab. Pure Visual (no TLDR, single model) early-return previously skipped tabs — the gate now treats `[data-answer-visual]` like TLDR. Mermaid/DOT inside the Visual pane re-render on tab show (`renderMermaidIn` / `renderGraphvizIn`). Format details: `documentation/features/diagramming/README.md`.
+
 ## Parsing + Rendering (Frontend)
 
 ### Entry point
@@ -59,6 +66,8 @@ Backend persistence note:
   - strips `<answer>` wrappers
   - converts `<answer_tldr>` tags to a stable wrapper:
     - `<answer_tldr>` -> `<div data-answer-tldr="true">`
+  - converts `<answer_visual>` via comment placeholders through marked, then:
+    - `<!--ANSWER_VISUAL_OPEN/CLOSE-->` → `<div data-answer-visual="true">` (so markdown inside the Visual block still renders)
   - optionally wraps `---` sections into `<details class="section-details">...` (used for the Table of Contents)
   - calls `applyModelResponseTabs(elem_to_render_in)` after writing rendered HTML
 
@@ -71,10 +80,14 @@ What it looks for:
 - TLDR sources:
   - `[data-answer-tldr]` wrapper (preferred)
   - fallback: `<details>` whose summary contains `tldr`
+- Visual sources:
+  - `[data-answer-visual]` wrapper (preferred; Deep Learn)
+  - fallback: `<details>` whose summary contains 🎨 or “visual explanation”
 
 What it creates:
 - A `.model-tabs-container` containing Bootstrap `.nav-tabs` + `.tab-content`.
 - Tab panes contain clones of the source nodes (not the original nodes).
+- Visual tab label: **🎨 Visual** (`key: visual`). Main pane strips visual wrappers so content is not duplicated.
 
 ## Single-Model+TLDR vs Multi-Model+TLDR (Key Difference)
 

@@ -1595,7 +1595,7 @@ function getCurrentActiveTab() {
 function getDefaultPreambleForTab(tab) {
     switch(tab) {
         case 'chat':
-            return ['Google GL'];
+            return ['Wife Prompt'];
         case 'search':
             return ['Wife Prompt'];
         case 'finchat':

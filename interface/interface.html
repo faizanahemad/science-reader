@@ -2944,7 +2944,7 @@
                                                 <option value="smart" title="AI selects relevant tools per turn. Slightly fewer tokens than hybrid.">Smart Select (AI picks)</option>
                                                 <option value="tiered" title="Your most-used tools loaded by default. Ask for more mid-turn. Most token-efficient.">Tiered (core + on-demand)</option>
                                                 <option value="manual" title="You pick exactly which tools are available from the dropdown below.">Manual Selection</option>
-                                                <option value="internal_only" title="Only the internal knowledge tools (internal_search + read_internal_page) are available. No web search or other tools. Host-gated.">Internal Search Only</option>
+                                                <option value="internal_only" title="Only the internal knowledge tools (search_local_internal_kb + ask_internal_kb + internal_search + read_internal_page + search_moma + search_yaqs + get_bug + search_code + search_code_standard) are available. No web search or other tools. Host-gated.">Internal Search Only</option>
                                                 <option value="none" title="Plain text only. No tools, zero token overhead.">No Tools</option>
                                             </select>
                                         </div>
@@ -2982,6 +2982,17 @@
                                                 <option value="jina_search" selected>Jina Search</option>
                                                 <option value="jina_read_page" selected>Jina Read Page</option>
                                                 <option value="read_link" selected>Read Link</option>
+                                            </optgroup>
+                                            <optgroup label="Internal Search (host-gated)">
+                                                <option value="internal_search" title="Company-internal AI search, decomposed multi-round queries.">Internal Search</option>
+                                                <option value="read_internal_page" title="Read a specific company-internal URL's full contents.">Read Internal Page</option>
+                                                <option value="search_local_internal_kb" title="Instant local cache of previously-fetched internal answers.">Search Local Internal KB</option>
+                                                <option value="ask_internal_kb" title="KB-first, live-fallback-if-needed lookup for a single focused internal question.">Ask Internal KB</option>
+                                                <option value="search_moma" title="Direct Moma lookup (docs/people/teams) — ~1-3s, no LLM.">Search Moma</option>
+                                                <option value="search_yaqs" title="Direct YAQS (internal Q&amp;A) search — ~1-3s, no LLM.">Search YAQS</option>
+                                                <option value="get_bug" title="Fetch a specific Buganizer bug by numeric ID — ~1-3s, no LLM.">Get Bug</option>
+                                                <option value="search_code" title="Codebase question via the internal CodeSearch agent (LLM-backed).">Search Code</option>
+                                                <option value="search_code_standard" title="Standard, regex-indexed Code Search (no LLM) — for a known symbol/string/pattern, ~1-3s.">Search Code (Standard)</option>
                                             </optgroup>
                                             <optgroup label="Documents">
                                                 <option value="document_lookup" selected>Document Lookup</option>

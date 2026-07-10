@@ -6367,11 +6367,37 @@ INTERNAL_SEARCH_AVAILABLE = (
     and os.access(INTERNAL_SEARCH_SCRIPT_PATH, os.X_OK)
 )
 
+# Local internal knowledge base (L2 cache of previous internal search
+# results). Separate script from internal-search, same host-gating pattern:
+# the tool only exists where the script does. It rides in the same tool
+# group as internal_search/read_internal_page everywhere they are wired.
+INTERNAL_KB_SCRIPT_PATH = os.environ.get(
+    "INTERNAL_KB_SCRIPT_PATH",
+    os.path.expanduser("~/.local/bin/internal-kb"),
+)
+
+INTERNAL_KB_AVAILABLE = (
+    os.environ.get("INTERNAL_KB_DISABLED", "").strip().lower()
+    not in ("1", "true", "yes")
+    and os.path.isfile(INTERNAL_KB_SCRIPT_PATH)
+    and os.access(INTERNAL_KB_SCRIPT_PATH, os.X_OK)
+)
+
 _INTERNAL_SEARCH_DESCRIPTION = (
     "Search company-internal systems, docs, and knowledge via an "
     "internal AI assistant. This is the ONLY way to get information about "
     "internal/proprietary systems — external web search will not have it.\n\n"
-    "KNOWN LIMITATIONS (work around them actively):\n"
+    + (
+        "SPEED TIP — CHECK THE LOCAL CACHE FIRST: call "
+        "`search_local_internal_kb` before this tool. It is a local, "
+        "sub-second BM25 cache of previously-fetched internal answers/pages "
+        "— a hit saves the 30-90s+ this tool costs per query. Only reach "
+        "for THIS tool (internal_search) when the local KB has nothing "
+        "cached, or its results are empty, thin, off-topic, or too stale "
+        "for the question at hand.\n\n"
+        if INTERNAL_KB_AVAILABLE else ""
+    )
+    + "KNOWN LIMITATIONS (work around them actively):\n"
     "- Each query is a slow one-shot call (~30-90s, sometimes minutes) to an "
     "internal AI that often SKIMPS on detail and does little background work "
     "on its own.\n"
@@ -6425,6 +6451,12 @@ INTERNAL_SEARCH_WORKFLOW_HINT = (
     "fill gaps before answering — a first-round internal answer rarely meets "
     "the bar a staff-level engineer would expect. Prefer it over web search for "
     "anything internal."
+    + (
+        " SPEED TIP: check `search_local_internal_kb` (instant local cache) "
+        "FIRST — only fall back to internal_search when the cache is empty, "
+        "thin, or stale for this question."
+        if INTERNAL_KB_AVAILABLE else ""
+    )
 )
 
 
@@ -6441,7 +6473,16 @@ _READ_INTERNAL_PAGE_DESCRIPTION = (
     "- Prefer this over internal_search when the goal is 'read THIS page' "
     "rather than 'find information about a topic'. Use internal_search to "
     "discover pages, then read_internal_page to pull their full detail.\n\n"
-    "NOTES:\n"
+    + (
+        "SPEED TIP — CHECK THE LOCAL CACHE FIRST: call "
+        "`search_local_internal_kb` with the URL (or its topic) before this "
+        "tool — if that page was already fetched, the cache returns it "
+        "instantly instead of paying another ~30-90s live fetch. Only use "
+        "THIS tool when the cache has nothing for that URL, or what it has "
+        "is thin/stale for your need.\n\n"
+        if INTERNAL_KB_AVAILABLE else ""
+    )
+    + "NOTES:\n"
     "- Each URL is a slow one-shot fetch (~30-90s); pass MULTIPLE urls in one "
     "call — they are read in parallel remotely, so N urls cost about as much "
     "wall time as 1.\n"
@@ -6461,6 +6502,12 @@ READ_INTERNAL_PAGE_WORKFLOW_HINT = (
     "internal pages you already have links to (including links surfaced by "
     "`internal_search`), rather than to search. Pass multiple URLs in one call "
     "— they are fetched in parallel."
+    + (
+        " SPEED TIP: check `search_local_internal_kb` for that URL/topic "
+        "FIRST — a cache hit is instant; only fetch live if the cache is "
+        "empty or stale."
+        if INTERNAL_KB_AVAILABLE else ""
+    )
 )
 
 
@@ -6477,7 +6524,7 @@ def handle_read_internal_page(args: dict, context: ToolContext) -> ToolCallResul
     ----------
     args:
         ``urls`` (list[str] or str, required), ``timeout_seconds`` (int,
-        per-URL remote timeout, default 240, clamped 30-600).
+        per-URL remote timeout, default 180, clamped 30-600).
     context:
         Tool execution context (unused; the script needs no API keys).
 
@@ -6500,9 +6547,9 @@ def handle_read_internal_page(args: dict, context: ToolContext) -> ToolCallResul
     urls = urls[:8]
 
     try:
-        timeout_s = int(args.get("timeout_seconds", 240) or 240)
+        timeout_s = int(args.get("timeout_seconds", 180) or 180)
     except (TypeError, ValueError):
-        timeout_s = 240
+        timeout_s = 180
     timeout_s = max(30, min(timeout_s, 600))
 
     cmd = [INTERNAL_SEARCH_SCRIPT_PATH, "-t", str(timeout_s), "--read"] + urls
@@ -6583,9 +6630,9 @@ if INTERNAL_SEARCH_AVAILABLE:
                     "type": "integer",
                     "description": (
                         "Per-URL remote timeout in seconds (30-600). "
-                        "Default 240."
+                        "Default 180."
                     ),
-                    "default": 240,
+                    "default": 180,
                 },
             },
             "required": ["urls"],
@@ -6608,7 +6655,7 @@ def handle_internal_search(args: dict, context: ToolContext) -> ToolCallResult:
     ----------
     args:
         ``queries`` (list[str] or str, required), ``timeout_seconds``
-        (int, per-query remote timeout, default 240, clamped 30-600).
+        (int, per-query remote timeout, default 180, clamped 30-600).
     context:
         Tool execution context (unused; the script needs no API keys).
 
@@ -6631,9 +6678,9 @@ def handle_internal_search(args: dict, context: ToolContext) -> ToolCallResult:
     queries = queries[:8]
 
     try:
-        timeout_s = int(args.get("timeout_seconds", 240) or 240)
+        timeout_s = int(args.get("timeout_seconds", 180) or 180)
     except (TypeError, ValueError):
-        timeout_s = 240
+        timeout_s = 180
     timeout_s = max(30, min(timeout_s, 600))
 
     cmd = [INTERNAL_SEARCH_SCRIPT_PATH, "-t", str(timeout_s)] + queries
@@ -6716,9 +6763,9 @@ if INTERNAL_SEARCH_AVAILABLE:
                     "type": "integer",
                     "description": (
                         "Per-query remote timeout in seconds (30-600). "
-                        "Default 240."
+                        "Default 180."
                     ),
-                    "default": 240,
+                    "default": 180,
                 },
             },
             "required": ["queries"],
@@ -6726,6 +6773,1004 @@ if INTERNAL_SEARCH_AVAILABLE:
         is_interactive=False,
         category="search",
     )(handle_internal_search)
+
+
+_SEARCH_LOCAL_INTERNAL_KB_DESCRIPTION = (
+    "Search a LOCAL knowledge base of previously-fetched company-internal "
+    "answers and pages (BM25 full-text over cached internal_search / "
+    "read_internal_page results). It is nearly INSTANT (<1s, no network, no "
+    "remote AI) — so it is the CHEAPEST first probe for any company-internal "
+    "question.\n\n"
+    "INTENTION:\n"
+    "- Use this FIRST, before internal_search/read_internal_page, on any "
+    "internal topic — if the KB already holds the answer you save 30-90s per "
+    "query.\n"
+    "- Also use it to recall internal facts looked up in past sessions.\n\n"
+    "LIMITATIONS (judge results critically):\n"
+    "- It only contains what was previously fetched on this machine — "
+    "coverage is sparse and topic-dependent; absence of results means "
+    "'not cached', NOT 'does not exist internally'.\n"
+    "- Content can be up to ~30 days old (entries expire) and may be stale "
+    "relative to the live internal page.\n"
+    "- It is keyword (BM25) retrieval over text chunks, not an AI answer: "
+    "results are raw excerpts that may only partially match your need.\n\n"
+    "FALLBACK RULE (mandatory): after calling this tool, assess whether the "
+    "returned chunks actually and sufficiently answer the question with "
+    "adequate freshness. If results are empty, off-topic, too thin, or "
+    "possibly stale for a recency-sensitive question, you MUST fall back to "
+    "the live tools in the same turn: internal_search (find information on "
+    "the topic) and/or read_internal_page (a KB hit often names the source "
+    "URL — re-read it live for current full detail). Never present KB-only "
+    "results as complete when they are marginal; say what came from cache "
+    "and deepen with live search.\n\n"
+    "USAGE:\n"
+    "- Pass 1-8 short keyword-style queries in `queries` (distinct angles / "
+    "synonyms / system names) — local and fast, so probing broadly is free.\n"
+    "- Each result chunk is headed by "
+    "'===== [score] (age d old) from: <source query or URL>' — lower "
+    "(more negative) score = better match; use the age and source to judge "
+    "staleness and to pick URLs for read_internal_page."
+)
+
+# Compact guidance for the short quick-action surfaces (doubt clearing,
+# temporary LLM actions). Pairs with the other two internal hints.
+SEARCH_LOCAL_INTERNAL_KB_WORKFLOW_HINT = (
+    "\n\nYou also have a `search_local_internal_kb` tool: an instant (<1s) "
+    "local cache of previously-fetched internal answers. On internal topics "
+    "probe it FIRST with a few keyword queries; but it only holds what was "
+    "fetched before (possibly up to 30 days stale), so if results are empty, "
+    "thin, or off-topic you MUST fall back to `internal_search` / "
+    "`read_internal_page` for live answers instead of stopping."
+)
+
+
+def handle_search_local_internal_kb(args: dict, context: ToolContext) -> ToolCallResult:
+    """Search the local internal knowledge base (cached internal answers).
+
+    Runs the local ``internal-kb search`` script once per query. Purely
+    local SQLite FTS5/BM25 lookup — no network, sub-second. Only available
+    when the script exists locally (authorized host); never registered on
+    other deployments.
+
+    Parameters
+    ----------
+    args:
+        ``queries`` (list[str] or str, required), ``max_results_per_query``
+        (int, default 5, clamped 1-10), ``full`` (bool, default False —
+        return full chunks instead of 1200-char truncated ones).
+    context:
+        Tool execution context (unused; the script needs no API keys).
+
+    Returns
+    -------
+    ToolCallResult
+        Labeled per-query result chunks, or an error description.
+    """
+    import subprocess
+
+    queries = args.get("queries") or args.get("query") or []
+    if isinstance(queries, str):
+        queries = [queries]
+    queries = [q.strip() for q in queries if isinstance(q, str) and q.strip()]
+    if not queries:
+        return ToolCallResult(
+            tool_id="", tool_name="search_local_internal_kb", result="",
+            error="queries is required: pass 1-8 non-empty query strings.",
+        )
+    queries = queries[:8]
+
+    try:
+        n = int(args.get("max_results_per_query", 5) or 5)
+    except (TypeError, ValueError):
+        n = 5
+    n = max(1, min(n, 10))
+    full = bool(args.get("full", False))
+
+    logger.info(
+        "search_local_internal_kb invoked: %d queries, n=%d, full=%s",
+        len(queries), n, full,
+    )
+
+    sections = []
+    any_hits = False
+    for q in queries:
+        cmd = [INTERNAL_KB_SCRIPT_PATH, "search", "-n", str(n)]
+        if full:
+            cmd.append("--full")
+        cmd.append(q)
+        try:
+            proc = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=30
+            )
+        except subprocess.TimeoutExpired:
+            sections.append(f"## KB query: {q}\n(local KB search timed out)")
+            continue
+        except FileNotFoundError:
+            return ToolCallResult(
+                tool_id="", tool_name="search_local_internal_kb", result="",
+                error=f"internal KB script not found at {INTERNAL_KB_SCRIPT_PATH}.",
+            )
+        except Exception as exc:  # noqa: BLE001 — handlers must never raise
+            sections.append(f"## KB query: {q}\n(local KB search failed: {exc})")
+            continue
+        out = (proc.stdout or "").strip()
+        # internal-kb exits 1 with "no results" on stdout for a clean miss —
+        # treat that as a miss, not an error.
+        is_miss = not out or out.lower().splitlines()[0].startswith("no results")
+        if proc.returncode != 0 and not is_miss:
+            err_tail = (proc.stderr or "").strip()[-500:]
+            sections.append(
+                f"## KB query: {q}\n(local KB search exited with code "
+                f"{proc.returncode}: {err_tail or '(no stderr)'})"
+            )
+            continue
+        if is_miss:
+            sections.append(f"## KB query: {q}\n(no cached results)")
+            continue
+        any_hits = True
+        sections.append(f"## KB query: {q}\n{out}")
+
+    text = "\n\n".join(sections)
+    if not any_hits:
+        text += (
+            "\n\n[The local KB has NOTHING cached for these queries. This does "
+            "NOT mean the information doesn't exist internally — fall back to "
+            "internal_search (and read_internal_page for known URLs) NOW.]"
+        )
+    else:
+        text += (
+            "\n\n[Reminder: these are CACHED excerpts (possibly up to ~30 days "
+            "old, possibly partial). If they don't fully and freshly answer "
+            "the question, deepen with internal_search / read_internal_page "
+            "before answering.]"
+        )
+    return ToolCallResult(
+        tool_id="", tool_name="search_local_internal_kb",
+        result=_truncate_result(text),
+    )
+
+
+if INTERNAL_KB_AVAILABLE:
+    handle_search_local_internal_kb = register_tool(
+        name="search_local_internal_kb",
+        description=_SEARCH_LOCAL_INTERNAL_KB_DESCRIPTION,
+        parameters={
+            "type": "object",
+            "properties": {
+                "queries": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "1-8 short keyword-style queries (distinct angles, "
+                        "synonyms, system names). Local and instant, so "
+                        "probing broadly costs nothing."
+                    ),
+                },
+                "max_results_per_query": {
+                    "type": "integer",
+                    "description": "Result chunks per query (1-10). Default 5.",
+                    "default": 5,
+                },
+                "full": {
+                    "type": "boolean",
+                    "description": (
+                        "Return full untruncated chunks instead of "
+                        "1200-char previews. Default false."
+                    ),
+                    "default": False,
+                },
+            },
+            "required": ["queries"],
+        },
+        is_interactive=False,
+        category="search",
+    )(handle_search_local_internal_kb)
+
+
+# ---------------------------------------------------------------------------
+# Typed fast-path internal tools (moma/yaqs/bug/code/code-search) + ask_internal_kb —
+# host-gated the same way as internal_search (they all shell out to the SAME
+# jetski-query script, just with its typed --moma/--who/--team/--yaqs/--bug/
+# --code/--code-search flags instead of the general agentic query path).
+# ask_internal_kb additionally needs INTERNAL_KB_AVAILABLE since it calls
+# `internal-kb ask`.
+#
+# These are DIRECT, NON-AGENTIC binary calls on the remote host (~1-3s, no
+# LLM round trip) except search_code (itself an LLM agent, comparable
+# latency to internal_search) and ask_internal_kb (usually fast, sometimes
+# escalates to one live agentic call). Unlike internal_search/
+# read_internal_page, the fast-tier tools (search_moma/search_yaqs/get_bug/
+# search_code_standard) have NO agentic fallback on failure inside the
+# script — a miss/error means the calling model must itself fall back to
+# internal_search, not that this tool will retry more broadly.
+# ---------------------------------------------------------------------------
+
+_FASTPATH_NO_FALLBACK_NOTE = (
+    "\n\nNO AGENTIC FALLBACK ON FAILURE: this is a direct, deterministic "
+    "lookup with no broader search behind it. If it returns nothing, an "
+    "error, or an unhelpful result, you MUST fall back to `internal_search` "
+    "yourself in the same turn — this tool will not retry or broaden the "
+    "query on its own."
+)
+
+_SEARCH_MOMA_DESCRIPTION = (
+    "Direct lookup in Moma (Google's internal docs/people/teams directory) "
+    "— NOT an LLM call, ~1-3s, much faster than internal_search for this "
+    "specific kind of lookup.\n\n"
+    "MODES:\n"
+    "- `who`: look up a specific person by username (team, role, manager).\n"
+    "- `team`: find a team by name (members, description).\n"
+    "- `search`: semantic doc/topic search over Moma (the general case — use "
+    "this when you don't have a specific username or exact team name)."
+    + _FASTPATH_NO_FALLBACK_NOTE
+)
+
+_SEARCH_YAQS_DESCRIPTION = (
+    "Direct search of YAQS (Google's internal Stack-Overflow-equivalent Q&A "
+    "site) — NOT an LLM call, ~1-3s. Good for known technical blockers, "
+    "error messages, or 'has anyone hit this before' questions other "
+    "engineers have already answered."
+    + _FASTPATH_NO_FALLBACK_NOTE
+)
+
+_GET_BUG_DESCRIPTION = (
+    "Fetch a SPECIFIC Buganizer bug by its numeric ID — NOT an LLM call, "
+    "~1-3s. Use only when you already have a concrete bug ID (given by the "
+    "user, or surfaced by another tool/search result) and want its current "
+    "title/status/description/comments. This is NOT for searching bugs by "
+    "topic or keyword — that still requires `internal_search`.\n\n"
+    "FRESHNESS NOTE: bug status/comments change often; a cached "
+    "`search_local_internal_kb` hit for a bug may be more stale than for "
+    "other content (bugs use a shorter 3-day local-KB TTL) — prefer this "
+    "live tool over a cached KB hit when currency actually matters (e.g. "
+    "'is this still open')."
+    + _FASTPATH_NO_FALLBACK_NOTE
+)
+
+_SEARCH_CODE_DESCRIPTION = (
+    "Ask a codebase question via the internal CodeSearch agent — an LLM "
+    "that reads real code and synthesizes an answer. Typically ~6-15s+, "
+    "SLOWER than search_moma/search_yaqs/get_bug and comparable in latency "
+    "to a single internal_search query — it is itself an agent, not a "
+    "deterministic lookup. Use it for 'how does X work in the code' / "
+    "'where is Y implemented' questions; narrower and more precise for code "
+    "than internal_search, which has no direct code access. Pass `dir` to "
+    "scope the search to a known subpackage/path.\n\n"
+    "DIFFERENT FALLBACK BEHAVIOR THAN THE OTHER FAST-PATH TOOLS: an empty or "
+    "thin result here does NOT necessarily mean escalate to internal_search "
+    "— internal_search has no code access either. If you have a specific "
+    "file or CS (code search) link, prefer `read_internal_page` on it "
+    "instead; only use internal_search for non-code context around the "
+    "question.\n\n"
+    "PREFER `search_code_standard` FIRST when the question names a specific "
+    "symbol/function/string you already know — it's a deterministic ~1-3s "
+    "regex search (no LLM), faster and more precise than this agent for "
+    "that case. Reach for this tool only when you need synthesis/reasoning "
+    "across multiple files rather than a raw pattern match."
+)
+
+_SEARCH_CODE_STANDARD_DESCRIPTION = (
+    "Standard, regex-indexed Code Search (the internal `cs`/CodeSearch CLI, "
+    "see http://go/cs-reference) — NOT an LLM call, ~1-3s, deterministic. "
+    "Use when you already know roughly what you're looking for (an exact "
+    "symbol, function name, string literal, or regex pattern) and want fast, "
+    "precise, non-paraphrased matches with file:line locations. Query syntax "
+    "uses filters like `f:<path-regex>` (filename), `c:\"literal\"` (content), "
+    "`func:name`/`class:name`/`symbol:name` (definitions), `lang:python`, "
+    "`within:comment`, `-f:third_party` (exclude), combinable (implicit AND). "
+    "Pass `dir` to additionally scope results to a known subpackage/path.\n\n"
+    "PREFER `search_code` (the CodeSearch AGENT) INSTEAD when the question is "
+    "conceptual/reasoning-shaped ('how does X work', 'explain the flow of Y') "
+    "rather than 'find this specific thing' — that tool reads and synthesizes "
+    "across files instead of returning raw regex matches."
+    + _FASTPATH_NO_FALLBACK_NOTE
+)
+
+_ASK_INTERNAL_KB_DESCRIPTION = (
+    "Ask ONE focused internal-knowledge question with automatic KB-first, "
+    "live-fallback-if-needed behavior in a single call. Checks the local "
+    "cache (like `search_local_internal_kb`); if the best cached match is "
+    "good enough (by BM25 score) it returns instantly, otherwise it "
+    "automatically fires ONE live internal_search-style query and caches "
+    "the fresh answer for next time.\n\n"
+    "RESULT IS TIER-LABELED — read the tier before trusting the answer:\n"
+    "- `[TIER: cache-hit ...]` — answered from the local cache; still "
+    "subject to the same staleness caveats as `search_local_internal_kb`.\n"
+    "- `[TIER: live-single-shot ...]` — the cache was a poor match, so this "
+    "tool escalated automatically. IMPORTANT: a single live query is NOT "
+    "the same as internal_search's mandatory multi-round decompose + "
+    "self-critique + deepen workflow. Treat a live-single-shot result as a "
+    "first-round answer ONLY.\n\n"
+    "MANDATORY FALLBACK RULE: use this tool for narrow, single-fact lookups "
+    "where one focused query is plausibly sufficient (e.g. 'what does "
+    "system X do', 'who owns team Y'). For genuinely broad, multi-faceted, "
+    "or architecture-level questions that you already know need "
+    "decomposition, call `internal_search` directly instead — don't waste a "
+    "round trip through this tool first. And regardless of this tool's "
+    "tier, if the returned answer is thin, hedged ('no information found', "
+    "'unclear'), or the question is recency-sensitive and the tier is "
+    "cache-hit with a stale timestamp, you MUST still follow up with "
+    "`internal_search` before treating the answer as final."
+)
+
+# Compact one-line-per-tool guidance for the short quick-action surfaces
+# (doubt clearing, temporary LLM actions), same pattern as
+# INTERNAL_SEARCH_WORKFLOW_HINT / READ_INTERNAL_PAGE_WORKFLOW_HINT /
+# SEARCH_LOCAL_INTERNAL_KB_WORKFLOW_HINT above.
+FASTPATH_TOOLS_WORKFLOW_HINT = (
+    "\n\nYou also have typed fast-path internal tools: `search_moma` (Moma "
+    "docs/people/teams — pass mode search/who/team), `search_yaqs` "
+    "(internal Q&A site), `get_bug` (a specific numeric Buganizer bug "
+    "ID), and `search_code_standard` (a specific known symbol/string/pattern "
+    "in code — regex-indexed CodeSearch, go/cs-reference filter syntax: "
+    "f:/c:/func:/class:/symbol:/lang:/within:) — each ~1-3s, no LLM call, "
+    "with NO fallback on failure (if one misses, fall back to "
+    "`internal_search` yourself). `search_code` is "
+    "different: it IS an LLM agent (CodeSearch), latency comparable to "
+    "internal_search, for 'how does X work in the code' reasoning-shaped "
+    "questions — an "
+    "empty result there does not automatically mean escalate to "
+    "internal_search (no code access there either); prefer "
+    "`read_internal_page` on a known file/CS link instead, or "
+    "`search_code_standard` first if you already know the specific "
+    "symbol/string to find."
+)
+
+ASK_INTERNAL_KB_WORKFLOW_HINT = (
+    "\n\nYou also have an `ask_internal_kb` tool: one call, KB-first then "
+    "automatic live-fallback for a SINGLE focused internal question. Its "
+    "result is TIER-labeled ('cache-hit' vs 'live-single-shot'); treat "
+    "'live-single-shot' as a first-round answer only, NOT the same depth as "
+    "internal_search's multi-round workflow — for broad/multi-faceted "
+    "questions call `internal_search` directly instead."
+)
+
+
+def build_internal_tool_routing_hint(tool_names: list) -> str:
+    """Build a consolidated internal-tool routing decision tree for the system
+    prompt, including per-tool latency and a recommended ordering.
+
+    Only includes tools that are actually present in *tool_names*. Returns an
+    empty string when no internal tools are enabled (so callers can
+    unconditionally append the result without polluting the prompt on hosts
+    where the internal toolset is absent).
+
+    Parameters
+    ----------
+    tool_names:
+        List of enabled tool names (as used by ``get_openai_tools_param`` /
+        ``_get_enabled_tools``).
+
+    Returns
+    -------
+    str
+        A markdown block describing the routing decision tree, or ``""`` when
+        no internal tools are in *tool_names*.
+    """
+    # Map canonical tool name -> whether it's enabled.
+    present = {name: name in tool_names for name in (
+        "search_local_internal_kb",
+        "ask_internal_kb",
+        "search_moma",
+        "search_yaqs",
+        "get_bug",
+        "search_code",
+        "search_code_standard",
+        "internal_search",
+        "read_internal_page",
+    )}
+    if not any(present.values()):
+        return ""
+
+    lines = [
+        "",
+        "### Internal Tool Routing (follow this order for any company-internal question)",
+        "",
+        "Pick the FIRST entry whose shape matches the question. Do not skip "
+        "ahead unless the earlier tools have nothing or returned thin/stale "
+        "results — cheaper tiers are almost free and a hit saves 30-90s+.",
+        "",
+    ]
+
+    # Sequential numbering — only present tools get a slot, no gaps.
+    tier = [0]  # mutable counter for closure-free increment
+
+    def _num() -> str:
+        tier[0] += 1
+        return str(tier[0])
+
+    # Tier 1: local KB search (cheapest)
+    if present["search_local_internal_kb"]:
+        lines.append(
+            f"{_num()}. **search_local_internal_kb** — <1s, local only, no network. "
+            "ALWAYS the first probe for any internal question. Pass 1-8 "
+            "keyword-style queries (broad probing is free). Returns raw "
+            "cached excerpts; a miss means 'not cached', NOT 'doesn't exist'."
+        )
+
+    # Tier 2: ask_internal_kb (KB-first + critic + optional live fallback)
+    if present["ask_internal_kb"]:
+        lines.append(
+            f"{_num()}. **ask_internal_kb** — <1s (cache-hit) or 30-90s "
+            "(live-single-shot escalation). ONE narrow single-fact question "
+            "only (e.g. 'what does system X do', 'who owns team Y'). An LLM "
+            "critic judges the cached match; if insufficient it auto-fires "
+            "one live query and caches the answer. Result is TIER-labeled: "
+            "'cache-hit' = same staleness caveats as tier 1; 'live-single-"
+            "shot' = a first-round answer ONLY. Do NOT use for broad/"
+            "multi-faceted questions — skip to internal_search instead."
+        )
+
+    # Tier 3: typed fast-path lookups (specific, deterministic, ~1-3s)
+    fastpath_lines = []
+    if present["search_moma"]:
+        fastpath_lines.append(
+            "   - **search_moma** — ~1-3s. Moma docs/people/teams (mode: "
+            "search/who/team)."
+        )
+    if present["search_yaqs"]:
+        fastpath_lines.append(
+            "   - **search_yaqs** — ~1-3s. Internal Q&A site (YAQS)."
+        )
+    if present["get_bug"]:
+        fastpath_lines.append(
+            "   - **get_bug** — ~1-3s. A specific numeric Buganizer bug ID."
+        )
+    if present["search_code_standard"]:
+        fastpath_lines.append(
+            "   - **search_code_standard** — ~1-3s. Regex-indexed CodeSearch "
+            "for a known symbol/string/pattern (go/cs-reference filter "
+            "syntax)."
+        )
+    if present["search_code"]:
+        fastpath_lines.append(
+            "   - **search_code** — ~6-15s. CodeSearch LLM agent for "
+            "'how does X work in the code' reasoning-shaped questions (no "
+            "live fallback; if it misses, try read_internal_page on a known "
+            "file/CS link)."
+        )
+    if fastpath_lines:
+        lines.append(
+            f"{_num()}. **Typed fast paths** — ~1-3s each (search_code is "
+            "slower). Use when you have a specific, concrete lookup target:"
+        )
+        lines.extend(fastpath_lines)
+        lines.append(
+            "   NO agentic fallback on failure (except search_code) — if one "
+            "misses, fall back to internal_search yourself."
+        )
+
+    # Tier 4: internal_search (broad, multi-round, slow)
+    if present["internal_search"]:
+        lines.append(
+            f"{_num()}. **internal_search** — 30-90s per round, expect 2+ rounds "
+            "(typically 2-5 min total wall time). The ONLY tool for broad, "
+            "multi-faceted, or architecture-level internal questions. "
+            "Decompose into 2-5 self-contained queries per call (parallel "
+            "remotely), self-critique against a staff-engineer quality bar, "
+            "then fire deepening rounds. No call budget."
+        )
+
+    # Tier 5: read_internal_page (specific URL)
+    if present["read_internal_page"]:
+        lines.append(
+            f"{_num()}. **read_internal_page** — 30-90s per URL (pass multiple URLs "
+            "in one call, they fetch in parallel). Use when you ALREADY have "
+            "a specific internal URL (surfaced by internal_search, a fast "
+            "path, or given by the user) and want its full contents."
+        )
+
+    lines.append("")
+    lines.append(
+        "General rules: always start at the cheapest tier that could answer "
+        "the question; escalate downward only when results are empty, thin, "
+        "off-topic, or too stale. You MAY issue multiple tool calls in the "
+        "same response (they execute in parallel) — e.g. probe "
+        "search_local_internal_kb AND fire a search_moma lookup "
+        "simultaneously."
+    )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _run_fastpath(
+    tool_name: str, cmd: list, timeout_s: int = 45
+) -> ToolCallResult:
+    """Shared subprocess runner for the typed fast-path internal tools.
+
+    All of them are thin wrappers around a single ``jetski-query``/
+    ``internal-kb`` invocation with no query-list decomposition, so they
+    share one small, consistent error-handling path (timeout / missing
+    script / other exception / non-zero exit with no output).
+
+    Parameters
+    ----------
+    tool_name:
+        Name to stamp on the returned ``ToolCallResult`` and use in error
+        messages (must match the tool's registered name).
+    cmd:
+        Full argv list to run via ``subprocess.run``.
+    timeout_s:
+        Local subprocess timeout in seconds.
+
+    Returns
+    -------
+    ToolCallResult
+        Cleaned stdout on success, or an error description.
+    """
+    import subprocess
+
+    logger.info("%s invoked: cmd=%s", tool_name, cmd)
+    try:
+        proc = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout_s
+        )
+    except subprocess.TimeoutExpired:
+        return ToolCallResult(
+            tool_id="", tool_name=tool_name, result="",
+            error=(
+                f"{tool_name} timed out after {timeout_s}s locally. Fall "
+                "back to internal_search."
+            ),
+        )
+    except FileNotFoundError as exc:
+        return ToolCallResult(
+            tool_id="", tool_name=tool_name, result="",
+            error=f"{tool_name} script not found: {exc}.",
+        )
+    except Exception as exc:  # noqa: BLE001 — handlers must never raise
+        return ToolCallResult(
+            tool_id="", tool_name=tool_name, result="",
+            error=f"{tool_name} failed: {exc}",
+        )
+
+    out = (proc.stdout or "").replace("\r", "")
+    _noise_prefixes = ("Shared connection to ", "Connection to ")
+    text = "\n".join(
+        ln for ln in out.splitlines()
+        if not ln.strip().startswith(_noise_prefixes)
+    ).strip()
+
+    if proc.returncode != 0 and not text:
+        stderr_tail = (proc.stderr or "").replace("\r", "").strip()[-1000:]
+        return ToolCallResult(
+            tool_id="", tool_name=tool_name, result="",
+            error=(
+                f"{tool_name} exited with code {proc.returncode} and no "
+                f"output. stderr tail: {stderr_tail or '(empty)'}. Fall "
+                "back to internal_search."
+            ),
+        )
+    if not text:
+        text = f"({tool_name} returned no output)"
+    if proc.returncode != 0:
+        text += (
+            f"\n\n[note: {tool_name} exit code {proc.returncode} — treat as "
+            "a miss and consider falling back to internal_search]"
+        )
+    return ToolCallResult(
+        tool_id="", tool_name=tool_name, result=_truncate_result(text),
+    )
+
+
+def handle_search_moma(args: dict, context: ToolContext) -> ToolCallResult:
+    """Direct Moma lookup via jetski-query's --moma/--who/--team fast paths.
+
+    Parameters
+    ----------
+    args:
+        ``mode`` ("search" | "who" | "team", required), ``query`` (string,
+        required).
+    context:
+        Unused; the underlying script needs no API keys.
+
+    Returns
+    -------
+    ToolCallResult
+        Raw Moma lookup output, or an error description.
+    """
+    mode = str(args.get("mode", "search") or "search").strip().lower()
+    query = str(args.get("query", "") or "").strip()
+    if not query:
+        return ToolCallResult(
+            tool_id="", tool_name="search_moma", result="",
+            error="query is required.",
+        )
+    flag_by_mode = {"search": "--moma", "who": "--who", "team": "--team"}
+    flag = flag_by_mode.get(mode)
+    if not flag:
+        return ToolCallResult(
+            tool_id="", tool_name="search_moma", result="",
+            error=f"invalid mode '{mode}': must be one of search/who/team.",
+        )
+    cmd = [INTERNAL_SEARCH_SCRIPT_PATH, flag, query]
+    return _run_fastpath("search_moma", cmd)
+
+
+def handle_search_yaqs(args: dict, context: ToolContext) -> ToolCallResult:
+    """Direct YAQS search via jetski-query's --yaqs fast path.
+
+    Parameters
+    ----------
+    args:
+        ``query`` (string, required).
+    context:
+        Unused; the underlying script needs no API keys.
+
+    Returns
+    -------
+    ToolCallResult
+        Raw YAQS search output, or an error description.
+    """
+    query = str(args.get("query", "") or "").strip()
+    if not query:
+        return ToolCallResult(
+            tool_id="", tool_name="search_yaqs", result="",
+            error="query is required.",
+        )
+    cmd = [INTERNAL_SEARCH_SCRIPT_PATH, "--yaqs", query]
+    return _run_fastpath("search_yaqs", cmd)
+
+
+def handle_get_bug(args: dict, context: ToolContext) -> ToolCallResult:
+    """Direct Buganizer bug fetch via jetski-query's --bug fast path.
+
+    Parameters
+    ----------
+    args:
+        ``bug_id`` (string or int, required — numeric bug ID).
+    context:
+        Unused; the underlying script needs no API keys.
+
+    Returns
+    -------
+    ToolCallResult
+        Raw bug render output, or an error description.
+    """
+    import re
+
+    bug_id = str(args.get("bug_id", "") or "").strip()
+    if not bug_id:
+        return ToolCallResult(
+            tool_id="", tool_name="get_bug", result="",
+            error="bug_id is required.",
+        )
+    if not re.match(r"^\d+$", bug_id):
+        return ToolCallResult(
+            tool_id="", tool_name="get_bug", result="",
+            error=(
+                f"bug_id must be numeric (got '{bug_id}'). To search bugs "
+                "by topic/keyword, use internal_search instead."
+            ),
+        )
+    cmd = [INTERNAL_SEARCH_SCRIPT_PATH, "--bug", bug_id]
+    return _run_fastpath("get_bug", cmd)
+
+
+def handle_search_code(args: dict, context: ToolContext) -> ToolCallResult:
+    """Codebase question via jetski-query's --code fast path (CodeSearch
+    agent — itself LLM-backed, so latency is comparable to internal_search
+    rather than the other ~1-3s fast paths).
+
+    Parameters
+    ----------
+    args:
+        ``query`` (string, required), ``dir`` (string, optional — scope to
+        a subpackage/path), ``timeout_seconds`` (int, default 60, clamped
+        30-300).
+    context:
+        Unused; the underlying script needs no API keys.
+
+    Returns
+    -------
+    ToolCallResult
+        Raw CodeSearch agent answer, or an error description.
+    """
+    query = str(args.get("query", "") or "").strip()
+    if not query:
+        return ToolCallResult(
+            tool_id="", tool_name="search_code", result="",
+            error="query is required.",
+        )
+    directory = str(args.get("dir", "") or "").strip()
+    try:
+        timeout_s = int(args.get("timeout_seconds", 60) or 60)
+    except (TypeError, ValueError):
+        timeout_s = 60
+    timeout_s = max(30, min(timeout_s, 300))
+
+    cmd = [INTERNAL_SEARCH_SCRIPT_PATH, "--code", query]
+    if directory:
+        cmd += ["--dir", directory]
+    return _run_fastpath("search_code", cmd, timeout_s=timeout_s + 30)
+
+
+def handle_search_code_standard(args: dict, context: ToolContext) -> ToolCallResult:
+    """Codebase question via jetski-query's --code-search fast path (standard,
+    regex-indexed Code Search — NOT an LLM call, deterministic, ~1-3s).
+
+    Parameters
+    ----------
+    args:
+        ``query`` (string, required — go/cs-reference filter syntax, e.g.
+        ``func:calculateTotal`` or ``f:foo\\.py c:"deprecated = true"``),
+        ``dir`` (string, optional — scope to a subpackage/path).
+    context:
+        Unused; the underlying script needs no API keys.
+
+    Returns
+    -------
+    ToolCallResult
+        Raw Code Search matches (file:line + snippet), or an error
+        description.
+    """
+    query = str(args.get("query", "") or "").strip()
+    if not query:
+        return ToolCallResult(
+            tool_id="", tool_name="search_code_standard", result="",
+            error="query is required.",
+        )
+    directory = str(args.get("dir", "") or "").strip()
+    cmd = [INTERNAL_SEARCH_SCRIPT_PATH, "--code-search", query]
+    if directory:
+        cmd += ["--dir", directory]
+    return _run_fastpath("search_code_standard", cmd)
+
+
+def handle_ask_internal_kb(args: dict, context: ToolContext) -> ToolCallResult:
+    """KB-first, live-fallback-if-needed single-question lookup via
+    `internal-kb ask`.
+
+    Auto-escalates to one live query when the cached best match is a poor
+    fit (BM25 score above the skip-score threshold); the returned text is
+    tier-labeled (cache-hit vs live-single-shot) so the calling model can
+    judge whether the answer is sufficient or whether a full
+    `internal_search` multi-round pass is still warranted.
+
+    Parameters
+    ----------
+    args:
+        ``query`` (string, required — single focused question, not a
+        list), ``skip_score`` (float, default -3.0), ``no_live`` (bool,
+        default False — KB-only, never escalate), ``full`` (bool, default
+        False — untruncated chunk).
+    context:
+        Unused; the underlying script needs no API keys.
+
+    Returns
+    -------
+    ToolCallResult
+        Tier-labeled answer text, or an error description.
+    """
+    query = str(args.get("query", "") or "").strip()
+    if not query:
+        return ToolCallResult(
+            tool_id="", tool_name="ask_internal_kb", result="",
+            error="query is required (pass ONE focused question).",
+        )
+    try:
+        skip_score = float(args.get("skip_score", -3.0) or -3.0)
+    except (TypeError, ValueError):
+        skip_score = -3.0
+    no_live = bool(args.get("no_live", False))
+    full = bool(args.get("full", False))
+
+    cmd = [
+        INTERNAL_KB_SCRIPT_PATH, "ask", query,
+        "--skip-score", str(skip_score),
+    ]
+    if no_live:
+        cmd.append("--no-live")
+    if full:
+        cmd.append("--full")
+
+    # Live fallback (when it fires) costs as long as one internal_search
+    # query; give it that much room locally on top of the KB-only case.
+    result = _run_fastpath("ask_internal_kb", cmd, timeout_s=210)
+    if result.error or not result.result:
+        return result
+
+    text = result.result
+    first_line = text.splitlines()[0] if text else ""
+    if first_line.startswith("[KB hit"):
+        tier_note = (
+            "[TIER: cache-hit — this is a CACHED excerpt, possibly stale. "
+            "If it doesn't fully and freshly answer the question, fall "
+            "back to internal_search.]\n\n"
+        )
+    elif first_line.startswith("[live answer]"):
+        tier_note = (
+            "[TIER: live-single-shot — ONE live query, escalated because "
+            "the cache had no good match. This is a first-round answer "
+            "ONLY, not internal_search's multi-round decompose+critique+"
+            "deepen workflow. For broad/multi-faceted questions, still "
+            "follow up with internal_search.]\n\n"
+        )
+    else:
+        tier_note = ""
+
+    body_len = len(text) - len(first_line)
+    if tier_note and body_len < 200:
+        tier_note += (
+            "[warning: answer is short — may be thin/incomplete; consider "
+            "internal_search to deepen.]\n\n"
+        )
+    return ToolCallResult(
+        tool_id="", tool_name="ask_internal_kb",
+        result=_truncate_result(tier_note + text),
+    )
+
+
+if INTERNAL_SEARCH_AVAILABLE:
+    handle_search_moma = register_tool(
+        name="search_moma",
+        description=_SEARCH_MOMA_DESCRIPTION,
+        parameters={
+            "type": "object",
+            "properties": {
+                "mode": {
+                    "type": "string",
+                    "enum": ["search", "who", "team"],
+                    "description": (
+                        "'search' for topic/doc search, 'who' for a "
+                        "specific username, 'team' for a specific team "
+                        "name."
+                    ),
+                    "default": "search",
+                },
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Search term, username, or team name depending on "
+                        "mode."
+                    ),
+                },
+            },
+            "required": ["mode", "query"],
+        },
+        is_interactive=False,
+        category="search",
+    )(handle_search_moma)
+
+    handle_search_yaqs = register_tool(
+        name="search_yaqs",
+        description=_SEARCH_YAQS_DESCRIPTION,
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "YAQS search query.",
+                },
+            },
+            "required": ["query"],
+        },
+        is_interactive=False,
+        category="search",
+    )(handle_search_yaqs)
+
+    handle_get_bug = register_tool(
+        name="get_bug",
+        description=_GET_BUG_DESCRIPTION,
+        parameters={
+            "type": "object",
+            "properties": {
+                "bug_id": {
+                    "type": "string",
+                    "description": "Numeric Buganizer bug ID.",
+                },
+            },
+            "required": ["bug_id"],
+        },
+        is_interactive=False,
+        category="search",
+    )(handle_get_bug)
+
+    handle_search_code = register_tool(
+        name="search_code",
+        description=_SEARCH_CODE_DESCRIPTION,
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Codebase question for the CodeSearch agent.",
+                },
+                "dir": {
+                    "type": "string",
+                    "description": (
+                        "Optional path to scope the search to a known "
+                        "subpackage/directory."
+                    ),
+                },
+                "timeout_seconds": {
+                    "type": "integer",
+                    "description": (
+                        "Remote timeout in seconds (30-300). Default 60."
+                    ),
+                    "default": 60,
+                },
+            },
+            "required": ["query"],
+        },
+        is_interactive=False,
+        category="search",
+    )(handle_search_code)
+
+    handle_search_code_standard = register_tool(
+        name="search_code_standard",
+        description=_SEARCH_CODE_STANDARD_DESCRIPTION,
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Code Search query using go/cs-reference filter "
+                        "syntax (f:/c:/func:/class:/symbol:/lang:/within:/ "
+                        "etc, implicitly AND-combined)."
+                    ),
+                },
+                "dir": {
+                    "type": "string",
+                    "description": (
+                        "Optional path to scope the search to a known "
+                        "subpackage/directory."
+                    ),
+                },
+            },
+            "required": ["query"],
+        },
+        is_interactive=False,
+        category="search",
+    )(handle_search_code_standard)
+
+if INTERNAL_SEARCH_AVAILABLE and INTERNAL_KB_AVAILABLE:
+    handle_ask_internal_kb = register_tool(
+        name="ask_internal_kb",
+        description=_ASK_INTERNAL_KB_DESCRIPTION,
+        parameters={
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "ONE focused internal-knowledge question (not a "
+                        "list — use internal_search directly if you already "
+                        "need multiple angles)."
+                    ),
+                },
+                "skip_score": {
+                    "type": "number",
+                    "description": (
+                        "BM25 threshold below which a cached hit is "
+                        "considered good enough (lower = stricter). "
+                        "Default -3.0."
+                    ),
+                    "default": -3.0,
+                },
+                "no_live": {
+                    "type": "boolean",
+                    "description": (
+                        "KB-only: never escalate to a live query even on a "
+                        "poor cache match. Default false."
+                    ),
+                    "default": False,
+                },
+                "full": {
+                    "type": "boolean",
+                    "description": (
+                        "Return the full untruncated cached chunk instead "
+                        "of a 2000-char preview. Default false."
+                    ),
+                    "default": False,
+                },
+            },
+            "required": ["query"],
+        },
+        is_interactive=False,
+        category="search",
+    )(handle_ask_internal_kb)
 
 
 # ---------------------------------------------------------------------------
@@ -6783,6 +7828,31 @@ if INTERNAL_SEARCH_AVAILABLE:
     TIER_1_TOOLS.append("read_internal_page")
     _TIER_1_BASE.append("read_internal_page")
     DOUBT_DEFAULT_TOOLS.append("read_internal_page")
+
+# search_local_internal_kb is in the same internal-knowledge group and gets
+# the same always-on treatment wherever ITS script exists (own gate: it is a
+# separate local script, so it can exist without internal-search and vice
+# versa). It is the cheap first probe; the live tools remain the fallback.
+if INTERNAL_KB_AVAILABLE:
+    TIER_1_TOOLS.append("search_local_internal_kb")
+    _TIER_1_BASE.append("search_local_internal_kb")
+    DOUBT_DEFAULT_TOOLS.append("search_local_internal_kb")
+
+# Typed fast-path internal tools (search_moma/search_yaqs/get_bug/
+# search_code/search_code_standard) ride the same always-on treatment as
+# internal_search — same host-gate (INTERNAL_SEARCH_AVAILABLE), since they
+# all shell out to the same jetski-query script. ask_internal_kb additionally
+# needs the local KB script (INTERNAL_KB_AVAILABLE).
+if INTERNAL_SEARCH_AVAILABLE:
+    for _fastpath_tool in ("search_moma", "search_yaqs", "get_bug", "search_code", "search_code_standard"):
+        TIER_1_TOOLS.append(_fastpath_tool)
+        _TIER_1_BASE.append(_fastpath_tool)
+        DOUBT_DEFAULT_TOOLS.append(_fastpath_tool)
+
+if INTERNAL_SEARCH_AVAILABLE and INTERNAL_KB_AVAILABLE:
+    TIER_1_TOOLS.append("ask_internal_kb")
+    _TIER_1_BASE.append("ask_internal_kb")
+    DOUBT_DEFAULT_TOOLS.append("ask_internal_kb")
 
 
 _adaptive_tier1_cache = {}  # {user_email: (timestamp, result)}

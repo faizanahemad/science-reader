@@ -1480,6 +1480,7 @@ const DoubtManager = {
                                     assistantBody.html(displayText.replace(/\n/g, '<br>'));
                                 }
                                 if (typeof renderMermaidIn === 'function') renderMermaidIn(assistantBody);
+                                if (typeof renderGraphvizIn === 'function') renderGraphvizIn(assistantBody);
                             });
                         }
                     }
@@ -1498,6 +1499,7 @@ const DoubtManager = {
                             assistantBody.html(_finalDisplayText.replace(/\n/g, '<br>'));
                         }
                         if (typeof renderMermaidIn === 'function') renderMermaidIn(assistantBody);
+                        if (typeof renderGraphvizIn === 'function') renderGraphvizIn(assistantBody);
                         // Final processing
                         if (part.doubt_id) {
                             doubtId = part.doubt_id;

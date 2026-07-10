@@ -592,11 +592,12 @@ location /ws/terminal {
  Multi-step agentic loop: up to 10 tool-call iterations per turn (configurable `max_iterations`), with `tool_choice="none"` on the final iteration to force text output. Zero-cost `request_tools` expansions (max 2/turn) don't consume iteration budget.
  Interactive tools (ask_clarification, pkb_propose_memory) pause streaming, show a Bootstrap modal for user input (MCQ questions or editable proposed claims), wait up to 120s via `threading.Event`, then resume.
  Server-side tools (web search, document lookup, PKB operations, code execution, etc.) execute silently with inline status indicators.
- **5-mode tool selection** replaces the old master toggle + selectpicker:
+ **6-mode tool selection** replaces the old master toggle + selectpicker:
    - `hybrid` (default): Fast LLM (VERY_CHEAP_LLM) selects 15-25 relevant tools per turn + `request_tools` fallback meta-tool. Best balance of token savings and capability.
    - `smart`: Same LLM selection but no fallback. Slightly fewer tokens.
    - `tiered`: Adaptive core set (~12 tools personalized from user's usage history) + `request_tools` for on-demand loading. Most token-efficient.
    - `manual`: User picks specific tools from Bootstrap Select multi-select dropdown (11 category optgroups, 98 tools).
+   - `internal_only`: ONLY the host-gated internal-knowledge tool group (`search_local_internal_kb` + `ask_internal_kb` + `internal_search` + `read_internal_page` + `search_moma` + `search_yaqs` + `get_bug` + `search_code` + `search_code_standard`) — no web/perplexity search, no artefact auto-include; dedicated preamble. Resolves to no tools on hosts without the internal-search script. See `features/tool_calling/internal_search_tool.md` and `features/tool_calling/internal_search_fastpath_tools.md`.
    - `none`: Plain text, zero tool overhead.
  `request_tools` meta-tool: LLM can load additional tools mid-turn. Description dynamically lists all available-but-not-loaded tool names. Zero-cost when called alone (doesn't use iteration budget).
  Adaptive Tier 1: personalized per-user core tool set (fixed base of 5 + most-frequently-used from last 30 days via tool_call_history DB). Falls back to static 12-tool set for new users.
@@ -1098,8 +1099,10 @@ The `@pkb:claim_id` prefix is supported as a legacy alias alongside `@memory:` a
     - plots/images (served via `/get_conversation_output_docs/...`)
     - generated files with downloadable links
   - handle diagrams:
-    - Mermaid blocks (detected and rendered by the client)
-    - Draw.io XML payloads (saved + links for editing and downloading)
+    - **Mermaid** blocks (client: mermaid.js via `renderMermaidIn`)
+    - **Graphviz DOT** blocks fenced as `dot` / `graphviz` / `gv` (client: lazy `@viz-js/viz` via `LazyLibs.loadViz` + `renderGraphvizIn`)
+    - Draw.io XML payloads (saved under conversation docs + edit/download links; lazy drawio-renderer)
+    - Diagram preamble (`Diagram` / `/preamble_diagram`) injects `diagram_instructions`; `/draw` is a softer need-diagram nudge; Deep Learn also fires a parallel Visual tab (`visual_tab_prompt` may emit Mermaid and/or DOT). Details: `documentation/features/diagramming/README.md`.
 
 **API**
 - Main flow: `POST /send_message/<conversation_id>` (streaming)
@@ -1113,7 +1116,7 @@ The `@pkb:claim_id` prefix is supported as a legacy alias alongside `@memory:` a
   - a streaming parser,
   - Markdown rendering,
   - special-case handling for `<slide-presentation>` wrappers,
-  - a way to render mermaid/drawio or at least open in browser.
+  - a way to render mermaid, Graphviz DOT (viz-js), and drawio — or at least open them in a browser.
 
 ---
 
@@ -1566,7 +1569,7 @@ The extension uses two categories of endpoints:
 
 ### Execution and artifact generation
 - Code execution in a persistent environment + automatic embedding of outputs.
-- Diagram generation and publishing (Mermaid + Draw.io) with shareable links.
+- Diagram generation and publishing (Mermaid, Graphviz DOT via `@viz-js/viz`, Draw.io) with client SVG render and/or shareable edit links.
 
 ### Native agentic tool calling
 - LLM can autonomously invoke 56 tools mid-response (search, document lookup, PKB queries, PKB NL commands, code execution, artefact management, prompts).
