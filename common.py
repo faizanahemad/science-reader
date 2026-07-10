@@ -62,6 +62,12 @@ MAX_TIME_TO_WAIT_FOR_WEB_RESULTS = int(
 THRESHOLD_SIM_FOR_SEARCH_RESULT = 0.5
 FILLER_MODEL = "Filler"
 
+# Synthetic main-model id: runs the host-local ``gemini-rag-query`` CLI
+# (moma → parallel read → Gemini RAG) with a lean payload (user query +
+# running summary only). Always invoked with --detailed. Host-gated via
+# code_common.gemini_rag_llm.GEMINI_RAG_AVAILABLE.
+GEMINI_RAG_MODEL = "local/gemini-rag"
+
 # If enabled, persist `<answer_tldr>` content inside the saved assistant message text.
 # This ensures TLDR survives page reloads without requiring UI to stitch it back together
 # from separate metadata fields.

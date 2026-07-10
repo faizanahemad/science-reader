@@ -83,6 +83,16 @@ def _cc_call_llm_with_fallback(*, model_name, stream, **kwargs):
     """
     fallback_model = VERY_CHEAP_LLM[0]
 
+    # Host-local synthetic backends (e.g. local/gemini-rag) are not OpenRouter
+    # models — do NOT fall back to a cheap OpenRouter model on failure. That
+    # would silently change the answer source for an internal-RAG selection.
+    try:
+        from code_common.gemini_rag_llm import is_gemini_rag_model as _is_gr
+    except Exception:  # pragma: no cover
+        _is_gr = lambda _n: False  # type: ignore
+    if _is_gr(model_name):
+        fallback_model = None
+
     def _run(model):
         return _cc_call_llm(model_name=model, stream=stream, **kwargs)
 

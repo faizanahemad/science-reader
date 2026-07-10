@@ -12126,10 +12126,21 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         # logger.info(f"link_result_text: {link_result_text}")
         # logger.info(f"conversation_docs_answer: {conversation_docs_answer}")
         # logger.info(f"Prompt length: {len(enc.encode(prompt))}, prompt - ```\n{prompt}\n```")
-        # Resolve tools_config future (started ~2700 lines earlier for max parallelism)
+        # Resolve tools_config future (started ~2700 lines earlier for max parallelism).
+        # Gemini RAG is a self-contained host-CLI model — never attach OpenAI
+        # tools to that path (the CLI owns discovery/reading/traversal).
+        _gemini_rag_selected = (
+            model_name == GEMINI_RAG_MODEL
+            if not isinstance(model_name, (list, tuple))
+            else (len(model_name) == 1 and model_name[0] == GEMINI_RAG_MODEL)
+        )
         try:
-            tools_config = sleep_and_get_future_result(_tools_config_future, sleep_time=0.1, timeout=15)
+            tools_config = sleep_and_get_future_result(
+                _tools_config_future, sleep_time=0.1, timeout=15
+            )
         except (TimeoutError, Exception):
+            tools_config = None
+        if _gemini_rag_selected:
             tools_config = None
         logger.warning(
             "[reply] tools_config resolved: %s (count=%d)",
@@ -12317,6 +12328,79 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         elif model_name == FILLER_MODEL:
             # main_ans_gen = a generator that yields Acked.
             main_ans_gen = make_stream(["Acked"], do_stream=True)
+        elif (
+            (model_name == GEMINI_RAG_MODEL)
+            if not isinstance(model_name, (list, tuple))
+            else (len(model_name) == 1 and model_name[0] == GEMINI_RAG_MODEL)
+        ) or (
+            isinstance(model_name, (list, tuple))
+            and any(m == GEMINI_RAG_MODEL for m in model_name)
+            and len(model_name) == 1
+        ):
+            # Host-local gemini-rag-query CLI. Keep context LEAN: user question +
+            # running summary only (the heavy moma/read/RAG loop is inside the CLI).
+            # Do not pass tools, lengthy preambles, or full history.
+            _gr_model = (
+                model_name[0]
+                if isinstance(model_name, (list, tuple))
+                else model_name
+            )
+            yield {
+                "text": "",
+                "status": (
+                    f"Calling host-local Gemini RAG ({_gr_model}) with "
+                    "user query + running summary only (detailed) ..."
+                ),
+            }
+            from common import get_first_last_parts
+
+            _raw_q = (
+                (query.get("messageText") if isinstance(query, dict) else None)
+                or original_user_query
+                or ""
+            )
+            _q = get_first_last_parts(str(_raw_q), first_n=2000, last_n=600)
+            _sum = get_first_last_parts(
+                (getattr(self, "running_summary", None) or summary_text or ""),
+                first_n=1800,
+                last_n=600,
+            )
+            if _sum.strip():
+                _gr_prompt = (
+                    f"{_q}\n\n"
+                    "Conversation context (compressed summary — use only if "
+                    "relevant to the question above):\n"
+                    f"{_sum}"
+                )
+            else:
+                _gr_prompt = _q
+            # Minimal system so CallLLm base_system still allows summary recovery
+            # without dumping the full chart/chat preamble.
+            _gr_system = (
+                "You are answering via a host-local internal RAG pipeline. "
+                "Use the user question as the primary query. The conversation "
+                "summary (if present in the user message) is compressed prior "
+                "context only."
+            )
+            llm = CallLLm(
+                self.get_api_keys(),
+                model_name=_gr_model,
+                use_gpt4=True,
+                use_16k=True,
+            )
+            main_ans_gen = llm(
+                _gr_prompt,
+                images=[],
+                system=_gr_system,
+                temperature=0.2,
+                stream=True,
+            )
+            main_ans_gen = make_stream(
+                [main_ans_gen]
+                if isinstance(main_ans_gen, str)
+                else main_ans_gen,
+                do_stream=True,
+            )
         elif agent is not None and not is_slide_agent:
             agent_type = type(agent).__name__
             if isinstance(model_name, (list, tuple)):
@@ -12916,7 +13000,17 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         stream_iter_start = time.perf_counter()
         first_stream_chunk_logged = False
         _tldr_future = None
-        _tldr_skip = (model_name == FILLER_MODEL or agent is not None or not checkboxes.get("enable_answer_tldr", False))
+        _gemini_rag_selected = (
+            model_name == GEMINI_RAG_MODEL
+            if not isinstance(model_name, (list, tuple))
+            else (len(model_name) == 1 and model_name[0] == GEMINI_RAG_MODEL)
+        )
+        _tldr_skip = (
+            model_name == FILLER_MODEL
+            or _gemini_rag_selected
+            or agent is not None
+            or not checkboxes.get("enable_answer_tldr", False)
+        )
         for dcit in main_ans_gen:
             if not first_stream_chunk_logged:
                 time_logger.info(
@@ -15736,6 +15830,17 @@ def model_name_to_canonical_name(model_name):
         model_name = "meituan/longcat-flash-chat"
     elif model_name == "inception/mercury-2":
         model_name = "inception/mercury-2"
+
+    # Synthetic host-local RAG model (CLI backend; see code_common.gemini_rag_llm).
+    # Accept the canonical id plus a few UI-friendly aliases.
+    elif (
+        model_name == GEMINI_RAG_MODEL
+        or model_name == "gemini-rag-query"
+        or model_name == "Gemini RAG"
+        or model_name == "Gemini RAG (detailed)"
+        or model_name == "Gemini-RAG"
+    ):
+        model_name = GEMINI_RAG_MODEL
 
     elif (
         model_name in CHEAP_LONG_CONTEXT_LLM

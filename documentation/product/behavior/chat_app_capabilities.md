@@ -677,6 +677,7 @@ location /ws/terminal {
 - Multiple model names are passed in `checkboxes.main_model` (array).
 - The server normalizes them and, when appropriate, uses an `NResponseAgent` to orchestrate streaming.
 - The underlying multi-model streamer executes models in parallel but displays their outputs sequentially (order of first response).
+- **Host-local synthetic model `local/gemini-rag`**: host-gated CLI wrapper (requires `~/.local/bin/gemini-rag-query` or `GEMINI_RAG_SCRIPT_PATH`). When selected as Main Model, the reply path does **not** send the full chat prompt / tools / preambles. It passes only the **user question + running summary** into `CallLLm` → `code_common.gemini_rag_llm`, which invokes `gemini-rag-query --detailed` (moma discovery → parallel page reads → Gemini synthesis + FAQ/next expansion). Failures do not fall back to OpenRouter. Env kill-switch: `GEMINI_RAG_DISABLED=1`.
 
 **Formatting of multi-model output**
 - Each model’s response is wrapped in a `<details>` block with a header like “Response from <model>”.

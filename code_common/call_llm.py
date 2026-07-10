@@ -113,6 +113,15 @@ def _get_token_limit(model_name: str) -> int:
         return MODEL_TOKEN_LIMITS["cheap_long_context"]
     elif model_name in LONG_CONTEXT_LLM:
         return MODEL_TOKEN_LIMITS["long_context"]
+    # Synthetic local RAG models: context is intentionally tiny (query + summary).
+    elif model_name == "local/gemini-rag" or (
+        isinstance(model_name, str)
+        and (
+            model_name.endswith("/gemini-rag")
+            or model_name in ("gemini-rag-query", "Gemini RAG", "Gemini RAG (detailed)")
+        )
+    ):
+        return MODEL_TOKEN_LIMITS["default"]
     elif "claude-fable" in model_name:
         return MODEL_TOKEN_LIMITS["gemini_flash"]
     elif model_name in EXPENSIVE_LLM:
@@ -1098,12 +1107,17 @@ def call_llm(
        Provide `messages` directly as an array of message dicts.
        When `messages` is provided, `text`, `images`, and `system` are ignored.
 
+    Local synthetic models (``local/gemini-rag``) short-circuit before
+    OpenRouter and keep only a lean user-query + running-summary payload
+    for a host CLI.
+
     Parameters
     ----------
     keys : dict
-        Credentials dict. Must include `OPENROUTER_API_KEY`.
+        Credentials dict. Must include `OPENROUTER_API_KEY` (unused by local models).
     model_name : str
-        OpenRouter model identifier (e.g., "openai/gpt-4o-mini").
+        OpenRouter model identifier (e.g., "openai/gpt-4o-mini") or local
+        synthetic id (e.g. ``local/gemini-rag``).
     text : str
         User prompt (ignored if `messages` is provided).
     images : list
@@ -1157,6 +1171,30 @@ def call_llm(
     ... ]
     >>> out = call_llm(keys, "openai/gpt-4o-mini", messages=msgs, stream=False)
     """
+    # Local synthetic models short-circuit OpenRouter entirely.
+    try:
+        from code_common.gemini_rag_llm import (
+            call_gemini_rag_llm,
+            is_gemini_rag_model,
+        )
+    except Exception:  # pragma: no cover - optional module edges
+        is_gemini_rag_model = lambda _n: False  # type: ignore
+        call_gemini_rag_llm = None  # type: ignore
+
+    if is_gemini_rag_model(model_name) and call_gemini_rag_llm is not None:
+        return call_gemini_rag_llm(
+            keys=keys,
+            model_name=model_name,
+            text=text or "",
+            images=images or [],
+            temperature=temperature,
+            stream=stream,
+            system=system,
+            messages=messages,
+            tools=tools,
+            tool_choice=tool_choice,
+        )
+
     # If messages is provided, use it directly (after processing images within)
     if messages is not None:
         processed_messages = _process_images_in_messages(messages)
