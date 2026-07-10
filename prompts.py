@@ -300,7 +300,14 @@ Give me all the concepts, technical terms, principles of topics discussed and ot
 Then think, in this era of agentic coding and LLMs, I as a senior engineer don't need to know all these concepts, rather I need to know trade offs, caveats, and be ready to ask the right questions to another engineer or LLM to ensure I design a system properly. So what are those caveats, thought models, questions that I need to think and ask.
 """
 
-visual_tab_prompt = """You are an expert at creating visual explanations using diagrams. Create ASCII art diagrams AND at least one of Mermaid or Graphviz DOT diagrams that visually explain the key concepts in the user's question. Prefer Graphviz DOT for dependency graphs, trees, hierarchies, and precise layouts; prefer Mermaid for sequence/process flows and mindmaps.
+visual_tab_prompt = """You are an expert at creating visual explanations using diagrams. Create diagrams that visually explain the key concepts in the user's question.
+
+**Format preference order (strict):**
+1. **Graphviz DOT (most preferred)** — default for almost all structure: flows, pipelines, dependencies, trees, FSMs, hierarchies, architecture.
+2. **ASCII art (second)** — small box/arrow/tree/table sketches when a quick plaintext diagram is enough and fully legible.
+3. **Mermaid (last resort only)** — only when DOT and ASCII cannot express the idea clearly (heavy multi-lifeline sequence, Gantt, detailed mindmap, journey, quadrant/XY, UML-heavy class), or the user explicitly asks for Mermaid.
+
+Default plan for a Visual tab: prefer **DOT first** (1+ focused ```dot``` diagrams). Add ASCII when it helps skimming. Omit Mermaid unless a specialized case above applies.
 
 ## User's Question
 {query}
@@ -309,24 +316,10 @@ visual_tab_prompt = """You are an expert at creating visual explanations using d
 {summary}
 
 Structure your answer as:
-1. **ASCII Diagram(s)** — box/arrow/tree/table art showing structure or flow. Plain text characters only. Prefer multiple simple diagrams over one complex one — each should focus on one aspect.
-2. **Rendered Diagram(s)** — include Mermaid and/or Graphviz DOT:
-   - Mermaid: wrap each in ```mermaid fences (flowchart, sequence, class, state, mindmap).
-   - Graphviz DOT: wrap each in ```dot fences (aliases ```graphviz / ```gv also ok). Prefer `digraph G {{ ... }}` with quoted labels.
-   Multiple focused diagrams preferred over one sprawling one.
-3. **One-paragraph explanation** — briefly describe what the diagrams show.
-
-## Mermaid Syntax Rules (STRICT — violations break rendering)
-- Node labels: if a label contains parentheses, brackets, braces, commas, colons, slashes, quotes, or any other punctuation, wrap the WHOLE label in double quotes: `A["compute f(x)"]` — NEVER `A[compute f(x)]`.
-- Edge labels (text on arrows): never use parentheses or special characters inside `|...|` or after `--`. Use quoted labels: `A -->|"calls f(x)"| B`. Prefer plain words: `A -->|calls| B`.
-- Never use round-bracket node shape `A(text)` when the text itself contains parentheses — use `A["text"]` instead.
-- Node IDs: plain alphanumerics only (e.g., A, step1, userDB). No spaces, dots, or dashes in IDs.
-- Do not use `end` (lowercase) as a node ID or label word by itself; write `End` or `finish`.
-- Subgraph titles with spaces or punctuation must be quoted: `subgraph "My Title (v2)"`.
-- Sequence diagrams: participant names with spaces need `participant A as "Long Name"`.
-- Avoid HTML tags, markdown, `&`, `<`, `>` inside labels; spell out `and`.
-- Keep one statement per line; no trailing semicolons needed; no tabs (use spaces).
-- Use only plain ASCII in diagram code — no unicode arrows, em-dashes, or smart quotes.
+1. **Primary rendered diagram(s)** — Graphviz DOT in ```dot fences (aliases ```graphviz / ```gv ok). Prefer `digraph G {{ ... }}` with quoted labels. Multiple focused diagrams over one sprawling one.
+2. **ASCII Diagram(s)** — optional second channel: box/arrow/tree/table art. Plain text only. Keep simple.
+3. **Mermaid (omit by default)** — only if specialized (sequence/Gantt/mindmap/journey/chart/UML-class) and DOT/ASCII are worse; wrap in ```mermaid fences.
+4. **One-paragraph explanation** — briefly describe what the diagrams show.
 
 ## Graphviz DOT Syntax Rules (STRICT)
 - Full valid DOT only inside ```dot fences. Prefer digraph; declare `digraph G {{ ... }}`.
@@ -343,6 +336,18 @@ digraph G {{
   A -> B -> C;
 }}
 ```
+
+## Mermaid Syntax Rules (STRICT — only if you must use Mermaid)
+- Node labels: if a label contains parentheses, brackets, braces, commas, colons, slashes, quotes, or any other punctuation, wrap the WHOLE label in double quotes: `A["compute f(x)"]` — NEVER `A[compute f(x)]`.
+- Edge labels: never use parentheses or special characters inside `|...|` or after `--`. Use quoted labels: `A -->|"calls f(x)"| B`. Prefer plain words: `A -->|calls| B`.
+- Never use round-bracket node shape `A(text)` when the text itself contains parentheses — use `A["text"]` instead.
+- Node IDs: plain alphanumerics only (e.g., A, step1, userDB). No spaces, dots, or dashes in IDs.
+- Do not use `end` (lowercase) as a node ID or label word by itself; write `End` or `finish`.
+- Subgraph titles with spaces or punctuation must be quoted: `subgraph "My Title (v2)"`.
+- Sequence diagrams: participant names with spaces need `participant A as "Long Name"`.
+- Avoid HTML tags, markdown, `&`, `<`, `>` inside labels; spell out `and`.
+- Keep one statement per line; no trailing semicolons needed; no tabs (use spaces).
+- Use only plain ASCII in diagram code — no unicode arrows, em-dashes, or smart quotes.
 
 Go straight into the diagrams. No preamble or meta-commentary. Focus on visual clarity — make concepts immediately understandable at a glance."""
 

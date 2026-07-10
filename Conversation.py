@@ -14849,7 +14849,12 @@ Please respond helpfully, clearly, and conversationally. Address the user's ques
 **Important:** Don't use LaTeX or math notation. Use single backticks for inline code and triple backticks for code blocks.
 
 Your response:""",
-                "explain_visual": f"""You are an expert at creating visual explanations. Explain the following text using ASCII diagrams plus Mermaid and/or Graphviz DOT diagrams in a single combined answer.
+                "explain_visual": f"""You are an expert at creating visual explanations. Explain the following text with diagrams in a single combined answer.
+
+**Format preference order (strict):**
+1. **Graphviz DOT (most preferred)** — default for structure: flows, dependencies, trees, hierarchies, architecture.
+2. **ASCII art (second)** — quick box/arrow/tree sketches when that is enough and legible.
+3. **Mermaid (last resort only)** — only when DOT and ASCII cannot express the idea clearly (heavy multi-lifeline sequence, Gantt, detailed mindmap, journey, quadrant/XY, UML-heavy class), or the user explicitly wants Mermaid.
 
 {f"## Background Context" + chr(10) + context_text if context_text else ""}
 
@@ -14859,23 +14864,21 @@ Your response:""",
 ```
 
 Structure your answer as follows:
-1. **ASCII Diagram(s)** — use box/arrow/tree/table art to show the structure or flow. Plain text characters only. Prefer multiple simple or moderately complex diagrams over one large diagram — each diagram should focus on one aspect.
-2. **Rendered Diagram(s)** — include Mermaid and/or Graphviz DOT:
-   - Mermaid: wrap each in ```mermaid fences (flowchart, sequence, class, state, mindmap, etc.).
-   - Graphviz DOT: wrap each in ```dot fences (aliases ```graphviz / ```gv also ok). Prefer digraph with quoted labels.
-   Prefer DOT for dependency/hierarchy layouts; Mermaid for sequence/process flows. Prefer several focused diagrams.
-3. **One-paragraph explanation** — briefly describe what the diagrams show and why this visual representation helps.
-
-Mermaid syntax rules (STRICT — violations break rendering):
-- Wrap any node label containing parentheses, brackets, commas, colons, or other punctuation in double quotes: A["compute f(x)"] — never A[compute f(x)].
-- Edge labels: no parentheses/special chars inside |...|; quote them: A -->|"calls f(x)"| B, or prefer plain words.
-- Node IDs must be plain alphanumerics; never use lowercase `end` as an ID.
-- Quote subgraph titles containing spaces/punctuation. Use only plain ASCII in diagram code.
+1. **Primary rendered diagram(s)** — Graphviz DOT in ```dot fences (aliases ```graphviz / ```gv ok). Prefer digraph with quoted labels. Several focused diagrams over one huge one.
+2. **ASCII Diagram(s)** — optional plaintext box/arrow/tree/table art.
+3. **Mermaid (omit by default)** — only for specialized cases above; wrap each in ```mermaid fences.
+4. **One-paragraph explanation** — briefly describe what the diagrams show and why they help.
 
 Graphviz DOT rules (STRICT):
 - Full valid DOT inside ```dot fences: digraph G {{ ... }} preferred.
 - Quote labels with spaces/punctuation: A [label="compute f(x)"]; end statements with `;`.
 - Simple attrs only (shape, label, rankdir, color, style, fontsize). No HTML labels, no external images.
+
+Mermaid syntax rules (STRICT — only if you must use Mermaid):
+- Wrap any node label containing parentheses, brackets, commas, colons, or other punctuation in double quotes: A["compute f(x)"] — never A[compute f(x)].
+- Edge labels: no parentheses/special chars inside |...|; quote them: A -->|"calls f(x)"| B, or prefer plain words.
+- Node IDs must be plain alphanumerics; never use lowercase `end` as an ID.
+- Quote subgraph titles containing spaces/punctuation. Use only plain ASCII in diagram code.
 
 Do not add any preamble or meta-commentary. Go straight into the diagrams.
 

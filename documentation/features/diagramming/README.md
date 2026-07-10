@@ -37,6 +37,8 @@ flowchart TD
 
 Strict label rules live in `diagram_instructions` / `visual_tab_prompt` (quote labels with punctuation, avoid lowercase `end` as id, plain ASCII, etc.).
 
+**Format preference order (prompts):** 1) Graphviz DOT (default) → 2) ASCII art → 3) Mermaid only for specialized cases (sequence/Gantt/mindmap/journey/charts/UML-class) or when the user asks for Mermaid.
+
 ### Graphviz DOT
 
 Language tags accepted: **`dot`**, **`graphviz`**, **`gv`**.
@@ -158,7 +160,7 @@ Visual content may contain both Mermaid and DOT; each is rendered when the Visua
 |---|---|
 | Diagrams **in** the main answer | **Diagram** and/or `/draw` |
 | Teaching style + side Visual panel | **Deep Learn** (best when answer > ~200 words) |
-| Graphviz specifically | Prompt for dependency/hierarchy diagrams, or rely on Diagram / Visual instructions preferring DOT for those shapes |
+| Graphviz specifically | Default under Diagram / Deep Learn Visual (preferred over ASCII and Mermaid) |
 | Fix broken Mermaid | **Fix Diagram** on the block |
 | Fix broken DOT | **Fix DOT Diagram** on the block |
 
