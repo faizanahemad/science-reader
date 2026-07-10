@@ -113,12 +113,21 @@ def _get_token_limit(model_name: str) -> int:
         return MODEL_TOKEN_LIMITS["cheap_long_context"]
     elif model_name in LONG_CONTEXT_LLM:
         return MODEL_TOKEN_LIMITS["long_context"]
-    # Synthetic local RAG models: context is intentionally tiny (query + summary).
-    elif model_name == "local/gemini-rag" or (
+    # Synthetic host-CLI models: context is intentionally tiny (query + summary).
+    elif model_name in ("local/gemini-rag", "local/gemini-agent") or (
         isinstance(model_name, str)
         and (
             model_name.endswith("/gemini-rag")
-            or model_name in ("gemini-rag-query", "Gemini RAG", "Gemini RAG (detailed)")
+            or model_name.endswith("/gemini-agent")
+            or model_name
+            in (
+                "gemini-rag-query",
+                "Gemini RAG",
+                "Gemini RAG (detailed)",
+                "gemini-agent-query",
+                "Gemini Agent",
+                "Gemini Agent (fast)",
+            )
         )
     ):
         return MODEL_TOKEN_LIMITS["default"]
@@ -1171,18 +1180,19 @@ def call_llm(
     ... ]
     >>> out = call_llm(keys, "openai/gpt-4o-mini", messages=msgs, stream=False)
     """
-    # Local synthetic models short-circuit OpenRouter entirely.
+    # Local CLI synthetic models short-circuit OpenRouter entirely
+    # (local/gemini-rag, local/gemini-agent, ...).
     try:
-        from code_common.gemini_rag_llm import (
-            call_gemini_rag_llm,
-            is_gemini_rag_model,
+        from code_common.local_cli_llms import (
+            call_local_cli_llm,
+            is_local_cli_model,
         )
     except Exception:  # pragma: no cover - optional module edges
-        is_gemini_rag_model = lambda _n: False  # type: ignore
-        call_gemini_rag_llm = None  # type: ignore
+        is_local_cli_model = lambda _n: False  # type: ignore
+        call_local_cli_llm = None  # type: ignore
 
-    if is_gemini_rag_model(model_name) and call_gemini_rag_llm is not None:
-        return call_gemini_rag_llm(
+    if is_local_cli_model(model_name) and call_local_cli_llm is not None:
+        return call_local_cli_llm(
             keys=keys,
             model_name=model_name,
             text=text or "",

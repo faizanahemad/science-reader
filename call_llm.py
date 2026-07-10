@@ -83,14 +83,14 @@ def _cc_call_llm_with_fallback(*, model_name, stream, **kwargs):
     """
     fallback_model = VERY_CHEAP_LLM[0]
 
-    # Host-local synthetic backends (e.g. local/gemini-rag) are not OpenRouter
-    # models — do NOT fall back to a cheap OpenRouter model on failure. That
-    # would silently change the answer source for an internal-RAG selection.
+    # Host-local CLI backends (local/gemini-rag, local/gemini-agent) are not
+    # OpenRouter models — do NOT fall back to a cheap OpenRouter model; that
+    # would silently change the answer source for an internal-tool selection.
     try:
-        from code_common.gemini_rag_llm import is_gemini_rag_model as _is_gr
+        from code_common.local_cli_llms import is_local_cli_model as _is_local_cli
     except Exception:  # pragma: no cover
-        _is_gr = lambda _n: False  # type: ignore
-    if _is_gr(model_name):
+        _is_local_cli = lambda _n: False  # type: ignore
+    if _is_local_cli(model_name):
         fallback_model = None
 
     def _run(model):

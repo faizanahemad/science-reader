@@ -677,7 +677,9 @@ location /ws/terminal {
 - Multiple model names are passed in `checkboxes.main_model` (array).
 - The server normalizes them and, when appropriate, uses an `NResponseAgent` to orchestrate streaming.
 - The underlying multi-model streamer executes models in parallel but displays their outputs sequentially (order of first response).
-- **Host-local synthetic model `local/gemini-rag`**: host-gated CLI wrapper (requires `~/.local/bin/gemini-rag-query` or `GEMINI_RAG_SCRIPT_PATH`). When selected as Main Model, the reply path does **not** send the full chat prompt / tools / preambles. It passes only the **user question + running summary** into `CallLLm` → `code_common.gemini_rag_llm`, which invokes `gemini-rag-query --detailed` (moma discovery → parallel page reads → Gemini synthesis + FAQ/next expansion). Failures do not fall back to OpenRouter. Env kill-switch: `GEMINI_RAG_DISABLED=1`.
+- **Host-local synthetic models** (both pass only **user question + running summary**; no full history / chat tools / OpenRouter fallback):
+  - **`local/gemini-rag`**: `~/.local/bin/gemini-rag-query` (`GEMINI_RAG_SCRIPT_PATH`). Always `--detailed`. Property discovery via moma → parallel page reads (default **`--max-urls 20`**, hard clamp 1–20; override with `GEMINI_RAG_MAX_URLS` or CLI `--max-urls`) → Gemini synthesis + FAQ/next expansion. Kill-switch: `GEMINI_RAG_DISABLED=1`. Implementation: `code_common/local_cli_llms.py`.
+  - **`local/gemini-agent`**: `~/.local/bin/gemini-agent-query` (`GEMINI_AGENT_SCRIPT_PATH`). Fast ReAct profile for the chat selector: `--max-depth 2 --personas 0 --max-loops 2 --max-tool-iterations 4 --loop-mode direct-retry --budget 20 --history-window 2 --synth-backend gemini`. Depth-2 recursive delegate cap, no persona fan-out — deliberately lighter/faster than GAQ defaults. Kill-switch: `GEMINI_AGENT_DISABLED=1`.
 
 **Formatting of multi-model output**
 - Each model’s response is wrapped in a `<details>` block with a header like “Response from <model>”.

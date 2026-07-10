@@ -62,11 +62,12 @@ MAX_TIME_TO_WAIT_FOR_WEB_RESULTS = int(
 THRESHOLD_SIM_FOR_SEARCH_RESULT = 0.5
 FILLER_MODEL = "Filler"
 
-# Synthetic main-model id: runs the host-local ``gemini-rag-query`` CLI
-# (moma → parallel read → Gemini RAG) with a lean payload (user query +
-# running summary only). Always invoked with --detailed. Host-gated via
-# code_common.gemini_rag_llm.GEMINI_RAG_AVAILABLE.
+# Synthetic main-model ids: host-local CLIs with lean payload (user query +
+# running summary only). Host-gated via code_common.local_cli_llms.
+#   local/gemini-rag    → gemini-rag-query --detailed [--max-urls up to 20]
+#   local/gemini-agent  → gemini-agent-query ask (fast depth-2 profile)
 GEMINI_RAG_MODEL = "local/gemini-rag"
+GEMINI_AGENT_MODEL = "local/gemini-agent"
 
 # If enabled, persist `<answer_tldr>` content inside the saved assistant message text.
 # This ensures TLDR survives page reloads without requiring UI to stitch it back together

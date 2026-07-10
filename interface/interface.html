@@ -2645,7 +2645,8 @@
                                                         <option>Sonnet 4.6</option>
                                                         <option>anthropic/claude-fable-5</option>
                                                         <option>openrouter/fusion</option>
-                                                        <option title="Host-local internal RAG (moma → parallel read → Gemini, always --detailed). Sends only the user question + running summary. Requires gemini-rag-query CLI on this machine.">local/gemini-rag</option>
+                                                        <option title="Host-local internal RAG (moma → parallel read → Gemini, always --detailed, up to 20 moma URLs). Sends only the user question + running summary. Requires gemini-rag-query CLI on this machine.">local/gemini-rag</option>
+                                                        <option title="Host-local Fast Gemini Agent (gemini-agent-query ask): depth 2, personas 0, max-loops 2, tool iters 4, budget 20. Lean context: user question + running summary. Requires gemini-agent-query CLI.">local/gemini-agent</option>
                                                     </optgroup>
                                                     <optgroup label="Others">
                                                         <option>Filler</option>

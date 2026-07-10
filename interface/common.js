@@ -318,7 +318,7 @@ window._mathJaxScheduler = (function() {
 // service-worker.js) because rendered-state snapshots only need invalidation
 // when rendering logic changes — not when any file changes.  Bump this when
 // you change common.js, common-chat.js, or rendered-state-manager.js rendering.
-window.UI_CACHE_VERSION = "v28";
+window.UI_CACHE_VERSION = "v29";
 var currentDomain = {
     domain: 'assistant', // finchat, search
     page_loaded: false,

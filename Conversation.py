@@ -12127,13 +12127,13 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         # logger.info(f"conversation_docs_answer: {conversation_docs_answer}")
         # logger.info(f"Prompt length: {len(enc.encode(prompt))}, prompt - ```\n{prompt}\n```")
         # Resolve tools_config future (started ~2700 lines earlier for max parallelism).
-        # Gemini RAG is a self-contained host-CLI model — never attach OpenAI
-        # tools to that path (the CLI owns discovery/reading/traversal).
-        _gemini_rag_selected = (
-            model_name == GEMINI_RAG_MODEL
-            if not isinstance(model_name, (list, tuple))
-            else (len(model_name) == 1 and model_name[0] == GEMINI_RAG_MODEL)
-        )
+        # Host-local CLI models (gemini-rag / gemini-agent) own their own tool
+        # loops — never attach chat OpenAI tools to those paths.
+        def _is_local_cli_main(mn):
+            if isinstance(mn, (list, tuple)):
+                return len(mn) == 1 and mn[0] in (GEMINI_RAG_MODEL, GEMINI_AGENT_MODEL)
+            return mn in (GEMINI_RAG_MODEL, GEMINI_AGENT_MODEL)
+        _gemini_rag_selected = _is_local_cli_main(model_name)
         try:
             tools_config = sleep_and_get_future_result(
                 _tools_config_future, sleep_time=0.1, timeout=15
@@ -12329,17 +12329,17 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             # main_ans_gen = a generator that yields Acked.
             main_ans_gen = make_stream(["Acked"], do_stream=True)
         elif (
-            (model_name == GEMINI_RAG_MODEL)
+            (model_name in (GEMINI_RAG_MODEL, GEMINI_AGENT_MODEL))
             if not isinstance(model_name, (list, tuple))
-            else (len(model_name) == 1 and model_name[0] == GEMINI_RAG_MODEL)
-        ) or (
-            isinstance(model_name, (list, tuple))
-            and any(m == GEMINI_RAG_MODEL for m in model_name)
-            and len(model_name) == 1
+            else (
+                len(model_name) == 1
+                and model_name[0] in (GEMINI_RAG_MODEL, GEMINI_AGENT_MODEL)
+            )
         ):
-            # Host-local gemini-rag-query CLI. Keep context LEAN: user question +
-            # running summary only (the heavy moma/read/RAG loop is inside the CLI).
-            # Do not pass tools, lengthy preambles, or full history.
+            # Host-local CLI Main Models (gemini-rag-query or gemini-agent-query).
+            # Keep context LEAN: user question + running summary only. Heavy
+            # moma/read/RAG or agent tool loops run inside the CLI. No chat tools
+            # / full history / long preambles.
             _gr_model = (
                 model_name[0]
                 if isinstance(model_name, (list, tuple))
@@ -12348,8 +12348,8 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             yield {
                 "text": "",
                 "status": (
-                    f"Calling host-local Gemini RAG ({_gr_model}) with "
-                    "user query + running summary only (detailed) ..."
+                    f"Calling host-local {_gr_model} with user query + "
+                    "running summary only (lean context) ..."
                 ),
             }
             from common import get_first_last_parts
@@ -12377,7 +12377,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             # Minimal system so CallLLm base_system still allows summary recovery
             # without dumping the full chart/chat preamble.
             _gr_system = (
-                "You are answering via a host-local internal RAG pipeline. "
+                "You are answering via a host-local internal search/RAG CLI. "
                 "Use the user question as the primary query. The conversation "
                 "summary (if present in the user message) is compressed prior "
                 "context only."
@@ -13001,9 +13001,12 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         first_stream_chunk_logged = False
         _tldr_future = None
         _gemini_rag_selected = (
-            model_name == GEMINI_RAG_MODEL
+            model_name in (GEMINI_RAG_MODEL, GEMINI_AGENT_MODEL)
             if not isinstance(model_name, (list, tuple))
-            else (len(model_name) == 1 and model_name[0] == GEMINI_RAG_MODEL)
+            else (
+                len(model_name) == 1
+                and model_name[0] in (GEMINI_RAG_MODEL, GEMINI_AGENT_MODEL)
+            )
         )
         _tldr_skip = (
             model_name == FILLER_MODEL
@@ -15831,8 +15834,8 @@ def model_name_to_canonical_name(model_name):
     elif model_name == "inception/mercury-2":
         model_name = "inception/mercury-2"
 
-    # Synthetic host-local RAG model (CLI backend; see code_common.gemini_rag_llm).
-    # Accept the canonical id plus a few UI-friendly aliases.
+    # Synthetic host-local CLI models (see code_common.local_cli_llms).
+    # Accept canonical ids plus a few UI-friendly aliases.
     elif (
         model_name == GEMINI_RAG_MODEL
         or model_name == "gemini-rag-query"
@@ -15841,6 +15844,15 @@ def model_name_to_canonical_name(model_name):
         or model_name == "Gemini-RAG"
     ):
         model_name = GEMINI_RAG_MODEL
+    elif (
+        model_name == GEMINI_AGENT_MODEL
+        or model_name == "gemini-agent-query"
+        or model_name == "Gemini Agent"
+        or model_name == "Gemini Agent (fast)"
+        or model_name == "Gemini-Agent"
+        or model_name == "local/gemini-agent-query"
+    ):
+        model_name = GEMINI_AGENT_MODEL
 
     elif (
         model_name in CHEAP_LONG_CONTEXT_LLM
