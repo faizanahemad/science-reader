@@ -1081,7 +1081,8 @@ The `@pkb:claim_id` prefix is supported as a legacy alias alongside `@memory:` a
 ### 8) Next question suggestions
 
 **What it does**
-- Suggests “what to ask next” based on recent conversation context and summary.
+- Suggests “what to ask next” based on the running conversation summary and the latest user/assistant turn (not a full prior lookback dump).
+- Context budget (also used by the per-turn running-summary/title call): previous summary + last turn; a short previous-message fallback only when no summary exists yet. Last-turn text is first/last clipped; NQS/summary prompts no longer receive `previous_messages_long`.
 
 **API**
 - `GET /get_next_question_suggestions/<conversation_id>`

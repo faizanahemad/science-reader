@@ -1147,59 +1147,38 @@ Writing Instructions:
     
     @property
     def next_question_suggestions_prompt(self):
-        nqs_prompt="""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
-You will write a list of next question/response suggestions that the human can ask to the AI after the current user query and system response to continue the conversation.
-The next question/response suggestions should be in the form of a list of questions and the questions should be short and concise.
+        nqs_prompt = """Generate 4 short next-question/response suggestions a user can tap to continue this conversation.
 
-The next question/response suggestions can either be a question or a response that the user can tap on in the chat interface to continue the conversation.
+Use the conversation summary for history. The previous-messages block may be empty when a summary is already present — that is expected. Focus on the latest user query and assistant response.
 
-Follow the below format for your response:
-
-<next_question_suggestions>
-    <suggestion>question/response suggestion 1</suggestion>
-    <suggestion>question/response suggestion 2</suggestion>
-    <suggestion>question/response suggestion 3</suggestion>
-    ...
-</next_question_suggestions>
-
-
-
-The summary and salient points of the conversation is as follows:
+Conversation summary:
 '''{summary}'''
 
-Previous messages of the conversation are as follows:
+Previous messages (only when summary is empty / cold start):
 <|previous_messages|>
 '''{previous_messages_text}'''
 <|/previous_messages|>
 
-The last 2 recent messages of the conversation from which we will derive the summary and salient points are as follows:
-
-
-User query: 
+Latest turn:
+User query:
 <|user_message|>
 '''{query}'''
 <|/user_message|>
 
-Assistant response: 
+Assistant response:
 <|assistant_message|>
 '''{response}'''
 <|/assistant_message|>
 
-
-Your response will be in below xml style format:
+Output only this XML (exactly 4 concise suggestions; a question or a short follow-up the user might say):
 <next_question_suggestions>
     <suggestion>question/response suggestion 1</suggestion>
     <suggestion>question/response suggestion 2</suggestion>
     <suggestion>question/response suggestion 3</suggestion>
-    ...
+    <suggestion>question/response suggestion 4</suggestion>
 </next_question_suggestions>
-
-Give 4 suggestions.
-Now write your response in the above xml style format. Only output the xml tags and nothing else. Only write the <next_question_suggestions> tag and the <suggestion> tags inside it.
-
 """
         return nqs_prompt
-
 
     @property
     def chat_fast_reply_prompt(self):

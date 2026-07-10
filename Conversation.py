@@ -4171,30 +4171,53 @@ Now return JSON with 'ops' and 'notes'.
     def create_next_question_suggestions(
         self, query, response, previous_messages_text, previous_summary
     ):
-        system = f"""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
-You will write a list of next question/response suggestions that the human can ask to the AI after the current user query and system response to continue the conversation.
-The next question/response suggestions should be in the form of a list of questions and the questions should be short and concise.
+        """Generate short follow-up suggestions for the last turn.
 
-The next question/response suggestions can either be a question or a response that the user can tap on in the chat interface to continue the conversation.
+        Context budget (intentionally small):
+        - running summary (compressed history) when present
+        - last user + assistant turn (response clipped)
+        - previous-turn text only as a fallback when summary is empty
+        Full conversation lookback is never needed here.
+        """
+        from common import get_first_last_parts
 
-Your response will be in below xml style format:
-<next_question_suggestions>
-    <suggestion>question/response suggestion 1</suggestion>
-    <suggestion>question/response suggestion 2</suggestion>
-    <suggestion>question/response suggestion 3</suggestion>
-    ...
-</next_question_suggestions>
+        system = (
+            "You generate short next-question/response suggestions a user can tap "
+            "to continue a chat. Use the conversation summary (if any) and the last "
+            "turn. Output only the XML block below with exactly 4 concise suggestions "
+            "(a question or a short follow-up the user might say).\n\n"
+            "<next_question_suggestions>\n"
+            "    <suggestion>...</suggestion>\n"
+            "    <suggestion>...</suggestion>\n"
+            "    <suggestion>...</suggestion>\n"
+            "    <suggestion>...</suggestion>\n"
+            "</next_question_suggestions>"
+        )
 
-Give 4 suggestions.
-"""
+        # Prefer summary + last turn. Raw prior window is only a cold-start fallback
+        # when no summary exists yet (first turns / empty running_summary).
+        summary_text = (previous_summary or "").strip()
+        prev_for_prompt = ""
+        if not summary_text:
+            prev_for_prompt = get_first_last_parts(
+                previous_messages_text or "", first_n=1200, last_n=400
+            )
+        response_text = get_first_last_parts(
+            extract_user_answer(response) or "", first_n=2500, last_n=800
+        )
+        query_text = get_first_last_parts(query or "", first_n=1200, last_n=400)
 
         next_question_suggestions_prompt = (
             prompts.next_question_suggestions_prompt.format(
-                query=query,
-                response=extract_user_answer(response),
-                previous_messages_text=previous_messages_text,
-                summary=previous_summary,
+                query=query_text,
+                response=response_text,
+                previous_messages_text=prev_for_prompt,
+                summary=summary_text,
             )
+        )
+        # Extra guard: keep total prompt bounded even if last turn is huge.
+        next_question_suggestions_prompt = get_first_last_parts(
+            next_question_suggestions_prompt, first_n=6000, last_n=2000
         )
         internal_model = self.get_model_override(
             "conversation_internal_model", SUPERFAST_LLM[0]
@@ -4218,16 +4241,24 @@ Give 4 suggestions.
         except Exception:
             # Both primary and its internal fallback failed — degrade gracefully
             # instead of 500-ing this non-critical endpoint.
-            logger.exception("next_question_suggestions: LLM call failed (primary + fallback)")
+            logger.exception(
+                "next_question_suggestions: LLM call failed (primary + fallback)"
+            )
             return ["Tell me more", "Can you explain further?", "What's next?"]
+
         # Parse the next_question_suggestions to extract individual suggestions
         import re
 
-        suggestions = []
-        suggestion_pattern = r"<suggestion>(.*?)</suggestion>"
-        matches = re.findall(suggestion_pattern, next_question_suggestions)
+        nqs_text = (
+            next_question_suggestions
+            if isinstance(next_question_suggestions, str)
+            else str(next_question_suggestions or "")
+        )
+        matches = re.findall(
+            r"<suggestion>(.*?)</suggestion>", nqs_text, flags=re.DOTALL
+        )
         if matches:
-            suggestions = matches
+            suggestions = [m.strip() for m in matches if m and m.strip()]
         else:
             # Fallback in case the XML format wasn't followed
             suggestions = ["Tell me more", "Can you explain further?", "What's next?"]
@@ -4477,11 +4508,30 @@ Give 4 suggestions.
         lock_location = self._get_lock_location("message_operations")
         lock = FileLock(f"{lock_location}.lock")
 
+        # Incremental summary context: previous summary + last turn are enough.
+        # Dump a large prior-message lookback only when no summary exists yet
+        # (cold start / first turns). Same budget as NQS.
+        from common import get_first_last_parts
+
+        summary_text_for_prompt = (previous_summary or "").strip()
+        if summary_text_for_prompt:
+            prev_msgs_for_summary = ""
+        else:
+            prev_msgs_for_summary = get_first_last_parts(
+                previous_messages_text or "", first_n=2500, last_n=800
+            )
+        query_for_summary = get_first_last_parts(
+            query or "", first_n=2000, last_n=600
+        )
+        response_for_summary = get_first_last_parts(
+            extract_user_answer(response) or "", first_n=4000, last_n=1200
+        )
+
         prompt = prompts.persist_current_turn_prompt.format(
-            query=query,
-            response=extract_user_answer(response),
-            previous_messages_text=previous_messages_text,
-            previous_summary=previous_summary,
+            query=query_for_summary,
+            response=response_for_summary,
+            previous_messages_text=prev_msgs_for_summary,
+            previous_summary=summary_text_for_prompt,
         )
         summary_model = self.get_model_override(
             "conversation_internal_model", SUPERFAST_LLM[0]
@@ -4566,16 +4616,18 @@ Give 4 suggestions.
                 )
         except Exception:
             pass  # Fail-open: never break persistence
-        prompt = get_first_last_parts(prompt, 28000, 16_000)
-        system = f"""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
-You will write a new summary for this conversation which takes the last 2 recent messages into account. 
-You will also write a very short title for this conversation.
-Write in brief and concise manner.
-
-Your response will be in below xml style format:
-<summary> {{Conversation Summary with salient, important and noteworthy aspects and details. Conversation details about the user's query, intent and the direction of the conversation. We will use this summary to generate the next question/response suggestions and help guide intent detection and other AI assistant actions.}} </summary>
-<title> {{Very short title for the conversation. A title that captures the essence of the conversation and the direction of the conversation.}} </title>
-"""
+        # Bound total prompt size; lean builder above already drops long history
+        # when a running summary exists, so this is a safety net only.
+        prompt = get_first_last_parts(prompt, 8000, 4000)
+        system = (
+            "Incrementally update the conversation summary using the previous "
+            "summary (if any) and the latest user/assistant turn. Preserve facts, "
+            "names, rules, open questions, and user intent; add only what is new. "
+            "Also write a very short title. Be concise but information-dense.\n\n"
+            "Respond only in this XML form:\n"
+            "<summary> ... </summary>\n"
+            "<title> ... </title>"
+        )
         summary = get_async_future(
             llm, prompt, system=system, temperature=0.2, stream=False
         )
@@ -4583,8 +4635,9 @@ Your response will be in below xml style format:
             self.create_next_question_suggestions,
             query,
             response,
-            previous_messages_text,
-            previous_summary,
+            # NQS also drops long history when summary exists; pass short fallback only.
+            prev_msgs_for_summary,
+            summary_text_for_prompt,
         )
 
         with lock.acquire(timeout=600):
@@ -4593,8 +4646,9 @@ Your response will be in below xml style format:
                 self.add_to_memory_pad_from_response,
                 query,
                 response,
-                previous_messages_text,
-                previous_summary,
+                # Memory pad is about last-turn facts; don't re-feed full lookback.
+                prev_msgs_for_summary,
+                summary_text_for_prompt,
             )
             message_ids = self.get_message_ids(query, response)
             user_msg_dict = {

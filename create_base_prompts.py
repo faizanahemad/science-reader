@@ -4983,49 +4983,37 @@ manager["ml_system_design_tips_prompt"] = ml_system_design_tips_prompt
 print(manager["code_agent_prompt1"])
 
 
-persist_current_turn_prompt="""You are given conversation details between a human and an AI. You are also given a summary of how the conversation has progressed till now. 
-You will write a new summary for this conversation which takes the last 2 recent messages into account. 
-You will also write a very short title for this conversation.
-Write in brief and concise manner.
+persist_current_turn_prompt="""Incrementally update the conversation summary and title.
 
-Capture the salient, important and noteworthy aspects and details from the user query and system response in your summary. 
-Your summary should be detailed, comprehensive and in-depth. Write in brief and concise manner.
-Capture all important details in your conversation summary including factual details, names and other details mentioned by the human and the AI. 
-Preserve important details that have been mentioned in the previous summary especially including factual details and references while adding more details from current user query and system response.
-Write down any special rules or instructions that the AI assistant should follow in the conversation as well in the summary.
+Context budget:
+- Prefer the previous summary as the compressed history of everything older than the latest turn.
+- The previous-messages block may be empty when a previous summary already exists; that is expected.
+- Merge only what is new from the latest user/assistant messages. Preserve facts, names, numerical details, user preferences, open questions, and any special rules/instructions the assistant should follow.
 
-The previous summary and salient points of the conversation is as follows:
+Previous summary:
 '''{previous_summary}'''
 
-Previous messages of the conversation are as follows:
+Previous messages (only when previous summary is empty / cold start):
 <|previous_messages|>
 '''{previous_messages_text}'''
 <|/previous_messages|>
 
-The last 2 recent messages of the conversation from which we will derive the summary and salient points are as follows:
-
-
-User query: 
+Latest turn:
+User query:
 <|user_message|>
 '''{query}'''
 <|/user_message|>
 
-Assistant response: 
+Assistant response:
 <|assistant_message|>
 '''{response}'''
 <|/assistant_message|>
 
-
-Your response will be in below xml style format:
+Respond only in this XML form:
 <summary> {{Detailed Conversation Summary with salient, important and noteworthy aspects and details.}} </summary>
 <title> {{Very short title for the conversation}} </title>
 
-We only write very short and relevant title inside <title> </title> tags.
-Write the summary inside <summary> </summary> tags.
-
-Write a title and summary of the conversation using the previous summary, previous messages and the last 2 recent messages. Please summarize the conversation very informatively, in detail and depth.
-
-Conversation Summary and title in xml style format:
+Write a dense, informative summary. Title must be very short.
 """
 
 manager["persist_current_turn_prompt"] = persist_current_turn_prompt
