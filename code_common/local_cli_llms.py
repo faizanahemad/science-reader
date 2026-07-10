@@ -2,9 +2,10 @@
 
 Two options in the chat UI:
 
-1. ``local/gemini-rag``  → ``gemini-rag-query --detailed``
-   moma discovery → parallel URL reads → Gemini synthesis (+ FAQ/next expand).
-   Broad internal-doc RAG; slower; citations.
+1. ``local/gemini-rag``  → ``gemini-rag-query --detailed --reformulate --duckie``
+   optional query rewrite + concurrent duckie + moma discovery → parallel URL
+   reads → Gemini synthesis (+ FAQ/next expand). Broad internal-doc RAG; slower;
+   citations.
 
 2. ``local/gemini-agent`` → ``gemini-agent-query ask`` with a **fast depth-2**
    profile: ``--max-depth 2 --personas 0 --max-loops 2 --max-tool-iterations 4
@@ -277,11 +278,19 @@ def run_gemini_rag_query(
     query: str,
     *,
     detailed: bool = True,
+    reformulate: bool = True,
+    duckie: bool = True,
     timeout: Optional[int] = None,
     no_cache: bool = False,
     max_urls: Optional[int] = None,
     script_path: Optional[str] = None,
 ) -> str:
+    """Run host ``gemini-rag-query``.
+
+    Chat UI path defaults ``reformulate=True`` and ``duckie=True`` so discovery
+    uses a short rewritten search query and adds duckie_cli as a second source.
+    Both are still bare CLI flags; only this wrapper opts them on by default.
+    """
     binary = script_path or GEMINI_RAG_SCRIPT_PATH
     if not binary or not os.path.isfile(binary) or not os.access(binary, os.X_OK):
         raise RuntimeError(
@@ -298,14 +307,21 @@ def run_gemini_rag_query(
     cmd: List[str] = [binary]
     if detailed:
         cmd.append("--detailed")
+    if reformulate:
+        cmd.append("--reformulate")
+    if duckie:
+        cmd.append("--duckie")
     if no_cache:
         cmd.append("-n")
     cmd.extend(["--max-urls", str(n_urls)])
     cmd.append(query)
 
     logger.info(
-        "gemini-rag-query invoke | detailed=%s max_urls=%s timeout=%ss query_chars=%d",
+        "gemini-rag-query invoke | detailed=%s reformulate=%s duckie=%s "
+        "max_urls=%s timeout=%ss query_chars=%d",
         detailed,
+        reformulate,
+        duckie,
         n_urls,
         timeout_s,
         len(query),

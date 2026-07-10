@@ -64,7 +64,7 @@ FILLER_MODEL = "Filler"
 
 # Synthetic main-model ids: host-local CLIs with lean payload (user query +
 # running summary only). Host-gated via code_common.local_cli_llms.
-#   local/gemini-rag    → gemini-rag-query --detailed [--max-urls up to 20]
+#   local/gemini-rag    → gemini-rag-query --detailed --reformulate --duckie [--max-urls up to 20]
 #   local/gemini-agent  → gemini-agent-query ask (fast depth-2 profile)
 GEMINI_RAG_MODEL = "local/gemini-rag"
 GEMINI_AGENT_MODEL = "local/gemini-agent"
