@@ -270,6 +270,24 @@ def _strip_debug_noise(stdout: str) -> str:
     return "\n".join(lines).strip() or (stdout or "").strip()
 
 
+# gemini-agent-query ReAct protocol emits ``FINAL:`` / ``FINAL_ANSWER:``.
+# Some package versions currently stuff ACTION/OBSERVATION into stdout
+# alongside the final answer; keep only the last FINAL block for chat UI.
+_AGENT_FINAL_RE = re.compile(r"(?is)\bFINAL(?:_ANSWER)?\s*:\s*")
+
+
+def _prefer_agent_final_answer(stdout: str) -> str:
+    """Return the last ReAct FINAL body when present; else cleaned stdout."""
+    text = _strip_debug_noise(stdout)
+    if not text:
+        return text
+    matches = list(_AGENT_FINAL_RE.finditer(text))
+    if not matches:
+        return text
+    body = text[matches[-1].end() :].strip()
+    return body or text
+
+
 # ---------------------------------------------------------------------------
 # CLI invokers
 # ---------------------------------------------------------------------------
@@ -436,12 +454,12 @@ def run_gemini_agent_query(
                 len(stdout),
                 stderr[-500:],
             )
-            return _strip_debug_noise(stdout)
+            return _prefer_agent_final_answer(stdout)
         raise RuntimeError(
             f"gemini-agent-query failed (rc={proc.returncode}): "
             f"{(stderr or stdout)[-1500:]}"
         )
-    return _strip_debug_noise(stdout)
+    return _prefer_agent_final_answer(stdout)
 
 
 # ---------------------------------------------------------------------------

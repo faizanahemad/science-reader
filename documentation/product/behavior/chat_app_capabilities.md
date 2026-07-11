@@ -677,9 +677,23 @@ location /ws/terminal {
 - Multiple model names are passed in `checkboxes.main_model` (array).
 - The server normalizes them and, when appropriate, uses an `NResponseAgent` to orchestrate streaming.
 - The underlying multi-model streamer executes models in parallel but displays their outputs sequentially (order of first response).
-- **Host-local synthetic models** (both pass only **user question + running summary**; no full history / chat tools / OpenRouter fallback):
-  - **`local/gemini-rag`**: `~/.local/bin/gemini-rag-query` (`GEMINI_RAG_SCRIPT_PATH`). Always `--detailed`, and (from the chat path) always `--reformulate` + `--duckie` (hand CLI keeps those flags off unless set). Pipeline: optional ≤16-word search rewrite → concurrent duckie + moma discovery → parallel page reads (default **`--max-urls 20`**, hard clamp 1–20; override with `GEMINI_RAG_MAX_URLS` or CLI `--max-urls`) → Gemini synthesis over moma extracts + optional duckie text (+ FAQ/next expansion). Kill-switch: `GEMINI_RAG_DISABLED=1`. Implementation: `code_common/local_cli_llms.py`.
-  - **`local/gemini-agent`**: `~/.local/bin/gemini-agent-query` (`GEMINI_AGENT_SCRIPT_PATH`). Fast ReAct profile for the chat selector: `--max-depth 2 --personas 0 --max-loops 2 --max-tool-iterations 4 --loop-mode direct-retry --budget 20 --history-window 2 --synth-backend gemini`. Depth-2 recursive delegate cap, no persona fan-out — deliberately lighter/faster than GAQ defaults. Kill-switch: `GEMINI_AGENT_DISABLED=1`.
+- **Host-local synthetic models** (both pass only **user question + running summary** via `build_lean_query`; no full history / chat tools / OpenRouter fallback). Integration is **subprocess + env** only (no monorepo Python import into chat). Single surface: `code_common/local_cli_llms.py` (compat re-export in `code_common/gemini_rag_llm.py`). Chat’s own tool loop is disabled for these Main Models in `Conversation.py`.
+  - **`local/gemini-rag`**: shells `GEMINI_RAG_SCRIPT_PATH` (default still `~/.local/bin/gemini-rag-query`). Chat always passes `--detailed --reformulate --duckie` and `--max-urls N` (default **20**, clamp 1–20; `GEMINI_RAG_MAX_URLS`). Kill-switch: `GEMINI_RAG_DISABLED=1`. Timeout: `GEMINI_RAG_TIMEOUT` (default 600s).
+  - **`local/gemini-agent`**: shells `GEMINI_AGENT_SCRIPT_PATH` (default `~/.local/bin/gemini-agent-query`, which may symlink to the monorepo full package entry). Fast ReAct profile from chat: `ask --new-session --max-depth 2 --personas 0 --max-loops 2 --max-tool-iterations 4 --loop-mode direct-retry --budget 20 --history-window 2 --synth-backend gemini`. Kill-switch: `GEMINI_AGENT_DISABLED=1`. Timeout: `GEMINI_AGENT_TIMEOUT` (default 420s). **Do not** point this at monorepo `ckt-gemini-agent-query` (light façade; missing budget/personas flags). Chat post-process: if stdout contains ReAct `FINAL:` / `FINAL_ANSWER:`, only the last FINAL body is shown (`_prefer_agent_final_answer` in `local_cli_llms.py`) so ACTION/OBSERVATION traces do not flood the card.
+  - **Option B (preferred production path, 2026-07):** monorepo corp-knowledge-tools with **thin → Cloudtop core** so L1 caches/KB live on the server. Integration is **env cutover only** on the existing `local_cli_llms` subprocess surface (no monorepo Python import into chat venv; never thin/light-agent façade for Main Model agent). Set on the Flask process (`.vscode/launch.json` → **Python: Debug Server** `env`, loaded by `./run_server.sh`):
+    - `GEMINI_RAG_SCRIPT_PATH=$HOME/dev/corp-knowledge-tools/bin/ckt-gemini-rag-query`
+    - `GEMINI_AGENT_SCRIPT_PATH=$HOME/dev/corp-knowledge-tools/bin/gemini-agent-query` (full gaq package CLI — **not** `ckt-gemini-agent-query`)
+    - `CORP_TOOLS_ENTRY=thin`, `CORP_TOOLS_HOST=faizan-001.c.googlers.com`, `CORP_TOOLS_REMOTE_ROOT=~/dev/corp-knowledge-tools` (**tilde form**, not `/Users/...`; quote in shell)
+    - `GAQ_TOOL_ENTRY=thin` (+ optional `GAQ_HOST` / `GAQ_REMOTE_ROOT` matching CORP_TOOLS_*)
+    - recommended: `GEMINI_RAG_MAX_URLS=20`, `GEMINI_RAG_TIMEOUT=600`, `GEMINI_AGENT_TIMEOUT=420`
+    - **Kill-switches:** `GEMINI_RAG_DISABLED=1` / `GEMINI_AGENT_DISABLED=1` → friendly “not available” (no stacktrace).
+    - **Import-time availability:** `GEMINI_*_AVAILABLE` is computed at module import; restart `./run_server.sh` after env path changes.
+    - **Preflight (before cutting over chat env):** `ensure-ssh-master` to Cloudtop; monorepo bins executable; `CORP_TOOLS_ENTRY=thin … bin/ckt-gemini-rag-query --status`; cheap live smoke with `-n --no-expand --max-urls 3 --detailed --reformulate --duckie`. Deploy remote monorepo only if status/smoke fails for missing remote code — not required while thin is healthy.
+    - **Acceptance shape used for cutover:** chat-path invokers `call_gemini_rag_llm` / `call_gemini_agent_llm` under Option B env (same glue the UI uses). Manual browser click remains optional polish.
+    - **Agent stdout hygiene:** gaq may still emit ReAct `ACTION`/`OBSERVATION` + trailing `FINAL:`; chat always strips to last FINAL body (see `_prefer_agent_final_answer`). Upstream monorepo “stdout = answer only” is backlog, not required for chat.
+    - **Rollback:** unset the monorepo/`CORP_TOOLS_*`/`GAQ_*` keys (or set host `~/.local/bin/…` paths) and restart → Option A host thick RAG again. Defaults in `run_server.sh` still host paths when unset.
+    - Dual-home / core placement: monorepo L1 + `ckt-kb` under thin live on **server core**, not the Mac laptop.
+    - Deep ops: monorepo handoff `/Users/faizanahemad/dev/corp-knowledge-tools/docs/chatgpt-iterative-integration-handoff.md` and `docs/cutover.md` / `docs/env.md` / `docs/cache-and-kb.md` (not vendored into this repo).
 
 **Formatting of multi-model output**
 - Each model’s response is wrapped in a `<details>` block with a header like “Response from <model>”.
@@ -1439,11 +1453,31 @@ Conversations are stored in per-conversation SQLite databases (one `conversation
 | `pkb.sqlite` | `storage/users/` | Personal Knowledge Base |
 | `tool_call_history.sqlite` | `storage/users/` | MCP/tool invocation audit |
 
+### In-memory `conversation_cache` + macOS FD hygiene (2026-07)
+
+Loaded `Conversation` objects sit in `server.conversation_cache` — a `DefaultDictQueue` LRU with **maxsize=200** (`common.py`). This is **not** the on-disk store; it avoids thrashing dill/SQLite reload on every request.
+
+**Symptom this guards against:** macOS terminal / launchd often starts Python with soft `RLIMIT_NOFILE=256`. Each open `conversation.db` typically holds ~3 FDs (db+wal+shm). Listing ~70–90 chats without closing stores exhausts the soft limit → `OSError: [Errno 24] Too many open files` on unrelated opens (first failure often `interface/login.html` or `flask_session/*` → `/login` 500).
+
+**Mitigations (all required in practice):**
+
+1. **Raise soft nofile at process start** — `server._raise_nofile_limit(min_soft=8192)` via `resource.setrlimit(RLIMIT_NOFILE)` (capped by hard limit). Called at import time in `server.py` before app wiring.
+2. **Shell fallback** — `run_server.sh` runs `ulimit -n 8192` (or 4096) before launching Python so free-standing shells match.
+3. **Close stores on cache eviction** — `conversation_cache` is constructed with `on_evict=_evict_cached_conversation`, which calls `Conversation.close_conversation_store()` (closes `ConversationStore` / nulls `_conversation_store`). Fires on capacity bump (`add` when full), `__delitem__`, and `remove_any` so WAL/SHM/DB FDs are not retained for hundreds of concurrent chats.
+
+**Ops notes:**
+- After env/path changes that only touch code at import time (`local_cli_llms` availability **or** nofile raise), restart `./run_server.sh`.
+- If `/login` or list endpoints start EMFILE-ing again: check soft limit (`python -c "import resource; print(resource.getrlimit(resource.RLIMIT_NOFILE))"` on the live process), count open `conversation.db` FDs under `/proc` or `lsof -p $PID | rg conversation.db`, and confirm `on_evict` wiring is still present on `conversation_cache`.
+- Do **not** rely solely on raising the soft limit without eviction closes — long-lived processes with high cache churn still leak without `close_conversation_store`.
+
 ### Key implementation files
 
 - `database/conversation_store.py` — `ConversationStore` class (per-conversation SQLite CRUD)
 - `database/migration.py` — migrate/rollback/status CLI commands
-- `Conversation.py` — `conversation_store` lazy property, `_use_sqlite` gate, routing layer
+- `Conversation.py` — `conversation_store` lazy property, `close_conversation_store()`, `_use_sqlite` gate, routing layer
+- `common.py` — `DefaultDictQueue` (LRU + optional `on_evict` cleanup)
+- `server.py` — `_raise_nofile_limit()`, `_evict_cached_conversation`, `conversation_cache` wiring
+- `run_server.sh` — `ulimit -n` preflight + Option B env comments
 
 Documentation: `documentation/features/sqlite_conversation_storage/README.md`, Plan: `documentation/planning/plans/sqlite_storage_migration.plan.md`
 

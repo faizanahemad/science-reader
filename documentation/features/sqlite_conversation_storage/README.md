@@ -84,6 +84,21 @@ JSON files are renamed to `.json.migrated` and kept as backups. Rollback restore
 
 ---
 
+## Server FD lifecycle (`conversation_cache`)
+
+Per-conversation `conversation.db` connections are held while a `Conversation` is loaded. Those objects live in the process-level LRU:
+
+- `server.conversation_cache` — `DefaultDictQueue(maxsize=200, default_factory=load_conversation, on_evict=_evict_cached_conversation)`
+- Eviction (capacity / delete) calls `Conversation.close_conversation_store()` so the store’s SQLite handle is closed and FDs released
+- macOS soft `RLIMIT_NOFILE` is often 256; each open DB is roughly 3 FDs (main + WAL + SHM). Without the raise + close path, chat list / login can fail with `OSError: [Errno 24] Too many open files`
+
+Startup raises the soft nofile limit:
+
+- `server._raise_nofile_limit(8192)` at import (via `resource`)
+- `run_server.sh` also runs `ulimit -n 8192` for shell-launched processes
+
+Product/ops write-up: `documentation/product/behavior/chat_app_capabilities.md` → **Local conversation storage → In-memory conversation_cache + macOS FD hygiene**.
+
 ## Key Files
 
 | File | Purpose |
@@ -91,7 +106,10 @@ JSON files are renamed to `.json.migrated` and kept as backups. Rollback restore
 | `database/conversation_store.py` | `ConversationStore` class — all CRUD operations |
 | `database/migration.py` | `migrate` / `rollback` / `status` CLI |
 | `database/connection.py` | `RememberTokens` + `PinnedClaims` DDL |
-| `Conversation.py` | `conversation_store` property, `_use_sqlite` gate, routing |
+| `Conversation.py` | `conversation_store` property, `close_conversation_store()`, `_use_sqlite` gate, routing |
+| `common.py` | `DefaultDictQueue` LRU + `on_evict` |
+| `server.py` | `_raise_nofile_limit`, `_evict_cached_conversation`, cache wiring |
+| `run_server.sh` | shell `ulimit -n` preflight |
 | `endpoints/auth.py` | `remember_tokens` SQLite migration |
 | `endpoints/pkb.py` | `pinned_claims` SQLite persistence |
 

@@ -199,6 +199,8 @@ VISION_CAPABLE_MODELS = frozenset(
         "anthropic/claude-opus-4",
         "anthropic/claude-opus-4.5",
         "anthropic/claude-opus-4.6",
+        "anthropic/claude-opus-4.7",
+        "anthropic/claude-opus-4.8",
         "mistralai/pixtral-large-2411",
         "google/gemini-pro-1.5",
         "google/gemini-flash-1.5",
@@ -224,6 +226,9 @@ VISION_CAPABLE_MODELS = frozenset(
         "google/gemini-pro-latest",
         "openai/gpt-latest",
         "openai/gpt-5.5",
+        "openai/gpt-5.6-sol",
+        "openai/gpt-5.6-terra",
+        "openai/gpt-5.6-luna",
         "google/gemini-flash-latest",
         "anthropic/claude-fable-5",
         
@@ -559,7 +564,7 @@ def call_chat_model(model, text, images, temperature, system, keys, messages=Non
         "google/gemini-flash-latest": "google/gemini-3.5-flash",
         "google/gemini-pro-latest": "google/gemini-3.1-pro-preview",
         "openai/gpt-latest": "openai/gpt-5.5",
-        "anthropic/claude-opus-latest": "anthropic/claude-opus-4.7",
+        "anthropic/claude-opus-latest": "anthropic/claude-opus-4.8",
     }
     model = _latest_model_map.get(model, model)
 

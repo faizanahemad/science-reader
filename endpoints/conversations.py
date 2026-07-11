@@ -417,7 +417,9 @@ def get_model_catalog():
     defaults = {
         "conversation_internal_model": SUPERFAST_LLM[0],
         "quick_action_model": SUPERFAST_LLM[0],
-        "artefact_propose_edits_model": EXPENSIVE_LLM[2],
+        # Explicit name (not EXPENSIVE_LLM[2]) so reordering expensive tier
+        # entries does not silently change this default.
+        "artefact_propose_edits_model": "openai/gpt-latest",
         "doc_model": CHEAP_LONG_CONTEXT_LLM[0],
         "clarify_intent_model": VERY_CHEAP_LLM[0],
         "pkb_nl_model": CHEAP_LLM[0],

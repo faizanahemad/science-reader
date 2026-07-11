@@ -27,7 +27,7 @@ Source file: `/Users/ahemf/Documents/Backup_2025/Research/chatgpt-iterative/serv
   - `cache_dir` → L1595: `cache_dir = os.path.join(os.getcwd(), folder, "cache")`
   - `cache_dir` → L1599: `os.makedirs(cache_dir, exist_ok=True)`
   - `cache_dir` → L1614: `cache = Cache(app, config={'CACHE_TYPE': 'filesystem', 'CACHE_DIR': cache_dir,`
-  - `conversation_cache` → L1888: `conversation_cache = DefaultDictQueue(maxsize=200, default_factory=load_conversation)`
+  - `conversation_cache` → ~L549: `DefaultDictQueue(maxsize=200, default_factory=load_conversation, on_evict=_evict_cached_conversation)` — LRU of live `Conversation`s; eviction closes per-conversation SQLite via `close_conversation_store()` (EMFILE / soft nofile hygiene; see chat_app_capabilities “Local conversation storage”)
   - `conversation_cache` → L2148: `conversation: Conversation = conversation_cache[conversation_id]`
   - `conversation_cache` → L2181: `conversation: Conversation = conversation_cache[conversation_id]`
   - `conversation_cache` → L2199: `conversation: Conversation = conversation_cache[conversation_id]`

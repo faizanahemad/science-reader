@@ -18,6 +18,7 @@ import argparse
 import logging
 import os
 import platform
+import resource
 import sys
 from datetime import timedelta
 from typing import Optional
@@ -29,6 +30,37 @@ import requests as _requests
 _THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 if _THIS_DIR not in sys.path:
     sys.path.insert(0, _THIS_DIR)
+
+
+def _raise_nofile_limit(min_soft: int = 8192) -> None:
+    """Raise RLIMIT_NOFILE soft limit when the process starts with a tiny default.
+
+    macOS often inherits soft=256 (hard=unlimited). conversation_cache holds
+    up to 200 Conversation objects; each open SQLite conversation.db seeks
+    ~3 FDs (db+wal+shm), so listing ~70-90 chats alone blows EMFILE and makes
+    even /login fail (Errno 24). Prefer hard ceiling when finite.
+    """
+    try:
+        soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    except Exception:
+        return
+    target = min_soft
+    if hard != resource.RLIM_INFINITY:
+        target = min(target, int(hard))
+    if soft >= target:
+        return
+    try:
+        resource.setrlimit(resource.RLIMIT_NOFILE, (target, hard))
+        logging.getLogger(__name__).info(
+            "Raised RLIMIT_NOFILE soft %s -> %s (hard=%s)", soft, target, hard
+        )
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            "Could not raise RLIMIT_NOFILE soft=%s hard=%s: %s", soft, hard, exc
+        )
+
+
+_raise_nofile_limit()
 
 from flask import Flask
 from flask.json.provider import JSONProvider
@@ -153,6 +185,20 @@ def load_conversation(conversation_id: str) -> Conversation:
     conversation.clear_lockfile("uploaded_documents_list")
     conversation.clear_lockfile("artefacts")
     return conversation
+
+
+def _evict_cached_conversation(conversation_id: str, conversation: object) -> None:
+    """Close SQLite handles when a Conversation leaves conversation_cache."""
+    if conversation is None:
+        return
+    close = getattr(conversation, "close_conversation_store", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:
+            logger.debug(
+                "close_conversation_store failed for %s", conversation_id, exc_info=True
+            )
 
 
 # Populated in create_app()
@@ -497,9 +543,13 @@ def create_app(argv: Optional[list[str]] = None) -> Flask:
         },
     )
 
-    # Shared state for blueprints
+    # Shared state for blueprints.
+    # on_evict closes SQLite conversation.db FDs so cache churn does not leak
+    # file descriptors (mitigates Errno 24 under soft RLIMIT_NOFILE=256).
     conversation_cache = DefaultDictQueue(
-        maxsize=200, default_factory=load_conversation
+        maxsize=200,
+        default_factory=load_conversation,
+        on_evict=_evict_cached_conversation,
     )
     pinned_claims: dict[str, set] = {}
 

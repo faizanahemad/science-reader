@@ -297,6 +297,22 @@ class Conversation:
             self._conversation_store = store
         return self._conversation_store
 
+    def close_conversation_store(self) -> None:
+        """Release the per-conversation SQLite connection if open.
+
+        Called when this Conversation is evicted from ``conversation_cache`` so
+        WAL/SHM/DB file descriptors are not held for hundreds of chats at once
+        (macOS soft RLIMIT_NOFILE is often 256 → Errno 24 Too many open files).
+        """
+        store = getattr(self, "_conversation_store", None)
+        if store is None:
+            return
+        try:
+            store.close()
+        except Exception:
+            pass
+        self._conversation_store = None
+
     def _migrate_json_to_sqlite(self, store):
         """One-time migration of all JSON fields into the SQLite store."""
         from database.migration import migrate_conversation
@@ -15680,10 +15696,16 @@ def model_name_to_canonical_name(model_name):
         model_name = "openai/gpt-5.4"
     elif model_name == "openai/gpt-5.5":
         model_name = "openai/gpt-5.5"
+    elif model_name == "openai/gpt-5.6-sol":
+        model_name = "openai/gpt-5.6-sol"
+    elif model_name == "openai/gpt-5.6-terra":
+        model_name = "openai/gpt-5.6-terra"
+    elif model_name == "openai/gpt-5.6-luna":
+        model_name = "openai/gpt-5.6-luna"
     elif model_name == "openai/gpt-latest":
         model_name = "openai/gpt-5.5"
     elif model_name == "anthropic/claude-opus-latest":
-        model_name = "anthropic/claude-opus-4.7"
+        model_name = "anthropic/claude-opus-4.8"
     elif model_name == "google/gemini-pro-latest":
         model_name = "google/gemini-3.1-pro-preview"
     elif model_name == "google/gemini-flash-latest":
@@ -15706,6 +15728,8 @@ def model_name_to_canonical_name(model_name):
         model_name = "anthropic/claude-opus-4.5"
     elif model_name == "anthropic/claude-opus-4.6" or model_name == "Opus 4.6":
         model_name = "anthropic/claude-opus-4.6"
+    elif model_name == "anthropic/claude-opus-4.8" or model_name == "Opus 4.8":
+        model_name = "anthropic/claude-opus-4.8"
     elif model_name == "anthropic/claude-fable-5":
         model_name = "anthropic/claude-fable-5"
     elif model_name == "openrouter/fusion":

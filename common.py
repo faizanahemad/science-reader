@@ -94,27 +94,26 @@ QUICK_ACTION_LLM = "anthropic/claude-sonnet-4.6"
 
 VERY_CHEAP_LLM = [
     "google/gemini-3.1-flash-lite-preview",
-    "openai/gpt-5-mini",
     "inception/mercury-2",
 ]
 CHEAP_LLM = [
     "anthropic/claude-haiku-4.5",
-    "deepseek/deepseek-v4-pro",
     "google/gemini-flash-latest",
     "qwen/qwen3.7-max",
     "gemini-flash-3.5-non-reasoning",
+    "openai/gpt-5.6-luna",
 ]
 EXPENSIVE_LLM = [
-    "anthropic/claude-opus-latest",
+    "anthropic/claude-opus-4.8",
     "google/gemini-pro-latest",
     "openai/gpt-latest",
     "openai/gpt-5.5",
     "google/gemini-3.1-pro-preview",
     "anthropic/claude-opus-4.6",
     "anthropic/claude-sonnet-4.6",
-    "moonshotai/kimi-k2.6",
     "anthropic/claude-fable-5",
-    "openrouter/fusion",
+    "openai/gpt-5.6-sol",
+    "openai/gpt-5.6-terra",
 ]
 UNUSED_EXPENSIVE_LLM = [
     
@@ -126,13 +125,10 @@ OPENAI_CHEAP_LLM = "openai/gpt-5-mini"
 
 CHEAP_LONG_CONTEXT_LLM = [
     "google/gemini-flash-latest",
-    "deepseek/deepseek-v4-pro",
-    "google/gemini-3-flash-preview",
-    "google/gemini-2.5-flash",
-    "openai/gpt-5-mini",
     "gemini-flash-3.5-non-reasoning",
+    "openai/gpt-5.6-luna",
 ]
-LONG_CONTEXT_LLM = ["google/gemini-3-flash-preview", "google/gemini-3.5-flash", "google/gemini-3.1-pro-preview"]
+LONG_CONTEXT_LLM = ["google/gemini-3.5-flash", "google/gemini-3.1-pro-preview"]
 
 COMMON_SALT_STRING = "31256greagy89"
 
@@ -1838,7 +1834,7 @@ import threading
 
 class DefaultDictQueue:
     def __init__(
-        self, maxsize, default_factory=None
+        self, maxsize, default_factory=None, on_evict=None
     ):  # Added default_factory parameter
         self.maxsize = maxsize
         self.queue = collections.deque(maxlen=maxsize)
@@ -1846,20 +1842,35 @@ class DefaultDictQueue:
         self.data = dict()
         self.lock = threading.RLock()
         self.default_factory = default_factory  # Save the default factory
+        # Optional cleanup when an entry leaves the cache (capacity or delete).
+        # Used to close SQLite handles held by cached Conversation objects.
+        self.on_evict = on_evict
+
+    def _emit_evict(self, key, value):
+        cb = self.on_evict
+        if not cb:
+            return
+        try:
+            cb(key, value)
+        except Exception:
+            # Eviction must not fail the mutating request.
+            pass
 
     def __delitem__(self, key):
         with self.lock:
             if key in self.set_of_items:
                 self.set_of_items.remove(key)
                 self.queue.remove(key)
-                del self.data[key]
+                old = self.data.pop(key, None)
+                self._emit_evict(key, old)
 
     def remove_any(self, item):
         with self.lock:
             if item in self.set_of_items:
                 self.set_of_items.remove(item)
                 self.queue.remove(item)
-                del self.data[item]
+                old = self.data.pop(item, None)
+                self._emit_evict(item, old)
 
     def add(
         self, item, item_data=None
@@ -1869,7 +1880,8 @@ class DefaultDictQueue:
             if len(self.queue) >= self.maxsize - 1:
                 removed = self.queue.popleft()
                 self.set_of_items.remove(removed)
-                del self.data[removed]
+                old = self.data.pop(removed, None)
+                self._emit_evict(removed, old)
             self.queue.append(item)
             self.set_of_items.add(item)
             self.data[item] = (
