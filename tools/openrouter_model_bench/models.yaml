@@ -1,0 +1,65 @@
+# OpenRouter model bench registry.
+# Fields: key, id, extra, enabled, notes
+
+models:
+  - key: gemini-3.1-lite
+    id: google/gemini-3.1-flash-lite
+    extra:
+      reasoning:
+        effort: none
+      include_reasoning: false
+    notes: "true non-reasoning via effort=none"
+
+  - key: gemini-3.5-flash-nr
+    id: google/gemini-3.5-flash
+    extra:
+      reasoning:
+        effort: minimal
+      include_reasoning: false
+    notes: "OR rejects effort=none; minimal is NR stand-in"
+
+  - key: minimax-m3
+    id: minimax/minimax-m3
+    extra:
+      reasoning:
+        effort: none
+      include_reasoning: false
+    notes: "effort=none => reason_tok=0"
+
+  - key: qwen3.7-plus
+    id: qwen/qwen3.7-plus
+    extra:
+      reasoning:
+        effort: none
+      include_reasoning: false
+    notes: "effort=none => reason_tok=0"
+
+  - key: nex-n2-pro
+    id: nex-agi/nex-n2-pro
+    extra:
+      reasoning:
+        effort: none
+      include_reasoning: false
+    notes: "effort=none; may still show reason_tok burn"
+
+  - key: glm-5.2
+    id: z-ai/glm-5.2
+    extra:
+      reasoning:
+        effort: none
+      include_reasoning: false
+    notes: "effort=none => reason_tok=0"
+
+  - key: nex-n2-mini
+    id: nex-agi/nex-n2-mini
+    extra:
+      reasoning:
+        effort: none
+      include_reasoning: false
+    notes: "effort=none; may still show reason_tok burn"
+
+  - key: mercury-2
+    id: inception/mercury-2
+    extra:
+      include_reasoning: false
+    notes: "diffusion-style; no effort=none; hidden reason_tok burns budget"
