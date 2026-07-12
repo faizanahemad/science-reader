@@ -79,7 +79,7 @@ Streaming response (newline-delimited JSON):
 
 (`Conversation.py`, line ~12427)
 
-Parameters: `message_id, doubt_text, doubt_history, reward_level, selected_text="", with_context=False, display_attachments=None`
+Parameters: `message_id, doubt_text, doubt_history, reward_level, selected_text="", with_context=False, display_attachments=None, users_dir=None`
 
 **Context building logic:**
 
@@ -87,7 +87,12 @@ Parameters: `message_id, doubt_text, doubt_history, reward_level, selected_text=
 - **`with_context=False`** (default): only the single target message is included in the prompt
 - **`with_context=True`**: includes the conversation `running_summary` + all surrounding context messages, with the target marked `← [TARGET MESSAGE]`
 - If `selected_text` is non-empty: injects `**Selected Text the user is asking about:** "..."` into the prompt between the context block and the user's doubt question
-- If `doubt_history` is non-empty (follow-up): prepends the full prior Q&A thread as "Previous Doubt History"
+- If `doubt_history` is non-empty (follow-up): packs prior thread via `code_common.doubt_context.build_doubt_history_context_section`:
+  - Prefer path-local **Doubt Thread Running Summary** stored on the tip/ancestors + last **3** verbatim turns
+  - Short threads (`len(history) < 2`) or missing summary → full/truncated Previous Doubt History (older answers truncated past a 12k char budget)
+  - Current follow-up question is **not** re-emitted in history (it appears later as User's Doubt)
+  - Manual visible children with `doubt_text == "Thread Summary"` are filtered out of packing (user artefact ≠ system memory)
+- **Cold / legacy bootstrap:** when `users_dir` is set, history length ≥ 2, and no ready tip/ancestor summary exists, `ensure_path_summary_sync` runs a **blocking** SUPERFAST (`conversation_internal_model`) bootstrap **before** answer tokens, then packs summary+last-3 on that same request. Bootstrap failure falls back to truncated full history.
 
 **Attachment handling:**
 - `_get_attached_doc_images(display_attachments)` → loads `FastImageDocIndex`/`ImageDocIndex` from `message_attached_documents_list` + `uploaded_documents_list`, returns `llm_image_source` paths
@@ -105,7 +110,24 @@ Parameters: `message_id, doubt_text, doubt_history, reward_level, selected_text=
 **LLM call:** `temperature=0.3`, `max_tokens=2000`, streaming  
 **System prompt:** "You are a helpful AI assistant specializing in clarifying doubts and explaining complex concepts clearly and thoroughly. Avoid using markdown headers and avoid excessive formatting. Write with the intention to help the user learn and understand better without formatting bloat."
 
-After streaming completes, the endpoint saves the Q&A to the DB via `database.doubts.add_doubt()`, persisting `display_attachments` as JSON.
+After streaming completes, the endpoint saves the Q&A to the DB via `database.doubts.add_doubt()`, persisting `display_attachments` as JSON, then **schedules** an async path-local thread summary update on the new tip (`conversation.schedule_doubt_thread_summary`) when the node is not a manual "Thread Summary" child. That job never blocks the stream.
+
+### Path-local doubt thread running summary
+
+Main chat already keeps `memory["running_summary"]`. Doubt threads previously full-replayed the entire Q&A chain on every follow-up, which bloats prompts and loses focus on long threads. Doubts now mirror the main-chat idea with **path-local** memory stored on each `DoubtsClearing` tip (branch-safe; not mixed into conversation `running_summary`).
+
+| Piece | Behaviour |
+|---|---|
+| Storage | `thread_summary_upto_here`, `summary_status` (`ready`/`pending`/`dirty`/`error`/NULL), `summary_updated_at` on each doubt row |
+| Packing | Ready tip/ancestor summary + last **3** raw turns (`DOUBT_RECENT_VERBATIM_TURNS`) |
+| MIN_TURNS | 2 — shorter paths full-replay only |
+| Steady write | After `add_doubt` / regen answer → async `schedule_doubt_thread_summary` via `get_async_future` |
+| Legacy first long follow-up | Sync `ensure_path_summary_sync` before answer packing when no ready summary |
+| Regen | Recompute tip schedule; `mark_descendant_summaries_dirty` on children |
+| Model | `conversation_internal_model` (default `SUPERFAST_LLM[0]` / `google/gemini-3.1-flash-lite`), **not** `quick_action_model` |
+| Manual Summarize Thread | Still creates a visible human child; **not** used as system running memory |
+
+Pure packing helpers and thresholds live in `code_common/doubt_context.py` (unit-tested by `tests/test_doubt_context_packing.py`). Summarizer prompts: `doubt_thread_running_summary_*` in `prompts.py`.
 
 ### Storage: `DoubtsClearing` table in `users.db`
 
@@ -125,6 +147,9 @@ show_hide         — 'show' | 'hide' collapse state of the answer card in the d
 created_at
 updated_at
 display_attachments — JSON array of {type, name, thumbnail, doc_id} for files attached to this doubt question
+thread_summary_upto_here — path-local machine running summary root→this node (inclusive); NULL until generated
+summary_status    — ready | pending | dirty | error | NULL (never attempted)
+summary_updated_at — ISO timestamp of last summary write/status change
 ```
 
 **Tree structure:** doubts form a linked list / tree. Each independent question on a message is a root (`is_root_doubt=1`). Follow-ups chain via `parent_doubt_id`.
@@ -135,11 +160,14 @@ display_attachments — JSON array of {type, name, thumbnail, doc_id} for files 
 |---|---|
 | `add_doubt()` | Insert new record; if follow-up, also updates parent's `child_doubt_id` |
 | `get_doubts_for_message()` | Fetches all root doubts for a message, then recursively builds full trees via `build_doubt_tree()` |
-| `get_doubt_history()` | Walks `parent_doubt_id` chain backwards to root, reverses → chronological thread for LLM context |
+| `get_doubt_history()` | Walks `parent_doubt_id` chain backwards to root, reverses → chronological thread for LLM context (includes summary fields) |
 | `delete_doubt()` | Recursively deletes the node and its entire sub-tree (all descendants). Returns the list of deleted `doubt_id`s. Deleting a root doubt removes its whole tree |
 | `update_doubt_show_hide()` | Persists the per-doubt answer collapse state (`show`/`hide`) |
+| `update_doubt_thread_summary()` | Writes summary text + status + timestamps on a tip |
+| `set_summary_status()` | Status-only update (e.g. `pending` before LLM) |
+| `mark_descendant_summaries_dirty()` | After regen of an ancestor answer, dirties child summaries that assumed the old answer |
 
-**When is the answer saved?** Only after the full stream completes, in the `finally` block of the stream generator. If streaming is interrupted, a partial answer may still be saved if `accumulated_doubt_answer` is non-empty.
+**When is the answer saved?** Only after the full stream completes, in the `finally` block of the stream generator. If streaming is interrupted, a partial answer may still be saved if `accumulated_doubt_answer` is non-empty. Post-save summary schedule is fire-and-forget and fail-open.
 
 ### Answer Show/Hide (Collapse) in the Doubt Modal
 
@@ -160,9 +188,10 @@ Assistant doubt answer cards in the doubt chat modal (`#doubt-chat-modal`) carry
 | `interface/common-chat.js` | `uploadFileToConversation()`, `renderDisplayAttachmentBadges()` — shared upload + badge helpers |
 | `endpoints/doubts.py` | All doubt HTTP routes + streaming generator; reads `display_attachments` from request |
 | `endpoints/documents.py` | `DELETE /detach_doc_from_message/<conv_id>/<doc_id>` — cleanup of unsent attachments |
-| `Conversation.py` ~L12427 | `clear_doubt()`, `_get_attached_doc_images()`, `_get_attached_doc_texts()` |
-| `database/doubts.py` | All SQLite operations on `DoubtsClearing`; `add_doubt()` stores `display_attachments` as JSON |
-| `database/connection.py` | Migration adding `display_attachments TEXT` column to `DoubtsClearing` |
+| `Conversation.py` | `clear_doubt()`, ensure/schedule thread summary, `_get_attached_doc_images()`, `_get_attached_doc_texts()` |
+| `database/doubts.py` | All SQLite operations on `DoubtsClearing`; `add_doubt()` stores `display_attachments` as JSON; summary read/write helpers |
+| `database/connection.py` | Migrations for `display_attachments` and path-local summary columns on `DoubtsClearing` |
+| `code_common/doubt_context.py` | Pure packing helpers (summary+last-3, bootstrap pack, truncation) |
 
 ---
 

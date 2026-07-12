@@ -81,19 +81,26 @@ Primary helpers (module: `database/users.py`):
 #### Doubt clearing
 
 Table:
-- `DoubtsClearing(doubt_id PRIMARY KEY, conversation_id, user_email, message_id, doubt_text, doubt_answer, parent_doubt_id, child_doubt_id, is_root_doubt, created_at, updated_at)`
+- `DoubtsClearing(doubt_id PRIMARY KEY, conversation_id, user_email, message_id, doubt_text, doubt_answer, parent_doubt_id, child_doubt_id, is_root_doubt, created_at, updated_at, display_attachments, thread_summary_upto_here, summary_status, summary_updated_at, ...)`
 
 Primary helpers (module: `database/doubts.py`):
 - `add_doubt(*, conversation_id, user_email, message_id, doubt_text, doubt_answer, parent_doubt_id=None, users_dir=None, logger=None) -> str`
   - Returns the generated `doubt_id`.
-- `delete_doubt(*, doubt_id, users_dir=None, logger=None) -> bool`
-  - Performs tree restructuring (linked-list style) when deleting.
+- `delete_doubt(*, doubt_id, users_dir=None, logger=None) -> list[str]`
+  - Recursively deletes the target and all descendants; returns deleted ids.
 - `get_doubt(*, doubt_id, users_dir=None, logger=None) -> Optional[dict]`
 - `get_doubt_children(*, doubt_id, users_dir=None, logger=None) -> list[dict]`
 - `build_doubt_tree(doubt_record: dict, *, users_dir=None, logger=None) -> dict`
 - `get_doubts_for_message(*, conversation_id, message_id, user_email=None, users_dir=None, logger=None) -> list[dict]`
 - `get_doubt_history(*, doubt_id, users_dir=None, logger=None) -> list[dict]`
+- `update_doubt_thread_summary(*, doubt_id, thread_summary, summary_status="ready", users_dir=None, logger=None) -> bool`
+- `set_summary_status(*, doubt_id, summary_status, users_dir=None, logger=None) -> bool`
+- `mark_descendant_summaries_dirty(*, doubt_id, users_dir=None, logger=None) -> int`
 
+Path-local running summary notes:
+- `thread_summary_upto_here` covers root→this node; tip of the active path carries the working memory used on follow-ups.
+- `summary_status` is one of `ready` | `pending` | `dirty` | `error` | NULL.
+- Machine packing lives in `code_common/doubt_context.py`; LLM write path is `Conversation.ensure_path_summary_sync` / `schedule_doubt_thread_summary`.
 #### Section hidden details
 
 Table:

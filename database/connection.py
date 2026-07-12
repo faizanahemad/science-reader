@@ -131,6 +131,9 @@ def create_tables(*, users_dir: str, logger: Optional[logging.Logger] = None) ->
                                     bookmarked boolean DEFAULT 0,
                                     created_at text,
                                     updated_at text,
+                                    thread_summary_upto_here text,
+                                    summary_status text,
+                                    summary_updated_at text,
                                     FOREIGN KEY (parent_doubt_id) REFERENCES DoubtsClearing (doubt_id)
                                 ); """
 
@@ -310,6 +313,23 @@ def create_tables(*, users_dir: str, logger: Optional[logging.Logger] = None) ->
     try:
         cur.execute("ALTER TABLE DoubtsClearing ADD COLUMN display_attachments text DEFAULT NULL")
         log.info("Added display_attachments column to DoubtsClearing table")
+    except Exception:
+        pass
+
+    # Path-local running summary for doubt threads (tip carries summary up to that node).
+    try:
+        cur.execute("ALTER TABLE DoubtsClearing ADD COLUMN thread_summary_upto_here text")
+        log.info("Added thread_summary_upto_here column to DoubtsClearing table")
+    except Exception:
+        pass
+    try:
+        cur.execute("ALTER TABLE DoubtsClearing ADD COLUMN summary_status text")
+        log.info("Added summary_status column to DoubtsClearing table")
+    except Exception:
+        pass
+    try:
+        cur.execute("ALTER TABLE DoubtsClearing ADD COLUMN summary_updated_at text")
+        log.info("Added summary_updated_at column to DoubtsClearing table")
     except Exception:
         pass
 

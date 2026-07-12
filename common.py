@@ -88,7 +88,10 @@ SCIENCE_KEYS = [
 
 OPENROUTER_LLM = ["google/gemini-2.5-flash"]
 
-SUPERFAST_LLM = ["inception/mercury-2"]
+# Low-latency internal default: summaries, TLDR, memory pad, web query gen,
+# quick actions. Prefer models validated as true non-reasoning + format-reliable
+# on tools/openrouter_model_bench (gemini-3.1-flash-lite topped hard NR pack).
+SUPERFAST_LLM = ["google/gemini-3.1-flash-lite"]
 
 QUICK_ACTION_LLM = "anthropic/claude-sonnet-4.6"
 

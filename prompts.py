@@ -300,6 +300,42 @@ Give me all the concepts, technical terms, principles of topics discussed and ot
 Then think, in this era of agentic coding and LLMs, I as a senior engineer don't need to know all these concepts, rather I need to know trade offs, caveats, and be ready to ask the right questions to another engineer or LLM to ensure I design a system properly. So what are those caveats, thought models, questions that I need to think and ask.
 """
 
+# Machine-usable path-local running summary for doubt threads (not the human-facing
+# "Thread Summary" child produced by senior_engineer_summary_prompt).
+doubt_thread_running_summary_system = """You maintain a compact running summary of a doubt/Q&A thread.
+Write machine-usable memory for the next assistant turn. Prefer tight bullets.
+Hard limit: <= 280 words. No preamble. No closing flourish."""
+
+doubt_thread_running_summary_prompt = """Update the doubt-thread running summary.
+
+Prior running summary (may be empty):
+'''{prior_summary}'''
+
+Extra path context (bootstrap / truncated older turns; may be empty):
+'''{extra_context}'''
+
+New exchange to fold in:
+User asked:
+'''{doubt_text}'''
+
+Assistant answered:
+'''{doubt_answer}'''
+
+Write an updated running summary that captures:
+1) Thread goal / what the user is trying to understand
+2) Definitions and corrections that must stick
+3) Conclusions already established
+4) Open questions / remaining confusion
+5) Caveats the next answer must respect
+
+Rules:
+- Merge into prior summary; drop obsolete or wrong info
+- Do NOT restate the host main-chat message
+- Do NOT invent facts not present in prior summary, extra context, or this exchange
+- Prefer bullets; keep <= 280 words
+- Output ONLY the summary text
+"""
+
 visual_tab_prompt = """You are an expert at creating visual explanations using diagrams. Create diagrams that visually explain the key concepts in the user's question.
 
 **Format preference order (strict):**

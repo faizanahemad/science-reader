@@ -60,11 +60,11 @@ def _format_fallback_warning(model_name, fallback_model, error):
 def _cc_call_llm_with_fallback(*, model_name, stream, **kwargs):
     """Call the underlying LLM, transparently falling back to a robust model on failure.
 
-    The default fast model (``SUPERFAST_LLM[0]``, currently the ``inception/mercury-2``
-    diffusion model) can deterministically reject certain prompts with a provider-side
-    content-policy filter, and can also hit transient upstream errors. Rather than
-    hardening every bare call site individually, this single wrapper retries once with
-    a non-diffusion fallback (``VERY_CHEAP_LLM[0]``) whenever the primary model raises.
+    The default fast model (``SUPERFAST_LLM[0]``, currently
+    ``google/gemini-3.1-flash-lite``) — and previously diffusion/small models used in
+    that tier — can hit provider-side content filters or transient upstream errors.
+    Rather than hardening every bare call site individually, this single wrapper retries
+    once with a cheap fallback (``VERY_CHEAP_LLM[0]``) whenever the primary model raises.
 
     A visible markdown warning banner is prepended to the fallback's output (text
     results only) so the fallback is never silent to the end user — see

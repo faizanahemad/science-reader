@@ -110,7 +110,7 @@ if bing_available:
 - Uses Jina Search API (`s.jina.ai`) for results
 - Uses Jina Reader API (`r.jina.ai`) for content extraction
 - Summarizes results with LLM
-- **Query generation model**: Uses `SUPERFAST_LLM[0]` (`inception/mercury-2`) instead of `CHEAP_LLM[0]` for faster query generation. Includes validation of structured output (non-empty list of 2-tuples with non-empty string queries and string contexts) and automatic fallback to `CHEAP_LLM[0]` on parsing failure.
+- **Query generation model**: Uses `SUPERFAST_LLM[0]` (`google/gemini-3.1-flash-lite`) instead of `CHEAP_LLM[0]` for faster query generation. Includes validation of structured output (non-empty list of 2-tuples with non-empty string queries and string contexts) and automatic fallback to `CHEAP_LLM[0]` on parsing failure.
 - **Per-query combiner model**: The `jina_search` tool handler in `code_common/tools.py` also uses `SUPERFAST_LLM[0]` for the per-query result summarization step.
 ---
 
@@ -283,7 +283,7 @@ if field == "JinaDeepResearchAgent":
 
 ### SUPERFAST_LLM for Jina Search
 
-The Jina search pipeline uses `SUPERFAST_LLM[0]` (`inception/mercury-2`) in two places to reduce latency:
+The Jina search pipeline uses `SUPERFAST_LLM[0]` (`google/gemini-3.1-flash-lite`) in two places to reduce latency:
 
 1. **Query generation** (`agents/search_and_information_agents.py`, line ~328): The `WebSearchWithAgent.__call__` path generates search queries using `SUPERFAST_LLM[0]` instead of `CHEAP_LLM[0]`. Because the fast model may produce malformed structured output (expected: list of `(query, context)` tuples), explicit validation is applied:
    - Result must be a non-empty list

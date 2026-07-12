@@ -406,7 +406,7 @@ Server-side injection:
 **What it does**
 - Enriches answers with web search results and/or scholar-style search depending on UI toggles.
 - Uses specialized agents for deep research and search strategies (e.g. Jina agents, Perplexity agent).
-- **SUPERFAST_LLM optimization**: Jina search query generation and per-query combiner use `SUPERFAST_LLM[0]` (`inception/mercury-2`) for faster execution. Includes validation assertions (non-empty list of 2-tuples with non-empty string queries) and automatic fallback to `CHEAP_LLM[0]` on structured output parsing failure.
+- **SUPERFAST_LLM optimization**: Jina search query generation and per-query combiner use `SUPERFAST_LLM[0]` (`google/gemini-3.1-flash-lite`) for low-latency execution. Includes validation assertions (non-empty list of 2-tuples with non-empty string queries) and automatic fallback to `CHEAP_LLM[0]` on structured output parsing failure.
 
 **API**
 - Mostly invoked through the main chat pipeline: `POST /send_message/<conversation_id>`
@@ -1046,6 +1046,7 @@ The `@pkb:claim_id` prefix is supported as a legacy alias alongside `@memory:` a
 **What it does**
 - A dedicated endpoint that streams an explanation of a specific message.
 - Persists the doubt and its answer into SQLite (`DoubtsClearing`), supports follow-up chains.
+- **Path-local thread running summary** — after each answered tip (async), write `thread_summary_upto_here` on that `DoubtsClearing` row (`summary_status` ready/pending/dirty/error). Follow-ups pack ready tip/ancestor summary + last **3** raw turns via `code_common/doubt_context.py` instead of an unbounded full Q&A dump. Short paths full-replay; long legacy paths with no ready summary do a one-shot blocking SUPERFAST bootstrap (`conversation_internal_model` / `SUPERFAST_LLM[0]`) before the answer LLM. Manual “Summarize Thread” stays a human-facing child and is filtered out of system packing. Ensure/schedule live on `Conversation` (`ensure_path_summary_sync`, `schedule_doubt_thread_summary`); post-save schedule is fail-open.
 - Supports cancellation of doubt clearing independently from main chat cancellation.
 - **Temporary LLM actions** — ephemeral explain/critique/expand/eli5/ask_temp on selected text via right-click context menu. History kept client-side only (`TempLLMManager.currentHistory`), lost on modal close. Route: `POST /temporary_llm_action`.
 - **`/aside` and `/btw` slash commands** — type `/aside <question>` or `/btw <question>` in the main message box to open the temp chat modal with the question pre-filled and auto-submitted (full conversation context included). Token is stripped before sending.
@@ -1068,14 +1069,14 @@ The `@pkb:claim_id` prefix is supported as a legacy alias alongside `@memory:` a
 - `POST /move_pair_as_doubt/<conversation_id>/<message_id>/<index>` — promote a user+assistant chat pair as a doubt on the preceding assistant message (see section 3)
 
 **Persistence**
-- `users.db` table: `DoubtsClearing` (columns: doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer, parent_doubt_id, is_root_doubt, show_hide, with_context, pinned, bookmarked, created_at, updated_at, **display_attachments** JSON)
+- `users.db` table: `DoubtsClearing` (columns: doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer, parent_doubt_id, is_root_doubt, show_hide, with_context, pinned, bookmarked, created_at, updated_at, **display_attachments** JSON, **thread_summary_upto_here**, **summary_status**, **summary_updated_at**)
 - Conversation settings keys: `auto_doubt_categories` (list), model_overrides.`auto_doubt_model` (string)
 
 **Enhanced features (2026-06)**
 - **File attachments in doubt and temp LLM modals** — paperclip button + preview strip above textarea in both modals. Same upload infrastructure as main chat (`POST /upload_doc_to_conversation`). Images sent natively to the vision LLM (not via `#doc_N` tool calls). Text/data docs inlined directly in the prompt. Doubt attachments persisted in `display_attachments` column and re-rendered as badges when thread is reopened. Temp LLM attachments cleaned up on modal close via `DELETE /detach_doc_from_message`. New endpoint: `DELETE /detach_doc_from_message/<conv_id>/<doc_id>`.
 - **Pin/star** — pin important root doubts; pinned sort first in overview. Bookmark specific answers within threads.
 - **Regeneration** — ↻ button re-runs LLM and updates answer in-place (streamed).
-- **Thread summarization** — uses `senior_engineer_summary_prompt` on the Q&A thread, saves as child doubt.
+- **Thread summarization (manual)** — uses `senior_engineer_summary_prompt` on the Q&A thread, saves as a visible `Thread Summary` child doubt (human artefact; separate from the machine path-local `thread_summary_upto_here`).
 - **Inline length/preamble controls** — Short/Medium/Long toggle + preamble selector at top of doubt chat modal.
 - **Copy Thread** — copies full thread as markdown to clipboard.
 - **"Continue doubt in main chat"** — context menu injects doubt thread as `[Doubt Context]` block into main input.

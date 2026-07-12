@@ -80,7 +80,9 @@ MODEL_TOKEN_LIMITS = {
     "cheap_long_context": 800_000,
     "long_context": 900_000,
     "expensive": 150_000,
-    "superfast": 100_000,
+    # SUPERFAST is currently Gemini 3.1 Flash Lite (1M ctx). Keep a generous but
+    # still bounded working limit; full 1M dumps are rarely needed for internal use.
+    "superfast": 500_000,
     "gemini_flash": 400_000,
     "gemini_other": 500_000,
     "cohere_llama_deepseek_jamba": 100_000,

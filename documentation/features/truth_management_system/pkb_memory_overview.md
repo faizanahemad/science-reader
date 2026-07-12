@@ -111,7 +111,7 @@ The overview's Key Areas section is injected into the search pipeline to improve
 ### How it works
 
 1. **Before search**, `_get_pkb_context()` in `Conversation.py` loads the Key Areas snippet and calls `search_strategy.set_overview_context(snippet)`.
-2. **RewriteSearchStrategy** includes the Key Areas in its LLM prompt, so the fast rewrite LLM (`SUPERFAST_LLM` = `inception/mercury-2`) knows the user's domains and can expand queries with domain-relevant terms.
+2. **RewriteSearchStrategy** includes the Key Areas in its LLM prompt, so the fast rewrite LLM (`SUPERFAST_LLM` = `google/gemini-3.1-flash-lite`) knows the user's domains and can expand queries with domain-relevant terms.
 3. The strategy produces **two outputs** from one LLM call:
    - `fts_query`: optimized keywords for full-text search
    - `embedding_query`: natural-language sentence for vector similarity

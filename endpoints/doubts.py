@@ -21,6 +21,7 @@ from database.doubts import (
     get_doubt_history,
     get_doubts_for_message,
     get_message_ids_with_doubts,
+    mark_descendant_summaries_dirty,
     update_doubt_answer,
     update_doubt_bookmarked,
     update_doubt_pinned,
@@ -130,6 +131,7 @@ def clear_doubt_route(conversation_id: str, message_id: str):
                     selected_text=selected_text, with_context=with_context,
                     preamble_options=preamble_options, tools_enabled=tools_enabled,
                     display_attachments=display_attachments,
+                    users_dir=state.users_dir,
                 )
 
                 accumulated_text = ""
@@ -175,6 +177,19 @@ def clear_doubt_route(conversation_id: str, message_id: str):
                             logger.info(
                                 f"Doubt clearing data saved successfully with ID {doubt_id}: {len(accumulated_doubt_answer)} characters"
                             )
+                            if doubt_id and (doubt_text or "").strip() != "Thread Summary":
+                                try:
+                                    conversation.schedule_doubt_thread_summary(
+                                        doubt_id=doubt_id,
+                                        users_dir=state.users_dir,
+                                        parent_doubt_id=parent_doubt_id,
+                                    )
+                                except Exception as sched_err:
+                                    logger.warning(
+                                        "Doubt summary schedule failed for %s: %s",
+                                        doubt_id,
+                                        sched_err,
+                                    )
                         except Exception as save_error:
                             logger.error(
                                 f"Error saving doubt clearing data: {str(save_error)}"
@@ -693,7 +708,8 @@ def regenerate_doubt_route(doubt_id: str):
                 for chunk in conversation.clear_doubt(
                     message_id, doubt_text, doubt_history, 0,
                     selected_text="", with_context=with_context,
-                    preamble_options=preamble_options
+                    preamble_options=preamble_options,
+                    users_dir=state.users_dir,
                 ):
                     if chunk:
                         accumulated += chunk
@@ -701,6 +717,23 @@ def regenerate_doubt_route(doubt_id: str):
             finally:
                 if accumulated.strip():
                     update_doubt_answer(doubt_id=doubt_id, doubt_answer=accumulated, users_dir=state.users_dir, logger=logger)
+                    try:
+                        mark_descendant_summaries_dirty(
+                            doubt_id=doubt_id,
+                            users_dir=state.users_dir,
+                            logger=logger,
+                        )
+                        if (doubt_text or "").strip() != "Thread Summary":
+                            conversation.schedule_doubt_thread_summary(
+                                doubt_id=doubt_id,
+                                users_dir=state.users_dir,
+                            )
+                    except Exception as summary_err:
+                        logger.warning(
+                            "Doubt summary recompute after regen failed for %s: %s",
+                            doubt_id,
+                            summary_err,
+                        )
 
                 yield json.dumps({
                     "text": "", "status": "Regeneration complete", "type": "doubt_clearing",

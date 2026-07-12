@@ -80,6 +80,9 @@ from database.doubts import (
     get_doubt_children,
     get_doubt_history,
     get_doubts_for_message,
+    mark_descendant_summaries_dirty,
+    set_summary_status,
+    update_doubt_thread_summary,
 )
 from database.doubts import configure_users_dir as configure_doubts_users_dir
 
@@ -160,6 +163,9 @@ __all__ = [
     "build_doubt_tree",
     "get_doubts_for_message",
     "get_doubt_history",
+    "update_doubt_thread_summary",
+    "set_summary_status",
+    "mark_descendant_summaries_dirty",
     # Sections
     "get_section_hidden_details",
     "get_all_section_hidden_details",

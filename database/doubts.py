@@ -47,6 +47,48 @@ def _db_path(*, users_dir: str) -> str:
     return f"{users_dir}/users.db"
 
 
+
+_DOUBT_SELECT_COLUMNS = (
+    "doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer, "
+    "parent_doubt_id, is_root_doubt, created_at, updated_at, show_hide, with_context, "
+    "pinned, bookmarked, display_attachments, "
+    "thread_summary_upto_here, summary_status, summary_updated_at"
+)
+
+
+def _row_to_doubt_dict(row, *, answer_preview: int | None = None) -> dict:
+    """Map a DoubtsClearing SELECT row (matching `_DOUBT_SELECT_COLUMNS`) to a dict.
+
+    Parameters
+    ----------
+    answer_preview:
+        If set, truncate ``doubt_answer`` to this many characters (used by list views).
+    """
+    if answer_preview is not None:
+        answer = row[5][:answer_preview] if row[5] else ""
+    else:
+        answer = row[5]
+    return {
+        "doubt_id": row[0],
+        "conversation_id": row[1],
+        "user_email": row[2],
+        "message_id": row[3],
+        "doubt_text": row[4],
+        "doubt_answer": answer,
+        "parent_doubt_id": row[6],
+        "is_root_doubt": bool(row[7]),
+        "created_at": row[8],
+        "updated_at": row[9],
+        "show_hide": row[10] or "show",
+        "with_context": bool(row[11]),
+        "pinned": bool(row[12]),
+        "bookmarked": bool(row[13]),
+        "display_attachments": json.loads(row[14]) if row[14] else [],
+        "thread_summary_upto_here": row[15] if len(row) > 15 else None,
+        "summary_status": row[16] if len(row) > 16 else None,
+        "summary_updated_at": row[17] if len(row) > 17 else None,
+    }
+
 def add_doubt(
     *,
     conversation_id: str,
@@ -250,7 +292,8 @@ def get_doubt(*, doubt_id: str, users_dir: str | None = None, logger: logging.Lo
             """
             SELECT doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer,
                    parent_doubt_id, is_root_doubt, created_at, updated_at, show_hide, with_context,
-                   pinned, bookmarked, display_attachments
+                   pinned, bookmarked, display_attachments,
+                   thread_summary_upto_here, summary_status, summary_updated_at
             FROM DoubtsClearing
             WHERE doubt_id = ?
             """,
@@ -258,23 +301,7 @@ def get_doubt(*, doubt_id: str, users_dir: str | None = None, logger: logging.Lo
         )
         row = cur.fetchone()
         if row:
-            return {
-                "doubt_id": row[0],
-                "conversation_id": row[1],
-                "user_email": row[2],
-                "message_id": row[3],
-                "doubt_text": row[4],
-                "doubt_answer": row[5],
-                "parent_doubt_id": row[6],
-                "is_root_doubt": bool(row[7]),
-                "created_at": row[8],
-                "updated_at": row[9],
-                "show_hide": row[10] or "show",
-                "with_context": bool(row[11]),
-                "pinned": bool(row[12]),
-                "bookmarked": bool(row[13]),
-                "display_attachments": json.loads(row[14]) if row[14] else [],
-            }
+            return _row_to_doubt_dict(row)
         return None
     except Exception as e:
         log.error(f"Error getting doubt clearing: {e}")
@@ -296,7 +323,8 @@ def get_doubt_children(*, doubt_id: str, users_dir: str | None = None, logger: l
             """
             SELECT doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer,
                    parent_doubt_id, is_root_doubt, created_at, updated_at, show_hide, with_context,
-                   pinned, bookmarked, display_attachments
+                   pinned, bookmarked, display_attachments,
+                   thread_summary_upto_here, summary_status, summary_updated_at
             FROM DoubtsClearing
             WHERE parent_doubt_id = ?
             ORDER BY created_at ASC
@@ -304,26 +332,7 @@ def get_doubt_children(*, doubt_id: str, users_dir: str | None = None, logger: l
             (doubt_id,),
         )
         rows = cur.fetchall()
-        return [
-            {
-                "doubt_id": row[0],
-                "conversation_id": row[1],
-                "user_email": row[2],
-                "message_id": row[3],
-                "doubt_text": row[4],
-                "doubt_answer": row[5],
-                "parent_doubt_id": row[6],
-                "is_root_doubt": bool(row[7]),
-                "created_at": row[8],
-                "updated_at": row[9],
-                "show_hide": row[10] or "show",
-                "with_context": bool(row[11]),
-                "pinned": bool(row[12]),
-                "bookmarked": bool(row[13]),
-                "display_attachments": json.loads(row[14]) if row[14] else [],
-            }
-            for row in rows
-        ]
+        return [_row_to_doubt_dict(row) for row in rows]
     except Exception as e:
         log.error(f"Error getting doubt children: {e}")
         raise
@@ -379,7 +388,8 @@ def get_doubts_for_message(
                 """
                 SELECT doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer,
                        parent_doubt_id, is_root_doubt, created_at, updated_at, show_hide, with_context,
-                       pinned, bookmarked, display_attachments
+                       pinned, bookmarked, display_attachments,
+                       thread_summary_upto_here, summary_status, summary_updated_at
                 FROM DoubtsClearing
                 WHERE conversation_id = ? AND message_id = ? AND user_email = ? AND is_root_doubt = 1
                 ORDER BY pinned DESC, created_at DESC
@@ -391,7 +401,8 @@ def get_doubts_for_message(
                 """
                 SELECT doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer,
                        parent_doubt_id, is_root_doubt, created_at, updated_at, show_hide, with_context,
-                       pinned, bookmarked, display_attachments
+                       pinned, bookmarked, display_attachments,
+                       thread_summary_upto_here, summary_status, summary_updated_at
                 FROM DoubtsClearing
                 WHERE conversation_id = ? AND message_id = ? AND is_root_doubt = 1
                 ORDER BY pinned DESC, created_at DESC
@@ -400,26 +411,7 @@ def get_doubts_for_message(
             )
 
         rows = cur.fetchall()
-        root_doubts = [
-            {
-                "doubt_id": row[0],
-                "conversation_id": row[1],
-                "user_email": row[2],
-                "message_id": row[3],
-                "doubt_text": row[4],
-                "doubt_answer": row[5],
-                "parent_doubt_id": row[6],
-                "is_root_doubt": bool(row[7]),
-                "created_at": row[8],
-                "updated_at": row[9],
-                "show_hide": row[10] or "show",
-                "with_context": bool(row[11]),
-                "pinned": bool(row[12]),
-                "bookmarked": bool(row[13]),
-                "display_attachments": json.loads(row[14]) if row[14] else [],
-            }
-            for row in rows
-        ]
+        root_doubts = [_row_to_doubt_dict(row) for row in rows]
 
         return [build_doubt_tree(d, users_dir=users_dir_resolved, logger=logger) for d in root_doubts]
     except Exception as e:
@@ -450,7 +442,8 @@ def get_doubt_history(*, doubt_id: str, users_dir: str | None = None, logger: lo
                 """
                 SELECT doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer,
                        parent_doubt_id, is_root_doubt, created_at, updated_at, show_hide, with_context,
-                       pinned, bookmarked, display_attachments
+                       pinned, bookmarked, display_attachments,
+                       thread_summary_upto_here, summary_status, summary_updated_at
                 FROM DoubtsClearing
                 WHERE doubt_id = ?
                 """,
@@ -460,25 +453,7 @@ def get_doubt_history(*, doubt_id: str, users_dir: str | None = None, logger: lo
             if not row:
                 break
 
-            doubt_chain.append(
-                {
-                    "doubt_id": row[0],
-                    "conversation_id": row[1],
-                    "user_email": row[2],
-                    "message_id": row[3],
-                    "doubt_text": row[4],
-                    "doubt_answer": row[5],
-                    "parent_doubt_id": row[6],
-                    "is_root_doubt": bool(row[7]),
-                    "created_at": row[8],
-                    "updated_at": row[9],
-                    "show_hide": row[10] or "show",
-                    "with_context": bool(row[11]),
-                    "pinned": bool(row[12]),
-                    "bookmarked": bool(row[13]),
-                    "display_attachments": json.loads(row[14]) if row[14] else [],
-                }
-            )
+            doubt_chain.append(_row_to_doubt_dict(row))
             current_doubt_id = row[6]
 
         doubt_chain.reverse()
@@ -661,29 +636,159 @@ def get_all_doubts_for_user(
         cur.execute(
             f"""SELECT doubt_id, conversation_id, user_email, message_id, doubt_text, doubt_answer,
                        parent_doubt_id, is_root_doubt, created_at, updated_at, show_hide, with_context,
-                       pinned, bookmarked, display_attachments
+                       pinned, bookmarked, display_attachments,
+                       thread_summary_upto_here, summary_status, summary_updated_at
                 FROM DoubtsClearing WHERE {where}
                 ORDER BY {order_by}
                 LIMIT ? OFFSET ?""",
             params + [page_size, offset],
         )
         rows = cur.fetchall()
-        doubts = [
-            {
-                "doubt_id": r[0], "conversation_id": r[1], "user_email": r[2],
-                "message_id": r[3], "doubt_text": r[4],
-                "doubt_answer": r[5][:200] if r[5] else "",
-                "parent_doubt_id": r[6], "is_root_doubt": bool(r[7]),
-                "created_at": r[8], "updated_at": r[9],
-                "show_hide": r[10] or "show", "with_context": bool(r[11]),
-                "pinned": bool(r[12]), "bookmarked": bool(r[13]),
-                "display_attachments": json.loads(r[14]) if r[14] else [],
-            }
-            for r in rows
-        ]
+        doubts = [_row_to_doubt_dict(r, answer_preview=200) for r in rows]
         return {"doubts": doubts, "total": total, "page": page, "page_size": page_size}
     except Exception as e:
         log.error(f"Error getting all doubts for user: {e}")
+        raise
+    finally:
+        conn.close()
+
+
+def update_doubt_thread_summary(
+    *,
+    doubt_id: str,
+    thread_summary: str | None,
+    summary_status: str = "ready",
+    users_dir: str | None = None,
+    logger: logging.Logger | None = None,
+) -> bool:
+    """
+    Write ``thread_summary_upto_here`` + ``summary_status`` + ``summary_updated_at``.
+
+    Returns True when a row was updated.
+    """
+    log = logger or logging.getLogger(__name__)
+    users_dir_resolved = _resolve_users_dir(users_dir)
+    conn = create_connection(_db_path(users_dir=users_dir_resolved))
+    try:
+        cur = conn.cursor()
+        now = datetime.now().isoformat()
+        cur.execute(
+            """
+            UPDATE DoubtsClearing
+            SET thread_summary_upto_here = ?,
+                summary_status = ?,
+                summary_updated_at = ?,
+                updated_at = ?
+            WHERE doubt_id = ?
+            """,
+            (thread_summary, summary_status, now, now, doubt_id),
+        )
+        conn.commit()
+        ok = cur.rowcount > 0
+        if ok:
+            log.info(
+                "Updated thread_summary status=%s for doubt %s",
+                summary_status,
+                doubt_id,
+            )
+        else:
+            log.warning("No doubt found with ID %s to update thread_summary", doubt_id)
+        return ok
+    except Exception as e:
+        log.error(f"Error updating doubt thread_summary: {e}")
+        raise
+    finally:
+        conn.close()
+
+
+def set_summary_status(
+    *,
+    doubt_id: str,
+    summary_status: str,
+    users_dir: str | None = None,
+    logger: logging.Logger | None = None,
+) -> bool:
+    """Set only ``summary_status`` (and ``summary_updated_at``) on a doubt row."""
+    log = logger or logging.getLogger(__name__)
+    users_dir_resolved = _resolve_users_dir(users_dir)
+    conn = create_connection(_db_path(users_dir=users_dir_resolved))
+    try:
+        cur = conn.cursor()
+        now = datetime.now().isoformat()
+        cur.execute(
+            """
+            UPDATE DoubtsClearing
+            SET summary_status = ?,
+                summary_updated_at = ?,
+                updated_at = ?
+            WHERE doubt_id = ?
+            """,
+            (summary_status, now, now, doubt_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    except Exception as e:
+        log.error(f"Error setting summary_status for doubt {doubt_id}: {e}")
+        raise
+    finally:
+        conn.close()
+
+
+def mark_descendant_summaries_dirty(
+    *,
+    doubt_id: str,
+    users_dir: str | None = None,
+    logger: logging.Logger | None = None,
+) -> int:
+    """
+    Mark all descendants of ``doubt_id`` as ``summary_status='dirty'``.
+
+    Does not mark ``doubt_id`` itself. Uses BFS over ``parent_doubt_id`` edges.
+    Returns the number of rows updated.
+    """
+    log = logger or logging.getLogger(__name__)
+    users_dir_resolved = _resolve_users_dir(users_dir)
+    conn = create_connection(_db_path(users_dir=users_dir_resolved))
+    try:
+        cur = conn.cursor()
+        # Collect descendants (not including root)
+        ids: list[str] = []
+        frontier: list[str] = [doubt_id]
+        while frontier:
+            placeholders = ",".join("?" for _ in frontier)
+            cur.execute(
+                f"SELECT doubt_id FROM DoubtsClearing WHERE parent_doubt_id IN ({placeholders})",
+                tuple(frontier),
+            )
+            children = [r[0] for r in cur.fetchall() if r[0] not in ids]
+            if not children:
+                break
+            ids.extend(children)
+            frontier = children
+        if not ids:
+            return 0
+        now = datetime.now().isoformat()
+        placeholders = ",".join("?" for _ in ids)
+        cur.execute(
+            f"""
+            UPDATE DoubtsClearing
+            SET summary_status = 'dirty',
+                summary_updated_at = ?,
+                updated_at = ?
+            WHERE doubt_id IN ({placeholders})
+            """,
+            (now, now, *ids),
+        )
+        conn.commit()
+        count = cur.rowcount if cur.rowcount is not None and cur.rowcount >= 0 else len(ids)
+        log.info(
+            "Marked %s descendant summary(ies) dirty under doubt %s",
+            count,
+            doubt_id,
+        )
+        return int(count)
+    except Exception as e:
+        log.error(f"Error marking descendant summaries dirty for {doubt_id}: {e}")
         raise
     finally:
         conn.close()

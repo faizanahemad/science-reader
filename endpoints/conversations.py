@@ -414,6 +414,9 @@ def _catalog_model_list() -> list:
 @login_required
 def get_model_catalog():
     models = _catalog_model_list()
+    # Defaults are the empty-override / "Default (recommended)" path in the UI.
+    # conversation_internal_model + quick_action_model track SUPERFAST_LLM[0]
+    # (currently google/gemini-3.1-flash-lite).
     defaults = {
         "conversation_internal_model": SUPERFAST_LLM[0],
         "quick_action_model": SUPERFAST_LLM[0],

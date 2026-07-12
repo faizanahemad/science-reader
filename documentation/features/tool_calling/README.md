@@ -669,7 +669,7 @@ This format is recognized by the agent's `extract_queries_contexts()` method, wh
 
 6. **HTTP-delegated tools**: `artefacts_propose_edits`, `artefacts_apply_edits`, and `temp_llm_action` delegate to Flask HTTP endpoints rather than calling business logic directly (complex LLM streaming or optimistic concurrency).
 
-7. **SUPERFAST_LLM for Jina**: `jina_search` uses `SUPERFAST_LLM[0]` (`inception/mercury-2`) for faster per-query summarization.
+7. **SUPERFAST_LLM for Jina**: `jina_search` uses `SUPERFAST_LLM[0]` (`google/gemini-3.1-flash-lite`) for faster per-query summarization.
 
 8. **Default tool enablement**: `computeDefaultStateForTab()` and `resetSettingsToDefaults()` both set `enable_tool_use: true` and `enabled_tools: ['ask_clarification']`.
 

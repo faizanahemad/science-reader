@@ -170,7 +170,7 @@ class PKBConfig:
     llm_temperature: float = 0.0  # Deterministic for extraction
     # Model tiers for different latency/cost tradeoffs
     fast_llm_model: str = "anthropic/claude-haiku-4.5"
-    superfast_llm_model: str = "inception/mercury-coder-small"
+    superfast_llm_model: str = "google/gemini-3.1-flash-lite"
 
     # LLM provider (injected; defaults to CodeCommonProvider which wraps
     # code_common.call_llm). Set to None for lazy default construction.

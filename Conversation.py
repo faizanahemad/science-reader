@@ -1463,6 +1463,13 @@ Compact list of bullet points:
         -------
         str | None
             Model name or default.
+
+        Notes
+        -----
+        For internal/quick-action keys, a legacy explicit override of
+        ``inception/mercury-2`` (the prior SUPERFAST default) is treated as
+        unset so conversations follow the current SUPERFAST / default path
+        (`google/gemini-3.1-flash-lite`) unless the user picks another model.
         """
         settings = self.get_conversation_settings()
         if not isinstance(settings, dict):
@@ -1471,7 +1478,16 @@ Compact list of bullet points:
         if not isinstance(overrides, dict):
             return default
         value = overrides.get(key)
-        return value or default
+        if not value:
+            return default
+        # Soft-migrate prior SUPERFAST default when it was saved as an explicit
+        # override (UI used to write the concrete id for "default").
+        if (
+            key in ("conversation_internal_model", "quick_action_model")
+            and value == "inception/mercury-2"
+        ):
+            return default
+        return value
 
     @property
     def running_summary(self):
@@ -14655,10 +14671,243 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         if self.conversation_id in doubt_cancellation_requests:
             del doubt_cancellation_requests[self.conversation_id]
 
+    def _update_doubt_thread_summary_sync(
+        self,
+        *,
+        doubt_id: str,
+        users_dir: str,
+        history: list | None = None,
+        mode: str = "auto",
+    ) -> str | None:
+        """
+        Shared worker that computes and persists a path-local doubt thread summary.
+
+        Parameters
+        ----------
+        doubt_id:
+            Tip of the path whose summary we write.
+        users_dir:
+            Users directory for SQLite access.
+        history:
+            Optional preloaded root→tip history (inclusive of doubt_id). Refetched
+            when None so async schedulers don't need a frozen snapshot.
+        mode:
+            ``"bootstrap"`` forces full-path pack; ``"incremental"`` prefers parent
+            ready summary + latest Q/A; ``"auto"`` picks incremental when parent is
+            ready, otherwise bootstrap.
+
+        Returns the ready summary text, or None on skip/failure (fail-open).
+        """
+        from call_llm import CallLLm
+        from code_common.doubt_context import (
+            DOUBT_SUMMARY_MAX_WORDS,
+            DOUBT_SUMMARY_MIN_TURNS,
+            THREAD_SUMMARY_DOUBT_TEXT,
+            is_system_thread_summary_node,
+            pack_history_for_bootstrap,
+        )
+        from database.doubts import (
+            get_doubt_history,
+            set_summary_status,
+            update_doubt_thread_summary,
+        )
+        from prompts import (
+            doubt_thread_running_summary_prompt,
+            doubt_thread_running_summary_system,
+        )
+
+        try:
+            if not doubt_id or not users_dir:
+                return None
+
+            path = history
+            if path is None:
+                path = get_doubt_history(
+                    doubt_id=doubt_id, users_dir=users_dir, logger=logger
+                )
+            if not path:
+                return None
+
+            tip = path[-1]
+            if tip.get("doubt_id") != doubt_id:
+                # History may have been for a parent; try to re-fetch exact tip path.
+                path = get_doubt_history(
+                    doubt_id=doubt_id, users_dir=users_dir, logger=logger
+                )
+                if not path:
+                    return None
+                tip = path[-1]
+
+            if is_system_thread_summary_node(tip):
+                return None
+            if (tip.get("doubt_text") or "").strip() == THREAD_SUMMARY_DOUBT_TEXT:
+                return None
+
+            if len(path) < DOUBT_SUMMARY_MIN_TURNS:
+                # Short paths keep full replay; don't invent a summary.
+                return None
+
+            parent = path[-2] if len(path) >= 2 else None
+            prior_summary = ""
+            if parent is not None:
+                parent_status = (parent.get("summary_status") or "").strip().lower()
+                parent_text = (parent.get("thread_summary_upto_here") or "").strip()
+                if parent_status == "ready" and parent_text:
+                    prior_summary = parent_text
+
+            use_incremental = mode == "incremental" or (
+                mode == "auto" and bool(prior_summary)
+            )
+            if mode == "bootstrap":
+                use_incremental = False
+
+            extra_context = ""
+            if not use_incremental:
+                extra_context = pack_history_for_bootstrap(path)
+                prior_summary = prior_summary or "(none)"
+            else:
+                prior_summary = prior_summary or "(none)"
+
+            doubt_text = (tip.get("doubt_text") or "")[:4000]
+            doubt_answer = (tip.get("doubt_answer") or "")[:6000]
+
+            try:
+                set_summary_status(
+                    doubt_id=doubt_id,
+                    summary_status="pending",
+                    users_dir=users_dir,
+                    logger=logger,
+                )
+            except Exception as status_err:
+                logger.warning(
+                    "Could not mark doubt %s summary pending: %s", doubt_id, status_err
+                )
+
+            model_name = self.get_model_override(
+                "conversation_internal_model", SUPERFAST_LLM[0]
+            )
+            llm = CallLLm(
+                self.get_api_keys(),
+                model_name=model_name,
+                use_gpt4=False,
+                use_16k=False,
+            )
+            prompt = doubt_thread_running_summary_prompt.format(
+                prior_summary=prior_summary,
+                extra_context=extra_context or "(none)",
+                doubt_text=doubt_text,
+                doubt_answer=doubt_answer,
+            )
+            raw = llm(
+                prompt,
+                temperature=0.2,
+                stream=False,
+                max_tokens=700,
+                system=doubt_thread_running_summary_system,
+            )
+            text = (raw or "").strip() if isinstance(raw, str) else str(raw or "").strip()
+            if not text:
+                update_doubt_thread_summary(
+                    doubt_id=doubt_id,
+                    thread_summary=None,
+                    summary_status="error",
+                    users_dir=users_dir,
+                    logger=logger,
+                )
+                return None
+
+            words = text.split()
+            if len(words) > DOUBT_SUMMARY_MAX_WORDS:
+                text = " ".join(words[:DOUBT_SUMMARY_MAX_WORDS]).strip()
+
+            update_doubt_thread_summary(
+                doubt_id=doubt_id,
+                thread_summary=text,
+                summary_status="ready",
+                users_dir=users_dir,
+                logger=logger,
+            )
+            return text
+        except Exception as e:
+            logger.warning(
+                "Doubt thread summary update failed for %s: %s", doubt_id, e
+            )
+            try:
+                from database.doubts import update_doubt_thread_summary as _upd
+
+                _upd(
+                    doubt_id=doubt_id,
+                    thread_summary=None,
+                    summary_status="error",
+                    users_dir=users_dir,
+                    logger=logger,
+                )
+            except Exception:
+                pass
+            return None
+
+    def ensure_path_summary_sync(
+        self,
+        *,
+        doubt_id: str,
+        users_dir: str,
+        history: list | None = None,
+    ) -> str | None:
+        """
+        Blocking bootstrap/recompute for tip ``doubt_id``.
+
+        Used on first long legacy follow-up (and dirty tips) so packing
+        can use summary + last 3 in the *same* clear request.
+        """
+        return self._update_doubt_thread_summary_sync(
+            doubt_id=doubt_id,
+            users_dir=users_dir,
+            history=history,
+            mode="bootstrap",
+        )
+
+    def schedule_doubt_thread_summary(
+        self,
+        *,
+        doubt_id: str,
+        users_dir: str,
+        parent_doubt_id: str | None = None,
+    ) -> None:
+        """Fire-and-forget incremental tip summary after a new/regen answer save."""
+        try:
+            if not doubt_id or not users_dir:
+                return
+            from code_common.doubt_context import THREAD_SUMMARY_DOUBT_TEXT
+            from database.doubts import get_doubt
+
+            rec = None
+            try:
+                rec = get_doubt(doubt_id=doubt_id, users_dir=users_dir, logger=logger)
+            except Exception as lookup_err:
+                logger.warning(
+                    "schedule_doubt_thread_summary lookup failed for %s: %s",
+                    doubt_id,
+                    lookup_err,
+                )
+            if rec and (rec.get("doubt_text") or "").strip() == THREAD_SUMMARY_DOUBT_TEXT:
+                return
+
+            get_async_future(
+                self._update_doubt_thread_summary_sync,
+                doubt_id=doubt_id,
+                users_dir=users_dir,
+                history=None,
+                mode="auto",
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to schedule doubt thread summary for %s: %s", doubt_id, e
+            )
+
     def clear_doubt(
         self, message_id, doubt_text="", doubt_history=None, reward_level=0,
         selected_text="", with_context=False, preamble_options=None, tools_enabled=False,
-        display_attachments=None
+        display_attachments=None, users_dir=None,
     ):
         """Clear a doubt about a specific message - streaming response"""
         from call_llm import CallLLm
@@ -14697,15 +14946,27 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     context_text += f"# Conversation Summary\n\n{summary_text}\n\n"
 
             if doubt_history and len(doubt_history) > 0:
-                context_text += "# Previous Doubt History\n\n"
-                context_text += "This is a follow-up question. Here's the previous doubt conversation:\n\n"
-                for i, doubt_record in enumerate(doubt_history):
-                    context_text += f"**Previous Doubt {i + 1}:**\n"
-                    context_text += f"User asked: {doubt_record['doubt_text']}\n"
-                    context_text += (
-                        f"Assistant answered: {doubt_record['doubt_answer']}\n\n"
-                    )
-                context_text += f"**Current Follow-up Question:** {doubt_text}\n\n"
+                from code_common.doubt_context import (
+                    build_doubt_history_context_section,
+                    needs_sync_bootstrap,
+                )
+
+                # Cold / legacy / dirty: blocking bootstrap so this call is not summary-empty
+                if users_dir and needs_sync_bootstrap(doubt_history):
+                    tip_id = doubt_history[-1].get("doubt_id")
+                    if tip_id:
+                        new_sum = self.ensure_path_summary_sync(
+                            doubt_id=tip_id,
+                            users_dir=users_dir,
+                            history=doubt_history,
+                        )
+                        if new_sum:
+                            doubt_history[-1]["thread_summary_upto_here"] = new_sum
+                            doubt_history[-1]["summary_status"] = "ready"
+
+                context_text += build_doubt_history_context_section(
+                    history=doubt_history,
+                )
 
             if with_context:
                 if context_messages:
