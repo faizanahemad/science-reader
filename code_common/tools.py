@@ -6360,8 +6360,11 @@ INTERNAL_SEARCH_SCRIPT_PATH = os.environ.get(
     os.path.expanduser("~/.local/bin/internal-search"),
 )
 
+_USE_CKT_INTERNAL_TOOLS = bool(os.environ.get("INTERNAL_TOOLS_PATH", "").strip())
+
 INTERNAL_SEARCH_AVAILABLE = (
-    os.environ.get("INTERNAL_SEARCH_DISABLED", "").strip().lower()
+    not _USE_CKT_INTERNAL_TOOLS
+    and os.environ.get("INTERNAL_SEARCH_DISABLED", "").strip().lower()
     not in ("1", "true", "yes")
     and os.path.isfile(INTERNAL_SEARCH_SCRIPT_PATH)
     and os.access(INTERNAL_SEARCH_SCRIPT_PATH, os.X_OK)
@@ -6377,7 +6380,8 @@ INTERNAL_KB_SCRIPT_PATH = os.environ.get(
 )
 
 INTERNAL_KB_AVAILABLE = (
-    os.environ.get("INTERNAL_KB_DISABLED", "").strip().lower()
+    not _USE_CKT_INTERNAL_TOOLS
+    and os.environ.get("INTERNAL_KB_DISABLED", "").strip().lower()
     not in ("1", "true", "yes")
     and os.path.isfile(INTERNAL_KB_SCRIPT_PATH)
     and os.access(INTERNAL_KB_SCRIPT_PATH, os.X_OK)
@@ -7774,6 +7778,69 @@ if INTERNAL_SEARCH_AVAILABLE and INTERNAL_KB_AVAILABLE:
 
 
 # ---------------------------------------------------------------------------
+# CKT direct internal tools — one root, subprocess-only, 120s hard deadline
+# ---------------------------------------------------------------------------
+
+from code_common.ckt_internal_tools import (
+    CKT_INTERNAL_TOOL_NAMES,
+    compact_json_result,
+    is_ckt_internal_tools_available,
+    run_ckt_command,
+)
+
+CKT_INTERNAL_TOOLS_AVAILABLE = is_ckt_internal_tools_available()
+
+if CKT_INTERNAL_TOOLS_AVAILABLE:
+    _CKT_TOOL_SPECS = {
+        "read_url": ("Read one or more known company-internal URLs into Markdown (<10s average).", {"urls": {"type": "array", "items": {"type": "string"}}}, ["urls"]),
+        "moma_search": ("Search Moma internal documents and teams (<10s average); use for cheap discovery.", {"query": {"type": "string"}}, ["query"]),
+        "moma_bm25_read": ("Moma search, concurrent source reads, and BM25-ranked source evidence JSON (~15s average). Use for retrieval evidence, not final synthesis.", {"queries": {"type": "array", "items": {"type": "string"}}, "crawl": {"type": "boolean"}, "max_urls_per_query": {"type": "integer"}, "top_chunks_per_page": {"type": "integer"}}, ["queries"]),
+        "yaqs_search": ("Search company-internal YAQS engineering Q&A (<10s average).", {"query": {"type": "string"}}, ["query"]),
+        "code_search_standard": ("Fresh deterministic literal Code Search for a known symbol, string, or filter (<10s average).", {"query": {"type": "string"}, "directory": {"type": "string"}}, ["query"]),
+        "kb_search": ("Search the local CKT internal knowledge base of cached evidence (<10s average); use as a cheap first probe.", {"query": {"type": "string"}, "max_results": {"type": "integer"}}, ["query"]),
+        "system_flow_research": ("Bounded Moma-first, source-grounded system-flow explanation (~20s average, 120s tail).", {"query": {"type": "string"}}, ["query"]),
+        "code_trace": ("Parallel fresh literal Code Search for one to four explicit symbols (<10s average); returns grouped raw evidence without LLM synthesis.", {"question": {"type": "string"}, "symbols": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 4}, "directory": {"type": "string"}}, ["question", "symbols"]),
+        "duckie_search": ("Ask Duckie for a source-grounded internal answer (~45s average, 120s tail).", {"query": {"type": "string"}}, ["query"]),
+        "ckt_duckie_retrieval": ("Plan diverse Duckie retrieval lenses and return raw structured JSON evidence (~60s average, 120s tail); no final synthesis.", {"query": {"type": "string"}, "query_count": {"type": "integer", "minimum": 1, "maximum": 6}}, ["query"]),
+    }
+    for _ckt_name, (_ckt_description, _ckt_properties, _ckt_required) in _CKT_TOOL_SPECS.items():
+        def _make_ckt_handler(name):
+            def _handler(args, context):
+                del context
+                return compact_json_result(run_ckt_command(name, args))
+            return _handler
+        register_tool(
+            name=_ckt_name,
+            description=_ckt_description + " Runs through the authorized local CKT façade with a hard 120-second deadline.",
+            parameters={"type": "object", "properties": _ckt_properties, "required": _ckt_required},
+            is_interactive=False,
+            category="search",
+        )(_make_ckt_handler(_ckt_name))
+
+def build_ckt_tool_workflow_hint(tool_names: list) -> str:
+    """Return model-facing CKT latency, parallelism, and multi-hop policy."""
+    if not set(tool_names).intersection(CKT_INTERNAL_TOOL_NAMES):
+        return ""
+    return (
+        "\n\n### CKT Company Retrieval Workflow\n"
+        "All CKT calls are free in monetary terms: issue independent calls in PARALLEL; "
+        "do not serialize calls that do not depend on each other.\n"
+        "- Very Fast (<10s average): `kb_search`, `moma_search`, `read_url`, `yaqs_search`, "
+        "`code_search_standard`, and `code_trace`.\n"
+        "- Fast: `moma_bm25_read` — ~15s average, raw ranked source evidence.\n"
+        "- Medium Speed (average 45s): `system_flow_research` — ~20s average; "
+        "`duckie_search` — ~45s average; `ckt_duckie_retrieval` — ~60s average.\n"
+        "ROUND 1: start with the Very Fast and Fast applicable tools in parallel. ROUND 2+: inspect "
+        "round-1 evidence, then use targeted reads, verification, deeper retrieval, and maybe multiple "
+        "Medium Speed tools (or re-use Fast tools) for concrete gaps. For non-trivial research, perform "
+        "at least two retrieval rounds. one round is acceptable only when a narrow question is directly "
+        "and fully answered by an immediately found/read page. Raw evidence is for you to synthesize; do "
+        "not claim completeness from thin or conflicting evidence. If the user mentions urgency or shorter "
+        "answers, reduce the number of rounds or choose a faster tool mix.\n"
+    )
+
+
+# ---------------------------------------------------------------------------
 # Tool Mode Selector — Tiered loading, Smart Select, request_tools meta-tool
 # ---------------------------------------------------------------------------
 
@@ -7853,6 +7920,13 @@ if INTERNAL_SEARCH_AVAILABLE and INTERNAL_KB_AVAILABLE:
     TIER_1_TOOLS.append("ask_internal_kb")
     _TIER_1_BASE.append("ask_internal_kb")
     DOUBT_DEFAULT_TOOLS.append("ask_internal_kb")
+
+# CKT is the replacement internal-tool surface when INTERNAL_TOOLS_PATH is
+# configured. Keep its expensive research tools discoverable on demand rather
+# than always injecting them into every normal chat completion.
+if CKT_INTERNAL_TOOLS_AVAILABLE:
+    for _ckt_tool in sorted(CKT_INTERNAL_TOOL_NAMES):
+        DOUBT_DEFAULT_TOOLS.append(_ckt_tool)
 
 
 _adaptive_tier1_cache = {}  # {user_email: (timestamp, result)}
@@ -7973,7 +8047,9 @@ def _select_relevant_tools(user_message, summary, keys):
         "HIGH RECALL — err heavily on inclusion. Missing a needed tool is much "
         "worse than including an unneeded one. Include follow-up tools (e.g. if "
         "search is needed, include read_link too). Include tools for plausible "
-        "next steps the user might take within this turn.\n"
+        "next steps the user might take within this turn. For CKT tools, prefer "
+        "cheap <10s discovery tools in the first selection; include slower Duckie "
+        "or system-flow tools only when their distinct task shape is clearly needed.\n"
         "Return ONLY a JSON array of tool names.\n\n"
         f"Message: {get_first_n_words(user_message, n=500)}\n"
         f"Context: {get_first_n_words(summary, n=500)}\n\n"

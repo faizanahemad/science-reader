@@ -7980,7 +7980,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
         logger.warning("[_get_enabled_tools] tool_mode=%s", tool_mode)
 
-        from code_common.tools import TIER_1_TOOLS, _select_relevant_tools, get_adaptive_tier1_tools, INTERNAL_SEARCH_AVAILABLE, INTERNAL_KB_AVAILABLE
+        from code_common.tools import TIER_1_TOOLS, _select_relevant_tools, get_adaptive_tier1_tools, INTERNAL_SEARCH_AVAILABLE, INTERNAL_KB_AVAILABLE, CKT_INTERNAL_TOOLS_AVAILABLE, CKT_INTERNAL_TOOL_NAMES
 
         if tool_mode == "tiered":
             enabled_names = get_adaptive_tier1_tools(user_email=user_email)
@@ -7991,16 +7991,19 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             # web/perplexity search on internal questions. Includes the
             # typed fast-path tools (search_moma/search_yaqs/get_bug/
             # search_code) and ask_internal_kb, all host-gated the same way.
-            if not INTERNAL_SEARCH_AVAILABLE:
+            if CKT_INTERNAL_TOOLS_AVAILABLE:
+                enabled_names = sorted(CKT_INTERNAL_TOOL_NAMES)
+            elif not INTERNAL_SEARCH_AVAILABLE:
                 logger.warning("[_get_enabled_tools] internal_only mode but internal_search unavailable on this host")
                 return None
-            enabled_names = [
-                "internal_search", "read_internal_page",
-                "search_moma", "search_yaqs", "get_bug", "search_code", "search_code_standard",
-            ]
-            if INTERNAL_KB_AVAILABLE:
-                enabled_names.append("search_local_internal_kb")
-                enabled_names.append("ask_internal_kb")
+            else:
+                enabled_names = [
+                    "internal_search", "read_internal_page",
+                    "search_moma", "search_yaqs", "get_bug", "search_code", "search_code_standard",
+                ]
+                if INTERNAL_KB_AVAILABLE:
+                    enabled_names.append("search_local_internal_kb")
+                    enabled_names.append("ask_internal_kb")
         elif tool_mode == "smart":
             keys = self.get_api_keys()
             enabled_names = _select_relevant_tools(user_message, summary, keys)
@@ -10213,6 +10216,16 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 )
                 if _build_routing:
                     tool_awareness_text += _build_routing(_routing_tool_names)
+                try:
+                    from code_common.tools import CKT_INTERNAL_TOOLS_AVAILABLE, CKT_INTERNAL_TOOL_NAMES, build_ckt_tool_workflow_hint
+                    if CKT_INTERNAL_TOOLS_AVAILABLE:
+                        tool_awareness_text = (
+                            "\n\n## Company Retrieval Guidance\n"
+                            "There is NO web search or other tool surface.\n"
+                            + build_ckt_tool_workflow_hint(sorted(CKT_INTERNAL_TOOL_NAMES))
+                        )
+                except Exception:
+                    pass
             else:
                 tool_awareness_text = (
                     "\n\n## Tool Usage Guidance\n"
@@ -10332,6 +10345,12 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     )
                 if _build_routing and _routing_tool_names:
                     tool_awareness_text += _build_routing(_routing_tool_names)
+                try:
+                    from code_common.tools import CKT_INTERNAL_TOOLS_AVAILABLE, CKT_INTERNAL_TOOL_NAMES, build_ckt_tool_workflow_hint
+                    if CKT_INTERNAL_TOOLS_AVAILABLE:
+                        tool_awareness_text += build_ckt_tool_workflow_hint(sorted(CKT_INTERNAL_TOOL_NAMES))
+                except Exception:
+                    pass
                 tool_awareness_text += (
                     "\n"
                     "### Parallel Tool Calls\n"
@@ -15063,7 +15082,7 @@ Please provide your explanation or answer to the user's doubt in a clear, struct
             # Always use tool loop so read_message and propose_answer_edit are available.
             # DOUBT_DEFAULT_TOOLS (read_message + propose_answer_edit) are always on;
             # TIER_1_TOOLS are added only when the user's tools toggle is enabled.
-            from code_common.tools import TIER_1_TOOLS, DOUBT_DEFAULT_TOOLS, TOOL_REGISTRY, INTERNAL_SEARCH_WORKFLOW_HINT, READ_INTERNAL_PAGE_WORKFLOW_HINT, SEARCH_LOCAL_INTERNAL_KB_WORKFLOW_HINT, FASTPATH_TOOLS_WORKFLOW_HINT, ASK_INTERNAL_KB_WORKFLOW_HINT, build_internal_tool_routing_hint
+            from code_common.tools import TIER_1_TOOLS, DOUBT_DEFAULT_TOOLS, TOOL_REGISTRY, INTERNAL_SEARCH_WORKFLOW_HINT, READ_INTERNAL_PAGE_WORKFLOW_HINT, SEARCH_LOCAL_INTERNAL_KB_WORKFLOW_HINT, FASTPATH_TOOLS_WORKFLOW_HINT, ASK_INTERNAL_KB_WORKFLOW_HINT, build_internal_tool_routing_hint, CKT_INTERNAL_TOOLS_AVAILABLE, CKT_INTERNAL_TOOL_NAMES, build_ckt_tool_workflow_hint
             if TOOL_REGISTRY:
                 tool_names = list(set(DOUBT_DEFAULT_TOOLS + (TIER_1_TOOLS if tools_enabled else [])))
                 # When internal_search is available (host-gated), it is present
@@ -15084,9 +15103,13 @@ Please provide your explanation or answer to the user's doubt in a clear, struct
                     system = system + FASTPATH_TOOLS_WORKFLOW_HINT
                 if "ask_internal_kb" in tool_names:
                     system = system + ASK_INTERNAL_KB_WORKFLOW_HINT
+                if CKT_INTERNAL_TOOLS_AVAILABLE and any(t in tool_names for t in CKT_INTERNAL_TOOL_NAMES):
+                    system = system + build_ckt_tool_workflow_hint(tool_names)
                 system = system + build_internal_tool_routing_hint(tool_names)
                 tools_config = TOOL_REGISTRY.get_openai_tools_param(tool_names)
                 max_iters = 3 if tools_enabled else 2
+                if CKT_INTERNAL_TOOLS_AVAILABLE:
+                    max_iters = max(max_iters, 3)
                 if internal_search_on:
                     max_iters = max(max_iters, 4)
                 for chunk_dict in self._run_tool_loop(
@@ -15467,16 +15490,19 @@ Your summary:""",
                 INTERNAL_SEARCH_WORKFLOW_HINT, READ_INTERNAL_PAGE_WORKFLOW_HINT,
                 SEARCH_LOCAL_INTERNAL_KB_WORKFLOW_HINT,
                 FASTPATH_TOOLS_WORKFLOW_HINT, ASK_INTERNAL_KB_WORKFLOW_HINT,
-                build_internal_tool_routing_hint,
+                build_internal_tool_routing_hint, CKT_INTERNAL_TOOLS_AVAILABLE,
+                CKT_INTERNAL_TOOL_NAMES, build_ckt_tool_workflow_hint,
             )
-            use_tool_loop = tools_enabled or INTERNAL_SEARCH_AVAILABLE
+            use_tool_loop = tools_enabled or INTERNAL_SEARCH_AVAILABLE or CKT_INTERNAL_TOOLS_AVAILABLE
 
             if use_tool_loop and TOOL_REGISTRY:
                 # When the general toggle is off, expose the always-on host-gated
                 # internal tools (internal_search + read_internal_page + typed
                 # fast-path tools + local KB search/ask_internal_kb when
                 # present); when on, expose all of tier 1.
-                if tools_enabled:
+                if CKT_INTERNAL_TOOLS_AVAILABLE:
+                    tool_names = sorted(CKT_INTERNAL_TOOL_NAMES)
+                elif tools_enabled:
                     tool_names = list(TIER_1_TOOLS)
                 else:
                     tool_names = [
@@ -15497,11 +15523,15 @@ Your summary:""",
                     base_system = base_system + FASTPATH_TOOLS_WORKFLOW_HINT
                 if "ask_internal_kb" in tool_names:
                     base_system = base_system + ASK_INTERNAL_KB_WORKFLOW_HINT
+                if CKT_INTERNAL_TOOLS_AVAILABLE:
+                    base_system = base_system + build_ckt_tool_workflow_hint(tool_names)
                 base_system = base_system + build_internal_tool_routing_hint(tool_names)
                 tools_config = TOOL_REGISTRY.get_openai_tools_param(tool_names)
                 # Allow recon + at least one deepening round when internal_search
                 # is in play; otherwise keep the original tight cap.
                 temp_max_iters = 4 if internal_search_on else 3
+                if CKT_INTERNAL_TOOLS_AVAILABLE:
+                    temp_max_iters = max(temp_max_iters, 3)
                 for chunk_dict in self._run_tool_loop(
                     prompt=prompt,
                     preamble=base_system,

@@ -2647,8 +2647,7 @@
                                                         <option>Sonnet 4.6</option>
                                                         <option>anthropic/claude-fable-5</option>
                                                         <!-- <option>openrouter/fusion</option> -->
-                                                        <option title="Internal RAG via GEMINI_RAG_SCRIPT_PATH (Option B default: monorepo ckt-gemini-rag-query thin→Cloudtop). Always --detailed --reformulate --duckie, max-urls ≤20. Lean context: user question + running summary only.">local/gemini-rag</option>
-                                                        <option title="Fast Gemini Agent via GEMINI_AGENT_SCRIPT_PATH (Option B: monorepo gemini-agent-query full package). ask profile: depth 2, personas 0, max-loops 2, tool iters 4, budget 20. Lean context: user question + running summary.">local/gemini-agent</option>
+
                                                     </optgroup>
                                                     <optgroup label="Others">
                                                         <option>Filler</option>
@@ -2948,7 +2947,7 @@
                                                 <option value="smart" title="AI selects relevant tools per turn. Slightly fewer tokens than hybrid.">Smart Select (AI picks)</option>
                                                 <option value="tiered" title="Your most-used tools loaded by default. Ask for more mid-turn. Most token-efficient.">Tiered (core + on-demand)</option>
                                                 <option value="manual" title="You pick exactly which tools are available from the dropdown below.">Manual Selection</option>
-                                                <option value="internal_only" title="Only the internal knowledge tools (search_local_internal_kb + ask_internal_kb + internal_search + read_internal_page + search_moma + search_yaqs + get_bug + search_code + search_code_standard) are available. No web search or other tools. Host-gated.">Internal Search Only</option>
+                                                <option value="internal_only" title="Only the host-gated CKT internal retrieval tools are available. No web search or other tools.">Internal Search Only</option>
                                                 <option value="none" title="Plain text only. No tools, zero token overhead.">No Tools</option>
                                             </select>
                                         </div>
@@ -2987,16 +2986,17 @@
                                                 <option value="jina_read_page" selected>Jina Read Page</option>
                                                 <option value="read_link" selected>Read Link</option>
                                             </optgroup>
-                                            <optgroup label="Internal Search (host-gated)">
-                                                <option value="internal_search" title="Company-internal AI search, decomposed multi-round queries.">Internal Search</option>
-                                                <option value="read_internal_page" title="Read a specific company-internal URL's full contents.">Read Internal Page</option>
-                                                <option value="search_local_internal_kb" title="Instant local cache of previously-fetched internal answers.">Search Local Internal KB</option>
-                                                <option value="ask_internal_kb" title="KB-first, live-fallback-if-needed lookup for a single focused internal question.">Ask Internal KB</option>
-                                                <option value="search_moma" title="Direct Moma lookup (docs/people/teams) — ~1-3s, no LLM.">Search Moma</option>
-                                                <option value="search_yaqs" title="Direct YAQS (internal Q&amp;A) search — ~1-3s, no LLM.">Search YAQS</option>
-                                                <option value="get_bug" title="Fetch a specific Buganizer bug by numeric ID — ~1-3s, no LLM.">Get Bug</option>
-                                                <option value="search_code" title="Codebase question via the internal CodeSearch agent (LLM-backed).">Search Code</option>
-                                                <option value="search_code_standard" title="Standard, regex-indexed Code Search (no LLM) — for a known symbol/string/pattern, ~1-3s.">Search Code (Standard)</option>
+                                            <optgroup label="Company Retrieval (CKT; host-gated)">
+                                                <option value="read_url" title="Read one or more known company URLs into Markdown.">Read Internal URL</option>
+                                                <option value="moma_search" title="Moma documents and team search.">Moma Search</option>
+                                                <option value="moma_bm25_read" title="Moma, concurrent page reads, and BM25-ranked source evidence JSON.">Moma BM25 Evidence</option>
+                                                <option value="yaqs_search" title="Company-internal YAQS engineering Q&amp;A search.">YAQS Search</option>
+                                                <option value="code_search_standard" title="Fresh deterministic Code Search for known symbols, strings, or filters.">Code Search (Standard)</option>
+                                                <option value="kb_search" title="Search the CKT local internal knowledge base.">Internal KB Search</option>
+                                                <option value="system_flow_research" title="Bounded Moma-first, source-grounded system-flow explanation.">System Flow Research</option>
+                                                <option value="code_trace" title="Parallel literal Code Search for 1–4 explicit symbols.">Code Trace</option>
+                                                <option value="duckie_search" title="Duckie source-grounded internal answer.">Duckie Search</option>
+                                                <option value="ckt_duckie_retrieval" title="Multi-lens raw Duckie retrieval JSON; no final synthesis.">Duckie Retrieval Evidence</option>
                                             </optgroup>
                                             <optgroup label="Documents">
                                                 <option value="document_lookup" selected>Document Lookup</option>
