@@ -29,6 +29,8 @@ def test_ckt_workflow_hint_contains_latency_parallelism_and_depth_policy():
         "`duckie_search` — ~45s average",
         "`ckt_duckie_retrieval` — ~60s average",
         "independent calls in PARALLEL",
+        "at least 3-4 parallel calls",
+        "information discovery and navigation",
         "at least two retrieval rounds",
         "one round is acceptable only",
         "urgency or shorter answers",
