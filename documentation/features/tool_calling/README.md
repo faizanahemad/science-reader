@@ -673,7 +673,9 @@ This format is recognized by the agent's `extract_queries_contexts()` method, wh
 
 8. **Default tool enablement**: `computeDefaultStateForTab()` and `resetSettingsToDefaults()` both set `enable_tool_use: true` and `enabled_tools: ['ask_clarification']`.
 
-9. **Shared tool metadata pattern**: Tools that need to be registered in both the tool-calling framework and MCP servers define their metadata once in a shared module (e.g., `CONVERSATION_TOOLS`, `TOOL_HISTORY_TOOLS`, `CROSS_CONVERSATION_TOOLS`) and import from both sides.
+9. **Tool result inspection**: Completed native tool calls retain lightweight metadata on the persisted assistant message (`execution_ref`, tool name, result character count, and duration). The answer card shows an **Inspect** control, which lazy-loads the full result from `GET /tool_result/<conversation_id>/<execution_ref>`. The inspector defaults to raw read-only text and provides a rendered-Markdown tab isolated in a sandboxed iframe with a restrictive CSP; it intentionally does not call the normal Markdown/Graphviz/Mermaid answer-card pipeline because that renderer accepts unsanitized HTML and tool results can contain untrusted retrieved content. Full result text stays in `storage/users/tool_call_history.sqlite` and is scoped server-side to the logged-in user and conversation. History pruning may leave an old reference unavailable.
+
+10. **Shared tool metadata pattern**: Tools that need to be registered in both the tool-calling framework and MCP servers define their metadata once in a shared module (e.g., `CONVERSATION_TOOLS`, `TOOL_HISTORY_TOOLS`, `CROSS_CONVERSATION_TOOLS`) and import from both sides.
 
 ---
 

@@ -13,7 +13,7 @@ const DEBUG = false;
 
 // Bump cache when UI shell assets change.
 // Placeholder — replaced at serve time with composite content hash (see static_routes.py)
-const CACHE_VERSION = "v50";
+const CACHE_VERSION = "v51";
 const UI_SHELL_CACHE = `ui-shell-${CACHE_VERSION}`;
 const META_CACHE = `meta-${CACHE_VERSION}`;
 

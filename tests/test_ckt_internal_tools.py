@@ -31,7 +31,7 @@ def test_ckt_workflow_hint_contains_latency_parallelism_and_depth_policy():
         "independent calls in PARALLEL",
         "at least 3-4 parallel calls",
         "information discovery and navigation",
-        "duckie_search and `ckt_duckie_retrieval` are normally ROUND 2+ tools",
+        "Do not call `duckie_search` or `ckt_duckie_retrieval` in ROUND 1",
         "at least two retrieval rounds",
         "one round is acceptable only",
         "urgency or shorter answers",

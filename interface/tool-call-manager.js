@@ -79,6 +79,12 @@
             '    transition: opacity 0.6s ease;',
             '}',
             '',
+            /* ── Persistent result references (small, intentionally non-content) ── */
+            '.tool-result-references { margin: 8px 0; }',
+            '.tool-result-reference { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; padding: 5px 8px; margin: 3px 0; border: 1px solid #dee2e6; border-radius: 4px; background: #f8f9fa; font-size: 0.78rem; }',
+            '.tool-result-reference .tool-result-meta { color: #6c757d; }',
+            '.tool-result-reference .inspect-tool-result { margin-left: auto; }',
+            '',
             /* ── Modal question styling ── */
             '.tool-call-question {',
             '    margin-bottom: 1rem;',
@@ -123,6 +129,13 @@
             return;
         }
         alert(message);
+    }
+
+    function _getFiniteDataNumber($element, attributeName) {
+        var value = $element.attr(attributeName);
+        if (value === undefined || value === '') return undefined;
+        var number = Number(value);
+        return isFinite(number) ? number : undefined;
     }
 
     /* ──────────────────────────────────────────────
@@ -359,7 +372,7 @@
          * @param {string} resultSummary  - Brief summary of what the tool returned
          * @param {number} [durationSeconds] - How long the tool took to execute
          * ──────────────────────────────────────────── */
-        showToolResult: function (toolId, resultSummary, durationSeconds) {
+        showToolResult: function (toolId, resultSummary, durationSeconds, resultMetadata) {
             var entry = this.activeToolCalls[toolId];
             var toolName = (entry && entry.toolName) ? entry.toolName : 'unknown';
 
@@ -378,8 +391,77 @@
                 }
             }
 
+            if (resultMetadata && resultMetadata.executionRef) {
+                this._appendPersistentResult(this._getStreamingCard(), {
+                    execution_ref: resultMetadata.executionRef,
+                    tool_name: resultMetadata.toolName || toolName,
+                    result_chars: resultMetadata.resultChars,
+                    duration_seconds: durationSeconds,
+                    status: 'completed'
+                }, resultMetadata.conversationId);
+            }
+
             // Remove from active tracking
             delete this.activeToolCalls[toolId];
+        },
+
+        /** Render durable, non-sensitive tool-result references on a response card. */
+        renderPersistentResults: function ($card, resultRefs, conversationId) {
+            if (!$card || !$card.length || !Array.isArray(resultRefs) || !resultRefs.length) {
+                return;
+            }
+            for (var i = 0; i < resultRefs.length; i++) {
+                this._appendPersistentResult($card, resultRefs[i], conversationId);
+            }
+        },
+
+        _getStreamingCard: function () {
+            var $streamCard = $('[data-live-stream="true"]');
+            return $streamCard.length ? $streamCard.last() : $();
+        },
+
+        _appendPersistentResult: function ($card, resultRef, conversationId) {
+            if (!$card || !$card.length || !resultRef || !resultRef.execution_ref) {
+                return;
+            }
+            var executionRef = String(resultRef.execution_ref);
+            var duplicate = false;
+            $card.find('.tool-result-reference').each(function () {
+                if ($(this).attr('data-tool-result-ref') === executionRef) {
+                    duplicate = true;
+                    return false;
+                }
+            });
+            if (duplicate) {
+                return;
+            }
+
+            var $container = $card.find('.tool-result-references').first();
+            if (!$container.length) {
+                $container = $('<div class="tool-result-references" aria-label="Tool results"></div>');
+                var $status = $card.find('.status-div').first();
+                if ($status.length) {
+                    $container.insertBefore($status);
+                } else {
+                    $card.find('.actual-card-text').last().append($container);
+                }
+            }
+
+            var resultChars = Number(resultRef.result_chars || 0);
+            var duration = Number(resultRef.duration_seconds);
+            var meta = (isFinite(resultChars) ? resultChars.toLocaleString() + ' chars' : '') +
+                (isFinite(duration) ? (resultChars ? ' · ' : '') + duration.toFixed(1) + 's' : '');
+            var $row = $('<div class="tool-result-reference"></div>')
+                .attr('data-tool-result-ref', executionRef)
+                .attr('data-execution-ref', executionRef)
+                .attr('data-conversation-id', conversationId || '')
+                .attr('data-result-chars', resultChars)
+                .attr('data-duration-seconds', isFinite(duration) ? duration : '');
+            $('<strong></strong>').text(String(resultRef.tool_name || 'tool').replace(/_/g, ' ')).appendTo($row);
+            $('<span class="tool-result-meta"></span>').text(meta).appendTo($row);
+            $('<button type="button" class="btn btn-sm btn-outline-secondary inspect-tool-result">Inspect</button>')
+                .appendTo($row);
+            $container.append($row);
         },
 
         /* ────────────────────────────────────────────
@@ -826,6 +908,26 @@
 
             // Inject CSS styles
             _injectStyles();
+
+            $(document).off('click.tool-result-inspect').on('click.tool-result-inspect', '.inspect-tool-result', function () {
+                var $row = $(this).closest('.tool-result-reference');
+                var executionRef = $row.attr('data-execution-ref');
+                var conversationId = $row.attr('data-conversation-id');
+                if (!executionRef || !conversationId) {
+                    _showToastOrAlert('This tool result is unavailable.', 'warning');
+                    return;
+                }
+                if (typeof ToolResultInspector === 'undefined') {
+                    _showToastOrAlert('Tool result inspector is unavailable.', 'warning');
+                    return;
+                }
+                ToolResultInspector.open({
+                    toolName: $row.find('strong').text() || 'Tool',
+                    resultChars: _getFiniteDataNumber($row, 'data-result-chars'),
+                    durationSeconds: _getFiniteDataNumber($row, 'data-duration-seconds'),
+                    fetchUrl: '/tool_result/' + encodeURIComponent(conversationId) + '/' + encodeURIComponent(executionRef)
+                });
+            });
 
             // Modal submit button
             $(document).off('click.toolcall-submit').on('click.toolcall-submit', '#tool-call-submit-btn', function (e) {

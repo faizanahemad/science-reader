@@ -4581,6 +4581,7 @@ Now return JSON with 'ops' and 'notes'.
         # Optionally persist TLDR inside the saved assistant message text so it survives reloads.
         # We keep `answer_tldr` as a separate field either way.
         response_to_store = response
+        tool_result_refs = list(config.pop("_tool_result_refs", []) or [])
         try:
             persist_tldr_in_text = PERSIST_TLDR_IN_SAVED_ANSWER_TEXT
             if isinstance(response_to_store, str):
@@ -4742,6 +4743,7 @@ Now return JSON with 'ops' and 'notes'.
                     "conversation_id": self.conversation_id,
                     "config": config,
                     "answer_tldr": answer_tldr,
+                    "tool_result_refs": tool_result_refs,
                 },
             ]
 
@@ -8330,6 +8332,25 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
         return tools_param
 
+    @staticmethod
+    def _defer_round_one_ckt_duckie_call(iteration, tool_name, tool_args, prompt):
+        """Return a policy result for an unrequested first-round CKT Duckie call."""
+        if iteration != 0 or tool_name not in {"duckie_search", "ckt_duckie_retrieval"}:
+            return None
+        explicit_duckie_request = "duckie" in f"{prompt}\n{tool_args}".lower()
+        if explicit_duckie_request:
+            return None
+        return ToolCallResult(
+            tool_id="",
+            tool_name=tool_name,
+            result=(
+                "Duckie call deferred by retrieval policy. Complete ROUND 1 with at least 3-4 "
+                "independent Very Fast/Fast calls, inspect their evidence, then call Duckie in ROUND 2+ "
+                "for further investigation."
+            ),
+            error=None,
+        )
+
     def _run_tool_loop(
         self,
         prompt,
@@ -8432,6 +8453,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
         iteration = 0
         self._request_tools_expansions = 0
+        self._current_turn_tool_result_refs = []
         use_messages_mode = (
             False  # First call uses simple mode; continuations use messages mode
         )
@@ -8620,7 +8642,17 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             # Classify tool calls into interactive and non-interactive
             interactive_calls = []
             non_interactive_calls = []
+            deferred_non_interactive_results = {}
             for tc_id, tc_name, tc_args in parsed_tool_calls:
+                deferred_result = self._defer_round_one_ckt_duckie_call(
+                    iteration, tc_name, tc_args, prompt
+                )
+                if deferred_result is not None:
+                    non_interactive_calls.append((tc_id, tc_name, tc_args))
+                    deferred_non_interactive_results[tc_id] = (
+                        deferred_result, tc_name, tc_args, 0.0
+                    )
+                    continue
                 tool_def = TOOL_REGISTRY.get_tool(tc_name)
                 if tool_def and tool_def.is_interactive:
                     interactive_calls.append((tc_id, tc_name, tc_args))
@@ -8642,7 +8674,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             # Each thread gets its own ToolContext copy to avoid shared mutable state.
             # TOOL_REGISTRY.execute() only reads the registry dict (thread-safe) and
             # calls the handler function with its own args/context.
-            non_interactive_results = {}  # {tc_id: (result, tc_name, tc_args, exec_duration)}
+            non_interactive_results = dict(deferred_non_interactive_results)
             if non_interactive_calls:
                 from copy import deepcopy
                 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -8660,8 +8692,12 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     exec_dur = round(time.time() - exec_start, 2)
                     return tc_id, tc_name, tc_args, result, exec_dur
 
-                # Yield 'executing' status for all non-interactive tools
-                for tc_id, tc_name, tc_args in non_interactive_calls:
+                calls_to_execute = [
+                    call for call in non_interactive_calls
+                    if call[0] not in deferred_non_interactive_results
+                ]
+                # Yield 'executing' status only for tools that will run.
+                for tc_id, tc_name, tc_args in calls_to_execute:
                     yield {
                         "text": "",
                         "status": f"Executing tool: {tc_name}...",
@@ -8671,40 +8707,83 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                         "tool_status": "executing",
                     }
 
-                parallel_start = time.time()
-                # Use at most 5 threads — more would be wasteful for typical 2-3 tool calls
-                max_workers = min(len(non_interactive_calls), 5)
-                futures = {}
-                with ThreadPoolExecutor(max_workers=max_workers) as pool:
-                    for tc_id, tc_name, tc_args in non_interactive_calls:
-                        # Deep-copy context so each thread has its own isolated state
-                        thread_ctx = deepcopy(tool_context)
-                        fut = pool.submit(
-                            _execute_tool_in_thread, tc_id, tc_name, tc_args, thread_ctx
-                        )
-                        futures[fut] = tc_id
+                if calls_to_execute:
+                    parallel_start = time.time()
+                    # Use at most 5 threads — more would be wasteful for typical 2-3 tool calls
+                    max_workers = min(len(calls_to_execute), 5)
+                    futures = {}
+                    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+                        for tc_id, tc_name, tc_args in calls_to_execute:
+                            # Deep-copy context so each thread has its own isolated state
+                            thread_ctx = deepcopy(tool_context)
+                            fut = pool.submit(
+                                _execute_tool_in_thread, tc_id, tc_name, tc_args, thread_ctx
+                            )
+                            futures[fut] = tc_id
 
-                    for fut in as_completed(futures):
-                        (
-                            tc_id_done,
-                            tc_name_done,
-                            tc_args_done,
-                            result_done,
-                            exec_dur_done,
-                        ) = fut.result()
-                        non_interactive_results[tc_id_done] = (
-                            result_done,
-                            tc_name_done,
-                            tc_args_done,
-                            exec_dur_done,
-                        )
+                        for fut in as_completed(futures):
+                            (
+                                tc_id_done,
+                                tc_name_done,
+                                tc_args_done,
+                                result_done,
+                                exec_dur_done,
+                            ) = fut.result()
+                            non_interactive_results[tc_id_done] = (
+                                result_done,
+                                tc_name_done,
+                                tc_args_done,
+                                exec_dur_done,
+                            )
 
-                parallel_duration = round(time.time() - parallel_start, 2)
-                logger.warning(
-                    "[_run_tool_loop] Parallel execution of %d non-interactive tools completed in %.2fs",
-                    len(non_interactive_calls),
-                    parallel_duration,
-                )
+                    parallel_duration = round(time.time() - parallel_start, 2)
+                    logger.warning(
+                        "[_run_tool_loop] Parallel execution of %d non-interactive tools completed in %.2fs",
+                        len(calls_to_execute),
+                        parallel_duration,
+                    )
+
+            def _record_tool_result_for_inspection(
+                tc_name, tc_args, tool_result_text, tool_error, result_len, tool_total_duration
+            ):
+                """Persist one result before exposing its lazy-inspection reference."""
+                try:
+                    from code_common.tool_call_history import (
+                        get_tool_call_history_db,
+                        tool_call_hash,
+                        get_tool_category,
+                    )
+
+                    history_db = get_tool_call_history_db()
+                    execution_ref = uuid.uuid4().hex
+                    if not history_db or not history_db.record(
+                        id=tool_call_hash(tc_name, tc_args),
+                        tool_name=tc_name,
+                        tool_category=get_tool_category(tc_name),
+                        args_json=json.dumps(tc_args, ensure_ascii=False),
+                        result_text=tool_result_text,
+                        error=tool_error,
+                        user_email=tool_context.user_email,
+                        conversation_id=tool_context.conversation_id,
+                        timestamp=time.time(),
+                        duration_seconds=tool_total_duration,
+                        result_chars=result_len,
+                        source="tool_calling",
+                        execution_ref=execution_ref,
+                    ):
+                        return None
+                    self._current_turn_tool_result_refs.append(
+                        {
+                            "execution_ref": execution_ref,
+                            "tool_name": tc_name,
+                            "result_chars": result_len,
+                            "duration_seconds": tool_total_duration,
+                            "status": "completed",
+                        }
+                    )
+                    return execution_ref
+                except Exception:
+                    return None  # Fail-open: inspection history cannot block the tool loop
 
             # --- Emit results for non-interactive tools (in original call order) ---
             for tc_id, tc_name, tc_args in non_interactive_calls:
@@ -8726,6 +8805,14 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     tool_total_duration,
                     tool_result_text[:100].replace("\n", " "),
                 )
+                execution_ref = _record_tool_result_for_inspection(
+                    tc_name,
+                    tc_args,
+                    tool_result_text,
+                    result.error if hasattr(result, "error") else None,
+                    result_len,
+                    tool_total_duration,
+                )
                 _tr_chunk = {
                     "text": "",
                     "status": f"Tool {tc_name} completed (result: {result_len} chars, {tool_total_duration:.1f}s)",
@@ -8733,8 +8820,11 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     "tool_id": tc_id,
                     "tool_name": tc_name,
                     "result_summary": result_summary,
+                    "result_chars": result_len,
                     "duration_seconds": tool_total_duration,
                 }
+                if execution_ref:
+                    _tr_chunk["execution_ref"] = execution_ref
                 if tc_name == "propose_answer_edit":
                     _tr_chunk["result_full"] = tool_result_text
                 yield _tr_chunk
@@ -8753,33 +8843,6 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                         "content": tool_result_text,
                     }
                 )
-
-                # Record tool call to history (fail-open)
-                try:
-                    from code_common.tool_call_history import (
-                        get_tool_call_history_db,
-                        tool_call_hash,
-                        get_tool_category,
-                    )
-
-                    _tch_db = get_tool_call_history_db()
-                    if _tch_db:
-                        _tch_db.record(
-                            id=tool_call_hash(tc_name, tc_args),
-                            tool_name=tc_name,
-                            tool_category=get_tool_category(tc_name),
-                            args_json=json.dumps(tc_args, ensure_ascii=False),
-                            result_text=tool_result_text,
-                            error=result.error if hasattr(result, "error") else None,
-                            user_email=tool_context.user_email,
-                            conversation_id=tool_context.conversation_id,
-                            timestamp=time.time(),
-                            duration_seconds=tool_total_duration,
-                            result_chars=result_len,
-                            source="tool_calling",
-                        )
-                except Exception:
-                    pass  # Fail-open: never break tool execution for history recording
 
                 # Track for round summary
                 args_brief = json.dumps(tc_args, ensure_ascii=False)[:150]
@@ -8893,15 +8956,27 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     tool_total_duration,
                     tool_result_text[:100].replace("\n", " "),
                 )
-                yield {
+                execution_ref = _record_tool_result_for_inspection(
+                    tc_name,
+                    tc_args,
+                    tool_result_text,
+                    result.error if hasattr(result, "error") else None,
+                    result_len,
+                    tool_total_duration,
+                )
+                _tr_chunk = {
                     "text": "",
                     "status": f"Tool {tc_name} completed (result: {result_len} chars, {tool_total_duration:.1f}s)",
                     "type": "tool_result",
                     "tool_id": tc_id,
                     "tool_name": tc_name,
                     "result_summary": result_summary,
+                    "result_chars": result_len,
                     "duration_seconds": tool_total_duration,
                 }
+                if execution_ref:
+                    _tr_chunk["execution_ref"] = execution_ref
+                yield _tr_chunk
                 yield {
                     "text": "",
                     "status": f"Tool {tc_name} completed",
@@ -8917,33 +8992,6 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                         "content": tool_result_text,
                     }
                 )
-
-                # Record tool call to history (fail-open)
-                try:
-                    from code_common.tool_call_history import (
-                        get_tool_call_history_db,
-                        tool_call_hash,
-                        get_tool_category,
-                    )
-
-                    _tch_db = get_tool_call_history_db()
-                    if _tch_db:
-                        _tch_db.record(
-                            id=tool_call_hash(tc_name, tc_args),
-                            tool_name=tc_name,
-                            tool_category=get_tool_category(tc_name),
-                            args_json=json.dumps(tc_args, ensure_ascii=False),
-                            result_text=tool_result_text,
-                            error=result.error if hasattr(result, "error") else None,
-                            user_email=tool_context.user_email,
-                            conversation_id=tool_context.conversation_id,
-                            timestamp=time.time(),
-                            duration_seconds=tool_total_duration,
-                            result_chars=result_len,
-                            source="tool_calling",
-                        )
-                except Exception:
-                    pass  # Fail-open: never break tool execution for history recording
 
                 # Track for round summary
                 args_brief = json.dumps(tc_args, ensure_ascii=False)[:150]
@@ -9086,6 +9134,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         )
         self.next_question_suggestions = list()
         self.clear_cancellation()
+        self._current_turn_tool_result_refs = []
         lock_status = self.check_all_lockfiles()
         wait_max = 10
         wait_time = 0
@@ -13191,7 +13240,10 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                             {
                                 "name": dcit.get("tool_name", dcit.get("tool_id", "")),
                                 "duration_s": dcit.get("duration_seconds", 0),
-                                "result_chars": len(dcit.get("result_summary", "")),
+                                "result_chars": dcit.get(
+                                    "result_chars",
+                                    len(dcit.get("result_summary", "")),
+                                ),
                             }
                         )
                     yield dcit
@@ -13439,11 +13491,15 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 }
 
         yield {"text": "", "status": "saving message ..."}
+        persist_config = dict(message_config)
+        persist_config["_tool_result_refs"] = list(
+            getattr(self, "_current_turn_tool_result_refs", []) or []
+        )
         get_async_future(
             self.persist_current_turn,
             original_user_query,
             answer,
-            message_config,
+            persist_config,
             previous_messages_long,
             summary,
             full_doc_texts,

@@ -60,6 +60,7 @@ import os
 import sqlite3
 import threading
 import time
+import uuid
 from typing import Any, Dict, List, Optional
 
 from loggers import getLoggers
@@ -148,6 +149,7 @@ CREATE TABLE IF NOT EXISTS tool_call_history (
     duration_seconds REAL,
     result_chars INTEGER,
     source TEXT NOT NULL DEFAULT 'tool_calling',
+    execution_ref TEXT,
     PRIMARY KEY (id, timestamp)
 );
 
@@ -159,6 +161,13 @@ CREATE INDEX IF NOT EXISTS idx_tch_conv ON tool_call_history(conversation_id);
 CREATE INDEX IF NOT EXISTS idx_tch_id ON tool_call_history(id);
 CREATE INDEX IF NOT EXISTS idx_tch_user_cat_ts
     ON tool_call_history(user_email, tool_category, timestamp DESC);
+"""
+
+_EXECUTION_REF_INDEX_SQL = """
+CREATE UNIQUE INDEX IF NOT EXISTS idx_tch_execution_ref
+    ON tool_call_history(execution_ref);
+CREATE INDEX IF NOT EXISTS idx_tch_user_conv_execution_ref
+    ON tool_call_history(user_email, conversation_id, execution_ref);
 """
 
 
@@ -192,11 +201,22 @@ class ToolCallHistoryDB:
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA busy_timeout=5000")
             self._conn.executescript(_SCHEMA_SQL)
+            self._migrate_schema()
             self._conn.commit()
             logger.info("Tool call history DB initialized at %s", self._db_path)
         except Exception as e:
             error_logger.error("Failed to initialize tool call history DB: %s", e)
             self._conn = None
+
+    def _migrate_schema(self) -> None:
+        """Apply additive migrations required by databases created by older versions."""
+        if self._conn is None:
+            return
+        conn = self._conn
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(tool_call_history)")}
+        if "execution_ref" not in columns:
+            conn.execute("ALTER TABLE tool_call_history ADD COLUMN execution_ref TEXT")
+        conn.executescript(_EXECUTION_REF_INDEX_SQL)
 
     # ------------------------------------------------------------------
     # Record
@@ -216,8 +236,12 @@ class ToolCallHistoryDB:
         duration_seconds: Optional[float],
         result_chars: Optional[int],
         source: str = "tool_calling",
+        execution_ref: Optional[str] = None,
     ) -> bool:
         """Insert a tool call record.  Fail-open — never raises.
+
+        ``execution_ref`` is a stable, unique reference for this execution. If
+        omitted, a UUID is generated so existing callers retain that behavior.
 
         Returns
         -------
@@ -226,14 +250,15 @@ class ToolCallHistoryDB:
         """
         if not self._conn:
             return False
+        execution_ref = execution_ref or uuid.uuid4().hex
         try:
             with self._lock:
                 self._conn.execute(
                     """INSERT INTO tool_call_history
                        (id, tool_name, tool_category, args_json, result_text,
                         error, user_email, conversation_id, timestamp,
-                        duration_seconds, result_chars, source)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        duration_seconds, result_chars, source, execution_ref)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         id,
                         tool_name,
@@ -247,6 +272,7 @@ class ToolCallHistoryDB:
                         duration_seconds,
                         result_chars,
                         source,
+                        execution_ref,
                     ),
                 )
                 self._conn.commit()
@@ -294,7 +320,7 @@ class ToolCallHistoryDB:
             Metadata dicts ordered by timestamp DESC.  Keys:
             ``id``, ``tool_name``, ``tool_category``, ``args_json``,
             ``result_chars``, ``duration_seconds``, ``timestamp``,
-            ``conversation_id``, ``source``, ``error``.
+            ``conversation_id``, ``source``, ``error``, ``execution_ref``.
         """
         if not self._conn:
             return []
@@ -325,7 +351,7 @@ class ToolCallHistoryDB:
             sql = f"""
                 SELECT id, tool_name, tool_category, args_json,
                        result_chars, duration_seconds, timestamp,
-                       conversation_id, source, error
+                       conversation_id, source, error, execution_ref
                 FROM tool_call_history
                 WHERE {where}
                 ORDER BY timestamp DESC
@@ -387,7 +413,7 @@ class ToolCallHistoryDB:
             sql = f"""
                 SELECT id, tool_name, tool_category, args_json, result_text,
                        error, conversation_id, timestamp, duration_seconds,
-                       result_chars, source
+                       result_chars, source, execution_ref
                 FROM tool_call_history
                 WHERE {where}
                 ORDER BY timestamp DESC
@@ -409,6 +435,46 @@ class ToolCallHistoryDB:
         except Exception as e:
             error_logger.error("Failed to get tool call results: %s", e)
             return []
+
+    def get_result_by_execution_ref(
+        self,
+        user_email: str,
+        conversation_id: Optional[str],
+        execution_ref: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Return one full result scoped to its user, conversation, and execution.
+
+        This is intended for lazy-loading a result selected from ``list_calls``.
+        Returns ``None`` when no matching execution exists or storage is unavailable.
+        """
+        if not self._conn or not execution_ref:
+            return None
+        try:
+            conditions = ["user_email = ?", "execution_ref = ?"]
+            params: list = [user_email, execution_ref]
+            if conversation_id is None:
+                conditions.append("conversation_id IS NULL")
+            else:
+                conditions.append("conversation_id = ?")
+                params.append(conversation_id)
+            sql = f"""
+                SELECT id, tool_name, tool_category, args_json, result_text,
+                       error, user_email, conversation_id, timestamp,
+                       duration_seconds, result_chars, source, execution_ref
+                FROM tool_call_history
+                WHERE {' AND '.join(conditions)}
+                LIMIT 1
+            """
+            with self._lock:
+                cursor = self._conn.execute(sql, params)
+                row = cursor.fetchone()
+                if row is None:
+                    return None
+                columns = [desc[0] for desc in cursor.description]
+            return dict(zip(columns, row))
+        except Exception as e:
+            error_logger.error("Failed to get tool call result by execution ref: %s", e)
+            return None
 
     # ------------------------------------------------------------------
     # Prune

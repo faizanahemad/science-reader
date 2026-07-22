@@ -1636,7 +1636,17 @@ function renderStreamingResponse(streamingResponse, conversationId, messageText,
                 continue;
             } else if (part['type'] === 'tool_result') {
                 if (typeof ToolCallManager !== 'undefined') {
-                    ToolCallManager.showToolResult(part['tool_id'], part['result_summary'], part['duration_seconds']);
+                    ToolCallManager.showToolResult(
+                        part['tool_id'],
+                        part['result_summary'],
+                        part['duration_seconds'],
+                        {
+                            executionRef: part['execution_ref'],
+                            toolName: part['tool_name'],
+                            resultChars: part['result_chars'],
+                            conversationId: conversationId
+                        }
+                    );
                 }
                 continue;
             }
@@ -3027,6 +3037,17 @@ var ChatManager = {
             cardElem.append(statusDiv);
             statusDiv.hide();
             statusDiv.find('.spinner-border').hide();
+            if (
+                message.sender !== 'user' &&
+                message.tool_result_refs &&
+                typeof ToolCallManager !== 'undefined'
+            ) {
+                ToolCallManager.renderPersistentResults(
+                    cardElem,
+                    message.tool_result_refs,
+                    conversationId
+                );
+            }
 
             _cardDetail.buildCard_ms = _perfEnd('buildCard#' + originalIndex, _perfT) || 0;
             return cardElem;

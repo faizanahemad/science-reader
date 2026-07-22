@@ -289,6 +289,58 @@ def list_messages_by_conversation(conversation_id: str):
 
 
 @conversations_bp.route(
+    "/tool_result/<conversation_id>/<execution_ref>", methods=["GET"]
+)
+@limiter.limit("120 per minute")
+@login_required
+def get_tool_result(conversation_id: str, execution_ref: str):
+    """Return one persisted native tool result scoped to the logged-in user."""
+    email, _name, _loggedin = get_session_identity()
+    email = email or ""
+    state = get_state()
+    if not checkConversationExists(email, conversation_id, users_dir=state.users_dir):
+        return json_error(
+            "Conversation not found", status=404, code="conversation_not_found"
+        )
+
+    try:
+        from code_common.tool_call_history import get_tool_call_history_db
+
+        history_db = get_tool_call_history_db()
+        result = (
+            history_db.get_result_by_execution_ref(
+                user_email=email,
+                conversation_id=conversation_id,
+                execution_ref=execution_ref,
+            )
+            if history_db
+            else None
+        )
+    except Exception:
+        logger.exception("Failed to retrieve tool result for inspection")
+        return json_error(
+            "Tool result retrieval failed", status=500, code="tool_result_unavailable"
+        )
+
+    if result is None:
+        return json_error(
+            "Tool result not found or has expired",
+            status=404,
+            code="tool_result_not_found",
+        )
+
+    return jsonify(
+        {
+            "tool_name": result.get("tool_name", "tool"),
+            "result_text": result.get("result_text", ""),
+            "result_chars": result.get("result_chars", 0),
+            "duration_seconds": result.get("duration_seconds"),
+            "error": result.get("error"),
+        }
+    )
+
+
+@conversations_bp.route(
     "/list_messages_by_conversation_shareable/<conversation_id>", methods=["GET"]
 )
 @limiter.limit("100 per minute")

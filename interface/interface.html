@@ -3440,6 +3440,44 @@ greet("World");</code></pre>
         </div>
     </div>
 
+    <!-- Tool Result Inspector Modal (raw, unrendered tool output) -->
+    <div class="modal fade" id="tool-result-inspector-modal" tabindex="-1" role="dialog" aria-labelledby="tool-result-inspector-title" aria-hidden="true">
+        <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="tool-result-inspector-title">Tool Result</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    <ul class="nav nav-tabs mb-3" role="tablist">
+                        <li class="nav-item">
+                            <a class="nav-link active" id="tool-result-inspector-raw-tab" data-toggle="tab" href="#tool-result-inspector-raw-pane" role="tab">Raw</a>
+                        </li>
+                        <li class="nav-item">
+                            <a class="nav-link" id="tool-result-inspector-rendered-tab" data-toggle="tab" href="#tool-result-inspector-rendered-pane" role="tab">Rendered Markdown</a>
+                        </li>
+                    </ul>
+                    <div class="tab-content">
+                        <div class="tab-pane fade show active" id="tool-result-inspector-raw-pane" role="tabpanel">
+                            <textarea id="tool-result-inspector-text" class="form-control" readonly aria-label="Raw tool result" style="height:50vh;resize:vertical;font-family:'SF Mono','Fira Code','Cascadia Code',monospace;font-size:12px;line-height:1.6;white-space:pre-wrap;word-break:break-word;"></textarea>
+                        </div>
+                        <div class="tab-pane fade" id="tool-result-inspector-rendered-pane" role="tabpanel">
+                            <iframe id="tool-result-inspector-rendered" title="Rendered tool result" sandbox style="width:100%;height:50vh;border:1px solid #dee2e6;border-radius:4px;"></iframe>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer py-2">
+                    <span id="tool-result-inspector-char-count" class="text-muted mr-auto" style="font-size:0.8rem;"></span>
+                    <span id="tool-result-inspector-duration" class="text-muted mr-3" style="font-size:0.8rem;"></span>
+                    <button type="button" id="tool-result-inspector-copy" class="btn btn-sm btn-outline-secondary">Copy</button>
+                    <button type="button" class="btn btn-sm btn-secondary" data-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <!-- Conversation Model Overrides Modal -->
     <div id="model-overrides-modal" class="modal fade" tabindex="-1" aria-hidden="true" style="z-index: 1065;">
         <div class="modal-dialog modal-lg">
@@ -4990,6 +5028,7 @@ greet("World");</code></pre>
     <script defer src="interface/notification-manager.js"></script>
     <script defer src="interface/clarifications-manager.js"></script>
     <script defer src="interface/tool-call-manager.js"></script>
+    <script defer src="interface/tool-result-inspector.js"></script>
     <script defer src="interface/temp-llm-manager.js"></script>
     <script defer src="interface/context-menu-manager.js"></script>
     <script defer src="interface/prompt-manager.js"></script>
