@@ -559,6 +559,123 @@ all three in `internal_search_tool.md`.
 
 ---
 
+## External MCP Tools (environment configured)
+
+The native web chat can consume remote **Streamable HTTP** MCP servers at
+Flask startup. This is separate from the first-party MCP servers in
+`mcp_server/`: those expose this application to external clients, whereas this
+feature imports external MCP tools into the web chat's existing
+`TOOL_REGISTRY` / `Conversation._run_tool_loop` path.
+
+Set endpoints before starting `python server.py`:
+
+```bash
+export MCP_URLS="http://127.0.0.1:8765/mcp,https://mcp.example.com/mcp"
+```
+
+On startup the application calls MCP `tools/list` for each URL. Each returned
+tool is registered with a collision-safe, bounded name based on
+`external_mcp_<position>_<tool_name>_<hash>` (non-alphanumeric characters
+become underscores). Tiered and Hybrid mode include configured external MCP
+tools automatically; Smart Select can select them from its tool menu. The
+Manual Selection UI fetches runtime-discovered external MCP tools from
+`/tool_catalog` and renders them under **External MCP** (or **External MCP
+(Always Enabled)**) groups. The selected model receives each
+MCP-provided JSON schema through the regular OpenAI `tools` parameter, and
+model calls are forwarded as MCP `tools/call` requests.
+
+### Making MCP tools visible to the model
+
+Do not paste an MCP URL, tool schema, or tool instructions into a user message.
+The server performs discovery at Flask startup and the ordinary chat tool flow
+supplies the discovered tools to the selected LLM:
+
+1. The MCP client initializes each configured server and calls `tools/list`.
+2. Each discovered tool is registered in `TOOL_REGISTRY` with its MCP name,
+   description, and input JSON Schema.
+3. For every chat turn with tools enabled, `Conversation._get_enabled_tools()`
+   converts active registry tools to OpenAI-compatible entries in the model
+   request's `tools` parameter. The normal tool-awareness system prompt is
+   also constructed from that active tool set.
+4. When the model returns a function call, the registered proxy performs MCP
+   `tools/call`; its result is appended as the model's next `role: tool`
+   message.
+
+Use **Hybrid (AI + fallback)** or **Tiered (core + on-demand)** in the chat
+settings for reliable external-MCP visibility. Both modes automatically include
+the configured external MCP tools. **Smart Select** sees them in its compact
+tool menu but may decide they are irrelevant for a particular request. In
+**Manual Selection**, the Settings modal requests authenticated
+`GET /tool_catalog` when the app loads and adds discovered tools to the existing
+picker. Select entries under **External MCP** to include ordinary configured
+servers, or inspect **External MCP (Always Enabled)** to see tools which are
+present regardless of the manual selection. The option value is the generated
+tool name saved in `enabled_tools`, so normal settings persistence applies.
+
+After launching Flask, confirm discovery in server logs:
+
+```text
+Registered external MCP tool external_mcp_1_<tool-name>_<hash> from http://127.0.0.1:8765/mcp
+Registered N external MCP tools
+```
+
+Then send a request that clearly needs a tool from the MCP server. The normal
+chat stream/UI should show:
+
+```text
+Tool call: external_mcp_1_<tool-name>_<hash>
+Executing tool: external_mcp_1_<tool-name>_<hash>...
+Tool external_mcp_1_<tool-name>_<hash> completed
+```
+
+If no discovery log appears, verify the exact Streamable HTTP endpoint and
+auth headers, then restart Flask; MCP server configuration and discovered
+schemas are intentionally fixed for a process lifetime.
+
+### Authentication and timeout
+
+- `MCP_ENABLE_ALWAYS_URLS`: optional comma-separated endpoints whose discovered
+  tools are injected in every active tool mode (`tiered`, `smart`, `hybrid`,
+  `manual`, and `internal_only`). It may repeat entries from `MCP_URLS` or add
+  new endpoints; duplicate URLs are discovered once, and a repeated URL is
+  promoted to always-enabled. An always endpoint is discovered even when
+  `MCP_URLS` is unset. Its tools bypass user/category selection but do not
+  override the explicit `none` / no-tools mode.
+- `MCP_AUTH_TOKENS`: optional comma-aligned bearer tokens for the merged
+  endpoint order (`MCP_URLS` first, then new `MCP_ENABLE_ALWAYS_URLS` entries).
+  Empty positions deliberately mean no bearer authentication.
+- `MCP_HEADERS_JSON`: optional JSON for custom static headers. Keys are exact
+  URLs or `"*"` for shared non-secret headers. URL headers override shared
+  headers; place `Authorization` only under a specific URL (it overrides the
+  paired bearer token).
+- `MCP_TIMEOUT_SECONDS`: optional discovery/call timeout in seconds (default:
+  120).
+- `MCP_DISCOVERY_TIMEOUT_SECONDS`: startup discovery timeout in seconds
+  (default: 15), separate from the tool-call timeout.
+
+Example with bearer auth for the local server and API-key auth for the remote
+server:
+
+```bash
+export MCP_URLS="http://127.0.0.1:8765/mcp,https://mcp.example.com/mcp"
+export MCP_ENABLE_ALWAYS_URLS="http://127.0.0.1:8765/mcp"
+export MCP_AUTH_TOKENS="local-service-token,"
+export MCP_HEADERS_JSON='{"*":{"X-Team-ID":"research"},"https://mcp.example.com/mcp":{"X-API-Key":"remote-service-token"}}'
+export MCP_TIMEOUT_SECONDS=60
+export MCP_DISCOVERY_TIMEOUT_SECONDS=10
+```
+
+These are server-side deployment values. Do not send tokens from the browser
+or place them in prompts. OAuth browser flows, token refresh, and stdio MCP
+servers are intentionally outside this small URL/header contract. Failed
+discovery only skips that server; it never blocks Flask startup or hides tools
+found on other servers. `MCP_URLS` is privileged deployment configuration: it
+accepts only `http`/`https` URLs without embedded credentials or fragments.
+Changes require a Flask restart so tool schemas remain stable for the process
+lifetime.
+
+---
+
 ## Developer Guide: Adding New Tools
 
 ### Step 1: Define with `@register_tool`

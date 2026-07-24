@@ -7802,6 +7802,7 @@ if CKT_INTERNAL_TOOLS_AVAILABLE:
         "code_trace": ("Parallel fresh literal Code Search for one to four explicit symbols (<10s average); returns grouped raw evidence without LLM synthesis.", {"question": {"type": "string"}, "symbols": {"type": "array", "items": {"type": "string"}, "minItems": 1, "maxItems": 4}, "directory": {"type": "string"}}, ["question", "symbols"]),
         "duckie_search": ("Ask Duckie for a source-grounded internal answer (~45s average, 120s tail).", {"query": {"type": "string"}}, ["query"]),
         "ckt_duckie_retrieval": ("Plan diverse Duckie retrieval lenses and return raw structured JSON evidence (~60s average, 120s tail); no final synthesis.", {"query": {"type": "string"}, "query_count": {"type": "integer", "minimum": 1, "maximum": 6}}, ["query"]),
+        "gdocs_readonly": ("Read every tab of a known internal Google Doc into Markdown, stripping embedded images (<10s average). Optionally read one known tab.", {"document_id": {"type": "string"}, "tab_id": {"type": "string"}}, ["document_id"]),
     }
     for _ckt_name, (_ckt_description, _ckt_properties, _ckt_required) in _CKT_TOOL_SPECS.items():
         def _make_ckt_handler(name):
@@ -7826,7 +7827,7 @@ def build_ckt_tool_workflow_hint(tool_names: list) -> str:
         "All CKT calls are free in monetary terms: issue independent calls in PARALLEL; "
         "do not serialize calls that do not depend on each other.\n"
         "- Very Fast (<10s average): `kb_search`, `moma_search`, `read_url`, `yaqs_search`, "
-        "`code_search_standard`, and `code_trace`.\n"
+        "`code_search_standard`, `code_trace`, and `gdocs_readonly`.\n"
         "- Fast: `moma_bm25_read` — ~15s average, raw ranked source evidence.\n"
         "- Medium Speed (average 45s): `system_flow_research` — ~20s average; "
         "`duckie_search` — ~45s average; `ckt_duckie_retrieval` — ~60s average.\n"
@@ -8006,7 +8007,7 @@ def get_compact_tool_menu():
     description=(
         "Load additional tools not in your current set. Categories: "
         "search, documents, pkb, memory, conversation, cross_conversation, "
-        "code_runner, artefacts, prompts, coding, aggregator, general. "
+        "code_runner, artefacts, prompts, coding, aggregator, general, external_mcp. "
         "You can also request specific tool names."
     ),
     parameters={

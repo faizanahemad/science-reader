@@ -865,16 +865,26 @@ def brightdata_google_serp(
     if use_original_query:
         query = str(og_query)
     expected_res_length = max(num, 10)
+    proxy_failed = False
 
     def search_google(query, num=expected_res_length, start=0, gl="us"):
+        nonlocal proxy_failed
         # URL encode the query
         encoded_query = requests.utils.quote(query)
         # Set up the URL
         url = f"https://www.google.com/search?q={encoded_query}&gl={gl}&num={num}&start={start}&brd_json=1"
         # Set up the proxy
         proxy = {"https": os.getenv("BRIGHTDATA_SERP_API_PROXY", key)}
-        # Make the request
-        response = requests.get(url, proxies=proxy, verify=False)
+        try:
+            response = requests.get(url, proxies=proxy, verify=False, timeout=20)
+            response.raise_for_status()
+        except requests.exceptions.RequestException as exc:
+            proxy_failed = True
+            logger.warning(
+                "[WEB-SEARCH] Bright Data SERP request failed; returning no results | error=%s",
+                exc,
+            )
+            return []
         try:
             return json.loads(response.text)["organic"]
         except Exception as e:
@@ -891,16 +901,16 @@ def brightdata_google_serp(
         # more_results_future = get_async_future(search_google, og_query, 20, start=20, gl="fr")
     results = search_google(query)
     # title , description
-    if len(results) < expected_res_length:
+    if not proxy_failed and len(results) < expected_res_length:
         results.extend(
             more_results_future.result()
             if more_results_future is not None
             and more_results_future.exception() is None
             else []
         )
-    if len(results) < expected_res_length:
+    if not proxy_failed and len(results) < expected_res_length:
         results.extend(search_google(og_query, 20, start=20, gl="fr"))
-    if len(results) < expected_res_length:
+    if not proxy_failed and len(results) < expected_res_length:
         results.extend(
             search_google(
                 f"{query}{site_string}{after_string}{search_pdf}", 20, start=20, gl="fr"
@@ -2344,8 +2354,8 @@ def web_search_part1_real(
     search_st = time.time()
     serps = []
     month = int(datetime.now().strftime("%m"))
-    brightdata_serp_api_proxy = os.getenv("BRIGHTDATA_SERP_API_PROXY", None)
-    brightdata_available = brightdata_serp_api_proxy is not None
+    brightdata_serp_api_proxy = os.getenv("BRIGHTDATA_SERP_API_PROXY", "").strip()
+    brightdata_available = bool(brightdata_serp_api_proxy)
     if brightdata_available:
         if not gscholar:
             serps.extend(
@@ -3080,6 +3090,27 @@ def web_search_part1_real(
 web_search_part1 = web_search_part1_real  # web_search_part1_real
 
 
+def _normalize_previous_turn_search_results(previous_turn_search_results):
+    """Return reusable prior search state only when it has the expected shape."""
+    if previous_turn_search_results is None:
+        return None
+    if not isinstance(previous_turn_search_results, dict):
+        logger.warning(
+            "[WEB-SEARCH] Ignoring malformed previous_turn_search_results: expected dict, got %s",
+            type(previous_turn_search_results).__name__,
+        )
+        return None
+    queries = previous_turn_search_results.get("queries")
+    links = previous_turn_search_results.get("links")
+    if not isinstance(queries, list) or not isinstance(links, list):
+        logger.warning(
+            "[WEB-SEARCH] Ignoring incomplete previous_turn_search_results: queries_list=%s links_list=%s",
+            isinstance(queries, list), isinstance(links, list),
+        )
+        return None
+    return previous_turn_search_results
+
+
 def web_search_queue(
     context,
     doc_source,
@@ -3094,6 +3125,9 @@ def web_search_queue(
     provide_detailed_answers=False,
     web_search_tmp_marker_name=None,
 ):
+    previous_turn_search_results = _normalize_previous_turn_search_results(
+        previous_turn_search_results
+    )
     if previous_turn_search_results is None:
         part1_res = get_async_future(
             web_search_part1,

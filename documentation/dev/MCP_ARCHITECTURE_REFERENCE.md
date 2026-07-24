@@ -1,5 +1,10 @@
 # MCP Server Architecture — Quick Reference
 
+> This document covers how this repository **hosts** first-party MCP servers.
+> For consuming another service's MCP tools from the native Flask chat, see
+> `documentation/product/ops/mcp_server_setup.md` → “MCP roles in this
+> application” and `code_common/external_mcp.py`.
+
 ## 1. Tool Definition (Decorator Pattern)
 
 ```python

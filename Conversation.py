@@ -6,6 +6,7 @@ import shutil
 import os
 import hashlib
 import uuid
+from urllib.parse import urlsplit
 from textwrap import dedent
 from datetime import datetime, timedelta
 
@@ -113,6 +114,40 @@ import tiktoken
 import json
 
 alphabet = string.ascii_letters + string.digits
+
+def _is_internal_url(link):
+    """Return whether one URL must use company-internal retrieval."""
+    try:
+        hostname = (urlsplit(link).hostname or "").lower()
+    except (TypeError, ValueError):
+        return False
+    return hostname == "corp.google.com" or hostname.endswith(".corp.google.com")
+
+
+def _all_links_are_internal(links):
+    """Return whether every supplied URL is routed through company retrieval."""
+    return bool(links) and all(_is_internal_url(link) for link in links)
+
+
+def _internal_reader_tool_names(available_names):
+    """Prefer the fast CKT reader, falling back to the legacy internal reader."""
+    if "read_url" in available_names:
+        return ["read_url"]
+    if "read_internal_page" in available_names:
+        return ["read_internal_page"]
+    return []
+
+
+def _normalize_perplexity_result(result):
+    """Return text-safe Perplexity output without leaking result objects downstream."""
+    if isinstance(result, str):
+        return result
+    if isinstance(result, dict):
+        return str(result.get("text") or result.get("error") or "")
+    if result is None:
+        return ""
+    return str(result)
+
 
 # =============================================================================
 # PKB (Personal Knowledge Base) Integration
@@ -7964,6 +7999,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
         # Resolve tool_mode (new) or fall back to legacy enable_tool_use
         tool_mode = checkboxes.get("tool_mode")
+        no_tools_requested = tool_mode == "none"
         if tool_mode is None:
             # Legacy backward compat
             if checkboxes.get("enable_tool_use", False):
@@ -7971,14 +8007,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             else:
                 return None
         if tool_mode == "none":
-            # Auto-activate tools if message contains URLs or search intent phrases
-            auto_tools = self._detect_auto_tools(user_message)
-            if auto_tools:
-                tool_mode = "manual"
-                checkboxes["enabled_tools"] = auto_tools
-                logger.warning("[_get_enabled_tools] Auto-activated tools: %s", auto_tools)
-            else:
-                return None
+            # Explicit no-tools mode is an absolute user choice. In particular,
+            # it must remain stronger than MCP_ENABLE_ALWAYS_URLS policy.
+            return None
 
         logger.warning("[_get_enabled_tools] tool_mode=%s", tool_mode)
 
@@ -7986,6 +8017,11 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
         if tool_mode == "tiered":
             enabled_names = get_adaptive_tier1_tools(user_email=user_email)
+            enabled_names.extend(
+                tool.name
+                for tool in TOOL_REGISTRY.get_tools_by_category("external_mcp")
+                if tool.name not in enabled_names
+            )
         elif tool_mode == "internal_only":
             # Internal Search Only: expose the internal knowledge tools
             # (internal_search + read_internal_page, plus the local KB cache
@@ -8014,6 +8050,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             enabled_names = _select_relevant_tools(user_message, summary, keys)
             if "request_tools" not in enabled_names:
                 enabled_names.append("request_tools")
+            for tool in TOOL_REGISTRY.get_tools_by_category("external_mcp"):
+                if tool.name not in enabled_names:
+                    enabled_names.append(tool.name)
             # internal_search is always-on where available (registered only
             # when its local script exists on this host) — force-include it so
             # the smart selection can never drop it. read_internal_page rides
@@ -8054,6 +8093,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     "prompts": enabled_tools_config.get("prompts", False),
                     "aggregator": enabled_tools_config.get("aggregator", False),
                     "coding": enabled_tools_config.get("coding", False),
+                    "external_mcp": enabled_tools_config.get("external_mcp", False),
                 }
                 enabled_names = []
                 for tool_def in TOOL_REGISTRY.get_all_tools():
@@ -8062,6 +8102,29 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             else:
                 # No config but mode is manual — enable all
                 enabled_names = [t.name for t in TOOL_REGISTRY.get_all_tools()]
+
+        # Servers configured through MCP_ENABLE_ALWAYS_URLS are a deployment
+        # policy: their tools bypass user/category selection in every active
+        # tool mode. The explicit no-tools early return above remains intact.
+        if not no_tools_requested:
+            for tool in TOOL_REGISTRY.get_tools_by_category("external_mcp_always"):
+                if tool.name not in enabled_names:
+                    enabled_names.append(tool.name)
+
+        internal_urls = [
+            link for link in enhanced_robust_url_extractor(user_message)
+            if _is_internal_url(link)
+        ]
+        if internal_urls:
+            available_names = {tool.name for tool in TOOL_REGISTRY.get_all_tools()}
+            reader_names = _internal_reader_tool_names(available_names)
+            for reader_name in reader_names:
+                if reader_name not in enabled_names:
+                    enabled_names.append(reader_name)
+            logger.warning(
+                "[_get_enabled_tools] Internal URLs detected | urls=%s | forced_readers=%s",
+                internal_urls, reader_names,
+            )
 
         # Auto-include artefact tools if conversation has artefacts
         # (skipped in internal_only mode — that mode is strictly internal_search)
@@ -9666,6 +9729,26 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 ]
             )
         )  # and l.strip() not in raw_documents_index
+        internal_links = [link for link in links if _is_internal_url(link)]
+        if _all_links_are_internal(links) and (perform_web_search or google_scholar):
+            logger.warning(
+                "[INTERNAL-URL] Suppressing public search for internal URLs | urls=%s",
+                links,
+            )
+            perform_web_search = False
+            google_scholar = False
+            checkboxes["perform_web_search"] = False
+            checkboxes["googleScholar"] = False
+            yield {
+                "text": "",
+                "status": "Using internal retrieval for provided internal URLs ...",
+            }
+        if internal_links:
+            links = [link for link in links if not _is_internal_url(link)]
+            logger.warning(
+                "[INTERNAL-URL] Skipping generic link reader for internal URLs | internal_urls=%s | public_urls=%s",
+                internal_links, links,
+            )
         # check if a pattern like #doc_<number> is present in query['messageText']
         attached_docs = re.findall(r"#doc_\d+", query["messageText"])
         all_docs_referenced = (
@@ -10583,7 +10666,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 self.get_api_keys(),
                 datetime.now().strftime("%Y-%m"),
                 extra_queries=searches,
-                previous_turn_search_results="",
+                previous_turn_search_results=None,
                 gscholar=google_scholar,
                 provide_detailed_answers=provide_detailed_answers,
                 web_search_tmp_marker_name=web_search_tmp_marker_name,
@@ -11398,7 +11481,22 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 logger.warning("[AutoContext] assembly failed, using standard context: %s", _e, exc_info=True)
         new_line = "\n"
         if perform_web_search or google_scholar:
-            search_results = next(web_results.result()[0].result())
+            time_logger.warning(
+                "[STREAM][CHECKPOINT-F] waiting on web_results setup future | done=%s | t=%.2fs",
+                web_results.done(), time.time() - st,
+            )
+            web_results_setup = web_results.result()
+            time_logger.warning(
+                "[STREAM][CHECKPOINT-F] web_results setup ready | search_future_done=%s | t=%.2fs",
+                web_results_setup[0].done(), time.time() - st,
+            )
+            search_results = next(web_results_setup[0].result())
+            time_logger.warning(
+                "[STREAM][CHECKPOINT-F] initial search results ready | queries=%d | results=%d | t=%.2fs",
+                len(search_results.get("queries", [])),
+                len(search_results.get("search_results", [])),
+                time.time() - st,
+            )
             if len(search_results["queries"]) > 0:
                 atext = "**Web searched with Queries:** <div data-toggle='collapse' href='#webSearchedQueries' role='button'></div> <div class='collapse' id='webSearchedQueries'>"
                 yield {"text": atext, "status": "displaying web search queries ... "}
@@ -11443,7 +11541,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                     "status": "Reading web search results ... ",
                 }
 
-            result_queue = web_results.result()[1]
+            result_queue = web_results_setup[1]
             web_text_accumulator = []
             qu_st = time.time()
             qu_mt = time.time()
@@ -11926,10 +12024,9 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 try:
                     perplexity_results = perplexity_results_future.result()
                 except Exception as e:
-                    traceback.print_exc()
-                    perplexity_results = {
-                        "text": f"We had an exception in perplexity search. Please try again later. {traceback.format_exc()}"
-                    }
+                    logger.warning("[WEB-SEARCH] Perplexity sidecar failed: %s", e, exc_info=True)
+                    perplexity_results = f"Perplexity search failed: {e}"
+                perplexity_results = _normalize_perplexity_result(perplexity_results)
                 perplexity_text = "\n" + perplexity_results + "\n"
                 perplexity_text = (
                     f"**Perplexity Search Results :** <div data-toggle='collapse' href='#singleQueryWebSearch-{random_identifier}' role='button'></div> <div class='collapse' id='singleQueryWebSearch-{random_identifier}'>"
@@ -12110,10 +12207,32 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
 
         # Deferred CHECKPOINT-C resolution (non-auto-context path)
         if not _checkpoint_c_resolved:
+            _checkpoint_c_wait_start = time.time()
+            _checkpoint_c_last_progress_log = 0
             time_logger.warning(
-                "[STREAM][CHECKPOINT-C] deferred resolution | t=%.2fs", time.time() - st,
+                "[STREAM][CHECKPOINT-C] deferred resolution starting | done=%s | timeout=120s | t=%.2fs",
+                prior_context_llm_based_future.done(), time.time() - st,
             )
-            prior_context_llm_based = sleep_and_get_future_result(prior_context_llm_based_future, timeout=120)
+            while not prior_context_llm_based_future.done():
+                _checkpoint_c_wait_elapsed = time.time() - _checkpoint_c_wait_start
+                if _checkpoint_c_wait_elapsed - _checkpoint_c_last_progress_log >= 10:
+                    _checkpoint_c_last_progress_log = _checkpoint_c_wait_elapsed
+                    time_logger.warning(
+                        "[STREAM][CHECKPOINT-C] still waiting | elapsed=%.1fs | total_t=%.2fs",
+                        _checkpoint_c_wait_elapsed, time.time() - st,
+                    )
+                if _checkpoint_c_wait_elapsed > 120:
+                    time_logger.error(
+                        "[STREAM][CHECKPOINT-C] timeout after %.1fs | total_t=%.2fs",
+                        _checkpoint_c_wait_elapsed, time.time() - st,
+                    )
+                    raise TimeoutError("Timeout waiting for prior_context_llm_based_future for 120 sec")
+                time.sleep(0.1)
+            time_logger.warning(
+                "[STREAM][CHECKPOINT-C] future completed | elapsed=%.2fs | t=%.2fs",
+                time.time() - _checkpoint_c_wait_start, time.time() - st,
+            )
+            prior_context_llm_based = prior_context_llm_based_future.result()
             prior_context_llm_based_context = prior_context_llm_based["extracted_context"]
             time_logger.warning(
                 "[STREAM][CHECKPOINT-C] ready | len=%d | t=%.2fs",
@@ -12296,18 +12415,31 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
                 return len(mn) == 1 and mn[0] in (GEMINI_RAG_MODEL, GEMINI_AGENT_MODEL)
             return mn in (GEMINI_RAG_MODEL, GEMINI_AGENT_MODEL)
         _gemini_rag_selected = _is_local_cli_main(model_name)
+        time_logger.warning(
+            "[STREAM][CHECKPOINT-G] resolving tools_config | mode=%s | future_done=%s | timeout=15s | t=%.2fs",
+            checkboxes.get("tool_mode"), _tools_config_future.done(), time.time() - st,
+        )
         try:
             tools_config = sleep_and_get_future_result(
                 _tools_config_future, sleep_time=0.1, timeout=15
             )
-        except (TimeoutError, Exception):
+        except (TimeoutError, Exception) as _tools_config_error:
+            time_logger.warning(
+                "[STREAM][CHECKPOINT-G] tools_config FAILED/timeout | error=%s | t=%.2fs",
+                _tools_config_error, time.time() - st,
+            )
             tools_config = None
         if _gemini_rag_selected:
+            time_logger.warning(
+                "[STREAM][CHECKPOINT-G] clearing chat tools for host-local CLI main model | t=%.2fs",
+                time.time() - st,
+            )
             tools_config = None
         logger.warning(
-            "[reply] tools_config resolved: %s (count=%d)",
+            "[reply] tools_config resolved: %s (count=%d, names=%s)",
             "present" if tools_config else "None",
             len(tools_config) if tools_config else 0,
+            [tool["function"]["name"] for tool in (tools_config or [])],
         )
         time_logger.warning(
             "[STREAM][CHECKPOINT-G] prompt assembled, reached main answer dispatch | model=%s | agent=%s | tools=%s | t=%.2fs",
@@ -13459,7 +13591,20 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         answer = answer.replace(prompt, "")
         yield {"text": "", "status": "saving answer ..."}
         if perform_web_search or google_scholar:
-            search_results = next(web_results.result()[0].result())
+            time_logger.warning(
+                "[STREAM][CHECKPOINT-H] waiting on final web_results setup future | done=%s | t=%.2fs",
+                web_results.done(), time.time() - st,
+            )
+            _final_web_results_setup = web_results.result()
+            time_logger.warning(
+                "[STREAM][CHECKPOINT-H] final web_results setup ready | search_future_done=%s | t=%.2fs",
+                _final_web_results_setup[0].done(), time.time() - st,
+            )
+            search_results = next(_final_web_results_setup[0].result())
+            time_logger.warning(
+                "[STREAM][CHECKPOINT-H] final search results ready | type=%s | t=%.2fs",
+                search_results.get("type"), time.time() - st,
+            )
             yield {"text": "", "status": "Showing all results ... "}
             if search_results["type"] == "end":
                 full_results = search_results["full_results"]

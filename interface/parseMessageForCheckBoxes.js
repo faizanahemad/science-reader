@@ -157,7 +157,9 @@ function parseMessageForCheckBoxes(text) {
     processCommand(/\/delete\b/i, "delete_last_turn", true);
     processCommand(/\/scholar\b/i, "googleScholar", true);
     processCommand(/\/search_exact\b/i, "search_exact", true);
-    processCommand(/\/search\b/i, "perform_web_search", true);
+    // Commands need a token boundary. Without it, a URL path such as
+    // g3doc.corp.google.com/search/... was parsed as /search.
+    processCommand(/(?:^|\s)\/search\b/i, "perform_web_search", true);
     processCommand(/\/more\b/i, "tell_me_more", true);
     processCommand(/\/ensemble\b/i, "ensemble", true);
     processCommand(/\/execute\b/i, "execute", true);

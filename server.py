@@ -633,6 +633,23 @@ def create_app(argv: Optional[list[str]] = None) -> Flask:
         max_workers=4,
     )
 
+    # Optional outbound MCP clients for native web-chat tool calling. Tool
+    # discovery is best-effort: an unavailable configured endpoint must never
+    # prevent Flask or the first-party MCP servers from starting.
+    from code_common.external_mcp import discover_and_register_external_mcp_tools
+    from code_common.tools import TOOL_REGISTRY
+
+    try:
+        registered_external_mcp_tools = discover_and_register_external_mcp_tools(
+            TOOL_REGISTRY
+        )
+        if registered_external_mcp_tools:
+            logger.info(
+                "Registered %d external MCP tools", len(registered_external_mcp_tools)
+            )
+    except ValueError as exc:
+        logger.warning("External MCP configuration ignored: %s", exc)
+
     # Register all endpoint groups
     register_blueprints(app)
 

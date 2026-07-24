@@ -625,6 +625,7 @@ $(document).ready(function() {
     interface_readiness();
     setupCodeEditor();
     loadModelCatalog();
+    loadExternalMcpTools();
     // Load persisted settings state on boot and apply to modal controls (and inline if present)
     initializeSettingsState();
     
@@ -638,6 +639,50 @@ $(document).ready(function() {
         }
     }, 100);
 });
+
+function loadExternalMcpTools() {
+    var selector = $('#settings-tool-selector');
+    if (!selector.length) { return; }
+
+    $.getJSON('/tool_catalog')
+        .done(function(payload) {
+            selector.find('optgroup[data-dynamic-external-mcp]').remove();
+            var groups = {
+                external_mcp: $('<optgroup>', {
+                    label: 'External MCP',
+                    'data-dynamic-external-mcp': 'true'
+                }),
+                external_mcp_always: $('<optgroup>', {
+                    label: 'External MCP (Always Enabled)',
+                    'data-dynamic-external-mcp': 'true'
+                })
+            };
+            (payload.tools || []).forEach(function(tool) {
+                var group = groups[tool.category];
+                if (!group) { return; }
+                group.append($('<option>', {
+                    value: tool.name,
+                    text: tool.name,
+                    title: tool.description || tool.name
+                }));
+            });
+            Object.keys(groups).forEach(function(category) {
+                if (groups[category].children().length) {
+                    selector.append(groups[category]);
+                }
+            });
+            var state = getPersistedSettingsState();
+            if (state && Array.isArray(state.enabled_tools)) {
+                selector.val(state.enabled_tools);
+            }
+            if (typeof $.fn.selectpicker !== 'undefined') {
+                selector.selectpicker('refresh');
+            }
+        })
+        .fail(function() {
+            console.warn('Unable to load runtime external MCP tools for manual selection.');
+        });
+}
 
 // Settings Modal Functions
 function loadSettingsIntoModal() {

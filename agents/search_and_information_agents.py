@@ -119,6 +119,18 @@ def _count_words(text: str) -> int:
     return len(re.findall(r"\S+", text))
 
 
+def _normalize_search_agent_chunk_text(chunk):
+    """Convert streamed search-agent chunk text into one appendable string."""
+    text = chunk.get("text", "") if isinstance(chunk, dict) else chunk
+    if isinstance(text, str):
+        return text
+    if text is None:
+        return ""
+    if hasattr(text, "__iter__"):
+        return "".join(str(part) for part in text)
+    return str(text)
+
+
 class WebSearchWithAgent(Agent):
     def __init__(
         self,
@@ -489,7 +501,7 @@ Generate up to {num_queries} highly relevant query-context pairs. Write your ans
         for chunk in self.__call__(
             text, images, temperature, stream, max_tokens, system, web_search
         ):
-            answer += chunk["text"]
+            answer += _normalize_search_agent_chunk_text(chunk)
         # Extract content between web_answer tags
         import re
 

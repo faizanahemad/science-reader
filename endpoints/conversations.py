@@ -482,6 +482,31 @@ def get_model_catalog():
     return jsonify({"models": models, "defaults": defaults})
 
 
+def _external_mcp_tool_catalog() -> list[dict]:
+    """Build runtime-discovered external MCP metadata for UI consumers."""
+    from code_common.tools import TOOL_REGISTRY
+
+    categories = {"external_mcp", "external_mcp_always"}
+    return [
+        {
+            "name": tool.name,
+            "description": tool.description,
+            "category": tool.category,
+        }
+        for tool in TOOL_REGISTRY.get_all_tools()
+        if tool.category in categories
+    ]
+
+
+@conversations_bp.route("/tool_catalog", methods=["GET"])
+@limiter.limit("300 per minute")
+@login_required
+def get_tool_catalog():
+    """Return runtime-discovered external MCP tools for the manual selector."""
+    tools = _external_mcp_tool_catalog()
+    return jsonify({"tools": tools})
+
+
 @conversations_bp.route("/persona_catalog", methods=["GET"])
 @limiter.limit("300 per minute")
 @login_required

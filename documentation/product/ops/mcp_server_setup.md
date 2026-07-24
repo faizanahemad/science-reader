@@ -33,6 +33,137 @@ All 8 remote MCP servers use JWT bearer-token authentication with the same `MCP_
 
 ---
 
+## MCP roles in this application
+
+The application now supports MCP in two directions. They are separate features
+with different configuration and trust boundaries:
+
+| Direction | What it does | Configuration |
+|---|---|---|
+| **Hosted MCP servers** | Exposes this application's search, PKB, documents, artefacts, conversation, prompts, code, image, and file tools to external MCP clients such as OpenCode or Claude Code. | `MCP_JWT_SECRET`, hosted-server ports/enables, and client configuration such as `opencode.json`. |
+| **External MCP client for web chat** | Imports tools from other Streamable HTTP MCP servers into the native Flask chat tool loop, so the selected chat LLM can call them during an answer. | `MCP_URLS` and optional outbound-auth/timeout variables described below. |
+
+The hosted server and external-client feature can run at the same time. For
+example, Flask can expose its own server on `8100` while consuming a separate
+service at `http://127.0.0.1:8765/mcp`.
+
+### External MCP client quick start
+
+To let the normal web-chat model use an external MCP server, set the endpoint
+before starting Flask:
+
+```bash
+export MCP_URLS="http://127.0.0.1:8765/mcp"
+python server.py
+```
+
+At `create_app()` startup the native client initializes every configured
+Streamable HTTP endpoint, calls MCP `tools/list`, and registers each returned
+tool in the same `TOOL_REGISTRY` used by the chat's in-process tools. Each
+registered proxy has a collision-safe generated name such as
+`external_mcp_1_search_records_a1b2c3d4`. During a chat turn, its discovered
+description and JSON Schema are passed to the selected LLM through the normal
+OpenAI-compatible `tools` request parameter. A model function call is then
+proxied to MCP `tools/call`, and the response is appended as a normal tool
+result before the model continues its answer.
+
+Use **Hybrid** (default) or **Tiered** tool mode in the chat settings. Both
+automatically expose configured external MCP tools. Smart Select can choose
+them but may decide a tool is not relevant. Manual Selection fetches
+runtime-discovered external tools into separate **External MCP** groups when
+the settings modal loads.
+
+### External MCP client environment variables
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `MCP_URLS` | To consume external MCPs | unset | Comma-separated Streamable HTTP MCP endpoint URLs. Must be `http` or `https`, without URL credentials or fragments. |
+| `MCP_ENABLE_ALWAYS_URLS` | No | unset | Comma-separated external MCP endpoints whose discovered tools are included in all active chat tool modes. May repeat `MCP_URLS` endpoints or introduce additional endpoints; each URL is discovered only once. Does not override explicit no-tools mode. |
+| `MCP_AUTH_TOKENS` | No | unset | Comma-aligned bearer tokens for the merged endpoint order: `MCP_URLS` first, then any new `MCP_ENABLE_ALWAYS_URLS` entries. Blank positions mean no bearer token for that endpoint. |
+| `MCP_HEADERS_JSON` | No | unset | JSON mapping of `"*"` or an exact endpoint URL to static headers. Use `"*"` only for non-secret shared headers. Put secret/API-key/`Authorization` headers under the exact URL. |
+| `MCP_DISCOVERY_TIMEOUT_SECONDS` | No | `15` | Per-server startup discovery timeout. A failed endpoint is logged and skipped without blocking Flask. |
+| `MCP_TIMEOUT_SECONDS` | No | `120` | Per-tool-call timeout after the model requests a discovered tool. |
+
+Examples:
+
+```bash
+# Multiple unauthenticated MCP servers
+export MCP_URLS="http://127.0.0.1:8765/mcp,https://mcp.example.com/mcp"
+
+# Force one server's tools into all active tool modes. This URL may already
+# appear in MCP_URLS, or it may be a separate endpoint.
+export MCP_ENABLE_ALWAYS_URLS="http://127.0.0.1:8765/mcp"
+
+# Per-position Bearer authentication
+export MCP_AUTH_TOKENS="local-service-token,remote-service-token"
+
+# Shared routing metadata plus an endpoint-specific API key
+export MCP_HEADERS_JSON='{"*":{"X-Team-ID":"research"},"https://mcp.example.com/mcp":{"X-API-Key":"remote-service-token"}}'
+
+export MCP_DISCOVERY_TIMEOUT_SECONDS=10
+export MCP_TIMEOUT_SECONDS=60
+python server.py
+```
+
+`MCP_ENABLE_ALWAYS_URLS` is a server-side inclusion policy, not a request that
+the model must call a tool. Its tools are always included in the model's active
+tool schema for every mode except **No Tools**; the model still decides whether
+to invoke a particular tool. The merged discovery order is all unique
+`MCP_URLS` entries followed by new `MCP_ENABLE_ALWAYS_URLS` entries. If a URL
+appears in both variables it is discovered once and is treated as always
+enabled.
+
+### Manual Selection and runtime MCP tools
+
+The normal manual picker is mostly static HTML, but it populates
+runtime-discovered MCP entries through authenticated `GET /tool_catalog` when
+the chat app loads. The settings modal shows:
+
+- **External MCP**: ordinary tools discovered from `MCP_URLS`; selecting an
+  entry adds its generated name to the saved `enabled_tools` array.
+- **External MCP (Always Enabled)**: tools from `MCP_ENABLE_ALWAYS_URLS`.
+  They are displayed for visibility but remain active even if the user clears
+  them in Manual Selection.
+
+If those groups do not appear, first confirm external discovery in Flask logs,
+then refresh the chat page after the server has restarted. `/tool_catalog`
+returns only the runtime external-MCP metadata needed by this selector; it does
+not expose authentication headers or tokens to the browser.
+
+This configuration is privileged server-side deployment configuration, never
+browser-supplied chat input. Do not put secrets in prompts, and do not use a
+wildcard `Authorization` header. OAuth browser flows, OAuth token refresh, and
+stdio servers are not part of this URL/header integration.
+
+### Verification and troubleshooting for external MCPs
+
+Successful Flask startup logs one line per discovered tool and a total:
+
+```text
+Registered external MCP tool external_mcp_1_<tool-name>_<hash> from http://127.0.0.1:8765/mcp
+Registered N external MCP tools
+```
+
+Then make a chat request that clearly requires the external service. The chat
+stream should display `Tool call`, `Executing tool`, and `completed` events
+using the generated external-tool name. If discovery does not occur:
+
+1. Verify that the endpoint is the service's actual Streamable HTTP path. This
+   application's first-party servers use `/` directly; another service may use
+   `/mcp`.
+2. Confirm the endpoint accepts the configured headers and that the bearer
+   token occupies the matching comma position in `MCP_AUTH_TOKENS`.
+3. Check Flask startup logs for the endpoint-specific discovery failure.
+4. Restart Flask after every endpoint/auth change. Tool schemas deliberately
+   remain fixed for the process lifetime to keep model tool definitions stable.
+
+Implementation reference: `code_common/external_mcp.py`; native selection and
+execution remain in `Conversation._get_enabled_tools()` and
+`Conversation._run_tool_loop()`. The focused contract tests are in
+`tests/test_external_mcp.py`.
+
+---
+
 ## Prerequisites
 
 Install the MCP dependencies (if not already present):
