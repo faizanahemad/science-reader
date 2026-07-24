@@ -184,11 +184,15 @@ MODEL_TOKEN_LIMITS = {
 
 ### Hiding a Model (Keep Available but Not Shown)
 
-Add the `hidden` attribute to the `<option>` in `interface.html`:
+Comment out the `<option>` in `interface.html` to match the temporary-hide
+convention used by the main selector:
 ```html
-<option hidden>old-model-name</option>
+<!-- <option>old-model-name</option> -->
 ```
-This keeps the model functional for existing conversations but hides it from the dropdown. No backend changes needed.
+This keeps the model functional through its canonical mapping and any active tier
+membership while removing it from the main selector. Use `hidden` instead when
+the option must remain in the DOM for programmatic selection or saved UI state.
+No backend changes are needed to hide a model from the main selector.
 
 ### Adding a Reasoning-Variant Model (Synthetic Config Name)
 
@@ -355,7 +359,7 @@ To add a new override slot, you must update: `allowed_keys` in the endpoint, add
 - [ ] Add/verify token limit in `_get_token_limit()` / `MODEL_TOKEN_LIMITS` in `code_common/call_llm.py` (line 79+) if needed
 
 ### Removing a Model
-- [ ] Remove or add `hidden` to `<option>` in `interface/interface.html`
+- [ ] Remove, comment out, or add `hidden` to `<option>` in `interface/interface.html`
 - [ ] Remove from tier list in `common.py` (or move to `UNUSED_EXPENSIVE_LLM`)
 - [ ] Keep `model_name_to_canonical_name()` entry for backward compatibility (or remap to replacement)
 - [ ] Check if model was a default in `get_model_catalog()` defaults — update index if needed
@@ -382,3 +386,12 @@ For a standard vision-capable model on OpenRouter (most new GPT/Claude/Gemini re
 4. **`interface/interface.html` `#settings-main-model-selector`** — add `<option>provider/model-id</option>` inside the "Newer Models" `<optgroup>` to surface it in the UI.
 
 The model override dropdowns auto-populate from `common.py` — no extra HTML needed. Requires a **server restart** for backend changes; browser refresh only for HTML.
+
+When a model is visible in the main selector, update the corresponding entry in
+`endpoints/slash_commands.py` `VISIBLE_MODELS` so `/model_*` autocomplete stays
+in sync. Remove it there when it is no longer visible.
+
+If the visible model needs a fixed reasoning policy, add its canonical API ID to
+`_model_reasoning_defaults` in `code_common/call_llm.py`. Use only effort names
+advertised by OpenRouter's live `/api/v1/models` metadata; model aliases resolve
+before this policy is selected.

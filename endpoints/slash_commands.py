@@ -234,8 +234,9 @@ def _build_enable_disable_commands() -> list[dict]:
 # ---------------------------------------------------------------------------
 VISIBLE_MODELS = [
     "openai/gpt-5.4",
-    "Opus 4.6",
-    "Sonnet 4.6",
+    "openai/gpt-5.6-sol",
+    "openai/gpt-5.6-terra",
+    "anthropic/claude-opus-5",
     "Gemini 3.1 Pro",
     "Kimi K2.5",
     "Filler",
@@ -243,7 +244,7 @@ VISIBLE_MODELS = [
     "openai/gpt-5.2",
     "Sonnet 4.5",
     "mistralai/mistral-large-2512",
-    "Haiku 4.5",
+
     "deepseek-v3.1",
     "x-ai/grok-3",
     "sao10k/l3.3-euryale-70b",

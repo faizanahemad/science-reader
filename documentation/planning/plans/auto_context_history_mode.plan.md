@@ -103,8 +103,8 @@ Today the history setting is a blunt manual control: the user picks a fixed numb
 
 ### LLM Model Tiers
 
-- `SUPERFAST_LLM[0]` = `"inception/mercury-2"` (100K tokens, cheapest)
-- `CHEAP_LLM[0]` = `"anthropic/claude-haiku-4.5"` (160K tokens, mid-tier)
+- `SUPERFAST_LLM[0]` = `"google/gemini-3.5-flash-lite"`
+- `CHEAP_LLM[0]` = `"openai/gpt-5.6-luna"`
 - `EXPENSIVE_LLM` = Claude Sonnet/Opus, GPT-5.x, etc. (200K tokens)
 - Model override: `conversation.get_model_override("conversation_internal_model", default)`
 - `CallLLm(api_keys, model_name=model, use_16k=True)` instantiation pattern.
@@ -261,7 +261,7 @@ For each message:
 
 ### LLM Model
 
-- Default: `CHEAP_LLM[0]` (`"anthropic/claude-haiku-4.5"`, mid-tier).
+- Default: `CHEAP_LLM[0]` (`"openai/gpt-5.6-luna"`).
 - Override: `conversation.get_model_override("conversation_internal_model", CHEAP_LLM[0])`.
 
 ### Output Format (JSON)

@@ -67,12 +67,12 @@ If a key is missing or empty, the server falls back to the existing default in c
 
 | Key | Default | Sites Covered |
 |---|---|---|
-| `conversation_internal_model` | `SUPERFAST_LLM[0]` (`google/gemini-3.1-flash-lite`) | Running summary, TLDR generation (2 sites), next question suggestions, memory pad extraction, memory pad merge, prior context retrieval, web result summarization |
-| `quick_action_model` | `SUPERFAST_LLM[0]` (`google/gemini-3.1-flash-lite`) | Doubt clearing, context menu actions (explain/critique/expand/ELI5), `endpoints/doubts.py` fallback |
+| `conversation_internal_model` | `SUPERFAST_LLM[0]` (`google/gemini-3.5-flash-lite`) | Running summary, TLDR generation (2 sites), next question suggestions, memory pad extraction, memory pad merge, prior context retrieval, web result summarization |
+| `quick_action_model` | `SUPERFAST_LLM[0]` (`google/gemini-3.5-flash-lite`) | Doubt clearing, context menu actions (explain/critique/expand/ELI5), `endpoints/doubts.py` fallback |
 | `artefact_propose_edits_model` | `EXPENSIVE_LLM[2]` | Artefact propose-edits |
 | `doc_model` | `CHEAP_LONG_CONTEXT_LLM[0]` | DocIndex long summary, long summary v2, chain-of-density, short answer, contextual reader, multi-facet summarizer |
 | `clarify_intent_model` | `VERY_CHEAP_LLM[0]` | `/clarify` slash command LLM call |
-| `pkb_nl_model` | `CHEAP_LLM[0]` (`anthropic/claude-haiku-4.5`) | PKB NL agent when invoked as a tool by the main LLM (search, add, edit, delete memories). `/pkb` and `/memory` slash commands use the main chat model instead. |
+| `pkb_nl_model` | `CHEAP_LLM[0]` (`openai/gpt-5.6-luna`) | PKB NL agent when invoked as a tool by the main LLM (search, add, edit, delete memories). `/pkb` and `/memory` slash commands use the main chat model instead. |
 
 Legacy soft-migrate: if a conversation still has an explicit override of `inception/mercury-2` for `conversation_internal_model` or `quick_action_model` (the previous SUPERFAST default), `Conversation.get_model_override` treats it as unset and falls back to the current SUPERFAST default.
 

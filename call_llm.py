@@ -61,7 +61,7 @@ def _cc_call_llm_with_fallback(*, model_name, stream, **kwargs):
     """Call the underlying LLM, transparently falling back to a robust model on failure.
 
     The default fast model (``SUPERFAST_LLM[0]``, currently
-    ``google/gemini-3.1-flash-lite``) — and previously diffusion/small models used in
+    ``google/gemini-3.5-flash-lite``) — and previously diffusion/small models used in
     that tier — can hit provider-side content filters or transient upstream errors.
     Rather than hardening every bare call site individually, this single wrapper retries
     once with a cheap fallback (``VERY_CHEAP_LLM[0]``) whenever the primary model raises.

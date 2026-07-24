@@ -1238,7 +1238,7 @@ Two entry points for AI image generation **and editing** via OpenRouter (Nano Ba
 
 **Better Context (prompt refinement)**
 
-When "Better context" is enabled (default on for the modal; always on for the `/image` command), an intermediate LLM call (`CHEAP_LLM[0]` — currently `anthropic/claude-haiku-4.5`) acts as an image-prompt engineer:
+When "Better context" is enabled (default on for the modal; always on for the `/image` command), an intermediate LLM call (`CHEAP_LLM[0]` — currently `openai/gpt-5.6-luna`) acts as an image-prompt engineer:
 - Takes the raw user prompt + conversation context (summary, recent messages, memory pad, extracted context).
 - Produces a concrete, visually-specific 1–4 sentence prompt optimised for the image model.
 - Falls back to plain concatenation on any failure — the image generation itself is never blocked.

@@ -160,7 +160,7 @@ An intermediate LLM call that acts as an image-prompt engineer before the image 
 
 > You are an expert image-prompt engineer. Given the user's raw image prompt and conversation context, produce a SINGLE refined prompt that incorporates relevant details, is concrete and visual, specifies style/mood/lighting/composition if vague, and removes conversational noise. Return ONLY the refined prompt, 1–4 sentences.
 
-**Model:** `CHEAP_LLM[0]` (currently `anthropic/claude-haiku-4.5`)
+**Model:** `CHEAP_LLM[0]` (currently `openai/gpt-5.6-luna`)
 **Temperature:** 0.4
 **Max tokens:** 500
 **Fallback:** If the LLM call fails or returns empty, falls back to plain concatenation of context + raw prompt.
@@ -335,7 +335,7 @@ Returns `image/png` binary. Used as the `src` in rendered `<img>` tags.
 |---|---|---|---|
 | `OPENROUTER_API_KEY` | Env var → `keyParser(session)` | — | Required for all image generation calls |
 | `DEFAULT_IMAGE_MODEL` | `endpoints/image_gen.py` constant | `google/gemini-3.1-flash-image-preview` | Default model when none specified |
-| `CHEAP_LLM[0]` | `common.py` | `anthropic/claude-haiku-4.5` | Model used for "better context" prompt refinement |
+| `CHEAP_LLM[0]` | `common.py` | `openai/gpt-5.6-luna` | Model used for "better context" prompt refinement |
 
 ---
 

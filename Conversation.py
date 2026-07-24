@@ -1504,7 +1504,7 @@ Compact list of bullet points:
         For internal/quick-action keys, a legacy explicit override of
         ``inception/mercury-2`` (the prior SUPERFAST default) is treated as
         unset so conversations follow the current SUPERFAST / default path
-        (`google/gemini-3.1-flash-lite`) unless the user picks another model.
+        (`google/gemini-3.5-flash-lite`) unless the user picks another model.
         """
         settings = self.get_conversation_settings()
         if not isinstance(settings, dict):
@@ -16195,13 +16195,13 @@ def model_name_to_canonical_name(model_name):
     elif model_name == "openai/gpt-5.6-luna":
         model_name = "openai/gpt-5.6-luna"
     elif model_name == "openai/gpt-latest":
-        model_name = "openai/gpt-5.5"
+        model_name = "openai/gpt-5.6-terra"
     elif model_name == "anthropic/claude-opus-latest":
-        model_name = "anthropic/claude-opus-4.8"
+        model_name = "anthropic/claude-opus-5"
     elif model_name == "google/gemini-pro-latest":
         model_name = "google/gemini-3.1-pro-preview"
     elif model_name == "google/gemini-flash-latest":
-        model_name = "google/gemini-3.5-flash"
+        model_name = "google/gemini-3.6-flash"
     elif model_name == "gemini-flash-3.5-non-reasoning":
         # Synthetic name — must pass through unchanged so call_chat_model's
         # _reasoning_config_map applies the non-reasoning config.
@@ -16222,6 +16222,8 @@ def model_name_to_canonical_name(model_name):
         model_name = "anthropic/claude-opus-4.6"
     elif model_name == "anthropic/claude-opus-4.8" or model_name == "Opus 4.8":
         model_name = "anthropic/claude-opus-4.8"
+    elif model_name == "anthropic/claude-opus-5" or model_name == "Opus 5":
+        model_name = "anthropic/claude-opus-5"
     elif model_name == "anthropic/claude-fable-5":
         model_name = "anthropic/claude-fable-5"
     elif model_name == "openrouter/fusion":
@@ -16245,8 +16247,6 @@ def model_name_to_canonical_name(model_name):
         model_name = "google/gemini-3.1-pro-preview"
     elif model_name == "anthropic/claude-sonnet-4.5" or model_name == "Sonnet 4.5":
         model_name = "anthropic/claude-sonnet-4.5"
-    elif model_name == "anthropic/claude-haiku-4.5" or model_name == "Haiku 4.5":
-        model_name = "anthropic/claude-haiku-4.5"
     elif model_name == "mistralai/mistral-large-2512":
         model_name = "mistralai/mistral-large-2512"
     elif model_name == "anthropic/claude-4-opus-20250522":

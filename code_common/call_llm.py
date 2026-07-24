@@ -195,7 +195,6 @@ VISION_CAPABLE_MODELS = frozenset(
         "openai/gpt-4o-mini",
         "openai/o1",
         "openai/o1-pro",
-        "anthropic/claude-haiku-4.5",
         "openai/gpt-4o",
         "anthropic/claude-sonnet-4",
         "anthropic/claude-opus-4",
@@ -203,6 +202,7 @@ VISION_CAPABLE_MODELS = frozenset(
         "anthropic/claude-opus-4.6",
         "anthropic/claude-opus-4.7",
         "anthropic/claude-opus-4.8",
+        "anthropic/claude-opus-5",
         "mistralai/pixtral-large-2411",
         "google/gemini-pro-1.5",
         "google/gemini-flash-1.5",
@@ -563,12 +563,24 @@ def call_chat_model(model, text, images, temperature, system, keys, messages=Non
         Each dict has the shape: {"type": "tool_call", "id": str, "function": {"name": str, "arguments": str}}.
     """
     _latest_model_map = {
-        "google/gemini-flash-latest": "google/gemini-3.5-flash",
+        "google/gemini-flash-latest": "google/gemini-3.6-flash",
         "google/gemini-pro-latest": "google/gemini-3.1-pro-preview",
-        "openai/gpt-latest": "openai/gpt-5.5",
-        "anthropic/claude-opus-latest": "anthropic/claude-opus-4.8",
+        "openai/gpt-latest": "openai/gpt-5.6-terra",
+        "anthropic/claude-opus-latest": "anthropic/claude-opus-5",
     }
     model = _latest_model_map.get(model, model)
+
+    # Current "Newer Models" use the lowest shared supported reasoning effort.
+    # Keep this after aliases so an alias receives its resolved model's policy.
+    _model_reasoning_defaults = {
+        "google/gemini-3.5-flash-lite": {"enabled": True, "effort": "minimal"},
+        "google/gemini-3.6-flash": {"enabled": True, "effort": "minimal"},
+        "openai/gpt-5.6-luna": {"effort": "none"},
+        "openai/gpt-5.6-sol": {"effort": "low"},
+        "openai/gpt-5.6-terra": {"effort": "low"},
+        "anthropic/claude-opus-5": {"effort": "low"},
+        "anthropic/claude-sonnet-4.6": {"effort": "low"},
+    }
 
     # Synthetic config names → (real OpenRouter model, reasoning payload).
     # Lets us expose a same-model variant with a fixed reasoning config.
@@ -578,7 +590,9 @@ def call_chat_model(model, text, images, temperature, system, keys, messages=Non
             {"enabled": True, "effort": "minimal"},
         ),
     }
-    _reasoning_payload = None
+    _reasoning_payload = (
+        _model_reasoning_defaults.get(model) if model is not None else None
+    )
     if model in _reasoning_config_map:
         model, _reasoning_payload = _reasoning_config_map[model]
 

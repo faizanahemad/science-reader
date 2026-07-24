@@ -169,7 +169,7 @@ class PKBConfig:
     embedding_model: str = "openai/text-embedding-3-small"
     llm_temperature: float = 0.0  # Deterministic for extraction
     # Model tiers for different latency/cost tradeoffs
-    fast_llm_model: str = "anthropic/claude-haiku-4.5"
+    fast_llm_model: str = "openai/gpt-5.6-luna"
     superfast_llm_model: str = "google/gemini-3.1-flash-lite"
 
     # LLM provider (injected; defaults to CodeCommonProvider which wraps

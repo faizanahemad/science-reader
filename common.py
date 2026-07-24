@@ -86,27 +86,25 @@ SCIENCE_KEYS = [
 # stick to VL models
 # stick to 128K or above context window
 
-OPENROUTER_LLM = ["google/gemini-2.5-flash"]
+OPENROUTER_LLM = ["openai/gpt-5.6-luna"]
 
 # Low-latency internal default: summaries, TLDR, memory pad, web query gen,
-# quick actions. Prefer models validated as true non-reasoning + format-reliable
-# on tools/openrouter_model_bench (gemini-3.1-flash-lite topped hard NR pack).
-SUPERFAST_LLM = ["google/gemini-3.1-flash-lite"]
+# quick actions. Gemini 3.5 Flash Lite requires reasoning; use its minimum effort.
+SUPERFAST_LLM = ["google/gemini-3.5-flash-lite"]
 
 QUICK_ACTION_LLM = "anthropic/claude-sonnet-4.6"
 
 VERY_CHEAP_LLM = [
-    "google/gemini-3.1-flash-lite-preview",
+    "google/gemini-3.5-flash-lite",
     "inception/mercury-2",
 ]
 CHEAP_LLM = [
-    "anthropic/claude-haiku-4.5",
-    "google/gemini-flash-latest",
-    "qwen/qwen3.7-max",
-    "gemini-flash-3.5-non-reasoning",
     "openai/gpt-5.6-luna",
+    "google/gemini-flash-latest",
+    "gemini-flash-3.5-non-reasoning",
 ]
 EXPENSIVE_LLM = [
+    "anthropic/claude-opus-5",
     "anthropic/claude-opus-4.8",
     "google/gemini-pro-latest",
     "openai/gpt-latest",

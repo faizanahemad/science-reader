@@ -468,7 +468,7 @@ def get_model_catalog():
     models = _catalog_model_list()
     # Defaults are the empty-override / "Default (recommended)" path in the UI.
     # conversation_internal_model + quick_action_model track SUPERFAST_LLM[0]
-    # (currently google/gemini-3.1-flash-lite).
+    # (currently google/gemini-3.5-flash-lite).
     defaults = {
         "conversation_internal_model": SUPERFAST_LLM[0],
         "quick_action_model": SUPERFAST_LLM[0],
@@ -655,7 +655,7 @@ def set_conversation_settings(conversation_id: str):
         # --- opencode_model (optional) ---
         if "opencode_model" in opencode_config:
             _valid_models = {
-                "anthropic/claude-haiku-4.5",
+                "openai/gpt-5.6-luna",
                 "anthropic/claude-sonnet-4.5",
                 "anthropic/claude-opus-4.5",
                 "anthropic/claude-sonnet-4.6",
