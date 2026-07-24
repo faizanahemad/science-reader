@@ -35,6 +35,7 @@ The adapter accepts no per-tool root paths. It resolves only these allow-listed 
 - `ckt-system-flow-research`
 - `ckt-code-trace`
 - `ckt-duckie-retrieval-query`
+- `ckt-gdocs-readonly`
 
 The CKT group registers only when every listed executable exists and is executable. Availability is evaluated while `code_common.tools` imports, so restart Flask after changing `INTERNAL_TOOLS_PATH` or deploying a new CKT checkout. If the root is unset, the existing legacy host-gated surface remains the compatibility path.
 
@@ -58,6 +59,7 @@ On a thin/macOS installation, a bin wrapper may dispatch to the deployed Cloudto
 | `code_trace` | `ckt-code-trace [--directory <dir>] <question> <symbol> ...` | One to four deduplicated symbols; parallel literal Code Search; grouped raw results. | Very Fast, <10s |
 | `duckie_search` | `ckt-jetski-query --json --duckie <query>` | One focused Duckie grounded response. | Medium Speed, ~45s; 120s tail |
 | `ckt_duckie_retrieval` | `ckt-duckie-retrieval-query --query-count <1..6> --timeout 120 <query>` | Multi-lens raw Duckie evidence JSON; no final synthesis in the façade. | Medium Speed, ~60s; 120s tail |
+| `gdocs_readonly` | `ckt-gdocs-readonly read <document_id> [--tab <tab_id>]` | Reads a known internal Google Doc into combined Markdown across all tabs by default, stripping embedded images. Optionally reads one known tab. Read-only; export/download commands are not exposed to chat. | Very Fast, <10s |
 
 The `--json` flag requests CKT's structured mode for Jetski-backed commands. The adapter does not require JSON to declare success: it preserves successful text output, and canonicalizes output only when stdout is valid JSON. This permits the current façade behavior to evolve without losing usable evidence.
 
@@ -65,7 +67,7 @@ The `--json` flag requests CKT's structured mode for Jetski-backed commands. The
 
 Tool calls are free in monetary terms. Optimize for user wall-clock time and evidence coverage, not for minimizing the number of calls.
 
-1. **Round 1:** almost always issue at least 3–4 independent Very Fast/Fast calls in parallel. `kb_search`, `moma_search`, `read_url`, `yaqs_search`, `code_search_standard`, and `code_trace` average under 10 seconds; `moma_bm25_read` is Fast at about 15 seconds and is appropriate when ranked multi-page evidence is needed immediately. Use fewer calls only when you absolutely know a narrow question needs less. Search and indexes are imperfect, so the model must do the heavy lifting for information discovery and navigation.
+1. **Round 1:** almost always issue at least 3–4 independent Very Fast/Fast calls in parallel. `kb_search`, `moma_search`, `read_url`, `yaqs_search`, `code_search_standard`, `code_trace`, and `gdocs_readonly` average under 10 seconds; `moma_bm25_read` is Fast at about 15 seconds and is appropriate when ranked multi-page evidence is needed immediately. Use fewer calls only when you absolutely know a narrow question needs less. Search and indexes are imperfect, so the model must do the heavy lifting for information discovery and navigation.
 2. **Round 2+:** inspect returned URLs, symbols, terminology, claims, and gaps. Then issue targeted reads, verification, deeper retrieval, re-use Fast tools with refined queries, or use one or more Medium Speed tools in parallel where they answer distinct remaining questions.
 3. **Medium Speed tools:** `system_flow_research` averages about 20 seconds, `duckie_search` about 45 seconds, and `ckt_duckie_retrieval` about 60 seconds. Do not call the Duckie tools in Round 1 unless the user explicitly asks for Duckie or the request clearly requires Duckie-specific evidence. First inspect the Fast/Very Fast discovery wave; use Duckie in Round 2+ for further investigation. As a deterministic guard, the host defers every non-explicit Round-1 Duckie call without executing it and returns this policy result to the model, which must re-plan. Their 120-second tails are a latency consideration, not a prohibition.
 4. **Depth:** normally use at least two retrieval rounds before synthesizing a non-trivial internal answer. A single round is acceptable only when a narrow question is directly and fully answered by an immediately found or read page. If the user signals urgency or asks for a shorter answer, reduce the number of rounds or choose a faster tool mix.
@@ -78,7 +80,7 @@ Raw evidence results are material for the chat model to assess and synthesize. D
 
 The settings modal exposes a **Company Retrieval (CKT; host-gated)** group in Manual Selection. Each option is present in the UI so a saved/manual selection can request it; server-side registration still determines whether the handler is available.
 
-- **Internal Search Only** exposes only the 10 CKT tools when CKT is configured. No web/document/general tools are made available in that mode.
+- **Internal Search Only** exposes only the 11 CKT tools when CKT is configured. No web/document/general tools are made available in that mode.
 - **Manual** exposes exactly the selected registered tool names.
 - **Smart Select** asks the selector model to choose relevant tools. Tool descriptions carry latency tiers; the selector is prompted to prefer Very Fast discovery tools for the opening selection and include Medium Speed tools when their task shape is relevant.
 - **Hybrid** adds `request_tools`, allowing the model to load additional registered tools after an initial selection.

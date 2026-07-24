@@ -31,6 +31,7 @@ _BINARY_NAMES = frozenset({
     "ckt-system-flow-research",
     "ckt-code-trace",
     "ckt-duckie-retrieval-query",
+    "ckt-gdocs-readonly",
 })
 
 CKT_INTERNAL_TOOL_NAMES = frozenset({
@@ -44,6 +45,7 @@ CKT_INTERNAL_TOOL_NAMES = frozenset({
     "code_trace",
     "duckie_search",
     "ckt_duckie_retrieval",
+    "gdocs_readonly",
 })
 
 
@@ -156,6 +158,12 @@ def build_ckt_command(tool_name: str, args: dict, configured_root: str | None = 
         return command + [question] + symbols
     if tool_name == "duckie_search":
         return [binary("ckt-jetski-query"), "--json", "--duckie", _required_string(args, "query", tool_name)]
+    if tool_name == "gdocs_readonly":
+        command = [binary("ckt-gdocs-readonly"), "read", _required_string(args, "document_id", tool_name)]
+        tab_id = str(args.get("tab_id", "") or "").strip()
+        if tab_id:
+            command.extend(["--tab", tab_id])
+        return command
 
     query_count = _bounded_int(args.get("query_count"), default=5, minimum=1, maximum=6)
     return [

@@ -54,6 +54,7 @@ def _tool_root(tmp_path: Path) -> Path:
         "ckt-system-flow-research",
         "ckt-code-trace",
         "ckt-duckie-retrieval-query",
+        "ckt-gdocs-readonly",
     ):
         _write_executable(bin_dir / binary)
     return tmp_path
@@ -84,6 +85,14 @@ def test_builds_direct_cli_commands_with_bounded_inner_deadlines(tmp_path):
     ]
     assert build_ckt_command("ckt_duckie_retrieval", {"query": "What is AIO?", "query_count": 99}, str(root)) == [
         str(root / "bin" / "ckt-duckie-retrieval-query"), "--query-count", "6", "--timeout", "120", "What is AIO?",
+    ]
+    assert build_ckt_command("gdocs_readonly", {"document_id": "doc-123"}, str(root)) == [
+        str(root / "bin" / "ckt-gdocs-readonly"), "read", "doc-123",
+    ]
+    assert build_ckt_command("gdocs_readonly", {
+        "document_id": "doc-123", "tab_id": "tab-456",
+    }, str(root)) == [
+        str(root / "bin" / "ckt-gdocs-readonly"), "read", "doc-123", "--tab", "tab-456",
     ]
 
 
@@ -132,5 +141,6 @@ def test_all_requested_tools_have_a_direct_command_contract(tool_name, tmp_path)
         "code_trace": {"question": "trace", "symbols": ["ExampleSymbol"]},
         "duckie_search": {"query": "example"},
         "ckt_duckie_retrieval": {"query": "example"},
+        "gdocs_readonly": {"document_id": "example-document"},
     }
     assert build_ckt_command(tool_name, minimal_args[tool_name], str(root))[0].startswith(str(root / "bin"))

@@ -149,6 +149,18 @@ def _normalize_perplexity_result(result):
     return str(result)
 
 
+def _wait_for_persist_current_turn(persist_future, timeout_seconds=120):
+    """Wait a bounded time for an asynchronously persisted turn to complete."""
+    try:
+        if persist_future.result(timeout=timeout_seconds) is False:
+            return False, "persistence reported failure"
+        return True, None
+    except Exception as exc:
+        if not persist_future.done():
+            return False, f"persistence timed out after {timeout_seconds}s"
+        return False, str(exc)
+
+
 # =============================================================================
 # PKB (Personal Knowledge Base) Integration
 # =============================================================================
@@ -4531,7 +4543,19 @@ Now return JSON with 'ops' and 'notes'.
         """
         self.clear_cancellation()
         if not persist_or_not:
-            return
+            time_logger.info(
+                "[persist_current_turn] SKIPPED conv=%s persist_or_not=False",
+                self.conversation_id,
+            )
+            return True
+        persist_start = time.perf_counter()
+        time_logger.info(
+            "[persist_current_turn] START conv=%s query_chars=%d response_chars=%d tool_refs=%d",
+            self.conversation_id,
+            len(str(query or "")),
+            len(str(response or "")),
+            len((config or {}).get("_tool_result_refs", []) or []),
+        )
         try:
             self._persist_current_turn_inner(
                 query=query,
@@ -4547,11 +4571,21 @@ Now return JSON with 'ops' and 'notes'.
                 user_ask_keywords_future=user_ask_keywords_future,
                 user_ask_prior_context_future=user_ask_prior_context_future,
             )
+            time_logger.info(
+                "[persist_current_turn] COMPLETED conv=%s duration_s=%.2f",
+                self.conversation_id,
+                time.perf_counter() - persist_start,
+            )
+            return True
         except Exception as _pct_exc:
             error_logger.error(
-                "[persist_current_turn] FAILED conv=%s: %s",
-                self.conversation_id, _pct_exc, exc_info=True,
+                "[persist_current_turn] FAILED conv=%s duration_s=%.2f: %s",
+                self.conversation_id,
+                time.perf_counter() - persist_start,
+                _pct_exc,
+                exc_info=True,
             )
+            return False
 
     def _persist_current_turn_inner(
         self,
@@ -13640,7 +13674,7 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         persist_config["_tool_result_refs"] = list(
             getattr(self, "_current_turn_tool_result_refs", []) or []
         )
-        get_async_future(
+        persist_future = get_async_future(
             self.persist_current_turn,
             original_user_query,
             answer,
@@ -13656,11 +13690,38 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
             user_ask_keywords_future=user_ask_keywords_future,
             user_ask_prior_context_future=user_ask_prior_context_future,
         )
+        persist_timeout_seconds = 120
+        time_logger.info(
+            "[persist_current_turn] WAIT conv=%s timeout_s=%d tool_refs=%d",
+            self.conversation_id,
+            persist_timeout_seconds,
+            len(persist_config["_tool_result_refs"]),
+        )
+        persist_succeeded, persist_error = _wait_for_persist_current_turn(
+            persist_future, timeout_seconds=persist_timeout_seconds
+        )
+        if persist_succeeded:
+            time_logger.info(
+                "[persist_current_turn] CONFIRMED conv=%s",
+                self.conversation_id,
+            )
+            persist_status = "answer saved"
+        else:
+            error_logger.error(
+                "[persist_current_turn] UNCONFIRMED conv=%s: %s",
+                self.conversation_id,
+                persist_error,
+            )
+            persist_status = f"answer save failed: {persist_error}"
         message_ids = self.get_message_ids(query["messageText"], answer)
         yield {
             "text": "\n\n",
-            "status": "saving answer ...",
+            "status": persist_status,
             "message_ids": message_ids,
+            "persistence": {
+                "succeeded": persist_succeeded,
+                "error": persist_error,
+            },
         }
         stats = collapsible_wrapper(
             yaml.dump(time_dict, default_flow_style=False),
@@ -13671,13 +13732,21 @@ Make it easy to understand and follow along. Provide pauses and repetitions to h
         for chunk in stats:
             yield {
                 "text": chunk,
-                "status": "saving answer ...",
+                "status": persist_status,
                 "message_ids": message_ids,
+                "persistence": {
+                    "succeeded": persist_succeeded,
+                    "error": persist_error,
+                },
             }
         yield {
             "text": "\n\n",
-            "status": "saving answer ...",
+            "status": persist_status,
             "message_ids": message_ids,
+            "persistence": {
+                "succeeded": persist_succeeded,
+                "error": persist_error,
+            },
         }
 
     def _generate_tldr_text(self, answer_text, user_query, summary_text):

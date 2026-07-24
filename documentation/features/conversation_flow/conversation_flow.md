@@ -97,7 +97,8 @@ See `documentation/product/behavior/CLARIFICATIONS_AND_AUTO_DOUBT_CONTEXT.md` fo
 - On cancellation, the UI swaps status text to “Response cancelled by user” and re-enables the send button.
 
 5) **Persistence + follow-ups**
-- Server persists messages + summary after completion (in `Conversation.persist_current_turn`).
+- Server persists messages + summary after completion (in `Conversation.persist_current_turn`). The terminal stream event waits up to 120 seconds for this write and reports `persistence.succeeded` / `persistence.error`; it does not claim success merely because saving was queued.
+- Persistence logs `START`, `COMPLETED`, `FAILED`, and the terminal `CONFIRMED` / `UNCONFIRMED` outcome with the conversation ID and duration. Tool turns additionally log the count of persisted `tool_result_refs`.
 - UI updates next-question suggestions after stream completion.
 
 ## Chat Settings Management
